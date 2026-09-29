@@ -1102,12 +1102,39 @@ class TestCliServiceParity:
         assert [h["label"] for h in isolated_db.list_line_history(did)] == [
             "before chunk & tag speakers"]
 
+    def test_narrate_prep_empty_result_changes_nothing(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        with open(os.path.join(isolated_db.drama_dir(did), "novel_narration_source.txt"),
+                  "w", encoding="utf-8") as f:
+            f.write("")
+        monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did, engine=None, api_key=None, model=None, ollama_url=None))
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧"]
+        assert isolated_db.list_characters(did) == []
+        assert isolated_db.list_line_history(did) == []
+
+    def test_replacing_lines_flags_cross_process_line_jobs_for_cancel(self, isolated_db):
+        did = isolated_db.create_drama(title_en="J")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        isolated_db.save_job_record(f"translate_{did}", "running")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli._replace_drama_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="新")], "x")
+        assert isolated_db.is_job_record_cancel_requested(f"translate_{did}")
+
     def _translate(self, isolated_db, monkeypatch, drama_kw, **arg_overrides):
         did = isolated_db.create_drama(title_en="T", status="aligned", **drama_kw)
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
         engines, seen = [], {}
-        monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: engines.append(name) or object())
+        # (name, api_key, model) for every translate engine built; the
+        # summary engine (ollama, default) is filtered out.
+        monkeypatch.setattr(
+            translate_engines, "get_engine",
+            lambda name, key=None, model=None, **k: engines.append((name, key, model)) or object())
+        from services import translate_service
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: f"saved-{name}")
 
         def fake_translate(lines, engine, **kwargs):
             seen.update(kwargs)
@@ -1115,22 +1142,31 @@ class TestCliServiceParity:
         monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
         overrides = dict(engine=None, style_preset=None)
         overrides.update(arg_overrides)
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
             cli.cmd_translate(_translate_args(id=did, **overrides))
-        return engines, seen
+        self.out = out.getvalue()
+        return [e for e in engines if e[0] != "ollama"], seen
 
-    def test_translate_uses_the_dramas_saved_engine(self, isolated_db, monkeypatch):
-        engines, _ = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"})
-        assert engines[-1] == "deepseek"
+    def test_translate_uses_the_dramas_saved_engine_and_its_own_key(self, isolated_db, monkeypatch):
+        engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                                        api_key=None, model="claude-x")
+        assert engines == [("deepseek", "saved-deepseek", None)]
+        assert seen  # it actually translated
 
-    def test_translate_with_no_saved_engine_uses_claude(self, isolated_db, monkeypatch):
-        engines, _ = self._translate(isolated_db, monkeypatch, {})
-        assert engines[-1] == "claude"
+    def test_a_bare_api_key_is_never_sent_to_a_different_saved_engine(self, isolated_db, monkeypatch):
+        engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                                        api_key="sk-ant-secret", model="claude-x")
+        assert engines == [] and not seen
+        assert "saved engine deepseek" in self.out and "sk-ant" not in self.out
+
+    def test_a_bare_api_key_still_works_for_claude_dramas(self, isolated_db, monkeypatch):
+        engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model="m")
+        assert engines == [("claude", "sk-ant", "m")]
 
     def test_translate_explicit_engine_flag_still_wins(self, isolated_db, monkeypatch):
         engines, _ = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
-                                     engine="gemini")
-        assert engines[-1] == "gemini"
+                                     engine="gemini", api_key="g-key", model="gm")
+        assert engines == [("gemini", "g-key", "gm")]
 
     def test_translate_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
         _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})

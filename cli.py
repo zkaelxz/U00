@@ -58,7 +58,7 @@ import adaptive_style
 import emotion
 import dub as dub_module
 import background_jobs
-from services import settings_service, transcribe_service
+from services import settings_service, transcribe_service, translate_service
 from services.translate_run_service import get_translate_config_defaults
 
 
@@ -78,6 +78,11 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
         print(f"#{drama_id} produced no lines -- kept the existing {len(existing)} line(s).")
         return False
     background_jobs.cancel_line_jobs(drama_id)
+    # cancel_line_jobs only sees this process's in-memory jobs; flag the
+    # cross-process job_records rows too, so a Streamlit/API job running
+    # on this drama notices the cancel. (Only queued/running rows change.)
+    for prefix in background_jobs.LINE_WRITING_JOB_PREFIXES:
+        db.request_job_record_cancel(f"{prefix}{drama_id}")
     if existing:
         db.save_line_history_snapshot(drama_id, existing, snapshot_label)
     db.save_lines(drama_id, lines)
@@ -161,14 +166,14 @@ def cmd_narrate_prep(args):
             by_idx = translate_engines.tag_speakers_by_id({ln.idx: ln.zh for ln in lines}, engine, known)
             for ln in lines:
                 ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
-            for label in sorted({ln.speaker for ln in lines}):
-                db.upsert_character(d["id"], label, character_name=label)
         else:
             for ln in lines:
                 ln.speaker = "Narrator"
-            db.upsert_character(d["id"], "Narrator", character_name="Narrator")
         if not _replace_drama_lines(d["id"], lines, "before chunk & tag speakers"):
             return
+        # After the empty-result check, so an empty result changes nothing.
+        for label in sorted({ln.speaker for ln in lines}) or ["Narrator"]:
+            db.upsert_character(d["id"], label, character_name=label)
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} prepared {len(lines)} narration chunks.")
 
@@ -373,6 +378,11 @@ def cmd_align(args):
         _run_batch(dramas, step, "align")
 
 
+# The engine a bare --api-key (no --engine) is assumed to belong to: the
+# CLI's old --engine default.
+_API_KEY_DEFAULT_ENGINE = "claude"
+
+
 def _flag_or(args, name, defaults):
     """An explicit CLI flag wins; unset (None/missing) uses the per-drama default."""
     value = getattr(args, name, None)
@@ -389,9 +399,17 @@ def cmd_translate(args):
     _engines = {}
 
     def _engine_for(name):
+        # --api-key/--model belong to --engine when it's given, else to the
+        # old default engine (claude). A drama saved with another engine
+        # uses that engine's own configured key -- never someone else's.
+        own_flags = bool(args.engine) or name == _API_KEY_DEFAULT_ENGINE
         if name not in _engines:
             _engines[name] = translate_engines.get_engine(
-                name, args.api_key, args.model, free_tier=_gemini_free_tier(name),
+                name,
+                (args.api_key if own_flags and args.api_key
+                 else translate_service.resolve_api_key(name)),
+                args.model if own_flags else None,
+                free_tier=_gemini_free_tier(name),
                 base_url=getattr(args, "ollama_url", None))
         return _engines[name]
     # Step 74: UI parity -- Workspace's own Translate button builds this
@@ -413,6 +431,10 @@ def cmd_translate(args):
             return
         lines = lines_from_rows(rows)
         engine_name = _engine_name_for(d)
+        if args.api_key and not args.engine and engine_name != _API_KEY_DEFAULT_ENGINE:
+            print(f"#{d['id']} skipped: saved engine {engine_name}; pass --engine {engine_name} "
+                  f"and its key, or omit --api-key to use the saved keys.")
+            return
         engine = _engine_for(engine_name)
         # Same defaults the service/React use (10/6/30 for novel narration).
         tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
