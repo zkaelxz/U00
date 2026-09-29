@@ -55,9 +55,6 @@ export default function App() {
         </nav>
         <ApiStatus />
       </header>
-      <p className="muted">
-        Preview of the new React frontend. The Workspace stages still live in the Streamlit app.
-      </p>
       {route.name === 'library' && <LibraryPage />}
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'settings' && <SettingsPage />}

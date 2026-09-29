@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 
 import { narrationApi } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import type { NarrationConfig } from '../../../types/dub'
+import './dub.css'
 
 interface Props {
   dramaId: number
@@ -48,17 +51,20 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
         onJobStarted(r.job_id)
       }, setError)
 
+  const summary = !cfg.has_novel_source
+    ? 'Attach the novel text on the Source stage first'
+    : cfg.job_running
+      ? 'A chunk-and-tag job is already running'
+      : `${engine || 'no engine'}${model.trim() ? ` · ${model.trim()}` : ''}`
+
   return (
-    <section className="panel" aria-label="Chunk and tag speakers">
-      <h3>Chunk and tag speakers</h3>
+    <Section storageKey="dub.narration" title="Chunk and tag speakers" summary={summary}>
       {!cfg.has_novel_source && <p className="muted">Attach the novel text on the Source stage first.</p>}
-      <p className="muted">
-        Splits the novel into narration lines of up to {cfg.max_chunk_chars} characters and tags who
-        speaks each one.
-      </p>
       <div className="dub-grid">
-        <label>
-          Engine
+        <Field
+          label="Engine"
+          help={`Splits the novel into narration lines of up to ${cfg.max_chunk_chars} characters and tags who speaks each one.`}
+        >
           <select value={engine} onChange={(e) => setEngine(e.target.value)}>
             {cfg.engines.map((o) => (
               <option key={o.key} value={o.key}>
@@ -67,23 +73,25 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Model (optional)
+        </Field>
+        <Field label="Model" help="Optional; leave blank for the engine's default.">
           <input value={model} onChange={(e) => setModel(e.target.value)} />
-        </label>
+        </Field>
       </div>
       {needsConfirm && (
-        <label className="inline">
-          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-          Replace the {cfg.existing_line_count} existing lines
-        </label>
+        <div className="dub-check">
+          <Field label={`Replace the ${cfg.existing_line_count} existing lines`}>
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          </Field>
+        </div>
       )}
       {cfg.job_running && <p className="muted">A chunk-and-tag job is already running.</p>}
-      <button type="button" disabled={disabled} onClick={start}>
-        Chunk and tag
-      </button>
+      <div className="dub-actions">
+        <button type="button" disabled={disabled} onClick={start}>
+          Chunk and tag
+        </button>
+      </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </section>
+    </Section>
   )
 }

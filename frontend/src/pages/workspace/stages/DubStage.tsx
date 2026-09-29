@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react'
 
 import { dubApi } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { DubConfig, DubPacing } from '../../../types/dub'
 import { useStage } from '../StageContext'
 import {
   buildDubRequest,
+  dubAdvancedSummary,
   dubBlocker,
+  dubSettingsLine,
   formatFactor,
   formatMs,
   initialDubForm,
@@ -68,19 +72,22 @@ export default function DubStage() {
       setError(null)
       setJobId(r.job_id)
     }, setError)
+  // The finished track cannot be downloaded yet; say so only once there is one.
+  const trackReady = cfg.track_available || (done && job?.status === 'done')
+  const showPacing =
+    pacing?.available && (pacing.lines.length > 0 || Object.keys(pacing.counts).length > 0)
 
   return (
     <div className="stage-dub">
       <section className="panel" aria-label="Dub">
-        <h3>Dub</h3>
+        <h3>
+          Dub {cfg.gpu_required && <span className="badge">GPU</span>}
+        </h3>
         <p className="muted" data-testid="dub-summary">
-          {cfg.speakable_line_count} speakable lines ·{' '}
-          {cfg.track_available ? 'A dub track exists' : 'No dub track yet'}
-          {cfg.gpu_required ? ' · Uses the GPU' : ''}
+          {cfg.speakable_line_count} speakable lines · {trackReady ? 'Dub track ready' : 'No dub track yet'}
         </p>
         <div className="dub-grid">
-          <label>
-            Voice engine
+          <Field label="Voice engine">
             <select value={form.engine} onChange={(e) => set({ engine: e.target.value })}>
               {cfg.tts_engines.map((t) => (
                 <option key={t.key} value={t.key}>
@@ -89,10 +96,9 @@ export default function DubStage() {
                 </option>
               ))}
             </select>
-          </label>
-          {cfg.is_narration ? (
-            <label>
-              Narration language
+          </Field>
+          {cfg.is_narration && (
+            <Field label="Narration language">
               <select value={form.language} onChange={(e) => set({ language: e.target.value })}>
                 {cfg.narration_language_options.map((l) => (
                   <option key={l} value={l}>
@@ -100,11 +106,25 @@ export default function DubStage() {
                   </option>
                 ))}
               </select>
-            </label>
-          ) : (
-            <>
-              <label>
-                Max speed-up (1.0 to 2.0)
+            </Field>
+          )}
+        </div>
+        <div className="dub-actions">
+          <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
+            Generate dub
+          </button>
+          <p className="muted" data-testid="dub-settings">
+            {blocker ?? dubSettingsLine(cfg, form)}
+          </p>
+        </div>
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {trackReady && (
+          <p className="muted dub-note">Downloading the finished dub track is not available yet.</p>
+        )}
+        <Section storageKey="dub.advanced" title="Advanced" summary={dubAdvancedSummary(cfg, form)}>
+          {!cfg.is_narration && (
+            <div className="dub-grid">
+              <Field label="Max speed-up" unit="x" help="How much a line may be sped up to fit its slot (1.0 to 2.0).">
                 <input
                   type="number"
                   step={0.05}
@@ -113,9 +133,8 @@ export default function DubStage() {
                   value={form.maxSpeedup}
                   onChange={(e) => set({ maxSpeedup: Number(e.target.value) })}
                 />
-              </label>
-              <label>
-                Max slow-down (0.5 to 1.0)
+              </Field>
+              <Field label="Max slow-down" unit="x" help="How much a line may be slowed down to fill its slot (0.5 to 1.0).">
                 <input
                   type="number"
                   step={0.05}
@@ -124,38 +143,31 @@ export default function DubStage() {
                   value={form.maxSlowdown}
                   onChange={(e) => set({ maxSlowdown: Number(e.target.value) })}
                 />
-              </label>
-            </>
+              </Field>
+            </div>
           )}
-        </div>
-        <label className="inline">
-          <input
-            type="checkbox"
-            disabled={!cfg.can_keep_background}
-            checked={cfg.can_keep_background && form.keepBackground}
-            onChange={(e) => set({ keepBackground: e.target.checked })}
-          />
-          Keep the original background music (BGM-preserving; real audio has not been verified)
-        </label>
-        {!cfg.can_keep_background && (
-          <p className="muted">
-            Only available for video dubs that have source audio and the separation tools installed.
-          </p>
-        )}
-        {blocker && <p className="muted">{blocker}</p>}
-        <button type="button" disabled={busy || blocker !== null} onClick={start}>
-          Generate dub
-        </button>
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        <p className="muted">Downloading the finished dub track is not available yet.</p>
+          <div className="dub-check">
+            <Field
+              label="Keep background music"
+              help={
+                cfg.can_keep_background
+                  ? 'Keeps the original background music under the dub. Real audio has not been verified.'
+                  : 'Only available for video dubs that have source audio and the separation tools installed.'
+              }
+            >
+              <input
+                type="checkbox"
+                disabled={!cfg.can_keep_background}
+                checked={cfg.can_keep_background && form.keepBackground}
+                onChange={(e) => set({ keepBackground: e.target.checked })}
+              />
+            </Field>
+          </div>
+        </Section>
       </section>
       {cfg.is_narration && <NarrationPanel dramaId={dramaId} busy={busy} onJobStarted={setJobId} />}
-      {pacing?.available && (
-        <section className="panel" aria-label="Pacing">
-          <h3>Pacing of the last run</h3>
-          <p className="muted" data-testid="pacing-summary">
-            {pacingSummary(pacing.counts)}
-          </p>
+      {pacing && showPacing && (
+        <Section title="Pacing of the last run" summary={pacingSummary(pacing.counts)}>
           <div className="pacing-scroll">
             <table className="pacing-table">
               <thead>
@@ -180,7 +192,7 @@ export default function DubStage() {
               </tbody>
             </table>
           </div>
-        </section>
+        </Section>
       )}
       {jobId && <JobPanel job={job} pollError={pollError} />}
     </div>
