@@ -9,7 +9,7 @@
  */
 import { useId, useState, type ReactNode } from 'react'
 
-import { typedMatches } from './typedConfirm'
+import { typedMatches } from './typedConfirmMatch'
 import './typedConfirm.css'
 
 type TypedConfirmProps = {
