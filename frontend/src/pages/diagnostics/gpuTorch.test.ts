@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
 import {
-  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateIsProblem, stateText, variantVersionsText,
+  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateBadge, stateIsProblem, stateText,
   verifyText,
 } from './gpuTorch'
 
@@ -36,7 +36,6 @@ describe('gpuTorch', () => {
     expect(stateText(status({ state: 'cpu_on_gpu' }))).toContain('CPU only')
     expect(stateIsProblem(status({ state: 'mismatched' }))).toBe(true)
     expect(stateIsProblem(status({ state: 'recommended' }))).toBe(false)
-    expect(variantVersionsText(cu128)).toBe('torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128')
   })
 
   it('blocks setup without a GPU, with an old driver or an unsupported Python', () => {
@@ -54,5 +53,16 @@ describe('gpuTorch', () => {
     expect(verifyText({ ...v, cuda_available: false })).toContain('no GPU is available')
     expect(verifyText({ ...v, cuda_available: false, cuda_build: null })).toContain('CPU-only')
     expect(verifyText({ ...v, torch: null, error: 'ImportError: x' })).toBe("PyTorch didn't import: ImportError: x")
+  })
+
+  it('gives each state a short badge', () => {
+    expect(stateBadge(status())).toEqual({ text: 'Not installed', tone: 'neutral' })
+    expect(stateBadge(status({ state: 'mismatched' }))).toEqual({ text: "Versions don't match", tone: 'warn' })
+    expect(stateBadge(status({ state: 'cpu_on_gpu' })).tone).toBe('warn')
+    expect(stateBadge(status({ state: 'recommended' }))).toEqual({ text: 'Recommended set', tone: 'ok' })
+    expect(stateBadge(status({ state: 'different' })).tone).toBe('neutral')
+    const oldDriver = { ...status().nvidia, status: 'too_old' as const }
+    expect(stateBadge(status({ state: 'recommended', nvidia: oldDriver }))).toEqual({ text: 'Driver too old', tone: 'warn' })
+    expect(stateBadge(status({ nvidia: oldDriver })).text).toBe('Not installed')
   })
 })

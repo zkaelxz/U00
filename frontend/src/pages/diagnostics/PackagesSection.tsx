@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 import { checkPackageUpdates, getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
+import { Badge } from '../../components/Badge'
+import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import type {
   DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo, DiagnosticsPackageUpdate,
@@ -18,7 +21,8 @@ import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import {
   belowMinText, firstHint, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
-  sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus,
+  sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskResultText, taskStatus,
+  taskTone,
   type TaskRunResult,
 } from './installPresets'
 
@@ -47,6 +51,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const reasonId = useId()
   const runningId = useId()
+  const tasksId = useId()
   // Install/Upgrade only once /api/meta says this is the main PC.
   const local = pc === 'local'
   const pending = usePcPendingNote(pc)
@@ -193,6 +198,38 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           {running ?? ''}
         </p>
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
+        {presets && presets.tasks.length > 0 && (
+          <div className="diag-subcard" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
+            <div className="subcard-head">
+              <h4 id={tasksId}>Install by task</h4>
+            </div>
+            <p className="muted">Pick what you want to do; only the packages it needs are installed.</p>
+            {groupTasks(sortTasksNeedingInstall(presets.tasks)).map((g) => (
+              <div key={g.group} className="diag-stack">
+                <h5 className="task-group">{g.group}</h5>
+                <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
+                  {g.tasks.map((t) => (
+                    <TaskRow key={t.id} task={t} packages={presets.packages}
+                      action={local && t.to_install.length > 0 && (
+                        <ConfirmButton
+                          name={t.label}
+                          label="Install for this task…"
+                          ariaLabel={`Install for ${t.label}`}
+                          verb="install"
+                          tone="primary"
+                          confirmLabel={taskConfirmLabel(t)}
+                          disabled={!!blocked}
+                          describedBy={running ? runningId : blocked ? reasonId : undefined}
+                          busy={!!busy && taskRunning === t.id}
+                          onConfirm={() => void runTask(t)}
+                        />
+                      )} />
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
         <GpuTorchPanel refreshKey={gpuKey} action={(v, reason) => local && (
           <ConfirmButton
             name={GPU_NAME}
@@ -207,37 +244,6 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             onConfirm={() => void runGpuSetup(v)}
           />
         )} />
-        {presets && presets.tasks.length > 0 && (
-          <Section storageKey="diagnostics.tasks" title="Install by task"
-            summary="Pick what you want to do; only its packages are installed.">
-            <div className="diag-stack" data-testid="install-tasks">
-              {groupTasks(sortTasksNeedingInstall(presets.tasks)).map((g) => (
-                <div key={g.group} className="diag-stack">
-                  <h4 className="task-group">{g.group}</h4>
-                  <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
-                    {g.tasks.map((t) => (
-                      <TaskRow key={t.id} task={t} packages={presets.packages}
-                        action={local && t.to_install.length > 0 && (
-                          <ConfirmButton
-                            name={t.label}
-                            label="Install for this task…"
-                            ariaLabel={`Install for ${t.label}`}
-                            verb="install"
-                            tone="primary"
-                            confirmLabel={taskConfirmLabel(t)}
-                            disabled={!!blocked}
-                            describedBy={running ? runningId : blocked ? reasonId : undefined}
-                            busy={!!busy && taskRunning === t.id}
-                            onConfirm={() => void runTask(t)}
-                          />
-                        )} />
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
         {deps.missing.length > 0 && (
           <Section storageKey="diagnostics.missing" title="Missing packages" count={deps.missing.length}>
             <ul aria-label="Missing packages" className="pkg-list">
@@ -265,7 +271,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         {deps.installed.length > 0 && (
           <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length}>
             <div className="actions" data-testid="update-check">
-              <button type="button" onClick={() => void checkUpdates()} disabled={checking} aria-busy={checking}>
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void checkUpdates()} disabled={checking} aria-busy={checking}>
                 {checking ? 'Checking PyPI…' : updates ? 'Check again' : 'Check for updates'}
               </button>
               <span className="muted" aria-live="polite">
@@ -317,10 +323,10 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
         <span className="pkg-meta muted">
           {size && <span data-testid="pkg-size">{size}</span>}
           {url && (
-            <a className="pkg-source" href={url} target="_blank" rel="noopener noreferrer"
+            <ButtonLink variant="ghost" size="sm" className="pkg-source" href={url} target="_blank" rel="noopener noreferrer"
               aria-label={`Source: ${info?.dist ?? name} on PyPI (opens in a new tab)`}>
               Source ↗
-            </a>
+            </ButtonLink>
           )}
         </span>
       )}
@@ -345,8 +351,8 @@ function TaskRow({ task, packages, action }: {
           <strong>{task.label}</strong> <span className="muted">{task.help}</span>
         </span>
         <span className="pkg-meta muted">
-          <span className={taskReady(task) ? 'ok' : undefined}>{taskStatus(task)}</span>
-          {size && <span>· {size} to download</span>}
+          <Badge tone={taskTone(task)}>{taskStatus(task)}</Badge>
+          {size && <span>{size} to download</span>}
         </span>
         <span className="task-pkgs muted">
           {task.packages.map((n) => {
@@ -378,7 +384,7 @@ function OutcomeBlock({ outcome, onRecheck }: { outcome: Outcome; onRecheck: () 
         <p className="error">{text}</p>
         {text === LOST_CONTACT_INSTALL && (
           <div className="actions">
-            <button type="button" onClick={onRecheck}>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={onRecheck}>
               Check again
             </button>
           </div>

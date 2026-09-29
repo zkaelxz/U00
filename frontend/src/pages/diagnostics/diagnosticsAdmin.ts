@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { ApiError } from '../../api/client'
+import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
@@ -78,9 +79,8 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 
 // ---- Setup ----
 
-// `core`: a Q01 core requirement (Python, ffmpeg with libass, JS runtime),
-// always shown at the top of the page rather than inside the Setup fold.
-export type SetupRow = { key: string; label: string; text: string; problem: boolean; core?: boolean }
+// `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
+export type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
@@ -92,7 +92,7 @@ function ffmpegProblem(c: DiagnosticsSetupChecks): string {
 export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): SetupRow[] {
   const rows: SetupRow[] = []
   const add = (key: string, label: string, ok: boolean, good: string, bad: string) =>
-    rows.push({ key, label, problem: !ok, text: ok ? `${label}: ${good}` : `Problem: ${bad}` })
+    rows.push({ key, label, problem: !ok, value: ok ? good : bad, text: ok ? `${label}: ${good}` : `Problem: ${bad}` })
   add('python', 'Python', c.python.ok, c.python.version ?? 'found',
     c.python.version ? `Python ${c.python.version} is too old` : 'Python version unknown')
   const ffmpegOk = c.ffmpeg.found && c.ffmpeg.libass !== false
@@ -100,7 +100,6 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
-  for (const r of rows) r.core = true
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
   const missing = c.files.missing_top_level.length + c.files.missing_tabs.length
@@ -126,18 +125,32 @@ export function installableEngines(engines: ModelEngineVersion[], packageNames: 
   return engines.filter((m) => !m.installed && m.package && !seen.has(m.package))
 }
 
-/** Header line parts: setup ("Setup OK" / "2 setup problems"), packages, jobs (only when running), a running install. */
-export function headerParts(
-  setupProblems: number | null, installed: number | null, total: number | null, running: number, busy: AdminBusy = null,
-) {
-  const setup = setupProblems == null ? null
-    : setupProblems === 0 ? 'Setup OK'
-      : `${setupProblems} setup ${setupProblems === 1 ? 'problem' : 'problems'}`
-  const rest: string[] = []
-  if (installed != null && total != null) rest.push(`${installed} of ${total} packages`)
-  if (running > 0) rest.push(`${running} ${running === 1 ? 'job' : 'jobs'} running`)
-  if (busy && busy.kind !== 'reset') rest.push(`${busy.kind === 'install' ? 'Installing' : 'Updating'} ${busy.name}`)
-  return { setup, warn: !!setupProblems, rest: rest.join(' · ') }
+export type HeaderBadge = { key: string; text: string; tone: BadgeTone }
+
+/**
+ * The badge strip under the page title: setup ("Setup OK" / "2 setup problems"),
+ * packages ("22 of 25 packages"), jobs ("No jobs running" / "1 job running"),
+ * and a running install. A part whose data hasn't loaded is left out.
+ */
+export function headerBadges(
+  setupProblems: number | null, installed: number | null, total: number | null, running: number | null, busy: AdminBusy = null,
+): HeaderBadge[] {
+  const out: HeaderBadge[] = []
+  if (setupProblems != null) {
+    out.push(setupProblems === 0
+      ? { key: 'setup', text: 'Setup OK', tone: 'ok' }
+      : { key: 'setup', text: `${setupProblems} setup ${setupProblems === 1 ? 'problem' : 'problems'}`, tone: 'warn' })
+  }
+  if (installed != null && total != null) out.push({ key: 'packages', text: `${installed} of ${total} packages`, tone: 'neutral' })
+  if (running != null) {
+    out.push(running > 0
+      ? { key: 'jobs', text: `${running} ${running === 1 ? 'job' : 'jobs'} running`, tone: 'info' }
+      : { key: 'jobs', text: 'No jobs running', tone: 'neutral' })
+  }
+  if (busy && busy.kind !== 'reset') {
+    out.push({ key: 'busy', text: `${busy.kind === 'install' ? 'Installing' : 'Updating'} ${busy.name}`, tone: 'info' })
+  }
+  return out
 }
 
 // ---- Speaker detection ----

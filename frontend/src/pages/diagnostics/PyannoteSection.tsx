@@ -4,6 +4,7 @@ import { getPyannote } from '../../api/diagnostics'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsPyannoteReadiness } from '../../types/diagnostics'
 import { hfModelUrl, pyannoteSummary } from './diagnosticsAdmin'
 
@@ -46,7 +47,7 @@ export function PyannoteSection() {
             <li>Hugging Face token: {data.hf_token_configured ? 'set' : 'not set'}</li>
           </ul>
           <Field label="Gated models" help="Asks Hugging Face using the saved token. Nothing else on this page goes online.">
-            <button type="button" aria-label="Check access online" disabled={checking} onClick={checkAccess}>
+            <button type="button" className={buttonClass('secondary', 'sm')} aria-label="Check access online" disabled={checking} onClick={checkAccess}>
               {checking ? 'Checking…' : 'Check access online'}
             </button>
           </Field>

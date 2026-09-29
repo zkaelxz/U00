@@ -4,6 +4,7 @@ import { LOG_KEYWORD_MAX, getLog } from '../../api/diagnostics'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import {
@@ -84,7 +85,7 @@ export function LogSection() {
           </Field>
         </div>
         <div className="actions">
-          <button type="button" disabled={loading} onClick={() => setTick((t) => t + 1)}>
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={loading} onClick={() => setTick((t) => t + 1)}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
@@ -140,7 +141,7 @@ export function CopyBlock({ text, label }: { text: string; label: string }) {
   return (
     <div className="diag-stack">
       <div className="actions">
-        <button type="button" onClick={() => void copy()}>
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void copy()}>
           Copy
         </button>
         <span className="muted" aria-live="polite">

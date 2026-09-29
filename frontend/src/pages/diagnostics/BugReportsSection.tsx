@@ -4,6 +4,7 @@ import { deleteBugReport, getBugReport, listBugReports } from '../../api/bugRepo
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
 import type { BugReportListItem } from '../../types/bugReports'
 import { CopyBlock } from './LogSection'
@@ -80,7 +81,7 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
                   </div>
                 </div>
                 <div className="actions">
-                  <button type="button" aria-label={`Copy report #${r.id}`} onClick={() => void copy(r.id)}>
+                  <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Copy report #${r.id}`} onClick={() => void copy(r.id)}>
                     Copy
                   </button>
                   {pc !== 'remote' && (

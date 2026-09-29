@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { getDiagnostics, getJobHistory, getModelCache, getSetupChecks } from '../api/diagnostics'
 import { cancelJob, listJobs } from '../api/jobs'
+import { Badge } from '../components/Badge'
+import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { statusTone } from '../components/labels'
 import { Section } from '../components/Section'
+import { buttonClass } from '../components/uiClasses'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import type {
@@ -20,7 +24,7 @@ import { PackagesSection } from './diagnostics/PackagesSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
-import { headerParts, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
+import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
 import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel } from './diagnosticsFormat'
 
@@ -108,22 +112,23 @@ export default function DiagnosticsPage() {
 
   const setupProblems = setup ? setupRows(setup, overview?.gpu ?? null).filter((r) => r.problem).length : null
   const deps = overview ? splitDependencies(overview.dependencies) : null
-  const head = headerParts(setupProblems, deps?.installed.length ?? null, overview ? Object.keys(overview.dependencies).length : null, running, adminBusy)
+  // Running or failed jobs get a card at the top; finished ones a fold with the others.
+  const jobsUrgent = !!jobs && jobs.some((j) => isActive(j.status) || j.status === 'error')
+  const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
+    overview ? Object.keys(overview.dependencies).length : null, jobs ? running : null, adminBusy)
 
   return (
-    <section className="panel" aria-label="Diagnostics">
-      <header className="diag-header">
+    <section className="page-narrow diag-page" aria-label="Diagnostics">
+      <header className="page-head diag-head">
         <h2>Diagnostics</h2>
-        <p className="muted" data-testid="diagnostics-summary">
-          {head.setup && <span className={head.warn ? 'warn' : undefined}>{head.setup}</span>}
-          {head.setup && head.rest && ' · '}
-          {head.rest}
-          {!head.setup && !head.rest && 'Loading…'}
+        <p className="page-meta pill-row" data-testid="diagnostics-summary">
+          {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
         </p>
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {/* Core checks first (Python, ffmpeg with libass, JS runtime), then jobs. */}
+      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+
       {setup ? (
         <SetupSection
           checks={setup}
@@ -136,47 +141,47 @@ export default function DiagnosticsPage() {
           }}
         />
       ) : (
-        <p className="muted">Loading…</p>
+        !error && <p className="muted">Loading…</p>
       )}
 
-      {jobs && jobs.length > 0 && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
-
-      {overview && (
-        <PackagesSection
-          overview={overview}
-          pc={pc}
-          jobsActive={active}
-          busy={adminBusy}
-          onBusy={setAdminBusy}
-          onChanged={refreshSetup}
-          onOpenChange={setPackagesOpen}
-        />
-      )}
-
-      <PyannoteSection />
-      <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
-      <JobHistorySection items={history} />
-      <LogSection />
       <SupportReportSection />
-      <BugReportsSection pc={pc} />
-      <BugBundlesSection pc={pc} />
+
+      <div className="diag-folds">
+        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+        {overview && (
+          <PackagesSection
+            overview={overview}
+            pc={pc}
+            jobsActive={active}
+            busy={adminBusy}
+            onBusy={setAdminBusy}
+            onChanged={refreshSetup}
+            onOpenChange={setPackagesOpen}
+          />
+        )}
+        <PyannoteSection />
+        <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
+        <JobHistorySection items={history} />
+        <LogSection />
+        <BugReportsSection pc={pc} />
+        <BugBundlesSection pc={pc} />
+      </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
     </section>
   )
 }
 
-/** Jobs: always shown while one is running or failed; otherwise a collapsed Section. */
+/** Jobs: a card while one is running or failed; otherwise a collapsed Section. */
 function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const list = phone ? <JobCards jobs={jobs} now={now} onCancel={onCancel} /> : <JobTable jobs={jobs} now={now} onCancel={onCancel} />
   const urgent = jobs.some((j) => isActive(j.status) || j.status === 'error')
   if (urgent) {
     return (
-      <div className="diag-stack diag-jobs">
-        <h3>Jobs</h3>
+      <Card title="Jobs" className="diag-jobs" aria-label="Jobs">
         {list}
-      </div>
+      </Card>
     )
   }
   return (
@@ -203,14 +208,14 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
             <tr key={j.job_id}>
               <td>{j.description || j.job_id}</td>
               <td>
-                {statusLabel(j.status)}
+                <Badge tone={statusTone(j.status)}>{statusLabel(j.status)}</Badge>
                 {j.progress != null && isActive(j.status) && ` ${Math.round(j.progress * 100)}%`}
                 {jobDetail(j) && <div className="muted">{jobDetail(j)}</div>}
               </td>
               <td>{formatDuration(j, now)}</td>
               <td>
                 {isActive(j.status) && (
-                  <button type="button" aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
+                  <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                     Cancel
                   </button>
                 )}
@@ -233,7 +238,7 @@ function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
           {jobDetail(j) && <p className="muted">{jobDetail(j)}</p>}
           {isActive(j.status) && (
             <div className="job-cancel">
-              <button type="button" aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
+              <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                 Cancel
               </button>
             </div>
