@@ -855,3 +855,123 @@ def test_bulk_job_skips_engine_changed_later(isolated_db, monkeypatch):
                                       expected_engines={a: "claude"})
     assert got["skipped_engine_changed"] == [a]
     assert got["translated"] == []
+
+
+# ---- round 2: the upload never becomes a live schema (N1-N3) ---------------
+
+def _raw_tampered(data, fn):
+    """data with library.db changed by fn(conn) on a raw connection."""
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        raw = zf.read("library.db")
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.write(fd, raw)
+    os.close(fd)
+    try:
+        conn = sqlite3.connect(path, isolation_level=None)
+        conn.execute("PRAGMA journal_mode = DELETE")
+        fn(conn)
+        conn.close()
+        with open(path, "rb") as f:
+            return _rewrite(data, replace={"library.db": f.read()})
+    finally:
+        os.remove(path)
+
+
+def test_mislabelled_trigger_row_refused(isolated_db):
+    _new("A")
+    evil_sql = ("CREATE TRIGGER t AFTER UPDATE ON job_records BEGIN "
+                "INSERT INTO users (email, is_admin, is_active) VALUES ('evil@x', 1, 1); END")
+
+    def plant(conn):
+        conn.execute("PRAGMA writable_schema = ON")
+        conn.execute("INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql) "
+                      "VALUES ('table', 't', 'job_records', 0, ?)", (evil_sql,))
+        conn.execute("PRAGMA writable_schema = OFF")
+    data = _raw_tampered(_backup_bytes(), plant)
+    before = {u["email"] for u in db.auth_list_users()}
+    with pytest.raises(InvalidInputError):
+        _restore(data)
+    assert {u["email"] for u in db.auth_list_users()} == before
+    assert db.auth_get_user_by_email("evil@x") is None
+    assert not _leftovers()
+
+
+def test_virtual_table_named_dramas_refused(isolated_db):
+    _new("A")
+
+    def plant(conn):
+        conn.execute("DROP TABLE dramas")
+        conn.execute("CREATE VIRTUAL TABLE dramas USING fts5(title)")
+    try:
+        data = _raw_tampered(_backup_bytes(), plant)
+    except sqlite3.OperationalError:
+        pytest.skip("this SQLite build has no fts5")
+    with pytest.raises(InvalidInputError):
+        _restore(data)
+    assert db.list_dramas()
+
+
+def test_uploaded_users_definition_has_no_effect(isolated_db):
+    _new("A")
+    data = _backup_bytes()
+
+    def plant(conn):
+        conn.execute("DROP TABLE users")
+        conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, is_admin TEXT, "
+                     "is_active INTEGER)")
+        conn.execute("INSERT INTO users (email, is_admin, is_active) "
+                     "VALUES ('evil@x', 'yes', 1)")
+    data = _raw_tampered(data, plant)
+    auth_service.add_user("current@example.com")
+    _restore(data)
+    assert {u["email"] for u in db.auth_list_users()} == {"current@example.com"}
+    conn = sqlite3.connect(db.DB_PATH)
+    col = [r for r in conn.execute("PRAGMA table_info(users)").fetchall() if r[1] == "is_admin"]
+    conn.close()
+    assert col[0][2] == "INTEGER"
+
+
+def test_old_schema_backup_restores_dramas_and_lines(isolated_db):
+    from core import Line
+    did = _new("Old")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句", en="Line")])
+    data = _backup_bytes()
+
+    def age(conn):   # drop a column newer code added, as an older backup would lack it
+        conn.execute("ALTER TABLE vocab_lookups DROP COLUMN export_rich")
+    data = _raw_tampered(data, age)
+    _new("Newer")
+    _restore(data)
+    assert [d["title_en"] for d in db.list_dramas()] == ["Old"]
+    assert [r["en"] for r in db.load_lines(did)] == ["Line"]
+
+
+def test_round_trip_keeps_rows(isolated_db):
+    from core import Line
+    a = _new("A", status="translated")
+    db.save_lines(a, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}", en=f"L{i}")
+                      for i in range(3)])
+    sid = db.get_or_create_series("S")
+    db.update_drama(a, series_id=sid)
+    data = _backup_bytes()
+    db.update_drama(a, status="aligned")
+    _restore(data)
+    d = db.get_drama(a)
+    assert d["status"] == "translated" and d["series_id"] == sid
+    assert [r["en"] for r in db.load_lines(a)] == ["L0", "L1", "L2"]
+    b = _new("After restore")   # autoincrement continues past restored ids
+    assert b > a
+
+
+@pytest.mark.parametrize("sql,ok", [
+    ("CREATE TABLE x (a)", True),
+    ("create  unique index i on x(a)", True),
+    ("/* c */ CREATE TABLE \"x\"(a)", True),
+    ("CREATE TRIGGER t AFTER INSERT ON x BEGIN SELECT 1; END", False),
+    ("CREATE VIEW v AS SELECT 1", False),
+    ("CREATE VIRTUAL TABLE v USING fts5(a)", False),
+    ("-- CREATE TABLE\nCREATE TRIGGER t", False),
+    ("CREATE TEMP TABLE x (a)", False),
+])
+def test_schema_sql_allowlist(sql, ok):
+    assert wjs._schema_sql_allowed(sql) is ok

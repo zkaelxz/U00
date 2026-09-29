@@ -531,7 +531,7 @@ def _restore_kept_names():
 
 # library.db tables that hold who may sign in and what they may do; a
 # restore keeps the current rows (auth_sessions is then emptied: every
-# session is revoked). See _carry_current_state.
+# session is revoked). See _build_staged_databases.
 _RESTORE_KEPT_AUTH_TABLES = ("users", "user_permissions", "auth_sessions", "audit_log")
 
 
@@ -546,40 +546,42 @@ def _ro_uri(path: str, ro: bool = True) -> str:
     return f"file:{quote(os.path.abspath(path))}" + ("?mode=ro" if ro else "")
 
 
-def _copy_tables(dst_conn, src_alias: str, tables, copy_rows: dict):
-    """Replaces each table in dst_conn's main schema with src_alias's
-    definition (and its indexes), copying rows where copy_rows[t]."""
-    for t in tables:
-        row = dst_conn.execute(f"SELECT sql FROM {src_alias}.sqlite_master "
-                               "WHERE type = 'table' AND name = ?", (t,)).fetchone()
-        dst_conn.execute(f'DROP TABLE IF EXISTS main."{t}"')
-        if row is None:
-            continue
-        dst_conn.execute(row[0])
-        for (idx_sql,) in dst_conn.execute(
-                f"SELECT sql FROM {src_alias}.sqlite_master WHERE type = 'index' "
-                "AND tbl_name = ? AND sql IS NOT NULL", (t,)).fetchall():
-            dst_conn.execute(idx_sql)
-        if copy_rows.get(t, True):
-            cols = ", ".join(f'"{r[1]}"' for r in dst_conn.execute(
-                f'PRAGMA {src_alias}.table_info("{t}")').fetchall())
-            dst_conn.execute(f'INSERT INTO main."{t}" ({cols}) '
-                             f'SELECT {cols} FROM {src_alias}."{t}"')
-
-
 def _open_carry_conn(path: str):
     import sqlite3
     conn = sqlite3.connect(_ro_uri(path, ro=False), uri=True, isolation_level=None)
-    # No schema-defined code runs here (the app defines no triggers or
-    # views, and staged files containing any are refused beforehand).
     conn.execute("PRAGMA trusted_schema = OFF")
     return conn
 
 
+def _table_names(conn, schema: str) -> list:
+    return [r[0] for r in conn.execute(
+        f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
+
+
+def _copy_rows(conn, src: str, table: str):
+    """Replaces main.table's rows with src.table's, for the columns both
+    sides have (a column only the app's schema has gets its default)."""
+    main_cols = [r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")').fetchall()]
+    src_cols = {r[1] for r in conn.execute(f'PRAGMA {src}.table_info("{table}")').fetchall()}
+    cols = [c for c in main_cols if c in src_cols]
+    if not cols:
+        return
+    col_sql = ", ".join(f'"{c}"' for c in cols)
+    conn.execute(f'DELETE FROM main."{table}"')   # rows init_db seeded (e.g. profiles)
+    conn.execute(f'INSERT INTO main."{table}" ({col_sql}) SELECT {col_sql} FROM {src}."{table}"')
+
+
 def _current_state_marker(library_dir: str):
-    """(max audit_log id, sources settings rows) of the live library --
-    compared before the swap, so a sign-in or settings change made while
-    the restore was preparing isn't silently lost."""
+    """(max audit_log id, sources settings rows) of the live library,
+    compared right before the swap so a sign-in or settings change made
+    while the restore was preparing isn't silently dropped.
+
+    Known limits: a change landing between this last comparison and the
+    rename is still lost (a small window, no cross-process lock), and
+    only audited auth changes move the audit id -- a session created or
+    revoked without an audit entry, or a sources.db table other than
+    settings, isn't covered (sessions are revoked by the restore anyway)."""
     import sqlite3
     marker = []
     for name, sql in (("library.db", "SELECT MAX(id) FROM audit_log"),
@@ -599,69 +601,35 @@ def _current_state_marker(library_dir: str):
     return tuple(marker)
 
 
-def _carry_current_state(staging_dir: str, library_dir: str) -> None:
-    """Runs on the staged (not yet live, already migrated) restore.
-    Replaces the uploaded library.db's auth tables with the current ones
-    (sessions emptied: every session is revoked), marks every
-    running/queued job_records row cancelled and clears gpu_lock (a backup
-    can only hold stale rows), and keeps the current sources.db settings
-    table (proxy URL, page-server flag, ...). Raises ValueError (fixed
-    text) if a staged database can't be updated."""
-    import sqlite3
-    staged_db = os.path.join(staging_dir, "library.db")
-    live_db = os.path.join(library_dir, "library.db")
-    try:
-        conn = _open_carry_conn(staged_db)
-        try:
-            conn.execute("PRAGMA secure_delete = ON")
-            conn.execute("BEGIN")
-            if os.path.isfile(live_db):
-                conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_db),))
-                _copy_tables(conn, "cur", _RESTORE_KEPT_AUTH_TABLES,
-                             {"auth_sessions": False})
-            else:
-                for t in _RESTORE_KEPT_AUTH_TABLES:
-                    conn.execute(f'DELETE FROM main."{t}"')
-            conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
-                         "cancel_requested = 0 WHERE status IN ('queued', 'running')",
-                         (time.time(),))
-            conn.execute("DELETE FROM gpu_lock")
-            conn.execute("COMMIT")
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        raise ValueError(_BAD_LIBRARY_DB) from None
-
-    staged_src = os.path.join(staging_dir, "sources.db")
-    live_src = os.path.join(library_dir, "sources.db")
-    if not os.path.isfile(staged_src):
-        return
-    try:
-        conn = _open_carry_conn(staged_src)
-        try:
-            conn.execute("BEGIN")
-            if os.path.isfile(live_src):
-                conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_src),))
-                _copy_tables(conn, "cur", ("settings",), {})
-            else:
-                conn.execute('DROP TABLE IF EXISTS main."settings"')
-            conn.execute("COMMIT")
-        finally:
-            conn.close()
-    except sqlite3.Error:
-        raise ValueError(_BAD_SOURCES_DB) from None
-
-
 _BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
                    "database.")
 _BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
 
+def _schema_sql_allowed(sql: str) -> bool:
+    """True only for CREATE TABLE / CREATE [UNIQUE] INDEX text (comments
+    and whitespace ignored, case-insensitive). Everything else -- triggers,
+    views, virtual tables, TEMP objects -- is refused, whatever
+    sqlite_master's `type` column claims (SQLite re-parses `sql` and
+    ignores `type`, so a writable_schema-planted row can lie about it)."""
+    import re
+    text = re.sub(r"--[^\n]*|/\*.*?(\*/|$)", " ", sql, flags=re.S)
+    text = " ".join(text.split()).upper()
+    return bool(re.match(r"CREATE (TABLE|(UNIQUE )?INDEX)[ \"'`\[(]", text + " "))
 
-def _check_staged_db(db_path: str, message: str, need_dramas: bool) -> None:
-    """Opens a staged database read-only and raises ValueError(message)
-    unless it is SQLite, passes PRAGMA quick_check, holds no trigger or
-    view (the app defines none, so any is planted), and -- for library.db
-    -- has a dramas table."""
+
+def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
+    """Raises ValueError(message) unless the uploaded file is SQLite,
+    passes quick_check and every sqlite_master row is a plain table or
+    index (see _schema_sql_allowed; NULL sql only for sqlite_autoindex_*).
+
+    Why this is safe to open: read-only + immutable, trusted_schema OFF,
+    and the only statements run are PRAGMA quick_check and a SELECT on
+    sqlite_master. Loading the schema parses CREATE text but executes
+    nothing: a trigger only runs on a write (none here) and a virtual
+    table's module is only connected when that table is queried (never
+    here). A schema SQLite can't parse fails the open -> refused.
+    (Python 3.11's sqlite3 has no Connection.setconfig for
+    SQLITE_DBCONFIG_DEFENSIVE, so that option isn't used.)"""
     import sqlite3
     if not os.path.isfile(db_path) or os.path.islink(db_path):
         raise ValueError(message)
@@ -669,14 +637,16 @@ def _check_staged_db(db_path: str, message: str, need_dramas: bool) -> None:
     try:
         conn = sqlite3.connect(_ro_uri(db_path) + "&immutable=1", uri=True)
         conn.execute("PRAGMA trusted_schema = OFF")
-        rows = conn.execute("PRAGMA quick_check").fetchall()
-        if [r[0] for r in rows] != ["ok"]:
+        rows = conn.execute("SELECT type, name, sql FROM sqlite_master").fetchall()
+        for _type, name, sql in rows:
+            if sql is None:
+                if not str(name).startswith("sqlite_autoindex_"):
+                    raise ValueError(message)
+            elif not _schema_sql_allowed(sql):
+                raise ValueError(message)
+        if [r[0] for r in conn.execute("PRAGMA quick_check").fetchall()] != ["ok"]:
             raise ValueError(message)
-        if conn.execute("SELECT 1 FROM sqlite_master "
-                        "WHERE type IN ('trigger', 'view')").fetchone():
-            raise ValueError(message)
-        if need_dramas and conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                                        "AND name = 'dramas'").fetchone() is None:
+        if need_table and not any(t == "table" and n == need_table for t, n, _ in rows):
             raise ValueError(message)
     except sqlite3.Error:
         raise ValueError(message) from None
@@ -686,10 +656,102 @@ def _check_staged_db(db_path: str, message: str, need_dramas: bool) -> None:
 
 
 def validate_staged_library_db(db_path: str) -> None:
-    """ValueError (fixed text, no path) unless the staged library.db is
-    SQLite, passes quick_check, has no trigger/view and has a dramas
-    table."""
-    _check_staged_db(db_path, _BAD_LIBRARY_DB, need_dramas=True)
+    """ValueError (fixed text, no path) unless an uploaded library.db is
+    SQLite, passes quick_check, holds only plain tables/indexes and has a
+    dramas table."""
+    _check_uploaded_db(db_path, _BAD_LIBRARY_DB, need_table="dramas")
+
+
+def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
+                         live_path: str = None, live_tables=(), message: str = ""):
+    """fresh_path already holds the app's own schema. Copies rows from the
+    (validated) upload for every app table except skip_tables, and rows
+    from the live database for live_tables, never taking a table
+    definition from either. Raises ValueError(message) on any SQLite
+    error."""
+    import sqlite3
+    try:
+        conn = _open_carry_conn(fresh_path)
+        try:
+            conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(upload_path) + "&immutable=1",))
+            if live_path and os.path.isfile(live_path):
+                conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
+            else:
+                live_path = None
+            conn.execute("BEGIN")
+            up_tables = set(_table_names(conn, "up"))
+            cur_tables = set(_table_names(conn, "cur")) if live_path else set()
+            for t in _table_names(conn, "main"):
+                if t in live_tables:
+                    if t in cur_tables:
+                        _copy_rows(conn, "cur", t)
+                elif t not in skip_tables and t in up_tables:
+                    _copy_rows(conn, "up", t)
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        raise ValueError(message) from None
+
+
+def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
+    """Replaces the uploaded library.db / sources.db in staging with fresh
+    files built from the app's own schema (db.migrate_database_file /
+    sources.store._SCHEMA) and filled with the upload's rows -- except
+    the auth tables (current rows, sessions emptied: every session is
+    revoked) and the sources settings table (current rows). Running and
+    queued job_records rows are marked cancelled and gpu_lock is cleared
+    (a backup can only hold stale ones). The uploaded files never become
+    a live schema: they are only ATTACHed read-only after
+    _check_uploaded_db."""
+    import sqlite3
+    from sources import store as src_store
+    staged = os.path.join(staging_dir, "library.db")
+    upload = os.path.join(staging_dir, ".uploaded_library.db")
+    os.replace(staged, upload)
+    try:
+        try:
+            db.migrate_database_file(staged)
+        except sqlite3.Error:
+            raise ValueError(_BAD_LIBRARY_DB) from None
+        _rebuild_from_upload(staged, upload, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
+                             live_path=os.path.join(library_dir, "library.db"),
+                             live_tables=("users", "user_permissions", "audit_log"),
+                             message=_BAD_LIBRARY_DB)
+        try:
+            conn = _open_carry_conn(staged)
+            try:
+                conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
+                             "cancel_requested = 0 WHERE status IN ('queued', 'running')",
+                             (time.time(),))
+                conn.execute("DELETE FROM gpu_lock")
+                conn.execute("PRAGMA journal_mode = DELETE")
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            raise ValueError(_BAD_LIBRARY_DB) from None
+    finally:
+        os.remove(upload)
+
+    staged_src = os.path.join(staging_dir, "sources.db")
+    if not os.path.lexists(staged_src):
+        return
+    upload_src = os.path.join(staging_dir, ".uploaded_sources.db")
+    os.replace(staged_src, upload_src)
+    try:
+        try:
+            conn = _open_carry_conn(staged_src)
+            try:
+                conn.executescript(src_store._SCHEMA)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            raise ValueError(_BAD_SOURCES_DB) from None
+        _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
+                             live_path=os.path.join(library_dir, "sources.db"),
+                             live_tables=("settings",), message=_BAD_SOURCES_DB)
+    finally:
+        os.remove(upload_src)
 
 
 def _remove_entry(path: str):
@@ -708,11 +770,13 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
     Order, all before library_dir is touched: size/member checks; extract
     to a staging directory, skipping kept names and SQLite side files,
     then deleting anything the filesystem resolves to a kept name (case,
-    trailing dots); check library.db (and sources.db) with SQLite
-    (quick_check, no trigger/view, dramas table); run the app's schema
-    migration on the STAGED library.db (db.migrate_database_file), so an
-    unusable schema is refused here rather than after the swap;
-    _carry_current_state; then before_swap() and a check that the live
+    trailing dots); check the uploaded library.db (and sources.db) with
+    SQLite (quick_check, only plain tables/indexes, dramas table); build
+    FRESH databases from the app's own schema and copy the upload's rows
+    into them (_build_staged_databases -- the upload never becomes a live
+    schema, and auth rows and sources settings come from the current
+    library), so an unusable upload is refused here rather than after the
+    swap; then before_swap() and a check that the live
     auth/settings state didn't change meanwhile. Only then is library_dir
     renamed aside and the staging directory renamed in (the original is
     renamed back on failure). The current kept entries (backups/, browser
@@ -782,13 +846,9 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
         validate_staged_library_db(os.path.join(staging_dir, "library.db"))
         staged_src = os.path.join(staging_dir, "sources.db")
         if os.path.lexists(staged_src):
-            _check_staged_db(staged_src, _BAD_SOURCES_DB, need_dramas=False)
-        try:
-            db.migrate_database_file(os.path.join(staging_dir, "library.db"))
-        except sqlite3.Error:
-            raise ValueError(_BAD_LIBRARY_DB) from None
+            _check_uploaded_db(staged_src, _BAD_SOURCES_DB)
         marker = _current_state_marker(library_dir)
-        _carry_current_state(staging_dir, library_dir)
+        _build_staged_databases(staging_dir, library_dir)
         if before_swap is not None:
             before_swap()
         if _current_state_marker(library_dir) != marker:
