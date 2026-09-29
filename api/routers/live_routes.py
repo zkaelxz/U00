@@ -1,0 +1,60 @@
+"""
+api/routers/live_routes.py -- Live capture sessions (spec L-1, polling only;
+API batch 1). Thin: see services/live_service.py.
+
+Start fetches a public URL through yt-dlp from this PC, so it needs
+`media.import_url`, and a paid translation engine (anything outside
+`translate_engines.FREE_ENGINES`, including the default) also needs
+`engines.paid`. Reading a session is `library.read`; stopping one is
+`jobs.cancel`. Sessions live in this process only (404 after a restart).
+"""
+
+from typing import List
+
+from fastapi import APIRouter, Path, Query, Request
+
+from api.auth import require_engines_allowed, require_permission
+from api.schemas import (ErrorResponse, LiveSessionStart, LiveSessionStarted,
+                         LiveSessionStatus, LiveSessionStopped, LiveSessionSummary)
+from services import live_service
+
+router = APIRouter(prefix="/api/live", tags=["live"])
+
+_SID = Path(pattern=r"^live_[0-9a-f]{32}$")
+_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+         503: {"model": ErrorResponse}}
+
+
+@router.post("/sessions", dependencies=[require_permission("media.import_url")],
+             response_model=LiveSessionStarted,
+             summary="Start a live capture session (yt-dlp + local Whisper + engine)",
+             responses=_ERRS)
+def post_session(body: LiveSessionStart, request: Request):
+    require_engines_allowed(request, body.engine)
+    return live_service.start_session(
+        body.url, source_language=body.source_language, whisper_size=body.whisper_size,
+        segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,
+        engine=body.engine, model=body.model, max_minutes=body.max_minutes,
+        use_gpu=body.use_gpu)
+
+
+@router.get("/sessions", dependencies=[require_permission("library.read")],
+            response_model=List[LiveSessionSummary],
+            summary="Live sessions started in this process")
+def list_sessions():
+    return live_service.list_sessions()
+
+
+@router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],
+            response_model=LiveSessionStatus,
+            summary="Session status and cues[after:] (poll with after=next_index)",
+            responses=_ERRS)
+def get_session(session_id: str = _SID, after: int = Query(0, ge=0, le=10**9)):
+    return live_service.get_session(session_id, after)
+
+
+@router.post("/sessions/{session_id}/stop", dependencies=[require_permission("jobs.cancel")],
+             response_model=LiveSessionStopped,
+             summary="Stop a session (idempotent on a finished one)", responses=_ERRS)
+def post_stop(session_id: str = _SID):
+    return live_service.stop_session(session_id)

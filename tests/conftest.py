@@ -12,6 +12,11 @@ import shutil
 import tempfile
 import pytest
 
+# Never start the API's background services (chapter-check scheduler,
+# extension endpoint) from a test that enters TestClient's lifespan with
+# settings built by load_settings(); see api/background.py.
+os.environ["BAIHE_API_BACKGROUND"] = "0"
+
 # Make the project root importable when running `pytest` from anywhere
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

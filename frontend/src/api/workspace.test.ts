@@ -27,6 +27,7 @@ describe('workspace api', () => {
     expect(calls[0].url).toBe('/api/media/dramas/3/upload')
     expect(calls[0].init?.body).toBeInstanceOf(FormData)
     expect((calls[0].init!.headers as Record<string, string>)['Content-Type']).toBeUndefined()
+    expect((calls[0].init!.headers as Record<string, string>)['X-Baihe-Local']).toBe('1')
   })
 
   it('sends upload-and-transcribe options as form fields, skipping unset ones', async () => {

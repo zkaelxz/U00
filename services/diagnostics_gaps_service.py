@@ -18,11 +18,15 @@ bundles, App Assistant, and the source-access tests.
 """
 
 import os
+import shutil
+import sys
+import threading
 import time
 
 import background_jobs
 import db
 import diagnostics
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 LOG_TAIL_DEFAULT = 50
 LOG_TAIL_MAX = 200
@@ -172,8 +176,9 @@ def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
     n = max(0, min(n, LOG_TAIL_MAX))
     if n == 0:
         return []
-    lines = applog.filter_lines(applog.tail(n), keyword or "")
-    return [_redact(ln) for ln in lines]
+    # Redact first, then filter: filtering raw lines would let a keyword
+    # probe for text that redaction hides (a path, a user name, a key).
+    return applog.filter_lines([_redact(ln) for ln in applog.tail(n)], keyword or "")
 
 
 def build_support_report(recent_error_lines: int = 20) -> str:
@@ -200,18 +205,53 @@ def build_support_report(recent_error_lines: int = 20) -> str:
 # refuses while any background job runs.
 # ---------------------------------------------------------------------------
 
-class AdminActionRefused(Exception):
+RESET_CONFIRM_TEXT = "RESET"
+
+
+class AdminActionRefused(ServiceError):
     """Raised when an admin action is not confirmed, targets an unknown
-    package, or jobs are running."""
+    package, or jobs are running. The subclasses below carry the HTTP
+    mapping (422 / 404 / 409); callers can keep catching this one."""
+
+
+class AdminActionUnconfirmed(AdminActionRefused, InvalidInputError):
+    pass
+
+
+class AdminActionUnknownPackage(AdminActionRefused, NotFoundError):
+    pass
+
+
+class AdminActionJobsRunning(AdminActionRefused, ConflictError):
+    pass
+
+
+def _maintenance_active() -> bool:
+    # background_jobs has no public reader for the counter that
+    # enter_maintenance()/exit_maintenance() keep.
+    return bool(getattr(background_jobs, "_maintenance_count", 0))
+
+
+PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT       # 900 s
+# The CUDA torch wheels are about 2.5 GB; allow a slow link far longer.
+GPU_TORCH_TIMEOUT_SECONDS = 3600
 
 
 def _guard(confirm: bool):
+    """confirm=True; no exclusive hold (a library restore or reset) and no
+    maintenance operation (bulk delete, storage cleanup) in progress; and
+    no job running or queued here or (fresh job_records rows) in another
+    process -- the same rule as the Library admin actions
+    (library_admin_service._any_job_running)."""
     if confirm is not True:
-        raise AdminActionRefused("Confirmation required.")
-    running = background_jobs.list_running_jobs()
-    if running:
-        raise AdminActionRefused(
-            f"{len(running)} background job(s) running; wait for them to finish.")
+        raise AdminActionUnconfirmed("Confirmation required.")
+    from services import library_admin_service
+    if background_jobs.exclusive_active() or _maintenance_active():
+        raise AdminActionJobsRunning(
+            "A library restore, reset or cleanup is in progress; try again when it ends.")
+    if library_admin_service._any_job_running():
+        raise AdminActionJobsRunning(
+            "A background job is running or queued; wait for it to finish.")
 
 
 def installable_packages() -> set:
@@ -223,39 +263,166 @@ def installable_packages() -> set:
     return names
 
 
-def _run_stream(gen) -> dict:
-    tail, ok = [], False
-    for item in gen:
-        if "line" in item:
-            tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
-        elif item.get("done"):
-            ok = bool(item.get("ok"))
+def _pip(*args) -> list:
+    return [sys.executable, "-m", "pip", *args]
+
+
+def _install_commands(name: str) -> list:
+    """(command, timeout) pairs for an install. torch on a machine with an
+    NVIDIA GPU gets the CUDA build from PyTorch's index, like
+    diagnostics.stream_gpu_torch_reinstall, but without uninstalling first:
+    `--force-reinstall --no-deps` downloads both wheels before replacing
+    anything, so a timeout during the (~2.5 GB) download leaves the old
+    torch in place; a second plain install then adds any missing
+    dependencies (e.g. the nvidia-* wheels on Linux). Everything else is a
+    plain install."""
+    if name == "torch" and shutil.which("nvidia-smi"):
+        index = ["--index-url",
+                 f"https://download.pytorch.org/whl/{diagnostics.gpu_torch_cuda_index()}"]
+        constraints = os.path.join(_project_root(), "constraints.txt")
+        if os.path.exists(constraints):
+            index += ["-c", constraints]
+        return [(_pip("install", "--force-reinstall", "--no-deps", "torch", "torchaudio",
+                      *index), GPU_TORCH_TIMEOUT_SECONDS),
+                (_pip("install", "torch", "torchaudio", *index), GPU_TORCH_TIMEOUT_SECONDS)]
+    return [(_pip("install", name), PIP_TIMEOUT_SECONDS)]
+
+
+KILL_DRAIN_SECONDS = 5.0
+
+
+def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS):
+    """Like diagnostics._stream_process ({"line"} per output line, then
+    {"returncode", "timed_out"}), but pip runs in its own process group and
+    on timeout (or if the caller stops early) the whole tree is killed
+    with background_jobs._kill_tree, not only pip itself.
+
+    Every wait is bounded, like background_jobs.run_cancellable's
+    kill_timeout: output is read on a helper thread, so a grandchild that
+    survives the kill (or outlives pip) and keeps the pipe open can hold
+    this for at most `drain_seconds` after the kill or after pip exits,
+    never forever. returncode is None if pip could not be reaped."""
+    import queue
+    import subprocess
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+             else {"start_new_session": True})
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace", bufsize=1, **group)
+    lines, eof = queue.Queue(), object()
+
+    def _reader():
+        try:
+            for line in proc.stdout:
+                lines.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(eof)
+    threading.Thread(target=_reader, daemon=True, name="pip-output").start()
+
+    deadline = time.monotonic() + timeout
+    timed_out, stop_by = False, None
+    try:
+        while True:
+            now = time.monotonic()
+            if stop_by is None:
+                if now >= deadline:
+                    timed_out = True
+                    background_jobs._kill_tree(proc)
+                    stop_by = now + drain_seconds
+                elif proc.poll() is not None:
+                    stop_by = now + drain_seconds     # pip exited; finish reading
+            if stop_by is not None and now >= stop_by:
+                break
+            limit = deadline if stop_by is None else stop_by
+            try:
+                item = lines.get(timeout=max(0.01, min(0.5, limit - now)))
+            except queue.Empty:
+                continue
+            if item is eof:
+                break
+            yield {"line": item.rstrip("\n")}
+    finally:
+        if proc.poll() is None:
+            background_jobs._kill_tree(proc)
+        try:
+            returncode = proc.wait(timeout=drain_seconds)
+        except subprocess.TimeoutExpired:
+            returncode = None
+    yield {"returncode": returncode, "timed_out": timed_out}
+
+
+def _run_commands(cmds: list) -> dict:
+    """Runs each (command, timeout) through _stream_tree; ok only if every
+    one exits 0 in time. Stops at the first failure."""
+    tail, ok = [], True
+    for cmd, timeout in cmds:
+        for item in _stream_tree(cmd, timeout):
+            if "line" in item:
+                tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
+            elif "returncode" in item:
+                ok = ok and item["returncode"] == 0 and not item.get("timed_out")
+                if item.get("timed_out"):
+                    tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
+        if not ok:
+            break
     return {"ok": ok, "output_tail": tail}
 
 
-def install_dependency(name: str, confirm: bool = False) -> dict:
+def _run_pip(name: str, confirm, cmds_for) -> dict:
+    """Holds the library exclusively for the whole pip run, so no job,
+    restore, reset, cleanup or second install can start in this API
+    process mid-upgrade (409 if the hold can't be taken). Jobs in another
+    process are re-checked under the hold, as reset_library does."""
     _guard(confirm)
     if name not in installable_packages():
-        raise AdminActionRefused("Unknown or non-installable package.")
-    result = _run_stream(diagnostics.stream_dependency_install(name, project_root=_project_root()))
+        raise AdminActionUnknownPackage("Unknown or non-installable package.")
+    if not background_jobs.acquire_exclusive("Dependency install"):
+        raise AdminActionJobsRunning(
+            "A job, restore, cleanup or another install is in progress; try again when it ends.")
+    try:
+        from services import library_admin_service
+        if library_admin_service._any_job_running():     # re-check under the hold
+            raise AdminActionJobsRunning(
+                "A background job is running or queued; wait for it to finish.")
+        result = _run_commands(cmds_for(name))
+    finally:
+        background_jobs.release_exclusive()
     result["package"] = name
     return result
+
+
+def install_dependency(name: str, confirm: bool = False) -> dict:
+    return _run_pip(name, confirm, _install_commands)
 
 
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
-    _guard(confirm)
-    if name not in installable_packages():
-        raise AdminActionRefused("Unknown or non-installable package.")
-    result = _run_stream(diagnostics.stream_pip_install(
-        diagnostics.upgrade_pip_args(name, _project_root())))
-    result["package"] = name
-    return result
+    return _run_pip(name, confirm, lambda n: [
+        (_pip("install", *diagnostics.upgrade_pip_args(n, _project_root())),
+         PIP_TIMEOUT_SECONDS)])
 
 
-def reset_library(confirm: bool = False) -> dict:
+def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
     """Irreversible. Unlike the Streamlit button it does not cancel
-    running jobs; it refuses instead, so a caller must stop them first."""
+    running jobs; it refuses instead, so a caller must stop them first.
+    `confirm_text`, when given (the API always gives it), must be exactly
+    "RESET", the word the Streamlit button made the user type."""
+    if confirm_text is not None and confirm_text != RESET_CONFIRM_TEXT:
+        raise AdminActionUnconfirmed(
+            f'Resetting the library needs confirm=true and confirm_text "{RESET_CONFIRM_TEXT}".')
     _guard(confirm)
-    db.reset_library()
-    background_jobs.clear_all_jobs()
+    # Hold the library exclusively for the reset, as a restore does, so no
+    # job can start mid-reset (start_job refuses while the hold is taken).
+    if not background_jobs.acquire_exclusive("Library reset"):
+        raise AdminActionJobsRunning(
+            "A job, restore or cleanup is in progress; try again when it ends.")
+    try:
+        from services import library_admin_service
+        if library_admin_service._any_job_running():     # re-check under the hold
+            raise AdminActionJobsRunning(
+                "A background job is running or queued; wait for it to finish.")
+        db.reset_library()
+        background_jobs.clear_all_jobs()
+    finally:
+        background_jobs.release_exclusive()
     return {"ok": True, "reset_at": time.time()}

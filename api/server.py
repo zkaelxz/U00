@@ -21,28 +21,35 @@ only.
 import portable
 portable.activate_portable_mode()
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import ApiSettings, check_bind_safety, load_settings
-from api.auth import EarlyAuthGate, LoopbackOnlyGate, local_only_matchers, public_api_paths
+from api.auth import (EarlyAuthGate, LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
+                      public_api_paths)
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     characters_routes,
     delete_routes,
+    diagnostics_gaps_routes,
     diagnostics_routes,
     diarization_routes,
+    discover_lookup_routes,
     discover_routes,
     drama_routes,
     dub_routes,
     export_routes,
+    extension_routes,
     glossary_routes,
     jobs_routes,
     library_admin_routes,
     library_routes,
     line_ai_routes,
     lines_routes,
+    live_routes,
     media_routes,
     metadata_routes,
     narration_routes,
@@ -55,13 +62,34 @@ from api.routers import (
     settings_routes,
     source_routes,
     sources_catalog_routes,
+    sources_search_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
     translate_run_routes,
+    workflow_routes,
 )
 from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Starts the background pieces Streamlit used to start (chapter-check
+    scheduler, extension endpoint when enabled, the GPU-queue re-check),
+    only when `settings.background_services` is on -- never in tests.
+    Idempotent. The GPU-queue re-check is stopped at shutdown."""
+    if not getattr(app.state.settings, "background_services", False):
+        yield
+        return
+    from api.background import (start_background_services, start_gpu_queue_poller,
+                                stop_gpu_queue_poller)
+    start_background_services()
+    start_gpu_queue_poller()
+    try:
+        yield
+    finally:
+        stop_gpu_queue_poller()
 
 
 def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
@@ -80,6 +108,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
         docs_url=None if settings.auth_enabled else "/api/docs",
         redoc_url=None,
         openapi_url=None if settings.auth_enabled else "/api/openapi.json",
+        lifespan=_lifespan,
     )
     app.state.settings = settings
     # Refuses a non-loopback BAIHE_API_HOST while auth is off (same check as
@@ -92,6 +121,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
                            local_only_fn=lambda: local_only_matchers(app))
     else:
         app.add_middleware(LoopbackOnlyGate)
+    # Both modes: refuse a simple (no-preflight) POST to a local_only route
+    # before its body is read (see api.auth._cross_site_safe).
+    app.add_middleware(LocalOnlyCrossSiteGate, local_only_fn=lambda: local_only_matchers(app))
     if settings.is_development and settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -130,6 +162,12 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
     app.include_router(sources_catalog_routes.router)
+    app.include_router(workflow_routes.router)
+    app.include_router(live_routes.router)
+    app.include_router(discover_lookup_routes.router)
+    app.include_router(sources_search_routes.router)
+    app.include_router(diagnostics_gaps_routes.router)
+    app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
     app.include_router(delete_routes.router)
     if settings.serve_frontend:

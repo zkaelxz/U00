@@ -53,6 +53,8 @@ describe('write helpers', () => {
     await postMultipart('/api/up', form, fakeFetch(200, {}, calls))
     expect(calls[0].init?.body).toBe(form)
     expect(calls[0].init!.headers as Record<string, string>).not.toHaveProperty('Content-Type')
+    // local_only upload routes refuse multipart without this header
+    expect((calls[0].init!.headers as Record<string, string>)['X-Baihe-Local']).toBe('1')
   })
 
   it.each([

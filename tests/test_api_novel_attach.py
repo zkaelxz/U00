@@ -24,7 +24,10 @@ from services import novel_attach_service as svc
 @pytest.fixture
 def client(isolated_db, monkeypatch):
     monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: object())
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    # X-Baihe-Local: what the React upload helper sends; local_only refuses
+    # a multipart POST without it (api/auth.py _cross_site_safe)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})
 
 
 def _drama():
