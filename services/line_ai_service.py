@@ -30,6 +30,7 @@ MAX_ISSUE_CHARS = 500
 
 
 def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier):
+    gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = translate_run_service._require_drama(drama_id)
     line = next((ln for ln in core.lines_from_rows(db.load_lines(drama_id))
                  if ln.id == line_id), None)
@@ -72,7 +73,7 @@ def _run(fn):
 
 
 def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: str = None,
-                 gemini_free_tier: bool = False, issue: str = "") -> dict:
+                 gemini_free_tier: bool = None, issue: str = "") -> dict:
     """A rewritten translation for one line. Writes nothing.
     Returns {line_id, current_en, suggestion, changed, engine, model}."""
     issue = (issue or "").strip()
@@ -101,7 +102,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
 
 
 def explain_line(drama_id: int, line_id: int, engine_name: str = None, model: str = None,
-                 gemini_free_tier: bool = False) -> dict:
+                 gemini_free_tier: bool = None) -> dict:
     """Why the line reads the way it does. Writes nothing.
     Returns {line_id, explanation, engine, model}."""
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,

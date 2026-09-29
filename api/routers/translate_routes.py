@@ -38,7 +38,7 @@ def get_history(limit: int = Query(50, ge=1, le=200)):
 def post_translate(payload: TranslateRequest):
     return translate_service.translate(
         payload.text, payload.engine, payload.source_language, payload.target_language,
-        model=payload.model, free_tier=payload.free_tier, base_url=payload.base_url)
+        model=payload.model, free_tier=payload.free_tier)
 
 
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,

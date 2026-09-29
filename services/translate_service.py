@@ -95,8 +95,8 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
 
 
 def translate(text: str, engine_name: str, source_language: str, target_language: str,
-              model: Optional[str] = None, free_tier: bool = False,
-              base_url: Optional[str] = None, env_path: Optional[str] = None) -> dict:
+              model: Optional[str] = None, free_tier: Optional[bool] = None,
+              env_path: Optional[str] = None) -> dict:
     """Translates text with engine_name (a translate_engines.ENGINES key),
     resolving its key server-side (D2) rather than accepting one from the
     caller, and saves the result to history -- the same two steps
@@ -104,7 +104,9 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     InvalidInputError for an unknown engine, UnsupportedOperationError if
     the engine/direction pair is refused (translate_engines.
     standalone_direction_support), and DependencyUnavailableError if the
-    engine needs a key/endpoint that isn't configured yet."""
+    engine needs a key/endpoint that isn't configured yet. free_tier None
+    means the saved Gemini free-tier setting. Ollama always uses the
+    configured Ollama URL; a caller-supplied URL is never fetched (SSRF)."""
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
 
@@ -120,8 +122,10 @@ def translate(text: str, engine_name: str, source_language: str, target_language
 
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
-        free_tier=free_tier if engine_name == "gemini" else False,
-        base_url=base_url if engine_name == "ollama" else None)
+        free_tier=(settings_service.resolve_gemini_free_tier(free_tier)
+                   if engine_name == "gemini" else False),
+        base_url=((settings_service.resolve_key("ollama_url") or None)
+                  if engine_name == "ollama" else None))
 
     try:
         translated_text = translate_engines.standalone_translate(

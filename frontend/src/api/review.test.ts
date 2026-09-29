@@ -89,9 +89,9 @@ describe('line AI', () => {
     const out = { line_id: 7, current_en: 'Hello', suggestion: 'Hi', changed: true, engine: 'x', model: null }
     await review.improveLine(1, 7, ' softer ', fakeFetch(200, out, calls))
     expect(calls[0].url).toBe('/api/line-ai/dramas/1/lines/7/improve')
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ gemini_free_tier: false, issue: 'softer' })
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ issue: 'softer' })
     await review.explainLine(1, 7, fakeFetch(200, { line_id: 7, explanation: 'e', engine: 'x', model: null }, calls))
     expect(calls[1].url).toBe('/api/line-ai/dramas/1/lines/7/explain')
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ gemini_free_tier: false })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({})
   })
 })

@@ -114,6 +114,12 @@ def get_gemini_free_tier() -> bool:
     return _get_bool_setting("gemini_free_tier")
 
 
+def resolve_gemini_free_tier(value) -> bool:
+    """A request's gemini_free_tier: None (omitted) means the persisted
+    setting; an explicit True/False is kept."""
+    return get_gemini_free_tier() if value is None else bool(value)
+
+
 def get_settings_overview(env_path: str = None) -> dict:
     """Non-secret settings snapshot for the FastAPI settings endpoint."""
     return {

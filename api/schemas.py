@@ -228,8 +228,7 @@ class TranslateRequest(BaseModel):
     source_language: str
     target_language: str
     model: Optional[str] = None
-    free_tier: bool = False
-    base_url: Optional[str] = None
+    free_tier: Optional[bool] = None  # None: the saved Gemini free-tier setting
 
 
 class TranslateResponse(BaseModel):
@@ -1143,7 +1142,7 @@ class TranslateRunStart(BaseModel):
     context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
     batch_size: Optional[int] = Field(None, ge=1, le=200)
     line_ids: Optional[List[int]] = Field(None, max_length=100000)
-    gemini_free_tier: bool = False
+    gemini_free_tier: Optional[bool] = None  # None: the saved setting
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
     fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
     reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
@@ -1367,7 +1366,7 @@ class ReviewJobStart(BaseModel):
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
-    gemini_free_tier: bool = False
+    gemini_free_tier: Optional[bool] = None  # None: the saved setting
 
 
 class EmotionJobStart(ReviewJobStart):
@@ -1507,7 +1506,7 @@ class LineExplainRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
-    gemini_free_tier: bool = False
+    gemini_free_tier: Optional[bool] = None  # None: the saved setting
 
 
 class LineImproveRequest(LineExplainRequest):

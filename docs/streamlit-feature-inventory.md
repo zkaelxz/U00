@@ -150,7 +150,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | X16 | Bulk set pronouns for selected series people | 2752-2768 | `db.upsert_series_character` | MISSING | no API | wt TestBulkGlossaryAndPronounActions |
 | X17 | Add a known series character | 2770-2777 | same | MISSING | no API | — |
 | X18 | Engine and model pickers (Claude/Gemini/Ollama/NLLB) | 2780-2833 | `translate_engines.ENGINES`, `*_MODELS` | `stages/TranslateStage.tsx` | `GET /api/translate-run/.../config`, run `engine`/`model` | wt TestFreeEngineVersionLabelling, TestGemini31FlashLiteInDropdown |
-| X19 | Gemini free tier blocks Pro | 2810-2813, 2834-2836 | `GEMINI_FREE_TIER_UNAVAILABLE_MODELS` | Server side (`translate_run_service.py:138`) | run | wt TestGeminiFreeTierProGating |
+| X19 | Gemini free tier blocks Pro | 2810-2813, 2834-2836 | `GEMINI_FREE_TIER_UNAVAILABLE_MODELS` | Server side (`translate_run_service.py`, review jobs, line AI): an omitted `gemini_free_tier` now falls back to the saved Settings value (`settings_service.resolve_gemini_free_tier`), so Pro is blocked for a free-tier user without the client sending the flag | run | wt TestGeminiFreeTierProGating |
 | X20 | Per-engine API key field (test_offline needs none) | 2838-2854 | `synced_api_key_input` | MISSING (see G06) | `POST /api/settings/keys/{engine}` | — |
 | X21 | Style notes and English variant | 2868-2877 | — | `stages/TranslateStage.tsx` Style note, Locale | run `style_note`, `locale` | — |
 | X22 | Save current settings as a preset | 2879-2892 | `db.save_preset` | MISSING | no API | wt TestPresetsInWorkspaceUI |
@@ -217,7 +217,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R29 | Consistency check job, with a bulk option, and the found issues listed | 4571-4650 | `run_consistency_job`, `db.load_consistency_issues` | PARTIAL `stages/review/ReviewJobsPanel.tsx` starts it; results list MISSING; bulk MISSING | `POST /api/review-jobs/.../consistency`; `GET /api/review/.../consistency` | test_bulk_translate TestBulkConsistency |
 | R30 | Review queue: flag lines for a second look (with bulk option) | 4652-4715 | `run_flag_job` | `stages/review/ReviewJobsPanel.tsx` (bulk MISSING) | `POST /api/review-jobs/.../flag` | test_bulk_translate TestBulkFlag |
 | R31 | Run Auto QC (numbers, dates, names, units) | 4717-4745 | `_run_auto_qc` 779 → `auto_qc.run_auto_qc` | `stages/ExportFlags.tsx` (in Export, not Review) | `POST /api/export/.../flag-auto-qc` | test_auto_qc; test_step20_ux_polish TestAutoQCToastVsWarning |
-| R32 | Fix flagged lines: re-transcribe and re-translate, with the cap | 4747-4845 | `run_fix_flagged_lines_job` | `stages/review/ReviewJobsPanel.tsx`; fixed/total/errors/cap now served as job `result` + `outcome` (branch `api-job-results`) | `POST /api/review-jobs/.../fix-flagged` | wt TestFixFlaggedLinesCapUI; wt fix_flagged job tests |
+| R32 | Fix flagged lines: re-transcribe and re-translate, with the cap | 4747-4845 | `run_fix_flagged_lines_job` | `stages/review/ReviewJobsPanel.tsx` (free tier now from the saved setting when omitted; the per-job cap defaults to none, same as a translate run, and the monthly cap still applies); fixed/total/errors/cap now served as job `result` + `outcome` (branch `api-job-results`) | `POST /api/review-jobs/.../fix-flagged` | wt TestFixFlaggedLinesCapUI; wt fix_flagged job tests |
 | R33 | Emotion detection job (audio cues, bulk option) | 4848-4918 | `run_emotion_job` | PARTIAL `stages/review/ReviewJobsPanel.tsx` (audio-cues toggle and bulk MISSING) | `POST /api/review-jobs/.../emotion` (`use_audio_cues`) | test_emotion_manhua_ui TestDetectEmotionsProgress |
 | R34 | Emotion summary (tagged, high-risk, per emotion) | 4920-4929 | `emotion.emotion_summary` | MISSING | `GET /api/review/dramas/{id}/emotions` | test_emotion_manhua_ui TestEmotionSummary |
 | R35 | SenseVoice tagging from the audio, with a side-by-side table | 4931-4985 | `run_sensevoice_job`, `sensevoice_tags.side_by_side` | MISSING | no API | test_transcription_quality TestSenseVoiceTags |
@@ -310,7 +310,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G04 | Reading experience: spoiler-free, text size, spacing, width, theme, font | 212-235 | — | MISSING (Reader) | no API | test_dark_mode_step68 TestReaderFollowsAppDarkMode |
 | G05 | OCR default backend, prefer PaddleOCR-VL for Japanese, Tesseract path | 237-262 | `ocr.OCR_BACKEND_OPTIONS` | MISSING (per-run Tesseract path only) | no API | test_settings_tab TestOcrDefaultBackendSetting |
 | G06 | API keys and endpoints (Claude, DeepSeek, Gemini, DeepL, Google, Ollama URL, LibreTranslate URL, GPT-SoVITS URL, Groq, HF token), "Save to .env" | 124-135, 292-305, `save_key_to_env` 87 | `synced_api_key_input`, `save_key_to_env` | MISSING (React only shows "configured") | `POST /api/settings/keys/{engine}`, `/clear` (keys only; no URL endpoints) | test_settings_tab TestSaveKeyToEnv, TestApiKeySaveToEnvButton; test_settings_writes |
-| G07 | "My Gemini key is free-tier" | 306-322 | — | `pages/Settings.tsx` | `POST /api/settings` | test_settings_tab TestGeminiFreeTierCheckbox |
+| G07 | "My Gemini key is free-tier" | 306-322 | — | `pages/Settings.tsx`; the saved flag is now applied server-side to every run that omits it (translate run and estimate, review jobs, line AI, `/api/translate`) | `POST /api/settings` | test_settings_tab TestGeminiFreeTierCheckbox |
 | G08 | Defaults for new dramas: engine, English variant, style note, episode-summary engine | 264-290 | — | MISSING | no API | — |
 | G09 | Offline Whisper model folder | 327-334 | — | MISSING | no API | test_local_model_defaults |
 | G10 | Use GPU | 336-342 | — | `pages/Settings.tsx` | `POST /api/settings` | — |
@@ -355,7 +355,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | N03 | API key field | 79-92 | `synced_api_key_input` | MISSING (see G06) | `POST /api/settings/keys/{engine}` | — |
 | N04 | Direction support warning | 94-99 | `standalone_direction_support` | UNK (server raises) | `POST /api/translate` | test_standalone_translate |
 | N05 | Upload a .txt/.md/.epub to translate | 103-112 | `core.load_novel_text_for_context` | MISSING | no API | — |
-| N06 | Translate and Clear | 114-150 | `translate_engines.standalone_translate`, `db.save_translate_history` | `pages/Translate.tsx` | `POST /api/translate` | test_translate_tab |
+| N06 | Translate and Clear | 114-150 | `translate_engines.standalone_translate`, `db.save_translate_history` | `pages/Translate.tsx` (free tier from the saved setting when omitted; Ollama always uses the configured URL, a client `base_url` is no longer accepted) | `POST /api/translate` | test_translate_tab |
 | N07 | Result side by side and "Download .txt" | 152-168 | — | PARTIAL (result shown; download MISSING) | — | — |
 | N08 | History list and Clear (confirm) | 170-193 | `db.list_translate_history`, `clear_translate_history` | PARTIAL (list; clear MISSING) | `GET /api/translate/history`, `DELETE /api/translate/history` | test_db TestTranslateHistory |
 
