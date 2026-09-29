@@ -12,10 +12,16 @@ security-auditor, parity-auditor, bug-investigator, test-author, docs-steward, s
 #352 slices 51+52 (bulk batch list/cancel, media playback with Range, `media.stream`); #351 agents + `/merge-slice`;
 #350 B-04/B-05 job cancel; #349 service invariant tests; #348 React Source details/modes; #347 B-26; #339 step 133 auth.
 
-**Still in flight in the OLD session** (it finishes and merges these; don't start duplicates, and check `git log origin/baihe-subtitler` and the open PRs before touching these areas):
-- merge-integrator landing, in order: `library-admin-service`, `reader-service`, `transcribe-autotune-glossary-service`, `fix-b27-retry-engine` (B-27: a line-scoped retry no longer overwrites the drama's engine), then one full parallel suite run.
-- `api-routes-batch-1` (one writer of `api/`): API startup hook, `GET /api/workflow/dramas/{id}/progress`, Live routes, Discover D-2, Sources S-3, Diagnostics gaps routes. Pushed without a PR, for review and merge.
-- Read-only audits, reports in the old session's scratchpad (their findings are summarized to the user, not committed): whole-system security audit (required before household access) and parity audit (before Streamlit deletions).
+**The OLD session is STOPPED (user request, 2026-09-29 ~07:15). Nothing is running there any more, so the new session owns everything below:**
+- Merged by the old session after this note was first written: #356 library admin service and #357 step 141 note.
+- Pushed but NOT merged. Land them with `/merge-slice`, in this order:
+  1. `reader-service`
+  2. `transcribe-autotune-glossary-service`
+  3. `fix-b27-retry-engine`. This one conflicts in `tests/test_service_invariants.py`: keep the fix branch's `TestRetryOnDifferentEngineInvariants` (no xfail, module-level `_OllamaResp`, 2 tests) and drop the `xfail(strict)` copy that came from #353. Then mark B-27 fixed in `docs/baihe-roadmap-master.md`.
+
+  Their reports and doubts are in the old session's transcript: reader permission contract, auto-tune value saved to the drama, glossary overwrite guard.
+- `api-routes-batch-1`: 4 finished commits (startup hook; workflow progress; Live L-1; Discover D-2), plus one WIP commit (Sources S-3 search routes; untested, not reviewed). Diagnostics gaps routes were not started. Finish S-3 and Diagnostics, run the full suite, have security-reviewer look at it, then merge.
+- The security audit and the parity audit were stopped before reporting. Rerun both with the security-auditor and parity-auditor agents.
 
 **Next queue for the new session:**
 1. Once the old session's items are merged: route batch 2 over the new services: library admin (bulk delete, restore and storage clean are `local_only`; downloads of backups and exports are `local_only`), Reader (the permission contract is in the reader-service merge PR), auto-tune and glossary-from-novel (`jobs.start`, plus `engines.paid` when the engine is paid).
