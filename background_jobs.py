@@ -221,34 +221,11 @@ def _other_gpu_job_running_locked(exclude_job_id):
     return None
 
 
-def gpu_busy_description():
-    """The description of whichever GPU-touching job is currently running,
-    for a "Waiting -- GPU busy with <this>" message. None if the GPU is free.
-    Step 25w: also checks the cross-process lock (see _gpu_slot_available_locked)
-    so this can name a `cli.py` run holding the GPU, not just another job in
-    this same process. Step 26d: falls back to a generic name when neither of
-    those explains it but the GPU is still loaded per nvidia-smi -- some
-    other application entirely (Jellyfin transcoding on the same card, say)."""
-    with _lock:
-        jid = _other_gpu_job_running_locked(None)
-        if jid is not None:
-            return _jobs[jid].get("description") or jid
-    try:
-        import db
-        _, description = db.gpu_lock_status()
-        if description:
-            return description
-    except Exception:
-        # Best-effort only, same as _gpu_slot_available_locked below -- an
-        # unreachable library DB shouldn't break this status message.
-        pass
-    try:
-        import diagnostics
-        if diagnostics.external_gpu_is_busy():
-            return "another application"
-    except Exception:
-        pass
-    return None
+# A queued job's message never names the job holding the GPU (auth B2,
+# review M-1): anyone who can see the waiting job reads its message, and
+# the busy job may be another user's private drama. Also what job_records
+# mirrors, so the persisted row doesn't carry it either.
+GPU_WAIT_MESSAGE = "Waiting for the GPU (another job is running)"
 
 
 def _gpu_slot_available_locked(job_id, description):
@@ -494,8 +471,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     When the "limit to one GPU job at a time" setting is on and another
     gpu_touching job is already running (any job_id, any drama), this one
     is queued instead of started -- see _promote_next_queued_gpu_job().
-    description is a short human label for the "GPU busy with <this>"
-    message; defaults to job_id if not given.
+    description is a short human label for the job itself (never shown
+    in another job's queued message; see GPU_WAIT_MESSAGE).
 
     The job records who started it (auth B2): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
@@ -511,7 +488,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if gpu_touching and get_gpu_limit_enabled() and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
-                "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
+                "message": GPU_WAIT_MESSAGE,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False, "result": None,
                 "gpu_touching": True, "description": description, "kind": "thread",
@@ -581,7 +558,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         if gpu_touching and get_gpu_limit_enabled() and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
-                "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
+                "message": GPU_WAIT_MESSAGE,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False, "result": None,
                 "gpu_touching": True, "description": description, "kind": "process",

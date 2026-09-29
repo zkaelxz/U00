@@ -365,6 +365,46 @@ class TestJobs:
         background_jobs.start_job("zz_owner_probe2", lambda: None)
         assert background_jobs.get_status("zz_owner_probe2")["owner_user_id"] is None
 
+    def test_queued_gpu_message_does_not_name_another_users_job(self, world):
+        # Review M-1: B's queued job must not reveal A's private drama title.
+        import threading
+        import background_jobs
+        from api.auth import require_permission
+        app = _app()
+        release, started = threading.Event(), threading.Event()
+        a_job, b_job = f"transcribe_{world['private']}", f"transcribe_{world['shared']}"
+
+        @app.post("/api/zz-gpu/{who}", dependencies=[require_permission("jobs.start")])
+        def start(who: str):
+            if who == "a":
+                background_jobs.start_job(a_job, lambda: (started.set(), release.wait(5)),
+                                          gpu_touching=True,
+                                          description="Ollama translation (A private)")
+            else:
+                background_jobs.start_job(b_job, lambda: None, gpu_touching=True,
+                                          description="Ollama translation (A shared)")
+            return {}
+        background_jobs.set_gpu_limit_enabled(True)
+        client = _client(app)
+        try:
+            assert client.post("/api/zz-gpu/a", headers=world["a"]).status_code == 200
+            assert started.wait(5)
+            assert client.post("/api/zz-gpu/b", headers=world["b"]).status_code == 200
+            r = client.get(f"/api/jobs/{b_job}", headers=world["b"])
+            assert r.status_code == 200, r.text
+            assert r.json()["status"] == "queued"
+            assert "A private" not in r.text and a_job not in r.text
+            assert "A private" not in (db.get_job_record(b_job)["message"] or "")
+        finally:
+            release.set()
+            for jid in (a_job, b_job):
+                for _ in range(100):
+                    st = background_jobs.get_status(jid)
+                    if not st or st["status"] not in ("queued", "running"):
+                        break
+                    threading.Event().wait(0.05)
+                background_jobs.clear_job(jid)
+
     @pytest.fixture
     def jobs(self, world):
         w = world
