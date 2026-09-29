@@ -160,7 +160,7 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (14 sites)
+│   └── adapters/                  one file per supported site (15 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
@@ -255,6 +255,9 @@ baihe-subtitler/
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
+│   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│   │                             attempts, settings, profiles, tracked, notifications) and config
+│   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
@@ -326,6 +329,7 @@ baihe-subtitler/
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
+│       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)

@@ -1519,3 +1519,147 @@ class LineExplanation(BaseModel):
     explanation: str
     engine: str
     model: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Sources registry and status (Migration Slice 56, S-1). Read-only; S-2 adds
+# the write request models below. No proxy URL, path or query string is ever
+# part of these shapes.
+# ---------------------------------------------------------------------------
+
+class SourceSupports(BaseModel):
+    search: bool
+    get_series: bool
+    get_chapters: bool
+    get_pages: bool
+    download_page: bool
+    get_chapter_text: bool
+    get_audio_url: bool
+    login: bool
+
+
+class SourceSummary(BaseModel):
+    name: str
+    display_name: str
+    content_types: List[str]
+    languages: List[str]
+    supports: SourceSupports
+    import_supported: bool
+    auth_supported: bool
+    supports_adult_toggle: bool
+    enabled: bool
+    adult_enabled: bool
+    health: str = Field(description="green, yellow or red.")
+    has_saved_signin: bool
+
+
+class SourceHealth(BaseModel):
+    light: str
+    consecutive_failures: int
+    last_success: Optional[float] = None
+    last_failure: Optional[float] = None
+    last_error_type: Optional[str] = None
+    last_error: Optional[str] = None
+    last_latency: Optional[float] = None
+    unavailable_until: Optional[float] = None
+    retry_after: Optional[float] = None
+
+
+class SourceTierResult(BaseModel):
+    tested: bool
+    ok: bool
+    reason: Optional[str] = None
+    detail: Optional[str] = None
+    at: Optional[float] = None
+
+
+class SourceDetail(SourceSummary):
+    status: str
+    technical_status: str
+    access_method: Optional[str] = None
+    content_access_status: str
+    authentication_required: str
+    purchase_required: str
+    technical_protection: str
+    automation_permission: str
+    ai_ml_use: str
+    tiers: Dict[str, SourceTierResult]
+    technical: Dict[str, Any]
+    terms: Dict[str, Any] = Field(description="Recorded findings, information only. "
+                                  "Enforcement is off: never read this as permitted.")
+    terms_enforced: bool
+    health_detail: SourceHealth
+
+
+class SourceAttempt(BaseModel):
+    url: str = Field(description="scheme+host+path only.")
+    created_at: Optional[float] = None
+    tier: Optional[str] = None
+    test_now: bool = False
+    ok: Optional[bool] = None
+    technical_status: Optional[str] = None
+    capability_status: Optional[str] = None
+    reasons: List[str] = []
+    lines: List[str] = []
+    handoff: Optional[Dict[str, Any]] = None
+
+
+class SourceCacheStats(BaseModel):
+    entries: int
+    bytes: int
+
+
+class SourcesSettings(BaseModel):
+    pace_min_delay: float
+    pace_max_delay: float
+    max_concurrent: int
+    max_retries: int
+    session_break_min_requests: int
+    session_break_max_requests: int
+    session_break_min_delay: float
+    session_break_max_delay: float
+    cache_mode: str
+    check_interval_hours: int
+    auto_queue_new_chapters: bool
+    demo_source_enabled: bool
+    extraction_diagnostics: bool
+    proxy_configured: bool = Field(description="Whether a proxy is set. The URL is never returned.")
+    cache_modes: List[str]
+    cache: SourceCacheStats
+
+
+class SourceProfileVersion(BaseModel):
+    version: Optional[int] = None
+    kind: Optional[str] = None
+    status: Optional[str] = None
+    origin: Optional[str] = None
+    created_at: Optional[float] = None
+    approved: bool = False
+    failures: int = 0
+    last_failure_reason: Optional[str] = None
+    last_used: Optional[float] = None
+
+
+class SourceProfileDomain(BaseModel):
+    domain: str
+    versions: List[SourceProfileVersion]
+
+
+class TrackedSeries(BaseModel):
+    source: str
+    series_id: str
+    title: str
+    url: str
+    drama_id: Optional[int] = None
+    last_checked: Optional[float] = None
+    last_check_error: Optional[str] = None
+
+
+class SourceNotification(BaseModel):
+    id: int
+    source: str
+    series_id: str
+    chapter_id: str
+    title: Optional[str] = None
+    created_at: float
+    dismissed: bool

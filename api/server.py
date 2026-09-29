@@ -48,6 +48,7 @@ from api.routers import (
     review_records_routes,
     settings_routes,
     source_routes,
+    sources_catalog_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
@@ -108,6 +109,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(review_jobs_routes.router)
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
+    app.include_router(sources_catalog_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app
