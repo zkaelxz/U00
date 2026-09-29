@@ -29,14 +29,19 @@ Streamlit (`apply_preset_to_session`), so create_drama returns them as
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
 
+import logging
 import os
+import shutil
 import time
+import uuid
 
 import background_jobs
 import db
 from services import library_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
+
+log = logging.getLogger(__name__)
 
 _SOURCE_LANGUAGES = ("zh", "ja", "ko")
 # Copied from tabs/workspace_tab.py's MEDIA_TYPE_OPTIONS (a tab constant, so
@@ -229,22 +234,50 @@ def _job_running_for_drama(drama_id) -> bool:
     return False
 
 
-def _hard_delete_drama(drama_id):
+def _hard_delete_drama(drama_id) -> bool:
     """The single place a drama is actually removed, so roadmap Step 43's
-    soft-delete can replace just this function. Hard delete today:
-    db.delete_drama drops the DB row FIRST (FK cascade), THEN rmtree's the
-    folder (including non-regenerable voice_refs/). If the rmtree fails
-    part-way (e.g. a Windows in-use file) the row is already gone and an
-    orphan folder stays on disk -- db.py is not changed here."""
+    soft-delete can replace just this function. Order (B-14): rename the
+    drama folder to a tombstone name, drop the DB row (db.delete_drama's own
+    rmtree then finds nothing), then rmtree the tombstone. If the DB delete
+    fails the folder name is restored, so nothing is half-deleted. If the
+    final folder removal fails the row is already gone; that is logged (with
+    the path, server-side only) and reported as a warning, not an error.
+    Returns True when a leftover folder could not be removed."""
+    folder = os.path.join(db.DRAMAS_DIR, str(drama_id))
+    tomb = None
+    if os.path.isdir(folder):
+        tomb = f"{folder}.deleting-{uuid.uuid4().hex[:8]}"
+        try:
+            os.rename(folder, tomb)
+        except OSError as e:
+            # Nothing changed yet (row and folder intact); no paths in the message.
+            raise ServiceError("The drama's files are in use, so it was not deleted. "
+                               "Close anything using them and try again.") from e
     try:
         db.delete_drama(drama_id)
-    except OSError as e:
-        # Row already removed; no paths in the message.
-        raise ServiceError(_LEFTOVER_FILES_MESSAGE) from e
+    except Exception as e:
+        if tomb is not None:
+            try:
+                os.rename(tomb, folder)
+            except OSError:
+                log.exception("Could not restore drama folder %s after a failed delete", folder)
+        raise ServiceError("The drama could not be deleted.") from e
     if db.get_drama(drama_id) is not None:
+        if tomb is not None:
+            try:
+                os.rename(tomb, folder)
+            except OSError:
+                log.exception("Could not restore drama folder %s after a failed delete", folder)
         raise ServiceError("The drama could not be deleted.")
-    if os.path.isdir(os.path.join(db.DRAMAS_DIR, str(drama_id))):
-        raise ServiceError(_LEFTOVER_FILES_MESSAGE)
+    if tomb is None:
+        return False
+    try:
+        shutil.rmtree(tomb)
+    except OSError:
+        log.exception("Drama %s deleted but leftover folder %s could not be removed",
+                      drama_id, tomb)
+        return True
+    return False
 
 
 def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
@@ -253,7 +286,8 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     InvalidInputError unless `confirm is True` and `confirm_text` is
     exactly "DELETE" (the tab's checkbox + typed word); then ConflictError
     if a job is running for the drama. Returns {"deleted": True,
-    "drama_id": id}."""
+    "drama_id": id}, plus a non-secret "warning" when the row is gone but
+    leftover files could not be removed."""
     library_service.get_library_drama(drama_id)  # id check + existence
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
         raise InvalidInputError("Deleting a drama needs confirm=true and confirm_text set to "
@@ -261,5 +295,8 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     if _job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this drama -- wait for it "
                             "to finish or cancel it before deleting.")
-    _hard_delete_drama(drama_id)
-    return {"deleted": True, "drama_id": drama_id}
+    leftover = _hard_delete_drama(drama_id)
+    result = {"deleted": True, "drama_id": drama_id}
+    if leftover:
+        result["warning"] = _LEFTOVER_FILES_MESSAGE
+    return result

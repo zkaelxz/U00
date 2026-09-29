@@ -158,3 +158,15 @@ class TestClearHistory:
         assert db.list_translate_history() == []
         result = translate_service.clear_history(confirm=True)
         assert result == {"cleared": True}
+
+
+def test_list_engines_gemini_label_reflects_free_tier_setting(isolated_db, tmp_path):
+    from services import settings_service
+    env_path = str(tmp_path / ".env")
+
+    def label():
+        return {e["name"]: e["label"]
+                for e in translate_service.list_engines(env_path)}["gemini"]
+    assert label() == translate_engines.ENGINE_NOTES["gemini"]
+    settings_service.set_settings({"gemini_free_tier": True}, env_path)
+    assert label() == translate_engines.GEMINI_FREE_TIER_NOTE

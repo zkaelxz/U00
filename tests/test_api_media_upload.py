@@ -120,3 +120,20 @@ def test_missing_file_field_422(client, isolated_db):
     import db
     did = db.create_drama(title_en="D")
     assert client.post(f"/api/media/dramas/{did}/upload").status_code == 422
+
+
+def test_upload_rejected_for_novel_narration_drama(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="N")
+    db.update_drama(did, content_mode="novel_narration")
+    r = _up(client, did)
+    assert r.status_code == 422
+    assert not any(n.startswith("source") for n in os.listdir(db.drama_dir(did)))
+    assert db.get_drama(did)["audio_filename"] in (None, "")
+
+
+def test_upload_allowed_for_streamer_vod(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="V")
+    db.update_drama(did, content_mode="streamer_vod")
+    assert _up(client, did).status_code == 200

@@ -38,7 +38,7 @@ def post_drama_metadata(payload: DramaMetadataUpdate, drama_id: int = Path(ge=1)
         drama_id, **payload.model_dump(exclude_unset=True)))
 
 
-@router.delete("/{drama_id}", response_model=DramaDeleteResult,
+@router.delete("/{drama_id}", response_model=DramaDeleteResult, response_model_exclude_none=True,
                summary="Permanently delete a drama (requires confirm=true and confirm_text=DELETE)",
                responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                           422: {"model": ErrorResponse}})
