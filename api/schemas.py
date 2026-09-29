@@ -2721,11 +2721,11 @@ class TranslationVersionActivateResult(BaseModel):
 
 
 class BlockedRetryRequest(BaseModel):
-    """Retry one content-blocked line. No keys/URLs; the key is resolved on the PC."""
+    """Retry one content-blocked line. Only the engine name: the key, the
+    model (the engine's default) and Gemini free tier come from the PC's
+    saved settings, so no model id or path can be passed through."""
     model_config = ConfigDict(extra="forbid")
     engine: str = Field("ollama", min_length=1, max_length=40)
-    model: Optional[str] = Field(None, max_length=200)
-    gemini_free_tier: Optional[bool] = None  # None: the saved setting
 
 
 class BlockedRetryResult(BaseModel):

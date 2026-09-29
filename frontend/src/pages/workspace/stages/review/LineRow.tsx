@@ -8,7 +8,7 @@ import type { ReviewLine } from '../../../../types/review'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi, type AiMode } from './LineAi'
 import { LineOrigin } from './LineOrigin'
-import { CONFLICT_MESSAGE, formatTime, JOB_RUNNING_MESSAGE, type LineDraft } from './reviewLogic'
+import { buildPatch, CONFLICT_MESSAGE, formatTime, JOB_RUNNING_MESSAGE, type LineDraft } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface NoteDraft {
@@ -51,6 +51,7 @@ export interface RowActions {
   setAi: (id: number, mode: AiMode | null) => void
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
+  applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
   clearIssue: () => void
   reload: () => void
@@ -274,7 +275,13 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             </button>
           </div>
           {line.flag === BLOCKED_FLAG && (
-            <BlockedRetry dramaId={dramaId} lineId={line.id} onRetried={actions.reload} />
+            <BlockedRetry
+              dramaId={dramaId}
+              lineId={line.id}
+              dirty={buildPatch(edit.base, draft) !== null}
+              jobRunning={jobRunning}
+              onApplied={actions.applyLine}
+            />
           )}
           <LineOrigin dramaId={dramaId} lineId={line.id} />
         </div>
@@ -329,9 +336,17 @@ const RETRY_DEFAULT_ENGINE = 'ollama'
 
 // A line an engine's content filter refused: retry just this line with
 // another engine (default Ollama, local, no cloud moderation). The drama's
-// own engine is unchanged. Success reloads the lines (the flag clears); a
-// second block keeps the flag and shows that engine's reason here.
-function BlockedRetry({ dramaId, lineId, onRetried }: { dramaId: number; lineId: number; onRetried: () => void }) {
+// own engine is unchanged. The server's saved line is applied in place: on
+// success the flag clears and the (clean) edit closes; a second block keeps
+// the flag, updates its note and shows that engine's reason here. Retry is
+// off while the edit has unsaved changes or a job runs on the drama.
+function BlockedRetry({ dramaId, lineId, dirty, jobRunning, onApplied }: {
+  dramaId: number
+  lineId: number
+  dirty: boolean
+  jobRunning: boolean
+  onApplied: (saved: ReviewLine, closeEdit: boolean) => void
+}) {
   const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
   const [engine, setEngine] = useState(RETRY_DEFAULT_ENGINE)
   const [busy, setBusy] = useState(false)
@@ -360,14 +375,19 @@ function BlockedRetry({ dramaId, lineId, onRetried }: { dramaId: number; lineId:
     retryBlockedLine(dramaId, lineId, engine)
       .then(
         (r) => {
-          if (r.retried) onRetried()
-          else setBlockedAgain(`${r.engine} also blocked this line${r.reason ? `: ${r.reason}` : '.'}`)
+          if (r.retried) {
+            onApplied(r.line, true)
+            return
+          }
+          setBlockedAgain(r.reason ? `${r.engine} also blocked this line: ${r.reason}` : `${r.engine} also blocked this line.`)
+          onApplied(r.line, false)
         },
         setError,
       )
       .finally(() => setBusy(false))
   }
 
+  const reason = dirty ? 'Save or discard your edit first.' : jobRunning ? JOB_RUNNING_MESSAGE : null
   const options = engines && engines.length > 0 ? engines : [{ name: RETRY_DEFAULT_ENGINE, label: RETRY_DEFAULT_ENGINE, free: true }]
   return (
     <div className="review-retry" data-testid="blocked-retry">
@@ -381,9 +401,10 @@ function BlockedRetry({ dramaId, lineId, onRetried }: { dramaId: number; lineId:
             </option>
           ))}
         </select>
-        <button type="button" disabled={busy} aria-busy={busy || undefined} onClick={retry}>
+        <button type="button" disabled={busy || reason !== null} aria-busy={busy || undefined} onClick={retry}>
           {busy ? 'Retrying…' : 'Retry line'}
         </button>
+        {reason && <span className="muted review-reason" data-testid="retry-reason">{reason}</span>}
       </div>
       {blockedAgain && (
         <p className="error" role="status" data-testid="blocked-again">

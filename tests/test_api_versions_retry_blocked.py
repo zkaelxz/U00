@@ -18,6 +18,7 @@ import background_jobs
 import db
 import translate_engines
 from api import auth as api_auth
+from api import llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -228,10 +229,42 @@ class TestRetryService:
         _use_engine(monkeypatch, FakeEngine(block))
         out = blocked_retry_service.retry_blocked_line(did, ids[1], "gemini")
         assert out["retried"] is False and out["blocked"] is True
-        assert FAKE_KEY not in out["reason"] and out["reason"].startswith("gemini: SAFETY")
+        assert FAKE_KEY not in out["reason"] and out["reason"].startswith("SAFETY")
         row = next(r for r in db.load_lines(did) if r["id"] == ids[1])
         assert row["flag"] == "content_blocked" and row["en"] == ""
-        assert row["flag_note"] == out["reason"]
+        assert row["flag_note"] == "gemini: " + out["reason"]
+
+    def test_uses_saved_free_tier_and_default_model(self, isolated_db, monkeypatch):
+        did, ids = _blocked()
+        monkeypatch.setattr(blocked_retry_service.settings_service, "get_gemini_free_tier",
+                            lambda: True)
+        seen = _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
+        blocked_retry_service.retry_blocked_line(did, ids[1], "gemini")
+        assert seen["model"] is None and seen["free_tier"] is True
+
+    def test_flag_changed_during_call_is_409(self, isolated_db, monkeypatch):
+        did, ids = _blocked()
+
+        def dismiss_meanwhile(zh, ctx):
+            db.update_line_fields_if(did, ids[1], {"flag": None, "flag_note": ""}, {})
+            raise translate_engines.ContentModerationBlocked("gemini", "SAFETY")
+        _use_engine(monkeypatch, FakeEngine(dismiss_meanwhile))
+        with pytest.raises(ConflictError):
+            blocked_retry_service.retry_blocked_line(did, ids[1], "gemini")
+        row = next(r for r in db.load_lines(did) if r["id"] == ids[1])
+        assert row["flag"] is None and row["flag_note"] == ""
+
+    def test_409_while_translate_job_runs_before_engine_built(self, isolated_db, monkeypatch):
+        did, ids = _blocked()
+        built = []
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
+        gate = _hold_job(f"translate_{did}")
+        try:
+            with pytest.raises(ConflictError):
+                blocked_retry_service.retry_blocked_line(did, ids[1], "test_offline")
+        finally:
+            gate.set()
+        assert built == []
 
     @pytest.mark.parametrize("answer", [[], ["a", "b"], [""], None])
     def test_wrong_shaped_answer_writes_nothing(self, isolated_db, monkeypatch, answer):
@@ -299,6 +332,64 @@ class TestRetryApi:
                            json={"engine": "claude", "api_key": FAKE_KEY}).status_code == 422
         assert client.post(_retry(did, ids[1]), json={"engine": ""}).status_code == 422
 
+    def test_model_and_free_tier_fields_refused(self, client):
+        did, ids = _blocked()
+        r = client.post(_retry(did, ids[1]), json={"engine": "nllb", "model": "x/y"})
+        assert r.status_code == 422
+        r = client.post(_retry(did, ids[1]), json={"engine": "ollama", "gemini_free_tier": True})
+        assert r.status_code == 422
+
+    def test_busy_is_429(self, client, monkeypatch):
+        did, ids = _blocked()
+        _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Goodbye"]))
+        llm_slots._ACTIVE_CALLERS.add("local")
+        try:
+            r = client.post(_retry(did, ids[1]), json={"engine": "claude"})
+            assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limited"
+        finally:
+            llm_slots._ACTIVE_CALLERS.discard("local")
+        got = [llm_slots._SLOTS.acquire(blocking=False) for _ in range(llm_slots.LLM_MAX_IN_FLIGHT)]
+        try:
+            assert all(got)
+            assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 429
+        finally:
+            for ok in got:
+                if ok:
+                    llm_slots._SLOTS.release()
+        row = next(x for x in db.load_lines(did) if x["id"] == ids[1])
+        assert row["flag"] == "content_blocked"
+        assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 200
+
+    def test_concurrent_retry_is_429(self, client, monkeypatch):
+        did, ids = _blocked()
+        started, release = threading.Event(), threading.Event()
+
+        def slow(zh, ctx):
+            started.set()
+            release.wait(5)
+            return ["Goodbye"]
+        _use_engine(monkeypatch, FakeEngine(slow))
+        out = {}
+        t = threading.Thread(target=lambda: out.update(
+            r=client.post(_retry(did, ids[1]), json={"engine": "claude"})))
+        t.start()
+        try:
+            assert started.wait(5)
+            assert client.post(_retry(did, ids[1]), json={"engine": "claude"}).status_code == 429
+        finally:
+            release.set()
+            t.join(10)
+        assert out["r"].status_code == 200
+
+    def test_409_while_translate_job_runs(self, client):
+        did, ids = _blocked()
+        gate = _hold_job(f"translate_{did}")
+        try:
+            r = client.post(_retry(did, ids[1]), json={"engine": "test_offline"})
+            assert r.status_code == 409
+        finally:
+            gate.set()
+
     def test_missing_key_503(self, client, monkeypatch):
         did, ids = _blocked()
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: None)
@@ -312,7 +403,8 @@ class TestRetryApi:
         _use_engine(monkeypatch, FakeEngine(boom))
         r = client.post(_retry(did, ids[1]), json={"engine": "claude"})
         assert r.status_code == 500
-        assert FAKE_KEY not in r.text
+        assert r.json()["error"]["message"] == "The engine call failed."
+        _no_leak(r, "401 bad key")
         row = next(x for x in db.load_lines(did) if x["id"] == ids[1])
         assert row["flag"] == "content_blocked"
 
@@ -367,6 +459,11 @@ class TestPermissions:
                            headers=_h(household)).status_code == 403
         assert remote.post(url, json={"engine": "gemini"},
                            headers=_h(household)).status_code == 403
+        # the free-tier flag is not a way around the paid-engine check
+        assert remote.post(url, json={"engine": "gemini", "gemini_free_tier": True},
+                           headers=_h(household)).status_code == 403
+        assert remote.post(url, json={"engine": "nllb", "model": "x/y"},
+                           headers=_h(household)).status_code == 422
         r = remote.post(url, json={"engine": "ollama"}, headers=_h(household))
         assert r.status_code == 200 and r.json()["retried"] is True
 

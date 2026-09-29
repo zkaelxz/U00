@@ -43,10 +43,10 @@ describe('retry a content-blocked line (R10)', () => {
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ engine: 'ollama' })
   })
   it('passes a blocked-again result through', async () => {
-    const out = { drama_id: 1, line_id: 7, engine: 'gemini', model: null, retried: false, blocked: true, reason: 'gemini: SAFETY', line: {} }
+    const out = { drama_id: 1, line_id: 7, engine: 'gemini', model: null, retried: false, blocked: true, reason: 'SAFETY', line: {} }
     const r = await review.retryBlockedLine(1, 7, 'gemini', fakeFetch(200, out))
     expect(r.blocked).toBe(true)
-    expect(r.reason).toBe('gemini: SAFETY')
+    expect(r.reason).toBe('SAFETY')
   })
   it('surfaces a 403 (paid engine not allowed) as ApiError', async () => {
     const err = await review

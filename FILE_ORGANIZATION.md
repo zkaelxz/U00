@@ -318,6 +318,8 @@ baihe-subtitler/
 │   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
 │   │                             LoopbackOnlyGate (auth off: direct loopback requests only),
 │   │                             LocalOnlyCrossSiteGate (local_only routes refuse cross-site requests; #372)
+│   ├── llm_slots.py              shared cap for synchronous LLM/ffmpeg work in a request (2 server-wide,
+│   │                             1 per caller, 429 when busy): Reader LLM routes and the blocked-line retry
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/

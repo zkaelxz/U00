@@ -223,6 +223,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
                   <ConfirmButton
                     name={v.label ?? `Version ${v.id}`}
                     label="Use this version…"
+                    verb="use"
+                    tone="primary"
                     confirmLabel={`Confirm: replace the English with ${v.label ?? `Version ${v.id}`}`}
                     busy={activating === v.id}
                     disabled={jobRunning || (activating !== null && activating !== v.id)}
