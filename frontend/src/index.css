@@ -473,7 +473,8 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   font-weight: var(--weight-medium);
   line-height: 1.5;
   white-space: nowrap;
-  color: var(--muted);
+  /* A touch darker than --muted: plain --muted on this tint is ~4.1:1 in the light theme; this is >= 5:1 in both. */
+  color: color-mix(in srgb, var(--muted) 80%, var(--text));
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 .pill-accent { color: var(--accent-text); background: var(--accent-soft); }
