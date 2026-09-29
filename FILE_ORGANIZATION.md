@@ -264,9 +264,12 @@ baihe-subtitler/
 │   │                             (synchronous, read-only suggestions; id-addressed)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
-│   └── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
-│                                 preview + apply job, version-history restore (snapshot first,
-│                                 expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
+│   │                             preview + apply job, version-history restore (snapshot first,
+│   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│                                 attempts, settings, profiles, tracked, notifications) and config
+│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -332,8 +335,9 @@ baihe-subtitler/
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
-│       └── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
-│                                 lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
+│       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       └── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
