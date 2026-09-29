@@ -385,6 +385,31 @@ class TestRetryOnDifferentEngineInvariants:
         assert job["status"] == "done", job
         assert db.get_drama(did)["translation_engine"] == "ollama"
 
+    def test_line_scoped_run_keeps_errors_record_and_active_version(self, monkeypatch):
+        from services import translate_run_service, translate_service
+        did = db.create_drama(title_en="E", media_type="audio_drama", content_mode="audio_drama",
+                              status="translated", translation_engine="gemini",
+                              source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="敏感内容", en="",
+                                 flag="content_blocked", flag_note="gemini: SAFETY"),
+                            Line(idx=1, start=1, end=2, zh="别的", en="Other")])
+        lines = db.load_line_objects(did)
+        db.save_translation_version(did, lines, label="gemini · natural", engine="gemini",
+                                    model="m", make_active=True)
+        errors = '["line 1: blocked", "line 7: timeout"]'
+        db.update_drama(did, last_translate_errors=errors)
+        before = db.list_translation_versions(did)
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **k: "k")
+        monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
+        monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
+        out = translate_run_service.start_translate_run(did, engine_name="ollama",
+                                                        line_ids=[lines[0].id])
+        job = _wait(out["job_id"])
+        assert job["status"] == "done", job
+        assert db.load_line_objects(did)[0].en == "Retried."
+        assert db.get_drama(did)["last_translate_errors"] == errors
+        assert db.list_translation_versions(did) == before
+
 
 # ---------------------------------------------------------------------------
 # From TestBulkExportClampsOverlappingCues (no bulk export in services; the
