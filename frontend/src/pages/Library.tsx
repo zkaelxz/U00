@@ -33,7 +33,7 @@ import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/l
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import type { DramaCreateRequest, LibraryDashboard } from '../types/library'
 import {
-  MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
+  MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
 import { savePresetStart } from './workspace/translateForm'
@@ -376,7 +376,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   const form: DramaCreateRequest = draft?.form ?? {
     source_language: SOURCE_LANGUAGES.includes(lastLanguage) ? lastLanguage : 'zh',
     media_type: MEDIA_TYPES.includes(lastType) ? lastType : 'audio_drama',
-    title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '',
+    title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '', summary: '',
   }
   const extras = draft?.extras ?? NO_EXTRAS
   const setForm = (next: DramaCreateRequest) => onDraft({ form: next, extras })
@@ -428,7 +428,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           </select>
         </Field>
       </div>
-      <Section title="Credits, series and preset" summary="Author, studio, director, voice actors, series, preset">
+      <Section title="Credits, summary, series and preset" summary="Author, studio, director, voice actors, summary, series, preset">
         <div className="field-row">
           <Field label="Author">
             <input value={form.author} onChange={set('author')} />
@@ -445,6 +445,9 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
             <input value={form.voice_actors} onChange={set('voice_actors')} />
           </Field>
         </div>
+        <Field label="Summary" help="A short synopsis. You can edit it later in the workspace.">
+          <textarea rows={3} maxLength={MAX_SUMMARY_LEN} value={form.summary ?? ''} onChange={set('summary')} />
+        </Field>
         <div className="field-row">
           <Field label="Series" help="Dramas in one series share characters and glossary.">
             <select value={extras.series} onChange={setExtra('series')}>
