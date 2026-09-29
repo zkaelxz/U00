@@ -15,7 +15,9 @@ and bulk=True (Step 9/9d's Claude/Gemini batch APIs, DeepSeek off-peak, and
 bulk Reflect) to the same start, plus resume_bulk_translations().
 
 Parity X02/X22 add apply_workflow_tier() and save_translate_preset() (the
-tab's "Apply tier" and "Save as preset" buttons).
+tab's "Apply tier" and "Save as preset" buttons); parity X03 adds
+apply_translate_preset() ("Apply a preset" on an existing drama), and the
+config's style presets carry their guidance text (X04).
 
 Out of scope here: glossary review, preset rename/delete and characters CRUD.
 
@@ -109,7 +111,7 @@ def get_translate_config(drama_id: int) -> dict:
         "drama_id": drama_id,
         "translation_engine": drama.get("translation_engine") or settings_service.get_default_engine(),
         "engines": translate_service.list_engines(),
-        "style_presets": [{"key": k, "label": v["label"]}
+        "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
                           for k, v in translation_guide.STYLE_PRESETS.items()],
         "default_style_preset": "novel" if is_novel else "audio_drama",
         "locales": list(LOCALES),
@@ -654,6 +656,37 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
     return {"drama_id": drama_id, "tier": tier, "label": t["label"],
             "translation_engine": t["translation_engine"], "engine_model": t["engine_model"],
             "reflect": bool(t["reflect"]), "auto_qc": bool(t["auto_qc"])}
+
+
+def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
+    """tabs/workspace_tab.py "Apply a preset" on an existing drama (parity
+    X03): the preset's engine (if it saved one) goes onto the drama row,
+    the one field with a per-drama DB home; style, locale, the two toggles
+    and the model are returned for the client's form, as Streamlit's
+    apply_preset_to_session put them in session_state. Starts nothing.
+    Raises NotFoundError (unknown drama or preset)."""
+    _require_drama(drama_id)
+    preset = next((p for p in db.list_presets() if p["id"] == preset_id), None)
+    if preset is None:
+        raise NotFoundError(f"No preset with id {preset_id}.")
+    engine = preset.get("translation_engine")
+    if engine not in translate_engines.ENGINES:
+        engine = None   # an engine this build no longer has: leave the drama's own
+    if engine:
+        db.update_drama(drama_id, translation_engine=engine)
+    style = preset.get("style_preset")
+    locale = preset.get("locale")
+    pronouns = preset.get("default_female_pronouns")
+    genre = preset.get("include_genre_notes")
+    return {
+        "drama_id": drama_id, "preset_id": preset["id"], "name": preset["name"],
+        "translation_engine": engine,
+        "engine_model": (preset.get("engine_model") or None) if engine else None,
+        "style_preset": style if style in translation_guide.STYLE_PRESETS else None,
+        "locale": locale if locale in LOCALES else None,
+        "default_female_pronouns": bool(pronouns),
+        "include_genre_notes": True if genre is None else bool(genre),
+    }
 
 
 def dismiss_translate_errors(drama_id: int) -> dict:

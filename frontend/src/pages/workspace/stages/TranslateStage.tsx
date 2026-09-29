@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
+import { getPresets } from '../../../api/library'
 import {
+  applyTranslatePreset,
   applyWorkflowTier,
   dismissTranslateErrors,
   getTranslateConfig,
@@ -14,9 +16,16 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
-import type { TranslateRunConfig, TranslateRunEstimate, WorkflowTierApplied } from '../../../types/translateStage'
+import type { LibraryPreset } from '../../../types/library'
+import type {
+  TranslatePresetApplied,
+  TranslateRunConfig,
+  TranslateRunEstimate,
+  WorkflowTierApplied,
+} from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import {
+  applyPresetToForm,
   applyTierToForm,
   buildEstimateParams,
   buildPresetBody,
@@ -31,8 +40,11 @@ import {
   monthSpendText,
   reflectAvailable,
   PRESET_NAME_MAX,
+  savePresetStart,
+  styleGuidance,
   validatePresetName,
   validateRun,
+  withPresetEngine,
   withSavedEngine,
   type RunForm,
 } from '../translateForm'
@@ -122,6 +134,56 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
   )
 }
 
+// Parity X03: Streamlit's "Apply a preset" on an existing drama. Saves the
+// preset's engine on the drama, fills the form and keeps its values for later
+// visits (as a preset chosen at creation does); never starts a run.
+function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) => void }) {
+  const { dramaId } = useStage()
+  const [presets, setPresets] = useState<LibraryPreset[] | null>(null)
+  const [picked, setPicked] = useState('')
+  const [applied, setApplied] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    getPresets().then(
+      (r) => !cancelled && setPresets(r.items),
+      () => !cancelled && setPresets([]), // the list is optional here; the Library shows its own error
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  if (!presets?.length) return null
+  const apply = () => {
+    setPending(true)
+    applyTranslatePreset(dramaId, Number(picked))
+      .then(
+        (p) => {
+          setError(null)
+          savePresetStart(dramaId, p)
+          setApplied(`Applied preset "${p.name}". Nothing has started.`)
+          onApplied(p)
+        },
+        setError,
+      )
+      .finally(() => setPending(false))
+  }
+  return (
+    <div className="check-row translate-tier">
+      <Field label="Saved preset" help="Fills in the engine, model, style, locale and the two guidance toggles from a preset saved with Save as preset. Everything stays editable, and nothing starts until you press Translate. Manage presets in the Library.">
+        <select value={picked} onChange={(e) => { setPicked(e.target.value); setApplied(null) }}>
+          <option value="">Choose a preset</option>
+          {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+        </select>
+      </Field>
+      <button type="button" disabled={pending || !picked} onClick={apply}>Apply preset</button>
+      {applied && <span className="muted" role="status">{applied}</span>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
+  )
+}
+
 // Parity X22: Streamlit's "Save as preset". Captures engine, model, style,
 // locale and the two toggles. A taken name asks before replacing it.
 function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string }) {
@@ -194,11 +256,13 @@ function RunPanel({
   config,
   onStarted,
   onTierApplied,
+  onPresetApplied,
   busy,
 }: {
   config: TranslateRunConfig
   onStarted: (id: string) => void
   onTierApplied: (t: WorkflowTierApplied) => void
+  onPresetApplied: (p: TranslatePresetApplied) => void
   busy: boolean
 }) {
   const { dramaId, drama } = useStage()
@@ -226,6 +290,7 @@ function RunPanel({
   const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
+  const guidance = styleGuidance(config, f.style_preset)
 
   const runEstimate = () => {
     const params = buildEstimateParams(f)
@@ -266,6 +331,12 @@ function RunPanel({
           onTierApplied(t)
         }}
       />
+      <PresetPicker
+        onApplied={(p) => {
+          setF((s) => applyPresetToForm(s, p, config))
+          onPresetApplied(p)
+        }}
+      />
       <div className="translate-basics">
         <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
           <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
@@ -294,6 +365,12 @@ function RunPanel({
           </select>
         </Field>
       </div>
+      {guidance && (
+        <details className="style-guidance">
+          <summary>What this style asks the translator for</summary>
+          <p className="muted" data-testid="style-guidance">{guidance}</p>
+        </details>
+      )}
       <div className="translate-go">
         <button type="button" className="primary" disabled={busy || reviewing > 0} onClick={() => start()}>
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
@@ -510,6 +587,7 @@ export default function TranslateStage() {
           busy={busy}
           onStarted={setJobId}
           onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
+          onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
         />
       )}
       {jobId && <JobPanel job={job} pollError={pollError} />}

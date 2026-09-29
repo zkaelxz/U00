@@ -46,12 +46,20 @@ The pre-translate glossary review (parity X28) needs no service of its
 own: the client runs one of the two extractions, applies what the user
 keeps, then starts the translate run through translate_run_service.
 
+Parity T03/T04/X13: import_glossary_text takes a glossary file's TEXT
+(CSV/TSV/JSON, parsed by tguide.parse_glossary_file) in the request body --
+no file is uploaded or stored, so like any other term write it is a
+household edit (lines.edit); existing terms are skipped unless
+overwrite_existing. glossary_csv exports the series glossary, and
+bulk_delete_glossary_terms deletes named term ids of the drama's series.
+
 Deliberately NOT here:
   - Presets CRUD (`db.save_preset` etc.), series/drama creation,
     characters (services/characters_service.py).
 
 No Streamlit or FastAPI import.
 """
+import csv
 import os
 import threading
 import uuid
@@ -231,6 +239,132 @@ def delete_glossary_term(drama_id: int, term_id: int, confirm: bool = False) -> 
     if confirm is not True:
         raise InvalidInputError("Deleting a glossary term needs confirm=true.")
     db.delete_glossary_term(term["id"])
+
+
+# ---------------------------------------------------------------------------
+# Parity T03/T04/X13: import a glossary file's text, export as CSV, bulk delete
+# ---------------------------------------------------------------------------
+
+MAX_IMPORT_CHARS = 1_000_000
+MAX_IMPORT_TERMS = 2000
+MAX_BULK_DELETE = 1000
+_MAX_WARNINGS = 20
+# A spreadsheet reads a cell starting with one of these as a formula, so the
+# CSV export prefixes such a cell with ' and the import drops that one '.
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value):
+    if isinstance(value, str) and value.startswith(_FORMULA_STARTS):
+        return "'" + value
+    return value
+
+
+def _csv_unescape(value):
+    if isinstance(value, str) and value.startswith("'") and value[1:].startswith(_FORMULA_STARTS):
+        return value[1:]
+    return value
+
+
+def import_glossary_text(drama_id: int, text: str, filename: str = "",
+                         overwrite_existing: bool = False) -> dict:
+    """The Translate tab's "Import glossary file": `text` is the file's
+    contents (CSV, TSV or JSON; `filename` only hints the format, as the
+    tab passed the upload's name), parsed by tguide.parse_glossary_file.
+    Nothing is written to disk. A term already in the series glossary is
+    left untouched and reported in "skipped_existing" unless
+    overwrite_existing is True (then its translation, notes, category,
+    policy and enforce flag are replaced; its aliases and banned list are
+    kept). Rows that fail the same limits as a hand-added term are reported
+    in "invalid". Returns {"added", "overwritten", "skipped_existing",
+    "invalid", "warnings"}."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=True)
+    if not isinstance(text, str):
+        raise InvalidInputError("text must be text.")
+    if len(text) > MAX_IMPORT_CHARS:
+        raise InvalidInputError(f"The glossary is too long (max {MAX_IMPORT_CHARS} characters).")
+    if not isinstance(filename, str) or len(filename) > 255:
+        raise InvalidInputError("filename must be a short name.")
+    if not isinstance(overwrite_existing, bool):
+        raise InvalidInputError("overwrite_existing must be true or false.")
+    try:
+        entries, warnings = tguide.parse_glossary_file(text, filename)
+    except (AttributeError, TypeError, ValueError, csv.Error, RecursionError):
+        # A JSON row whose values aren't text (a number, a list), a CSV field
+        # over the csv module's size limit or deeply nested JSON trips the parser.
+        raise InvalidInputError("That glossary has a row in an unexpected shape.") from None
+    if not entries:
+        raise InvalidInputError("Nothing could be imported from that glossary.",
+                                details={"warnings": [str(w)[:200] for w in warnings[:_MAX_WARNINGS]]})
+    if len(entries) > MAX_IMPORT_TERMS:
+        raise InvalidInputError(f"Too many terms in one import (max {MAX_IMPORT_TERMS}).")
+
+    existing = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
+    report = {"added": [], "overwritten": [], "skipped_existing": [], "invalid": []}
+    seen = set()
+    for e in entries:
+        original = e["term_original"]
+        try:
+            original = _text(_csv_unescape(original), "term_original", MAX_TERM_LEN,
+                             required=True)
+            translation = _text(_csv_unescape(e["term_translation"]), "term_translation",
+                                MAX_TERM_LEN)
+            notes = _text(_csv_unescape(e["notes"]), "notes", MAX_NOTES_LEN)
+        except InvalidInputError:
+            report["invalid"].append(original[:MAX_TERM_LEN])
+            continue
+        if original in seen:
+            continue   # a later duplicate row in the same file adds nothing new
+        seen.add(original)
+        current = existing.get(original)
+        if not overwrite_existing:
+            # Insert-only, so a term added since `existing` was read is not replaced.
+            added = current is None and db.insert_glossary_term_if_absent(
+                sid, original, translation, notes=notes, category=e["category"],
+                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]))
+            report["added" if added else "skipped_existing"].append(original)
+            continue
+        db.upsert_glossary_term(sid, original, translation, notes=notes,
+                                category=e["category"], policy=e["policy"],
+                                enforce_exact=bool(e["enforce_exact"]))
+        report["overwritten" if current is not None else "added"].append(original)
+    report["warnings"] = [str(w)[:200] for w in warnings[:_MAX_WARNINGS]]
+    return report
+
+
+def glossary_csv(drama_id: int) -> str:
+    """The tab's "Export glossary as CSV" (tguide.glossary_to_csv): the
+    series glossary as CSV text; just the header row when there is none.
+    A cell that a spreadsheet would run as a formula is prefixed with '."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    terms = db.list_glossary_terms(sid) if sid else []
+    return tguide.glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
+
+
+def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
+    """The tab's "Delete N selected term(s)" (confirm checkbox, Step 71):
+    deletes each named term by id (never by position). Ids that are not in
+    this drama's series glossary are reported in "not_found" and nothing
+    else happens to them. Returns {"deleted", "not_found"} id lists."""
+    drama = _drama(drama_id)
+    if (not isinstance(term_ids, (list, tuple)) or not term_ids
+            or len(term_ids) > MAX_BULK_DELETE
+            or not all(isinstance(t, int) and not isinstance(t, bool) for t in term_ids)):
+        raise InvalidInputError("term_ids must be a non-empty list of term ids.")
+    if confirm is not True:
+        raise InvalidInputError("Deleting glossary terms needs confirm=true.")
+    sid = _series_id(drama, required=False)
+    owned = {r["id"] for r in db.list_glossary_terms(sid)} if sid else set()
+    report = {"deleted": [], "not_found": []}
+    for term_id in dict.fromkeys(term_ids):
+        if term_id in owned:
+            db.delete_glossary_term(term_id)
+            report["deleted"].append(term_id)
+        else:
+            report["not_found"].append(term_id)
+    return report
 
 
 def get_instructions(drama_id: int) -> dict:

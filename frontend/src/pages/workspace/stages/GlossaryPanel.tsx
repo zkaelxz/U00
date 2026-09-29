@@ -15,6 +15,7 @@ import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateS
 import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage } from '../StageContext'
+import { GlossaryImport } from './GlossaryImport'
 import { LinesGlossary, NovelGlossary } from './NovelGlossary'
 import { useGlossaryTermsVersion } from './useGlossaryRun'
 
@@ -153,6 +154,7 @@ export function GlossaryPanel() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   // Bumped when extracted proposals are added (From novel/lines, review).
   const termsVersion = useGlossaryTermsVersion()
+  const [deleteFailure, setDeleteFailure] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -207,14 +209,25 @@ export function GlossaryPanel() {
 
   const remove = (termIds: number[]) => {
     setDeleting(true)
-    deleteGlossaryTerms(dramaId, termIds).then(({ failed }) => {
-      setDeleting(false)
-      setConfirming(false)
-      setDeleteError(failed.length ? `${failed.length} of ${termIds.length} term(s) could not be deleted.` : null)
-      setSelected(new Set(failed.map((x) => x.id)))
-      setEditing((cur) => (cur?.id && termIds.includes(cur.id) && !failed.some((x) => x.id === cur.id) ? null : cur))
-      setReloads((n) => n + 1)
-    })
+    setDeleteFailure(null)
+    deleteGlossaryTerms(dramaId, termIds)
+      .then(
+        ({ deleted, not_found }) => {
+          setConfirming(false)
+          setDeleteError(
+            not_found.length ? `${not_found.length} of ${termIds.length} term(s) were no longer in the glossary.` : null,
+          )
+          setSelected(new Set())
+          setEditing((cur) => (cur?.id && deleted.includes(cur.id) ? null : cur))
+          setReloads((n) => n + 1)
+        },
+        (e: unknown) => {
+          setConfirming(false)
+          setDeleteError(null)
+          setDeleteFailure(e)
+        },
+      )
+      .finally(() => setDeleting(false))
   }
 
   return (
@@ -291,6 +304,7 @@ export function GlossaryPanel() {
           )}
           {chosen.length === 0 && !confirming && <span className="muted">Select terms to delete.</span>}
           {deleteError && <p className="error" role="alert">{deleteError}</p>}
+          <ErrorBanner error={deleteFailure} onDismiss={() => setDeleteFailure(null)} />
         </div>
       )}
       {editing ? (
@@ -305,6 +319,7 @@ export function GlossaryPanel() {
         <button type="button" onClick={() => setEditing(EMPTY)}>Add term</button>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
+      <GlossaryImport hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />
       <NovelGlossary />
       <LinesGlossary />
       {instructions && (
