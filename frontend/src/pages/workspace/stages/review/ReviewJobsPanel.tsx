@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { startReviewJob } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
-import { useJob } from '../../../../hooks/useJob'
+import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ReviewJobKind } from '../../../../types/review'
 import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
@@ -20,9 +20,10 @@ const KINDS: { kind: ReviewJobKind; label: string }[] = [
 // stay stale until a hard refresh.
 export function ReviewJobsPanel({ dramaId, onChanged }: { dramaId: number; onChanged: () => void }) {
   const { onJobDone } = useStage()
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
   const [error, setError] = useState<unknown>(null)
   const { job, done, error: pollError } = useJob(jobId, {
+    runKey,
     onDone: () => {
       onJobDone()
       onChanged()

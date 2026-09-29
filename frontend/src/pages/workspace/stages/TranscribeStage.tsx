@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { getSettings } from '../../../api/settings'
 import {
   getTranscribeConfig,
   startDiarization,
@@ -13,10 +14,16 @@ import type {
   TranscribeConfigUpdate,
   TranscribeRunRequest,
 } from '../../../types/workspace'
-import { parseExpectedSpeakers, validateConfig } from '../sourceForm'
+import {
+  loadSourceForm,
+  parseExpectedSpeakers,
+  saveSourceForm,
+  validateConfig,
+  whisperModelWarning,
+} from '../sourceForm'
 import { useStage } from '../StageContext'
 
-const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3']
+const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
 
 interface Props {
   // A pre-checked file chosen in the media panel, or null.
@@ -25,7 +32,15 @@ interface Props {
   onJobStarted: (jobId: string) => void
 }
 
-function ConfigForm({ config, onSaved }: { config: TranscribeConfig; onSaved: (c: TranscribeConfig) => void }) {
+function ConfigForm({
+  config,
+  language,
+  onSaved,
+}: {
+  config: TranscribeConfig
+  language: string
+  onSaved: (c: TranscribeConfig) => void
+}) {
   const { dramaId } = useStage()
   const [f, setF] = useState({
     whisper_size: config.whisper_size,
@@ -97,6 +112,9 @@ function ConfigForm({ config, onSaved }: { config: TranscribeConfig; onSaved: (c
     <fieldset className="form-grid">
       <legend>Transcribe options</legend>
       {select('Whisper size', 'whisper_size', WHISPER_SIZES)}
+      {whisperModelWarning(f.whisper_size, language) && (
+        <p className="muted" role="note">{whisperModelWarning(f.whisper_size, language)}</p>
+      )}
       {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
       {select('ASR backend', 'asr_backend_choice', ['whisper', 'qwen3_asr'])}
       {select('Vocal separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'])}
@@ -122,12 +140,15 @@ function ConfigForm({ config, onSaved }: { config: TranscribeConfig; onSaved: (c
 export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
   const { dramaId, drama } = useStage()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
-  const [language, setLanguage] = useState(drama.source_language ?? 'zh')
-  const [script, setScript] = useState('')
-  const [transcriptText, setTranscriptText] = useState('')
-  const [runDiarize, setRunDiarize] = useState(false)
-  const [speakers, setSpeakers] = useState('')
-  const [prompt, setPrompt] = useState('')
+  // Restored from sessionStorage (per drama) so switching stage tabs keeps the form.
+  const [restored] = useState(() => loadSourceForm(dramaId))
+  const [language, setLanguage] = useState(restored.language ?? drama.source_language ?? 'zh')
+  const [script, setScript] = useState(restored.script ?? '')
+  const [transcriptText, setTranscriptText] = useState(restored.transcriptText ?? '')
+  const [runDiarize, setRunDiarize] = useState(restored.runDiarize ?? false)
+  const [speakers, setSpeakers] = useState(restored.speakers ?? '')
+  const [prompt, setPrompt] = useState(restored.prompt ?? '')
+  const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
 
@@ -141,6 +162,21 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
       cancelled = true
     }
   }, [dramaId])
+
+  useEffect(() => {
+    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, prompt })
+  }, [dramaId, language, script, transcriptText, runDiarize, speakers, prompt])
+
+  useEffect(() => {
+    let cancelled = false
+    getSettings().then(
+      (s) => !cancelled && setUseGpu(s.use_gpu),
+      () => undefined, // the GPU note is informational; skip it if settings can't load
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const haveTranscript = config?.transcript_mode === 'have_transcript'
 
@@ -196,7 +232,7 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
           Mode: {config.transcript_mode}. Whisper model {config.whisper_model_cached ? 'is downloaded' : 'will be downloaded on first use'}.
         </p>
       )}
-      {config && <ConfigForm config={config} onSaved={setConfig} />}
+      {config && <ConfigForm config={config} language={language} onSaved={setConfig} />}
       <fieldset className="form-grid">
         <legend>Run options</legend>
         <label>
@@ -212,8 +248,8 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
             Chinese script
             <select value={script} onChange={(e) => setScript(e.target.value)}>
               <option value="">Keep current</option>
-              <option value="simplified">Simplified</option>
-              <option value="traditional">Traditional</option>
+              <option value="simplified">Simplified (Mainland)</option>
+              <option value="traditional">Traditional (Taiwan, Hong Kong)</option>
             </select>
           </label>
         )}
@@ -234,6 +270,16 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
         <label>
           <input type="checkbox" checked={runDiarize} onChange={(e) => setRunDiarize(e.target.checked)} /> Detect speakers after transcribing
         </label>
+        {useGpu !== null && (
+          <p className="muted" data-testid="gpu-note">
+            GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a>
+          </p>
+        )}
+        {busy && (
+          <p className="muted" role="status">
+            A job for this drama is already running. Wait for it to finish or cancel it before starting another.
+          </p>
+        )}
         <div className="actions">
           <button type="button" disabled={busy} onClick={() => run((r) => startTranscribe(dramaId, r))}>
             Start transcription

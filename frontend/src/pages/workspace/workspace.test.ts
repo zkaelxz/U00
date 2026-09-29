@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { DramaDetail } from '../../api/types'
-import { checkUploadFile, parseExpectedSpeakers, validateConfig } from './sourceForm'
+import {
+  checkUploadFile,
+  loadSourceForm,
+  parseExpectedSpeakers,
+  saveSourceForm,
+  sourceJobIds,
+  validateConfig,
+  whisperModelWarning,
+} from './sourceForm'
 import { STAGE_IDS, isStageId, parseStage } from './stages'
 import { pickForId } from './useDrama'
 
@@ -51,5 +59,43 @@ describe('config validation', () => {
     expect(parseExpectedSpeakers('20')).toBe(20)
     expect(parseExpectedSpeakers('21')).toBeNull()
     expect(parseExpectedSpeakers('1.5')).toBeNull()
+  })
+})
+
+describe('whisper model warning', () => {
+  it('warns only for large-v3-turbo on Japanese/Korean', () => {
+    expect(whisperModelWarning('large-v3-turbo', 'ja')).toMatch(/weaker on Japanese and Korean/)
+    expect(whisperModelWarning('large-v3-turbo', 'ko')).not.toBe('')
+    expect(whisperModelWarning('large-v3-turbo', 'zh')).toBe('')
+    expect(whisperModelWarning('large-v3', 'ja')).toBe('')
+  })
+})
+
+describe('source form persistence', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const memory = () => {
+    const m = new Map<string, string>()
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+  }
+  const state = { language: 'ja', script: '', transcriptText: 'x', runDiarize: true, speakers: '2', prompt: 'p' }
+
+  it('round-trips per drama without leaking across dramas', () => {
+    vi.stubGlobal('sessionStorage', memory())
+    saveSourceForm(1, state)
+    expect(loadSourceForm(1)).toEqual(state)
+    expect(loadSourceForm(2)).toEqual({})
+  })
+  it('ignores corrupt data and survives throwing storage', () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => '{"language":5,"prompt":"ok"}', setItem: () => undefined })
+    expect(loadSourceForm(1)).toEqual({ prompt: 'ok' })
+    const boom = () => {
+      throw new Error('blocked')
+    }
+    vi.stubGlobal('sessionStorage', { getItem: boom, setItem: boom })
+    expect(loadSourceForm(1)).toEqual({})
+    expect(() => saveSourceForm(1, state)).not.toThrow()
+  })
+  it('names the reattachable job ids', () => {
+    expect(sourceJobIds(7)).toEqual(['transcribe_7', 'diarize_7'])
   })
 })

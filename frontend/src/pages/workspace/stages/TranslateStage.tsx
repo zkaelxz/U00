@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { ApiError } from '../../../api/client'
 import { getTranslateConfig, getTranslateEstimate, startTranslateRun } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { useJob } from '../../../hooks/useJob'
+import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { buildEstimateParams, buildRunBody, initialForm, MAX_FALLBACKS, validateRun, type RunForm } from '../translateForm'
@@ -195,7 +195,7 @@ export default function TranslateStage() {
   const { dramaId, onJobDone } = useStage()
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
@@ -210,6 +210,7 @@ export default function TranslateStage() {
   }, [dramaId, reloads])
 
   const { job, done, error: pollError } = useJob(jobId, {
+    runKey,
     onDone: () => {
       onJobDone()
       setReloads((n) => n + 1)
