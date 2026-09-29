@@ -105,6 +105,21 @@ def test_bulk_extract_then_commit(client):
     assert again.json() == {"added": 0, "skipped": 1, "ids": []}
 
 
+def test_user_urls_come_back_without_query_or_fragment(client):
+    """Spec section 5: a pasted URL can carry a signed token."""
+    signed = "https://a.example/list/1?sig=TOKENVALUE123&page=2#frag"
+    r = client.post("/api/discover/import-suggestion", json={"url": signed, "engine": "claude"})
+    assert r.json()["suggestion"]["source_url"] == "https://a.example/list/1"
+    assert "TOKENVALUE123" not in r.text and "frag" not in r.text
+    client.post("/api/discover/bulk-extract", json={"urls": [signed], "engine": "claude"})
+    _wait(svc.BULK_JOB_ID)
+    res = client.get("/api/discover/bulk-extract/result")
+    assert "TOKENVALUE123" not in res.text and "?" not in res.text
+    b = res.json()["result"]
+    assert b["pages"][0]["url"] == "https://a.example/list/1"
+    assert b["entries"][0]["source_url"] == "https://a.example/list/1"
+
+
 def test_navigation_help(client):
     r = client.post("/api/discover/navigation-help",
                     json={"url": "https://site.example/", "goal": "find chapter list",

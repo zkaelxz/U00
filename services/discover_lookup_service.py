@@ -23,6 +23,7 @@ answers that for a given engine name.
 """
 import threading
 from typing import Optional
+from urllib.parse import urlsplit
 
 import background_jobs
 import bulk_import
@@ -112,6 +113,22 @@ def _check_text(name, value, cap, required=True) -> str:
     return value
 
 
+def _display_url(url) -> str:
+    """A caller-supplied URL as it may be returned: scheme + host + path,
+    no query, fragment or userinfo (spec section 5: a pasted URL can carry
+    a signed token). Same rule as sources_registry_service.safe_url, kept
+    local so this module doesn't import the Sources adapters."""
+    try:
+        parts = urlsplit(str(url or "").strip())
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if not parts.scheme or not host:
+        return ""
+    return f"{parts.scheme}://{host}{port}{parts.path}"
+
+
 def _check_url(url) -> str:
     url = _check_text("url", url, MAX_URL_LEN)
     if not url.lower().startswith(("http://", "https://")):
@@ -182,7 +199,7 @@ def import_suggestion(url, engine_name: Optional[str] = None) -> dict:
     suggestion = {k: _redact(v.strip()) for k, v in (found or {}).items()
                   if k in _SUGGEST_FIELDS and isinstance(v, str) and v.strip()}
     if suggestion:
-        suggestion["source_url"] = url
+        suggestion["source_url"] = _display_url(url)
     return {"suggestion": suggestion, "found": bool(suggestion), "needs_manual": False,
             "message": "" if suggestion else "Read the page but found no metadata in it."}
 
@@ -228,7 +245,7 @@ def _run_bulk_extract(job_id, urls, source_label, engine):
     for i, url in enumerate(urls):
         if background_jobs.is_cancel_requested(job_id):
             break
-        row = {"url": url, "ok": False, "needs_manual": False, "count": 0, "message": ""}
+        row = {"url": _display_url(url), "ok": False, "needs_manual": False, "count": 0, "message": ""}
         try:
             page = _fetch(url)
             if page.needs_manual or not page.text.strip():
@@ -241,7 +258,7 @@ def _run_bulk_extract(job_id, urls, source_label, engine):
                     if e is None or e["title"] in seen:
                         continue
                     seen.add(e["title"])
-                    e["source_url"] = url
+                    e["source_url"] = _display_url(url)
                     entries.append(e)
                     row["count"] += 1
                 row["ok"] = row["count"] > 0
