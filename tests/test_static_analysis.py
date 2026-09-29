@@ -544,6 +544,16 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_notification_service(self):
+        # Step 44: the Discord/ntfy push runs from a timer thread after a
+        # job ends; a hung webhook must never hold it (Session.post checked).
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "services", "notification_service.py"), session_verbs=True)
+        assert problems == [], f"call(s) missing timeout= at line(s): {problems}"
+        src = open(os.path.join(PROJECT_ROOT, "services", "notification_service.py"),
+                   encoding="utf-8").read()
+        assert "session.post(" in src, "the timeout check no longer sees the send call"
+
     def test_services_and_api_packages(self):
         # B-07: the FastAPI layer's services/ (metadata autofill's page
         # fetch, etc.) and api/ must never make an untimed HTTP call.

@@ -198,6 +198,9 @@ baihe-subtitler/
 │   │                             versions, running jobs, log tail); no admin action, no network call
 │   ├── extension_service.py      API batch 1 -- browser-extension bridge (page_server) status, on/off
 │   │                             (persists page_server_enabled) and token reveal; for local_only routes
+│   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
+│   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
+│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -427,8 +430,11 @@ baihe-subtitler/
 │       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
 │       │                         screenshot PC only), GET list and GET {id} (admin.diagnostics),
 │       │                         POST {id}/delete (local_only + confirm + folder stamp)
-│       └── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
-│                                 /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
+│       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
+│       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
+│       └── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
+│                                 /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
+│                                 key-write gate; Step 44)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
@@ -462,7 +468,10 @@ baihe-subtitler/
 │   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
-│   │                              the token lives in component state only); API in src/api/extension.ts
+│   │                              the token lives in component state only); API in src/api/extension.ts.
+│   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
+│   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
+│   │                              src/api/notifications.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
