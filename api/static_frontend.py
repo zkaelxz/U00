@@ -19,9 +19,10 @@ ever served.
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from starlette.exceptions import HTTPException
+from starlette.routing import Match
 
 log = logging.getLogger(__name__)
 
@@ -41,8 +42,21 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
     root = dist.resolve()
 
     @app.get("/{path:path}", include_in_schema=False)
-    def serve_frontend(path: str):
+    def serve_frontend(path: str, request: Request):
         if path == "api" or path.startswith("api/"):
+            # A real API route that just doesn't take GET must stay a 405 (with
+            # Allow), not turn into a 404 because this catch-all matched first.
+            allowed = set()
+            for method in ("POST", "PUT", "PATCH", "DELETE"):
+                probe = {**request.scope, "method": method}
+                for r in request.app.router.routes:
+                    if getattr(r, "endpoint", None) is serve_frontend:
+                        continue
+                    if r.matches(probe)[0] == Match.FULL:
+                        allowed.add(method)
+                        break
+            if allowed:
+                raise HTTPException(status_code=405, headers={"Allow": ", ".join(sorted(allowed))})
             raise HTTPException(status_code=404)
         candidate = (root / path).resolve() if path else index
         inside = candidate == root or root in candidate.parents
