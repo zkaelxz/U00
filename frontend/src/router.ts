@@ -7,6 +7,7 @@ export type Route =
   | { name: 'diagnostics' }
   | { name: 'translate' }
   | { name: 'sources' }
+  | { name: 'live' }
   | { name: 'read'; id: number; page: number | null }
   | { name: 'comic'; id: number; page: number | null }
 
@@ -22,6 +23,7 @@ export function parseRoute(hash: string): Route {
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
+  if (head === 'live' && parts.length === 1) return { name: 'live' }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')

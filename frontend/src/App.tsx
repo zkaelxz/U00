@@ -8,6 +8,7 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import ComicPage from './pages/Comic'
 import DiagnosticsPage from './pages/Diagnostics'
 import LibraryPage from './pages/Library'
+import LivePage from './pages/Live'
 import LoginPage from './pages/Login'
 import ReaderPage from './pages/Reader'
 import SettingsPage from './pages/Settings'
@@ -99,6 +100,7 @@ const NAV: [string, Route, Route['name'][]][] = [
   ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
   ['Translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
+  ['Live', { name: 'live' }, ['live']],
   ['Settings', { name: 'settings' }, ['settings']],
   ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
 ]
@@ -150,6 +152,7 @@ export default function App() {
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'translate' && <TranslatePage />}
         {route.name === 'sources' && <SourcesPage />}
+        {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
       </RouteErrorBoundary>
     </>
