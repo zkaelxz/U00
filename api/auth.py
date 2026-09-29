@@ -106,12 +106,36 @@ def public_route():
     return _marked(dependency, "public")
 
 
+LOCAL_HEADER = "X-Baihe-Local"
+_PREFLIGHTED_TYPES = frozenset(("application/json", "multipart/form-data"))
+_BODY_METHODS = frozenset(("POST", "PUT", "PATCH"))
+
+
+def _cross_site_safe(request: Request) -> bool:
+    """A page on another loopback port passes the Origin check (it ignores
+    the port) and can send a "simple" POST with no CORS preflight
+    (text/plain or form-urlencoded, e.g. a no-cors fetch). So a POST/PUT/
+    PATCH to a local_only route must be JSON (forces a preflight, which
+    CORS refuses) or multipart (the upload routes; the JSON-body routes
+    reject it at validation), or carry `X-Baihe-Local: 1` (a custom header
+    also forces a preflight). DELETE is never a simple method."""
+    if request.method.upper() not in _BODY_METHODS:
+        return True
+    if request.headers.get(LOCAL_HEADER) == "1":
+        return True
+    media = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    return media in _PREFLIGHTED_TYPES
+
+
 def local_only():
-    """PC-only route. Off mode: no-op (today's behaviour; routes that had
-    their own loopback guard keep it). On mode: the connection must be a
-    direct loopback one."""
+    """PC-only route. Both modes: a POST/PUT/PATCH must be JSON, multipart
+    or carry X-Baihe-Local (see _cross_site_safe). Off mode: otherwise a
+    no-op (today's behaviour; routes that had their own loopback guard
+    keep it). On mode: the connection must be a direct loopback one."""
     def dependency(request: Request):
         if _auth_enabled(request.app) and not is_local_request(request):
+            raise ForbiddenError(_GENERIC_403)
+        if not _cross_site_safe(request):
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = local_owner_principal()
         return request.state.principal

@@ -362,6 +362,58 @@ class TestCsrf:
         assert read == []
 
 
+class TestLocalOnlyNeedsPreflightedPost:
+    """A page on another loopback port passes the Origin check and can send
+    a no-cors "simple" POST (text/plain, form-urlencoded). local_only POSTs
+    must be JSON, multipart, or carry X-Baihe-Local: 1."""
+
+    @pytest.fixture(autouse=True)
+    def _no_page_server(self, monkeypatch):
+        import page_server
+        monkeypatch.setattr(page_server, "ensure_server_started", lambda *a, **k: True)
+        monkeypatch.setattr(page_server, "load_or_create_token", lambda: "tok")
+
+    @pytest.mark.parametrize("auth", ["off", "on"])
+    @pytest.mark.parametrize("ctype", ["text/plain", "application/x-www-form-urlencoded",
+                                       None])
+    def test_simple_post_refused(self, isolated_db, auth, ctype):
+        c = _local(_app(auth))
+        headers = {"Content-Type": ctype} if ctype else {}
+        for path, body in (("/api/extension/token", b'{"confirm": true}'),
+                           ("/api/diagnostics/reset-library",
+                            b'{"confirm": true, "confirm_text": "RESET"}')):
+            r = c.post(path, content=body, headers=headers)
+            assert r.status_code == 403, (path, ctype)
+            assert "tok" not in r.text
+
+    def test_simple_post_refused_on_key_write_that_parses_any_body(self, isolated_db):
+        c = _local(_app("off", allow_key_writes=True))
+        r = c.post("/api/settings/keys/nope/clear", content=b'{"confirm": true}',
+                   headers={"Content-Type": "text/plain"})
+        assert r.status_code == 403
+        r = c.post("/api/settings/keys/nope/clear", json={"confirm": True})
+        assert r.status_code not in (401, 403)
+
+    @pytest.mark.parametrize("auth", ["off", "on"])
+    def test_json_or_custom_header_allowed(self, isolated_db, auth):
+        c = _local(_app(auth))
+        r = c.post("/api/extension/token", json={"confirm": True})
+        assert r.status_code == 200 and r.json() == {"token": "tok"}
+        r = c.post("/api/extension/token", content=b'{"confirm": true}',
+                   headers={"Content-Type": "application/json; charset=utf-8"})
+        assert r.status_code == 200
+        r = c.post("/api/extension/token", content=b"x",
+                   headers={"Content-Type": "text/plain", "X-Baihe-Local": "1"})
+        assert r.status_code not in (401, 403)
+
+    def test_multipart_upload_and_delete_still_work(self, isolated_db):
+        c = _local(_app("off"))
+        r = c.post("/api/media/dramas/999/upload", files={"file": ("a.wav", b"RIFF")})
+        assert r.status_code not in (401, 403)
+        assert c.delete("/api/dramas/999").status_code not in (401, 403)
+        assert c.get("/api/extension/status").status_code == 200
+
+
 class TestLocalOnly:
     def test_remote_refused_even_as_admin(self, isolated_db):
         c = _remote(_app())
