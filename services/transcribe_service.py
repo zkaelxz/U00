@@ -353,6 +353,46 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     return {"job_id": job_id}
 
 
+def validate_transcribe_options(drama_id: int, source_language: Optional[str] = None,
+                                chinese_script: Optional[str] = None,
+                                transcript_text: Optional[str] = None, **_ignored) -> None:
+    """Validate-only pre-check for a run that starts after the audio exists
+    (B-09: upload-and-transcribe with a video). Raises the same errors as
+    start_transcribe_run for everything that doesn't depend on the audio or
+    video file being on disk yet; starts nothing. Keep in step with
+    start_transcribe_run's checks."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(
+            f"Drama {drama_id} has no audio pipeline (content mode "
+            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
+    if (source_language or drama.get("source_language") or "zh") not in _SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
+    if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
+        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
+    transcript_mode = drama.get("transcript_mode") or "have_transcript"
+    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
+        raise UnsupportedOperationError(
+            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+    asr_backend_choice = drama.get("asr_backend_choice") or "whisper"
+    alignment_method = drama.get("alignment_method") or "whisper_diff"
+    if transcript_mode == "whisper":
+        if alignment_method == "qwen3_forced_align":
+            raise InvalidInputError(
+                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
+                "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
+                "to 'whisper_diff'.")
+        if asr_backend_choice == "qwen3_asr":
+            _require_qwen3_packages("Qwen3-ASR")
+    elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
+        _require_qwen3_packages("Qwen3 forced alignment")
+    if drama.get("use_groq") and not settings_service.resolve_key("groq"):
+        raise DependencyUnavailableError(
+            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
+
+
 _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
                          "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}

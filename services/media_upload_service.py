@@ -22,6 +22,7 @@ No FastAPI import: takes a binary file-like object.
 import os
 import subprocess
 import tempfile
+import threading
 import time
 
 import background_jobs
@@ -46,6 +47,13 @@ EXTRACT_JOB_PREFIX = "extract_audio_"
 # job "running" forever; cancel kills it sooner.
 EXTRACT_TIMEOUT_SECONDS = 2 * 60 * 60
 _FOLLOW_POLL_SECONDS = 0.5
+_BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+# Per-drama upload claim (B-09): held from the running-job check until the
+# file is in place and any extraction job is registered, so a concurrent
+# upload is refused before it touches `source<ext>`. In-process only;
+# another process is covered by job_running_for_drama's job_records check.
+_claims_lock = threading.Lock()
+_claimed = set()
 
 
 def max_upload_bytes() -> int:
@@ -75,8 +83,6 @@ def _save_upload(drama_id, client_filename, fileobj):
         raise NotFoundError(f"No drama with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in _UPLOAD_CONTENT_MODES:
         raise InvalidInputError(_NO_UPLOAD_MODE)
-    if drama_service.job_running_for_drama(drama_id):
-        raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
     limit = max_upload_bytes()
     ddir = db.drama_dir(drama_id)
     fd, tmp_path = tempfile.mkstemp(prefix=".upload_", suffix=".part", dir=ddir)
@@ -103,22 +109,33 @@ def _save_upload(drama_id, client_filename, fileobj):
 
 
 def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) -> dict:
-    """Saves the upload. An audio file is recorded at once (job_id None).
+    """Only one upload per drama at a time, and none while a drama job runs.
+    Saves the upload. An audio file is recorded at once (job_id None).
     A video starts job `extract_audio_<id>` and returns its job_id before
     extraction runs (poll GET /api/jobs/{job_id}). With transcribe_options
     (kwargs for transcribe_service.start_transcribe_run), that same job
     starts and follows the transcribe run once the audio is extracted."""
-    ext, size = _save_upload(drama_id, client_filename, fileobj)
-    if ext not in VIDEO_EXTENSIONS:
-        db.update_drama(drama_id, audio_filename=f"source{ext}")
-        return {"name": f"source{ext}", "size": size, "kind": "audio", "job_id": None}
-    job_id = f"{EXTRACT_JOB_PREFIX}{drama_id}"
-    started = background_jobs.start_job(
-        job_id, _extract_audio_job, job_id, drama_id, ext, transcribe_options,
-        description=f"Audio extraction (drama #{drama_id})")
-    if not started:
-        raise ConflictError("Audio is already being extracted for this drama.")
-    return {"name": f"source{ext}", "size": size, "kind": "video", "job_id": job_id}
+    with _claims_lock:
+        if drama_id in _claimed:
+            raise ConflictError("Another upload is in progress for this drama.")
+        _claimed.add(drama_id)
+    try:
+        if drama_service.job_running_for_drama(drama_id):
+            raise ConflictError(_BUSY)
+        ext, size = _save_upload(drama_id, client_filename, fileobj)
+        if ext not in VIDEO_EXTENSIONS:
+            db.update_drama(drama_id, audio_filename=f"source{ext}")
+            return {"name": f"source{ext}", "size": size, "kind": "audio", "job_id": None}
+        job_id = f"{EXTRACT_JOB_PREFIX}{drama_id}"
+        started = background_jobs.start_job(
+            job_id, _extract_audio_job, job_id, drama_id, ext, transcribe_options,
+            description=f"Audio extraction (drama #{drama_id})")
+        if not started:  # unreachable while the claim and running-job check hold
+            raise ConflictError(_BUSY)
+        return {"name": f"source{ext}", "size": size, "kind": "video", "job_id": job_id}
+    finally:
+        with _claims_lock:
+            _claimed.discard(drama_id)
 
 
 def _extract_audio_job(job_id, drama_id, ext, transcribe_options=None):
@@ -143,6 +160,8 @@ def _extract_audio_job(job_id, drama_id, ext, transcribe_options=None):
         background_jobs.update_progress(job_id, 1.0, "Audio extracted.")
         return
     from services import transcribe_service
+    if background_jobs.is_cancel_requested(job_id):  # never start a GPU run after a cancel
+        raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.1, "Audio extracted. Starting transcription...")
     run = transcribe_service.start_transcribe_run(drama_id, **transcribe_options)
     _follow_job(job_id, run["job_id"])
@@ -150,19 +169,24 @@ def _extract_audio_job(job_id, drama_id, ext, transcribe_options=None):
 
 def _follow_job(job_id, child_id):
     """Mirrors child_id's progress onto job_id until the child ends and
-    forwards a cancel to it; a child error or cancel ends job_id the same way."""
+    forwards a cancel to it; a child error or cancel ends job_id the same way.
+    A queued child is removed outright by cancel_queued, so once a cancel
+    has been forwarded a vanished child also counts as cancelled."""
+    forwarded = False
     while True:
         child = background_jobs.get_status(child_id) or {}
         status = child.get("status")
         if status not in ("running", "queued"):
             break
-        if background_jobs.is_cancel_requested(job_id):
+        if background_jobs.is_cancel_requested(job_id) and not forwarded:
+            forwarded = True
             if not background_jobs.cancel_queued(child_id):
                 background_jobs.request_cancel(child_id)
+            continue
         background_jobs.update_progress(job_id, 0.1 + 0.9 * float(child.get("progress") or 0.0),
                                         child.get("message") or "Transcribing...")
         time.sleep(_FOLLOW_POLL_SECONDS)
-    if status == "cancelled":
+    if status == "cancelled" or (forwarded and status is None):
         raise background_jobs.JobCancelled(job_id)
     if status != "done":
         raise RuntimeError(child.get("error") or "Transcription failed.")

@@ -129,3 +129,120 @@ def test_video_upload_and_transcribe_run_error_surfaces(client, monkeypatch):
         time.sleep(0.02)
     job = background_jobs.get_status(job_id)
     assert job["status"] == "error" and "no transcript" in job["error"]
+
+
+def _wait_status(job_id, timeout=5.0):
+    import time
+    deadline = time.time() + timeout
+    while True:
+        job = background_jobs.get_status(job_id)
+        if job and job["status"] not in ("running", "queued"):
+            return job
+        assert time.time() < deadline, f"{job_id} still {job and job['status']}"
+        time.sleep(0.02)
+
+
+def _wait_for(pred, timeout=5.0):
+    import time
+    deadline = time.time() + timeout
+    while not pred():
+        assert time.time() < deadline
+        time.sleep(0.02)
+
+
+def _video_post(client, did, data=None):
+    return client.post(f"/api/media/dramas/{did}/upload-and-transcribe",
+                       files={"file": ("a.mp4", b"vid")}, data=data or {})
+
+
+@pytest.fixture
+def fast_ffmpeg(monkeypatch):
+    monkeypatch.setattr(background_jobs, "run_cancellable",
+                        lambda job_id, cmd, cwd=None, **kw: open(cmd[-1], "wb").close())
+
+
+def test_cancel_while_transcribe_child_queued_is_cancelled(client, monkeypatch, fast_ffmpeg):
+    import time
+    from services import transcribe_service
+    did = _drama()
+    tid = f"transcribe_{did}"
+    background_jobs.clear_job(tid)  # ids repeat across isolated_db tests
+
+    def queued_run(drama_id, **opts):
+        with background_jobs._lock:
+            background_jobs._jobs[tid] = {"status": "queued", "progress": 0.0, "message": "Waiting",
+                                          "error": None, "started_at": time.time(),
+                                          "finished_at": None, "cancel_requested": False,
+                                          "result": None, "gpu_touching": True,
+                                          "description": "t", "kind": "thread"}
+        return {"job_id": tid}
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run", queued_run)
+    job_id = _video_post(client, did).json()["job_id"]
+    _wait_for(lambda: background_jobs.get_status(tid) is not None)
+    background_jobs.request_cancel(job_id)
+    assert _wait_status(job_id)["status"] == "cancelled"
+    assert background_jobs.get_status(tid) is None
+
+
+def test_cancel_while_transcribe_child_running_is_cancelled(client, monkeypatch, fast_ffmpeg):
+    import time
+    from services import transcribe_service
+    did = _drama()
+    tid = f"transcribe_{did}"
+    background_jobs.clear_job(tid)  # ids repeat across isolated_db tests
+
+    def child():
+        while not background_jobs.is_cancel_requested(tid):
+            time.sleep(0.01)
+        raise background_jobs.JobCancelled(tid)
+
+    def running_run(drama_id, **opts):
+        background_jobs.start_job(tid, child)
+        return {"job_id": tid}
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run", running_run)
+    job_id = _video_post(client, did).json()["job_id"]
+    _wait_for(lambda: background_jobs.get_status(tid) is not None)
+    background_jobs.request_cancel(job_id)
+    assert _wait_status(job_id)["status"] == "cancelled"
+    assert _wait_status(tid)["status"] == "cancelled"
+
+
+def test_cancel_between_extraction_and_transcribe_start(client, monkeypatch):
+    import db
+    from services import transcribe_service
+    did = _drama()
+
+    def ffmpeg_then_cancel(job_id, cmd, cwd=None, **kw):
+        open(cmd[-1], "wb").close()
+        background_jobs.request_cancel(job_id)  # cancel lands after ffmpeg finished
+    monkeypatch.setattr(background_jobs, "run_cancellable", ffmpeg_then_cancel)
+    started = []
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run",
+                        lambda *a, **k: started.append(1) or {"job_id": "x"})
+    job_id = _video_post(client, did).json()["job_id"]
+    assert _wait_status(job_id)["status"] == "cancelled"
+    assert started == []
+    assert db.get_drama(did)["audio_filename"] == "audio.wav"  # extraction itself is kept
+
+
+def test_video_bad_transcribe_option_rejected_before_storing(client, fast_ffmpeg):
+    import db
+    did = db.create_drama(title_en="D", transcript_mode="have_transcript")
+    r = _video_post(client, did)  # no transcript_text
+    assert r.status_code == 400
+    assert not any(n.startswith("source") for n in os.listdir(db.drama_dir(did)))
+    did2 = _drama()
+    r = _video_post(client, did2, {"source_language": "xx"})
+    assert r.status_code in (400, 422)
+    assert not any(n.startswith("source") for n in os.listdir(db.drama_dir(did2)))
+
+
+def test_video_missing_groq_key_503_before_storing(client, monkeypatch, fast_ffmpeg):
+    import db
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key", lambda name: None)
+    did = _drama()
+    db.update_drama(did, use_groq=1)
+    r = _video_post(client, did)
+    assert r.status_code == 503
+    assert not any(n.startswith("source") for n in os.listdir(db.drama_dir(did)))

@@ -204,3 +204,36 @@ def test_upload_allowed_for_streamer_vod(client, isolated_db):
     did = db.create_drama(title_en="V")
     db.update_drama(did, content_mode="streamer_vod")
     assert _up(client, did).status_code == 200
+
+
+def test_concurrent_upload_loser_never_touches_winner_file(client, isolated_db):
+    import db
+    from services import media_upload_service
+    did = db.create_drama(title_en="D")
+    reading, release = threading.Event(), threading.Event()
+
+    class SlowBody:
+        def __init__(self):
+            self.sent = False
+
+        def read(self, n):
+            if self.sent:
+                return b""
+            reading.set()
+            release.wait(5)
+            self.sent = True
+            return b"winner"
+    out = {}
+    t = threading.Thread(target=lambda: out.update(
+        r=media_upload_service.upload_media(did, "a.mp4", SlowBody())))
+    t.start()
+    assert reading.wait(5)
+    r = _up(client, did, "b.mp4", b"loser")  # same source.mp4 target
+    assert r.status_code == 409
+    release.set()
+    t.join(5)
+    assert out["r"]["job_id"] == f"extract_audio_{did}"
+    _wait(out["r"]["job_id"])
+    with open(os.path.join(db.drama_dir(did), "source.mp4"), "rb") as f:
+        assert f.read() == b"winner"
+    assert not any(n.startswith(".upload_") for n in os.listdir(db.drama_dir(did)))
