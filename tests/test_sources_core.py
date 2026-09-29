@@ -668,6 +668,14 @@ class TestRequestsTransport:
     `RequestsCookieJar` objects (not plain dicts) for `.cookies`, so the
     real conflict/merge semantics are actually exercised, not stood in for."""
 
+    @pytest.fixture(autouse=True)
+    def _public_dns(self, monkeypatch):
+        # B-25: the transport now validates each hop's host by resolving it;
+        # the fake `.invalid` hosts don't resolve, so map them to a public IP.
+        # The fake session below still hands back a response with `history`,
+        # which the transport keeps merging (the cookie behaviour under test).
+        monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+
     class _FakeResp:
         def __init__(self, status_code=200, headers=None, content=b"", url="",
                      cookies=None, history=None):
