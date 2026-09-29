@@ -74,15 +74,20 @@ baihe-subtitler/
 │   │                             short companion to content-sources.md's full technical detail
 │   │                             [maintained status tracking — update a row's status on
 │   │                             re-verification rather than trusting an old date]
-│   ├── migration-react-fastapi.md   the React + FastAPI migration foundation: architecture, how
-│   │                             to run it, what's built so far [source of truth for the
-│   │                             migration's foundation; lives on the unmerged
-│   │                             `migration/react-fastapi-foundation` branch, not merged into
-│   │                             `baihe-subtitler` — see its own status banner]
+│   ├── migration-react-fastapi.md   the React + FastAPI migration: phase tables, differences from
+│   │                             the original Python-only design, historical foundation write-up
+│   │                             [source of truth for migration phases; merged into `baihe-subtitler`]
 │   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants,
-│   │                             sequence, decisions needed [planning/reference, companion to
-│   │                             migration-react-fastapi.md; nothing in it is implemented beyond
-│   │                             that foundation]
+│   │                             sequence, decisions [planning/reference, companion to
+│   │                             migration-react-fastapi.md]
+│   ├── migration-handoff.md      durable migration status, recipe and queue [live status page]
+│   ├── migration-frontend-plan.md   React frontend slice plan [planning/reference]
+│   ├── baihe-roadmap-master.md   master index: status snapshot, bug tracker, to-do queue,
+│   │                             deferred steps [snapshot; the roadmap on the planning branch
+│   │                             stays the source of truth]
+│   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
+│   │                             verification, git/safety [authoritative; role files link here]
+│   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
 │   ├── remote-access-design.md   M8-H: Tailscale Serve access + Baihe permissions [design
 │   │                             proposal, nothing built yet; written for the planning session
 │   │                             to fold the decision into the roadmap]

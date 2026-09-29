@@ -18,7 +18,7 @@ UnsupportedOperation 400, Conflict 409, DependencyUnavailable 503) + thin `api/r
 at the end of `api/schemas.py` + a line in `api/server.py` + paragraph in `docs/migration-review.md` + `FILE_ORGANIZATION.md`.
 Writes are POST (DELETE only for Slice 36/43 notes). Secrets, paths and URLs are never returned (booleans only).
 Background work = "job does everything" (`background_jobs.start_job`, DB write included). Process jobs use `on_done` (Slice 49).
-Field-scoped writes only (`db.save_lines(..., fields=(...))`), never `fields=None` from a stale list.
+Field-scoped writes only: see root `CLAUDE.md` "Rules learned from real bugs".
 `db.create_drama`/`update_drama` interpolate kwarg keys into SQL: services must whitelist. Verify drama/series ownership in services.
 
 ## Parallel recipe
@@ -27,7 +27,7 @@ Field-scoped writes only (`db.save_lines(..., fields=(...))`), never `fields=Non
    `python scripts/migration/resolve_slice.py <service_stem> <router_stem>` (server, FILE_ORGANIZATION, schemas append, docs) for new-service slices,
    or `python scripts/migration/keepboth.py <files>` for append-only conflicts (hardening or edits without a new router).
    Check `import api.server`, run focused tests, push, PR, squash-merge.
-3. Never `pgrep -f`/`pkill -f` a pattern in your own wrapper command; poll a captured PID with `kill -0`.
+3. Background-wait rules: `docs/testing-and-ci.md`.
 
 ## Decisions taken (user, 2026-09-28)
 Job-apply: job does everything. Tuning knobs: persisted (columns added in init_db). Destructive actions: match today's UI bar (typed confirm).

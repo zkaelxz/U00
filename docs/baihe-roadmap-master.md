@@ -133,5 +133,5 @@ Recorded direction, revisited only if a real need shows up -- not steps waiting 
 | M8+ -- FastAPI + React, job queue | Was deferred: a large migration with no current pain. **Status update: now underway at the user's direction** (backend services/API merged, React foundations merged; see section 1 and `docs/migration-frontend-plan.md`). The separate "job queue" half is still deferred | Streamlit becomes the real bottleneck (job queue) |
 | Docker / browser extension | User explicitly put both on the back burner | The rest of the roadmap's functionality is further along |
 
-## 6. Working rules that still apply (from `CLAUDE.md`, not repeated in full)
-One step, one branch off the latest `baihe-subtitler`; keep changes minimal; remove what your change makes dead and flag pre-existing dead code; run `python run_tests.py`; secrets never in URLs/logs/errors; every HTTP call has `timeout=`; field-scoped writes by permanent line id; register new optional dependencies in `diagnostics.OPTIONAL_DEPENDENCIES`; update `FILE_ORGANIZATION.md` for new top-level modules; structural UI rebuilds need before/after Playwright screenshots.
+## 6. Working rules
+See root `CLAUDE.md`, `docs/engineering-standards.md` and `docs/testing-and-ci.md`; not repeated here.

@@ -1,6 +1,6 @@
 # Claude Code delegation policy
 
-These instructions complement the root `CLAUDE.md`; the root file and the active roadmap remain authoritative when instructions overlap.
+These instructions complement the root `CLAUDE.md`; the root file and the active roadmap remain authoritative when instructions overlap. Shared principles, precedence, the review policy and the git/safety rules are in `docs/engineering-standards.md`; testing guidance is in `docs/testing-and-ci.md`. This file does not restate them.
 
 ## Lead and delegation
 
@@ -9,7 +9,7 @@ These instructions complement the root `CLAUDE.md`; the root file and the active
 - Delegate meaningful, independent research, planning, review, and QA to the matching project subagent. Start independent read-only tasks concurrently in the background when useful. Keep small tasks and tightly coupled work in the lead session.
 - Subagents do not inherit the conversation history. Give each a concise task packet: goal, roadmap step, current branch/state, relevant files, constraints, expected result, and whether it may edit. Require file/line evidence for findings.
 - Read-only agents get no shell access. The lead hands them what they cannot fetch themselves:
-  - `code-reviewer`: the diff, its base commit, and the changed-file list — inline for a small patch, or as a saved patch file for a large one.
+  - `code-reviewer`: the diff, its base commit, and the changed-file list — inline for a small patch, or as a saved patch file for a large one — plus the task specification and acceptance criteria, the tests run and their results, and whether the change is committed or only in the working tree (see the review policy, `docs/engineering-standards.md` §3).
   - `roadmap-planner`: the current roadmap text, or an exact path it can read. If neither is available, report that instead of guessing step IDs, status, or decisions.
 
 ## Parallel changes and safety

@@ -13,12 +13,9 @@ file in this directory.
 
 **The numbered, build-order roadmap (`docs/baihe-roadmap.md`) does not
 live in this repo.** It's tracked on a separate planning branch and
-fetched read-only, per the root `CLAUDE.md`:
-
-```
-git fetch origin claude/baihe-subtitle-planning-95qyvq
-git show FETCH_HEAD:docs/baihe-roadmap.md
-```
+fetched read-only; the fetch command is in the root `CLAUDE.md`.
+Shared rules and precedence: `engineering-standards.md`; testing and CI:
+`testing-and-ci.md`.
 
 That file is the actual source of truth for what's merged, what's
 running, what's blocked, and what's deferred — its own `NEXT` pointer at
@@ -56,13 +53,22 @@ only on a side branch.
   pre-build reasoning; superseded now that it's built — kept only as
   historical record (its own banner says so and points at
   `browser-extension.md`).
-- **`migration-react-fastapi.md`** — the React + FastAPI migration
-  foundation: architecture, how to run it, what's built so far. Lives
-  on the unmerged `migration/react-fastapi-foundation` branch, not
-  merged into `baihe-subtitler`.
-- **`migration-review.md`** — the whole-app migration review this
-  foundation doc is a companion to: per-tab/stage plan, invariants,
-  sequence, decisions needed. Nothing beyond the foundation is built yet.
+- **`migration-react-fastapi.md`** — the React + FastAPI migration:
+  phase tables (backend phases 0-10 plus the React frontend), what
+  differs from the original Python-only design, and the original
+  foundation write-up kept as a labelled historical section. Merged into
+  `baihe-subtitler`.
+- **`migration-review.md`** — the whole-app migration review: per-tab/
+  stage plan, invariants, sequence, decisions.
+- **`migration-handoff.md`** — durable migration status, recipe and
+  queue for the next session.
+- **`migration-frontend-plan.md`** — the React frontend slice plan.
+- **`baihe-roadmap-master.md`** — master index: status snapshot, bug
+  tracker, to-do queue, deferred/review-later steps.
+- **`engineering-standards.md`** — shared principles: precedence, scope,
+  review policy, verification, git/safety.
+- **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
+  CI-minutes notes.
 - **`remote-access-design.md`** — M8-H (Tailscale Serve access) design
   proposal; nothing built.
 - **`windows-installer-design.md`** — Step 80's installer/uninstaller
