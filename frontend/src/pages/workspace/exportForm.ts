@@ -31,12 +31,13 @@ export interface AssForm {
   notesAsSeparateLine: boolean
   wrapEn: string
   wrapSource: string
+  baseName: string
 }
 
 export const emptyAssForm = (preset: string): AssForm => ({
   field: 'en', preset, font: '', size: '', outlineWidth: '', shadow: '', primary: '', outline: '',
   bold: '', italic: '', alignment: '', sfxAlignment: '', notesAlignment: '', speakerColors: '',
-  perSpeakerColors: true, includeNotes: false, notesAsSeparateLine: false, wrapEn: '', wrapSource: '',
+  perSpeakerColors: true, includeNotes: false, notesAsSeparateLine: false, wrapEn: '', wrapSource: '', baseName: '',
 })
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
@@ -141,6 +142,53 @@ export function buildAssRequest(
   if (wrapEn.value !== undefined) request.wrap_chars_en = wrapEn.value
   if (wrapSource.value !== undefined) request.wrap_chars_source = wrapSource.value
   return { request }
+}
+
+export const MAX_BASE_NAME = 100
+
+// Download name for a generated subtitle file. The name is chosen client-side
+// (Blob + <a download>); the API's own Content-Disposition name is not used.
+// Blank means the API's default shape, drama_<id>_<field>.
+export function exportFilename(base: string, dramaId: number, field: SubtitleField, ext: string): string {
+  const clean = [...base.trim()]
+    .map((c) => (c < ' ' || c === '\x7f' || '<>:"/\\|?*'.includes(c) ? '_' : c))
+    .join('')
+    .slice(0, MAX_BASE_NAME)
+    .replace(/[.\s]+$/, '')
+  return `${clean || `drama_${dramaId}_${field}`}.${ext}`
+}
+
+export interface ResolvedAssStyle {
+  font: string
+  size: number
+  bold: boolean
+  italic: boolean
+  primary: string
+  outline: string
+  outlineWidth: number
+  shadow: number
+  alignment: string
+}
+
+// Preset values with the form's valid overrides applied, for the local preview
+// only (the server applies the real style). Invalid overrides fall back to the preset.
+export function resolveAssStyle(form: AssForm, opts: AssStyleOptions): ResolvedAssStyle {
+  const p = (opts.presets[form.preset] ?? opts.presets[opts.default_preset] ?? {}) as Record<string, unknown>
+  const str = (v: unknown, d: string) => (typeof v === 'string' && v ? v : d)
+  const num = (v: unknown, d: number) => (typeof v === 'number' ? v : d)
+  const int = (text: string, range: number[], d: number) => intField(text, '', range).value ?? d
+  const hex = (text: string, d: string) => (HEX.test(text.trim()) ? text.trim() : d)
+  return {
+    font: form.font.trim() || str(p.font, 'Arial'),
+    size: int(form.size, opts.size_range, num(p.size, 24)),
+    bold: form.bold ? form.bold === 'yes' : p.bold === true,
+    italic: form.italic ? form.italic === 'yes' : p.italic === true,
+    primary: hex(form.primary, str(p.primary, '#FFFFFF')),
+    outline: hex(form.outline, str(p.outline, '#000000')),
+    outlineWidth: int(form.outlineWidth, opts.outline_width_range, num(p.outline_width, 2)),
+    shadow: int(form.shadow, opts.shadow_range, num(p.shadow, 0)),
+    alignment: form.alignment || str(p.alignment, 'bottom-center'),
+  }
 }
 
 export function formatBytes(n: number): string {

@@ -1,7 +1,7 @@
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions } from '../../../types/export'
-import { MAX_SPEAKER_COLORS, type AssForm } from '../exportForm'
+import { MAX_SPEAKER_COLORS, resolveAssStyle, type AssForm } from '../exportForm'
 
 interface Props {
   form: AssForm
@@ -43,10 +43,32 @@ export function ExportAss({ form, setForm, options }: Props) {
     </Field>
   )
 
+  const look = resolveAssStyle(form, options)
   const summary = `${form.preset || 'default'} · ${form.font || 'preset font'} · ${form.size ? `${form.size} pt` : 'preset size'}`
   return (
     <Section title="ASS style" summary={summary}>
       <p className="muted">Used for the ASS file and the burned-in video.</p>
+      <div
+        className={`ass-preview ass-preview-${look.alignment.split('-')[1] ?? 'center'}`}
+        data-testid="ass-preview"
+        role="img"
+        aria-label="Approximate style preview"
+        title="Approximate preview; the exported file may render slightly differently."
+      >
+        <span
+          style={{
+            fontFamily: `"${look.font}", sans-serif`,
+            fontSize: `${look.size}px`,
+            fontWeight: look.bold ? 700 : 400,
+            fontStyle: look.italic ? 'italic' : 'normal',
+            color: look.primary,
+            WebkitTextStroke: look.outlineWidth ? `${look.outlineWidth / 2}px ${look.outline}` : undefined,
+            textShadow: look.shadow ? `${look.shadow}px ${look.shadow}px 0 ${look.outline}` : undefined,
+          }}
+        >
+          Sample subtitle line
+        </span>
+      </div>
       <div className="export-form">
         <Field label="Preset">
           <select value={form.preset} onChange={(e) => set('preset', e.target.value)}>

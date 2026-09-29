@@ -5,7 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
-import { buildAssRequest, parseWrap, type AssForm } from '../exportForm'
+import { buildAssRequest, exportFilename, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 
@@ -54,7 +54,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options }: Props) 
     if (!p) return
     p.then(
       (text) => {
-        const filename = `drama_${dramaId}_${form.field}.${fmt}`
+        const filename = exportFilename(form.baseName, dramaId, form.field, fmt)
         setError(null)
         setResult({ text, filename, fmt })
         if (!text.trim()) return
@@ -93,7 +93,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options }: Props) 
       </div>
       <Section
         title="Advanced"
-        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · wrap ${form.wrapEn || 'off'}/${form.wrapSource || 'off'}`}
+        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · wrap ${form.wrapEn || 'off'}/${form.wrapSource || 'off'} · ${exportFilename(form.baseName, dramaId, form.field, fmt)}`}
       >
         <div className="export-form">
           <Field label="Wrap English" unit="chars" help="Break English lines longer than this. Blank means no wrapping.">
@@ -101,6 +101,14 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options }: Props) 
           </Field>
           <Field label="Wrap source" unit="chars" help="Break source-language lines longer than this. Blank means no wrapping.">
             <input inputMode="numeric" value={form.wrapSource} placeholder="off" onChange={(e) => set('wrapSource', e.target.value)} />
+          </Field>
+          <Field label="File name" help="Name of the downloaded file, without the extension. Blank uses drama_<id>_<language>.">
+            <input
+              value={form.baseName}
+              maxLength={MAX_BASE_NAME}
+              placeholder={`drama_${dramaId}_${form.field}`}
+              onChange={(e) => set('baseName', e.target.value)}
+            />
           </Field>
           <Field label="Include notes" help="Add translation notes inline in the exported text.">
             <input type="checkbox" checked={form.includeNotes} onChange={(e) => set('includeNotes', e.target.checked)} />
