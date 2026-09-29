@@ -181,7 +181,8 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
 
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
-                           sample_rate: int = 16000) -> subprocess.Popen:
+                           sample_rate: int = 16000,
+                           protocol_whitelist: str = None) -> subprocess.Popen:
     """
     Launches ffmpeg to read `source_url` continuously and write it out as
     numbered mono WAV chunks (chunk_00000.wav, chunk_00001.wav, ...), each
@@ -197,11 +198,17 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     run sharing the directory) is removed first, so ffmpeg's new chunk
     numbering never mixes with old audio that run_live_job would then
     process as this run's (clear_stale_chunks).
+
+    protocol_whitelist: when given (the API passes one), ffmpeg may open
+    the input -- and anything a playlist points at -- only through these
+    protocols (`-protocol_whitelist`, an input option, so it doesn't
+    affect writing the chunk files). None keeps ffmpeg's default.
     """
     os.makedirs(out_dir, exist_ok=True)
     clear_stale_chunks(out_dir)
     pattern = os.path.join(out_dir, "chunk_%05d.wav")
-    cmd = ["ffmpeg", "-y", "-i", source_url, "-vn", "-ac", "1", "-ar", str(sample_rate),
+    input_opts = ["-protocol_whitelist", protocol_whitelist] if protocol_whitelist else []
+    cmd = ["ffmpeg", "-y", *input_opts, "-i", source_url, "-vn", "-ac", "1", "-ar", str(sample_rate),
            "-f", "segment", "-segment_time", str(segment_seconds), "-reset_timestamps", "1",
            pattern]
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -499,7 +506,8 @@ def current_generation(job_id: str) -> int:
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                   poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None,
-                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None):
+                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None,
+                  stream_url_check=None, protocol_whitelist: str = None):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -528,6 +536,12 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     max_seconds: a hard stop -- once this much wall-clock time has passed
     since the call began, capture stops as if Stop were pressed. None
     means no limit (the Streamlit tab's behavior).
+
+    stream_url_check: optional callable run on the stream URL yt-dlp
+    resolved, before ffmpeg opens it; it raises to refuse (the API checks
+    scheme and public host). protocol_whitelist is passed to
+    start_segment_capture. Both default to None (the Streamlit tab's
+    behavior).
     """
     overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
     my_generation = bump_generation(job_id)
@@ -535,9 +549,12 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
 
     background_jobs.update_progress(job_id, 0.0, "Resolving stream URL...")
     source_url = resolve_stream_url(url, cookies_browser=cookies_browser, cookies_file=cookies_file)
+    if stream_url_check is not None:
+        stream_url_check(source_url)
 
     background_jobs.update_progress(job_id, 0.0, "Starting capture...")
-    proc = start_segment_capture(source_url, out_dir, segment_seconds)
+    proc = start_segment_capture(source_url, out_dir, segment_seconds,
+                                 protocol_whitelist=protocol_whitelist)
 
     all_cues = []
     last_completed = -1

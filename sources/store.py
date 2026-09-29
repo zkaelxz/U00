@@ -298,16 +298,73 @@ def known_chapter_ids(source: str, series_id: str) -> set:
             (source, series_id))}
 
 
-def record_new_chapters(source: str, series_id: str, chapters) -> int:
+def record_new_chapters(source: str, series_id: str, chapters) -> list:
+    """Records chapters as known and adds one notification for each chapter
+    that was not known yet. Returns the chapters actually recorded.
+
+    Idempotent, including across processes (the API and Streamlit can both
+    run a check): the known_chapters primary key decides, and each
+    notification is inserted in the same write transaction as the
+    known_chapters row it depends on, so a chapter two checks find at once
+    is notified (and returned, e.g. for auto-import) exactly once."""
     now = time.time()
+    recorded = []
     with connect() as conn:
-        conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, title, "
-                         "first_seen) VALUES(?, ?, ?, ?, ?)",
-                         [(source, series_id, c.chapter_id, c.title, now) for c in chapters])
-        conn.executemany("INSERT INTO chapter_notifications(source, series_id, chapter_id, title, "
-                         "created_at) VALUES(?, ?, ?, ?, ?)",
-                         [(source, series_id, c.chapter_id, c.title, now) for c in chapters])
-    return len(chapters)
+        for c in chapters:
+            cur = conn.execute("INSERT OR IGNORE INTO known_chapters(source, series_id, "
+                               "chapter_id, title, first_seen) VALUES(?, ?, ?, ?, ?)",
+                               (source, series_id, c.chapter_id, c.title, now))
+            if cur.rowcount == 1:
+                conn.execute("INSERT INTO chapter_notifications(source, series_id, chapter_id, "
+                             "title, created_at) VALUES(?, ?, ?, ?, ?)",
+                             (source, series_id, c.chapter_id, c.title, now))
+                recorded.append(c)
+    return recorded
+
+
+CHECK_CYCLE_LEASE_KEY = "check_cycle_started_at"
+
+
+def _setting_float(conn, key: str) -> float:
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    try:
+        return float(json.loads(row["value"])) if row else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def claim_check_cycle(now: float, lease_seconds: float, min_gap_seconds: float = 0.0):
+    """Claims the next chapter-check cycle for the caller, atomically across
+    processes (BEGIN IMMEDIATE: one writer at a time). Refused (None) while
+    another cycle's claim is younger than `lease_seconds`, or, with
+    `min_gap_seconds` > 0 (a scheduled cycle), while the last finished
+    cycle is younger than that. Returns the claim token to pass to
+    release_check_cycle."""
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        started = _setting_float(conn, CHECK_CYCLE_LEASE_KEY)
+        last = _setting_float(conn, "last_check_cycle")
+        if (started and now - started < lease_seconds) or (
+                min_gap_seconds > 0 and now - last < min_gap_seconds):
+            conn.rollback()
+            return None
+        token = json.dumps(now)
+        conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     (CHECK_CYCLE_LEASE_KEY, token))
+        conn.commit()
+        return token
+    finally:
+        conn.close()
+
+
+def release_check_cycle(token) -> None:
+    """Ends a claim, only if it is still this caller's (an expired claim
+    another process took over is left alone)."""
+    with connect() as conn:
+        conn.execute("UPDATE settings SET value=? WHERE key=? AND value=?",
+                     (json.dumps(0), CHECK_CYCLE_LEASE_KEY, token))
 
 
 def mark_checked(source: str, series_id: str, error: str = None):
