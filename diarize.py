@@ -73,8 +73,41 @@ def load_pipeline(hf_token: str):
     raise last_error
 
 
+def select_device(use_gpu: bool = False) -> str:
+    """Step 101: "cuda" when use_gpu is on and torch sees a CUDA device,
+    else "cpu". Never raises -- a torch without CUDA support means CPU."""
+    if not use_gpu:
+        return "cpu"
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def _place_pipeline(pipeline, use_gpu: bool) -> str:
+    """Step 101: moves the loaded pyannote pipeline onto the GPU when
+    use_gpu is on and CUDA is available. pyannote's own docs require an
+    explicit pipeline.to(torch.device("cuda")); without it the pipeline
+    stays on CPU even inside a job tagged gpu_touching. Returns the device
+    actually used ("cuda" or "cpu"), falling back to "cpu" (logged) if the
+    move itself fails."""
+    device = select_device(use_gpu)
+    if device == "cpu":
+        return "cpu"
+    try:
+        import torch
+        pipeline.to(torch.device(device))
+    except Exception as exc:
+        import applog
+        applog.get_logger().error(f"diarization: moving pyannote to {device} failed, "
+                                  f"running on CPU instead: {exc}")
+        return "cpu"
+    return device
+
+
 def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False,
-           return_embeddings: bool = False):
+           return_embeddings: bool = False, use_gpu: bool = False, run_info: dict = None):
     """
     Returns a list of {"start": float, "end": float, "speaker": str}
     covering who spoke when, e.g. "SPEAKER_00", "SPEAKER_01", ... --
@@ -82,8 +115,17 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     (..., embeddings) with return_embeddings=True too -- see
     extract_speaker_embeddings() below. Both extra flags default off, so
     every existing call keeps its exact current return shape.
+
+    use_gpu (Step 101): place the pipeline on CUDA when available.
+    run_info: an optional dict this fills with {"device": "cuda"|"cpu"},
+    the device actually used.
     """
     pipeline, model = load_pipeline(hf_token)
+    device = _place_pipeline(pipeline, use_gpu)
+    if run_info is not None:
+        run_info["device"] = device
+    import applog
+    applog.get_logger().info(f"diarization: running {model} on {device}")
     import soundfile as sf
     import torch
     waveform, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
@@ -106,7 +148,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     return (segments, model, embeddings) if return_model else (segments, embeddings)
 
 
-def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, result_queue):
+def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *rest):
     """Step 4d: entry point for running diarize() in its own OS process,
     via background_jobs.start_process_job() -- pyannote's pipeline(...)
     call is one opaque call with no cooperative-cancellation checkpoint
@@ -120,12 +162,23 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, resu
     result_queue -- segments/model/embeddings are exactly what diarize()
     already returns, never a torch tensor or pyannote object, which
     couldn't cross the process boundary at all.
+
+    Called as (audio_path, hf_token, num_speakers, result_queue) -- the
+    original shape, still used by the frozen Streamlit tab -- or as
+    (audio_path, hf_token, num_speakers, options, result_queue), where
+    options is a plain dict with use_gpu (Step 101). The result also carries "device", the device the
+    pipeline actually ran on.
     """
+    result_queue = rest[-1]
+    options = rest[0] if len(rest) > 1 and isinstance(rest[0], dict) else {}
     try:
+        run_info = {}
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
-            return_model=True, return_embeddings=True)
-        result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings}))
+            return_model=True, return_embeddings=True,
+            use_gpu=bool(options.get("use_gpu")), run_info=run_info)
+        result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
+                                 "device": run_info.get("device", "cpu")}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
 
@@ -194,7 +247,7 @@ def merge_speakers(lines, turns, overwrite_manual: bool = False) -> dict:
 
 
 def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
-              embeddings: dict = None) -> str:
+              embeddings: dict = None, device: str = None) -> str:
     """Stores pyannote's output next to the drama, so speakers can be
     re-merged (or voice clips extracted) later without re-running it --
     it used to live only in st.session_state and vanish on a refresh.
@@ -208,7 +261,7 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
     os.makedirs(drama_dir, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
-                   "num_speakers": num_speakers, "turns": list(turns),
+                   "num_speakers": num_speakers, "device": device, "turns": list(turns),
                    "embeddings": embeddings or {}}, f, indent=2)
     return path
 
@@ -233,6 +286,17 @@ def load_last_speaker_count(drama_dir: str):
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f).get("num_speakers")
+
+
+def load_last_run_info(drama_dir: str) -> dict:
+    """{"device"} from the last detection run (Step 101), None if unset,
+    no run yet, or an older file."""
+    path = os.path.join(drama_dir, TURNS_FILE)
+    data = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    return {k: data.get(k) for k in ("device",)}
 
 
 def load_embeddings(drama_dir: str) -> dict:

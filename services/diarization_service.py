@@ -52,11 +52,15 @@ def get_diarization_config(drama_id: int) -> dict:
 
     ddir = db.drama_dir(drama_id)
     audio_path = _drama_audio_path(drama_id, drama)
+    last_run = diarize.load_last_run_info(ddir)
 
     return {
         "drama_id": drama_id,
         "hf_token_configured": bool(settings_service.resolve_key("hf_token")),
         "expected_speakers": diarize.load_last_speaker_count(ddir),
+        # Step 101: the device the last run's pyannote pipeline actually
+        # ran on ("cuda"/"cpu"), None before any run that recorded it.
+        "last_device": last_run["device"],
         "audio_available": audio_path is not None,
     }
 
@@ -90,7 +94,8 @@ def apply_diarization_result(drama_id: int, result: dict,
     if turns is None:
         return
     diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
-                       model=result.get("model"), embeddings=result.get("embeddings", {}))
+                       model=result.get("model"), embeddings=result.get("embeddings", {}),
+                       device=result.get("device"))
     lines = db.load_line_objects(drama_id)
     diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
@@ -104,6 +109,12 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
     def _on_done(job_id, result):
         apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual)
     return _on_done
+
+
+def worker_options() -> dict:
+    """The options dict diarize.diarize_subprocess_worker takes: the
+    persisted use_gpu setting (Step 101)."""
+    return {"use_gpu": settings_service.get_use_gpu()}
 
 
 def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None,
@@ -149,7 +160,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     # scoping pass, fixed here since it needs the same new error class).
     started = background_jobs.start_process_job(
         job_id, diarize.diarize_subprocess_worker,
-        args=(audio_path, hf_token, expected_speakers or None),
+        args=(audio_path, hf_token, expected_speakers or None,
+              worker_options()),
         gpu_touching=True, description=f"Diarization (drama #{drama_id})",
         on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual))
     if not started:

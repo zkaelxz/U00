@@ -580,7 +580,7 @@ class TestDiarizationEndpoints:
         body = client.get(f"/api/diarization/dramas/{did}/config").json()
         assert body == {
             "drama_id": did, "hf_token_configured": False,
-            "expected_speakers": None, "audio_available": False,
+            "expected_speakers": None, "last_device": None, "audio_available": False,
         }
 
     def test_config_unknown_drama_is_404(self, client, isolated_db):
