@@ -166,18 +166,19 @@ def test_dismiss_notification(client):
     assert client.post("/api/sources/notifications/9999/dismiss").status_code == 404
 
 
-def test_track_and_untrack(client, isolated_db):
+def test_track_is_refused_but_untrack_works(client, isolated_db):
     import db
+    from sources import store
     did = db.create_drama(title_en="D")
     body = {"source": "manhuagui", "series_id": "77", "title": "T",
-            "url": "https://www.manhuagui.com/comic/77/?a=b", "drama_id": did}
+            "url": "https://www.manhuagui.com/comic/77/", "drama_id": did}
+    # tracking a new series would announce the whole back catalogue: refused
     r = client.post("/api/sources/tracked", json=body)
-    assert r.status_code == 200
-    assert r.json()[0]["url"] == "https://www.manhuagui.com/comic/77/"
-    assert r.json()[0]["drama_id"] == did
+    assert r.status_code == 400
+    assert client.get("/api/sources/tracked").json() == []
     assert client.post("/api/sources/tracked", json={**body, "source": "nope"}).status_code == 404
-    assert client.post("/api/sources/tracked", json={**body, "drama_id": 9999}).status_code == 404
-    assert client.post("/api/sources/tracked", json={**body, "url": "file:///etc/x"}).status_code == 422
+    # a series tracked elsewhere (Streamlit) can still be untracked
+    store.track_series("manhuagui", "77", "T", url=body["url"], drama_id=did)
     r = client.post("/api/sources/tracked", json={"source": "manhuagui", "series_id": "77",
                                                   "tracked": False})
     assert r.status_code == 200 and r.json() == []

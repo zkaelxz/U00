@@ -377,9 +377,9 @@ def dismiss_notification(notification_id: int) -> dict:
 
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
                 drama_id: int = None) -> list:
-    """Track or untrack one series. Tracking here fetches nothing, so no
-    chapters are marked known: the first check announces the whole back
-    catalogue (see docs/migration-review.md Slice 56b)."""
+    """Untrack one series. Tracking a NEW series is refused (400) until a
+    chapter-fetch slice can mark the current chapters as known; see
+    docs/migration-review.md Slice 56b."""
     _require_source(source)
     series_id = (series_id or "").strip()
     if not series_id:
@@ -391,11 +391,10 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
             raise NotFoundError("That series isn't tracked.")
         store.untrack_series(source, series_id)
         return list_tracked()
-    title = (title or "").strip() or series_id
-    url = (url or "").strip()
-    if url and urlsplit(url).scheme not in ("http", "https"):
-        raise InvalidInputError("url must be an http(s) address.")
-    if drama_id is not None and db.get_drama(drama_id) is None:
-        raise NotFoundError("Drama not found.")
-    store.track_series(source, series_id, title, url=url, drama_id=drama_id)
-    return list_tracked()
+    # Tracking a new series would record no chapters as known, so the first
+    # check would announce (and, with auto_queue_new_chapters on, import) the
+    # whole back catalogue. It needs the fetched chapter list (Sources search
+    # slice) before it is safe to expose.
+    raise UnsupportedOperationError(
+        "Tracking a new series needs its current chapter list, which the API "
+        "cannot fetch yet. Track it in the Sources tab for now.")
