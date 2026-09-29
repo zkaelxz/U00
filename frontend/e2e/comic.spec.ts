@@ -151,6 +151,35 @@ test('Typeset and Text: rendered pages, boxes and the side panel, text only', as
   expect(s.unmocked).toEqual([])
 })
 
+test('a failed saved-page read never overwrites it; moving still saves', async ({ page }) => {
+  // One page at a time: sitting on page 1 sends nothing, turning to page 2 saves 2.
+  const s = await mockComic(page, { id: 14, mediaType: 'manga', pageCount: 5, lastPage: 4, progressFails: true })
+  await page.goto('/#/comic/14')
+  await expect(page).toHaveURL(/#\/comic\/14\?page=1$/)
+  await expect(page.getByTestId('comic-page').locator('img')).toHaveJSProperty('complete', true)
+  await page.waitForTimeout(2500)
+  expect(s.calls.filter((c) => c.method === 'GET' && c.path.endsWith('/progress')).length).toBe(1)
+  expect(s.progressPosts).toEqual([])
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(label(page)).toHaveText('Page 2 of 5')
+  await expect.poll(() => s.progressPosts, { timeout: 5000 }).toEqual([2])
+  expect(s.unmocked).toEqual([])
+
+  // Vertical scroll: page 1 in view on arrival is not a move either.
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+  const v = await mockComic(page, { id: 16, mediaType: 'manhua', pageCount: 6, lastPage: 4, progressFails: true })
+  await page.goto('/#/comic/16')
+  await expect(page).toHaveURL(/#\/comic\/16\?page=1$/)
+  await expect(page.getByTestId('comic-page').first().locator('img')).toHaveJSProperty('complete', true)
+  await page.waitForTimeout(2500)
+  expect(v.progressPosts).toEqual([])
+  await page.keyboard.press('End')
+  await expect(label(page)).toHaveText('Page 6 of 6')
+  await expect.poll(() => v.progressPosts.at(-1), { timeout: 5000 }).toBe(6)
+  expect(v.progressPosts).not.toContain(1)
+  expect(v.unmocked).toEqual([])
+})
+
 test('a 403 image says media playback permission is needed', async ({ page }) => {
   const s = await mockComic(page, { id: 12, imagesForbidden: true, lastPage: null })
   await page.goto('/#/comic/12')

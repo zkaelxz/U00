@@ -5,7 +5,7 @@ export type ComicVariant = 'original' | 'rendered'
 
 export interface ComicPageInfo {
   id: number
-  // 0-based position in the drama (the page's idx); the viewer shows ordinal + 1.
+  // 1-based page number in the drama (page 1 is ordinal 1).
   ordinal: number
   width: number | null
   height: number | null
@@ -24,7 +24,8 @@ export interface ComicChapter {
 export interface ComicPagesResponse {
   drama_id: number
   media_type: string | null
-  reading_mode_default: string | null
+  // Always sent: 'paged' for manga, 'vertical' for everything else.
+  reading_mode_default: 'paged' | 'vertical'
   page_count: number
   pages: ComicPageInfo[]
   // Always empty until chapter markers exist; the viewer uses a page scrubber.

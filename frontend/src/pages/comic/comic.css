@@ -57,7 +57,8 @@
 .comic-stage-paged .comic-zoom-layer { display: grid; place-items: center; }
 
 .comic-page { margin: 0; width: 100%; max-width: var(--comic-page-max); scroll-margin-top: 64px; }
-.comic-stage-paged .comic-page { display: grid; justify-items: center; }
+/* safe: a page wider than the screen (Original size) starts at its left edge, never cut off. */
+.comic-stage-paged .comic-page { display: grid; justify-items: safe center; }
 .comic-page-inner { position: relative; width: 100%; margin-inline: auto; background: var(--surface); }
 .comic-page-inner:not([style*='aspect-ratio']) { min-height: 50vh; }
 .comic-page img {

@@ -79,6 +79,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [error, setError] = useState<unknown>(null)
   // Saved page from the server (1 when unknown or not allowed).
   const [savedPage, setSavedPage] = useState<number | null>(null)
+  // The saved page really came from the server. Until it has (or the reader
+  // moves), nothing is saved, so a failed read never overwrites the resume point.
+  const [progressKnown, setProgressKnown] = useState(false)
   // A page the viewer moved to; until then the start page (?page or saved).
   const [picked, setPicked] = useState<number | null>(null)
   const [resumeDismissed, setResumeDismissed] = useState(false)
@@ -99,6 +102,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const jumpRef = useRef(jump)
   // The page the server already has, so an unchanged page is not re-sent.
   const lastSaved = useRef<number | null>(null)
+  // The reader has been on a page other than the start page.
+  const moved = useRef(false)
   // Text-box requests already sent, by page id.
   const requested = useRef(new Set<number>())
 
@@ -109,7 +114,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       (p) => {
         lastSaved.current = p.last_page
         setSavedPage(p.last_page)
+        setProgressKnown(true)
       },
+      // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
     )
   }, [id])
@@ -209,8 +216,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }, [prefs.mode, pages, go, ready])
 
   // Save progress a second after the page settles; a refusal (no lines.edit) is ignored.
+  // Without the server's saved page, only a page the reader moved to is saved.
   useEffect(() => {
     if (current === null || !count) return
+    if (current !== start) moved.current = true
+    if (!progressKnown && !moved.current) return
     const t = setTimeout(() => {
       if (lastSaved.current === current) return
       comicApi.saveProgress(id, current).then(
@@ -223,7 +233,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       )
     }, PROGRESS_DELAY_MS)
     return () => clearTimeout(t)
-  }, [id, current, count])
+  }, [id, current, count, start, progressKnown])
 
   const srcFor = useCallback(
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered ? 'rendered' : 'original', p.image_version),

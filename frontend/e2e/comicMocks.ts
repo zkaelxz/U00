@@ -120,7 +120,9 @@ export interface ComicMockOptions {
   height: number
   // Saved progress (C4); null makes C4 answer 403.
   lastPage: number | null
-  // Page ordinals (0-based) that have a typeset image.
+  // GET progress (C4) answers 500 (a server fault, not a refusal).
+  progressFails: boolean
+  // Page indexes (0-based, i.e. ordinal - 1) that have a typeset image.
   rendered: number[]
   // Every image answers 403 (no media.stream).
   imagesForbidden: boolean
@@ -159,7 +161,7 @@ const json = (route: Route, body: unknown, status = 200) =>
 export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}): Promise<ComicMockState> {
   const opts: ComicMockOptions = {
     id: 7, title: 'Moonlit Courtyard', mediaType: 'manhua', pageCount: 8, width: 800, height: 1200,
-    lastPage: 1, rendered: [], imagesForbidden: false, firstPageText: null, ...over,
+    lastPage: 1, progressFails: false, rendered: [], imagesForbidden: false, firstPageText: null, ...over,
   }
   const s: ComicMockState = { opts, calls: [], images: [], progressPosts: [], unmocked: [] }
   const pngCache = new Map<string, Buffer>()
@@ -202,10 +204,11 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     return json(route, {
       drama_id: id,
       media_type: opts.mediaType,
-      reading_mode_default: null,
+      // As the backend: manga reads a page at a time, everything else scrolls.
+      reading_mode_default: opts.mediaType.toLowerCase() === 'manga' ? 'paged' : 'vertical',
       page_count: opts.pageCount,
       pages: Array.from({ length: opts.pageCount }, (_, i) => ({
-        id: pageIdOf(id, i), ordinal: i, width: opts.width, height: opts.height,
+        id: pageIdOf(id, i), ordinal: i + 1, width: opts.width, height: opts.height,
         has_rendered: opts.rendered.includes(i), has_regions: true, image_version: 1700000000 + i,
       })),
       chapters: [],
@@ -252,6 +255,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       s.progressPosts.push(p)
       return json(route, { last_page: p, percent_complete: (p / opts.pageCount) * 100 })
     }
+    if (opts.progressFails) return json(route, { error: { code: 'internal', message: 'Something went wrong.' } }, 500)
     if (opts.lastPage === null) return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, 403)
     return json(route, { last_page: opts.lastPage, percent_complete: (opts.lastPage / opts.pageCount) * 100 })
   })

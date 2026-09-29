@@ -100,6 +100,39 @@ test('phone: manga pages right to left with tap thirds; the middle hides the bar
   expect(s.unmocked).toEqual([])
 })
 
+test('phone: one page at a time at original size scrolls to both edges of a wide page', async ({ page }) => {
+  const s = await mockComic(page, { id: 15, mediaType: 'manga', pageCount: 3, lastPage: 1, width: 800, height: 1200 })
+  await page.goto('/#/comic/15')
+  await expect(stage(page)).toHaveClass(/comic-stage-paged/)
+  await page.getByRole('button', { name: 'View settings' }).click()
+  const sheet = page.getByRole('dialog', { name: 'View settings' })
+  await sheet.getByLabel('Fit', { exact: true }).selectOption('original')
+  await sheet.getByRole('button', { name: 'Close' }).click()
+  const fig = page.getByTestId('comic-page')
+  await expect(fig).toHaveClass(/comic-fit-original/)
+  await expect(fig.locator('img')).toHaveJSProperty('complete', true)
+  const edges = (to: 'start' | 'end') =>
+    fig.evaluate((f, end) => {
+      f.scrollLeft = end ? f.scrollWidth : 0
+      const img = f.querySelector('img')!.getBoundingClientRect()
+      const box = f.getBoundingClientRect()
+      return { scrollLeft: f.scrollLeft, figLeft: box.left, figRight: box.right, imgLeft: img.left, imgRight: img.right, imgWidth: img.width }
+    }, to === 'end')
+  const start = await edges('start')
+  expect(start.imgWidth).toBe(800)
+  expect(start.scrollLeft).toBe(0)
+  // The page's left edge is reachable (not pushed off to the left by centring).
+  expect(start.imgLeft).toBeGreaterThanOrEqual(start.figLeft - 0.5)
+  const end = await edges('end')
+  expect(end.imgRight).toBeLessThanOrEqual(end.figRight + 0.5)
+  await noSideways(page)
+  if (SHOTS_DIR) {
+    await edges('start')
+    await page.screenshot({ path: `${SHOTS_DIR}/phone-paged-original.png` })
+  }
+  expect(s.unmocked).toEqual([])
+})
+
 test('phone: a 403 image shows the permission message, no sideways scroll', async ({ page }) => {
   const s = await mockComic(page, { id: 12, imagesForbidden: true })
   await page.goto('/#/comic/12?page=1')
