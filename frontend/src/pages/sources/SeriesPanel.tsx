@@ -4,7 +4,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
-import { ImportBar, ImportSetup } from './ChapterImport'
+import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
 import {
@@ -77,10 +77,19 @@ export function SeriesPanel({
   const description = info?.description?.trim() ?? ''
   const extra = seriesExtra(info)
   // Import (S-4): ticked chapter ids, the drama and the import job.
-  const [selected, setSelected] = useState<string[]>(() => (preselect ? [preselect] : []))
-  const imp = useChapterImport(open.source, open.series_id)
+  const [selected, setSelected] = useState<string[]>([])
+  // A pasted chapter link ticks its chapter, also when the series is already open.
+  const [preselectSeen, setPreselectSeen] = useState<string | null>(null)
+  const pre = preselect ?? null
+  if (pre !== preselectSeen) {
+    setPreselectSeen(pre)
+    if (pre) setSelected((cur) => toggleId(cur, pre, true))
+  }
   const canImport = !!sourceInfo?.import_supported && (!remote || IMPORT_REMOTE_ALLOWED)
+  const imp = useChapterImport(open.source, open.series_id, !!sourceInfo?.supports.get_pages, canImport)
   const importing = !!result && chapters.length > 0 && canImport
+  // Tracking (R4) works for any source, not only those with import; same remote rule.
+  const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
 
   return (
     <section className="panel sources-series" aria-label="Series">
@@ -200,6 +209,9 @@ export function SeriesPanel({
           tracked={tracked}
           onTracked={(list) => onTracked?.(list)}
         />
+      )}
+      {!importing && canTrack && (
+        <TrackRow source={open.source} seriesId={open.series_id} dramaId={null} onTracked={(list) => onTracked?.(list)} />
       )}
       {result && chapters.length > 0 && !canImport && sourceInfo?.import_supported && remote && (
         <p className="muted">Importing chapters is PC only for now.</p>

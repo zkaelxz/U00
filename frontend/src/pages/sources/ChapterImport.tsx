@@ -6,6 +6,7 @@
  *                                       drama and the sourceimport_<drama> job
  *   <ImportSetup>  drama picker (+ New drama…), Track, progress, outcomes
  *   <ImportBar>    "Import N chapters" (sticky at the bottom of the list)
+ *   <TrackRow>     "Track for new chapters" (also for sources without import)
  *
  * The request carries ids only; the server re-reads the chapter list itself
  * and answers per chapter (imported / already there / failed / not found).
@@ -19,10 +20,9 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import type { SeriesChapter, TrackedSeries } from '../../types/sources'
 import { DramaPicker } from './DramaPicker'
 import type { ChapterImportState } from './useChapterImport'
-import { useDramaList } from './useDramaList'
 import { describeSourceError, percent } from './sourcesFormat'
 import {
-  chapterImportDramas, comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, outcomeTone,
+  comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, outcomeTone,
 } from './urlImportFormat'
 
 type SetupProps = {
@@ -38,9 +38,7 @@ type SetupProps = {
 }
 
 export function ImportSetup({ imp, source, seriesId, display, comic, title, language, tracked, onTracked }: SetupProps) {
-  const dramas = useDramaList()
-  const [trackBusy, setTrackBusy] = useState(false)
-  const [trackError, setTrackError] = useState<unknown>(null)
+  const { dramas } = imp
   const outcomesRef = useRef<HTMLDivElement>(null)
   const { job, running, shownResult } = imp
 
@@ -49,27 +47,12 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
     if (shownResult) outcomesRef.current?.scrollIntoView({ block: 'nearest' })
   }, [shownResult])
 
-  const track = () => {
-    setTrackBusy(true)
-    setTrackError(null)
-    trackSeries(source, seriesId, imp.dramaId).then(
-      (list) => {
-        setTrackBusy(false)
-        onTracked(list)
-      },
-      (e: unknown) => {
-        setTrackBusy(false)
-        setTrackError(e)
-      },
-    )
-  }
-
   const failed = job.startedHere && job.status === 'error' ? job.error : null
   const note = shownResult ? comicNote(shownResult) : null
   return (
     <div className="sources-import" aria-label="Import" role="group">
       <DramaPicker
-        dramas={dramas.items ? chapterImportDramas(dramas.items, comic) : null}
+        dramas={imp.choices}
         value={imp.dramaId}
         onChange={imp.setDramaId}
         disabled={running}
@@ -78,15 +61,7 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
         help={comic ? 'Comic pages go into a manhua, manga or manhwa drama.' : 'Chapter text is added to a novel drama’s text.'}
       />
       <ErrorBanner error={dramas.error} />
-      {!tracked && (
-        <div className="actions">
-          <button type="button" disabled={trackBusy} onClick={track}>
-            {trackBusy ? 'Tracking…' : 'Track for new chapters'}
-          </button>
-          <span className="muted">New chapters are listed under New chapters.</span>
-        </div>
-      )}
-      <ErrorBanner error={trackError} onDismiss={() => setTrackError(null)} describe={{ serverText: true }} />
+      {!tracked && <TrackRow source={source} seriesId={seriesId} dramaId={imp.dramaId} onTracked={onTracked} />}
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
 
       <div aria-live="polite" ref={outcomesRef}>
@@ -155,5 +130,43 @@ export function ImportBar({ imp, chapters, selected, phone }: BarProps) {
         reason && <span className="muted">{reason}</span>
       )}
     </div>
+  )
+}
+
+type TrackProps = {
+  source: string
+  seriesId: string
+  // New chapters of a tracked series are imported into this drama (none: listed only).
+  dramaId: number | null
+  onTracked: (list: TrackedSeries[]) => void
+}
+
+export function TrackRow({ source, seriesId, dramaId, onTracked }: TrackProps) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const track = () => {
+    setBusy(true)
+    setError(null)
+    trackSeries(source, seriesId, dramaId).then(
+      (list) => {
+        setBusy(false)
+        onTracked(list)
+      },
+      (e: unknown) => {
+        setBusy(false)
+        setError(e)
+      },
+    )
+  }
+  return (
+    <>
+      <div className="actions">
+        <button type="button" disabled={busy} onClick={track}>
+          {busy ? 'Tracking…' : 'Track for new chapters'}
+        </button>
+        <span className="muted">New chapters are listed under New chapters.</span>
+      </div>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </>
   )
 }

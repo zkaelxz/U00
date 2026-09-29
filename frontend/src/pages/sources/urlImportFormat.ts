@@ -75,11 +75,6 @@ export const PREVIEW_NOTES: Record<'comic' | 'unknown', string> = {
 export const dramaLabel = (d: Pick<DramaSummary, 'id' | 'title_en' | 'title_zh'>) =>
   d.title_en?.trim() || d.title_zh?.trim() || `Drama ${d.id}`
 
-/** Novel dramas first, the rest after, each group in list order. */
-export function novelDramas(dramas: DramaSummary[]): DramaSummary[] {
-  return [...dramas.filter((d) => d.media_type === 'novel'), ...dramas.filter((d) => d.media_type !== 'novel')]
-}
-
 export const COMIC_MEDIA_TYPES = ['manhua', 'manga', 'manhwa']
 
 /** Dramas a chapter import may write into: comic types for page sources, novels for text sources. */

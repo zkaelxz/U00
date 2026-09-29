@@ -1,7 +1,7 @@
 import { expect as baseExpect, test } from '@playwright/test'
 
 import { NOVEL_PREVIEW, VIDEO_PREVIEW, chapterImportResult, mockImports } from './sourcesImportMocks'
-import { mockSources, posted } from './sourcesMocks'
+import { SOURCES, mockSources, posted } from './sourcesMocks'
 
 // Sources imports (S-4/S-5), desktop: paste a link, preview it, then import
 // a novel page, open a series and import chapters, track it, or download a
@@ -117,8 +117,8 @@ test('novel page: pick a drama, import the text', async ({ page }) => {
   await expect(card.getByText('Some Novel Site · Chapter 5 · zh · 5,120 characters')).toBeVisible()
   await expect(card.getByRole('button', { name: 'Open series' })).toHaveCount(0)
   const into = card.getByRole('combobox', { name: 'Import into' })
-  // Novel dramas first, then the rest.
-  await expect(into.locator('option')).toHaveText(['Choose a drama…', 'Heaven Novel', 'Alpha Comic', 'Radio Play', 'Stream VOD', 'New drama…'])
+  // Only novel dramas: the text import refuses any other media type.
+  await expect(into.locator('option')).toHaveText(['Choose a drama…', 'Heaven Novel', 'New drama…'])
   await into.selectOption({ label: 'Heaven Novel' })
   await card.getByRole('button', { name: 'Import text' }).click()
   await expect.poll(() => posted(s, '/api/sources/url/import')[0]?.body).toEqual({ url: 'https://novels.example/book/5', drama_id: 11 })
@@ -175,9 +175,95 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   // A 403 (not at the PC): plain message, then the link box turns into the PC-only note.
   m.downloadForbidden = true
   await into.selectOption({ label: 'Radio Play' })
+  // The finished download was Stream VOD's: it is not shown under Radio Play.
+  await expect(card.getByRole('link', { name: /in the workspace$/ })).toHaveCount(0)
+  await expect(card.getByTestId('job-status')).toHaveCount(0)
   await expect(card.getByRole('checkbox', { name: 'Audio only' })).toBeChecked()
   await card.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await card.getByRole('button', { name: 'Download' }).click()
   await expect(page.getByText('Importing from a link is PC only for now.')).toBeVisible()
+  expect(s.unmocked).toEqual([])
+})
+
+test('import while another drama job runs: the server message, no outcomes', async ({ page }) => {
+  const s = await mockSources(page, { series: 'done' })
+  // An older chapter import for this drama is stored as done; a start is refused.
+  await mockImports(page, s, { importJob: 'done', importStartConflict: 'Transcribing is running for this drama. Try again when it finishes.' })
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1' }))
+    localStorage.setItem('baihe.pref.sources.importInto.alpha:a0', '12')
+  })
+  await page.goto('/#/sources')
+  const panel = page.getByRole('region', { name: 'Series' })
+  await panel.getByRole('checkbox', { name: 'Chapter 1', exact: true }).check()
+  await panel.getByRole('button', { name: 'Import 1 chapter' }).click()
+  await expect.poll(() => posted(s, '/api/sources/alpha/import').length).toBe(1)
+  await expect(panel.getByText('Transcribing is running for this drama. Try again when it finishes.')).toBeVisible()
+  const polls = () => s.calls.filter((c) => c.path === '/api/sources/jobs/sourceimport_12/result').length
+  const before = polls()
+  await page.waitForTimeout(2000)
+  // Not reattached: no polling of the stored run, and its outcomes never show.
+  expect(polls()).toBe(before)
+  await expect(panel.getByTestId('import-outcomes')).toHaveCount(0)
+  await expect(panel.getByTestId('import-progress')).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Import 1 chapter' })).toBeEnabled()
+  expect(s.unmocked).toEqual([])
+})
+
+test('a remembered drama that is gone or the wrong type is not used', async ({ page }) => {
+  const s = await mockSources(page, { series: 'done' })
+  await mockImports(page, s)
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1' }))
+    // Radio Play is not a comic drama.
+    localStorage.setItem('baihe.pref.sources.importInto.alpha:a0', '13')
+  })
+  await page.goto('/#/sources')
+  const panel = page.getByRole('region', { name: 'Series' })
+  await panel.getByRole('checkbox', { name: 'Chapter 1', exact: true }).check()
+  await expect(panel.getByRole('combobox', { name: 'Import into' })).toHaveValue('')
+  await expect(panel.getByRole('button', { name: 'Import 1 chapter' })).toBeDisabled()
+  await expect(panel.getByText('Still needed: a drama to import into.')).toBeVisible()
+  expect(s.calls.some((c) => c.path.startsWith('/api/sources/jobs/sourceimport_'))).toBe(false)
+  expect(s.unmocked).toEqual([])
+})
+
+test('the chapter ticked from a link is not ticked again when the series is reopened from results', async ({ page }) => {
+  const s = await mockSources(page, { search: 'done' })
+  await mockImports(page, s)
+  await page.goto('/#/sources')
+  await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://alpha.example/a/c2')
+  await page.getByRole('button', { name: 'Preview' }).click()
+  await page.getByRole('article', { name: 'Link preview' }).getByRole('button', { name: 'Open series' }).click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByRole('checkbox', { name: 'Chapter 2', exact: true })).toBeChecked()
+  await panel.getByRole('button', { name: 'Close' }).click()
+  await expect(panel).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
+  await expect(panel.getByRole('checkbox', { name: 'Chapter 1', exact: true })).toBeVisible()
+  await expect(panel.getByRole('checkbox', { name: 'Chapter 2', exact: true })).not.toBeChecked()
+  expect(s.unmocked).toEqual([])
+})
+
+test('Track shows for a source without chapter import', async ({ page }) => {
+  const s = await mockSources(page, { series: 'done' })
+  await mockImports(page, s)
+  // Alpha without import: Track still works (R4 doesn't need import).
+  const list = SOURCES.map((x) => (x.name === 'alpha' ? { ...x, import_supported: false } : x))
+  await page.route(/\/api\/sources(\?.*)?$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(list) }),
+  )
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a0', title: 'Heaven Book 1' }))
+  })
+  await page.goto('/#/sources')
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await expect(panel.getByTestId('import-bar')).toHaveCount(0)
+  await expect(panel.getByRole('combobox', { name: 'Import into' })).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Track for new chapters' }).click()
+  await expect.poll(() => posted(s, '/api/sources/tracked')[0]?.body).toEqual({ source: 'alpha', series_id: 'a0', tracked: true })
+  await expect(panel.getByRole('button', { name: 'Track for new chapters' })).toHaveCount(0)
+  expect(s.calls.some((c) => c.path.startsWith('/api/library/dramas'))).toBe(false)
   expect(s.unmocked).toEqual([])
 })

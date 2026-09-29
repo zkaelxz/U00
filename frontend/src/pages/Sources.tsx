@@ -91,7 +91,13 @@ export default function SourcesPage() {
     [sources],
   )
 
+  // Opens from a list: no chapter is ticked.
   function openSeries(s: OpenSeries, openerKey?: string) {
+    setPreselect(null)
+    showSeries(s, openerKey)
+  }
+
+  function showSeries(s: OpenSeries, openerKey?: string) {
     opener.current = openerKey ? { key: openerKey, scrollY: window.scrollY } : null
     // Already open and loading (or its start is in flight): just go to it.
     if (open && open.source === s.source && open.series_id === s.series_id && view.status === 'running') {
@@ -107,7 +113,7 @@ export default function SourcesPage() {
 
   function openFromUrl(s: OpenSeries, chapterId: string | null) {
     setPreselect(chapterId ? { source: s.source, series_id: s.series_id, chapter_id: chapterId } : null)
-    openSeries(s)
+    showSeries(s)
   }
 
   function reloadSeries() {
@@ -118,6 +124,7 @@ export default function SourcesPage() {
   }
 
   function closeSeries() {
+    setPreselect(null)
     setStoredSeries(null)
     setCleared(false)
     setWasBusy(false)

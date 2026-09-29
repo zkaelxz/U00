@@ -70,7 +70,7 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, url: fixedUrl, bus
   return (
     <div className="url-download" data-testid="url-download">
       {fixedUrl === undefined && (
-        <Field label="Video or audio link" help="A page yt-dlp can read, e.g. a video page. Playlists and live streams are refused.">
+        <Field label="Video or audio link" help="A video page from a supported site, or a direct link to an audio/video file. Playlists and live streams are refused.">
           <input
             type="url"
             inputMode="url"

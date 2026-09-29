@@ -73,6 +73,9 @@ export interface ImportMockState {
   cancelledBody: unknown
   urlImportBody: unknown
   importHold: boolean
+  // A start answers 409 with this text (another job for the drama is running,
+  // e.g. a transcription); the stored sourceimport_ run stays as it was.
+  importStartConflict: string | null
   dramas: unknown[]
   hasAudio: boolean
   urlmedia: 'none' | 'running' | 'done'
@@ -89,7 +92,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   const m: ImportMockState = {
     preview: 'none', previewBody: urlPreview(), previewHold: false, importJob: 'none', importKind: 'chapter',
     importCancelRequested: false, importBody: chapterImportResult(), cancelledBody: CANCELLED_IMPORT,
-    urlImportBody: { kind: 'url_import', needs_review: false, char_count: 5120 }, importHold: false, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false, ...over,
+    urlImportBody: { kind: 'url_import', needs_review: false, char_count: 5120 }, importHold: false, importStartConflict: null, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false, ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -164,6 +167,11 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   const startImport = (kind: ImportMockState['importKind']) => (route: Route) => {
     record(route)
     const body = route.request().postDataJSON() as { drama_id: number }
+    if (m.importStartConflict) {
+      return json(route, {
+        error: { code: 'conflict', message: m.importStartConflict, details: { job_id: `sourceimport_${body.drama_id}` } },
+      }, 409)
+    }
     if (m.importJob === 'running') {
       return json(route, {
         error: { code: 'conflict', message: 'An import is already running for this drama.', details: { job_id: `sourceimport_${body.drama_id}` } },

@@ -29,7 +29,7 @@ import { DramaPicker } from './DramaPicker'
 import { useDramaList } from './useDramaList'
 import { describeSourceError, percent, safeHref } from './sourcesFormat'
 import {
-  MAX_URL_LEN, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, novelDramas, previewAction, previewFacts,
+  MAX_URL_LEN, PREVIEW_NOTES, chapterImportDramas, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts,
   urlImportText, videoDramas,
 } from './urlImportFormat'
 import { useSourcesJob } from './useSourcesJob'
@@ -47,7 +47,9 @@ export function UrlBox({ display, onOpenSeries }: Props) {
   const [text, setText] = useState('')
   // The link the shown preview is for (null: a preview found on load).
   const [previewed, setPreviewed] = useState<string | null>(null)
-  const job = useSourcesJob<UrlPreview>(URL_PREVIEW_JOB_ID)
+  // No reattach on 409: the running preview may be another tab's link, and
+  // the card would then show that link while importing acts on `previewed`.
+  const job = useSourcesJob<UrlPreview>(URL_PREVIEW_JOB_ID, { reattachOn409: false })
   const running = job.status === 'running'
   const reason = checkUrl(text)
 
@@ -192,7 +194,9 @@ function PreviewCard({ preview: p, url, display, onOpenSeries }: {
 function NovelImport({ url, title, language }: { url: string; title: string; language: string | null }) {
   const dramas = useDramaList()
   const [dramaId, setDramaId] = useState<number | null>(null)
-  const job = useSourcesJob<UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null)
+  // No reattach on 409: the server answers 409 while any job for the drama
+  // runs, so the running one may not be this import; its text shows instead.
+  const job = useSourcesJob<UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
   const running = job.status === 'running'
   const result = job.startedHere && job.status === 'done' && job.result?.kind === 'url_import' ? job.result : null
   const failed = job.startedHere && job.status === 'error' ? job.error : null
@@ -205,7 +209,7 @@ function NovelImport({ url, title, language }: { url: string; title: string; lan
   return (
     <div className="sources-import" role="group" aria-label="Import text">
       <DramaPicker
-        dramas={dramas.items ? novelDramas(dramas.items) : null}
+        dramas={dramas.items ? chapterImportDramas(dramas.items, false) : null}
         value={dramaId}
         onChange={setDramaId}
         disabled={running}
@@ -267,6 +271,8 @@ function VideoImport({ url }: { url: string }) {
   if (remote) return <p className="muted">{URL_PC_ONLY}</p>
 
   const choose = (id: number | null) => {
+    // The shown download belongs to the drama it was started for.
+    setJobId(null)
     setMedia(null)
     setMediaError(null)
     setDramaId(id)

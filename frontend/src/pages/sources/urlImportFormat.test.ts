@@ -18,7 +18,6 @@ import {
   importLabel,
   importReason,
   newDramaRequest,
-  novelDramas,
   outcomeSummary,
   outcomeText,
   previewAction,
@@ -82,9 +81,6 @@ describe('preview card', () => {
 
 describe('drama pickers', () => {
   const list = [drama(1, 'audio_drama'), drama(2, 'novel'), drama(3, 'manhua'), drama(4, 'novel', 'novel_narration'), drama(5, 'streamer_vod', 'streamer_vod')]
-  it('orders novels first for a novel link', () => {
-    expect(novelDramas(list).map((d) => d.id)).toEqual([2, 4, 1, 3, 5])
-  })
   it('keeps only dramas the chapter import accepts', () => {
     expect(chapterImportDramas(list, true).map((d) => d.id)).toEqual([3])
     expect(chapterImportDramas(list, false).map((d) => d.id)).toEqual([2, 4])
