@@ -91,6 +91,43 @@ class TestJobResults:
         assert d("error", "boom", None) == ("failed", "boom")
         assert d("running", None, None) == (None, None)
 
+    def test_transcribe_warnings_are_partial(self):
+        for key in ("gpu_fallback", "word_align_error", "forced_align_error"):
+            result = jobs_service.project_result({"line_count": 5, key: "boom"})
+            assert result[key] == "boom"
+            outcome, message = jobs_service.derive_outcome("done", None, result)
+            assert outcome == "partial" and "boom" in message
+        assert "CPU" in jobs_service.derive_outcome("done", None, {"gpu_fallback": "x"})[1]
+        assert jobs_service.derive_outcome("done", None, {"line_count": 5, "gpu_fallback": None})[0] == "ok"
+
+    def test_cancelled_bulk_run_is_cancelled(self):
+        assert jobs_service.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"
+
+    def test_translate_error_dicts_are_formatted(self):
+        result = jobs_service.project_result({"errors": [
+            {"batch_index": 0, "lines": [2, 3], "error": "timeout with key sk-ABCDEFGHIJKLMNOP12345"},
+            {"batch_index": 1, "lines": [7], "error": "bad json"}]})
+        assert result["errors"][0].startswith("lines 3-4: timeout")
+        assert "sk-ABCDEFGHIJKLMNOP12345" not in result["errors"][0]
+        assert result["errors"][1] == "line 8: bad json"
+
+    def test_redaction_survives_getuser_failure(self, monkeypatch):
+        import getpass
+
+        def boom():
+            raise OSError("no user")
+        monkeypatch.setattr(getpass, "getuser", boom)
+        result = jobs_service.project_result({"detail": "at /home/x/models/m.bin sk-ABCDEFGHIJKLMNOP12345"})
+        assert "/home/x" not in result["detail"] and "sk-ABCDEFGHIJKLMNOP12345" not in result["detail"]
+
+    def test_projection_failure_still_mirrors_status(self, isolated_db, monkeypatch):
+        def broken(_result):
+            raise RuntimeError("projection broke")
+        monkeypatch.setattr(jobs_service, "project_result_json", broken)
+        _run_job_with_result("j_broken", {"line_count": 1})
+        job = jobs_service.get_job("j_broken")
+        assert job["status"] == "done" and job["result"] is None
+
     def test_oversized_result_is_capped(self):
         out = jobs_service.project_result({"errors": ["e" * 400] * 500})
         assert len(str(out)) <= 9000

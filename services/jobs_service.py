@@ -57,9 +57,33 @@ def _safe_scalar(value):
     if isinstance(value, float):
         return value if value == value and abs(value) != float("inf") else None
     if isinstance(value, str):
-        text = _URL_PATTERN.sub("[URL]", value)
-        return diagnostics.redact_for_support(text)[:_MAX_STR]
+        return _redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
     return None
+
+
+def _redact_text(text: str) -> str:
+    """redact_for_support, but never raising: getpass.getuser() inside it
+    can fail in some containers, so fall back to secret + path redaction."""
+    try:
+        return diagnostics.redact_for_support(text)
+    except Exception:
+        import translate_engines
+        text = translate_engines.redact_secrets(text or "")
+        return diagnostics._PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+
+
+def _error_item_text(item) -> str:
+    """A translate batch error ({"batch_index", "lines": [idx...], "error"})
+    as "lines 3-4: <message>" (1-based), instead of str(dict)."""
+    if not isinstance(item, dict):
+        return str(item)
+    message = item.get("error") or item.get("message") or "failed"
+    lines = [i for i in (item.get("lines") or []) if isinstance(i, int) and not isinstance(i, bool)]
+    if not lines:
+        return str(message)
+    lo, hi = min(lines) + 1, max(lines) + 1
+    where = f"line {lo}" if lo == hi else f"lines {lo}-{hi}"
+    return f"{where}: {message}"
 
 
 def project_result(result):
@@ -74,7 +98,7 @@ def project_result(result):
             continue
         value = result[key]
         if isinstance(value, (list, tuple)):
-            items = (_safe_scalar(v if isinstance(v, (str, int, float, bool)) else str(v))
+            items = (_safe_scalar(v if isinstance(v, (str, int, float, bool)) else _error_item_text(v))
                      for v in list(value)[:_MAX_LIST])
             out[key] = [v for v in items if v is not None]
         else:
@@ -110,7 +134,8 @@ def derive_outcome(status, error, result):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
     own result shape; (None, None) while queued/running. outcome is one of
-    ok, failed, cancelled, partial, kept_existing."""
+    ok, failed, cancelled, partial, kept_existing. Transcribe warnings
+    (gpu_fallback, word_align_error, forced_align_error) map to partial."""
     if status == "error":
         return "failed", (error or "The job failed.")
     if status == "cancelled":
@@ -132,6 +157,8 @@ def derive_outcome(status, error, result):
         return "failed", (f"{msg} {detail}" if detail else msg)
     if result.get("status") in ("failed", "auth_error"):
         return "failed", (result.get("last_error") or "The job failed.")
+    if result.get("status") == "cancelled":
+        return "cancelled", "The bulk translation was cancelled."
     errors = result.get("errors") or []
     cap = result.get("cap_reached")
     parts = []
@@ -144,7 +171,21 @@ def derive_outcome(status, error, result):
         parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
     if result.get("partial"):
         parts.append("Only part of the work finished.")
-    if cap is not None or errors or result.get("partial"):
+    # Transcribe warnings (Streamlit warned on these): the job worked, but
+    # not the way the user asked, so it is reported as partial, not ok.
+    warned = False
+    if result.get("gpu_fallback"):
+        parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
+        warned = True
+    if result.get("word_align_error"):
+        parts.append("Splitting long lines by word timing failed; the original timings were kept "
+                     f"({result['word_align_error']}).")
+        warned = True
+    if result.get("forced_align_error"):
+        parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
+                     f"({result['forced_align_error']}).")
+        warned = True
+    if cap is not None or errors or result.get("partial") or warned:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
 
@@ -160,12 +201,12 @@ def _redact(record: dict) -> dict:
         stored = None
     # Re-projected on read too, so an older row can never leak a dropped key.
     out["result"] = project_result(stored)
-    out["message"] = diagnostics.redact_for_support(record.get("message") or "")
-    out["error"] = diagnostics.redact_for_support(record.get("error") or "") or None
+    out["message"] = _redact_text(record.get("message") or "")
+    out["error"] = _redact_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"])
     out["outcome"] = outcome
-    out["outcome_message"] = (diagnostics.redact_for_support(message)[:_MAX_STR]
+    out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
                               if message else None)
     return out
 

@@ -15,7 +15,12 @@ interface Props {
 export function JobPanel({ job, pollError }: Props) {
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
-  const outcomeText = job && job.status !== 'error' ? jobOutcomeText(job) : null
+  // Server text goes through safeDetail like job.error; if it is unsafe or
+  // too long, the plain outcome label is still shown.
+  const outcomeFull = job && job.status !== 'error' ? jobOutcomeText(job) : null
+  const outcomeText = outcomeFull && job
+    ? (safeDetail(outcomeFull) ?? jobOutcomeText({ outcome: job.outcome }))
+    : null
 
   return (
     <section className="panel job-panel" aria-label="Job" data-testid="job-panel">
@@ -41,7 +46,8 @@ export function JobPanel({ job, pollError }: Props) {
           {outcomeText && (
             <p
               data-testid="job-outcome"
-              className={jobFailed(job) ? 'error' : job.outcome === 'ok' ? 'muted' : 'warning'}
+              className={jobFailed(job) ? 'error' : job.outcome === 'ok' ? 'muted' : undefined}
+              style={!jobFailed(job) && job.outcome !== 'ok' ? { color: 'var(--warn)' } : undefined}
               role={jobFailed(job) || job.outcome !== 'ok' ? 'alert' : undefined}
             >
               {outcomeText}

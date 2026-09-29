@@ -30,6 +30,11 @@ export function jobFailed(job: Pick<JobRecord, 'status' | 'outcome'>): boolean {
   return job.status === 'error' || job.outcome === 'failed' || job.outcome === 'cancelled'
 }
 
+// Done and not failed/cancelled: safe to treat the job's output as ready.
+export function jobSucceeded(job: Pick<JobRecord, 'status' | 'outcome'> | null | undefined): boolean {
+  return !!job && job.status === 'done' && !jobFailed(job)
+}
+
 const OUTCOME_LABELS: Record<JobOutcome, string> = {
   ok: 'Finished',
   failed: 'Failed',

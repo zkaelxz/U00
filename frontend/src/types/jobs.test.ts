@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobFailed, jobOutcomeText } from './jobs'
+import { jobFailed, jobOutcomeText, jobSucceeded } from './jobs'
 
 describe('job outcome helpers', () => {
   it('treats a done job with a failed or cancelled outcome as not a success', () => {
@@ -9,6 +9,16 @@ describe('job outcome helpers', () => {
     expect(jobFailed({ status: 'error', outcome: null })).toBe(true)
     expect(jobFailed({ status: 'done', outcome: 'ok' })).toBe(false)
     expect(jobFailed({ status: 'done', outcome: 'partial' })).toBe(false)
+  })
+
+  it('only treats a done, non-failed job as ready (Dub track, export download)', () => {
+    expect(jobSucceeded({ status: 'done', outcome: 'ok' })).toBe(true)
+    expect(jobSucceeded({ status: 'done', outcome: 'partial' })).toBe(true)
+    expect(jobSucceeded({ status: 'done' })).toBe(true)
+    expect(jobSucceeded({ status: 'done', outcome: 'failed' })).toBe(false)
+    expect(jobSucceeded({ status: 'done', outcome: 'cancelled' })).toBe(false)
+    expect(jobSucceeded({ status: 'running' })).toBe(false)
+    expect(jobSucceeded(null)).toBe(false)
   })
 
   it('puts the outcome in words', () => {
