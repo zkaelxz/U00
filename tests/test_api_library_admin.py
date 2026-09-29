@@ -208,14 +208,17 @@ class TestBulkTranslate:
         a = _new("A")
         seen = {}
 
-        def fake(drama_ids, default_locale="en-US", expected_engines=None, principal=None):
+        def fake(drama_ids, default_locale="en-US", expected_engines=None,
+                 allow_paid_summary=True, principal=None):
             seen["expected"] = expected_engines
+            seen["allow_paid_summary"] = allow_paid_summary
             return {"job_id": "x", "queued": [a], "skipped": []}
         monkeypatch.setattr(las, "start_bulk_translate", fake)
         r = client.post(f"{BASE}/bulk/translate",
                         json={"drama_ids": [a], "default_locale": "fr-FR"})
         assert r.status_code == 200
         assert seen["expected"] == {a: "claude"}
+        assert seen["allow_paid_summary"] is True   # the local owner holds engines.paid
 
     def test_duplicate_409(self, client, monkeypatch):
         a = _new("A")

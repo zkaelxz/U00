@@ -11,7 +11,8 @@ use_gpu reaches the pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
 (host checked by services.url_guard.resolve_public, no fetch here); no
-browser cookies over the API; keys are resolved server-side, never taken
+browser cookies over the API (a start at the PC uses the saved Settings
+cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No Streamlit/FastAPI import.
 
 Router contract: start/get are gated like media.import_url, and a paid
@@ -89,7 +90,7 @@ def _num(name, value, lo, hi, cast=float):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or "claude"
+    engine_name = engine_name or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     api_key = translate_service.resolve_api_key(engine_name)
@@ -182,8 +183,12 @@ def _reap():
 def start_session(url, source_language="zh", whisper_size="small", segment_seconds=20,
                   overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
-                  max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False) -> dict:
+                  max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
+                  use_saved_cookies: bool = False) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
+    use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
+    cookies.txt). The router sets it only for a request made at the PC, so
+    another device never reads streams as the owner's signed-in account.
     InvalidInputError (422) for a bad/private URL or bad option,
     DependencyUnavailableError (503) for an unresolvable host or missing
     engine key."""
@@ -240,6 +245,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
+            **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             gpu_touching=True, description="Live capture (local Whisper)")
     except Exception:
         _remove_dir(session_id)

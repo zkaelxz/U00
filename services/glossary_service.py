@@ -276,14 +276,19 @@ def _read_drama_file(drama_id: int, filename: Optional[str]) -> str:
         return f.read()
 
 
+def _default_engine() -> str:
+    from services import settings_service
+    return settings_service.get_default_engine()
+
+
 def novel_glossary_engine(drama_id: int) -> str:
-    """The engine a run would use (the drama's translation_engine, default
-    claude, as the tab) -- for the router's engines.paid gate."""
-    return _drama(drama_id).get("translation_engine") or "claude"
+    """The engine a run would use (the drama's translation_engine, else
+    the Settings default engine) -- for the router's engines.paid gate."""
+    return _drama(drama_id).get("translation_engine") or _default_engine()
 
 
 def spends_on_paid_engine(engine_name: Optional[str]) -> bool:
-    return (engine_name or "claude") not in translate_engines.FREE_ENGINES
+    return (engine_name or _default_engine()) not in translate_engines.FREE_ENGINES
 
 
 def _run_novel_glossary_job(job_id, drama_id, engine, engine_name, src_text, en_text,
@@ -350,7 +355,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     src_text = orig if orig.strip() else novel
     en_text = novel if orig.strip() else ""
 
-    stored_engine = drama.get("translation_engine") or "claude"
+    stored_engine = drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name is not None and engine_name != stored_engine:
         raise ConflictError("This drama's engine changed; check it and start again.")
     engine_name = stored_engine

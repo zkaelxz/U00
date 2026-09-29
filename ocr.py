@@ -13,6 +13,8 @@ Backends:
     Tesseract on stylized fonts and bubble layouts, Japanese only.
 """
 
+import threading
+
 # Tesseract language codes per source language. "zh" defaults to
 # Simplified -- see resolve_tesseract_lang() for the Traditional variant.
 TESSERACT_LANG = {"zh": "chi_sim", "ja": "jpn", "ko": "kor"}
@@ -35,6 +37,9 @@ def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplifi
     if source_language == "zh" and chinese_script == "traditional":
         return TESSERACT_LANG_ZH_TRADITIONAL
     return TESSERACT_LANG.get(source_language, "chi_sim")
+
+
+_TESSERACT_CMD_LOCK = threading.Lock()
 
 
 def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
@@ -62,10 +67,18 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
     """
     import pytesseract
     from PIL import Image
-    if tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-    return pytesseract.image_to_string(Image.open(image_path), lang=lang,
-                                        config=f"--psm {psm}")
+    # pytesseract only reads a module-level tesseract_cmd. Set it for this
+    # call and put it back after, under a lock, so one run's path never
+    # leaks into a later or concurrent run.
+    with _TESSERACT_CMD_LOCK:
+        previous = pytesseract.pytesseract.tesseract_cmd
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        try:
+            return pytesseract.image_to_string(Image.open(image_path), lang=lang,
+                                                config=f"--psm {psm}")
+        finally:
+            pytesseract.pytesseract.tesseract_cmd = previous
 
 
 _PADDLE_LANG_BY_SOURCE = {"zh": "ch", "ko": "korean"}

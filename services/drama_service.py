@@ -37,7 +37,7 @@ import uuid
 
 import background_jobs
 import db
-from services import library_service, ownership_service
+from services import library_service, ownership_service, settings_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -150,6 +150,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         fields["series_id"] = series_id
     if preset and preset.get("translation_engine"):
         fields["translation_engine"] = preset["translation_engine"]
+    else:
+        # Settings > Defaults for new dramas (the column's own default is
+        # claude, so an unstamped drama would never see the setting).
+        fields["translation_engine"] = settings_service.get_default_engine()
     new_id = db.create_drama(**fields)
     # Hardening H1: a NEW series is created only after the drama row exists
     # (as the Streamlit form does), so a failed create can't leave a stray
