@@ -41,7 +41,7 @@ export function ApiKeysCard({ settings, onKey }: Props) {
                     type="button"
                     className={buttonClass(expanded ? 'ghost' : 'secondary', 'sm')}
                     aria-expanded={expanded}
-                    aria-label={expanded ? `Close ${label} key` : `${configured ? 'Replace' : 'Set'} ${label} key`}
+                    aria-label={expanded ? `Close ${label} key` : configured ? `Replace ${label} key` : `Set key for ${label}`}
                     onClick={() => setOpen(expanded ? null : engine)}
                   >
                     {expanded ? 'Close' : configured ? 'Replace' : 'Set key'}

@@ -388,8 +388,10 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
   const title = 'Server addresses'
   if (remote) {
+    // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
+    const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={PC_ONLY_SUMMARY} storageKey="settings.endpoints">
+      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`} storageKey="settings.endpoints">
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )

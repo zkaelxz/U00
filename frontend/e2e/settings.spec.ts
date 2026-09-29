@@ -7,7 +7,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
   // API keys are always visible now (no fold), with the .env explanation.
-  await expect(page.getByText(/Setting them works only on that PC/).first()).toBeVisible()
+  await expect(page.getByRole('region', { name: 'API keys' }).getByText(/Setting them works only on that PC/)).toBeVisible()
   const before = await box.isChecked()
 
   // The toggle updates optimistically; wait for the save to finish before reloading,
@@ -53,7 +53,7 @@ test('API keys: status on every row, Set key opens that form in place, and the p
   await expect(card.getByRole('list', { name: 'API keys' })).not.toContainText('_')
   await expect(card.getByRole('textbox')).toHaveCount(0)
 
-  const open = card.getByRole('button', { name: /^(Set|Replace) Claude key$/ })
+  const open = card.getByRole('button', { name: /^(Set key for Claude|Replace Claude key)$/ })
   await expect(open).toHaveAttribute('aria-expanded', 'false')
   await open.click()
   const input = card.getByLabel('Claude key', { exact: true })
@@ -100,4 +100,22 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await expect(sw).toHaveAttribute('aria-checked', String(!before))
   await Promise.all([saved(), sw.click()]) // restore
   await expect(sw).toHaveAttribute('aria-checked', String(before))
+})
+
+test('a collapsible section shows a summary, remembers its state and fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.goto('/#/settings')
+  const details = () => page.locator('details.section', { hasText: 'Server addresses' })
+  await expect(details().locator('.section-summary')).toHaveText(/\d+ of \d+ set/)
+  await expect(details()).not.toHaveAttribute('open', '')
+
+  await details().locator('summary').click()
+  await expect(details()).toHaveAttribute('open', '')
+  await expect(details().locator('.section-summary')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('baihe.section.settings.endpoints'))).toBe('1')
+
+  await page.reload()
+  await expect(details()).toHaveAttribute('open', '')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.evaluate(() => localStorage.removeItem('baihe.section.settings.endpoints'))
 })

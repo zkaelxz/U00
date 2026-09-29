@@ -217,7 +217,9 @@ test('away from the PC the preference blocks say PC only; Appearance still works
   )
   await page.goto('/#/settings')
   for (const title of ['Defaults for new dramas', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
-    await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText('PC only')
+    // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
+    await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
+      title === 'Server addresses' ? /^\d of 3 set · PC only$/ : 'PC only')
   }
   const a = await open(page, 'Appearance')
   await a.getByLabel('Theme', { exact: true }).selectOption('dark')
