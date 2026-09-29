@@ -30,6 +30,9 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
             <div className="drama-card-meta">
               {d.status && <span className="badge">{d.status}</span>}
               {meta && <span className="muted">{meta}</span>}
+              <a className="drama-card-read" href={routeHref({ name: 'read', id: d.id, page: null })} aria-label={`Read ${title}`}>
+                Read
+              </a>
               <button type="button" onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                 Details
               </button>

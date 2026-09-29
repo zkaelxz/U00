@@ -13,6 +13,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { routeHref } from '../router'
 import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { AdminSection } from './libraryAdmin/AdminSection'
@@ -151,7 +152,7 @@ function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcM
         <ul>
           {grouped?.map(({ entry: h, count }) => (
             <li key={`${h.drama_id}-${h.accessed_at}`}>
-              {name({ ...h, id: h.drama_id })}
+              <a className="history-read" href={routeHref({ name: 'read', id: h.drama_id, page: null })}>{name({ ...h, id: h.drama_id })}</a>
               {count > 1 && <span className="badge"> ×{count}</span>}
               <span className="muted">
                 {h.percent_complete != null && ` ${Math.round(h.percent_complete)}%`}
