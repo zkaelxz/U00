@@ -25,6 +25,7 @@ HF_TOKEN = "hf_AbCdEfGhIjKlMnOpQrStUvWxYz0123"
 ABS_PATH = "/home/someone/private/library/drama.mp4"
 DIRTY = f"failed with {SECRET} token {HF_TOKEN} at {ABS_PATH}"
 REMOTE = "https://baihe.example.com"
+RUNNING = {"on": False}   # what the faked "any job running here or elsewhere" check answers
 
 
 def _clean(r):
@@ -59,7 +60,9 @@ def fakes(isolated_db, monkeypatch):
                            "description": DIRTY, "started_at": 10.0, "finished_at": 12.5},
         "custom_job": {"status": "done", "message": "ok", "started_at": 1.0,
                        "finished_at": 2.0}})
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {})
+    from services import library_admin_service
+    RUNNING["on"] = False
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: RUNNING["on"])
     import applog
     monkeypatch.setattr(applog, "tail", lambda n: [f"INFO line {i}" for i in range(n - 1)]
                         + [f"ERROR {DIRTY}"])
@@ -67,13 +70,12 @@ def fakes(isolated_db, monkeypatch):
                         diagnostics.redact_for_support(f"Report\nERROR {DIRTY}"))
     calls = []
 
-    def fake_stream(*a, **k):
-        calls.append(("pip", a))
+    def fake_stream(cmd, timeout, cwd=None, env=None):
+        calls.append(("pip", cmd))
         yield {"line": DIRTY}
-        yield {"done": True, "ok": True, "returncode": 0}
+        yield {"returncode": 0, "timed_out": False}
 
-    monkeypatch.setattr(diagnostics, "stream_dependency_install", fake_stream)
-    monkeypatch.setattr(diagnostics, "stream_pip_install", fake_stream)
+    monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     return calls
@@ -132,7 +134,7 @@ def test_install_refusals(client, fakes, monkeypatch):
                        json={"confirm": True}).status_code in (404, 422)
     assert client.post("/api/diagnostics/dependencies/-e/install",
                        json={"confirm": True}).status_code == 422
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {"translate_1": {}})
+    RUNNING["on"] = True
     r = client.post(url, json={"confirm": True})
     assert r.status_code == 409 and r.json()["error"]["code"] == "conflict"
     assert fakes == []
@@ -143,10 +145,10 @@ def test_reset_library(client, fakes, monkeypatch):
     for body in ({"confirm": True}, {"confirm": True, "confirm_text": "reset"},
                  {"confirm": False, "confirm_text": "RESET"}, {"confirm_text": "RESET"}):
         assert client.post(url, json=body).status_code == 422, body
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {"translate_1": {}})
+    RUNNING["on"] = True
     assert client.post(url, json={"confirm": True, "confirm_text": "RESET"}).status_code == 409
     assert fakes == []
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {})
+    RUNNING["on"] = False
     r = client.post(url, json={"confirm": True, "confirm_text": "RESET"})
     assert r.status_code == 200 and r.json()["ok"] is True
     assert fakes == [("reset",), ("clear",)]

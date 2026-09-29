@@ -136,6 +136,28 @@ def test_support_report_clean(dirty_log, monkeypatch):
     _assert_clean(report)
 
 
+def _no_jobs(monkeypatch, running=False):
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: running)
+
+
+def _fake_pip(monkeypatch, returncode=0, timed_out=False, seen=None):
+    def fake(cmd, timeout, cwd=None, env=None):
+        if seen is not None:
+            seen.append((cmd, timeout))
+        yield {"line": DIRTY}
+        yield {"returncode": returncode, "timed_out": timed_out}
+    monkeypatch.setattr(diagnostics, "_stream_process", fake)
+
+
+def test_log_keyword_filter_runs_on_redacted_text(dirty_log):
+    """A keyword must not act as an oracle for redacted text."""
+    assert svc.get_log_tail(200, keyword="someone") == []
+    assert svc.get_log_tail(200, keyword="SECRETSECRET") == []
+    assert svc.get_log_tail(200, keyword="private") == []
+    assert len(svc.get_log_tail(200, keyword="ERROR")) == 1
+
+
 @pytest.mark.parametrize("call", [
     lambda c: svc.install_dependency("edge_tts", confirm=c),
     lambda c: svc.upgrade_dependency("edge_tts", confirm=c),
@@ -143,50 +165,91 @@ def test_support_report_clean(dirty_log, monkeypatch):
 ])
 def test_admin_requires_confirm(call, monkeypatch):
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    monkeypatch.setattr(diagnostics, "stream_dependency_install",
-                        lambda *a, **k: pytest.fail("must not run"))
-    monkeypatch.setattr(diagnostics, "stream_pip_install", lambda *a, **k: pytest.fail("must not run"))
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {})
+    monkeypatch.setattr(diagnostics, "_stream_process", lambda *a, **k: pytest.fail("must not run"))
+    _no_jobs(monkeypatch)
     for bad in (False, None, "yes", 1):
         with pytest.raises(svc.AdminActionRefused):
             call(bad)
 
 
-def test_admin_refuses_while_jobs_run(monkeypatch):
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {"translate_1": {}})
+def test_admin_refuses_while_jobs_run_here_or_elsewhere(monkeypatch):
+    _no_jobs(monkeypatch, running=True)
     monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
-    with pytest.raises(svc.AdminActionRefused):
+    monkeypatch.setattr(diagnostics, "_stream_process", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(svc.AdminActionJobsRunning):
         svc.reset_library(confirm=True)
-    with pytest.raises(svc.AdminActionRefused):
+    with pytest.raises(svc.AdminActionJobsRunning):
         svc.install_dependency("edge_tts", confirm=True)
 
 
+def test_guard_sees_queued_jobs_and_other_process_records(isolated_db, monkeypatch):
+    monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
+    monkeypatch.setattr(background_jobs, "list_all_jobs",
+                        lambda: {"translate_1": {"status": "queued"}})
+    with pytest.raises(svc.AdminActionJobsRunning):
+        svc.reset_library(confirm=True)
+    import time as _t
+    monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {})
+    monkeypatch.setattr(db, "list_job_records", lambda: [
+        {"job_id": "dub_3", "status": "running", "updated_at": _t.time()}])
+    with pytest.raises(svc.AdminActionJobsRunning):
+        svc.reset_library(confirm=True)
+
+
 def test_install_rejects_unknown_package(monkeypatch):
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {})
+    _no_jobs(monkeypatch)
     with pytest.raises(svc.AdminActionRefused):
         svc.install_dependency("evil-package; rm -rf /", confirm=True)
     with pytest.raises(svc.AdminActionRefused):
         svc.install_dependency("streamlit", confirm=True)  # required tier
 
 
-def test_install_and_upgrade_run_and_redact(monkeypatch):
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {})
-
-    def fake_stream(*a, **k):
-        yield {"line": DIRTY}
-        yield {"done": True, "ok": True, "returncode": 0}
-
-    monkeypatch.setattr(diagnostics, "stream_dependency_install", fake_stream)
-    monkeypatch.setattr(diagnostics, "stream_pip_install", fake_stream)
+def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = []
+    _fake_pip(monkeypatch, seen=seen)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
         out = fn("edge_tts", confirm=True)
         assert out["ok"] is True and out["package"] == "edge_tts"
         _assert_clean(out)
+    assert all(t == svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
+    assert seen[0][0][-2:] == ["install", "edge_tts"]
+
+
+def test_pip_timeout_or_failure_is_not_ok(monkeypatch):
+    _no_jobs(monkeypatch)
+    _fake_pip(monkeypatch, returncode=-9, timed_out=True)
+    out = svc.install_dependency("edge_tts", confirm=True)
+    assert out["ok"] is False and "took too long" in out["output_tail"][-1]
+
+
+def test_gpu_torch_install_is_uninstall_then_cuda_index(monkeypatch):
+    _no_jobs(monkeypatch)
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+    monkeypatch.setattr(svc, "installable_packages", lambda: {"torch"})
+    seen = []
+    _fake_pip(monkeypatch, seen=seen)
+    assert svc.install_dependency("torch", confirm=True)["ok"] is True
+    assert seen[0][0][3:] == ["uninstall", "-y", "torch", "torchaudio"]
+    assert "--index-url" in seen[1][0]
+
+
+def test_one_pip_run_at_a_time(monkeypatch):
+    _no_jobs(monkeypatch)
+    _fake_pip(monkeypatch)
+    assert svc._pip_lock.acquire(blocking=False)
+    try:
+        with pytest.raises(svc.AdminActionJobsRunning):
+            svc.install_dependency("edge_tts", confirm=True)
+    finally:
+        svc._pip_lock.release()
+    assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
 
 
 def test_reset_runs_when_confirmed(monkeypatch):
     calls = []
-    monkeypatch.setattr(background_jobs, "list_running_jobs", lambda: {})
+    _no_jobs(monkeypatch)
     monkeypatch.setattr(db, "reset_library", lambda: calls.append("reset"))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append("clear"))
     assert svc.reset_library(confirm=True)["ok"] is True

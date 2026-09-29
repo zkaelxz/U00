@@ -18,6 +18,9 @@ bundles, App Assistant, and the source-access tests.
 """
 
 import os
+import shutil
+import sys
+import threading
 import time
 
 import background_jobs
@@ -173,8 +176,9 @@ def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
     n = max(0, min(n, LOG_TAIL_MAX))
     if n == 0:
         return []
-    lines = applog.filter_lines(applog.tail(n), keyword or "")
-    return [_redact(ln) for ln in lines]
+    # Redact first, then filter: filtering raw lines would let a keyword
+    # probe for text that redaction hides (a path, a user name, a key).
+    return applog.filter_lines([_redact(ln) for ln in applog.tail(n)], keyword or "")
 
 
 def build_support_report(recent_error_lines: int = 20) -> str:
@@ -222,13 +226,23 @@ class AdminActionJobsRunning(AdminActionRefused, ConflictError):
     pass
 
 
+PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT
+_pip_lock = threading.Lock()
+
+
 def _guard(confirm: bool):
+    """confirm=True, and no job running or queued here or (fresh
+    job_records rows) in another process -- the same rule as the Library
+    admin actions (library_admin_service._any_job_running)."""
     if confirm is not True:
         raise AdminActionUnconfirmed("Confirmation required.")
-    running = background_jobs.list_running_jobs()
-    if running:
+    from services import library_admin_service
+    # TODO: also refuse while background_jobs.exclusive_active() or the
+    # maintenance counter is held, once fix-library-admin-restore lands
+    # (neither exists on the base yet).
+    if library_admin_service._any_job_running():
         raise AdminActionJobsRunning(
-            f"{len(running)} background job(s) running; wait for them to finish.")
+            "A background job is running or queued; wait for it to finish.")
 
 
 def installable_packages() -> set:
@@ -240,33 +254,64 @@ def installable_packages() -> set:
     return names
 
 
-def _run_stream(gen) -> dict:
-    tail, ok = [], False
-    for item in gen:
-        if "line" in item:
-            tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
-        elif item.get("done"):
-            ok = bool(item.get("ok"))
+def _pip(*args) -> list:
+    return [sys.executable, "-m", "pip", *args]
+
+
+def _install_commands(name: str) -> list:
+    """The pip commands diagnostics.stream_dependency_install would run:
+    torch on a machine with an NVIDIA GPU goes through the CUDA-index
+    reinstall (stream_gpu_torch_reinstall), everything else is a plain
+    install. Built here so each runs under _stream_process's timeout."""
+    if name == "torch" and shutil.which("nvidia-smi"):
+        constraints = os.path.join(_project_root(), "constraints.txt")
+        install = ["install", "torch", "torchaudio", "--index-url",
+                   f"https://download.pytorch.org/whl/{diagnostics.gpu_torch_cuda_index()}"]
+        if os.path.exists(constraints):
+            install += ["-c", constraints]
+        return [_pip("uninstall", "-y", "torch", "torchaudio"), _pip(*install)]
+    return [_pip("install", name)]
+
+
+def _run_commands(cmds: list) -> dict:
+    """Runs each command through diagnostics._stream_process (killed after
+    PIP_TIMEOUT_SECONDS); ok only if every one exits 0 in time."""
+    tail, ok = [], True
+    for cmd in cmds:
+        for item in diagnostics._stream_process(cmd, PIP_TIMEOUT_SECONDS):
+            if "line" in item:
+                tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
+            elif "returncode" in item:
+                ok = ok and item["returncode"] == 0 and not item.get("timed_out")
+                if item.get("timed_out"):
+                    tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
+        if not ok:
+            break
     return {"ok": ok, "output_tail": tail}
 
 
-def install_dependency(name: str, confirm: bool = False) -> dict:
+def _run_pip(name: str, confirm, cmds_for) -> dict:
+    """One pip run at a time in this process (409 while one runs)."""
     _guard(confirm)
     if name not in installable_packages():
         raise AdminActionUnknownPackage("Unknown or non-installable package.")
-    result = _run_stream(diagnostics.stream_dependency_install(name, project_root=_project_root()))
+    if not _pip_lock.acquire(blocking=False):
+        raise AdminActionJobsRunning("Another install or upgrade is running.")
+    try:
+        result = _run_commands(cmds_for(name))
+    finally:
+        _pip_lock.release()
     result["package"] = name
     return result
+
+
+def install_dependency(name: str, confirm: bool = False) -> dict:
+    return _run_pip(name, confirm, _install_commands)
 
 
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
-    _guard(confirm)
-    if name not in installable_packages():
-        raise AdminActionUnknownPackage("Unknown or non-installable package.")
-    result = _run_stream(diagnostics.stream_pip_install(
-        diagnostics.upgrade_pip_args(name, _project_root())))
-    result["package"] = name
-    return result
+    return _run_pip(name, confirm, lambda n: [
+        _pip("install", *diagnostics.upgrade_pip_args(n, _project_root()))])
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
