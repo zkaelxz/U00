@@ -75,7 +75,7 @@ def fakes(isolated_db, monkeypatch):
         yield {"line": DIRTY}
         yield {"returncode": 0, "timed_out": False}
 
-    monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
+    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     return calls

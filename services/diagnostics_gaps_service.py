@@ -232,8 +232,9 @@ def _maintenance_active() -> bool:
     return bool(getattr(background_jobs, "_maintenance_count", 0))
 
 
-PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT
-_pip_lock = threading.Lock()
+PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT       # 900 s
+# The CUDA torch wheels are about 2.5 GB; allow a slow link far longer.
+GPU_TORCH_TIMEOUT_SECONDS = 3600
 
 
 def _guard(confirm: bool):
@@ -267,26 +268,62 @@ def _pip(*args) -> list:
 
 
 def _install_commands(name: str) -> list:
-    """The pip commands diagnostics.stream_dependency_install would run:
-    torch on a machine with an NVIDIA GPU goes through the CUDA-index
-    reinstall (stream_gpu_torch_reinstall), everything else is a plain
-    install. Built here so each runs under _stream_process's timeout."""
+    """(command, timeout) pairs for an install. torch on a machine with an
+    NVIDIA GPU gets the CUDA build from PyTorch's index, like
+    diagnostics.stream_gpu_torch_reinstall, but without uninstalling first:
+    `--force-reinstall --no-deps` downloads both wheels before replacing
+    anything, so a timeout during the (~2.5 GB) download leaves the old
+    torch in place; a second plain install then adds any missing
+    dependencies (e.g. the nvidia-* wheels on Linux). Everything else is a
+    plain install."""
     if name == "torch" and shutil.which("nvidia-smi"):
+        index = ["--index-url",
+                 f"https://download.pytorch.org/whl/{diagnostics.gpu_torch_cuda_index()}"]
         constraints = os.path.join(_project_root(), "constraints.txt")
-        install = ["install", "torch", "torchaudio", "--index-url",
-                   f"https://download.pytorch.org/whl/{diagnostics.gpu_torch_cuda_index()}"]
         if os.path.exists(constraints):
-            install += ["-c", constraints]
-        return [_pip("uninstall", "-y", "torch", "torchaudio"), _pip(*install)]
-    return [_pip("install", name)]
+            index += ["-c", constraints]
+        return [(_pip("install", "--force-reinstall", "--no-deps", "torch", "torchaudio",
+                      *index), GPU_TORCH_TIMEOUT_SECONDS),
+                (_pip("install", "torch", "torchaudio", *index), GPU_TORCH_TIMEOUT_SECONDS)]
+    return [(_pip("install", name), PIP_TIMEOUT_SECONDS)]
+
+
+def _stream_tree(cmd: list, timeout: float):
+    """Like diagnostics._stream_process ({"line"} per output line, then
+    {"returncode", "timed_out"}), but pip runs in its own process group and
+    on timeout (or if the caller stops early) the whole tree is killed
+    with background_jobs._kill_tree, not only pip itself."""
+    import subprocess
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+             else {"start_new_session": True})
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace", bufsize=1, **group)
+    timed_out = threading.Event()
+
+    def _kill():
+        timed_out.set()
+        background_jobs._kill_tree(proc)
+    timer = threading.Timer(timeout, _kill)
+    timer.start()
+    returncode = None
+    try:
+        for line in proc.stdout:
+            yield {"line": line.rstrip("\n")}
+        returncode = proc.wait()
+    finally:
+        timer.cancel()
+        if proc.poll() is None:
+            background_jobs._kill_tree(proc)
+            proc.wait()
+    yield {"returncode": returncode, "timed_out": timed_out.is_set()}
 
 
 def _run_commands(cmds: list) -> dict:
-    """Runs each command through diagnostics._stream_process (killed after
-    PIP_TIMEOUT_SECONDS); ok only if every one exits 0 in time."""
+    """Runs each (command, timeout) through _stream_tree; ok only if every
+    one exits 0 in time. Stops at the first failure."""
     tail, ok = [], True
-    for cmd in cmds:
-        for item in diagnostics._stream_process(cmd, PIP_TIMEOUT_SECONDS):
+    for cmd, timeout in cmds:
+        for item in _stream_tree(cmd, timeout):
             if "line" in item:
                 tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
             elif "returncode" in item:
@@ -299,16 +336,19 @@ def _run_commands(cmds: list) -> dict:
 
 
 def _run_pip(name: str, confirm, cmds_for) -> dict:
-    """One pip run at a time in this process (409 while one runs)."""
+    """Holds the library exclusively for the whole pip run, so no job,
+    restore, reset, cleanup or second install can start mid-upgrade (409
+    if the hold can't be taken)."""
     _guard(confirm)
     if name not in installable_packages():
         raise AdminActionUnknownPackage("Unknown or non-installable package.")
-    if not _pip_lock.acquire(blocking=False):
-        raise AdminActionJobsRunning("Another install or upgrade is running.")
+    if not background_jobs.acquire_exclusive("Dependency install"):
+        raise AdminActionJobsRunning(
+            "A job, restore, cleanup or another install is in progress; try again when it ends.")
     try:
         result = _run_commands(cmds_for(name))
     finally:
-        _pip_lock.release()
+        background_jobs.release_exclusive()
     result["package"] = name
     return result
 
@@ -319,7 +359,8 @@ def install_dependency(name: str, confirm: bool = False) -> dict:
 
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
     return _run_pip(name, confirm, lambda n: [
-        _pip("install", *diagnostics.upgrade_pip_args(n, _project_root()))])
+        (_pip("install", *diagnostics.upgrade_pip_args(n, _project_root())),
+         PIP_TIMEOUT_SECONDS)])
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
