@@ -5,6 +5,8 @@ import type {
   NovelAttachResult,
   NovelMode,
   NovelStatus,
+  RetranscribeApplyRequest,
+  RetranscribeApplyResult,
   RetranscribeLineRequest,
   RetranscribeLineResult,
   TranscribeConfig,
@@ -88,10 +90,14 @@ export const startNovelOcr = (
 }
 
 // Parity audit B1 (R23): re-run Whisper on one line's audio window; the job
-// replaces that line's source text. Poll GET /api/jobs/{job_id}.
+// proposes text (result.proposed_zh / base_zh) without writing. Poll GET /api/jobs/{job_id}.
 export const startRetranscribeLine = (
   id: number,
   lineId: number,
   req: RetranscribeLineRequest = {},
   f?: Fetch,
 ) => postJson<RetranscribeLineResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe`, req, f)
+
+// "Use this": writes the proposal only if the line still has expected_zh (409 otherwise).
+export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
+  postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)

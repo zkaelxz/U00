@@ -71,7 +71,7 @@ import core as core_module
 import db
 import raw_transcript
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
-from services import diarization_service, settings_service, source_service
+from services import diarization_service, jobs_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -838,12 +838,17 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
 
 # --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
 # Streamlit's Review "Re-transcribe" button re-runs Whisper on one line's own
-# timing window and, after "Use this", replaces that line's source text. Here
-# the job does both (the job-does-everything decision above): it cuts the
-# window, transcribes it with the drama's full-transcribe Whisper settings and
-# the same automatic prompt, and writes only `zh` for that line id. It runs
-# local Whisper even when the drama's full transcribe uses Groq (Streamlit's
-# button did too), so it needs no paid-engine gate.
+# timing window, shows what it heard, and only on "Use this" replaces that
+# line's source text. Same split here: the job cuts the window, transcribes it
+# with the drama's full-transcribe Whisper settings and the same automatic
+# prompt, and stores the proposal in its result WITHOUT writing;
+# apply_retranscribe_line writes only `zh` for that line id, and only if the
+# line is unchanged since the job started (a compare-and-set, so the user's
+# edits win). It runs local Whisper even when the drama's full transcribe uses
+# Groq (Streamlit's button did too), so it needs no paid-engine gate.
+
+# Proposed text kept in the job result: same cap as a line edit.
+_RETRANSCRIBE_MAX_CHARS = 2000
 
 # Running/queued jobs that replace this drama's lines or also write `zh`, so a
 # one-line re-transcription alongside them would be pointless or race them.
@@ -861,10 +866,11 @@ def _find_line(drama_id: int, line_id: int):
 def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "",
                             extra_names: str = "") -> dict:
     """Starts the GPU-queued job that re-transcribes one line's timing window
-    and replaces that line's `zh` (field-scoped, matched by line id).
-    initial_prompt / extra_names resolve exactly as for a full transcribe
-    run (_resolve_initial_prompt). Returns {job_id, drama_id, line_id}; poll
-    GET /api/jobs/{job_id}.
+    and proposes new text for it (nothing is written; see
+    apply_retranscribe_line). initial_prompt / extra_names resolve exactly as
+    for a full transcribe run (_resolve_initial_prompt). Returns {job_id,
+    drama_id, line_id}; poll GET /api/jobs/{job_id}, whose result then holds
+    proposed_zh and base_zh (the line's text when the job started).
 
     NotFoundError for an unknown drama or a line id that isn't this drama's;
     UnsupportedOperationError when the drama has no audio pipeline or no
@@ -910,14 +916,14 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
 def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
                                source_language, whisper_size, beam_size, min_silence_ms,
                                vad_threshold, fast_mode, use_gpu, initial_prompt):
-    """Job body: cut [start, end) from the drama's audio, transcribe it, and
-    write the joined text to that one line's `zh` (db.save_lines with
-    fields=("zh",), so nothing else on the line or the drama is touched --
-    Streamlit's "Use this" changed only zh too). The write is skipped, with a
-    failed_reason, when nothing was heard ("empty"), the job was cancelled,
-    the line no longer exists ("line_gone") or its text or timing changed
-    while the job ran ("line_changed" -- the user's newer edit wins).
-    Result on success: {"line_count": 1}, or 0 when the text came out the same."""
+    """Job body: cut [start, end) from the drama's audio and transcribe it.
+    Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
+    "base_zh", "base_start", "base_end"} (proposed_zh capped at
+    _RETRANSCRIBE_MAX_CHARS; base_zh raw, for the apply compare), plus "gpu_fallback" when it ran on CPU. Only
+    proposed_zh, base_zh and gpu_fallback are shown over HTTP (jobs_service's
+    allowlist); the rest is read back in-process by apply_retranscribe_line.
+    A failed_reason instead when nothing was heard ("empty"), the job was
+    cancelled, or the line no longer exists ("line_gone")."""
     slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
     gpu_fallback = []
     try:
@@ -955,23 +961,58 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
     if background_jobs.is_cancel_requested(job_id):
         background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
         return
-    background_jobs.update_progress(job_id, 0.9, "Saving the new text...")
-    current = _find_line(drama_id, line_id)
-    if current is None:
+    if _find_line(drama_id, line_id) is None:
         background_jobs.set_result(job_id, {
             "failed_reason": "line_gone",
             "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
         return
-    if (current.zh, float(current.start), float(current.end)) != (zh_before, start, end):
-        background_jobs.set_result(job_id, {
-            "failed_reason": "line_changed",
-            "detail": "The line was edited meanwhile; your edit was kept."})
-        return
-    changed = new_zh != current.zh
-    if changed:
-        current.zh = new_zh
-        db.save_lines(drama_id, [current], fields=("zh",))
-    result = {"line_count": 1 if changed else 0}
+    result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
+              "base_zh": zh_before or "", "base_start": start, "base_end": end}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
     background_jobs.set_result(job_id, result)
+
+
+def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh) -> dict:
+    """Streamlit's "Use this": writes a finished re-transcription's
+    proposed_zh to that line's `zh` and nothing else. expected_zh is the
+    base_zh the client was shown (as GET /api/jobs projected it, or the raw
+    text). The write is ONE compare-and-set (db.update_line_fields_if) on the
+    line's zh, start and end as they were when the job started, so a line
+    edited or re-timed since then is left alone (ConflictError). The old
+    text is kept first as a line-history snapshot (restorable from History).
+    Returns {drama_id, line_id, zh}.
+
+    NotFoundError for an unknown drama or line, or when this app session has
+    no finished re-transcription for this line; InvalidInputError for a
+    job_id that isn't this drama's re-transcription or non-text input;
+    ConflictError when expected_zh isn't what the job showed or the line
+    changed since the job started."""
+    if not isinstance(job_id, str) or not isinstance(expected_zh, str):
+        raise InvalidInputError("job_id and expected_zh must be text.")
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if job_id != retranscribe_line_job_id(drama_id):
+        raise InvalidInputError("job_id is not this drama's re-transcription.")
+    line = _find_line(drama_id, line_id)
+    if line is None:
+        raise NotFoundError(f"No line with id {line_id} in drama {drama_id}.")
+    job = background_jobs.get_status(job_id)
+    result = (job or {}).get("result") if (job or {}).get("status") == "done" else None
+    if (not isinstance(result, dict) or result.get("line_id") != line_id
+            or not result.get("proposed_zh")):
+        raise NotFoundError("No finished re-transcription for this line.")
+    base = result.get("base_zh") or ""
+    # The client saw base_zh through the jobs projection (redacted, capped).
+    shown = (jobs_service.project_result({"base_zh": base}) or {}).get("base_zh")
+    if expected_zh not in (base, shown):
+        raise ConflictError("This isn't the text the re-transcription started from.")
+    unchanged = {"zh": base, "start": result["base_start"], "end": result["base_end"]}
+    if (line.zh or "", float(line.start), float(line.end)) != (
+            base, unchanged["start"], unchanged["end"]):
+        raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
+    db.save_line_history_snapshot(drama_id, db.load_line_objects(drama_id),
+                                  f"before re-transcribing line {line.idx + 1}")
+    if not db.update_line_fields_if(drama_id, line_id, {"zh": result["proposed_zh"]}, unchanged):
+        raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
+    return {"drama_id": drama_id, "line_id": line_id, "zh": result["proposed_zh"]}

@@ -9,35 +9,28 @@ export function canRetranscribe(
   return !!cfg && cfg.has_audio_pipeline && cfg.audio_available
 }
 
-// What a finished re-transcribe job did to the line, in plain words. The job
-// result's line_count is 1 when the text was replaced, 0 when Whisper heard
-// the same text; a failed/cancelled job keeps the line as it was.
-export function retranscribeDoneText(job: Pick<JobRecord, 'status' | 'outcome' | 'result'>): {
-  text: string
-  ok: boolean
-  changed: boolean
-} {
-  if (jobFailed(job) || job.status !== 'done') {
-    const reason = job.result?.failed_reason
-    if (job.outcome === 'cancelled' || reason === 'cancelled') {
-      return { text: 'Cancelled. The line was not changed.', ok: false, changed: false }
-    }
-    if (reason === 'empty') {
-      return { text: "No speech found in this line's timing window. The line was not changed.", ok: false, changed: false }
-    }
-    if (reason === 'line_changed') {
-      return { text: 'The line was edited while this ran, so your edit was kept.', ok: false, changed: false }
-    }
-    if (reason === 'line_gone') {
-      return { text: 'The line was merged, split or deleted while this ran. Nothing was changed.', ok: false, changed: false }
-    }
-    if (reason === 'model_download') {
-      return { text: 'The speech model could not be downloaded. The line was not changed.', ok: false, changed: false }
-    }
-    return { text: 'Re-transcribing failed. The line was not changed.', ok: false, changed: false }
+// A finished re-transcribe job: either a proposal the user can "Use this" or
+// "Discard" (nothing has been written yet), or a plain-words reason why there
+// is none. `same` means Whisper heard the text the line already has.
+export type RetranscribeOutcome =
+  | { kind: 'proposal'; proposed: string; base: string; same: boolean }
+  | { kind: 'none'; text: string }
+
+export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 'result'>): RetranscribeOutcome {
+  const r = job.result ?? {}
+  const proposed = typeof r.proposed_zh === 'string' ? r.proposed_zh : ''
+  const base = typeof r.base_zh === 'string' ? r.base_zh : ''
+  if (job.status === 'done' && !jobFailed(job) && proposed) {
+    return { kind: 'proposal', proposed, base, same: proposed === base }
   }
-  if (job.result?.line_count === 0) {
-    return { text: 'Whisper heard the same text. Nothing changed.', ok: true, changed: false }
+  const reason = r.failed_reason
+  if (job.outcome === 'cancelled' || job.status === 'cancelled' || reason === 'cancelled') {
+    return { kind: 'none', text: 'Cancelled. The line was not changed.' }
   }
-  return { text: "Replaced this line's source text.", ok: true, changed: true }
+  if (reason === 'empty') return { kind: 'none', text: "No speech found in this line's timing window." }
+  if (reason === 'line_gone') {
+    return { kind: 'none', text: 'The line was merged, split or deleted while this ran.' }
+  }
+  if (reason === 'model_download') return { kind: 'none', text: 'The speech model could not be downloaded.' }
+  return { kind: 'none', text: 'Re-transcribing failed. The line was not changed.' }
 }

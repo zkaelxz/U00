@@ -13,7 +13,8 @@ Route batch 2C adds auto-tune (start, status with the candidate scores,
 apply a measured candidate), whose results are only readable here.
 
 Parity audit B1 (R23) adds re-transcribing one line: a GPU-queued job that
-replaces that line's source text; poll it through GET /api/jobs/{job_id}.
+proposes new source text (poll GET /api/jobs/{job_id}), and an apply route
+that writes it only if the line is unchanged since the job started.
 """
 
 from typing import Optional
@@ -21,7 +22,8 @@ from typing import Optional
 from fastapi import APIRouter, Path, Request
 from api.auth import require_paid_engines, require_permission
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
-                         AutotuneStatus, ErrorResponse, RetranscribeLineRequest,
+                         AutotuneStatus, ErrorResponse, RetranscribeApplyRequest,
+                         RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
 from services import transcribe_service
@@ -111,3 +113,14 @@ def post_retranscribe_line(payload: Optional[RetranscribeLineRequest] = None,
     return transcribe_service.start_retranscribe_line(
         drama_id, line_id, initial_prompt=payload.initial_prompt,
         extra_names=payload.extra_names)
+
+
+@router.post("/dramas/{drama_id}/lines/{line_id}/retranscribe/apply",
+             dependencies=[require_permission("lines.edit")], response_model=RetranscribeApplyResult,
+             summary="Use a finished re-transcription's text for this line (compare-and-set)",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: int = Path(ge=1),
+                                 line_id: int = Path(ge=1)):
+    return transcribe_service.apply_retranscribe_line(
+        drama_id, line_id, payload.job_id, payload.expected_zh)

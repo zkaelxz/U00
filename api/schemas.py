@@ -2715,3 +2715,18 @@ class RetranscribeLineResult(BaseModel):
     job_id: str
     drama_id: int
     line_id: int
+
+
+class RetranscribeApplyRequest(BaseModel):
+    """"Use this": job_id is the finished re-transcription; expected_zh is
+    the base_zh its result showed. A line changed since the job started is a
+    409 (nothing written)."""
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(..., min_length=1, max_length=100)
+    expected_zh: str = Field(..., max_length=20000)
+
+
+class RetranscribeApplyResult(BaseModel):
+    drama_id: int
+    line_id: int
+    zh: str

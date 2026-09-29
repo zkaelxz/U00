@@ -190,18 +190,18 @@ class TestStart:
 
 
 class TestJobBody:
-    def test_writes_only_zh_of_that_line_by_id(self, isolated_db, captured, fake_asr):
+    def test_proposes_and_writes_nothing(self, isolated_db, captured, fake_asr):
         did, ids = _drama(isolated_db)
+        before = [(ln.id, ln.zh, ln.en, ln.start, ln.end, ln.flag)
+                  for ln in isolated_db.load_line_objects(did)]
         transcribe_service.start_retranscribe_line(did, ids[0])
         result = _run_with_result(captured)
-        assert result == {"line_count": 1}
-        lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
-        assert lines[ids[0]].zh == "新的文字"
-        # everything else untouched: en, speaker, flag, timing, the other line
-        assert (lines[ids[0]].en, lines[ids[0]].speaker) == ("Hello", "A")
-        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("unsure", "check")
-        assert (lines[ids[0]].start, lines[ids[0]].end) == (0.0, 1.5)
-        assert lines[ids[1]].zh == "错字"
+        assert result == {"line_id": ids[0], "proposed_zh": "新的文字", "base_zh": "你好",
+                          "base_start": 0.0, "base_end": 1.5}
+        after = [(ln.id, ln.zh, ln.en, ln.start, ln.end, ln.flag)
+                 for ln in isolated_db.load_line_objects(did)]
+        assert after == before
+        assert isolated_db.list_line_history(did) == []
         assert fake_asr["slices"] == [(0.0, 1.5)]
         t = fake_asr["transcribe"][0]
         assert t["model_size"] == "small" and t["beam_size"] == 7
@@ -209,47 +209,14 @@ class TestJobBody:
         assert fake_asr["released"] == 1
         assert not [f for f in os.listdir(isolated_db.drama_dir(did)) if "slice" in f]
 
-    def test_matched_by_id_after_lines_move(self, isolated_db, captured, fake_asr):
-        """A line added before it (positions shift) doesn't redirect the write."""
-        did, ids = _drama(isolated_db)
-        transcribe_service.start_retranscribe_line(did, ids[1])
-        lines = isolated_db.load_line_objects(did)
-        for ln in lines:
-            ln.idx += 1
-        lines.insert(0, Line(idx=0, start=0.0, end=0.1, zh="新行"))
-        isolated_db.save_lines(did, lines)
-        assert _run_with_result(captured) == {"line_count": 1}
-        by_id = {ln.id: ln.zh for ln in isolated_db.load_line_objects(did)}
-        assert by_id[ids[1]] == "新的文字"
-        assert by_id[ids[0]] == "你好"
-        assert "新行" in by_id.values()
-
-    def test_empty_keeps_text(self, isolated_db, captured, fake_asr):
+    def test_empty_proposes_nothing(self, isolated_db, captured, fake_asr):
         fake_asr["text"] = "  "
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
         assert _run_with_result(captured) == {"failed_reason": "empty"}
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
 
-    def test_line_edited_meanwhile_is_kept(self, isolated_db, captured, fake_asr):
-        did, ids = _drama(isolated_db)
-        transcribe_service.start_retranscribe_line(did, ids[0])
-        lines = isolated_db.load_line_objects(did)
-        lines[0].zh = "用户改的"
-        isolated_db.save_lines(did, lines)
-        assert _run_with_result(captured)["failed_reason"] == "line_changed"
-        assert isolated_db.load_line_objects(did)[0].zh == "用户改的"
-
-    def test_line_retimed_meanwhile_is_kept(self, isolated_db, captured, fake_asr):
-        did, ids = _drama(isolated_db)
-        transcribe_service.start_retranscribe_line(did, ids[0])
-        lines = isolated_db.load_line_objects(did)
-        lines[0].end = 1.2
-        isolated_db.save_lines(did, lines)
-        assert _run_with_result(captured)["failed_reason"] == "line_changed"
-        assert isolated_db.load_line_objects(did)[0].zh == "你好"
-
-    def test_line_gone_is_not_resurrected(self, isolated_db, captured, fake_asr):
+    def test_line_gone(self, isolated_db, captured, fake_asr):
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
         isolated_db.save_lines(did, [ln for ln in isolated_db.load_line_objects(did)
@@ -257,12 +224,11 @@ class TestJobBody:
         assert _run_with_result(captured)["failed_reason"] == "line_gone"
         assert [ln.id for ln in isolated_db.load_line_objects(did)] == [ids[1]]
 
-    def test_cancelled_before_write(self, isolated_db, captured, fake_asr, monkeypatch):
+    def test_cancelled(self, isolated_db, captured, fake_asr, monkeypatch):
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
         assert _run_with_result(captured) == {"failed_reason": "cancelled"}
-        assert isolated_db.load_line_objects(did)[0].zh == "你好"
 
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):
@@ -286,19 +252,149 @@ class TestJobBody:
         assert result["failed_reason"] == "audio_slice"
         assert isolated_db.drama_dir(did) not in str(result)
 
-    def test_real_thread_end_to_end(self, isolated_db, fake_asr):
+    def test_real_thread_projection(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
-        out = transcribe_service.start_retranscribe_line(did, ids[1])
-        deadline = time.time() + 5
-        while background_jobs.get_status(out["job_id"])["status"] in ("running", "queued"):
-            assert time.time() < deadline
-            time.sleep(0.01)
-        assert background_jobs.get_status(out["job_id"])["status"] == "done"
-        assert {ln.id: ln.zh for ln in isolated_db.load_line_objects(did)}[ids[1]] == "新的文字"
+        out = _finish(transcribe_service.start_retranscribe_line(did, ids[1]))
         rec = jobs_service.get_job(out["job_id"])
         assert rec["outcome"] == "ok"
-        assert rec["result"] == {"line_count": 1}
+        # Only the allowlisted keys go out; line_id/base_start/base_end stay in-process.
+        assert rec["result"] == {"proposed_zh": "新的文字", "base_zh": "错字"}
         assert isolated_db.drama_dir(did) not in str(rec)
+        assert isolated_db.load_line_objects(did)[1].zh == "错字"
+
+
+def _finish(out):
+    deadline = time.time() + 5
+    while background_jobs.get_status(out["job_id"])["status"] in ("running", "queued"):
+        assert time.time() < deadline
+        time.sleep(0.01)
+    assert background_jobs.get_status(out["job_id"])["status"] == "done"
+    return out
+
+
+def _proposed(db, fake_asr, n=0, **kw):
+    did, ids = _drama(db, **kw)
+    out = _finish(transcribe_service.start_retranscribe_line(did, ids[n]))
+    return did, ids, out["job_id"]
+
+
+class TestJobsProjection:
+    def test_long_text_capped_in_chars_and_bytes(self):
+        p = jobs_service.project_result({"proposed_zh": "字" * 5000, "base_zh": "a" * 5000})
+        assert len(p["base_zh"]) == 2000
+        assert len(p["proposed_zh"].encode("utf-8")) <= 3000
+        assert jobs_service._json_len(p) <= jobs_service._MAX_JSON
+
+    def test_other_strings_keep_the_short_cap(self):
+        assert len(jobs_service.project_result({"detail": "x" * 900})["detail"]) == 500
+
+
+class TestApply:
+    def test_writes_only_zh_of_that_line_by_id_with_history(self, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        out = transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+        assert out == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
+        lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
+        assert lines[ids[0]].zh == "新的文字"
+        # everything else untouched: en, speaker, flag, timing, the other line
+        assert (lines[ids[0]].en, lines[ids[0]].speaker) == ("Hello", "A")
+        assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("unsure", "check")
+        assert (lines[ids[0]].start, lines[ids[0]].end) == (0.0, 1.5)
+        assert lines[ids[1]].zh == "错字"
+        hist = isolated_db.list_line_history(did)
+        assert len(hist) == 1 and "re-transcrib" in hist[0]["label"]
+        # applied once: a second apply sees changed text
+        with pytest.raises(ConflictError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+
+    def test_matched_by_id_after_lines_move(self, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr, n=1)
+        lines = isolated_db.load_line_objects(did)
+        for ln in lines:
+            ln.idx += 1
+        lines.insert(0, Line(idx=0, start=0.0, end=0.1, zh="新行"))
+        isolated_db.save_lines(did, lines)
+        transcribe_service.apply_retranscribe_line(did, ids[1], job_id, "错字")
+        by_id = {ln.id: ln.zh for ln in isolated_db.load_line_objects(did)}
+        assert by_id[ids[1]] == "新的文字" and by_id[ids[0]] == "你好"
+
+    def test_expected_mismatch_409(self, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        with pytest.raises(ConflictError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "别的")
+        assert isolated_db.load_line_objects(did)[0].zh == "你好"
+        assert isolated_db.list_line_history(did) == []
+
+    @pytest.mark.parametrize("change", ["zh", "end"])
+    def test_line_changed_since_job_409_user_edit_wins(self, isolated_db, fake_asr, change):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        lines = isolated_db.load_line_objects(did)
+        if change == "zh":
+            lines[0].zh = "用户改的"
+        else:
+            lines[0].end = 1.2
+        isolated_db.save_lines(did, lines)
+        with pytest.raises(ConflictError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+        assert isolated_db.load_line_objects(did)[0].zh == ("用户改的" if change == "zh" else "你好")
+
+    def test_race_between_check_and_write_409(self, isolated_db, fake_asr, monkeypatch):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        real = isolated_db.update_line_fields_if
+
+        def edit_first(drama_id, line_id, values, expected):
+            lines = isolated_db.load_line_objects(drama_id)
+            lines[0].zh = "抢先"
+            isolated_db.save_lines(drama_id, lines, fields=("zh",))
+            return real(drama_id, line_id, values, expected)
+        monkeypatch.setattr(isolated_db, "update_line_fields_if", edit_first)
+        with pytest.raises(ConflictError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+        assert isolated_db.load_line_objects(did)[0].zh == "抢先"
+
+    def test_expected_may_be_the_projected_text(self, isolated_db, fake_asr):
+        """base_zh is shown through the jobs projection (paths collapsed);
+        the client sends back what it was shown."""
+        did, ids = _drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        lines[0].zh = "见 /home/x/y/z 文件"
+        isolated_db.save_lines(did, lines)
+        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
+        shown = jobs_service.get_job(job_id)["result"]["base_zh"]
+        assert shown != "见 /home/x/y/z 文件"
+        transcribe_service.apply_retranscribe_line(did, ids[0], job_id, shown)
+        assert isolated_db.load_line_objects(did)[0].zh == "新的文字"
+
+    def test_404s(self, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        with pytest.raises(NotFoundError):
+            transcribe_service.apply_retranscribe_line(999999, ids[0], job_id, "你好")
+        with pytest.raises(NotFoundError):
+            transcribe_service.apply_retranscribe_line(did, 999999, job_id, "你好")
+        # a finished job for another line of this drama
+        with pytest.raises(NotFoundError):
+            transcribe_service.apply_retranscribe_line(did, ids[1], job_id, "错字")
+        _clear_jobs()
+        with pytest.raises(NotFoundError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+
+    def test_running_or_failed_job_404(self, isolated_db, fake_asr):
+        did, ids = _drama(isolated_db)
+        _put_job(f"retranscribe_{did}")
+        with pytest.raises(NotFoundError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], f"retranscribe_{did}", "你好")
+        fake_asr["text"] = ""
+        _clear_jobs()
+        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
+        with pytest.raises(NotFoundError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+
+    def test_other_drama_job_id_422(self, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        with pytest.raises(InvalidInputError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], "translate_1", "你好")
+        with pytest.raises(InvalidInputError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, None)
 
 
 # ----- API ------------------------------------------------------------------
@@ -376,6 +472,40 @@ class TestRoute:
         assert client.post(_path(1, 0)).status_code == 422
 
 
+def _apply_path(did, lid):
+    return _path(did, lid) + "/apply"
+
+
+class TestApplyRoute:
+    def test_success_then_409(self, client, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        body = {"job_id": job_id, "expected_zh": "你好"}
+        r = client.post(_apply_path(did, ids[0]), json=body)
+        assert r.status_code == 200, r.text
+        assert r.json() == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
+        assert isolated_db.drama_dir(did) not in r.text
+        r = client.post(_apply_path(did, ids[0]), json=body)
+        assert r.status_code == 409
+        assert _error(r)["code"] == "conflict"
+
+    def test_expected_mismatch_409(self, client, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        r = client.post(_apply_path(did, ids[0]), json={"job_id": job_id, "expected_zh": "x"})
+        assert r.status_code == 409
+        assert isolated_db.load_line_objects(did)[0].zh == "你好"
+
+    def test_404_and_422(self, client, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        assert client.post(_apply_path(did, 999999),
+                           json={"job_id": job_id, "expected_zh": "你好"}).status_code == 404
+        assert client.post(_apply_path(did, ids[0]),
+                           json={"job_id": "translate_1", "expected_zh": "你好"}).status_code == 422
+        for body in ({}, {"job_id": job_id}, {"job_id": job_id, "expected_zh": "你好", "x": 1},
+                     {"job_id": "", "expected_zh": "你好"}):
+            assert client.post(_apply_path(did, ids[0]), json=body).status_code == 422
+        assert isolated_db.load_line_objects(did)[0].zh == "你好"
+
+
 def _remote():
     return TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
                       raise_server_exceptions=False)
@@ -406,3 +536,20 @@ class TestAuthOn:
         r = c.post(_path(did, ids[0]), headers=h)
         assert r.status_code == 200, r.text
         assert captured["job_id"] == f"retranscribe_{did}"
+
+    def test_apply_needs_lines_edit(self, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        c = _remote()
+        body = {"job_id": job_id, "expected_zh": "你好"}
+        assert c.post(_apply_path(did, ids[0]), json=body).status_code == 401
+        u = auth_service.add_user("bare2@example.com")
+        for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            auth_service.revoke_permission(u["id"], p)
+        auth_service.grant_permission(u["id"], "jobs.start")
+        h = _headers(u)
+        assert c.post(_apply_path(did, ids[0]), json=body, headers=h).status_code == 403
+        assert isolated_db.load_line_objects(did)[0].zh == "你好"
+        auth_service.grant_permission(u["id"], "lines.edit")
+        r = c.post(_apply_path(did, ids[0]), json=body, headers=h)
+        assert r.status_code == 200, r.text
+        assert isolated_db.load_line_objects(did)[0].zh == "新的文字"

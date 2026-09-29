@@ -138,3 +138,16 @@ export interface RetranscribeLineResult {
   drama_id: number
   line_id: number
 }
+
+// api/schemas.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
+// for a finished re-transcription (expected_zh = the job result's base_zh).
+export interface RetranscribeApplyRequest {
+  job_id: string
+  expected_zh: string
+}
+
+export interface RetranscribeApplyResult {
+  drama_id: number
+  line_id: number
+  zh: string
+}
