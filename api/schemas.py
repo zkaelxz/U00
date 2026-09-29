@@ -2036,12 +2036,16 @@ class SourcesJobStarted(BaseModel):
 class SourcesJobResult(BaseModel):
     """`result` (only once done): search {kind, query, cancelled, results,
     errors, per_source_counts} or series {kind, source, series_id, info,
-    chapters}. URLs are scheme+host+path only; text is scrubbed."""
+    chapters}. URLs are scheme+host+path only; text is scrubbed. Series
+    jobs also carry `source` and `series_id` while queued/running, so a
+    page can tell which series the per-source run is for."""
     job_id: str
     status: Optional[str] = None
     progress: Optional[float] = None
     message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    source: Optional[str] = None
+    series_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

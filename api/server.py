@@ -34,6 +34,7 @@ from api.routers import (
     artifact_routes,
     blocked_retry_routes,
     characters_routes,
+    comic_routes,
     delete_routes,
     diagnostics_gaps_routes,
     diagnostics_routes,
@@ -176,6 +177,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
+    app.include_router(comic_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

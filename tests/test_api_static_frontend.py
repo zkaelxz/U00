@@ -36,10 +36,13 @@ class TestServing:
         assert r.status_code == 200
         assert "FAKE-INDEX" in r.text
         assert r.headers["cache-control"] == "no-cache"
+        assert r.headers["content-type"] == "text/html; charset=utf-8"
 
     def test_asset_served(self, dist):
         r = _client(dist).get("/assets/app.js")
         assert r.status_code == 200 and "fake" in r.text
+        assert r.headers["content-type"] == "text/javascript; charset=utf-8"
+        assert "cache-control" not in r.headers
 
     def test_unknown_page_path_gets_index(self, dist):
         r = _client(dist).get("/some/deep/link")
@@ -72,6 +75,71 @@ class TestServing:
 
     def test_post_to_unknown_path_is_not_served(self, dist):
         assert _client(dist).post("/anything").status_code == 405
+
+
+class TestContentTypes:
+    """A Windows registry can map `.js` to text/plain; browsers then refuse
+    the module script and the app is blank. Types must not depend on it."""
+
+    @pytest.fixture
+    def windows_like_mimetypes(self, monkeypatch):
+        import mimetypes
+
+        import starlette.responses
+        plain = lambda *a, **k: ("text/plain", None)  # noqa: E731
+        monkeypatch.setattr(mimetypes, "guess_type", plain)
+        if hasattr(starlette.responses, "guess_type"):
+            monkeypatch.setattr(starlette.responses, "guess_type", plain)
+
+    def _assets(self, dist):
+        (dist / "assets" / "app.css").write_text("body{}")
+        (dist / "assets" / "icon.svg").write_text("<svg/>")
+        (dist / "assets" / "font.woff2").write_bytes(b"x")
+
+    @pytest.mark.parametrize("path,expected", [
+        ("/assets/app.js", "text/javascript"),
+        ("/assets/app.css", "text/css"),
+        ("/assets/icon.svg", "image/svg+xml"),
+        ("/assets/font.woff2", "font/woff2"),
+        ("/", "text/html"),
+        ("/index.html", "text/html"),
+        ("/some/deep/link", "text/html"),
+    ])
+    def test_types_ignore_registry(self, dist, windows_like_mimetypes, path, expected):
+        self._assets(dist)
+        r = _client(dist).get(path)
+        assert r.status_code == 200
+        assert r.headers["content-type"].split(";")[0] == expected
+        assert r.headers["x-content-type-options"] == "nosniff"
+
+    def test_unknown_extension_is_octet_stream(self, dist, windows_like_mimetypes):
+        (dist / "assets" / "blob.xyz").write_bytes(b"\x00")
+        r = _client(dist).get("/assets/blob.xyz")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/octet-stream"
+        assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_frontend_has_no_case_colliding_paths():
+    """Windows and macOS file systems ignore case: `Foo.tsx` next to
+    `foo.ts` makes `import './Foo'` resolve to the wrong module there."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parent.parent / "frontend" / "src"
+    if not src.is_dir():
+        pytest.skip("no frontend/src")
+    code = (".ts", ".tsx", ".js", ".jsx")
+    seen = {}
+    for f in src.rglob("*"):
+        # What an extension-less import names: a code file minus its
+        # extension. `sheet.css` is imported with its extension, and there
+        # are no index files, so a `reader/` folder can't shadow `Reader.tsx`.
+        if "node_modules" in f.parts or not f.is_file() or f.suffix not in code:
+            continue
+        name = f.name[: -len(f.suffix)]
+        key = (str(f.parent).lower(), name.lower())
+        seen.setdefault(key, set()).add(name)
+    clashes = {k: v for k, v in seen.items() if len(v) > 1}
+    assert not clashes, f"case-only name clashes: {clashes}"
 
 
 class TestTraversal:
