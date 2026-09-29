@@ -492,6 +492,9 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
         raise AdminActionNotPossible(
             "torch, torchvision and torchaudio are upgraded together: use GPU PyTorch setup.")
     checked = _cached_update(name)
+    if checked is not None and target is None:
+        _guard(confirm)
+        raise AdminActionStale("Say which version to update to (the update check's target).")
     if target is not None and (checked is None or checked["status"] != "update"
                                or checked["target"] != target):
         _guard(confirm)
@@ -528,14 +531,17 @@ UPDATE_CHECK_MIN_INTERVAL = 60
 UPDATE_CHECK_WORKERS = 8
 _UPDATES_LOCK = threading.Lock()
 _UPDATES_FETCH = threading.Lock()      # one PyPI fan-out at a time
-_UPDATES = {"checked_at": None, "packages": {}}
+_UPDATES = {"checked_at": None, "packages": {}, "generation": 0}
 
 
 def _clear_update_cache() -> None:
     """After an install or a PyTorch setup the installed set changed, so a
-    cached target may no longer be safe: the next Update needs a new check."""
+    cached target may no longer be safe: the next Update needs a new check.
+    The generation bump stops a check that started before from storing its
+    (now stale) answer."""
     with _UPDATES_LOCK:
-        _UPDATES.update(checked_at=None, packages={})
+        _UPDATES.update(checked_at=None, packages={},
+                        generation=_UPDATES.get("generation", 0) + 1)
 
 
 def _cached_update(name: str):
@@ -581,6 +587,11 @@ def check_package_updates(force: bool = False) -> dict:
             return last
         raise AdminActionStale("An update check is already running; try again in a moment.")
     try:
+        with _UPDATES_LOCK:      # one may have finished while we waited for the lock
+            recent = (_UPDATES["checked_at"] is not None and
+                      time.time() - _UPDATES["checked_at"] < UPDATE_CHECK_MIN_INTERVAL)
+        if recent and not force:
+            return cached()
         return _check_package_updates_now()
     finally:
         _UPDATES_FETCH.release()
@@ -588,6 +599,8 @@ def check_package_updates(force: bool = False) -> dict:
 
 def _check_package_updates_now() -> dict:
     from concurrent.futures import ThreadPoolExecutor
+    with _UPDATES_LOCK:
+        generation = _UPDATES.get("generation", 0)
     names = sorted(n for n in installable_packages() if _package_installed(n))
     installed = {n: diagnostics.installed_dist_version(n) for n in names}
     to_fetch = sorted({dist for n, (dist, v) in installed.items()
@@ -610,7 +623,10 @@ def _check_package_updates_now() -> dict:
             packages[n]["reason"] = _redact(packages[n]["reason"])[:300]
     checked_at = time.time()
     with _UPDATES_LOCK:
-        _UPDATES.update(checked_at=checked_at, packages=packages)
+        # An install finished mid-check: keep the cache empty rather than
+        # store answers computed against the old set of packages.
+        if _UPDATES.get("generation", 0) == generation:
+            _UPDATES.update(checked_at=checked_at, packages=packages)
     return {"checked_at": checked_at, "packages": {k: dict(v) for k, v in packages.items()}}
 
 

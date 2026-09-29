@@ -177,7 +177,9 @@ def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
         seen.append(cmd)
         yield {"returncode": 0, "timed_out": False}
     monkeypatch.setattr(svc, "_stream_tree", fake)
-    assert svc.upgrade_dependency("jieba", confirm=True)["ok"] is True
+    with pytest.raises(svc.AdminActionStale):             # the confirmed version is required
+        svc.upgrade_dependency("jieba", confirm=True)
+    assert svc.upgrade_dependency("jieba", confirm=True, target="0.42.1")["ok"] is True
     (cmd,) = seen
     assert "jieba==0.42.1" in cmd and "--upgrade" not in cmd
     assert cmd[cmd.index("-c") + 1].endswith("constraints.txt")
@@ -190,7 +192,9 @@ def test_upgrade_refused_when_the_check_found_nothing_allowed(monkeypatch):
     monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
     monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("no pip"))
     svc.check_package_updates()
-    with pytest.raises(svc.AdminActionNotPossible):
+    with pytest.raises(svc.AdminActionStale):
+        svc.upgrade_dependency("pypdf", confirm=True, target="5.0.0")
+    with pytest.raises(svc.AdminActionRefused):
         svc.upgrade_dependency("pypdf", confirm=True)
 
 
@@ -253,3 +257,16 @@ def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
     monkeypatch.setattr(svc, "verify_torch", lambda: {"torch": "2.11.0+cpu", "error": None})
     svc.setup_gpu_torch("cpu", confirm=True)
     assert svc._cached_update("jieba") is None
+
+
+def test_a_check_overtaken_by_an_install_stores_nothing(monkeypatch):
+    installed = {"jieba": "0.42.0"}
+    _fake_env(monkeypatch, installed, {"jieba": ["0.42.0", "0.42.1"]})
+
+    def fetch_during_an_install(dist):
+        svc._clear_update_cache()           # an install finishes while PyPI answers
+        return ["0.42.0", "0.42.1"]
+    monkeypatch.setattr(diagnostics, "pypi_release_versions", fetch_during_an_install)
+    out = svc.check_package_updates()
+    assert out["packages"]["jieba"]["status"] == "update"     # the caller still sees it
+    assert svc._cached_update("jieba") is None                  # but Update can't use it
