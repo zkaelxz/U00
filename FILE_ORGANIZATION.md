@@ -186,6 +186,11 @@ baihe-subtitler/
 │   │                             unchanged; those tabs import them back and call them as before)
 │   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
 │   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
+│   │                             + stage_statuses_from_index (from ui/workflow.py)
+│   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
+│   │                             Scanlate pages (moved from tabs/scanlate_tab.py; Streamlit upload; API callers must pass
+│   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
+│   │                             route must enforce a png/jpg/jpeg/pdf allowlist and a size cap)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
@@ -307,7 +312,7 @@ baihe-subtitler/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta
 │       ├── library_routes.py     /api/library/dramas[/{id}]
-│       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
+│       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
