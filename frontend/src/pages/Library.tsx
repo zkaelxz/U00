@@ -37,7 +37,7 @@ import {
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
 import {
-  costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+  autofillHref, costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
 } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
@@ -403,7 +403,7 @@ type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   draft: CreateDraft | null
   onDraft: (next: CreateDraft) => void
-  onCreated: (id: number, title: string) => void
+  onCreated: (id: number, title: string, autofill: boolean) => void
   onCancel: () => void
   series: Loaded<Awaited<ReturnType<typeof getSeries>>>
   presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
@@ -425,8 +425,10 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    // Parity P03: "Create and auto-fill" goes on to the Source stage's auto-fill.
+    const autofill = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('name') === 'autofill'
     const body = buildCreateRequest(form, extras)
     const problem = validateCreate(body)
     setInvalid(problem)
@@ -438,7 +440,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         setLastLanguage(form.source_language)
         if (form.media_type) setLastType(form.media_type)
         savePresetStart(d.id, d.preset_defaults)
-        onCreated(d.id, dramaName(d))
+        onCreated(d.id, dramaName(d), autofill)
       },
       (err: unknown) => { setBusy(false); setError(err) },
     )
@@ -512,6 +514,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create drama</button>
+        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and auto-fill</button>
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
     </form>
@@ -607,6 +610,7 @@ export default function LibraryPage() {
         <p className="status-line" role="status" data-testid="created-notice">
           <span>Created “{created.title}”.</span>
           <ButtonLink size="sm" href={workspaceHref(created.id)}>Open workspace</ButtonLink>
+          <ButtonLink size="sm" variant="ghost" href={autofillHref(created.id)}>Auto-fill details</ButtonLink>
           {dismiss(() => setCreated(null))}
         </p>
       )}
@@ -648,9 +652,13 @@ export default function LibraryPage() {
           draft={draft}
           onDraft={setDraft}
           onCancel={() => { setDraft(null); setCreating(false) }}
-          onCreated={(id, title) => {
+          onCreated={(id, title, autofill) => {
             setDraft(null)
             setCreating(false)
+            if (autofill) {
+              window.location.hash = autofillHref(id)
+              return
+            }
             setCreated({ id, title })
             setSelected({ id, title })
             reload()

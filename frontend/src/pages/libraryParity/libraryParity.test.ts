@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseRoute } from '../../router'
 import {
-  cacheHitShare, compactCount, costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+  autofillHref, cacheHitShare, compactCount, costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+  wantsAutofill, withoutAutofill,
 } from './libraryParity'
 
 const usage = { input_tokens: 812000, output_tokens: 301000, cache_read_tokens: 243600, estimated_cost_usd: 3.47, call_count: 318 }
@@ -55,5 +57,20 @@ describe('series view (parity L05)', () => {
   })
   it('shared line', () => {
     expect(sharedLine({ character_count: 14, glossary_term_count: 1 })).toBe('14 shared characters · 1 glossary term')
+  })
+})
+
+describe('create then auto-fill (parity P03)', () => {
+  it('links to the Source stage with the flag, which the router ignores', () => {
+    expect(autofillHref(7)).toBe('#/drama/7/source?autofill=1')
+    expect(parseRoute(autofillHref(7))).toEqual({ name: 'drama', id: 7, stage: 'source' })
+  })
+  it('reads and drops the flag, keeping anything else', () => {
+    expect(wantsAutofill('#/drama/7/source?autofill=1')).toBe(true)
+    expect(wantsAutofill('#/drama/7/source')).toBe(false)
+    expect(wantsAutofill('#/drama/7/source?autofill=0')).toBe(false)
+    expect(withoutAutofill('#/drama/7/source?autofill=1')).toBe('#/drama/7/source')
+    expect(withoutAutofill('#/drama/7/source?x=2&autofill=1')).toBe('#/drama/7/source?x=2')
+    expect(withoutAutofill('#/drama/7/source')).toBe('#/drama/7/source')
   })
 })

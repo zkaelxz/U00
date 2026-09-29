@@ -1,4 +1,5 @@
 import { humanize } from '../../components/labels'
+import { workspaceHref } from '../../components/libraryView'
 import type { LibraryUsage } from '../../types/library'
 
 // Parity L01/L04: the share of logged input tokens served from a provider's
@@ -61,3 +62,25 @@ export function sharedSeries<S extends { dramas: { media_type: string | null }[]
 // Parity L05: "14 shared characters · 1 glossary term".
 export const sharedLine = (s: { character_count: number; glossary_term_count: number }) =>
   `${plural(s.character_count, 'shared character')} · ${plural(s.glossary_term_count, 'glossary term')}`
+
+// Parity P03: create, then land on the new drama's Source stage with
+// "Auto-fill metadata" open. The flag rides in the hash's query, which the
+// router ignores; the auto-fill panel reads it once and drops it.
+const AUTOFILL_FLAG = 'autofill'
+
+export const autofillHref = (id: number) => `${workspaceHref(id, 'source')}?${AUTOFILL_FLAG}=1`
+
+const splitHash = (hash: string) => {
+  const i = hash.indexOf('?')
+  return i < 0 ? [hash, ''] : [hash.slice(0, i), hash.slice(i + 1)]
+}
+
+export const wantsAutofill = (hash: string) => new URLSearchParams(splitHash(hash)[1]).get(AUTOFILL_FLAG) === '1'
+
+export function withoutAutofill(hash: string): string {
+  const [path, qs] = splitHash(hash)
+  const params = new URLSearchParams(qs)
+  params.delete(AUTOFILL_FLAG)
+  const rest = params.toString()
+  return rest ? `${path}?${rest}` : path
+}

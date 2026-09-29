@@ -10,7 +10,7 @@ test('New drama sends the Summary (P06)', async ({ page }) => {
   const sheet = page.getByRole('dialog', { name: 'New drama' })
   await sheet.getByLabel('English title').fill('E2E Summary Drama')
   await sheet.getByText('Credits, summary, series and preset').click()
-  await sheet.getByLabel('Summary').fill('  Two cultivators solve a mystery.  ')
+  await sheet.getByRole('textbox', { name: 'Summary' }).fill('  Two cultivators solve a mystery.  ')
   const req = page.waitForRequest((r) => r.url().endsWith('/api/dramas') && r.method() === 'POST')
   await sheet.getByRole('button', { name: 'Create drama', exact: true }).click()
   expect((await req).postDataJSON()).toMatchObject({ title_en: 'E2E Summary Drama', summary: 'Two cultivators solve a mystery.' })
@@ -105,4 +105,39 @@ test('Series fold is hidden when no series has 2+ dramas (L05)', async ({ page }
   const tools = page.getByRole('region', { name: 'Library tools' })
   await expect(tools.locator('summary', { hasText: 'Cost by drama' }).or(tools.locator('summary', { hasText: 'Backup' })).first()).toBeVisible()
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
+})
+
+test('Create and auto-fill lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New drama' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New drama' })
+  await sheet.getByLabel('English title').fill('E2E Autofill Drama')
+  const created = page.waitForResponse((r) => r.url().endsWith('/api/dramas') && r.request().method() === 'POST')
+  await sheet.getByRole('button', { name: 'Create and auto-fill' }).click()
+  const { id } = (await (await created).json()) as { id: number }
+  try {
+    // The flag is read, then dropped from the address.
+    await expect(page).toHaveURL(new RegExp(`#/drama/${id}/source$`))
+    const panel = page.getByRole('region', { name: 'Auto-fill metadata' })
+    await expect(panel.getByRole('textbox', { name: 'Listing URL' })).toBeVisible()
+    await expect(panel.getByRole('textbox', { name: 'Listing URL' })).toBeFocused()
+  } finally {
+    await request.delete(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`)
+  }
+})
+
+test('Created notice offers Auto-fill details (P03)', async ({ page, request }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New drama' }).click()
+  await page.getByLabel('English title').fill('E2E Notice Drama')
+  const created = page.waitForResponse((r) => r.url().endsWith('/api/dramas') && r.request().method() === 'POST')
+  await page.getByLabel('English title').press('Enter')
+  const { id } = (await (await created).json()) as { id: number }
+  try {
+    await page.getByRole('dialog', { name: 'E2E Notice Drama' }).getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByTestId('created-notice').getByRole('link', { name: 'Auto-fill details' }))
+      .toHaveAttribute('href', `#/drama/${id}/source?autofill=1`)
+  } finally {
+    await request.delete(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`)
+  }
 })

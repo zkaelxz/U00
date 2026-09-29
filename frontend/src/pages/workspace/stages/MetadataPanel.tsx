@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { writeSectionOpen } from '../../../components/sectionStorage'
+import { wantsAutofill, withoutAutofill } from '../../libraryParity/libraryParity'
 import type { KnownPlatform, MediaAnalysis } from '../../../types/workspace'
 import {
   acceptedFields,
@@ -57,6 +59,26 @@ export function AutofillPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const urlInput = useRef<HTMLInputElement>(null)
+  // Parity P03: arriving from Library "Create and auto-fill" (?autofill=1)
+  // opens this panel before its Section reads its remembered state.
+  const [arrived] = useState(() => {
+    const want = wantsAutofill(window.location.hash)
+    if (want) {
+      try {
+        writeSectionOpen(window.localStorage, 'source.autofill', true)
+      } catch {
+        // storage unavailable: the panel just opens closed
+      }
+    }
+    return want
+  })
+  useEffect(() => {
+    if (!arrived) return
+    window.history.replaceState(null, '', withoutAutofill(window.location.hash))
+    urlInput.current?.scrollIntoView({ block: 'center' })
+    urlInput.current?.focus()
+  }, [arrived])
 
   const req = autofillRequest(url, text)
   const problem = url.trim() && text.trim() ? 'Use either a URL or pasted text, not both.' : null
@@ -103,10 +125,10 @@ export function AutofillPanel() {
 
   return (
     <section className="panel" aria-label="Auto-fill metadata">
-      <Section storageKey="source.autofill" title="Auto-fill metadata" summary="from a listing page or pasted text">
+      <Section storageKey="source.autofill" defaultOpen={arrived} title="Auto-fill metadata" summary="from a listing page or pasted text">
         <div className="source-panel">
           <Field label="Listing URL" help="A public http(s) page. Nothing is saved until you accept the suggestions.">
-            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <input ref={urlInput} type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
           </Field>
           <KnownPlatforms />
           <Field label="Or paste page text" help="Use this when the page needs a login or JavaScript.">
