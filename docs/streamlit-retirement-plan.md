@@ -130,3 +130,10 @@ Guardrails:
 Sequence: step 133 and the three pending branches (B-04/B-05, slice 51, slice 52) merge; M0-b (startup hooks, single launcher, release zip); inventory, tag and test triage; one series of deletion PRs (all tabs, `app.py`, `common.py`, `ui_theme.py`, `ui/`, `.streamlit/`, the `streamlit`/`pandas`/canvas dependencies, launcher and doc references); then the React backlog. Expected removal: about 2026-10-05 to 10-08. The 2026-10-30 date now applies to closing the highest-ranked React gaps rather than to deletion.
 
 Until React catches up, these are unavailable: video URL import, Reader, the Sources and Discover screens, media playback, vertical/shorts and package export, Live (planned port) and Scanlate (held until after removal).
+
+## 10. Prune decisions (user, 2026-09-29)
+
+- **Vertical/shorts export and "package" export: dropped.** Not ported to React; they go with `tabs/workspace_tab.py` (~l.5971, ~l.6032). The feature inventory marks them DROPPED, not MISSING.
+- **Media types: `music` and `other` removed from the new-drama picker** (`frontend/src/pages/libraryForm.ts`). The API still accepts both (`services/drama_service.py` `MEDIA_TYPE_OPTIONS`) so existing dramas keep loading and saving, and Discover imports that map a `game` title to `other` keep working.
+- **Household profile picker (Step 26e): dropped.** Google sign-in (steps 133-134) replaces it for telling household members apart. The picker is not ported; per-profile data already in the database is left in place and not migrated. Reader and notes features in React are per library, not per profile, until per-user data is designed on top of the Google users.
+- Still open from section 3: Diagnostics extras (benchmark, bug bundles, App Assistant), the Sources leftovers, Discover D-2 extras, the default-pass rule, the LAN/phone gap, the extension-bridge interim, the chapter scheduler owner, the roadmap history copy.
