@@ -112,11 +112,13 @@ export interface TmSuggestion {
 
 export type ReviewJobKind = 'consistency' | 'emotion' | 'notes' | 'flag' | 'fix-flagged'
 
-// ReviewJobStart / FixFlaggedJobStart: every field optional (server default).
+// ReviewJobStart / EmotionJobStart / FixFlaggedJobStart: every field
+// optional (server default).
 export interface ReviewJobBody {
   engine?: string
   model?: string
-  job_cost_cap_usd?: number
+  use_audio_cues?: boolean // emotion only; default: on when the drama has audio
+  job_cost_cap_usd?: number // fix-flagged only
 }
 
 export interface ReviewJobStarted {
