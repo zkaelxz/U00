@@ -420,7 +420,11 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code)
+│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ErrorBoundary (page crash fallback, resets on route change) +
+│   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
+│   │                              when React never mounts; index.html also holds a static no-JS note)
+│   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
