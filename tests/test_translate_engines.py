@@ -3132,3 +3132,44 @@ class TestGemini31FlashLite:
         engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
         assert engine.translate_batch(["你好"], {}) == ["Hi."]
         assert captured["url"].endswith("/models/gemini-3.1-flash-lite:generateContent")
+
+
+class _Stop(Exception):
+    pass
+
+
+class TestCancelBetweenBatches:
+    """B-05: cancel_check runs before every batch, so a raise stops the run
+    without sending the remaining batches."""
+
+    def _stop_after(self, n):
+        seen = []
+
+        def check():
+            if len(seen) >= n:
+                raise _Stop()
+            seen.append(1)
+        return check
+
+    def test_flag_stops_between_batches(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
+        engine = FakeFlaggingEngine()
+        with pytest.raises(_Stop):
+            te.flag_uncertain_lines(lines, engine, batch_size=3, cancel_check=self._stop_after(1))
+        assert engine.call_count == 1
+
+    def test_consistency_stops_between_batches(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
+        engine = FakeFlaggingEngine()
+        with pytest.raises(_Stop):
+            te.check_consistency_llm(lines, engine, batch_size=3, cancel_check=self._stop_after(2))
+        assert engine.call_count == 2
+
+    def test_notes_stops_between_batches(self):
+        import translation_guide as tg
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
+        engine = FakeFlaggingEngine()
+        with pytest.raises(_Stop):
+            tg.generate_translation_notes_llm(lines, engine, batch_size=3,
+                                              cancel_check=self._stop_after(0))
+        assert engine.call_count == 0

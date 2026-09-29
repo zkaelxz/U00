@@ -52,7 +52,8 @@ def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
         tmp_out = os.path.join(tmp, "audiobook.m4b")
         try:
             dub.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
-                                     narrate_original=narrate_original)
+                                     narrate_original=narrate_original,
+                                     cancel_job_id=job_id)
         except (subprocess.CalledProcessError, OSError):
             raise RuntimeError("ffmpeg failed to produce the export.") from None
         final = artifact_service.output_path(drama_id, "audio", f"audiobook_{drama_id}.m4b")
@@ -98,7 +99,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
         cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", "subtitles=subs.ass",
                "-c:a", "copy", out_name]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, cwd=tmp)
+            background_jobs.run_cancellable(job_id, cmd, cwd=tmp)
         except (subprocess.CalledProcessError, OSError):
             raise RuntimeError("ffmpeg failed to produce the export.") from None
         final = artifact_service.output_path(drama_id, "video", f"burned_video_{drama_id}{ext}")

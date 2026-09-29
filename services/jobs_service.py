@@ -15,10 +15,18 @@ No Streamlit import, no HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
 """
 
+import time
+
 import db
 import diagnostics
 import background_jobs
 from services.service_errors import ConflictError, NotFoundError
+
+
+# A queued/running record whose owner has not heartbeated this long (see
+# background_jobs.HEARTBEAT_INTERVAL, far shorter) is treated as owned by a
+# dead process (records-only mirror, no resume).
+STALE_JOB_SECONDS = 15 * 60
 
 
 def _redact(record: dict) -> dict:
@@ -60,4 +68,10 @@ def cancel_job(job_id: str) -> dict:
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)
     db.request_job_record_cancel(job_id)
+    if (background_jobs.get_status(job_id) is None
+            and db.close_stale_job_record(job_id, time.time() - STALE_JOB_SECONDS)):
+        # No heartbeat for STALE_JOB_SECONDS: the owner process is gone and
+        # nobody will read the flag. The close is conditional on the row
+        # still being stale, so a live owner's heartbeat or "done" wins.
+        return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
     return {"job_id": job_id, "cancel_requested": True, "status": record["status"]}

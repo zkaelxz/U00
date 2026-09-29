@@ -49,6 +49,8 @@ def fake_ffmpeg(monkeypatch):
             f.write(b"media")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(background_jobs, "run_cancellable",
+                        lambda job_id, cmd, **kw: fake_run(cmd, **kw))
     return fake
 
 
@@ -236,4 +238,29 @@ def test_burned_video_failure_no_artifact_no_paths(client, drama, isolated_db, f
     st = _wait(f"burned_video_{drama}")
     assert st["status"] == "error"
     assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
+    _no_artifact(drama, "video")
+
+
+# ---- B-05: cancel kills the ffmpeg run -------------------------------------
+
+@pytest.fixture
+def cancelled_ffmpeg(monkeypatch):
+    def fake(job_id, cmd, **kw):
+        raise background_jobs.JobCancelled(job_id)
+    monkeypatch.setattr(background_jobs, "run_cancellable", fake)
+
+
+def test_audiobook_cancel_ends_cancelled_no_artifact(client, drama, isolated_db,
+                                                      fake_ffmpeg, cancelled_ffmpeg):
+    _touch(isolated_db, drama, "narration_track.wav")
+    client.post(f"/api/export/dramas/{drama}/audiobook")
+    assert _wait(f"audiobook_{drama}")["status"] == "cancelled"
+    _no_artifact(drama, "audio")
+
+
+def test_burned_video_cancel_ends_cancelled_no_artifact(client, drama, isolated_db,
+                                                         fake_ffmpeg, cancelled_ffmpeg):
+    _add_video(isolated_db, drama)
+    client.post(f"/api/export/dramas/{drama}/burned-video")
+    assert _wait(f"burned_video_{drama}")["status"] == "cancelled"
     _no_artifact(drama, "video")
