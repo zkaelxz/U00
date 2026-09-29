@@ -94,7 +94,7 @@ def _cached_definitions(drama_id: int, source_language: str) -> dict:
 def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                     theme: str = "light", font_size: int = 22, line_height: float = 2.4,
                     max_width: int = 1200, font: str = "system") -> dict:
-    """{html, page, page_count, total_lines, segmentation_available} for one page of a drama's
+    """{html, page, page_count, total_lines} for one page of a drama's
     reader view, definitions sourced only from what's already cached
     (see module docstring) -- never a live dictionary lookup. Raises
     InvalidInputError for a bad drama id/page/chapter_size and
@@ -125,13 +125,11 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     source_language = drama.get("source_language") or "zh"
     definitions = _cached_definitions(drama_id, source_language)
 
-    import segment
     html_str = reader.build_reader_html(
         page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
         font_size=font_size, line_height=line_height, max_width=max_width, font=font)
 
-    return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines),
-            "segmentation_available": segment.segmentation_available(source_language)}
+    return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 
 
 # ---------------------------------------------------------------------------
@@ -540,14 +538,15 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
     script = drama.get("chinese_script") or "simplified"
     engine = _llm_engine(engine_name, model) if use_llm else None
 
-    def tokens(text):
-        try:
-            return segment.segment_and_annotate(text, lang, chinese_script=script)
-        except ImportError:   # optional segmenter missing: per-character, like the page
-            return segment.per_character_tokens(text)
-
     def work():
-        words = [w for ln in page_lines for w, _reading in tokens(ln.zh) if w.strip()]
+        try:
+            words = [w for ln in page_lines
+                     for w, _reading in segment.segment_and_annotate(ln.zh, lang, chinese_script=script)
+                     if w.strip()]
+        except ImportError as e:  # the word splitter is an optional install
+            package = e.name or "a word-splitting package"
+            raise DependencyUnavailableError(
+                f"Looking up words needs {package}, which isn't installed (see Diagnostics).") from None
         defs, needs_llm = {}, []
         for w in dict.fromkeys(words):
             hit = dictionary.lookup_cedict(w) if lang == "zh" else None

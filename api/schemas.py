@@ -92,15 +92,11 @@ class ReaderPageResponse(BaseModel):
     sandboxed iframe via `srcDoc`, the same way Streamlit's `st.iframe`
     embeds it today. Definitions baked into `html` are only ever
     whatever's already been looked up and saved for this drama; this
-    endpoint never makes a live/paid dictionary call itself.
-    `segmentation_available` is False when the optional word-splitting
-    packages for the drama's language aren't installed; the page then
-    shows one character per token with no reading."""
+    endpoint never makes a live/paid dictionary call itself."""
     html: str
     page: int
     page_count: int
     total_lines: int
-    segmentation_available: bool = True
 
 
 class DependencyStatus(BaseModel):

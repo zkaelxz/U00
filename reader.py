@@ -97,16 +97,18 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     line_height = float(line_height)
     max_width = int(max_width)
 
-    # Without the optional segmentation packages (jieba/pypinyin, sudachipy/
-    # pykakasi, kiwipiepy) every line still renders, one character per token
-    # with no reading, instead of the whole page failing.
-    can_segment = segment.segmentation_available(source_language)
     rows_html = []
+    missing_segmenter = None
     for ln in lines:
-        segments = (segment.segment_and_annotate(ln.zh, source_language) if can_segment
-                    else segment.per_character_tokens(ln.zh))
-        word_spans = []
-        for word, reading in segments:
+        try:
+            segments = segment.segment_and_annotate(ln.zh, source_language)
+        except ImportError as e:
+            # The word splitter (jieba/pypinyin, sudachipy/pykakasi, kiwipiepy)
+            # is an optional install: show the line unsplit rather than no page.
+            missing_segmenter = missing_segmenter or e.name or "a word-splitting package"
+            segments = None
+        word_spans = [html.escape(ln.zh or "")] if segments is None else []
+        for word, reading in segments or ():
             if not word.strip():
                 word_spans.append(html.escape(word))
                 continue
@@ -129,6 +131,10 @@ def build_reader_html(lines, source_language: str, definitions: dict,
         </div>""")
 
     defs_json = _json_for_script(definitions)
+    segmenter_note = (
+        f'<p class="segmenter-note">Word readings and lookups need '
+        f'<code>{html.escape(missing_segmenter)}</code> (see Diagnostics).</p>'
+        if missing_segmenter else "")
     t = THEMES.get(theme, THEMES["light"])
     c_bg, c_fg, c_sub = t["bg"], t["fg"], t["sub"]
     c_border, c_hover, c_active, c_rt = t["border"], t["hover"], t["active"], t["rt"]
@@ -193,6 +199,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   {audio_html}
   {follow_html}
   <div id="popup"></div>
+  {segmenter_note}
   <div id="rows">{"".join(rows_html)}</div>
 
 <script>

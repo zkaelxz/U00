@@ -142,30 +142,6 @@ def segment_ko(text: str):
     return out
 
 
-def segmentation_available(language: str) -> bool:
-    """True if segment_and_annotate() can run for `language` -- i.e. its
-    optional packages import. False lets a caller (the Reader) fall back to
-    per_character_tokens() instead of crashing on a core-only install."""
-    try:
-        if language == "ja":
-            _load_sudachi()
-            import pykakasi  # noqa: F401
-        elif language == "ko":
-            import kiwipiepy  # noqa: F401
-        else:
-            _load_jieba()
-            import pypinyin  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
-def per_character_tokens(text: str):
-    """Unsegmented fallback: one (char, None) token per character, no
-    reading. Reassembles into exactly `text`."""
-    return [(ch, None) for ch in text]
-
-
 def segment_and_annotate(text: str, language: str, chinese_script: str = "simplified"):
     if language == "ja":
         return segment_ja(text)

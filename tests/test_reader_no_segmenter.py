@@ -1,9 +1,10 @@
 """
-tests/test_reader_no_segmenter.py -- the Reader still renders every line on a
-core-only install, where the optional segmentation packages (jieba/pypinyin,
-sudachipy/pykakasi, kiwipiepy) are missing. Those packages are made
-unimportable with a sys.modules block (None entries raise ImportError);
-nothing is uninstalled.
+tests/test_reader_no_segmenter.py -- the Reader on a core-only install,
+where the optional word-splitting packages (jieba/pypinyin, sudachipy/
+pykakasi, kiwipiepy) are missing. Unlike test_reader_service.py's
+monkeypatched segment_and_annotate, these tests make the packages really
+unimportable with a sys.modules block (None entries raise ImportError), so
+the real import path in segment.py runs; nothing is uninstalled.
 """
 import os
 import sys
@@ -15,6 +16,7 @@ import pytest
 import db
 import segment
 from core import Line
+from services.service_errors import DependencyUnavailableError
 
 BLOCKED = ("jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy")
 
@@ -23,38 +25,54 @@ BLOCKED = ("jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy")
 def no_segmenter(monkeypatch):
     for name in BLOCKED:
         monkeypatch.setitem(sys.modules, name, None)
-    monkeypatch.setattr(segment, "_jieba", None)
-    monkeypatch.setattr(segment, "_sudachi_tokenizer", None)
+    for cached in ("_jieba", "_sudachi_tokenizer", "_kakasi", "_kiwi"):
+        monkeypatch.setattr(segment, cached, None)
 
 
-@pytest.mark.parametrize("lang", ["zh", "ja", "ko"])
-def test_segmentation_unavailable_without_packages(no_segmenter, lang):
-    assert segment.segmentation_available(lang) is False
-
-
-def test_per_character_tokens_reassemble():
-    assert segment.per_character_tokens("你好 x") == [("你", None), ("好", None), (" ", None), ("x", None)]
-
-
-def test_reader_page_renders_every_line_without_jieba(isolated_db, no_segmenter):
-    from services import reader_service
-    did = db.create_drama(title_en="NoJieba", source_language="zh")
+def _drama(lang="zh", n=3):
+    did = db.create_drama(title_en="NoSplitter", source_language=lang)
     db.save_lines(did, [Line(idx=i, start=float(i), end=i + 1.0, zh=f"你好朋友{i}", en=f"hi {i}")
-                        for i in range(3)])
-    out = reader_service.get_reader_page(did, page=1, chapter_size=10)
-    assert out["segmentation_available"] is False
-    assert out["html"].count('class="line-row"') == 3
-    assert 'data-word="你"' in out["html"] and "<rt>" not in out["html"]
+                        for i in range(n)])
+    return did
 
 
-def test_reader_api_reports_flag_without_jieba(isolated_db, no_segmenter):
+def _client():
     from fastapi.testclient import TestClient
     from api.api_config import ApiSettings
     from api.server import create_app
-    did = db.create_drama(title_en="NoJieba", source_language="zh")
-    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="hi")])
-    client = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
-                        client=("127.0.0.1", 5000))
-    r = client.get(f"/api/reader/dramas/{did}/page")
+    return TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
+                      client=("127.0.0.1", 5000), raise_server_exceptions=False)
+
+
+@pytest.mark.parametrize("lang", ["zh", "ja", "ko"])
+def test_reader_page_renders_every_line_unsplit(isolated_db, no_segmenter, lang):
+    from services import reader_service
+    out = reader_service.get_reader_page(_drama(lang), page=1, chapter_size=10)
+    html_str = out["html"]
+    assert html_str.count('class="line-row"') == 3
+    assert "你好朋友0" in html_str and "hi 2" in html_str
+    assert 'class="segmenter-note"' in html_str
+    assert 'class="word"' not in html_str
+
+
+def test_reader_page_route_works_without_splitter(isolated_db, no_segmenter):
+    did = _drama(n=1)
+    r = _client().get(f"/api/reader/dramas/{did}/page")
     assert r.status_code == 200, r.text
-    assert r.json()["segmentation_available"] is False
+    assert 'class="segmenter-note"' in r.json()["html"]
+
+
+def test_lookup_names_the_missing_package(isolated_db, no_segmenter):
+    from services import reader_service
+    did = _drama()
+    with pytest.raises(DependencyUnavailableError) as ei:
+        reader_service.lookup_page_definitions(did, 1)
+    assert "jieba" in str(ei.value) and "engine call failed" not in str(ei.value)
+    assert db.list_vocab_lookups(did) == []
+
+
+def test_lookup_route_is_503_without_splitter(isolated_db, no_segmenter):
+    did = _drama(n=1)
+    r = _client().post(f"/api/reader/dramas/{did}/lookup", json={"page": 1})
+    assert r.status_code == 503, r.text
+    assert "jieba" in r.text and "engine call failed" not in r.text
