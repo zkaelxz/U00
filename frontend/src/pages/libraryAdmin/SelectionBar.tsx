@@ -75,6 +75,9 @@ export function SelectionBar({
   }
 
   const closeMenu = (refocus: boolean) => {
+    // Close the element itself too: its toggle event (which sets menuOpen)
+    // may not have run yet, and then setMenuOpen(false) changes nothing.
+    if (menuRef.current) menuRef.current.open = false
     setMenuOpen(false)
     if (refocus) summaryRef.current?.focus()
   }
@@ -244,7 +247,7 @@ export function SelectionBar({
             open={menuOpen}
             onToggle={(e) => setMenuOpen(e.currentTarget.open)}
             onKeyDown={(e) => {
-              if (menuOpen && e.key === 'Escape') {
+              if (e.currentTarget.open && e.key === 'Escape') {
                 e.stopPropagation()
                 closeMenu(true)
               }
