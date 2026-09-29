@@ -36,6 +36,8 @@ import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
+import { countsLine, usageLine } from './libraryParity/libraryParity'
+import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
@@ -76,7 +78,21 @@ function ToolSection({ title, count, summary, error, children }: {
 }
 
 const statsLine = (s: LibraryDashboard) =>
-  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent`
+  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent · ${usageLine(s.usage)}`
+
+// Parity L01: the Library's counts by status and by type, one muted line each.
+function StatsBreakdown({ stats }: { stats: LibraryDashboard }) {
+  const rows = [
+    ['By status', countsLine(stats.by_status, 'status')],
+    ['By type', countsLine(stats.by_media_type, 'mediaType')],
+  ].filter(([, text]) => text)
+  if (!rows.length) return null
+  return (
+    <p className="page-meta stats-breakdown" data-testid="stats-breakdown">
+      {rows.map(([label, text]) => <span key={label}>{label}: {text}</span>)}
+    </p>
+  )
+}
 
 // Parity L18/L19: an inline rename for one row of a Library list.
 function RenameForm({ current, onSave, onCancel }: {
@@ -561,6 +577,7 @@ export default function LibraryPage() {
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
           {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
+          {stats.data && <StatsBreakdown stats={stats.data} />}
         </div>
         <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
       </header>
