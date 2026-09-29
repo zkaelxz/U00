@@ -12,3 +12,9 @@ export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
 
 // Exactly the four non-secret booleans the API accepts (extra="forbid").
 export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>>
+
+// Result of a write-only key set/clear: never carries the key itself.
+export interface EngineKeyResult {
+  engine: string
+  configured: boolean
+}
