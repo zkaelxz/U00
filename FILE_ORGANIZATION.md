@@ -177,7 +177,7 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
 │   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
-│   ├── library_admin_service.py  E0 destructive/admin Library actions (no router yet): bulk status/
+│   ├── library_admin_service.py  E0 destructive/admin Library actions (router: library_admin_routes.py): bulk status/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
@@ -312,6 +312,9 @@ baihe-subtitler/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta
 │       ├── library_routes.py     /api/library/dramas[/{id}]
+│       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
+│       │                         translate, export + backup jobs, artifacts[/info] download, restore
+│       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
