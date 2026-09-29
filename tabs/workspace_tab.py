@@ -16,6 +16,7 @@ import bulk_translate
 import translation_memory
 from ui import project_header, project_state
 from ui import status as ui_status
+from services.transcribe_service import score_autotune_segments
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
 from services.workspace_job_service import (
     run_translate_job, run_transcribe_job, run_hardsub_ocr_job, run_emotion_job,
@@ -2244,15 +2245,8 @@ def render_workspace_tab():
                                 _autotune = {"candidates": _candidates, "results": [], "cancelled": False}
                                 st.session_state[_autotune_key] = _autotune
                             _result = _autotune_job.get("result") or {}
-                            _segments = _result.get("segments") or []
-                            _cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
-                                          for i, s in enumerate(_segments) if s["text"].strip()]
-                            _coverage = core_module.diagnose_line_coverage(_cand_lines)
-                            _autotune["results"].append({
-                                "candidate_ms": _result.get("candidate_ms"),
-                                "long_lines": len(_coverage["long_lines"]),
-                                "total_lines": len(_cand_lines),
-                            })
+                            _autotune["results"].append(score_autotune_segments(
+                                _result.get("candidate_ms"), _result.get("segments")))
                             background_jobs.clear_job(_autotune_job_id)
                             _tested = {r["candidate_ms"] for r in _autotune["results"]}
                             _remaining = [c for c in _autotune["candidates"] if c not in _tested]
