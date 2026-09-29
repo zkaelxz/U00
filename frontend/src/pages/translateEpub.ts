@@ -10,16 +10,26 @@
  * Safety: the book is only unzipped (fflate) and parsed, never rendered.
  * container.xml and the OPF are read with small attribute scanners; chapter
  * XHTML goes through DOMParser, whose documents are inert (no scripts run, no
- * images load) and are never attached to the page. Zip-bomb caps: entry count
- * and the total declared unpacked size of the entries we inflate (fflate
- * inflates into a buffer of exactly the declared size, so a lying header
- * cannot make it grow).
+ * images load) and are never attached to the page. Zip-bomb caps: entry count,
+ * and the total work of the entries we unpack, counted per entry as the larger
+ * of its stored (compressed) and declared unpacked size. Both matter: fflate
+ * copies a stored entry's stored bytes and walks a deflated entry's compressed
+ * bytes whatever size the header claims, and several directory records may
+ * point at the same data, so neither size alone bounds memory or CPU. A stored
+ * entry whose two sizes disagree is refused as damaged.
  */
 import { unzipSync, type UnzipFileInfo } from 'fflate'
 
 export const MAX_EPUB_BYTES = 200 * 1024 * 1024
 export const MAX_EPUB_ENTRIES = 10_000
 export const MAX_EPUB_UNPACKED_BYTES = 100 * 1024 * 1024
+
+export interface EpubLimits {
+  maxEntries: number
+  maxUnpackedBytes: number
+}
+
+const DEFAULT_LIMITS: EpubLimits = { maxEntries: MAX_EPUB_ENTRIES, maxUnpackedBytes: MAX_EPUB_UNPACKED_BYTES }
 
 /** A problem with the book, worded for the person who chose it. */
 export class EpubError extends Error {}
@@ -70,8 +80,15 @@ export function nodeText(root: TextNode): string {
     .join('\n')
 }
 
+/**
+ * Parse as XHTML first, so self-closed tags like <title/> or <script src=""/>
+ * close (as BeautifulSoup did for the Streamlit tab); fall back to the lenient
+ * HTML parser when the chapter is not well-formed XML.
+ */
 export function domHtmlToText(markup: string): string {
-  const doc = new DOMParser().parseFromString(markup, 'text/html')
+  const parser = new DOMParser()
+  let doc = parser.parseFromString(markup, 'application/xhtml+xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) doc = parser.parseFromString(markup, 'text/html')
   return nodeText(doc.body ?? doc.documentElement)
 }
 
@@ -121,24 +138,26 @@ export function resolveHref(baseDir: string, href: string): string {
 
 const WANTED = /(?:\.(?:xml|opf|xhtml|html|htm|xht))$/i
 
-function unzipEpub(bytes: Uint8Array, name: string): Record<string, Uint8Array> {
+function unzipEpub(bytes: Uint8Array, name: string, limits: EpubLimits): Record<string, Uint8Array> {
   let entries = 0
   let unpacked = 0
   try {
     return unzipSync(bytes, {
       filter: (f: UnzipFileInfo) => {
         entries += 1
-        if (entries > MAX_EPUB_ENTRIES) {
+        if (entries > limits.maxEntries) {
           throw new EpubError(
-            `"${name}" has more than ${MAX_EPUB_ENTRIES.toLocaleString('en')} files inside, too many to open safely.`,
+            `"${name}" has more than ${limits.maxEntries.toLocaleString('en')} files inside, too many to open safely.`,
           )
         }
         if (!WANTED.test(f.name)) return false
-        unpacked += f.originalSize
-        if (unpacked > MAX_EPUB_UNPACKED_BYTES) {
-          throw new EpubError(
-            `"${name}" unpacks to more than ${MAX_EPUB_UNPACKED_BYTES / 1024 / 1024} MB of text, too much to open safely.`,
-          )
+        if (f.compression === 0 && f.size !== f.originalSize) {
+          throw new EpubError(`"${name}" is not a readable EPUB (it is damaged).`)
+        }
+        unpacked += Math.max(f.size, f.originalSize)
+        if (unpacked > limits.maxUnpackedBytes) {
+          const mb = Math.round((limits.maxUnpackedBytes / 1024 / 1024) * 100) / 100
+          throw new EpubError(`"${name}" unpacks to more than ${mb} MB of text, too much to open safely.`)
         }
         return true
       },
@@ -149,7 +168,24 @@ function unzipEpub(bytes: Uint8Array, name: string): Record<string, Uint8Array> 
   }
 }
 
-const utf8 = (b: Uint8Array) => new TextDecoder('utf-8', { fatal: false }).decode(b).replace(/�/g, '')
+/**
+ * Decode an XML/XHTML file in the encoding its <?xml ... encoding="..."?>
+ * declaration names (e.g. gbk), UTF-8 otherwise; bad bytes are dropped like
+ * the text-file path does.
+ */
+export function decodeXml(b: Uint8Array): string {
+  const head = new TextDecoder('latin1').decode(b.subarray(0, 200))
+  const declared = /^\s*<\?xml[^>]*\bencoding\s*=\s*["']([\w.:-]+)["']/i.exec(head)?.[1]
+  let decoder = new TextDecoder('utf-8')
+  if (declared) {
+    try {
+      decoder = new TextDecoder(declared)
+    } catch {
+      // unknown label: keep UTF-8
+    }
+  }
+  return decoder.decode(b).replace(/\uFFFD/g, '')
+}
 
 /**
  * Extract a book's chapter text in spine order, chapters separated by a blank
@@ -159,18 +195,19 @@ export function extractEpubText(
   bytes: Uint8Array,
   name: string,
   htmlToText: HtmlToText = domHtmlToText,
+  limits: EpubLimits = DEFAULT_LIMITS,
 ): string {
-  const files = unzipEpub(bytes, name)
+  const files = unzipEpub(bytes, name, limits)
   const bad = (why: string) => new EpubError(`"${name}" is not a readable EPUB (${why}).`)
 
   const container = files['META-INF/container.xml']
   if (!container) throw bad('META-INF/container.xml is missing')
-  const opfPath = xmlTags(utf8(container), 'rootfile').find((r) => r['full-path'])?.['full-path']
+  const opfPath = xmlTags(decodeXml(container), 'rootfile').find((r) => r['full-path'])?.['full-path']
   if (!opfPath) throw bad('container.xml names no package file')
   const opf = files[resolveHref('', opfPath)]
   if (!opf) throw bad(`its package file ${opfPath} is missing`)
 
-  const opfXml = utf8(opf)
+  const opfXml = decodeXml(opf)
   const opfDir = resolveHref('', opfPath).split('/').slice(0, -1).join('/')
   const manifest = new Map<string, { href: string; type: string }>()
   for (const item of xmlTags(opfXml, 'item')) {
@@ -188,7 +225,7 @@ export function extractEpubText(
 
   const encryption = files['META-INF/encryption.xml']
   if (encryption) {
-    const locked = new Set(xmlTags(utf8(encryption), 'CipherReference').map((c) => resolveHref('', c.URI ?? '')))
+    const locked = new Set(xmlTags(decodeXml(encryption), 'CipherReference').map((c) => resolveHref('', c.URI ?? '')))
     if (chapters.some((c) => locked.has(c))) {
       throw new EpubError(`"${name}" is copy-protected (DRM), so its text cannot be read.`)
     }
@@ -198,7 +235,7 @@ export function extractEpubText(
   for (const path of chapters) {
     const doc = files[path]
     if (!doc) continue
-    const text = htmlToText(utf8(doc)).trim()
+    const text = htmlToText(decodeXml(doc)).trim()
     if (text) texts.push(text)
   }
   if (texts.length === 0) throw new EpubError(`"${name}" has no text in its chapters.`)

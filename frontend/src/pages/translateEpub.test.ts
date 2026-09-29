@@ -5,6 +5,7 @@ import {
   EpubError,
   MAX_EPUB_ENTRIES,
   MAX_EPUB_UNPACKED_BYTES,
+  decodeXml,
   extractEpubText,
   nodeText,
   resolveHref,
@@ -14,9 +15,9 @@ import {
 import { buildEpub, opfFor, stripTags } from './translateEpubFixture'
 
 const extract = (bytes: Uint8Array) => extractEpubText(bytes, 'book.epub', stripTags)
-const errorOf = (bytes: Uint8Array) => {
+const errorOf = (bytes: Uint8Array, run: (b: Uint8Array) => unknown = extract) => {
   try {
-    extract(bytes)
+    run(bytes)
   } catch (e) {
     expect(e).toBeInstanceOf(EpubError)
     return (e as Error).message
@@ -120,6 +121,26 @@ describe('extractEpubText', () => {
     expect(errorOf(bomb)).toBe('"book.epub" unpacks to more than 100 MB of text, too much to open safely.')
   })
 
+  // A 4 KB cap keeps these fixtures tiny; the default cap is 100 MB.
+  const smallCap = (b: Uint8Array) =>
+    extractEpubText(b, 'book.epub', stripTags, { maxEntries: 100, maxUnpackedBytes: 4096 })
+
+  it('a stored entry counts its stored bytes, and must declare its real size', () => {
+    const stored = buildEpub({ 'OEBPS/a.xhtml': `<p>${'x'.repeat(5000)}</p>` }, {}, { level: 0 })
+    expect(errorOf(stored, smallCap)).toMatch(/too much to open safely/)
+    expect(errorOf(declareSize(stored, 'OEBPS/a.xhtml', 0), smallCap)).toBe(
+      '"book.epub" is not a readable EPUB (it is damaged).',
+    )
+    expect(smallCap(buildEpub({ 'OEBPS/a.xhtml': '<p>ok</p>' }, {}, { level: 0 }))).toBe('ok')
+  })
+
+  it('a deflated entry declaring size 0 still counts its compressed bytes', () => {
+    // Varied CJK text barely compresses, so the stored bytes alone pass 4 KB.
+    const varied = Array.from({ length: 6000 }, (_, i) => String.fromCharCode(0x4e00 + ((i * 7919) % 20000))).join('')
+    const epub = buildEpub({ 'OEBPS/a.xhtml': `<p>${varied}</p>` })
+    expect(errorOf(declareSize(epub, 'OEBPS/a.xhtml', 0), smallCap)).toMatch(/too much to open safely/)
+  })
+
   it('images and fonts do not count toward the text cap', () => {
     const epub = buildEpub({ 'OEBPS/a.xhtml': '<p>x</p>' }, { 'OEBPS/big.png': new Uint8Array(8) })
     expect(extract(declareSize(epub, 'OEBPS/big.png', MAX_EPUB_UNPACKED_BYTES + 1))).toBe('x')
@@ -166,6 +187,16 @@ describe('nodeText', () => {
       el('body', el('script', t('alert(1)')), el('style', t('p{}')), comment, el('xhtml:p', t('Kept'))),
     )
     expect(nodeText(doc)).toBe('Kept')
+  })
+})
+
+describe('decodeXml', () => {
+  it('honours a declared encoding and defaults to UTF-8', () => {
+    const decl = strToU8('<?xml version="1.0" encoding="GBK"?><p>')
+    const gbk = new Uint8Array([...decl, 0xc4, 0xe3, 0xba, 0xc3, ...strToU8('</p>')])
+    expect(decodeXml(gbk)).toBe('<?xml version="1.0" encoding="GBK"?><p>你好</p>')
+    expect(decodeXml(strToU8('<p>你好</p>'))).toBe('<p>你好</p>')
+    expect(decodeXml(strToU8('<?xml version="1.0" encoding="no-such"?><p>é</p>'))).toContain('<p>é</p>')
   })
 })
 

@@ -3,7 +3,7 @@
  * stand-in for DOMParser, since vitest runs in node. Used by the vitest files
  * only; the real DOMParser path is covered by e2e/translate.spec.ts.
  */
-import { strToU8, zipSync, type Zippable } from 'fflate'
+import { strToU8, zipSync, type ZipOptions, type Zippable } from 'fflate'
 
 const CONTAINER = `<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -26,11 +26,13 @@ export function opfFor(chapters: string[]): string {
 /**
  * Zip the given chapter files (keys are full zip paths under OEBPS/) with a
  * container.xml and an OPF listing them in key order; `extra` adds or
- * overrides raw entries (pass undefined to drop one).
+ * overrides raw entries (pass undefined to drop one). `options` goes to
+ * zipSync ({ level: 0 } stores every entry uncompressed).
  */
 export function buildEpub(
   chapters: Record<string, string>,
   extra: Record<string, string | Uint8Array | undefined> = {},
+  options: ZipOptions = {},
 ): Uint8Array {
   const files: Record<string, string | Uint8Array | undefined> = {
     mimetype: 'application/epub+zip',
@@ -43,7 +45,7 @@ export function buildEpub(
   for (const [k, v] of Object.entries(files)) {
     if (v !== undefined) zippable[k] = typeof v === 'string' ? strToU8(v) : v
   }
-  return zipSync(zippable)
+  return zipSync(zippable, options)
 }
 
 /** Crude markup stripper standing in for DOMParser in node tests. */
