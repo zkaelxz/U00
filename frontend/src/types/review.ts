@@ -47,6 +47,7 @@ export interface LinePatch {
   zh?: string
   en?: string
   speaker?: string
+  sfx?: boolean
   // Field -> the old value the client saw; a mismatch is a 409.
   expected?: Record<string, unknown>
 }

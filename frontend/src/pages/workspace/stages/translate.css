@@ -25,3 +25,14 @@
 .stage-translate .voice-grid .voice-wide { grid-column: 1 / -1; }
 .stage-translate .voice-bank-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .stage-translate .voice-bank-row select { flex: 1 1 12rem; min-width: 0; }
+.stage-translate .bulk-batches { display: grid; gap: var(--space-2); min-width: 0; }
+.stage-translate .bulk-batches p { margin: 0; }
+.stage-translate .bulk-actions, .stage-translate .bulk-confirm { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.stage-translate .bulk-error { display: block; font-size: var(--font-sm); }
+.stage-translate .bulk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.stage-translate .bulk-list li { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.stage-translate .bulk-batches .badge { white-space: nowrap; }
+.stage-translate .bulk-table td:first-child, .stage-translate .bulk-table td:nth-child(4), .stage-translate .bulk-table td:nth-child(6), .stage-translate .bulk-table th { white-space: nowrap; }
+.stage-translate .bulk-table td:last-child { width: 1%; }
+.stage-translate .bulk-table .bulk-confirm { min-width: 16rem; }
+.stage-translate .bulk-list li > button { justify-self: start; }

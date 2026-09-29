@@ -53,13 +53,21 @@ def _mirror_locked(job_id):
     job = _jobs.get(job_id)
     if job is None:
         return
+    result_json = None
+    try:
+        from services.jobs_service import project_result_json
+        result_json = project_result_json(job.get("result"))
+    except Exception:
+        import applog
+        applog.get_logger().warning(f"job {job_id}: could not project result", exc_info=True)
     try:
         import db
         db.save_job_record(
             job_id, status=job.get("status"), progress=job.get("progress"),
             message=job.get("message"), error=job.get("error"),
             description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
-            started_at=job.get("started_at"), finished_at=job.get("finished_at"))
+            started_at=job.get("started_at"), finished_at=job.get("finished_at"),
+            result_json=result_json)
     except Exception:
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
@@ -399,6 +407,64 @@ def _promote_next_queued_gpu_job():
         _spawn(job_id, target, args, kwargs, gpu_touching=True)
 
 
+# Set while a library restore swaps the library folder: no job may start
+# then (start_job/start_process_job return False, the same "not started"
+# answer as a duplicate). See services/library_admin_service.restore_backup.
+_exclusive_label = None
+
+
+def acquire_exclusive(label: str) -> bool:
+    """Atomically: refuse (False) if any job is running/queued in this
+    process or another exclusive hold is active; otherwise take the hold,
+    so no new job can start until release_exclusive()."""
+    global _exclusive_label
+    with _lock:
+        if _exclusive_label is not None or _maintenance_count or any(
+                j.get("status") in ("running", "queued") for j in _jobs.values()):
+            return False
+        _exclusive_label = label
+        return True
+
+
+def release_exclusive():
+    global _exclusive_label
+    with _lock:
+        _exclusive_label = None
+
+
+_maintenance_count = 0
+
+
+def enter_maintenance() -> bool:
+    """A short non-job library operation (bulk delete, storage cleanup)
+    that a restore must not swap under: False if an exclusive hold is
+    active, otherwise counted until exit_maintenance(); acquire_exclusive
+    refuses while the count is above zero."""
+    global _maintenance_count
+    with _lock:
+        if _exclusive_label is not None:
+            return False
+        _maintenance_count += 1
+        return True
+
+
+def exit_maintenance():
+    global _maintenance_count
+    with _lock:
+        _maintenance_count = max(0, _maintenance_count - 1)
+
+
+def maintenance_active() -> bool:
+    """True while a bulk delete / storage cleanup (enter_maintenance) runs."""
+    with _lock:
+        return _maintenance_count > 0
+
+
+def exclusive_active() -> bool:
+    with _lock:
+        return _exclusive_label is not None
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str = None, **kwargs) -> bool:
     """
@@ -416,6 +482,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     message; defaults to job_id if not given.
     """
     with _lock:
+        if _exclusive_label is not None:
+            return False
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
@@ -480,6 +548,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     Carried through the GPU queue like target/args.
     """
     with _lock:
+        if _exclusive_label is not None:
+            return False
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
@@ -779,7 +849,7 @@ def cancel_line_jobs(drama_id):
 DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "transcribe_", "consistency_", "emotion_", "notes_", "resegment_",
     "dub_", "autotune_", "sensevoice_", "diarize_", "narration_", "ocrchapter_",
-    "audiobook_", "burned_video_", "bulk_translate_", "novel_glossary_",
+    "audiobook_", "burned_video_", "bulk_translate_", "novel_glossary_", "extract_audio_",
 )
 
 
@@ -870,14 +940,16 @@ def _kill_tree(proc):
 
 
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
-                    kill_timeout: float = 10.0):
+                    kill_timeout: float = 10.0, timeout: float = None):
     """Runs an external command (ffmpeg) for a thread job and kills it when
     the job's cancel is requested, raising JobCancelled. The command gets
     its own process group (POSIX session / Windows process group) and the
     whole tree is killed; the post-kill pipe drain is bounded by
     kill_timeout. A non-zero exit raises subprocess.CalledProcessError,
-    like subprocess.run(check=True)."""
+    like subprocess.run(check=True). With timeout (seconds), the tree is
+    killed and subprocess.TimeoutExpired raised once that much time passes."""
     import subprocess
+    deadline = None if timeout is None else time.monotonic() + timeout
     if os.name == "nt":
         group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     else:
@@ -889,13 +961,16 @@ def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: floa
             out, err = proc.communicate(timeout=poll_interval)
             break
         except subprocess.TimeoutExpired:
-            if is_cancel_requested(job_id):
+            cancelled = is_cancel_requested(job_id)
+            if cancelled or (deadline is not None and time.monotonic() >= deadline):
                 _kill_tree(proc)
                 try:
                     proc.communicate(timeout=kill_timeout)
                 except subprocess.TimeoutExpired:
                     pass   # a grandchild still holds a pipe; don't hang the job
-                raise JobCancelled(job_id) from None
+                if cancelled:
+                    raise JobCancelled(job_id) from None
+                raise subprocess.TimeoutExpired(cmd, timeout) from None
     if proc.returncode != 0:
         raise subprocess.CalledProcessError(proc.returncode, cmd, output=out, stderr=err)
 

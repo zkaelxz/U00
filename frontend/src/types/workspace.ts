@@ -13,6 +13,8 @@ export interface MediaUploadResult {
   name: string
   size: number
   kind: string
+  // Set for a video: the background audio-extraction job (B-09).
+  job_id?: string | null
 }
 
 export interface UploadAndTranscribeResult {
@@ -62,6 +64,7 @@ export interface TranscribeRunRequest {
   run_diarize?: boolean
   expected_speakers?: number | null
   initial_prompt?: string
+  tesseract_cmd?: string | null
 }
 
 export interface JobStarted {

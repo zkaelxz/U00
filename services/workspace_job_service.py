@@ -16,6 +16,7 @@ uses and every test that imports them from `tabs.workspace_tab` /
 `tabs.library_tab`) keeps working unchanged.
 """
 
+import logging
 import os
 import time
 
@@ -119,7 +120,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     if not bulk_translate.finish_translation_run(
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
             cancelled=background_jobs.is_cancel_requested(job_id),
-            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice):
+            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
+            line_scoped=target_ids is not None):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
@@ -515,25 +517,325 @@ _MAX_RESTORE_MEMBER_BYTES = 50 * 1024 ** 3  # 50 GiB, any one file
 _MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
 
 
-def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
+# Top-level library entries a restore never takes from an upload and
+# instead carries across from the current library: saved backups/exports,
+# saved site sign-ins, approved source profiles and the browser-extension
+# token. (Upload members under these names are skipped, so a planted
+# backups/exports/x.zip can never become the "latest export".)
+def _restore_kept_names():
+    import page_server
+    from sources import store as src_store
+    return ("backups", src_store.BROWSER_PROFILES_DIRNAME, "source_profiles",
+            page_server.TOKEN_FILENAME)
+
+
+# library.db tables that hold who may sign in and what they may do; a
+# restore keeps the current rows (auth_sessions is then emptied: every
+# session is revoked). See _build_staged_databases.
+_RESTORE_KEPT_AUTH_TABLES = ("users", "user_permissions", "auth_sessions", "audit_log")
+
+
+# SQLite side files a restore never extracts: the validated library.db /
+# sources.db image must be exactly what goes live.
+_RESTORE_SKIPPED_SIDECARS = tuple(f"{base}{ext}" for base in ("library.db", "sources.db")
+                                  for ext in ("-wal", "-shm", "-journal"))
+
+
+def _ro_uri(path: str, ro: bool = True) -> str:
+    from urllib.parse import quote
+    return f"file:{quote(os.path.abspath(path))}" + ("?mode=ro" if ro else "")
+
+
+def _open_carry_conn(path: str):
+    import sqlite3
+    conn = sqlite3.connect(_ro_uri(path, ro=False), uri=True, isolation_level=None)
+    conn.execute("PRAGMA trusted_schema = OFF")
+    return conn
+
+
+def _table_names(conn, schema: str) -> list:
+    return [r[0] for r in conn.execute(
+        f"SELECT name FROM {schema}.sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
+
+
+def _copy_rows(conn, src: str, table: str):
+    """Replaces main.table's rows with src.table's, for the columns both
+    sides have (a column only the app's schema has gets its default)."""
+    main_cols = [r[1] for r in conn.execute(f'PRAGMA main.table_info("{table}")').fetchall()]
+    src_cols = {r[1] for r in conn.execute(f'PRAGMA {src}.table_info("{table}")').fetchall()}
+    cols = [c for c in main_cols if c in src_cols]
+    if not cols:
+        return
+    col_sql = ", ".join(f'"{c}"' for c in cols)
+    conn.execute(f'DELETE FROM main."{table}"')   # rows init_db seeded (e.g. profiles)
+    conn.execute(f'INSERT INTO main."{table}" ({col_sql}) SELECT {col_sql} FROM {src}."{table}"')
+
+
+def _current_state_marker(library_dir: str):
+    """(max audit_log id, sources settings rows) of the live library,
+    compared right before the swap so a sign-in or settings change made
+    while the restore was preparing isn't silently dropped.
+
+    Known limits: a change landing between this last comparison and the
+    rename is still lost (a small window, no cross-process lock), and
+    only audited auth changes move the audit id -- a session created or
+    revoked without an audit entry, or a sources.db table other than
+    settings, isn't covered (sessions are revoked by the restore anyway)."""
+    import sqlite3
+    marker = []
+    for name, sql in (("library.db", "SELECT MAX(id) FROM audit_log"),
+                      ("sources.db", "SELECT key, value FROM settings ORDER BY key")):
+        path = os.path.join(library_dir, name)
+        if not os.path.isfile(path):
+            marker.append(None)
+            continue
+        try:
+            conn = sqlite3.connect(_ro_uri(path), uri=True)
+            try:
+                marker.append(tuple(tuple(r) for r in conn.execute(sql).fetchall()))
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            marker.append(None)
+    return tuple(marker)
+
+
+_BAD_LIBRARY_DB = ("The backup's library.db is not a readable Baihe library "
+                   "database.")
+_BAD_SOURCES_DB = "The backup's sources.db is not a readable database."
+
+def _schema_sql_allowed(sql: str) -> bool:
+    """True only for CREATE TABLE / CREATE [UNIQUE] INDEX text (comments
+    and whitespace ignored, case-insensitive). Everything else -- triggers,
+    views, virtual tables, TEMP objects -- is refused, whatever
+    sqlite_master's `type` column claims (SQLite re-parses `sql` and
+    ignores `type`, so a writable_schema-planted row can lie about it)."""
+    import re
+    text = re.sub(r"--[^\n]*|/\*.*?(\*/|$)", " ", sql, flags=re.S)
+    text = " ".join(text.split()).upper()
+    if not re.match(r"CREATE (TABLE|(UNIQUE )?INDEX)[ \"'`\[(]", text + " "):
+        return False
+    # Generated columns: quick_check and the row copy would evaluate them.
+    return "GENERATED" not in text and not re.search(r"\bAS ?\(", text)
+
+
+def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
+    """Raises ValueError(message) unless the uploaded file is SQLite,
+    passes quick_check and every sqlite_master row is a plain table or
+    index (see _schema_sql_allowed; NULL sql only for sqlite_autoindex_*).
+
+    Why this is safe to open: read-only + immutable, trusted_schema OFF,
+    and the only statements run are PRAGMA quick_check and a SELECT on
+    sqlite_master. Loading the schema parses CREATE text but executes
+    nothing: a trigger only runs on a write (none here) and a virtual
+    table's module is only connected when that table is queried (never
+    here). A schema SQLite can't parse fails the open -> refused.
+    (Python 3.11's sqlite3 has no Connection.setconfig for
+    SQLITE_DBCONFIG_DEFENSIVE, so that option isn't used.)"""
+    import sqlite3
+    if not os.path.isfile(db_path) or os.path.islink(db_path):
+        raise ValueError(message)
+    conn = None
+    try:
+        conn = sqlite3.connect(_ro_uri(db_path) + "&immutable=1", uri=True)
+        conn.execute("PRAGMA trusted_schema = OFF")
+        conn.execute("PRAGMA ignore_check_constraints = ON")
+        rows = conn.execute("SELECT type, name, sql FROM sqlite_master").fetchall()
+        for _type, name, sql in rows:
+            if sql is None:
+                if not str(name).startswith("sqlite_autoindex_"):
+                    raise ValueError(message)
+            elif not _schema_sql_allowed(sql):
+                raise ValueError(message)
+        if [r[0] for r in conn.execute("PRAGMA quick_check").fetchall()] != ["ok"]:
+            raise ValueError(message)
+        if need_table and not any(t == "table" and n == need_table for t, n, _ in rows):
+            raise ValueError(message)
+    except sqlite3.Error:
+        raise ValueError(message) from None
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def validate_staged_library_db(db_path: str) -> None:
+    """ValueError (fixed text, no path) unless an uploaded library.db is
+    SQLite, passes quick_check, holds only plain tables/indexes and has a
+    dramas table."""
+    _check_uploaded_db(db_path, _BAD_LIBRARY_DB, need_table="dramas")
+
+
+def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
+                         live_path: str = None, live_tables=(), message: str = ""):
+    """fresh_path already holds the app's own schema. Copies rows from the
+    (validated) upload for every app table except skip_tables, and rows
+    from the live database for live_tables, never taking a table
+    definition from either. Raises ValueError(message) on any SQLite
+    error."""
+    import sqlite3
+    try:
+        conn = _open_carry_conn(fresh_path)
+        try:
+            conn.execute("ATTACH DATABASE ? AS up", (_ro_uri(upload_path) + "&immutable=1",))
+            if live_path and os.path.isfile(live_path):
+                conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
+            else:
+                live_path = None
+            conn.execute("BEGIN")
+            up_tables = set(_table_names(conn, "up"))
+            cur_tables = set(_table_names(conn, "cur")) if live_path else set()
+            for t in _table_names(conn, "main"):
+                if t in live_tables:
+                    if t in cur_tables:
+                        _copy_rows(conn, "cur", t)
+                elif t not in skip_tables and t in up_tables:
+                    _copy_rows(conn, "up", t)
+            conn.execute("COMMIT")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        raise ValueError(message) from None
+
+
+def _prepare_scratch(path: str):
+    """Drops sqlite_stat* tables (query-planner statistics the app never
+    writes) from the scratch copy before anything is run on it."""
+    conn = _open_carry_conn(path)
+    try:
+        for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                    "AND name LIKE 'sqlite_stat%'").fetchall():
+            conn.execute(f'DROP TABLE "{name}"')
+    finally:
+        conn.close()
+
+
+def _checkpoint(path: str):
+    conn = _open_carry_conn(path)
+    try:
+        conn.execute("PRAGMA journal_mode = DELETE")
+    finally:
+        conn.close()
+
+
+def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
+    """Replaces the uploaded library.db / sources.db in staging with fresh
+    files built from the app's own schema (db.migrate_database_file /
+    sources.store._SCHEMA) and filled with the upload's rows -- except
+    the auth tables (current rows, sessions emptied: every session is
+    revoked) and the sources settings table (current rows). Running and
+    queued job_records rows are marked cancelled and gpu_lock is cleared
+    (a backup can only hold stale ones). The uploaded files never become
+    a live schema: they are only ATTACHed read-only after
+    _check_uploaded_db."""
+    import shutil
+    import sqlite3
+    from sources import store as src_store
+    staged = os.path.join(staging_dir, "library.db")
+    upload = os.path.join(staging_dir, ".uploaded_library.db")
+    os.replace(staged, upload)
+    # The app's data migrations (line refs -> line ids, Step 26e profiles)
+    # run on a scratch COPY of the validated upload -- safe because the
+    # allowlist leaves only plain tables/indexes; its DDL is discarded, only
+    # its rows are copied into the fresh file below.
+    scratch = os.path.join(staging_dir, ".migrated_upload.db")
+    try:
+        shutil.copyfile(upload, scratch)
+        try:
+            _prepare_scratch(scratch)
+            db.migrate_database_file(scratch)
+            _checkpoint(scratch)
+            db.migrate_database_file(staged)
+        except Exception:
+            logging.getLogger(__name__).warning("Restore: staged database migration failed",
+                                                exc_info=True)
+            raise ValueError(_BAD_LIBRARY_DB) from None
+        _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
+                             live_path=os.path.join(library_dir, "library.db"),
+                             live_tables=("users", "user_permissions", "audit_log"),
+                             message=_BAD_LIBRARY_DB)
+        try:
+            conn = _open_carry_conn(staged)
+            try:
+                conn.execute("UPDATE job_records SET status = 'cancelled', finished_at = ?, "
+                             "cancel_requested = 0 WHERE status IN ('queued', 'running')",
+                             (time.time(),))
+                conn.execute("DELETE FROM gpu_lock")
+                conn.execute("PRAGMA journal_mode = DELETE")
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            raise ValueError(_BAD_LIBRARY_DB) from None
+    finally:
+        for path in (upload, scratch, scratch + "-wal", scratch + "-shm"):
+            if os.path.lexists(path):
+                os.remove(path)
+
+    staged_src = os.path.join(staging_dir, "sources.db")
+    if not os.path.lexists(staged_src):
+        return
+    upload_src = os.path.join(staging_dir, ".uploaded_sources.db")
+    os.replace(staged_src, upload_src)
+    try:
+        try:
+            conn = _open_carry_conn(staged_src)
+            try:
+                conn.executescript(src_store._SCHEMA)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            raise ValueError(_BAD_SOURCES_DB) from None
+        _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
+                             live_path=os.path.join(library_dir, "sources.db"),
+                             live_tables=("settings",), message=_BAD_SOURCES_DB)
+    finally:
+        os.remove(upload_src)
+
+
+def _remove_entry(path: str):
+    import shutil
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+
+
+def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None) -> None:
     """Step 25k: validate an uploaded backup zip and swap it in for
     library_dir, without ever destroying the existing library if the
     upload turns out to be invalid.
 
-    Extracts to a staging directory first, and only after the zip is
-    confirmed to be a real, intact backup (opens as a zip, contains
-    library.db, no corrupt member, and within the Step 52 size/member
-    limits below) does it touch library_dir at all -- by renaming it
-    aside and renaming the staging directory into its place, restoring
-    the original on any failure of that last step. Raises (ValueError,
-    zipfile.BadZipFile, OSError, ...) with nothing yet deleted if
-    validation fails.
+    Order, all before library_dir is touched: size/member checks; extract
+    to a staging directory, skipping kept names and SQLite side files,
+    then deleting anything the filesystem resolves to a kept name (case,
+    trailing dots); check the uploaded library.db (and sources.db) with
+    SQLite (quick_check, only plain tables/indexes, dramas table); build
+    FRESH databases from the app's own schema and copy the upload's rows
+    into them (_build_staged_databases -- the upload never becomes a live
+    schema, and auth rows and sources settings come from the current
+    library), so an unusable upload is refused here rather than after the
+    swap; then before_swap() and a check that the live
+    auth/settings state didn't change meanwhile. Only then is library_dir
+    renamed aside and the staging directory renamed in (the original is
+    renamed back on failure). The current kept entries (backups/, browser
+    profiles, source profiles, extension token) are then moved into the
+    restored library; if one can't be moved, the previous library is left
+    beside the restored one instead of being deleted. Raises (ValueError,
+    zipfile.BadZipFile, OSError, ServiceError, ...) with nothing changed
+    if any check fails.
+
+    before_swap: optional callable run right before the rename; if it
+    raises, nothing is changed and the exception propagates.
     """
     import io
     import shutil
+    import sqlite3
     import tempfile
     import zipfile
 
+    from services.service_errors import ConflictError
+
+    kept = _restore_kept_names()
     staging_dir = None
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -566,7 +868,30 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
                 raise ValueError("Backup zip is corrupted.")
             parent_dir = os.path.dirname(os.path.abspath(library_dir)) or "."
             staging_dir = tempfile.mkdtemp(prefix=".restore_staging_", dir=parent_dir)
-            zf.extractall(staging_dir)
+            for info in infos:
+                norm = info.filename.replace("\\", "/")
+                top = norm.lstrip("/").split("/", 1)[0]
+                if top in kept or norm in _RESTORE_SKIPPED_SIDECARS:
+                    continue
+                zf.extract(info, staging_dir)
+        # Whatever the filesystem maps to a kept name (./backups, BACKUPS,
+        # "extension_token.txt." on Windows) is removed from staging.
+        for name in kept + _RESTORE_SKIPPED_SIDECARS:
+            path = os.path.join(staging_dir, name)
+            if os.path.lexists(path):
+                _remove_entry(path)
+
+        validate_staged_library_db(os.path.join(staging_dir, "library.db"))
+        staged_src = os.path.join(staging_dir, "sources.db")
+        if os.path.lexists(staged_src):
+            _check_uploaded_db(staged_src, _BAD_SOURCES_DB)
+        marker = _current_state_marker(library_dir)
+        _build_staged_databases(staging_dir, library_dir)
+        if before_swap is not None:
+            before_swap()
+        if _current_state_marker(library_dir) != marker:
+            raise ConflictError("Sign-in or source settings changed while the restore was "
+                                "being prepared; nothing was changed -- try again.")
 
         old_dir = None
         if os.path.exists(library_dir):
@@ -580,7 +905,20 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
             raise
         staging_dir = None
         if old_dir is not None:
-            shutil.rmtree(old_dir, ignore_errors=True)
+            carried = True
+            for name in kept:
+                src = os.path.join(old_dir, name)
+                if not os.path.lexists(src):
+                    continue
+                try:
+                    os.rename(src, os.path.join(library_dir, name))
+                except OSError:
+                    carried = False
+                    logging.getLogger(__name__).warning(
+                        "Restore: could not carry a kept entry across; the previous "
+                        "library was left in place beside the restored one.")
+            if carried:
+                shutil.rmtree(old_dir, ignore_errors=True)
     finally:
         if staging_dir is not None:
             shutil.rmtree(staging_dir, ignore_errors=True)
@@ -588,7 +926,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
                                   ollama_base_url: str = None, gemini_free_tier: bool = False,
-                                  models: dict = None, monthly_cap: float = 0):
+                                  models: dict = None, monthly_cap: float = 0,
+                                  expected_engines: dict = None):
     """Step 9b.3: translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -619,7 +958,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     translate path in the app that didn't enforce it at all.
     """
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
-               "skipped_no_lines": [], "skipped_cap": [], "errors": {}}
+               "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
+               "errors": {}}
     models = models or {}
     total = len(drama_ids) or 1
     for i, did in enumerate(drama_ids):
@@ -631,7 +971,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         background_jobs.update_progress(job_id, i / total, f"Translating {i + 1}/{len(drama_ids)} -- {title} (0%)")
         if not drama:
             continue
-        if background_jobs.is_running(per_job_id):
+        # A queued (GPU-waiting) job is the user's too: skip it rather than
+        # adopt it below and possibly cancel it with this batch.
+        if (background_jobs.get_status(per_job_id) or {}).get("status") in ("running", "queued"):
             results["skipped_running"].append(did)
             continue
         rows = db.load_lines(did)
@@ -640,6 +982,11 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             continue
 
         engine_choice = drama.get("translation_engine") or "claude"
+        # expected_engines: what the caller was checked against; an engine
+        # changed since then is skipped rather than used unchecked.
+        if expected_engines is not None and expected_engines.get(did) != engine_choice:
+            results["skipped_engine_changed"].append(did)
+            continue
         needs_key = engine_choice not in ("ollama", "test_offline", "libretranslate", "nllb")
         api_key = api_keys.get(engine_choice)
         if needs_key and not api_key:
@@ -693,7 +1040,10 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 with open(novel_path, encoding="utf-8") as f:
                     novel_reference = f.read()
 
-        background_jobs.start_job(
+        # start_job returns False when someone else's translate_<id> run
+        # started since the check above: skip it rather than adopt (and
+        # possibly cancel) that run below.
+        started = background_jobs.start_job(
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
             glossary_terms, style_guidelines, engine_choice, style_preset, 6, None,
@@ -704,6 +1054,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             # alongside another GPU-touching job.
             gpu_touching=engine_choice == "ollama",
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
+        if not started:
+            results["skipped_running"].append(did)
+            continue
 
         while True:
             # Step 25d item 1: an Ollama drama can now be queued behind

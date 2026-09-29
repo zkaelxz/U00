@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import detect, store
+from .http import REDIRECT_REFUSED, UnsafeRedirect, _ascii_url
 from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
                      ENVIRONMENT_BLOCK_REASONS, FailureReason, LADDER_ORDER, PROTECTION_REASONS,
@@ -57,6 +58,7 @@ class TierOutcome:
     content_access: str = ContentAccess.UNKNOWN.value
     evidence: dict = field(default_factory=dict)
     data: object = None                             # tier-specific payload (e.g. API metadata)
+    stop: bool = False                              # B-25: refused address -- try no further tier
 
 
 @dataclass
@@ -104,6 +106,9 @@ def static_tier(client):
         except ChallengeDetected as e:
             return TierOutcome(False, reasons=[e.reason], detail=str(e),
                                evidence=_ev(e.attempt))
+        except UnsafeRedirect as e:
+            return TierOutcome(False, reasons=[FailureReason.ACCESS_DENIED], detail=str(e),
+                               evidence=_ev(e.attempt), stop=True)
         except SourceError as e:
             return TierOutcome(False, reasons=[e.reason], detail=str(e), evidence=_ev(e.attempt))
         html = resp.text
@@ -210,6 +215,21 @@ AUTOMATED_TIERS = [AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER,
                    AccessTier.AUTHENTICATED_BROWSER]
 
 
+def _refused_address(url: str):
+    """True when `url` itself is not http(s) with only public addresses.
+    "unresolved" when the name doesn't resolve here: the static tier may
+    still run and fail normally, but the browser tiers are dropped (B-28:
+    with split-horizon DNS Chromium could resolve it to a private IP)."""
+    from services import url_guard
+    try:
+        url_guard.resolve_public(_ascii_url(url))
+    except (url_guard.UnsafeURLError, UnsafeRedirect):
+        return True
+    except url_guard.URLResolveError:
+        return "unresolved"
+    return False
+
+
 def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> LadderResult:
     """
     `tiers` maps AccessTier -> callable(url) -> TierOutcome. A tier with no
@@ -218,6 +238,18 @@ def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> L
     OFFICIAL_API is tried last, before UNAVAILABLE.
     """
     result = LadderResult(url=url)
+    refused = _refused_address(url)
+    if refused == "unresolved":
+        tiers = {t: fn for t, fn in tiers.items()
+                 if t not in (AccessTier.RENDERED_BROWSER, AccessTier.AUTHENTICATED_BROWSER)}
+    elif refused:
+        # B-25: a URL that is not public is never handed to any tier at all.
+        result.attempts.append(AttemptRecord(
+            tier=AccessTier.STATIC_HTTP.value, ok=False,
+            reason=FailureReason.ACCESS_DENIED.value, detail=REDIRECT_REFUSED,
+            at=time.time()))
+        result.reasons.append(FailureReason.ACCESS_DENIED)
+        tiers = {}
     order = AUTOMATED_TIERS + [AccessTier.USER_ASSISTED_BROWSER, AccessTier.OFFICIAL_API]
     for tier in order:
         fn = tiers.get(tier)
@@ -243,6 +275,8 @@ def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> L
             result.data = outcome.data
             result.partial = outcome.partial
             result.content_access = outcome.content_access
+            break
+        if outcome.stop:
             break
         if set(outcome.reasons) & CHALLENGE_REASONS:
             result.handoff = {"tier": tier.value, "reason": outcome.reasons[0].value,

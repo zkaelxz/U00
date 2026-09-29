@@ -5,6 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { jobSucceeded } from '../../../types/jobs'
 import type { DubConfig, DubPacing } from '../../../types/dub'
 import { useStage } from '../StageContext'
 import {
@@ -21,6 +22,7 @@ import {
 } from './dubForm'
 import { JobPanel } from './JobPanel'
 import { NarrationPanel } from './NarrationPanel'
+import { lineNumber } from '../../../lineNumber'
 import './dub.css'
 
 export default function DubStage() {
@@ -72,7 +74,7 @@ export default function DubStage() {
       setError(null)
       setJobId(r.job_id)
     }, setError)
-  const trackReady = cfg.track_available || (done && job?.status === 'done')
+  const trackReady = cfg.track_available || (done && jobSucceeded(job))
   const showPacing =
     pacing?.available && (pacing.lines.length > 0 || Object.keys(pacing.counts).length > 0)
 
@@ -183,7 +185,7 @@ export default function DubStage() {
               <tbody>
                 {pacingRows(pacing.lines).map((l) => (
                   <tr key={l.idx}>
-                    <td>{l.idx}</td>
+                    <td>{lineNumber(l.idx)}</td>
                     <td>{l.status}</td>
                     <td>{formatFactor(l.factor)}</td>
                     <td>{formatMs(l.clip_ms)}</td>

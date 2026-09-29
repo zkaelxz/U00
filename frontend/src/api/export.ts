@@ -9,15 +9,12 @@ import type {
   MediaKind,
   SubtitleOptions,
 } from '../types/export'
-import { ApiError, artifactUrl, getJson, postJson } from './client'
+import { ApiError, apiUrl, getJson, postJson } from './client'
 import type { ErrorInfo } from './types'
 
 type Fetch = typeof fetch
 
 const dramaPath = (id: number) => `/api/export/dramas/${id}`
-
-// Same base as artifactUrl() (client.ts keeps BASE private).
-const BASE = artifactUrl(0, '').replace(/\/api\/artifacts\/.*$/, '')
 
 // Text/binary responses: client.ts's helpers only parse JSON, so errors
 // (which are JSON) are decoded here into the same ApiError.
@@ -29,7 +26,7 @@ async function fetchBody<T>(
 ): Promise<T> {
   let resp: Response
   try {
-    resp = await f(`${BASE}${path}`, init)
+    resp = await f(apiUrl(path), init)
   } catch {
     throw new ApiError(0, {
       code: 'network_error',

@@ -68,6 +68,38 @@ export interface BulkResumeResult {
   jobs: { bulk_job_id: number; state: string }[]
 }
 
+/** One bulk batch as last recorded (TranslateBulkJobEntry). No prompts,
+ * provider batch id or keys. */
+export interface BulkJobEntry {
+  bulk_job_id: number
+  engine: string
+  model: string | null
+  kind: string
+  stage: string | null
+  pipeline_id: string | null
+  /** submitting|submitted|scheduled|running|applied|cancelled|failed|auth_error */
+  status: string
+  pending: boolean
+  cancellable: boolean
+  line_count: number
+  scheduled_for: string | null
+  result_summary: Record<string, unknown> | null
+  last_error: string | null
+  submitted_at: string | null
+  updated_at: string | null
+}
+
+export interface BulkJobList {
+  drama_id: number
+  jobs: BulkJobEntry[]
+}
+
+export interface BulkCancelResult {
+  drama_id: number
+  bulk_job: BulkJobEntry
+  message: string
+}
+
 export interface TranslateRunStarted {
   job_id: string
   drama_id: number
