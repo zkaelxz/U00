@@ -186,6 +186,9 @@ baihe-subtitler/
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
 │   │                             versions, running jobs, log tail); no admin action, no network call
+│   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
+│   │                             pyannote readiness, job history, support report, log tail; confirm-gated
+│   │                             install/upgrade/reset wrappers. No router yet.
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -258,6 +261,10 @@ baihe-subtitler/
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
+│   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
+│   │                             results, known-chapter helper (no router yet)
+│   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
+│   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
