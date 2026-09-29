@@ -11,7 +11,7 @@ import type { LibraryFilterOptions } from '../types/library'
 import { DramaCards } from './DramaCards'
 import './libraryParity.css'
 import {
-  NO_MORE_FILTERS, languageName, listQuery, mediaTypeName, moreFilterCount, toggleTag, withCurrent,
+  NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
 
@@ -253,13 +253,13 @@ function MoreFiltersFold({ value, onChange, reloadKey }: {
         <select aria-label="Language" value={value.source_language} onChange={set('source_language')}>
           <option value="">Any language</option>
           {SOURCE_LANGUAGES.map((l) => (
-            <option key={l} value={l}>{languageName(l)}</option>
+            <option key={l} value={l}>{languageLabel(l)}</option>
           ))}
         </select>
         <select aria-label="Type" value={value.media_type} onChange={set('media_type')}>
           <option value="">Any type</option>
           {withCurrent(MEDIA_TYPES, value.media_type).map((t) => (
-            <option key={t} value={t}>{mediaTypeName(t)}</option>
+            <option key={t} value={t}>{mediaTypeLabel(t)}</option>
           ))}
         </select>
       </div>

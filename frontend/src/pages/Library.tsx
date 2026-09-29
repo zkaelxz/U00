@@ -8,6 +8,8 @@ import {
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
 import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
+import { ButtonLink } from '../components/Button'
+import { Card } from '../components/Card'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -126,8 +128,7 @@ function DeletableList({ pc, help, items, remove, onDeleted }: {
 function ContinueStrip({ items }: { items: LibraryContinueEntry[] | null }) {
   if (!items?.length) return null
   return (
-    <section className="panel wide continue-strip" aria-labelledby="continue-heading">
-      <h2 id="continue-heading">Continue reading</h2>
+    <Card title="Continue reading" className="wide continue-strip" aria-label="Continue reading">
       <ul>
         {items.map((d) => {
           const pct = Math.round(d.percent_complete ?? 0)
@@ -137,19 +138,20 @@ function ContinueStrip({ items }: { items: LibraryContinueEntry[] | null }) {
               {d.has_cover_art && <img className="continue-cover" src={coverUrl(d.drama_id)} alt="" loading="lazy" />}
               <span className="continue-title">{title}</span>
               <progress max={100} value={pct} aria-label={`${title}: ${pct}% read`} />
-              <span className="muted">{pct}%{d.last_page ? ` · page ${d.last_page}` : ''}</span>
-              <a
+              <span className="muted">{d.last_page ? `Page ${d.last_page} · ` : ''}{pct}%</span>
+              <ButtonLink
+                size="sm"
                 className="continue-resume"
                 href={routeHref({ name: 'read', id: d.drama_id, page: null })}
                 aria-label={`Resume ${title}`}
               >
                 Resume
-              </a>
+              </ButtonLink>
             </li>
           )
         })}
       </ul>
-    </section>
+    </Card>
   )
 }
 

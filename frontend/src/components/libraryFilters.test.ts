@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { buildDramaQuery } from '../api/client'
 import {
-  NO_MORE_FILTERS, languageName, listQuery, mediaTypeName, moreFilterCount, toggleTag, withCurrent,
+  NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
 } from './libraryFilters'
 
 describe('library filters', () => {
@@ -26,11 +26,5 @@ describe('library filters', () => {
     expect(withCurrent(['A'], 'Gone')).toEqual(['Gone', 'A'])
     expect(withCurrent(['A'], 'A')).toEqual(['A'])
     expect(withCurrent(['A'], '')).toEqual(['A'])
-  })
-
-  it('names languages and types', () => {
-    expect(languageName('ko')).toBe('Korean')
-    expect(languageName('xx')).toBe('xx')
-    expect(mediaTypeName('audio_drama')).toBe('Audio drama')
   })
 })

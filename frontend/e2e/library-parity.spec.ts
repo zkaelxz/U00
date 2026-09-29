@@ -41,7 +41,7 @@ test('Continue reading resumes in the Reader', async ({ page }) => {
   )
   await page.goto('/')
   const strip = page.getByRole('region', { name: 'Continue reading' })
-  await expect(strip).toContainText('42% · page 2')
+  await expect(strip).toContainText('Page 2 · 42%')
   await expect(strip.getByRole('link', { name: "Resume Heaven Official's Blessing" })).toHaveAttribute('href', '#/read/2')
 })
 

@@ -15,16 +15,6 @@ export const NO_MORE_FILTERS: MoreFilters = {
   studio: '', author: '', voice_actor: '', source_language: '', media_type: '', tags: [],
 }
 
-const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
-
-export const languageName = (code: string) => LANGUAGE_NAMES[code] ?? code
-
-/** "audio_drama" -> "Audio drama". */
-export const mediaTypeName = (t: string) => {
-  const words = t.replace(/_/g, ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
 /** How many of the "More filters" are set (each tag counts once). */
 export function moreFilterCount(m: MoreFilters): number {
   const set = [m.studio, m.author, m.voice_actor, m.source_language, m.media_type].filter(Boolean).length
