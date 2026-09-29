@@ -104,7 +104,7 @@ def _run_with_result(seen):
     """Runs the captured job body synchronously and returns its result."""
     results = {}
     orig = background_jobs.set_result
-    background_jobs.set_result = lambda jid, r: results.__setitem__(jid, r)
+    background_jobs.set_result = lambda jid, r, **kw: results.__setitem__(jid, r)
     try:
         seen["target"](**seen["args"])
     finally:
@@ -271,6 +271,27 @@ class TestJobBody:
         assert isolated_db.drama_dir(did) not in str(rec)
         assert fake_asr["transcribe"] == []
         assert fake_asr["released"] == 1
+
+    def test_line_id_is_visible_while_running(self, isolated_db, fake_asr, monkeypatch):
+        import threading
+        started, release = threading.Event(), threading.Event()
+
+        def held_slice(audio_path, start, end, out_path, timeout=None):
+            started.set()
+            assert release.wait(5)
+            with open(out_path, "wb") as f:
+                f.write(b"slice")
+        monkeypatch.setattr(core, "extract_audio_slice", held_slice)
+        did, ids = _drama(isolated_db)
+        out = transcribe_service.start_retranscribe_line(did, ids[1])
+        try:
+            assert started.wait(5)
+            rec = jobs_service.get_job(out["job_id"])
+            assert rec["status"] == "running"
+            assert rec["result"] == {"line_id": ids[1]}
+        finally:
+            release.set()
+        _finish(out)
 
     def test_real_thread_projection(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)

@@ -946,7 +946,7 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
     ffmpeg timeout), nothing was heard ("empty"), the job was cancelled, or
     the line no longer exists ("line_gone")."""
     # Which line this run is for, visible to pollers before it finishes.
-    background_jobs.set_result(job_id, {"line_id": line_id})
+    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
     slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
     gpu_fallback = []
     try:
