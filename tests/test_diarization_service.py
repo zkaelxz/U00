@@ -48,7 +48,8 @@ class TestGetDiarizationConfig:
         assert result == {
             "drama_id": did,
             "hf_token_configured": False,
-            "expected_speakers": None,
+            "expected_speakers": None, "min_speakers": None, "max_speakers": None,
+            "last_device": None,
             "audio_available": False,
         }
 
@@ -133,7 +134,7 @@ class TestStartDiarizationRun:
         call = calls[0]
         assert call["job_id"] == f"diarize_{did}"
         assert call["target"] is diarize.diarize_subprocess_worker
-        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3)
+        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "min_speakers": None, "max_speakers": None})
         assert call["gpu_touching"] is True
         assert call["description"] == f"Diarization (drama #{did})"
 
@@ -216,10 +217,26 @@ class TestApplyDiarizationResult:
                             lambda *a, **k: captured.update(k) or True)
         applied = []
         monkeypatch.setattr(diarization_service, "apply_diarization_result",
-                            lambda *a: applied.append(a))
+                            lambda *a, **k: applied.append((a, k)))
         diarization_service.start_diarization_run(did, expected_speakers=4)
         captured["on_done"]("j", {"segments": []})
-        assert applied == [(did, {"segments": []}, 4, False)]
+        assert applied == [((did, {"segments": []}, 4, False),
+                            {"min_speakers": None, "max_speakers": None})]
+
+    def test_start_run_passes_range_to_worker_and_on_done(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda *a, **k: captured.update(k) or True)
+        applied = []
+        monkeypatch.setattr(diarization_service, "apply_diarization_result",
+                            lambda *a, **k: applied.append((a, k)))
+        diarization_service.start_diarization_run(did, min_speakers=2, max_speakers=4)
+        options = captured["args"][3]
+        assert (options["min_speakers"], options["max_speakers"]) == (2, 4)
+        captured["on_done"]("j", {"segments": []})
+        assert applied[0][1] == {"min_speakers": 2, "max_speakers": 4}
 
 
 class TestOverwriteManual:

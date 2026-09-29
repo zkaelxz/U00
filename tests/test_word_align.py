@@ -341,6 +341,7 @@ class TestRealignOversizedSegments:
 
     def test_long_segments_are_realigned(self, monkeypatch):
         monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        monkeypatch.setattr(word_align, "load_aligner", lambda device="cpu": object())
         monkeypatch.setattr(word_align, "realign_long_segment",
                              lambda audio_path, seg, language, **k:
                              [{"start": seg["start"], "end": seg["start"] + 1, "text": "split1"},
@@ -365,3 +366,68 @@ class TestRealignOversizedSegments:
 
         assert result == segments
         assert called == []
+
+
+class TestAlignerLoadedOncePerRun:
+    """Step 102: the MMS_FA model used to be reloaded inside align_words()
+    for every oversized segment. It must now load once per run."""
+
+    def test_model_loads_exactly_once_across_several_oversized_segments(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        loads = []
+        sentinel = object()
+
+        def fake_load(device="cpu"):
+            loads.append(device)
+            return sentinel
+        monkeypatch.setattr(word_align, "load_aligner", fake_load)
+        seen = []
+
+        def fake_realign(audio_path, seg, language, **k):
+            seen.append(k.get("aligner"))
+            return [seg]
+        monkeypatch.setattr(word_align, "realign_long_segment", fake_realign)
+
+        segments = [{"start": float(i * 30), "end": float(i * 30 + 20), "text": "long"}
+                    for i in range(4)]
+        word_align.realign_oversized_segments(segments, "/fake.wav", "zh", device="cuda")
+
+        assert loads == ["cuda"]
+        assert seen == [sentinel] * 4
+
+    def test_no_load_when_nothing_is_oversized(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+        loads = []
+        monkeypatch.setattr(word_align, "load_aligner", lambda device="cpu": loads.append(1))
+        segs = [{"start": 0.0, "end": 2.0, "text": "short"}]
+        assert word_align.realign_oversized_segments(segs, "/fake.wav", "zh") == segs
+        assert loads == []
+
+    def test_a_load_failure_keeps_every_segment_unsplit(self, monkeypatch):
+        monkeypatch.setattr(word_align, "_check_dependencies", lambda: None)
+
+        def boom(device="cpu"):
+            raise RuntimeError("download failed")
+        monkeypatch.setattr(word_align, "load_aligner", boom)
+        segs = [{"start": 0.0, "end": 20.0, "text": "a"}, {"start": 30.0, "end": 50.0, "text": "b"}]
+        assert word_align.realign_oversized_segments(segs, "/fake.wav", "zh") == segs
+
+    def test_real_align_words_reuses_a_passed_aligner(self, monkeypatch):
+        """With the real align_words() against faked torch/torchaudio, a
+        bundle whose get_model() is counted proves a passed-in aligner
+        skips the reload."""
+        TestAlignWords()._install_fakes(monkeypatch, num_frames=100, sample_rate=16000,
+                                        num_samples=16000)
+        bundle = sys.modules["torchaudio"].pipelines.MMS_FA
+        calls = []
+        original = type(bundle).get_model
+
+        def counted(self):
+            calls.append(1)
+            return original(self)
+        monkeypatch.setattr(type(bundle), "get_model", counted)
+
+        loaded = word_align.load_aligner("cpu")
+        for _ in range(3):
+            word_align.align_words("/fake.wav", ["a", "b"], aligner=loaded)
+        assert calls == [1]

@@ -24,6 +24,8 @@ Examples:
   # Re-detect speakers for one drama with 3 voices (no re-transcription;
   # lines you corrected by hand are kept unless --overwrite-manual)
   python cli.py diarize --id 12 --num-speakers 3 --hf-token $HF_TOKEN
+  # ...or when only a range is known (2 to 4 voices)
+  python cli.py diarize --id 12 --min-speakers 2 --max-speakers 4
 
   # List what's in the library and its status
   python cli.py list
@@ -288,6 +290,13 @@ def cmd_diarize(args):
     if not hf_token:
         print("Needs a Hugging Face token: --hf-token or the HF_TOKEN environment variable.")
         return
+    try:
+        num_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
+            args.num_speakers, getattr(args, "min_speakers", None),
+            getattr(args, "max_speakers", None))
+    except ValueError as exc:
+        print(exc)
+        return
 
     def step(d):
         ddir = db.drama_dir(d["id"])
@@ -302,18 +311,23 @@ def cmd_diarize(args):
         print(f"#{d['id']} detecting speakers...")
         db.heartbeat_gpu_lock(_gpu_holder)
         try:
+            run_info = {}
             turns, model, embeddings = diarize.diarize(
-                audio_path, hf_token, num_speakers=args.num_speakers or None,
-                return_model=True, return_embeddings=True)
+                audio_path, hf_token, num_speakers=num_speakers,
+                return_model=True, return_embeddings=True,
+                use_gpu=settings_service.get_use_gpu(),
+                min_speakers=min_speakers, max_speakers=max_speakers, run_info=run_info)
         finally:
             release_gpu_models()
-        diarize.save_turns(ddir, turns, num_speakers=args.num_speakers or None, model=model,
-                          embeddings=embeddings)
+        diarize.save_turns(ddir, turns, num_speakers=num_speakers, model=model,
+                          embeddings=embeddings, min_speakers=min_speakers,
+                          max_speakers=max_speakers, device=run_info.get("device"))
         result = diarize.merge_speakers(lines, turns, overwrite_manual=args.overwrite_manual)
         for label in sorted({ln.speaker for ln in lines if ln.speaker}):
             db.upsert_character(d["id"], label)
         db.save_lines(d["id"], lines, fields=("speaker", "speaker_manual"))
-        print(f"#{d['id']} {result['changed']} line(s) relabelled with {model}"
+        print(f"#{d['id']} {result['changed']} line(s) relabelled with {model} "
+              f"on {run_info.get('device', 'cpu')}"
               + (f"; kept {result['kept_manual']} hand-corrected line(s) "
                  f"(--overwrite-manual to replace them)." if result["kept_manual"] else "."))
 
@@ -751,6 +765,10 @@ def main():
     p_diarize.add_argument("--id", type=int, default=None)
     p_diarize.add_argument("--hf-token", default=None)
     p_diarize.add_argument("--num-speakers", type=int, default=0)
+    p_diarize.add_argument("--min-speakers", type=int, default=None,
+                           help="Lower bound of a speaker-count range (instead of --num-speakers)")
+    p_diarize.add_argument("--max-speakers", type=int, default=None,
+                           help="Upper bound of a speaker-count range (instead of --num-speakers)")
     p_diarize.add_argument("--overwrite-manual", action="store_true",
                            help="Also replace speakers you corrected by hand")
     p_diarize.set_defaults(func=cmd_diarize)

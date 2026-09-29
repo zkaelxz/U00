@@ -32,7 +32,10 @@ def get_diarization_config(drama_id: int = Path(ge=1)):
 def post_start_diarization(drama_id: int = Path(ge=1),
                            expected_speakers: int = Query(None, ge=0, le=20),
                            overwrite_manual: bool = Query(False),
-                           confirm: bool = Query(False)):
+                           confirm: bool = Query(False),
+                           min_speakers: int = Query(None, ge=0, le=20),
+                           max_speakers: int = Query(None, ge=0, le=20)):
     return diarization_service.start_diarization_run(
         drama_id, expected_speakers=expected_speakers,
-        overwrite_manual=overwrite_manual, confirm=confirm)
+        overwrite_manual=overwrite_manual, confirm=confirm,
+        min_speakers=min_speakers, max_speakers=max_speakers)

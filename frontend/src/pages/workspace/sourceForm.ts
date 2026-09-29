@@ -43,6 +43,33 @@ export function parseExpectedSpeakers(raw: string): number | undefined | null {
   return Number.isInteger(n) && n >= 0 && n <= 20 ? n : null
 }
 
+export interface ParsedSpeakerHints {
+  expected?: number
+  min?: number
+  max?: number
+}
+
+// Exact count (0-20, blank or 0 = auto) or a min/max range (each 1-20,
+// either may be blank), mirroring diarize.validate_speaker_hints (Step 105).
+// Returns the parsed hints, or a plain-English problem string.
+export function parseSpeakerHints(expectedRaw: string, minRaw: string, maxRaw: string): ParsedSpeakerHints | string {
+  const expected = parseExpectedSpeakers(expectedRaw)
+  if (expected === null) return 'Expected speakers must be a whole number from 0 to 20.'
+  const bound = (raw: string): number | undefined | null => {
+    if (raw.trim() === '') return undefined
+    const n = Number(raw)
+    return Number.isInteger(n) && n >= 1 && n <= 20 ? n : null
+  }
+  const min = bound(minRaw)
+  const max = bound(maxRaw)
+  if (min === null || max === null) return 'Min and max speakers must be whole numbers from 1 to 20.'
+  if (min !== undefined && max !== undefined && min > max) return "Min speakers can't be more than max speakers."
+  if (expected && (min !== undefined || max !== undefined)) {
+    return 'Use either an exact speaker count or a min/max range, not both.'
+  }
+  return { expected, min, max }
+}
+
 // Mirrors core.whisper_model_warning: large-v3-turbo is weaker on ja/ko.
 export function whisperModelWarning(size: string, language: string): string {
   if (size === 'large-v3-turbo' && (language === 'ja' || language === 'ko')) {
@@ -59,6 +86,9 @@ export interface SourceFormState {
   transcriptText: string
   runDiarize: boolean
   speakers: string
+  // Speaker-count range for "Detect speakers only" (Step 105).
+  minSpeakers?: string
+  maxSpeakers?: string
   // Extra names added to the automatic Whisper prompt.
   extraNames: string
 }
@@ -72,7 +102,7 @@ export function loadSourceForm(dramaId: number): Partial<SourceFormState> {
     if (!v || typeof v !== 'object') return {}
     const o = v as Record<string, unknown>
     const out: Partial<SourceFormState> = {}
-    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'extraNames'] as const) {
+    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'minSpeakers', 'maxSpeakers', 'extraNames'] as const) {
       if (typeof o[k] === 'string') out[k] = o[k]
     }
     if (typeof o.runDiarize === 'boolean') out.runDiarize = o.runDiarize

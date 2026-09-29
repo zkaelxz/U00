@@ -70,11 +70,22 @@ describe('workspace api', () => {
   it('passes expected speakers to diarization as a query and omits it when unset', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const f = fakeFetch(200, { job_id: 'j' }, calls)
-    await startDiarization(4, 0, f)
-    await startDiarization(4, undefined, f)
+    await startDiarization(4, { expectedSpeakers: 0 }, f)
+    await startDiarization(4, {}, f)
     expect(calls.map((c) => c.url)).toEqual([
       '/api/diarization/dramas/4/run?expected_speakers=0',
       '/api/diarization/dramas/4/run',
+    ])
+  })
+
+  it('passes a speaker range as min_speakers/max_speakers', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, { job_id: 'j' }, calls)
+    await startDiarization(4, { minSpeakers: 2, maxSpeakers: 4 }, f)
+    await startDiarization(4, { maxSpeakers: 3 }, f)
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/diarization/dramas/4/run?min_speakers=2&max_speakers=4',
+      '/api/diarization/dramas/4/run?max_speakers=3',
     ])
   })
 

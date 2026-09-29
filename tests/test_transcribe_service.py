@@ -502,6 +502,8 @@ class TestRunTranscribeAndApplyJob:
         _seed_running_job(job_id)
         monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+        from services import settings_service
+        monkeypatch.setattr(settings_service, "get_use_gpu", lambda: True)
         diarize_calls = []
         monkeypatch.setattr(background_jobs, "start_process_job",
                             lambda job_id, target, args=(), **k: diarize_calls.append(
@@ -512,7 +514,10 @@ class TestRunTranscribeAndApplyJob:
             "medium", 5, 300, 0.5, False, "auto", False, False, False, None, "hf-token", 3,
             diarize_audio_path=os.path.join(ddir, "audio.wav"))
 
-        assert diarize_calls == [(f"diarize_{did}", (os.path.join(ddir, "audio.wav"), "hf-token", 3))]
+        # Step 101: the chained run carries the persisted use_gpu setting.
+        assert diarize_calls == [(f"diarize_{did}", (
+            os.path.join(ddir, "audio.wav"), "hf-token", 3,
+            {"use_gpu": True, "min_speakers": None, "max_speakers": None}))]
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 
@@ -724,7 +729,8 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
             video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
             hardsub_interval=1.0, diarize_audio_path=audio_path)
 
-        assert seen == [(audio_path, "hf-token", None)]
+        assert seen == [(audio_path, "hf-token", None,
+                         {"use_gpu": False, "min_speakers": None, "max_speakers": None})]
         assert background_jobs.get_status(job_id)["result"]["diarize_started"] is True
         _clear(job_id)
 

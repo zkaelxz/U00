@@ -278,6 +278,11 @@ class DiarizationConfig(BaseModel):
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
+    # Step 105: the speaker-count range the last run used, if any.
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
+    # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
+    last_device: Optional[str] = None
     audio_available: bool
 
 
