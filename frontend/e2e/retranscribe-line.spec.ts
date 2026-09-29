@@ -69,6 +69,9 @@ test('progress, then the raw proposal next to the text; "Use this" sends exactly
   await mockRun(page, raw)
   await page.route('**/api/transcribe/dramas/3/lines/*/retranscribe/apply', async (route) => {
     applied = { url: route.request().url(), body: route.request().postDataJSON() }
+    // Do the write the real apply would do, so the editor's reload sees it.
+    const w = await page.request.post(`/api/lines/dramas/3/lines/${target.id}`, { data: { zh: raw.proposed_zh } })
+    expect(w.ok()).toBe(true)
     await route.fulfill({ json: { drama_id: 3, line_id: target.id, zh: raw.proposed_zh } })
   })
   await page.route('**/api/jobs/retranscribe_3', (route) => {
@@ -97,8 +100,9 @@ test('progress, then the raw proposal next to the text; "Use this" sends exactly
   expect(applied).toBeNull() // nothing written until "Use this"
 
   await proposal.getByRole('button', { name: 'Use this' }).click()
-  await expect(box.getByTestId('retranscribe-result')).toContainText('Replaced this line’s source text.')
-  await expect(box.getByTestId('retranscribe-proposal')).toHaveCount(0)
+  // LineRow applies the new text to the row and closes the (unchanged) editor.
+  await expect(row.locator('.review-zh')).toHaveText(raw.proposed_zh)
+  await expect(row.getByTestId('retranscribe-line')).toHaveCount(0)
   if (SHOTS) await row.screenshot({ path: `${SHOTS}/desktop-retranscribe-applied.png` })
 
   expect(applied!.url).toContain(`/lines/${target.id}/retranscribe/apply`)
