@@ -14,6 +14,19 @@ export interface DubDefaults {
   slowdown_range: number[]
 }
 
+// One speaker as the Generate button resolves it. clone_warning: why the
+// speaker won't be cloned as set up (e.g. a clone engine with no clip or
+// voice design falls back to plain TTS).
+export interface DubSpeaker {
+  speaker_label: string
+  character_name: string | null
+  edge_voice: string | null
+  offline_voice: string | null
+  engine: string
+  has_clone_ref: boolean
+  clone_warning?: string | null
+}
+
 export interface DubConfig {
   drama_id: number
   content_mode: string | null
@@ -23,6 +36,7 @@ export interface DubConfig {
   source_language: string
   tts_engines: DubTtsEngine[]
   defaults: DubDefaults | null
+  speakers?: DubSpeaker[]
   gpu_required: boolean
   speakable_line_count: number
   track_available: boolean
