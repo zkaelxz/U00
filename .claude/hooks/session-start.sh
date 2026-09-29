@@ -23,7 +23,11 @@ fi
 # f5-tts, paddleocr) are deliberately left out -- tests mock them.
 # Cloud containers' system Python can be marked "externally managed";
 # this is a throwaway container, so installing into it directly is fine.
+# --use-pep517: jieba ships only an sdist whose legacy `setup.py
+# bdist_wheel` build fails against the container's system setuptools,
+# which aborted the whole install (no pytest, no fastapi).
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet --disable-pip-version-check \
+  --use-pep517 \
   "${CONSTRAINTS[@]}" \
   -r requirements-core.txt \
   pytest pytest-xdist jieba pypinyin opencc-python-reimplemented \
