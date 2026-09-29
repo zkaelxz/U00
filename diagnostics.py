@@ -9,6 +9,7 @@ back-and-forth messages to diagnose. This turns that into one glance.
 """
 
 import getpass
+import json
 import importlib.metadata
 import importlib.util
 import os
@@ -84,7 +85,7 @@ OPTIONAL_DEPENDENCIES = {
                           "Community License; can't share an install with OmniVoice/Chatterbox)",
                   "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
-    "PIL": ("PIL", "OCR, Scanlate rendering", "feature"),
+    "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
     "piper-tts": ("piper", "offline TTS", "feature"),
@@ -147,6 +148,198 @@ OPTIONAL_DEPENDENCIES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Install names, sizes, sources and task presets (Diagnostics "Packages").
+# OPTIONAL_DEPENDENCIES's keys are what the API and UI call a package; most
+# are also the pip distribution name (pip treats "_", "-" and "." alike),
+# but a few are import names that don't exist on PyPI under that name
+# ("cv2" made `pip install cv2` fail with "No matching distribution").
+# ---------------------------------------------------------------------------
+
+# key -> the real PyPI distribution to `pip install`.
+PIP_DIST_NAMES = {
+    "cv2": "opencv-python",
+    "PIL": "pillow",
+    "bs4": "beautifulsoup4",
+}
+
+
+def pip_install_name(name: str) -> str:
+    """The distribution name pip should install for an OPTIONAL_DEPENDENCIES
+    key or a MODEL_ENGINE_REGISTRY package."""
+    return PIP_DIST_NAMES.get(name, name)
+
+
+def canonical_dist(name: str) -> str:
+    """PEP 503 normalized name: lowercase, runs of "-", "_", "." -> "-"."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+# Approximate download size in MB of each distribution's own wheel plus its
+# small dependencies (canonical dist name -> MB). A static estimate for the
+# Packages list, never a network lookup; labelled "approx." wherever shown.
+# Packages in PULLS_TORCH also pull PyTorch when it isn't installed yet,
+# which is not counted here (torch is its own row).
+APPROX_DOWNLOAD_MB = {
+    "faster-whisper": 80, "opencv-python": 45, "anthropic": 2, "openai": 2, "deepl": 1,
+    "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
+    "edge-tts": 1, "pydub": 1, "f5-tts": 60, "omnivoice": 60, "chatterbox-tts": 60,
+    "hume-tada": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
+    "piper-tts": 30, "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
+    "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
+    "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
+    "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
+    "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
+    "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
+    "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
+}
+PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
+               "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
+
+
+def approx_download_mb(name: str):
+    """Approximate download in MB for a package key, or None if unknown."""
+    return APPROX_DOWNLOAD_MB.get(canonical_dist(pip_install_name(name)))
+
+
+def pypi_url(name: str):
+    """https://pypi.org/project/<dist>/ for a package key, or None when the
+    distribution name isn't a plain PEP 508 name (never builds a URL from
+    anything else)."""
+    dist = pip_install_name(name)
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?", dist):
+        return None
+    return f"https://pypi.org/project/{canonical_dist(dist)}/"
+
+
+# Packages the generic Install button must not offer, with the reason shown
+# instead (dist canonical name -> reason).
+NOT_OFFERED_FOR_INSTALL = {
+    "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
+                                 "Streamlit, and the Scanlate brush that uses it is deferred "
+                                 "until Scanlate moves to the new interface.",
+}
+
+# Exact pins a package declares on another one the app shares, for a
+# "this would downgrade X" warning before installing (package -> {dep: pin}).
+KNOWN_EXACT_PINS = {
+    "qwen-asr": {"transformers": "4.57.6"},
+}
+
+
+def install_downgrade_warning(name: str):
+    """None, or a plain-English warning when installing `name` would move an
+    already-installed shared package to an older pinned version (e.g.
+    qwen-asr pins transformers==4.57.6 while 5.x is installed). Read-only:
+    checks the installed version only."""
+    pins = KNOWN_EXACT_PINS.get(canonical_dist(pip_install_name(name)))
+    if not pins:
+        return None
+    for dep, pin in pins.items():
+        have = get_installed_version(dep)
+        if have and _version_sort_key(have) > _version_sort_key(pin):
+            return (f"installing this would downgrade {dep} from {have} to {pin}, which "
+                    f"other features (NLLB translation, Scanlate, voice engines) use -- "
+                    f"they may stop working until {dep} is upgraded again.")
+    return None
+
+
+# Install presets: what the user wants to do -> the packages it needs (by
+# OPTIONAL_DEPENDENCIES key, or MODEL_ENGINE_REGISTRY package when it has
+# no key). Derived from the "feature" descriptions above. Each package is
+# "required" for its task (the task doesn't work without it) unless listed
+# under "recommended" (better results, or one of several interchangeable
+# engines) or "optional" (a heavier or niche extra). "Install for this
+# task" installs required and recommended ones; optional ones are offered
+# one by one.
+INSTALL_TASKS = [
+    {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
+     "help": "Turn a drama's audio into timed lines.",
+     "packages": ["faster_whisper", "soundfile", "numpy"]},
+    {"id": "music_removal", "group": "Audio", "label": "Remove background music",
+     "help": "Clean the audio before transcribing so dialogue is easier to hear.",
+     "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
+     "recommended": ["audio-separator"]},
+    {"id": "speakers", "group": "Audio", "label": "Speaker detection",
+     "help": "Split and label lines by who is speaking (needs a Hugging Face token).",
+     "packages": ["pyannote.audio", "soundfile", "torch"]},
+    {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
+     "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
+     "packages": ["qwen-asr", "funasr", "torch"],
+     "recommended": ["qwen-asr", "funasr"]},
+    {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
+     "help": "Re-align lines to individual words (experimental).",
+     "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
+    {"id": "tts_online", "group": "Dubbing", "label": "Dubbing: free online voice (edge-tts)",
+     "help": "Microsoft-hosted voices; needs internet, no GPU.",
+     "packages": ["edge_tts", "pydub", "numpy"],
+     "recommended": ["numpy"]},
+    {"id": "tts_piper", "group": "Dubbing", "label": "Dubbing: offline voice (Piper)",
+     "help": "Small offline voices, no cloning.",
+     "packages": ["piper-tts", "pydub"]},
+    {"id": "tts_f5", "group": "Dubbing", "label": "Voice cloning: F5-TTS",
+     "help": "Clone a character's voice locally.",
+     "packages": ["f5_tts", "torch", "pydub", "huggingface_hub"]},
+    {"id": "tts_omnivoice", "group": "Dubbing", "label": "Voice cloning: OmniVoice",
+     "help": "Clone or design a voice locally. Can't share an install with Chatterbox/TADA.",
+     "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
+    {"id": "tts_chatterbox", "group": "Dubbing", "label": "Voice cloning: Chatterbox",
+     "help": "Emotion-aware local voice. Can't share an install with OmniVoice/TADA.",
+     "packages": ["chatterbox-tts", "torch", "pydub", "huggingface_hub"]},
+    {"id": "tts_tada", "group": "Dubbing", "label": "Long narration: TADA",
+     "help": "Local voice for novel narration. Can't share an install with OmniVoice/Chatterbox.",
+     "packages": ["hume-tada", "torch", "pydub", "huggingface_hub"]},
+    {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
+     "help": "Pull hard-coded subtitles out of video frames.",
+     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"],
+     "recommended": ["pytesseract"],
+     "optional": ["paddleocr"]},
+    {"id": "url_import", "group": "Video", "label": "Import from a URL",
+     "help": "Download video from YouTube, Bilibili and other sites.",
+     "packages": ["yt-dlp"]},
+    {"id": "reader_zh", "group": "Novels & reader", "label": "Chinese reader tools",
+     "help": "Word splitting, pinyin and Traditional Chinese support.",
+     "packages": ["jieba", "pypinyin", "opencc-python-reimplemented"],
+     "recommended": ["pypinyin"],
+     "optional": ["opencc-python-reimplemented"]},
+    {"id": "reader_ja", "group": "Novels & reader", "label": "Japanese reader tools",
+     "help": "Word splitting and furigana.",
+     "packages": ["sudachipy", "sudachidict_core", "pykakasi"],
+     "recommended": ["pykakasi"]},
+    {"id": "reader_ko", "group": "Novels & reader", "label": "Korean reader tools",
+     "help": "Word splitting.", "packages": ["kiwipiepy"]},
+    {"id": "books", "group": "Novels & reader", "label": "EPUB and Anki export",
+     "help": "Import/export EPUB books and export vocab to Anki.",
+     "packages": ["ebooklib", "genanki"],
+     "recommended": ["ebooklib", "genanki"]},
+    {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
+     "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
+     "packages": ["bs4", "trafilatura", "playwright", "cryptography"],
+     "recommended": ["trafilatura"],
+     "optional": ["playwright", "cryptography"]},
+    {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
+     "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
+     "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
+                  "safetensors", "huggingface_hub", "streamlit_drawable_canvas"],
+     "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
+                     "huggingface_hub"],
+     "optional": ["streamlit_drawable_canvas"]},
+    {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
+     "help": "Translate offline on this PC.",
+     "packages": ["transformers", "sentencepiece", "torch"]},
+    {"id": "paid_engines", "group": "Translation", "label": "Claude, DeepSeek and DeepL",
+     "help": "Client libraries for the paid translation engines (keys go in Settings).",
+     "packages": ["anthropic", "openai", "deepl"],
+     "recommended": ["anthropic", "openai", "deepl"]},
+    {"id": "sign_in", "group": "App", "label": "Google sign-in for household access",
+     "help": "Needed only when BAIHE_API_AUTH=on.",
+     "packages": ["authlib", "httpx", "cryptography"]},
+    {"id": "notifications", "group": "App", "label": "Desktop notifications",
+     "help": "A notification when a background job finishes.",
+     "packages": ["plyer"]},
+]
+
+
 def check_python_version():
     import sys
     v = sys.version_info
@@ -156,13 +349,17 @@ def check_python_version():
 def check_ffmpeg():
     path = shutil.which("ffmpeg")
     if not path:
-        return {"found": False, "path": None, "version": None}
+        return {"found": False, "path": None, "version": None, "libass": None}
     try:
         result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
         version_line = result.stdout.splitlines()[0] if result.stdout else "unknown version"
-        return {"found": True, "path": path, "version": version_line}
+        # Burned-in (hardsub) export and the styled preview need ffmpeg built
+        # with libass; `-version` prints the build's configure flags.
+        libass = "--enable-libass" in result.stdout if result.stdout else None
+        return {"found": True, "path": path, "version": version_line, "libass": libass}
     except Exception:
-        return {"found": True, "path": path, "version": "found but version check failed"}
+        return {"found": True, "path": path, "version": "found but version check failed",
+                "libass": None}
 
 
 # In yt-dlp's own preference order -- Deno is its default; the others
@@ -664,6 +861,27 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # and "dev" (pytest) has nothing to do with a running app session.
 INSTALLABLE_TIERS = ("feature", "engine")
 
+# Added to every install: pip's wheel cache can be unwritable or locked on
+# Windows (antivirus, another Python process), which fails the whole install
+# with "[Errno 13] Permission denied: ...\\pip\\cache\\wheels\\...", and the
+# "new release of pip" notice only clutters the output shown to the user.
+PIP_INSTALL_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
+
+PIP_CACHE_PERMISSION_HINT = (
+    "pip couldn't write to its download cache. Close other Python windows (and the "
+    "Baihe launcher if it's open twice), pause antivirus scanning of the pip folder, "
+    "or delete %LOCALAPPDATA%\\pip\\cache, then try again.")
+
+
+def pip_cache_permission_hint(lines) -> str:
+    """PIP_CACHE_PERMISSION_HINT when pip's output shows a permission error
+    inside its own cache folder, else None."""
+    for line in lines:
+        low = (line or "").lower().replace("/", "\\")
+        if "permission denied" in low and ("pip\\cache" in low or "cache\\pip" in low):
+            return PIP_CACHE_PERMISSION_HINT
+    return None
+
 
 def stream_pip_install(pip_args: list, python_executable: str = None):
     """Yields {"line": str} for each line of combined stdout/stderr as
@@ -674,7 +892,7 @@ def stream_pip_install(pip_args: list, python_executable: str = None):
     live during this session: a genuine `audio-separator` build failure
     on a real machine is exactly the case this must not hide)."""
     python_executable = python_executable or sys.executable
-    cmd = [python_executable, "-m", "pip", "install"] + list(pip_args)
+    cmd = [python_executable, "-m", "pip", "install", *PIP_INSTALL_FLAGS] + list(pip_args)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
     for line in proc.stdout:
@@ -852,8 +1070,8 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     for name, info in deps.items():
         if not info.get("installed"):
             continue
-        installed_version = get_installed_version(name)
-        latest_version = get_latest_pypi_version(name, timeout=timeout)
+        installed_version = get_installed_version(pip_install_name(name))
+        latest_version = get_latest_pypi_version(pip_install_name(name), timeout=timeout)
         outdated = None
         if installed_version and latest_version:
             outdated = _version_sort_key(installed_version) < _version_sort_key(latest_version)
@@ -1046,7 +1264,11 @@ def known_install_limitation_reason(pip_name: str) -> str:
     to install at all on this Python version (Step 61) -- shown next to a
     "not installed" row before the user ever clicks Install, and again if
     they click it anyway and it fails, so a raw pip/Cython traceback is
-    never the only signal."""
+    never the only signal. Also covers NOT_OFFERED_FOR_INSTALL (a package
+    known not to work with this app at all, on any Python)."""
+    not_offered = NOT_OFFERED_FOR_INSTALL.get(canonical_dist(pip_install_name(pip_name)))
+    if not_offered:
+        return not_offered
     known = _known_python_version_limitation(pip_name)
     if not known:
         return None
@@ -1519,7 +1741,474 @@ def stream_dependency_install(name: str, python_executable: str = None,
     the generic Install button would otherwise reproduce that exact gap
     through a second path. Every other dependency, and torch on a
     non-NVIDIA machine, installs exactly as stream_pip_install always did."""
+    not_offered = NOT_OFFERED_FOR_INSTALL.get(canonical_dist(pip_install_name(name)))
+    if not_offered:
+        yield {"line": f"{name}: {not_offered}"}
+        yield {"done": True, "ok": False, "returncode": None}
+        return
     if name == "torch" and shutil.which("nvidia-smi"):
         yield from stream_gpu_torch_reinstall(python_executable, project_root)
     else:
-        yield from stream_pip_install([name], python_executable)
+        yield from stream_pip_install([pip_install_name(name)], python_executable)
+
+
+# ---------------------------------------------------------------------------
+# GPU PyTorch setup (Diagnostics > "GPU PyTorch"). torch, torchvision and
+# torchaudio are built against each other: each torchvision/torchaudio
+# release requires one exact torch release, and pip resolving any of the
+# three on its own is how a CUDA torch gets swapped for a CPU one or a
+# torchvision ends up requiring a torch that isn't installed ("torchvision
+# 0.29.0 requires torch==2.14.0, but you have torch 2.11.0+cu128"). So the
+# app installs a matched triple, pinned exactly, from one fixed index, and
+# every other install/upgrade pins whatever torch family is installed.
+#
+# Sources (checked 2026-09-29):
+# - torch <-> torchvision pairs: the compatibility table in
+#   https://github.com/pytorch/vision/blob/main/README.md
+#   (2.13/0.28, 2.12/0.27, 2.11/0.26, 2.10/0.25, 2.9/0.24, 2.8/0.23).
+#   torchaudio's version equals torch's (https://pytorch.org/audio/main/installation.html).
+# - wheels actually published: https://download.pytorch.org/whl/cu128/torch/
+#   (and /torchvision/, /torchaudio/): 2.11.0+cu128 / 0.26.0+cu128 /
+#   2.11.0+cu128 is the newest cu128 triple, for CPython 3.10-3.14 on
+#   Windows and Linux; https://download.pytorch.org/whl/cpu/ has the same
+#   versions as +cpu.
+# - driver floor: NVIDIA's CUDA Toolkit release notes, "CUDA Toolkit and
+#   Corresponding Driver Versions" -- CUDA 12.8 GA needs >= 570.65 on
+#   Windows, >= 570.26 on Linux; minor-version compatibility lets CUDA 12.x
+#   run (without newer-GPU support or PTX JIT) from 525.60.13 / 528.33.
+#   https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html
+# Update this table (and constraints.txt's comment) when moving to a newer
+# CUDA index; nothing here is ever taken from a request.
+# ---------------------------------------------------------------------------
+
+TORCH_FAMILY = ("torch", "torchvision", "torchaudio")
+
+# variant -> the fixed index and the exact triple installed from it.
+TORCH_VARIANTS = {
+    "cu128": {
+        "label": "NVIDIA GPU (CUDA 12.8)",
+        "index_url": "https://download.pytorch.org/whl/cu128",
+        "versions": {"torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128",
+                     "torchaudio": "2.11.0+cu128"},
+        "needs_nvidia": True,
+    },
+    "cpu": {
+        "label": "CPU only (no NVIDIA GPU)",
+        "index_url": "https://download.pytorch.org/whl/cpu",
+        "versions": {"torch": "2.11.0+cpu", "torchvision": "0.26.0+cpu",
+                     "torchaudio": "2.11.0+cpu"},
+        "needs_nvidia": False,
+    },
+}
+TORCH_RECOMMENDED_VARIANT_GPU = "cu128"
+# CPython versions the triple above has wheels for (inclusive).
+TORCH_SUPPORTED_PYTHON = ((3, 10), (3, 14))
+
+# torch major.minor -> the torchvision major.minor built for it (README table above).
+TORCHVISION_FOR_TORCH = {"2.8": "0.23", "2.9": "0.24", "2.10": "0.25", "2.11": "0.26",
+                         "2.12": "0.27", "2.13": "0.28", "2.14": "0.29"}
+
+# NVIDIA driver needed by the cu128 wheels, per OS: "recommended" is CUDA
+# 12.8's own requirement; below "minimum" CUDA 12 can't run at all.
+NVIDIA_DRIVER_FOR_CU128 = {
+    "Windows": {"recommended": "570.65", "minimum": "528.33"},
+    "Linux": {"recommended": "570.26", "minimum": "525.60.13"},
+}
+
+TORCH_SETUP_TIMEOUT_SECONDS = 3600    # ~2.5 GB of CUDA wheels on a slow link
+TORCH_VERIFY_TIMEOUT_SECONDS = 180    # a cold `import torch` can take a while
+
+_VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.+!_-]{0,63}$")
+
+
+def _mm(version: str) -> str:
+    """"2.11.0+cu128" -> "2.11"."""
+    return ".".join(re.split(r"[.+]", version or "")[:2])
+
+
+def nvidia_driver_info():
+    """{"gpu_name", "driver_version"} for the first GPU nvidia-smi lists, or
+    None when nvidia-smi isn't on PATH or fails. Never raises; bounded by a
+    timeout like external_gpu_load."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5, check=True)
+        name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
+        return {"gpu_name": name[:120], "driver_version": driver[:40]}
+    except Exception:
+        return None
+
+
+def driver_check(driver_version, system: str = None) -> dict:
+    """{"status": "ok"|"old"|"too_old"|"unknown", "recommended", "minimum"}
+    for the cu128 wheels on this OS. "old" works through CUDA's
+    minor-version compatibility (a warning); "too_old" can't run CUDA 12."""
+    system = system or platform.system()
+    need = NVIDIA_DRIVER_FOR_CU128.get(system, NVIDIA_DRIVER_FOR_CU128["Linux"])
+    out = {"recommended": need["recommended"], "minimum": need["minimum"]}
+    if not driver_version:
+        return {"status": "unknown", **out}
+    have = _version_sort_key(driver_version)
+    if have < _version_sort_key(need["minimum"]):
+        return {"status": "too_old", **out}
+    if have < _version_sort_key(need["recommended"]):
+        return {"status": "old", **out}
+    return {"status": "ok", **out}
+
+
+def _build_of(version):
+    """"cuda" for a +cuXXX local tag, "cpu" for +cpu, None when the version
+    carries no build tag (e.g. PyPI's Linux wheels) or isn't installed."""
+    if not version:
+        return None
+    tag = version.partition("+")[2].lower()
+    if tag.startswith("cu") or tag.startswith("rocm"):
+        return "cuda"
+    if tag == "cpu":
+        return "cpu"
+    return None
+
+
+def torch_family_versions() -> dict:
+    """{name: {"version", "build"}} for torch/torchvision/torchaudio, from
+    installed metadata only (no import, so it's right even after an install
+    in this same process)."""
+    out = {}
+    for name in TORCH_FAMILY:
+        version = get_installed_version(name)
+        out[name] = {"version": version, "build": _build_of(version)}
+    return out
+
+
+def torch_family_problems(versions: dict) -> list:
+    """Plain-English mismatches between installed torch, torchvision and
+    torchaudio: a torchvision/torchaudio built for another torch, or CUDA
+    and CPU builds mixed."""
+    torch_v = (versions.get("torch") or {}).get("version")
+    if not torch_v:
+        return [f"{n} is installed without torch." for n in TORCH_FAMILY[1:]
+                if (versions.get(n) or {}).get("version")]
+    problems = []
+    tv = (versions.get("torchvision") or {}).get("version")
+    want_tv = TORCHVISION_FOR_TORCH.get(_mm(torch_v))
+    if tv and want_tv and _mm(tv) != want_tv:
+        problems.append(f"torchvision {tv} doesn't match torch {torch_v} "
+                        f"(torch {_mm(torch_v)} needs torchvision {want_tv}.x).")
+    ta = (versions.get("torchaudio") or {}).get("version")
+    if ta and _mm(ta) != _mm(torch_v):
+        problems.append(f"torchaudio {ta} doesn't match torch {torch_v} "
+                        f"(it must be {_mm(torch_v)}.x).")
+    builds = {(versions.get(n) or {}).get("build") for n in TORCH_FAMILY} - {None}
+    if len(builds) > 1:
+        problems.append("CUDA and CPU builds are mixed; reinstall all three together.")
+    return problems
+
+
+def torch_pin_lines() -> list:
+    """Exact pins ("torch==2.11.0+cu128") for each installed torch-family
+    package, for a constraints file every other install/upgrade passes to
+    pip, so a package that depends on torch can't swap a CUDA build for a
+    CPU one or move torchvision off its torch. Versions come from local
+    metadata and are checked against a strict pattern before use."""
+    lines = []
+    for name in TORCH_FAMILY:
+        version = get_installed_version(name)
+        if version and _VERSION_RE.match(version):
+            lines.append(f"{name}=={version}")
+    return lines
+
+
+def torch_setup_pip_args(variant: str, project_root: str = None) -> list:
+    """Two pip argument lists (after `install`) for the matched triple of
+    `variant` (a TORCH_VARIANTS key): first `--force-reinstall --no-deps`
+    of all three pinned together, so pip downloads every wheel before it
+    replaces anything and torchvision/torchaudio can't resolve against
+    another torch; then the same pins without --force-reinstall to add
+    any missing dependency (nvidia-* wheels, sympy, pillow, ...). Both from
+    the variant's fixed index, with constraints.txt's caps. KeyError for an
+    unknown variant."""
+    spec = TORCH_VARIANTS[variant]
+    pins = [f"{n}=={spec['versions'][n]}" for n in TORCH_FAMILY]
+    tail = ["--index-url", spec["index_url"]]
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints = os.path.join(project_root, "constraints.txt")
+    if os.path.exists(constraints):
+        tail += ["-c", constraints]
+    return [["--force-reinstall", "--no-deps", *pins, *tail], [*pins, *tail]]
+
+
+# Run by `python -c` after a setup, so the check sees the new wheels and not
+# the torch this process may already have imported. Prints one JSON line.
+TORCH_VERIFY_SCRIPT = """
+import json
+out = {}
+try:
+    import torch
+    out["torch"] = torch.__version__
+    out["cuda_build"] = torch.version.cuda
+    out["cuda_available"] = bool(torch.cuda.is_available())
+    if out["cuda_available"]:
+        out["device"] = torch.cuda.get_device_name(0)
+        torch.zeros(1, device="cuda")
+except Exception as e:
+    out["error"] = type(e).__name__ + ": " + str(e)[:300]
+for name in ("torchvision", "torchaudio"):
+    try:
+        out[name] = __import__(name).__version__
+    except Exception as e:
+        out[name + "_error"] = type(e).__name__ + ": " + str(e)[:300]
+print(json.dumps(out))
+"""
+
+
+def parse_torch_verify_output(stdout: str) -> dict:
+    """The JSON the verify script printed (its last line), or {"error"}."""
+    for line in reversed((stdout or "").strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                data = json.loads(line)
+            except ValueError:
+                break
+            return data if isinstance(data, dict) else {"error": "unexpected output"}
+    return {"error": "the check printed nothing usable"}
+
+
+# ---------------------------------------------------------------------------
+# Installed versions and an honest "is there an update I may install?"
+# (Diagnostics > Packages). The PyPI read is a network call: callers run it
+# only from an explicit "Check for updates" click and cache the result. The
+# URL is built from the static dist name only (pypi_url's pattern).
+# ---------------------------------------------------------------------------
+
+# Other distributions that provide the same import (key -> dists), tried
+# when the main one isn't installed, so a headless OpenCV still shows its
+# version.
+PIP_DIST_ALTERNATES = {
+    "cv2": ("opencv-python-headless", "opencv-contrib-python",
+            "opencv-contrib-python-headless"),
+}
+
+PYPI_JSON_TIMEOUT = 10.0
+PYPI_JSON_MAX_BYTES = 20 * 1024 * 1024   # the largest project JSON is a few MB
+_DIST_NAME_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
+
+
+def _packaging():
+    """packaging's version/specifier/requirement modules: the standalone
+    package when installed, else the copy pip vendors (pip is always there
+    when these installs can run at all)."""
+    try:
+        from packaging import requirements, specifiers, version
+    except ImportError:          # pragma: no cover - depends on the environment
+        from pip._vendor.packaging import requirements, specifiers, version
+    return version, specifiers, requirements
+
+
+def installed_dist_version(name: str):
+    """(dist, version) actually installed for a package key: its PyPI dist
+    (pip_install_name), else a known alternate dist; (dist, None) if none."""
+    dist = pip_install_name(name)
+    for candidate in (dist, *PIP_DIST_ALTERNATES.get(name, ())):
+        version = get_installed_version(candidate)
+        if version:
+            return candidate, version
+    return dist, None
+
+
+def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
+    """Final (non-pre-release), non-yanked releases PyPI lists for `dist`
+    that have at least one file, as version strings; None on any failure.
+    One GET to https://pypi.org/pypi/<dist>/json, with a timeout, no
+    redirects and at most PYPI_JSON_MAX_BYTES read."""
+    if not _DIST_NAME_RE.fullmatch(dist or ""):
+        return None
+    import requests
+    version_mod, _s, _r = _packaging()
+    try:
+        resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
+                            timeout=timeout, headers={"Accept": "application/json"},
+                            stream=True, allow_redirects=False)
+        try:
+            if resp.status_code != 200:
+                return None
+            body = bytearray()
+            for chunk in resp.iter_content(65536):
+                body += chunk
+                if len(body) > PYPI_JSON_MAX_BYTES:
+                    return None
+        finally:
+            resp.close()
+        releases = json.loads(bytes(body)).get("releases") or {}
+    except Exception:
+        return None
+    out = []
+    for text, files in releases.items():
+        if not isinstance(files, list) or not files or all(f.get("yanked") for f in files):
+            continue
+        try:
+            v = version_mod.Version(text)
+        except Exception:
+            continue
+        if not (v.is_prerelease or v.is_devrelease):
+            out.append(text)
+    return out
+
+
+def constraint_specifiers(project_root: str = None) -> dict:
+    """{canonical dist: (SpecifierSet, raw line)} from constraints.txt."""
+    _v, specifiers, requirements = _packaging()
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(project_root, "constraints.txt")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            try:
+                req = requirements.Requirement(line)
+            except Exception:
+                continue
+            out[canonical_dist(req.name)] = (req.specifier, line)
+    return out
+
+
+def installed_requirements_on() -> dict:
+    """{canonical dist: [(requirer dist, SpecifierSet)]} from every
+    installed distribution's own requirements (markers evaluated for this
+    interpreter, extras off): what an upgrade must keep satisfied so it
+    doesn't break a package that's already installed."""
+    _v, _s, requirements = _packaging()
+    out = {}
+    for d in importlib.metadata.distributions():
+        requirer = (d.metadata or {}).get("Name")
+        if not requirer:
+            continue
+        for text in d.requires or []:
+            try:
+                req = requirements.Requirement(text)
+                if req.marker is not None and not req.marker.evaluate({"extra": ""}):
+                    continue
+            except Exception:
+                continue
+            if str(req.specifier):
+                out.setdefault(canonical_dist(req.name), []).append(
+                    (requirer, req.specifier))
+    return out
+
+
+def classify_update(name: str, installed_version: str, releases, constraints: dict,
+                    required_by: dict) -> dict:
+    """{"status", "latest", "target", "reason"} for one installed package:
+    "update" (target = newest release allowed by constraints.txt, the
+    installed packages that depend on it and the known limitations),
+    "held_back" (a newer release exists but none of the newer ones is
+    allowed; reason says by what), "up_to_date", or "unknown" (PyPI didn't
+    answer, or the version can't be read). Offline: releases come from
+    pypi_release_versions."""
+    version_mod, _s, _r = _packaging()
+    dist = canonical_dist(pip_install_name(name))
+    empty = {"latest": None, "target": None, "reason": None}
+    if not installed_version or not releases:
+        return {"status": "unknown", **empty}
+    try:
+        have = version_mod.Version(installed_version)
+    except Exception:
+        return {"status": "unknown", **empty}
+    versions = set()
+    for r in releases:
+        try:
+            versions.add(version_mod.Version(r))
+        except Exception:
+            continue          # never a pip argument: only str(Version) is used below
+    if not versions:
+        return {"status": "unknown", **empty}
+    versions = sorted(versions)
+    latest = versions[-1]
+    # Compare on the public version: 2.11.0+cu128 is not "older" than 2.11.0.
+    newer = [v for v in versions if v > version_mod.Version(have.public)]
+    if not newer:
+        return {"status": "up_to_date", "latest": str(latest), "target": None, "reason": None}
+
+    reasons = []
+    known = _known_python_version_limitation(dist)
+    if known:
+        py = ".".join(str(p) for p in known["python_version"])
+        return {"status": "held_back", "latest": str(latest), "target": None,
+                "reason": f"no newer release installs on Python {py} -- {known['reason']}"}
+    allowed = newer
+    spec = constraints.get(dist)
+    if spec:
+        kept = [v for v in allowed if spec[0].contains(v, prereleases=True)]
+        if len(kept) < len(allowed):
+            reasons.append(f"constraints.txt ({spec[1]})")
+        allowed = kept
+    for requirer, spec_set in required_by.get(dist, []):
+        if canonical_dist(requirer) == dist:
+            continue
+        kept = [v for v in allowed if spec_set.contains(v, prereleases=True)]
+        if len(kept) < len(allowed):
+            reasons.append(f"{requirer} (needs {name} {spec_set})")
+        allowed = kept
+    kept = [v for v in allowed if not _known_dependent_limitation(dist, str(v))]
+    if len(kept) < len(allowed):
+        reasons.append(KNOWN_UPGRADE_LIMITATIONS[dist]["reason"])
+    allowed = kept
+    reason = ("held back by " + "; ".join(reasons)) if reasons else None
+    if allowed:
+        return {"status": "update", "latest": str(latest), "target": str(allowed[-1]),
+                "reason": reason if allowed[-1] != latest else None}
+    return {"status": "held_back", "latest": str(latest), "target": None, "reason": reason}
+
+
+TASK_ROLES = ("required", "recommended", "optional")
+
+
+def task_package_role(task: dict, name: str) -> str:
+    """"required", "recommended" or "optional" for a package in an
+    INSTALL_TASKS entry (unlisted packages are required)."""
+    for role in ("optional", "recommended"):
+        if name in task.get(role, ()):
+            return role
+    return "required"
+
+
+# The requirements files whose `name>=X` lines are the app's minimums.
+REQUIREMENTS_FILES = ("requirements-core.txt", "requirements-media.txt",
+                      "requirements-optional.txt")
+
+
+def required_min_versions(project_root: str = None) -> dict:
+    """{canonical dist: minimum version} from the requirements files'
+    active `>=` lines (commented-out lines are skipped, as pip would)."""
+    _v, _s, requirements = _packaging()
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    out = {}
+    for fname in REQUIREMENTS_FILES:
+        for spec in parse_requirements_file(os.path.join(project_root, fname)):
+            try:
+                req = requirements.Requirement(spec)
+            except Exception:
+                continue
+            for s in req.specifier:
+                if s.operator == ">=":
+                    out[canonical_dist(req.name)] = s.version
+    return out
+
+
+def below_min_version(installed_version, min_version) -> bool:
+    """True when both are known and installed < minimum (public versions)."""
+    if not installed_version or not min_version:
+        return False
+    version_mod, _s, _r = _packaging()
+    try:
+        return (version_mod.Version(version_mod.Version(installed_version).public)
+                < version_mod.Version(min_version))
+    except Exception:
+        return False

@@ -12,9 +12,11 @@ import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { CreditsCoverPanel } from './CreditsCoverPanel'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
 import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
+import { NovelGlossary } from './NovelGlossary'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
@@ -191,8 +193,12 @@ export default function SourceStage() {
     <div className="stage-source">
       <TranscribeStage key={modeVersion} mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
+      <section className="panel" aria-label="Glossary from novel">
+        <NovelGlossary title="Glossary from novel" storageKey="source.glossary.novel" />
+      </section>
       <SourceModePanel onSaved={() => setModeVersion((n) => n + 1)} />
       <DetailsPanel />
+      <CreditsCoverPanel />
       <AutofillPanel />
       <AnalyzePanel hasMedia={hasMedia} />
       {jobId && <JobPanel job={job} pollError={pollError} />}

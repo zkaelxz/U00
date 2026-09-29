@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { api, ApiError } from '../api/client'
-import { searchLines } from '../api/library'
+import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
-import type { LibrarySearchHit } from '../types/library'
+import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
+import type { LibraryFilterOptions, LibrarySearchHit } from '../types/library'
 import { Badge } from './Badge'
 import { Card } from './Card'
 import { DramaCards } from './DramaCards'
 import { ErrorBanner } from './ErrorBanner'
+import './libraryParity.css'
+import {
+  NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
+  type MoreFilters,
+} from './libraryFilters'
 import { countDramas, dramaName, readHref, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
 
@@ -66,6 +72,7 @@ export function LibraryList({
   const [quickFilter, setQuickFilter] = useState('')
   const [scope, setScope] = useState<Scope>('titles')
   const [view, setView] = usePersistedState<View>('library.view', 'grid')
+  const [more, setMore] = useState<MoreFilters>(NO_MORE_FILTERS)
   const [items, setItems] = useState<DramaSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
@@ -82,14 +89,14 @@ export function LibraryList({
   // Phones always get cards; List view is the desktop table.
   const table = view === 'list' && !phone
   const titleSearch = scope === 'titles' ? search : ''
-  const filtered = !!(titleSearch.trim() || status || quickFilter)
+  const filtered = !!(titleSearch.trim() || status || quickFilter) || moreFilterCount(more) > 0
 
   useEffect(() => {
     let cancelled = false
     // Debounced so typing in the search box doesn't send a request per key.
     const timer = setTimeout(() => {
       api
-        .listDramas({ search: titleSearch, status, quick_filter: quickFilter })
+        .listDramas(listQuery(titleSearch, status, quickFilter, more))
         .then((resp) => {
           if (!cancelled) {
             setItems(resp.items)
@@ -105,7 +112,7 @@ export function LibraryList({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [titleSearch, status, quickFilter, reloadKey])
+  }, [titleSearch, status, quickFilter, more, reloadKey])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -121,6 +128,7 @@ export function LibraryList({
     setSearch('')
     setStatus('')
     setQuickFilter('')
+    setMore(NO_MORE_FILTERS)
   }
 
   const selectControls = selecting && items && items.length > 0 && scope === 'titles' && (
@@ -170,9 +178,8 @@ export function LibraryList({
               <option key={q} value={q}>{q || 'All lists'}</option>
             ))}
           </select>
-          {/* Slot for the studio / author / voice actor / language / type / tag
-              filters (react-misc-parity); they join this row. */}
         </div>}
+        {scope === 'titles' && <MoreFiltersFold value={more} onChange={setMore} reloadKey={reloadKey} />}
         <div className="toolbar-row">
           <Segmented<Scope>
             label="Search in" name="library-scope" value={scope} onChange={setScope}
@@ -325,5 +332,88 @@ function SkeletonGrid() {
         </li>
       ))}
     </ul>
+  )
+}
+
+// Studio, author, voice actor, language, type and custom tags. The data-driven
+// choices load when the fold is first opened (and again after a create/delete).
+function MoreFiltersFold({ value, onChange, reloadKey }: {
+  value: MoreFilters
+  onChange: (next: MoreFilters) => void
+  reloadKey: number
+}) {
+  const [open, setOpen] = useState(false)
+  const [options, setOptions] = useState<LibraryFilterOptions | null>(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    getFilterOptions().then(
+      (o) => {
+        if (!cancelled) {
+          setOptions(o)
+          setError(false)
+        }
+      },
+      () => !cancelled && setError(true),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [open, reloadKey])
+
+  const n = moreFilterCount(value)
+  const set = (key: Exclude<keyof MoreFilters, 'tags'>) => (e: { target: { value: string } }) =>
+    onChange({ ...value, [key]: e.target.value })
+  const pick = (label: string, key: 'studio' | 'author' | 'voice_actor', choices: string[] | undefined) => (
+    <select aria-label={label} value={value[key]} onChange={set(key)}>
+      <option value="">Any {label.toLowerCase()}</option>
+      {withCurrent(choices ?? [], value[key]).map((c) => (
+        <option key={c} value={c}>{c}</option>
+      ))}
+    </select>
+  )
+  return (
+    <details className="more-filters" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>More filters{n > 0 && ` (${n})`}</summary>
+      <div className="filters">
+        {pick('Studio', 'studio', options?.studios)}
+        {pick('Author', 'author', options?.authors)}
+        {pick('Voice actor', 'voice_actor', options?.voice_actors)}
+        <select aria-label="Language" value={value.source_language} onChange={set('source_language')}>
+          <option value="">Any language</option>
+          {SOURCE_LANGUAGES.map((l) => (
+            <option key={l} value={l}>{languageLabel(l)}</option>
+          ))}
+        </select>
+        <select aria-label="Type" value={value.media_type} onChange={set('media_type')}>
+          <option value="">Any type</option>
+          {withCurrent(MEDIA_TYPES, value.media_type).map((t) => (
+            <option key={t} value={t}>{mediaTypeLabel(t)}</option>
+          ))}
+        </select>
+      </div>
+      {options && options.custom_tags.length > 0 && (
+        <fieldset className="tag-filter">
+          <legend>Custom tags (all must match)</legend>
+          {options.custom_tags.map((t) => (
+            <label key={t} className="check">
+              <input
+                type="checkbox"
+                checked={value.tags.includes(t)}
+                onChange={() => onChange({ ...value, tags: toggleTag(value.tags, t) })}
+              />
+              {t}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {error && <p className="muted">Couldn't load the studio, author, voice actor and tag choices.</p>}
+      {n > 0 && (
+        <button type="button" className="link" onClick={() => onChange(NO_MORE_FILTERS)}>
+          Clear these filters
+        </button>
+      )}
+    </details>
   )
 }

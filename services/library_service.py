@@ -171,6 +171,36 @@ def list_history(limit: int = 25, principal=None) -> list:
                 limit=limit, visible_to=ownership_service.visible_to_filter(principal))]
 
 
+_CONTINUE_FIELDS = ("percent_complete", "last_page", "last_accessed_at", "title_en", "title_zh")
+
+
+def list_continue_reading(limit: int = 8, principal=None) -> list:
+    """The "Continue reading" shelf for the default profile: dramas with
+    partial progress (above 0%, below 99%), most recently read first, that
+    the principal may see. No file names: `has_cover_art` says whether a
+    cover is set."""
+    limit = max(1, min(int(limit), 50))
+    return [{"drama_id": d["id"], **{k: d.get(k) for k in _CONTINUE_FIELDS},
+             "has_cover_art": bool(d.get("cover_art_filename"))}
+            for d in db.list_continue_reading(
+                limit, visible_to=ownership_service.visible_to_filter(principal))]
+
+
+def get_filter_options(principal=None) -> dict:
+    """The choices behind the "All dramas" filters that come from the data
+    (the Streamlit tab's Studio/Author/Voice actor selects and Custom tags
+    multiselect), each sorted and de-duplicated, taken only from dramas the
+    principal may see (so a private drama's credits and tags don't show)."""
+    dramas = db.list_dramas(visible_to=ownership_service.visible_to_filter(principal))
+
+    def split(col):
+        return {v.strip() for d in dramas for v in (d.get(col) or "").split(",") if v.strip()}
+    return {"studios": sorted({(d.get("studio") or "") for d in dramas} - {""}),
+            "authors": sorted({(d.get("author") or "") for d in dramas} - {""}),
+            "voice_actors": sorted(split("voice_actors")),
+            "custom_tags": sorted(split("custom_tags"))}
+
+
 _PRESET_FIELDS = ("id", "name", "translation_engine", "engine_model", "style_preset",
                   "locale", "default_female_pronouns", "include_genre_notes")
 

@@ -1046,6 +1046,11 @@ def init_db():
             # Anki card type, set from the Reader right where the word was
             # looked up, rather than only via a bulk end-of-session export.
             _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+        style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
+        if "history_json" not in style_cols:
+            # Earlier learned-style profiles (newest first, at most
+            # STYLE_HISTORY_KEEP), so a learn or reset can be undone.
+            _safe_alter(conn, "ALTER TABLE style_profile ADD COLUMN history_json TEXT")
         # Auth slice B1: ownership and sharing (services/ownership_service.py).
         # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
         # owner / admins, shared" -- no admin id is guessed.
@@ -1790,33 +1795,112 @@ def delete_series_character(series_character_id: int):
         conn.commit()
 
 
+def _blend_voice_fingerprint(conn, series_character_id: int, new_embedding: list):
+    row = conn.execute(
+        "SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters WHERE id = ?",
+        (series_character_id,)).fetchone()
+    if row is None:
+        return
+    existing = json.loads(row["voice_fingerprint"]) if row["voice_fingerprint"] else None
+    n = row["voice_fingerprint_samples"] or 0
+    if existing and len(existing) == len(new_embedding):
+        blended = [(e * n + v) / (n + 1) for e, v in zip(existing, new_embedding)]
+    else:
+        # No prior fingerprint, or a dimension mismatch (a different
+        # embedding model produced it) -- start over from this sample
+        # rather than averaging incompatible vectors.
+        blended, n = list(new_embedding), 0
+    conn.execute(
+        "UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? WHERE id = ?",
+        (json.dumps(blended), n + 1, series_character_id))
+
+
 def update_series_character_voice_fingerprint(series_character_id: int, new_embedding: list):
     """Step 8: blends a newly-confirmed voice embedding into this
     character's running-average fingerprint (simple incremental mean,
     weighted by how many samples went into the average so far), so later
     dramas compare against an average across every drama where this
     character's voice was confirmed, not just the first one. Only ever
-    called from an explicit Accept -- never automatically."""
+    called from an explicit user action -- accepting a voice suggestion,
+    or "Remember as a known series character" for a speaker not yet
+    linked (services/characters_service.py) -- never automatically."""
     with contextlib.closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters WHERE id = ?",
-            (series_character_id,)).fetchone()
-        if row is None:
-            conn.close()
-            return
-        existing = json.loads(row["voice_fingerprint"]) if row["voice_fingerprint"] else None
-        n = row["voice_fingerprint_samples"] or 0
-        if existing and len(existing) == len(new_embedding):
-            blended = [(e * n + v) / (n + 1) for e, v in zip(existing, new_embedding)]
-        else:
-            # No prior fingerprint, or a dimension mismatch (a different
-            # embedding model produced it) -- start over from this sample
-            # rather than averaging incompatible vectors.
-            blended, n = list(new_embedding), 0
-        conn.execute(
-            "UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? WHERE id = ?",
-            (json.dumps(blended), n + 1, series_character_id))
+        _blend_voice_fingerprint(conn, series_character_id, new_embedding)
         conn.commit()
+
+
+def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: int,
+                      character_name: str, embedding: list = None) -> bool:
+    """An accepted voice suggestion, in one transaction: names the speaker
+    and links it to the series character ONLY while the speaker is still
+    unnamed and unlinked, then blends `embedding` into that character's
+    fingerprint. False (nothing written) when the speaker was named or
+    linked meanwhile -- so two concurrent accepts can't both link it or
+    blend the same embedding twice."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                     (drama_id, speaker_label))
+        cur = conn.execute(
+            "UPDATE characters SET character_name = ?, series_character_id = ? "
+            "WHERE drama_id = ? AND speaker_label = ? AND series_character_id IS NULL "
+            "AND COALESCE(TRIM(character_name), '') = ''",
+            (character_name, series_character_id, drama_id, speaker_label))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False
+        if embedding:
+            _blend_voice_fingerprint(conn, series_character_id, embedding)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def remember_speaker_as_series_character(drama_id: int, speaker_label: str, series_id: int,
+                                         name: str, gender: str = None,
+                                         embedding: list = None):
+    """"Remember as a known series character", in one transaction: only
+    while the speaker is still unlinked and its saved name (trimmed) is
+    still `name`, adds `name` to the series if it isn't there (insert-only:
+    an existing character's aliases, notes and pronouns are never
+    touched), links the speaker to it and blends `embedding` into its
+    fingerprint. Returns (series_character_id, created), or None (nothing
+    written) when the speaker was linked or renamed meanwhile."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ? "
+            "AND series_character_id IS NULL AND TRIM(character_name) = ?",
+            (drama_id, speaker_label, name)).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        created = conn.execute("""
+            INSERT INTO series_characters (series_id, character_name, aliases, notes, gender, created_at)
+            VALUES (?, ?, '', '', ?, ?)
+            ON CONFLICT(series_id, character_name) DO NOTHING
+        """, (series_id, name, gender, datetime.datetime.utcnow().isoformat())).rowcount == 1
+        sc_id = conn.execute(
+            "SELECT id FROM series_characters WHERE series_id = ? AND character_name = ?",
+            (series_id, name)).fetchone()["id"]
+        conn.execute("UPDATE characters SET series_character_id = ? "
+                     "WHERE drama_id = ? AND speaker_label = ? AND series_character_id IS NULL",
+                     (sc_id, drama_id, speaker_label))
+        if embedding:
+            _blend_voice_fingerprint(conn, sc_id, embedding)
+        conn.commit()
+        return sc_id, created
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def dismiss_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int):
@@ -2385,11 +2469,16 @@ def get_progress(drama_id: int, profile_id: int = None):
     return d
 
 
-def list_continue_reading(limit: int = 8, profile_id: int = None):
+def list_continue_reading(limit: int = 8, profile_id: int = None, visible_to: int = None):
     """Dramas with partial progress, most recently touched first -- the
     'Continue' shelf. Excludes anything finished (>=99%) or untouched.
     `limit` stays the first positional parameter (profile_id was added
-    later) so `list_continue_reading(8)` keeps meaning "limit=8"."""
+    later) so `list_continue_reading(8)` keeps meaning "limit=8".
+    `visible_to` (auth B2): only dramas that user may see."""
+    visible, vparams = "", []
+    if visible_to is not None:
+        clause, vparams = drama_visible_sql("d", visible_to)
+        visible = " AND " + clause
     with contextlib.closing(get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)
@@ -2397,9 +2486,9 @@ def list_continue_reading(limit: int = 8, profile_id: int = None):
             SELECT d.*, p.last_line_idx, p.audio_position_seconds, p.last_page,
                    p.percent_complete, p.last_accessed_at
             FROM progress p JOIN dramas d ON d.id = p.drama_id
-            WHERE p.profile_id = ? AND p.percent_complete > 0 AND p.percent_complete < 99
+            WHERE p.profile_id = ? AND p.percent_complete > 0 AND p.percent_complete < 99""" + visible + """
             ORDER BY p.last_accessed_at DESC LIMIT ?
-        """, (profile_id, limit)).fetchall()
+        """, [profile_id] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -2702,6 +2791,92 @@ def save_style_profile(scope: str, profile: dict, sample_count: int = 0):
         conn.commit()
 
 
+STYLE_HISTORY_KEEP = 5
+
+
+def _style_history(raw) -> list:
+    try:
+        hist = json.loads(raw) if raw else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [h for h in hist if isinstance(h, dict)] if isinstance(hist, list) else []
+
+
+def replace_style_profile(scope: str, profile: dict, sample_count: int = 0):
+    """save_style_profile for a learn or reset: in one transaction, the
+    profile being replaced (when it had preferences) is kept first in the
+    scope's history (at most STYLE_HISTORY_KEEP), so restore_style_profile
+    can bring it back."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
+                           "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
+        hist = _style_history(row["history_json"]) if row else []
+        if row:
+            try:
+                old = json.loads(row["profile_json"]) if row["profile_json"] else {}
+            except (json.JSONDecodeError, TypeError):
+                old = {}
+            if isinstance(old, dict) and old.get("preferences"):
+                hist.insert(0, {"profile": old, "sample_count": row["sample_count"] or 0,
+                                "updated_at": row["updated_at"]})
+        conn.execute("""
+            INSERT INTO style_profile (scope, profile_json, sample_count, updated_at, history_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(scope) DO UPDATE SET
+                profile_json = excluded.profile_json,
+                sample_count = excluded.sample_count,
+                updated_at = excluded.updated_at,
+                history_json = excluded.history_json
+        """, (scope, json.dumps(profile, ensure_ascii=False), sample_count,
+              datetime.datetime.utcnow().isoformat(),
+              json.dumps(hist[:STYLE_HISTORY_KEEP], ensure_ascii=False)))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def restore_style_profile(scope: str, index: int = 0):
+    """Makes history entry `index` (0 = the most recent earlier profile)
+    current again, in one transaction; the profile it replaces (when it had
+    preferences) takes its place first in the history, so nothing is lost.
+    Returns False when there is no such entry."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
+                           "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
+        hist = _style_history(row["history_json"]) if row else []
+        if not 0 <= index < len(hist):
+            conn.rollback()
+            return False
+        chosen = hist.pop(index)
+        try:
+            cur = json.loads(row["profile_json"]) if row["profile_json"] else {}
+        except (json.JSONDecodeError, TypeError):
+            cur = {}
+        if isinstance(cur, dict) and cur.get("preferences"):
+            hist.insert(0, {"profile": cur, "sample_count": row["sample_count"] or 0,
+                            "updated_at": row["updated_at"]})
+        conn.execute("UPDATE style_profile SET profile_json = ?, sample_count = ?, "
+                     "updated_at = ?, history_json = ? WHERE scope = ?",
+                     (json.dumps(chosen.get("profile") or {}, ensure_ascii=False),
+                      int(chosen.get("sample_count") or 0),
+                      datetime.datetime.utcnow().isoformat(),
+                      json.dumps(hist[:STYLE_HISTORY_KEEP], ensure_ascii=False), scope))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def get_style_profile(scope: str = "global"):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM style_profile WHERE scope = ?", (scope,)).fetchone()
@@ -2712,6 +2887,7 @@ def get_style_profile(scope: str = "global"):
         d["profile"] = json.loads(d["profile_json"]) if d["profile_json"] else {}
     except (json.JSONDecodeError, TypeError):
         d["profile"] = {}
+    d["history"] = _style_history(d.get("history_json"))
     return d
 
 

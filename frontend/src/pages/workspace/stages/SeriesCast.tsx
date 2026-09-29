@@ -158,7 +158,11 @@ const byName = (a: SeriesCharacter, b: SeriesCharacter) =>
 // Characters → "Series cast (n)": the series-level people shared by every
 // drama in the series. Adding and editing (name, pronouns, aliases, notes)
 // work remotely (lines.edit); removing one is PC-only.
-export function SeriesCast({ seriesId }: { seriesId: number }) {
+export function SeriesCast({ seriesId, refresh = 0 }: {
+  seriesId: number
+  /** Bumped by the Characters panel after it adds someone (C08). */
+  refresh?: number
+}) {
   const [cast, setCast] = useState<SeriesCharacter[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [removeError, setRemoveError] = useState<unknown>(null)
@@ -175,7 +179,7 @@ export function SeriesCast({ seriesId }: { seriesId: number }) {
     return () => {
       cancelled = true
     }
-  }, [seriesId])
+  }, [seriesId, refresh])
 
   const remove = (c: SeriesCharacter) => {
     setRemoveError(null)

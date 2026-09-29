@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import {
-  LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
+  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText,
+  extensionEngineNote, extensionSummary, extensionToggleNote,
   headerParts, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
   setupRows, setupSummary,
@@ -55,6 +56,27 @@ describe('setup rows', () => {
     expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: ffmpeg')
   })
 
+  it('checks ffmpeg for libass and marks the core rows', () => {
+    const withLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: true } }), gpu)
+    expect(withLibass[1]).toMatchObject({ text: 'ffmpeg: 6.1 (with libass)', problem: false })
+    const noLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: false } }), gpu)
+    expect(noLibass[1]).toMatchObject({ problem: true, text: expect.stringContaining('no libass') })
+    expect(noLibass.filter((r) => r.core).map((r) => r.key)).toEqual(['python', 'ffmpeg', 'js'])
+    // Unknown (an older API or a failed version check) is not a problem.
+    expect(setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: null } }), gpu)[1].problem).toBe(false)
+  })
+
+  it('titles bug bundles and describes their last replay', () => {
+    const b = { id: 4, label: 'Bad pronoun', drama_title: 'Signal', replayed: false, replay_output: null, reproduced: null }
+    expect(bugBundleTitle(b)).toBe('#4 Bad pronoun · Signal')
+    expect(bugBundleTitle({ ...b, label: '', drama_title: null })).toBe('#4 Untitled · (deleted drama)')
+    expect(bugBundleReplayText(b)).toBeNull()
+    expect(bugBundleReplayText({ ...b, replayed: true, replay_output: 'x', reproduced: true }))
+      .toBe('Still reproduces the same output. Last replay: x')
+    expect(bugBundleReplayText({ ...b, replayed: true, replay_output: 'y', reproduced: false }))
+      .toBe('No longer reproduces: the output changed. Last replay: y')
+  })
+
   it('skips the GPU row until the overview has loaded', () => {
     expect(setupRows(checks(), null).map((r) => r.key)).not.toContain('gpu')
   })
@@ -104,16 +126,16 @@ describe('packages', () => {
   it('announces a running install or upgrade, never a reset', () => {
     expect(busyLine({ kind: 'install', name: 'jieba' })).toBe(
       'Installing jieba… this can take several minutes. Keep this tab open.')
-    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Upgrading jieba…/)
+    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Updating jieba…/)
     expect(busyLine({ kind: 'reset', name: 'library' })).toBeNull()
     expect(busyLine(null)).toBeNull()
   })
 
   it('words results', () => {
     expect(installResultText('install', 'x', true)).toBe('Installed x.')
-    expect(installResultText('upgrade', 'x', true)).toBe('Upgraded x. Restart Baihe to load the new version.')
+    expect(installResultText('upgrade', 'x', true)).toBe('Updated x. Restart Baihe to load the new version.')
     expect(installResultText('install', 'x', false)).toBe('Install failed for x.')
-    expect(installResultText('upgrade', 'x', false)).toBe('Upgrade failed for x.')
+    expect(installResultText('upgrade', 'x', false)).toBe('Update failed for x.')
   })
 
   it('maps admin errors to one sentence', () => {

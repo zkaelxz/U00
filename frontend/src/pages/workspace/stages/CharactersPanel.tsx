@@ -1,24 +1,48 @@
 import { useEffect, useState } from 'react'
 
+import { rememberSeriesCharacter } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import type { RememberResult } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { SeriesCast } from './SeriesCast'
-import { buildCharacterUpdate, isDirty, toCharacterForm, type CharacterForm } from './characterForm'
+import { VoiceSuggestions } from './VoiceSuggestions'
+import {
+  CUSTOM,
+  MAX_PRONOUNS_LEN,
+  PRONOUN_PRESETS,
+  buildCharacterUpdate,
+  canRemember,
+  isDirty,
+  sampleCaption,
+  toCharacterForm,
+  unsetPronounsLabel,
+  type CharacterForm,
+} from './characterForm'
+import './characters.css'
 
 const COLUMNS = 7
 
-function Row({ entry, engines, bank, onSaved }: {
+function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
   entry: CharacterEntry
   engines: CloneEngines | null
   bank: VoiceBankEntry[]
+  hasSeries: boolean
   onSaved: (e: CharacterEntry) => void
+  onRemembered: (r: RememberResult) => void
 }) {
   const { dramaId } = useStage()
   const [form, setForm] = useState<CharacterForm>(() => toCharacterForm(entry))
+  // A change from outside the row (an accepted voice suggestion) resets
+  // the form to the saved values.
+  const [shown, setShown] = useState(entry)
+  if (shown !== entry) {
+    setShown(entry)
+    setForm(toCharacterForm(entry))
+  }
   const [bankId, setBankId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -55,6 +79,16 @@ function Row({ entry, engines, bank, onSaved }: {
     }, fail)
   }
 
+  const remember = () => {
+    setBusy(true)
+    rememberSeriesCharacter(dramaId, label).then((r) => {
+      done(r.character)
+      onRemembered(r)
+    }, fail)
+  }
+
+  const samples = sampleCaption(entry)
+  const nameEdited = form.character_name !== entry.character_name
   const engineIds = engines?.engines.map((e) => e.id) ?? []
   const reference = entry.has_ref_audio
     ? `reference audio set${entry.ref_text_present ? ', transcript set' : ''}`
@@ -66,13 +100,22 @@ function Row({ entry, engines, bank, onSaved }: {
         <td>{label}</td>
         <td><input aria-label={`Name for ${label}`} value={form.character_name} onChange={(e) => set('character_name', e.target.value)} /></td>
         <td>
-          <select aria-label={`Gender for ${label}`} value={form.pronouns} onChange={(e) => set('pronouns', e.target.value)}>
-            {['', 'she/her', 'he/him', 'they/them'].includes(form.pronouns) ? null : <option value={form.pronouns}>{form.pronouns}</option>}
-            <option value="">Unspecified</option>
-            <option value="she/her">she/her</option>
-            <option value="he/him">he/him</option>
-            <option value="they/them">they/them</option>
-          </select>
+          <div className="character-pronouns">
+            <select aria-label={`Gender for ${label}`} value={form.pronoun_choice} onChange={(e) => set('pronoun_choice', e.target.value)}>
+              <option value="">{unsetPronounsLabel(entry)}</option>
+              {PRONOUN_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+              <option value={CUSTOM}>Custom…</option>
+            </select>
+            {form.pronoun_choice === CUSTOM && (
+              <input
+                aria-label={`Custom pronouns for ${label}`}
+                value={form.custom_pronouns}
+                maxLength={MAX_PRONOUNS_LEN}
+                placeholder="e.g. xe/xem"
+                onChange={(e) => set('custom_pronouns', e.target.value)}
+              />
+            )}
+          </div>
         </td>
         <td><input aria-label={`Voice for ${label}`} value={form.tts_voice} onChange={(e) => set('tts_voice', e.target.value)} /></td>
         <td>{entry.line_count}</td>
@@ -85,6 +128,26 @@ function Row({ entry, engines, bank, onSaved }: {
       </tr>
       <tr>
         <td colSpan={COLUMNS}>
+          {(samples || entry.series_character_id || canRemember(entry, hasSeries)) && (
+            <div className="character-extras" data-testid={`character-extras-${label}`}>
+              {samples && <p className="muted character-samples">{samples}</p>}
+              {entry.series_character_id ? (
+                <p className="muted character-shared">
+                  Shared with other dramas in this series: pronoun and voice defaults can come from there.
+                </p>
+              ) : null}
+              {canRemember(entry, hasSeries) && (
+                <button
+                  type="button"
+                  disabled={busy || nameEdited}
+                  title={nameEdited ? 'Save the name first.' : 'Adds this name to the series cast so later dramas can pick it.'}
+                  onClick={remember}
+                >
+                  Remember {entry.character_name.trim()} in this series
+                </button>
+              )}
+            </div>
+          )}
           <details className="voice-details">
             <summary>Voice settings for {label}{form.clone_engine ? ` (${form.clone_engine})` : ''}</summary>
             <div className="voice-grid">
@@ -145,6 +208,21 @@ export function CharactersPanel() {
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
   const [error, setError] = useState<unknown>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  // Bumped to re-read the voice suggestions (a speaker changed) and the
+  // series cast (someone was remembered).
+  const [suggestRefresh, setSuggestRefresh] = useState(0)
+  const [castRefresh, setCastRefresh] = useState(0)
+
+  // Replace by speaker label, never by position.
+  const replace = (saved: CharacterEntry) =>
+    setEntries((cur) => cur && cur.map((x) => (x.speaker_label === saved.speaker_label ? saved : x)))
+  const remembered = (r: RememberResult) => {
+    setNotice(r.created
+      ? `Added ${r.series_character.character_name} to the series cast.`
+      : `Linked ${r.character.speaker_label} to ${r.series_character.character_name} in the series cast.`)
+    setCastRefresh((n) => n + 1)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -170,6 +248,9 @@ export function CharactersPanel() {
       <div role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
+      {entries && entries.length > 0 && drama.series_id ? (
+        <VoiceSuggestions dramaId={dramaId} refresh={suggestRefresh} onAccepted={replace} />
+      ) : null}
       {entries && entries.length > 0 && (
         <div className="table-scroll"><table>
           <thead>
@@ -182,13 +263,19 @@ export function CharactersPanel() {
                 entry={e}
                 engines={engines}
                 bank={bank}
-                onSaved={(saved) => setEntries((cur) => cur && cur.map((x) => (x.speaker_label === saved.speaker_label ? saved : x)))}
+                hasSeries={Boolean(drama.series_id)}
+                onSaved={(saved) => {
+                  replace(saved)
+                  setSuggestRefresh((n) => n + 1)
+                }}
+                onRemembered={remembered}
               />
             ))}
           </tbody>
         </table></div>
       )}
-      {drama.series_id ? <SeriesCast key={drama.series_id} seriesId={drama.series_id} /> : null}
+      {notice && <p role="status">{notice}</p>}
+      {drama.series_id ? <SeriesCast key={drama.series_id} seriesId={drama.series_id} refresh={castRefresh} /> : null}
       </div>
     </Section>
   )

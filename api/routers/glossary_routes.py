@@ -9,6 +9,14 @@ tab's confirm checkbox and Slice 17's clear-history route.
 Route batch 2C adds glossary-from-novel: start (engines.paid-gated on the
 drama's engine), status with the proposals, and apply by term text.
 
+Parity X10 adds the same trio for the drama's source lines (from-lines);
+both applies take optional per-term edits (overrides). The pre-translate
+review (X28) reuses these routes plus the translate-run start.
+
+Each status carries the run's run_id; an apply sends it back and gets 409
+(nothing written) when the held run is another one. Required on from-lines,
+optional on from-novel for older callers.
+
 Parity T03/T04/X13: import a glossary file's text (JSON body, nothing
 stored as a file, so lines.edit like the other term writes; overwriting
 existing terms needs confirm=true and, until network zones exist, the PC),
@@ -21,9 +29,11 @@ from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryDeleteResult, GlossaryImportRequest,
-                         GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, GlossaryTerm,
-                         GlossaryTermUpsert, NovelGlossaryApplyRequest, NovelGlossaryApplyResult,
-                         NovelGlossaryRunResult, NovelGlossaryStatus)
+                         GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
+                         GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
+                         GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
+                         LinesGlossaryRunResult, NovelGlossaryApplyResult, NovelGlossaryRunResult,
+                         NovelGlossaryStatus)
 from services import glossary_service
 from services.service_errors import ForbiddenError, InvalidInputError
 
@@ -140,18 +150,75 @@ def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1)):
             summary="Status and (when done) the proposed terms of this drama's novel extraction",
             responses={404: {"model": ErrorResponse}})
 def get_novel_glossary(drama_id: int = Path(ge=1)):
-    s = glossary_service.get_novel_glossary_status(drama_id)
-    return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
-            "message": s.get("message") or "",
-            "proposals": (s.get("result") or {}).get("proposals")}
+    return _status_body(glossary_service.get_novel_glossary_status(drama_id))
 
 
 @router.post("/dramas/{drama_id}/from-novel/apply", dependencies=[require_permission("lines.edit")], response_model=NovelGlossaryApplyResult,
              summary="Add named proposals to the series glossary (overwrite needs confirm=true)",
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: int = Path(ge=1)):
+    return _apply(glossary_service.apply_novel_glossary, drama_id, payload)
+
+
+@router.post("/dramas/{drama_id}/from-novel/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult,
+             summary="Cancel this drama's novel extraction, only if it is still run run_id",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
-def post_apply_novel_glossary(payload: NovelGlossaryApplyRequest, drama_id: int = Path(ge=1)):
+def post_cancel_novel_glossary(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_novel_glossary_run(drama_id, payload.run_id)
+
+
+def _status_body(s: dict) -> dict:
+    return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
+            "message": s.get("message") or "",
+            "proposals": (s.get("result") or {}).get("proposals"), "run_id": s.get("run_id")}
+
+
+def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> dict:
     if payload.overwrite_existing and not payload.confirm:
         raise InvalidInputError("Overwriting existing terms needs confirm=true.")
-    return glossary_service.apply_novel_glossary(
-        drama_id, payload.terms, overwrite_existing=payload.overwrite_existing)
+    overrides = {term: edit.model_dump(exclude_unset=True)
+                 for term, edit in payload.overrides.items()}
+    return apply_fn(drama_id, payload.terms, overwrite_existing=payload.overwrite_existing,
+                    overrides=overrides, run_id=payload.run_id)
+
+
+# --- Parity X10: glossary from the drama's source lines -----------------------
+# Same gate and shape as from-novel: the drama's own engine, checked with
+# engines.paid, passed on so the service refuses (409) if it changed since.
+
+@router.post("/dramas/{drama_id}/from-lines", dependencies=[require_permission("jobs.start")], response_model=LinesGlossaryRunResult,
+             summary="Start proposing glossary terms from this drama's source lines",
+             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
+                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        503: {"model": ErrorResponse}})
+def post_start_lines_glossary(request: Request, drama_id: int = Path(ge=1)):
+    engine_name = glossary_service.lines_glossary_engine(drama_id)
+    require_engines_allowed(request, engine_name)
+    return glossary_service.start_lines_glossary_run(drama_id, engine_name=engine_name)
+
+
+@router.get("/dramas/{drama_id}/from-lines", dependencies=[require_permission("library.read")], response_model=NovelGlossaryStatus,
+            summary="Status and (when done) the proposed terms of this drama's lines extraction",
+            responses={404: {"model": ErrorResponse}})
+def get_lines_glossary(drama_id: int = Path(ge=1)):
+    return _status_body(glossary_service.get_lines_glossary_status(drama_id))
+
+
+@router.post("/dramas/{drama_id}/from-lines/apply", dependencies=[require_permission("lines.edit")], response_model=NovelGlossaryApplyResult,
+             summary="Add named lines proposals to the series glossary (overwrite needs confirm=true)",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int = Path(ge=1)):
+    return _apply(glossary_service.apply_lines_glossary, drama_id, payload)
+
+
+@router.post("/dramas/{drama_id}/from-lines/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult,
+             summary="Cancel this drama's lines extraction, only if it is still run run_id",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_cancel_lines_glossary(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_lines_glossary_run(drama_id, payload.run_id)

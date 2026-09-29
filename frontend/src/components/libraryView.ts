@@ -42,19 +42,27 @@ export const parseTime = (iso: string | null | undefined): number => {
 }
 
 export type ContinueItem =
-  | { kind: 'read'; dramaId: number; title: string; titleZh: string | null; percent: number | null; at: number }
+  | {
+      kind: 'read'; dramaId: number; title: string; titleZh: string | null; percent: number | null
+      page: number | null; cover: boolean; at: number
+    }
   | { kind: 'work'; dramaId: number; title: string; titleZh: string | null; status: string | null; mediaType: string | null; at: number }
 
-interface HistoryRow extends Titled { drama_id: number; percent_complete: number | null; accessed_at: string | null }
+// GET /api/library/continue rows (partly-read dramas).
+interface ReadingRow extends Titled {
+  drama_id: number; percent_complete: number | null; last_page: number | null
+  last_accessed_at: string | null; has_cover_art: boolean
+}
 interface RecentRow extends Titled { id: number; status: string | null; updated_at: string | null; media_type: string | null }
 
-/** The Continue shelf: reading history and recently active dramas, newest
- *  first, one entry per drama (whichever activity is newer). */
-export function continueItems(history: HistoryRow[], recent: RecentRow[]): ContinueItem[] {
+/** The Continue shelf: partly-read dramas (GET /api/library/continue) and
+ *  recently active dramas, newest first, one entry per drama (whichever
+ *  activity is newer). */
+export function continueItems(reading: ReadingRow[], recent: RecentRow[]): ContinueItem[] {
   const all: ContinueItem[] = [
-    ...history.map((h): ContinueItem => ({
+    ...reading.map((h): ContinueItem => ({
       kind: 'read', dramaId: h.drama_id, title: dramaName({ ...h, id: h.drama_id }), titleZh: h.title_zh,
-      percent: h.percent_complete, at: parseTime(h.accessed_at),
+      percent: h.percent_complete, page: h.last_page, cover: h.has_cover_art, at: parseTime(h.last_accessed_at),
     })),
     ...recent.map((r): ContinueItem => ({
       kind: 'work', dramaId: r.id, title: dramaName(r), titleZh: r.title_zh, status: r.status,

@@ -42,7 +42,8 @@ export interface DiagnosticsOverview {
 
 export interface DiagnosticsSetupChecks {
   python: { version: string | null; ok: boolean }
-  ffmpeg: { found: boolean; version: string | null }
+  // libass: built with libass (burned-in subtitles); null/absent = unknown.
+  ffmpeg: { found: boolean; version: string | null; libass?: boolean | null }
   js_runtime: { found: boolean; name: string | null }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
   files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
@@ -101,9 +102,151 @@ export interface DiagnosticsInstallResult {
   package: string
   ok: boolean
   output_tail: string[]
+  // Plain-English next step for a known failure (pip's cache unwritable).
+  hint?: string | null
+}
+
+export interface DiagnosticsPackageInfo {
+  name: string
+  dist: string
+  installed: boolean
+  // From installed metadata; null when not installed or unreadable.
+  installed_version?: string | null
+  // The app's minimum (requirements files' >=) and whether the installed one is older.
+  min_version?: string | null
+  below_min?: boolean
+  installable: boolean
+  powers: string
+  approx_mb: number | null
+  pulls_torch: boolean
+  source_url: string | null
+  not_offered_reason: string | null
+  warning: string | null
+}
+
+export type TaskRole = 'required' | 'recommended' | 'optional'
+
+export interface DiagnosticsInstallTask {
+  id: string
+  group: string
+  label: string
+  help: string
+  packages: string[]
+  // Per package: required (the task needs it), recommended, optional.
+  roles?: Record<string, TaskRole>
+  installed_count: number
+  required_missing?: string[]
+  // Missing required + recommended: what "Install for this task" installs.
+  to_install: string[]
+  // Missing optional extras, installed one by one from Missing packages.
+  optional_missing?: string[]
+  approx_mb: number
+}
+
+export interface DiagnosticsInstallPresets {
+  tasks: DiagnosticsInstallTask[]
+  packages: Record<string, DiagnosticsPackageInfo>
+}
+
+// POST /api/diagnostics/package-updates/check (PyPI, explicit click only).
+export type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
+
+export interface DiagnosticsPackageUpdate {
+  name: string
+  dist: string
+  installed_version: string | null
+  status: PackageUpdateStatus
+  latest: string | null
+  // The exact version Update installs (status "update").
+  target: string | null
+  reason: string | null
+}
+
+export interface DiagnosticsPackageUpdates {
+  checked_at: number
+  packages: Record<string, DiagnosticsPackageUpdate>
+}
+
+// GET /api/diagnostics/gpu-torch and POST /api/diagnostics/gpu-torch/setup.
+export interface DiagnosticsGpuTorchNvidia {
+  found: boolean
+  gpu_name: string | null
+  driver_version: string | null
+  status: 'ok' | 'old' | 'too_old' | 'unknown'
+  recommended: string | null
+  minimum: string | null
+}
+
+export interface DiagnosticsTorchPackage {
+  name: string
+  version: string | null
+  build: 'cuda' | 'cpu' | null
+}
+
+export interface DiagnosticsTorchVariant {
+  variant: 'cu128' | 'cpu'
+  label: string
+  index_url: string
+  versions: Record<string, string>
+  needs_nvidia: boolean
+}
+
+export interface DiagnosticsTorchVerify {
+  torch: string | null
+  torchvision: string | null
+  torchaudio: string | null
+  cuda_build: string | null
+  cuda_available: boolean | null
+  device: string | null
+  error: string | null
+}
+
+export type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
+
+export interface DiagnosticsGpuTorchStatus {
+  nvidia: DiagnosticsGpuTorchNvidia
+  installed: DiagnosticsTorchPackage[]
+  problems: string[]
+  state: GpuTorchState
+  python_supported: boolean
+  recommended: DiagnosticsTorchVariant
+  variants: DiagnosticsTorchVariant[]
+  probe: DiagnosticsTorchVerify | null
+}
+
+export interface DiagnosticsGpuTorchSetupResult extends DiagnosticsInstallResult {
+  variant: string
+  verify: DiagnosticsTorchVerify | null
 }
 
 export interface DiagnosticsResetResult {
   ok: boolean
   reset_at: number
+}
+
+// POST /api/diagnostics/model-cache/{hf|piper}/{name}/delete (PC only).
+export interface DiagnosticsCacheDeleteResult {
+  deleted: boolean
+  name: string
+}
+
+// GET /api/diagnostics/bug-bundles: saved "What happened here?" snapshots.
+export interface DiagnosticsBugBundle {
+  id: number
+  drama_id: number
+  drama_title: string | null
+  line_id: number | null
+  label: string
+  engine: string | null
+  model: string | null
+  produced_output: string
+  replayed: boolean
+  replay_output: string | null
+  reproduced: boolean | null
+  created_at: string | null
+}
+
+export interface BugBundleDeleteResult {
+  bundle_id: number
+  deleted: boolean
 }

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
-  createDrama, getCosts, getHistory, getPresets, getRecent, getSeries, getStats, getVoiceBank,
-  renamePreset, renameVoiceBankEntry,
+  clearReadingHistory, createDrama, getContinueReading, getCosts, getHistory, getPresets, getRecent,
+  getSeries, getStats, getVoiceBank, renamePreset, renameVoiceBankEntry,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
@@ -168,16 +169,48 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
   )
 }
 
+// Clear the reading history (PC only). Reading progress, and so the Continue
+// shelf, is kept.
+function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  if (pc === 'remote') return <p className="muted">Clearing history is PC only.</p>
+  const run = () => {
+    setBusy(true)
+    setError(null)
+    clearReadingHistory().then(
+      () => { setBusy(false); onCleared() },
+      (e: unknown) => { setBusy(false); setError(e) },
+    )
+  }
+  return (
+    <>
+      <div className="actions">
+        <ConfirmButton
+          name="reading history"
+          label="Clear history…"
+          ariaLabel="Clear reading history"
+          verb="clear"
+          busy={busy}
+          onConfirm={run}
+        />
+      </div>
+      <p className="muted">Where you left off in each drama is kept.</p>
+      <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
+    </>
+  )
+}
+
 // "Continue": reading and workspace activity, one Resume tap each. Rendered
 // only when there is something to resume.
-function ContinueShelf({ history, recent, mediaTypes, phone }: {
-  history: Loaded<{ items: Parameters<typeof continueItems>[0] }>
+function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
+  continuing: Loaded<{ items: Parameters<typeof continueItems>[0] }>
   recent: Loaded<{ items: Parameters<typeof continueItems>[1] }>
   mediaTypes: Map<number, string | null>
   phone: boolean
 }) {
   const [all, setAll] = useState(false)
-  const items = continueItems(history.data?.items ?? [], recent.data?.items ?? [])
+  const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   if (!items.length) return null
   const limit = phone ? 2 : 4
   const shown = all ? items : items.slice(0, limit)
@@ -191,13 +224,15 @@ function ContinueShelf({ history, recent, mediaTypes, phone }: {
         {shown.map((x) => (
           <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
             <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
-              {tileText({ title_en: x.title, title_zh: x.titleZh })}
+              {x.kind === 'read' && x.cover
+                ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
+                : tileText({ title_en: x.title, title_zh: x.titleZh })}
             </span>
             <div className="continue-text">
               <span className="continue-title">{x.title}</span>
               <span className="continue-meta">
                 {x.kind === 'read'
-                  ? <>Reading{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
+                  ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
                   : <>{x.status && <Badge kind="status" value={x.status} />}<span>Workspace</span></>}
               </span>
             </div>
@@ -289,6 +324,7 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
               </li>
             ))}
           </ul>
+          <ClearHistory pc={pc} onCleared={onChanged} />
         </ToolSection>
         <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
           <DeletableList
@@ -445,6 +481,7 @@ export default function LibraryPage() {
   const stats = useLoad(getStats, reloadKey)
   const recent = useLoad(getRecent, reloadKey)
   const history = useLoad(getHistory, reloadKey)
+  const continuing = useLoad(getContinueReading, reloadKey)
   const series = useLoad(getSeries, reloadKey)
   const costs = useLoad(getCosts, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
@@ -524,7 +561,7 @@ export default function LibraryPage() {
         </p>
       )}
 
-      <ContinueShelf history={history} recent={recent} mediaTypes={mediaTypes} phone={phone} />
+      <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
 
       {!phone && bar}
       {!(phone && bar) && resultLine}

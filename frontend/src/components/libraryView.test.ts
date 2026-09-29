@@ -32,8 +32,8 @@ describe('parseTime', () => {
 })
 
 describe('continueItems', () => {
-  const read = (drama_id: number, accessed_at: string, percent_complete: number | null = 40) =>
-    ({ drama_id, accessed_at, percent_complete, title_en: `D${drama_id}`, title_zh: null })
+  const read = (drama_id: number, last_accessed_at: string, percent_complete: number | null = 40) =>
+    ({ drama_id, last_accessed_at, percent_complete, last_page: 2, has_cover_art: false, title_en: `D${drama_id}`, title_zh: null })
   const work = (id: number, updated_at: string) =>
     ({ id, updated_at, status: 'aligned', media_type: null, title_en: `D${id}`, title_zh: null })
 
@@ -43,6 +43,7 @@ describe('continueItems', () => {
       [work(2, '2026-09-29T10:00:00'), work(3, '2026-09-27T10:00:00')],
     )
     expect(items.map((x) => `${x.kind}-${x.dramaId}`)).toEqual(['read-1', 'work-2', 'work-3'])
+    expect(items[0]).toMatchObject({ page: 2, percent: 40, cover: false })
   })
 
   it('is empty when there is nothing to resume', () => {

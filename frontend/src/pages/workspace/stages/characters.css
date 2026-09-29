@@ -1,0 +1,10 @@
+/* Characters extras: voice suggestions, per-speaker samples, custom pronouns. */
+.voice-suggestions ul { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; gap: var(--space-2); }
+.voice-suggestions li { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; }
+.voice-suggestions li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.voice-suggestions .actions { display: flex; gap: var(--space-2); }
+.character-extras { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: center; margin-bottom: var(--space-1); }
+.character-extras .character-samples { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; margin: 0; }
+.character-extras .character-shared { margin: 0; }
+.character-pronouns { display: grid; gap: var(--space-1); }
+.character-pronouns input { min-width: 6rem; }

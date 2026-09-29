@@ -6,13 +6,27 @@ API batch 1). Thin: see services/diagnostics_gaps_service.py.
 Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
 only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
 the server-side token and returns booleans only), finished-job history
-(Q09), log tail with keyword filter (Q18) and the support report (Q17).
+(Q09), log tail with keyword filter (Q18), the support report (Q17) and
+install presets (packages grouped by task, installed versions, approx.
+sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
+status plus a CUDA check in a fresh Python; 409 while a job or another
+check runs) and `POST /package-updates/check` are also `admin.diagnostics`;
+the latter
+asks PyPI (a fixed https://pypi.org/pypi/<dist>/json per static dist name,
+with a timeout) only when called, and caches the answer for Upgrade.
 
 Writes are `local_only()` plus `confirm=true`: dependency install and
-upgrade (Q06, package names from the service's whitelist only) and the
+upgrade (Q06, package names from the service's whitelist only; upgrade
+takes the `target` the user confirmed and is 409 when the last update check
+no longer says so), the GPU
+PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
+static table, never the request) and the
 library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Model-cache delete, bug bundles, benchmark and
-the App Assistant are not exposed.
+background job runs (409). Deleting a cached model or Piper voice is also
+`local_only()` + `confirm=true`, refused while a job runs, and takes only a
+name the cache scan lists. The saved bug bundles are listed here
+(`admin.diagnostics`); their delete is in delete_routes.py. Bundle replay,
+benchmark and the App Assistant are not exposed.
 """
 
 from typing import List
@@ -20,7 +34,11 @@ from typing import List
 from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsInstallResult,
+from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsBugBundle,
+                         DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchSetupRequest,
+                         DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
+                         DiagnosticsInstallPresets, DiagnosticsInstallResult,
+                         DiagnosticsPackageUpdates, DiagnosticsUpgradeRequest,
                          DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
@@ -78,6 +96,46 @@ def get_support_report():
     return {"report": svc.build_support_report()}
 
 
+@router.get("/install-presets", dependencies=[require_permission("admin.diagnostics")],
+            response_model=DiagnosticsInstallPresets,
+            summary="Packages grouped by task, with approx. sizes, PyPI links and caveats")
+def get_install_presets():
+    return svc.get_install_presets()
+
+
+@router.post("/package-updates/check", dependencies=[require_permission("admin.diagnostics")],
+             response_model=DiagnosticsPackageUpdates,
+             summary="Ask PyPI for newer releases of installed packages; the newest one "
+                     "constraints.txt and installed dependents allow (explicit click only)")
+def post_package_updates_check():
+    return svc.check_package_updates()
+
+
+@router.get("/gpu-torch", dependencies=[require_permission("admin.diagnostics")],
+            response_model=DiagnosticsGpuTorchStatus,
+            summary="NVIDIA GPU/driver, installed torch family, recommended matched triple")
+def get_gpu_torch():
+    return svc.get_gpu_torch_status()
+
+
+@router.post("/gpu-torch/check", dependencies=[require_permission("admin.diagnostics")],
+             response_model=DiagnosticsGpuTorchStatus,
+             summary="The same status plus a CUDA check (imports torch in a fresh Python; "
+                     "409 while a job or another check runs)",
+             responses={409: {"model": ErrorResponse}})
+def post_gpu_torch_check():
+    return svc.check_gpu_torch()
+
+
+@router.post("/gpu-torch/setup", dependencies=[local_only()],
+             response_model=DiagnosticsGpuTorchSetupResult,
+             summary="PC only: install the matched torch/torchvision/torchaudio from the fixed "
+                     "PyTorch index, then verify (confirm=true)",
+             responses=_ERRS)
+def post_gpu_torch_setup(body: DiagnosticsGpuTorchSetupRequest):
+    return svc.setup_gpu_torch(body.variant, confirm=body.confirm)
+
+
 @router.post("/dependencies/{package}/install", dependencies=[local_only()],
              response_model=DiagnosticsInstallResult,
              summary="PC only: pip-install a whitelisted optional package (confirm=true)",
@@ -91,9 +149,9 @@ def post_install(body: DiagnosticsAdminConfirm,
              response_model=DiagnosticsInstallResult,
              summary="PC only: upgrade a whitelisted optional package (confirm=true)",
              responses=_ERRS)
-def post_upgrade(body: DiagnosticsAdminConfirm,
+def post_upgrade(body: DiagnosticsUpgradeRequest,
                  package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
-    return svc.upgrade_dependency(package, confirm=body.confirm)
+    return svc.upgrade_dependency(package, confirm=body.confirm, target=body.target)
 
 
 @router.post("/reset-library", dependencies=[local_only()],
@@ -102,3 +160,29 @@ def post_upgrade(body: DiagnosticsAdminConfirm,
              responses=_ERRS)
 def post_reset_library(body: DiagnosticsResetRequest):
     return svc.reset_library(confirm=body.confirm, confirm_text=body.confirm_text)
+
+
+@router.post("/model-cache/hf/{revision}/delete", dependencies=[local_only()],
+             response_model=DiagnosticsCacheDeleteResult,
+             summary="PC only: delete one cached Hugging Face model revision (confirm=true)",
+             responses=_ERRS)
+def post_delete_hf_revision(body: DiagnosticsAdminConfirm,
+                            revision: str = Path(pattern=r"^[0-9a-f]{40}$")):
+    return svc.delete_hf_revision(revision, confirm=body.confirm)
+
+
+@router.post("/model-cache/piper/{voice}/delete", dependencies=[local_only()],
+             response_model=DiagnosticsCacheDeleteResult,
+             summary="PC only: delete one downloaded Piper voice (confirm=true)",
+             responses=_ERRS)
+def post_delete_piper_voice(body: DiagnosticsAdminConfirm,
+                            voice: str = Path(min_length=1, max_length=120,
+                                              pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
+    return svc.delete_piper_voice(voice, confirm=body.confirm)
+
+
+@router.get("/bug-bundles", dependencies=[require_permission("admin.diagnostics")],
+            response_model=List[DiagnosticsBugBundle],
+            summary="Saved bug-reproduction bundles, newest first (no frozen input; redacted)")
+def get_bug_bundles():
+    return svc.list_bug_bundles()

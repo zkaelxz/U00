@@ -1,0 +1,11 @@
+/* Library parity: More filters (LibraryList). */
+.more-filters { margin-bottom: var(--space-2); }
+.more-filters > summary { cursor: pointer; color: var(--muted); font-size: var(--font-sm); min-height: 32px; display: flex; align-items: center; }
+.more-filters[open] > summary { margin-bottom: var(--space-2); }
+.tag-filter { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); border: 0; padding: 0; margin: 0 0 var(--space-2); }
+.tag-filter legend { font-size: var(--font-sm); color: var(--muted); padding: 0; margin-bottom: var(--space-1); }
+.tag-filter .check { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 32px; }
+.tag-filter .check input { width: auto; margin: 0; }
+@media (max-width: 640px) {
+  .more-filters > summary, .tag-filter .check { min-height: 44px; }
+}

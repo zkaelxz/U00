@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { getRawNovel } from '../../../api/novelFiles'
-import { attachNovelEpub, attachNovelText, getNovelStatus, startNovelOcr } from '../../../api/workspace'
+import {
+  attachNovelEpub, attachNovelFromSources, attachNovelText, getNovelStatus, startNovelOcr,
+} from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
-import type { NovelMode, NovelStatus } from '../../../types/workspace'
+import type { NovelAttachResult, NovelMode, NovelStatus } from '../../../types/workspace'
+import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { useNovelFilesVersion } from './novelFileEvents'
+import './preamble.css'
 
 interface Props {
   busy?: boolean
@@ -23,6 +27,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
   const [mode, setMode] = useState<NovelMode>('replace')
   const [text, setText] = useState('')
   const [epub, setEpub] = useState<File | null>(null)
+  const [fromChapter, setFromChapter] = useState('')
+  const [toChapter, setToChapter] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [reloads, setReloads] = useState(0)
@@ -58,9 +64,9 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
   }, [dramaId, reloads, reloadKey, filesVersion])
 
   const attached = useCallback(
-    (chars: number) => {
+    (r: NovelAttachResult) => {
       setError(null)
-      setNotice(`Attached ${chars.toLocaleString()} characters.`)
+      setNotice(attachNotice(r))
       setReloads((n) => n + 1)
       refetchDrama()
     },
@@ -71,6 +77,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
     setError(e)
   }
 
+  const range = epubRange(fromChapter, toChapter)
   const base = status?.has_novel_text
     ? `${status.char_count.toLocaleString()} chars · ${status.chapters} chapters`
     : 'none attached'
@@ -104,7 +111,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
           onClick={() =>
             attachNovelText(dramaId, text, mode).then((r) => {
               setText('')
-              attached(r.char_count)
+              attached(r)
             }, fail)
           }
         >
@@ -113,13 +120,33 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         <Field label="EPUB file" help="Or attach an .epub file instead of pasting.">
           <input type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
         </Field>
+        <div className="epub-range">
+          <Field label="From chapter" help="Blank: the first.">
+            <input type="number" inputMode="numeric" min={1} value={fromChapter} onChange={(e) => setFromChapter(e.target.value)} />
+          </Field>
+          <Field label="To chapter" help="Blank: the last.">
+            <input type="number" inputMode="numeric" min={1} value={toChapter} onChange={(e) => setToChapter(e.target.value)} />
+          </Field>
+        </div>
+        {'problem' in range && <p className="error" role="alert">{range.problem}</p>}
         <button
           type="button"
-          disabled={!epub}
-          onClick={() => epub && attachNovelEpub(dramaId, epub, mode).then((r) => attached(r.char_count), fail)}
+          disabled={!epub || 'problem' in range}
+          onClick={() =>
+            epub && !('problem' in range) &&
+            attachNovelEpub(dramaId, epub, mode, undefined, range).then(attached, fail)
+          }
         >
           Attach EPUB
         </button>
+        {hasRaw && (
+          <div>
+            <button type="button" onClick={() => attachNovelFromSources(dramaId, mode).then(attached, fail)}>
+              Use chapters imported in Sources
+            </button>
+            <p className="muted">The original-language chapters saved for this drama (from Sources or Transcribe), using the Mode above.</p>
+          </div>
+        )}
         <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrBackend}` : ocrBackend}>
           <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
             <input

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ApiError } from '../../api/client'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import type {
-  DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
+  DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
@@ -13,7 +13,7 @@ import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { describeGpu, formatSeconds, statusLabel } from '../diagnosticsFormat'
 
-// Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Upgrade.
+// Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Update.
 export const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
 export const isInstallable = (tier: string) => INSTALLABLE_TIERS.includes(tier)
 
@@ -27,7 +27,7 @@ export const installConfirmLabel = (name: string): string | undefined =>
 export type AdminAction = 'install' | 'upgrade' | 'reset'
 export type AdminBusy = { kind: AdminAction; name: string } | null
 
-/** Why Install/Upgrade can't run now, or null. */
+/** Why Install/Update can't run now, or null. */
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy?.kind === 'reset') return 'Wait for the reset to finish.'
   if (busy) return 'Wait for the install to finish.'
@@ -45,13 +45,13 @@ export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string
 /** The aria-live line while an install or upgrade runs. */
 export function busyLine(busy: AdminBusy): string | null {
   if (!busy || busy.kind === 'reset') return null
-  const verb = busy.kind === 'install' ? 'Installing' : 'Upgrading'
+  const verb = busy.kind === 'install' ? 'Installing' : 'Updating'
   return `${verb} ${busy.name}… this can take several minutes. Keep this tab open.`
 }
 
 export function installResultText(kind: 'install' | 'upgrade', name: string, ok: boolean): string {
-  if (!ok) return `${kind === 'install' ? 'Install' : 'Upgrade'} failed for ${name}.`
-  return kind === 'install' ? `Installed ${name}.` : `Upgraded ${name}. Restart Baihe to load the new version.`
+  if (!ok) return `${kind === 'install' ? 'Install' : 'Update'} failed for ${name}.`
+  return kind === 'install' ? `Installed ${name}.` : `Updated ${name}. Restart Baihe to load the new version.`
 }
 
 export const LOST_CONTACT_INSTALL =
@@ -77,7 +77,15 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 
 // ---- Setup ----
 
-export type SetupRow = { key: string; label: string; text: string; problem: boolean }
+// `core`: a Q01 core requirement (Python, ffmpeg with libass, JS runtime),
+// always shown at the top of the page rather than inside the Setup fold.
+export type SetupRow = { key: string; label: string; text: string; problem: boolean; core?: boolean }
+
+/** The ffmpeg row's problem text: missing, or built without libass. */
+function ffmpegProblem(c: DiagnosticsSetupChecks): string {
+  if (!c.ffmpeg.found) return 'ffmpeg not found'
+  return 'ffmpeg has no libass (burned-in subtitles and the styled preview need it)'
+}
 
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
 export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): SetupRow[] {
@@ -86,9 +94,12 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     rows.push({ key, label, problem: !ok, text: ok ? `${label}: ${good}` : `Problem: ${bad}` })
   add('python', 'Python', c.python.ok, c.python.version ?? 'found',
     c.python.version ? `Python ${c.python.version} is too old` : 'Python version unknown')
-  add('ffmpeg', 'ffmpeg', c.ffmpeg.found, c.ffmpeg.version ?? 'found', 'ffmpeg not found')
+  const ffmpegOk = c.ffmpeg.found && c.ffmpeg.libass !== false
+  add('ffmpeg', 'ffmpeg', ffmpegOk,
+    `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
+  for (const r of rows) r.core = true
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
   const missing = c.files.missing_top_level.length + c.files.missing_tabs.length
@@ -124,7 +135,7 @@ export function headerParts(
   const rest: string[] = []
   if (installed != null && total != null) rest.push(`${installed} of ${total} packages`)
   if (running > 0) rest.push(`${running} ${running === 1 ? 'job' : 'jobs'} running`)
-  if (busy && busy.kind !== 'reset') rest.push(`${busy.kind === 'install' ? 'Installing' : 'Upgrading'} ${busy.name}`)
+  if (busy && busy.kind !== 'reset') rest.push(`${busy.kind === 'install' ? 'Installing' : 'Updating'} ${busy.name}`)
   return { setup, warn: !!setupProblems, rest: rest.join(' · ') }
 }
 
@@ -164,6 +175,19 @@ export function historySummary(h: DiagnosticsJobHistoryItem): string {
 }
 
 export const HISTORY_PAGE = 20
+
+// ---- Saved bug bundles ----
+
+/** "#4 Bad pronoun · Signal" ("(deleted drama)" once the drama is gone). */
+export const bugBundleTitle = (b: Pick<DiagnosticsBugBundle, 'id' | 'label' | 'drama_title'>) =>
+  `#${b.id} ${b.label || 'Untitled'} · ${b.drama_title ?? '(deleted drama)'}`
+
+/** The last replay's outcome, or null if never replayed. */
+export function bugBundleReplayText(b: Pick<DiagnosticsBugBundle, 'replayed' | 'replay_output' | 'reproduced'>) {
+  if (!b.replayed) return null
+  const verdict = b.reproduced ? 'Still reproduces the same output.' : 'No longer reproduces: the output changed.'
+  return `${verdict} Last replay: ${b.replay_output || '—'}`
+}
 
 // ---- Log and report ----
 
