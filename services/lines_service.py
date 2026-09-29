@@ -13,9 +13,9 @@ rows that still exist; it can never insert or delete a line.
 
 Concurrency: a caller may send `expected` -- the old values it saw -- and a
 mismatch with the current database value raises ConflictError (nothing is
-written). The compare and the write are two steps, not one atomic SQL
-statement; the window is tiny and the write itself is field-scoped, so the
-worst case is the same as two users saving the same field a moment apart.
+written). When `expected` is sent, the compare and the write are ONE
+conditional UPDATE (`db.update_line_fields_if`), so a change landing between
+a read and the write can't be overwritten.
 
 Explicitly out of scope: merge/split/delete lines, restore original text,
 LLM tools, bulk modes. No Streamlit/FastAPI import: plain dicts in and out.
@@ -148,7 +148,16 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
         ln.flag, ln.flag_note = None, ""
         fields += ["flag", "flag_note"]
 
-    db.save_lines(drama_id, [ln], fields=tuple(fields))
+    if expected:
+        values = {f: db._line_value(ln, f) for f in fields}
+        if not db.update_line_fields_if(drama_id, line_id, values, expected):
+            # Changed (or removed) between the read above and this write.
+            _, _, fresh = _load(drama_id, line_id)
+            stale = [k for k, v in expected.items() if not _same(k, getattr(fresh, k), v)]
+            raise ConflictError("This line changed since you loaded it.",
+                                details={"fields": sorted(stale or expected)})
+    else:
+        db.save_lines(drama_id, [ln], fields=tuple(fields))
 
     if en_changed:
         if before_en and ln.en:
