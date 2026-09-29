@@ -919,3 +919,31 @@ class TestPaddingRealFfmpegChunks:
         padded_samples = _read_samples(padded)
         assert len(padded_samples) == chunk1_frames + 8000
         assert padded_samples[:8000] == _read_samples(c0)[-8000:]
+
+
+class TestStreamUrlCheckAndProtocolWhitelist:
+    """The API's hooks (services/live_service.py): the resolved stream URL
+    is checked before ffmpeg opens it, and ffmpeg gets an input protocol
+    whitelist. Both default off (the Streamlit tab's behaviour)."""
+
+    def test_whitelist_goes_before_the_input(self, monkeypatch, tmp_path):
+        seen = []
+        monkeypatch.setattr(lt.subprocess, "Popen", lambda cmd, **k: seen.append(cmd))
+        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20,
+                                 protocol_whitelist="http,https,tcp,tls,crypto")
+        cmd = seen[0]
+        i = cmd.index("-protocol_whitelist")
+        assert cmd[i + 1] == "http,https,tcp,tls,crypto" and cmd.index("-i") == i + 2
+        lt.start_segment_capture("https://x.example/a.m3u8", str(tmp_path), 20)
+        assert "-protocol_whitelist" not in seen[1]
+
+    def test_refused_stream_url_never_reaches_ffmpeg(self, monkeypatch):
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "file:///etc/passwd")
+        monkeypatch.setattr(lt, "start_segment_capture",
+                            lambda *a, **k: pytest.fail("ffmpeg must not start"))
+
+        def refuse(url):
+            raise ValueError("not public")
+        with pytest.raises(ValueError):
+            lt.run_live_job("test_stream_check", "https://example.com/live", "/fake/out", 20,
+                            "zh", "tiny", engine=None, stream_url_check=refuse)

@@ -100,6 +100,18 @@ def _plain_text(value, what: str, max_len: int) -> str:
     return text
 
 
+def _series_id(value) -> str:
+    """Adapters append a series id to their own base URL, and some urljoin
+    it (52shuku), so "//other.host/x" would change the host. Refuse
+    anything that could: a leading slash or backslash, backslashes, "@",
+    ":", ".." segments, whitespace and control characters."""
+    text = _plain_text(value, "series_id", MAX_ID_LEN)
+    if (text[0] in "/\\" or any(c in text for c in "\\@:") or ".." in text
+            or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in text)):
+        raise InvalidInputError("series_id must be a plain id.")
+    return text
+
+
 def _enabled_source(name: str):
     cls = _require_source(name)
     if not registry.is_enabled(name):
@@ -236,7 +248,7 @@ def start_series(name, series_id) -> dict:
     chapter_order.sort_chapters_grouped order."""
     name = str(name or "")
     cls = _enabled_source(name)
-    series_id = _plain_text(series_id, "series_id", MAX_ID_LEN)
+    series_id = _series_id(series_id)
     if not cls().supports("get_chapters"):
         raise UnsupportedOperationError("This source can't list chapters.",
                                         details={"reason": "NOT_SUPPORTED"})

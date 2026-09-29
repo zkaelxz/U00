@@ -17,7 +17,10 @@ from api.server import create_app
 
 @pytest.fixture
 def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    # X-Baihe-Local: what the React upload helper sends; local_only refuses
+    # a multipart POST without it (api/auth.py _cross_site_safe)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})
 
 
 def _drama(**kw):
