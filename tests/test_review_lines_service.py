@@ -253,3 +253,57 @@ def test_h3_regex_matches_only_first_chars(isolated_db):
     did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en=text)])
     assert svc.preview_find_replace(did, "needle", "z", use_regex=True) == []
     assert len(svc.preview_find_replace(did, "needle", "z", use_regex=False)) == 1
+
+
+# ------------------------------------------- helpers moved from workspace_tab
+
+def _flag_lines(n):
+    return [Line(idx=i, start=float(i), end=float(i) + 1.0, zh="你好", en="Hello")
+            for i in range(n)]
+
+
+class TestAdjacentFlaggedIdx:
+    def _flagged_lines(self):
+        lines = _flag_lines(10)
+        lines[2].flag = "review"
+        lines[6].flag = "review"
+        return lines
+
+    def test_forward_finds_the_next_flagged_line(self):
+        lines = self._flagged_lines()
+        assert svc.adjacent_flagged_idx(lines, ref_idx=0, forward=True) == 2
+        assert svc.adjacent_flagged_idx(lines, ref_idx=2, forward=True) == 6
+
+    def test_backward_finds_the_previous_flagged_line(self):
+        lines = self._flagged_lines()
+        assert svc.adjacent_flagged_idx(lines, ref_idx=9, forward=False) == 6
+        assert svc.adjacent_flagged_idx(lines, ref_idx=6, forward=False) == 2
+
+    def test_none_when_nothing_further_in_that_direction(self):
+        lines = self._flagged_lines()
+        assert svc.adjacent_flagged_idx(lines, ref_idx=6, forward=True) is None
+        assert svc.adjacent_flagged_idx(lines, ref_idx=2, forward=False) is None
+
+    def test_none_when_nothing_flagged_at_all(self):
+        lines = _flag_lines(10)
+        assert svc.adjacent_flagged_idx(lines, ref_idx=0, forward=True) is None
+        assert svc.adjacent_flagged_idx(lines, ref_idx=9, forward=False) is None
+
+
+SFX_LINES = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A"),
+             Line(idx=1, start=1.0, end=2.0, zh="砰", en="door slams", sfx=True, speaker="A")]
+
+
+class TestSfxPersistence:
+    def test_round_trips_through_the_database(self, isolated_db):
+        did = isolated_db.create_drama(title_en="SFX", media_type="audio_drama",
+                                       content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(**{f: getattr(ln, f) for f in core.LINE_FIELDS})
+                                     for ln in SFX_LINES])
+        loaded = isolated_db.load_line_objects(did)
+        assert [ln.sfx for ln in loaded] == [False, True]
+        loaded[0].sfx = True
+        assert svc.unsaved_line_count(did, loaded) == 1
+        isolated_db.save_lines(did, loaded)
+        assert svc.unsaved_line_count(did, loaded) == 0
+        assert [ln.sfx for ln in isolated_db.load_line_objects(did)] == [True, True]
