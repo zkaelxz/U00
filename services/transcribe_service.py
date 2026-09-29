@@ -713,7 +713,8 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     whisper_fast_mode and language (as the tab uses its current widgets).
     candidates defaults to core.DEFAULT_AUTOTUNE_CANDIDATES_MS; each must be
     an int in 300..3000 (the slider's range), at most 6, no duplicates.
-    Poll GET /api/jobs/{job_id}; the "done" result is
+    Poll get_autotune_status(drama_id) (GET /api/transcribe/dramas/{id}/
+    autotune); its "done" result is
     {"results": [{candidate_ms, long_lines, total_lines}], "best_candidate_ms"}.
 
     NotFoundError, UnsupportedOperationError (no audio pipeline / no audio),
@@ -749,6 +750,33 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     if not started:
         raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
     return {"job_id": job_id, "candidates": list(candidates)}
+
+
+def get_autotune_status(drama_id: int) -> dict:
+    """{job_id, status, progress, message, result} for this drama's auto-tune
+    job; result is {"results": [...], "best_candidate_ms"} only when done
+    (else None). The message (or a failed job's error) is redacted.
+    NotFoundError when the drama doesn't exist or no auto-tune job is
+    resident in this process (results live only in background_jobs memory)."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    job_id = autotune_job_id(drama_id)
+    job = background_jobs.get_status(job_id)
+    if not job:
+        raise NotFoundError("No auto-tune run for this drama in this app session.")
+    status = job.get("status")
+    result = None
+    if status == "done":
+        raw = job.get("result") or {}
+        result = {
+            "results": [{"candidate_ms": r.get("candidate_ms"), "long_lines": r.get("long_lines"),
+                         "total_lines": r.get("total_lines")}
+                        for r in raw.get("results") or [] if isinstance(r, dict)],
+            "best_candidate_ms": raw.get("best_candidate_ms"),
+        }
+    message = job.get("error") if status == "error" else job.get("message")
+    return {"job_id": job_id, "status": status, "progress": job.get("progress"),
+            "message": redact_secrets(str(message)) if message else "", "result": result}
 
 
 def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
