@@ -443,7 +443,7 @@ baihe-subtitler/
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
 │   │                              ReaderStory (story tools, wiki, Q&A), ReaderEngine, ReaderAction +
-│   │                              useReaderAction (per-action error/429 retry), readerPrefs.ts and
+│   │                              useReaderAction (per-action error/429 retry), readerPrefsStore.ts and
 │   │                              readerErrors.ts (pure, unit-tested), reader.css
 │   ├── src/pages/Sources.tsx      Sources page (#/sources): search the enabled sources and open a series (paced
 │   │                              jobs), New chapters, PC-only Source settings; api/sources.ts, types/sources.ts

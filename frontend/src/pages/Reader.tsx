@@ -42,7 +42,7 @@ import {
   savePrefs,
   spoilerBoundary,
   type ReaderPrefs,
-} from './reader/readerPrefs'
+} from './reader/readerPrefsStore'
 import './reader/reader.css'
 
 const PROGRESS_DELAY_MS = 1000
