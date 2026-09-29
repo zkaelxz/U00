@@ -1392,6 +1392,45 @@ def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: d
     text/speaker/flag/flag_note with NULL equal to ""). Returns True if the row changed,
     False if it no longer matches (or no longer exists) -- nothing is
     written then. Never inserts or deletes."""
+    sql, params = _line_cas_sql(drama_id, line_id, values, expected)
+    conn = get_conn()
+    try:
+        cur = conn.execute(sql, params)
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_lines_fields_if_many(drama_id: int, items) -> list:
+    """Batch compare-and-set: `items` is [(line_id, values, expected), ...],
+    each the same conditional UPDATE as update_line_fields_if, all inside
+    ONE `BEGIN IMMEDIATE` transaction with one commit. Returns the line ids
+    whose expected values no longer matched (or that no longer exist);
+    those are skipped, the rest are written. On any error the whole batch
+    is rolled back and nothing is written."""
+    stmts = [(lid, *_line_cas_sql(drama_id, lid, values, expected))
+             for lid, values, expected in items]
+    if not stmts:
+        return []
+    missed = []
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for lid, sql, params in stmts:
+            if conn.execute(sql, params).rowcount == 0:
+                missed.append(lid)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return missed
+
+
+def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
+    """(sql, params) for one line's conditional UPDATE; validates columns."""
     sets, args = [], []
     for col, val in values.items():
         if col not in _LINE_COLUMNS:
@@ -1411,14 +1450,7 @@ def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: d
             cargs.append(val or "")
         else:
             raise ValueError(f"Unknown expected column: {col}")
-    conn = get_conn()
-    try:
-        cur = conn.execute(f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}",
-                           args + cargs)
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
+    return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
 def save_lines(drama_id: int, lines, fields=None):
