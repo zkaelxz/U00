@@ -241,6 +241,13 @@ export function applyTierToForm(f: RunForm, t: WorkflowTierApplied, c: Translate
   return { ...f, engine, model, reflect, bulk }
 }
 
+// After "Apply tier" the drama's saved engine is the tier's, so the loaded
+// config's default is stale: "Default (...)", validation and a preset saved
+// with Default selected must all use the new engine.
+export function withSavedEngine(c: TranslateRunConfig, t: WorkflowTierApplied): TranslateRunConfig {
+  return c.translation_engine === t.translation_engine ? c : { ...c, translation_engine: t.translation_engine }
+}
+
 export const PRESET_NAME_MAX = 100
 
 export function validatePresetName(name: string): string | null {

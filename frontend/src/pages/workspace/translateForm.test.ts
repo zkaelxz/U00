@@ -17,6 +17,7 @@ import {
   splitLines,
   validatePresetName,
   validateRun,
+  withSavedEngine,
 } from './translateForm'
 
 const config = {
@@ -227,6 +228,18 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
     expect(applyTierToForm(bulky, draft, withEngines).bulk).toBe(true)
     const noBulk = { ...withEngines, bulk_supported_engines: [] } as unknown as TranslateRunConfig
     expect(applyTierToForm(bulky, release, noBulk).bulk).toBe(false)
+  })
+
+  it('after a tier, Default means the new engine for validation and presets', () => {
+    // The drama was on deepl (translation-only: no Reflect); Release saves claude.
+    const c = withSavedEngine(withEngines, release)
+    expect(c.translation_engine).toBe('claude')
+    expect(withSavedEngine(c, release)).toBe(c)
+    const f = { ...applyTierToForm(initialForm(withEngines), release, withEngines), engine: '', model: '' }
+    expect(validateRun(f, withEngines.translation_engine)).toMatch(/cannot run Reflect/)
+    expect(validateRun(f, c.translation_engine)).toBeNull()
+    expect(buildPresetBody(f, c.translation_engine, 'Mine').translation_engine).toBe('claude')
+    expect(buildRunBody(f).engine).toBeUndefined()   // server uses the drama's (new) engine
   })
 
   it('validates the preset name', () => {

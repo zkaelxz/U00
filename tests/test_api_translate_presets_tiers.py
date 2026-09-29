@@ -189,3 +189,29 @@ def test_auth_on_permissions(isolated_db):
     ha = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
           api_auth.CSRF_HEADER: s["csrf_token"]}
     assert c.post(PRESETS, json=_preset_body(), headers=ha).status_code == 200
+
+
+def test_insert_preset_refuses_a_taken_name(isolated_db):
+    import sqlite3
+    db.insert_preset("Mine", translation_engine="claude")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.insert_preset("Mine", translation_engine="deepseek")
+    assert [p["translation_engine"] for p in db.list_presets()] == ["claude"]
+
+
+def test_overwrite_is_pc_only_when_auth_on(isolated_db):
+    admin = auth_service.grant_admin_local("admin@example.com")
+    s = auth_service.create_session(admin["id"])
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+         api_auth.CSRF_HEADER: s["csrf_token"]}
+    remote = _remote_client()
+    assert remote.post(PRESETS, json=_preset_body(), headers=h).status_code == 200
+    assert remote.post(PRESETS, json=_preset_body(locale="en-US"), headers=h).status_code == 409
+    r = remote.post(PRESETS, json=_preset_body(locale="en-US", overwrite=True), headers=h)
+    assert r.status_code == 403
+    assert db.list_presets()[0]["locale"] == "en-GB"          # untouched
+    local = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="http://127.0.0.1:8600",
+                       client=("127.0.0.1", 5000), raise_server_exceptions=False)
+    r = local.post(PRESETS, json=_preset_body(locale="en-US", overwrite=True), headers=h)
+    assert r.status_code == 200 and r.json()["replaced"] is True
+    assert db.list_presets()[0]["locale"] == "en-US"

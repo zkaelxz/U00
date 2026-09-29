@@ -28,7 +28,9 @@ import {
   reflectAvailable,
   PRESET_NAME_MAX,
   validatePresetName,
-  validateRun, type RunForm,
+  validateRun,
+  withSavedEngine,
+  type RunForm,
 } from '../translateForm'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
@@ -74,7 +76,8 @@ function advancedSummary(f: RunForm, base: RunForm): string {
 
 function appliedText(t: WorkflowTierApplied): string {
   const model = t.engine_model ? ` (${t.engine_model})` : ''
-  const qc = t.auto_qc ? ' Auto QC before export: on; run it from the Export stage.' : ''
+  const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
+  const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
   return `Applied ${t.label}: ${t.translation_engine}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
 }
 
@@ -181,7 +184,17 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
   )
 }
 
-function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onStarted: (id: string) => void; busy: boolean }) {
+function RunPanel({
+  config,
+  onStarted,
+  onTierApplied,
+  busy,
+}: {
+  config: TranslateRunConfig
+  onStarted: (id: string) => void
+  onTierApplied: (t: WorkflowTierApplied) => void
+  busy: boolean
+}) {
   const { dramaId } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
   const [f, setF] = useState<RunForm>(base)
@@ -229,7 +242,13 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
   return (
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
-      <TierPicker config={config} onApplied={(t) => setF((s) => applyTierToForm(s, t, config))} />
+      <TierPicker
+        config={config}
+        onApplied={(t) => {
+          setF((s) => applyTierToForm(s, t, config))
+          onTierApplied(t)
+        }}
+      />
       <div className="translate-basics">
         <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
           <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
@@ -400,7 +419,14 @@ export default function TranslateStage() {
   return (
     <div className="stage-translate">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {config && <RunPanel config={config} busy={busy} onStarted={setJobId} />}
+      {config && (
+        <RunPanel
+          config={config}
+          busy={busy}
+          onStarted={setJobId}
+          onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
+        />
+      )}
       {jobId && <JobPanel job={job} pollError={pollError} />}
       {config && (
         <BulkBatchesPanel supported={config.bulk_supported_engines.length > 0} reloadKey={reloads} />

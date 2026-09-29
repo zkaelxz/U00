@@ -28,6 +28,7 @@ the novel text are never returned -- booleans only.
 import inspect
 import json
 import os
+import sqlite3
 from types import SimpleNamespace
 from typing import Optional
 
@@ -602,8 +603,8 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
     """tabs/workspace_tab.py "Save as preset": db.save_preset with the
     Translate form's engine, model, style, locale and the two toggles.
     Streamlit silently replaced a preset of the same name; here that needs
-    overwrite=True (otherwise ConflictError), so a remote user can't wipe a
-    saved preset by accident. engine_model is None for engines without a
+    overwrite=True (otherwise ConflictError). Replacing is effectively a
+    delete, so the route only allows overwrite from the PC. engine_model is None for engines without a
     model picker, and None (engine default) is allowed for the others."""
     name = name.strip() if isinstance(name, str) else ""
     if not name or len(name) > _PRESET_NAME_MAX:
@@ -618,14 +619,18 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
         raise InvalidInputError("Unknown style preset.")
     if locale is not None and locale not in LOCALES:
         raise InvalidInputError("Unknown English variant.")
-    replaced = any(p["name"] == name for p in db.list_presets())
-    if replaced and not overwrite:
-        raise ConflictError("A preset with that name already exists; save again with "
-                            "overwrite to replace it.")
-    preset_id = db.save_preset(
-        name, translation_engine=translation_engine, engine_model=engine_model,
-        style_preset=style_preset, locale=locale,
-        default_female_pronouns=bool(default_female_pronouns),
-        include_genre_notes=bool(include_genre_notes))
+    fields = dict(translation_engine=translation_engine, engine_model=engine_model,
+                  style_preset=style_preset, locale=locale,
+                  default_female_pronouns=bool(default_female_pronouns),
+                  include_genre_notes=bool(include_genre_notes))
+    # Insert-only first: the UNIQUE(name) constraint decides, not a prior
+    # lookup, so two concurrent saves can't both think the name is free.
+    try:
+        preset_id, replaced = db.insert_preset(name, **fields), False
+    except sqlite3.IntegrityError:
+        if not overwrite:
+            raise ConflictError("A preset with that name already exists; save again with "
+                                "overwrite to replace it.")
+        preset_id, replaced = db.save_preset(name, **fields), True
     preset = next(p for p in library_service.list_presets() if p["id"] == preset_id)
     return {"preset": preset, "replaced": replaced}
