@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+
+import { createPortal } from 'react-dom'
 
 import { mediaStreamUrl, type MediaKind } from '../../../../api/media'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
+import { clampTime, JUMP_ERROR, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
@@ -16,34 +19,79 @@ export interface PlayerHandle {
 }
 
 type Segment = Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>
+type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
 
 interface Props {
   dramaId: number
   kind: MediaKind
   ref?: Ref<PlayerHandle>
+  // The lines on screen (for "Line #N" under the playhead) and the active one.
+  lines?: Timed[]
+  selected?: Timed | null
+  // Bumped after every write, so the subtitles are re-read from the current lines.
+  captionVersion?: number
   // Extra controls at the end of the strip (the pager, on phones).
   trailing?: ReactNode
+  // Phones: where the video, seek bar and tools go instead (outside the sticky
+  // toolbar, so they scroll away); null while that spot isn't mounted yet.
+  panelHost?: HTMLElement | null
 }
 
 export const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
+const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
+  English: 'No English subtitles yet: nothing is translated.',
+  Source: 'No original subtitles yet: nothing is transcribed.',
+  Bilingual: 'Both-language subtitles need an original and a translation.',
+}
 
-// A compact player strip over the Slice 52 Range endpoint. Only rendered when
-// the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, trailing }: Props) {
+// A player over the Slice 52 Range endpoint, with a seek bar, jump to time and
+// subtitles from the current lines (the Reader's caption route). Only rendered
+// when the drama has audio (or a source video); the element fetches the stream itself.
+export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, trailing, panelHost }: Props) {
   const media = useRef<HTMLMediaElement | null>(null)
+  const trackEl = useRef<HTMLTrackElement | null>(null)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
   const [failed, setFailed] = useState(false)
   const [loop, setLoop] = usePersistedState('review.loop', false)
-  const [showVideo, setShowVideo] = usePersistedState('review.video', false)
+  const [open, setOpen] = usePersistedState('review.playerOpen', true)
+  const [subsPref, setSubs] = usePersistedState<string>('review.subs', 'English')
+  const subs: SubtitleChoice = SUBTITLE_OPTIONS.some((o) => o.value === subsPref) ? (subsPref as SubtitleChoice) : 'English'
+  // Keyed on the track URL, so a new track starts blank without an effect reset.
+  const [cueFor, setCueFor] = useState<{ src: string; text: string } | null>(null)
+  const [missingSrc, setMissingSrc] = useState<string | null>(null)
+  const [jump, setJump] = useState('')
+  const [jumpError, setJumpError] = useState<string | null>(null)
   const loopRef = useRef(loop)
   const segRef = useRef<Segment | null>(null)
+  // The panel (with the <video>) is portalled into one element for the
+  // player's whole life, and that element is moved between the inline slot and
+  // the phone dock. Rendering the panel under a different parent instead would
+  // remount the <video> when a phone turns or a window crosses 640px, which
+  // stops playback and starts it over at 0:00.
+  const [panelBox] = useState(() => {
+    const box = document.createElement('div')
+    box.className = 'review-player-host'
+    return box
+  })
+  const slotRef = useRef<HTMLDivElement | null>(null)
+  const src = subtitleSrc(dramaId, subs, captionVersion)
+  const cue = cueFor && cueFor.src === src ? cueFor.text : ''
+  const subsMissing = src !== null && missingSrc === src
 
   useEffect(() => {
     loopRef.current = loop
   }, [loop])
+
+  // Move (never detach) the panel: while the dock isn't mounted yet (null) it
+  // stays where it is, so the video never leaves the page and keeps playing.
+  useLayoutEffect(() => {
+    const target = panelHost === undefined ? slotRef.current : panelHost
+    if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
+  }, [panelHost, panelBox])
+  useLayoutEffect(() => () => panelBox.remove(), [panelBox])
 
   const setSeg = (s: Segment | null) => {
     segRef.current = s
@@ -71,6 +119,20 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
     raf = requestAnimationFrame(check)
     return () => cancelAnimationFrame(raf)
   }, [playing, segment])
+
+  // The subtitle track: drawn on the video; under an audio player the current
+  // cue is shown as text. A fresh <track> (keyed on its URL) re-reads the lines.
+  useEffect(() => {
+    const t = trackEl.current?.track
+    if (!t || !src) return
+    t.mode = kind === 'video' ? 'showing' : 'hidden'
+    const onCue = () => {
+      const active = t.activeCues ? Array.from(t.activeCues) : []
+      setCueFor({ src, text: active.map((c) => (c as VTTCue).getCueAsHTML?.().textContent ?? (c as VTTCue).text).join('\n') })
+    }
+    t.addEventListener('cuechange', onCue)
+    return () => t.removeEventListener('cuechange', onCue)
+  }, [src, kind])
 
   const play = useCallback(() => {
     const el = media.current
@@ -104,6 +166,27 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
     else el.pause()
   }, [play])
 
+  // A manual seek leaves line playback: playing carries on from the new spot.
+  const seekTo = (seconds: number) => {
+    const el = media.current
+    if (!el) return
+    const t = clampTime(seconds, duration)
+    setSeg(null)
+    el.currentTime = t
+    setTime(t)
+  }
+
+  const submitJump = (e: FormEvent) => {
+    e.preventDefault()
+    const t = parseJumpTime(jump)
+    if (t === null) {
+      setJumpError(JUMP_ERROR)
+      return
+    }
+    setJumpError(null)
+    seekTo(t)
+  }
+
   useImperativeHandle(
     ref,
     () => ({
@@ -118,6 +201,19 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
     }),
     [playLine, stop, togglePlay, setLoop],
   )
+
+  const track = src ? (
+    <track
+      key={src}
+      ref={trackEl}
+      kind="subtitles"
+      label={SUBTITLE_OPTIONS.find((o) => o.value === subs)?.label}
+      srcLang={subs === 'English' ? 'en' : 'und'}
+      src={src}
+      default
+      onError={() => setMissingSrc(src)}
+    />
+  ) : null
 
   const common = {
     src: mediaStreamUrl(dramaId, kind),
@@ -135,6 +231,85 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
     onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => setDuration(e.currentTarget.duration),
     onError: () => setFailed(true),
   }
+  const here = segment ?? lineAt(lines, time)
+  const known = Number.isFinite(duration) && duration > 0
+
+  // Kept mounted while folded away, so the sound and the strip above still work.
+  const panel = (
+    <div className="review-player-panel" hidden={!open}>
+      {kind === 'video' ? (
+        <video
+          ref={(el) => {
+            media.current = el
+          }}
+          className="review-video"
+          playsInline
+          {...common}
+        >
+          {track}
+        </video>
+      ) : (
+        subs !== 'off' && (
+          <p className="review-caption" data-testid="player-caption">
+            {cue || '\u00a0'}
+          </p>
+        )
+      )}
+      <div className="review-player-controls">
+        <input
+          type="range"
+          className="review-seek"
+          aria-label="Seek"
+          aria-valuetext={`${formatDuration(time)} of ${formatDuration(duration)}`}
+          min={0}
+          max={known ? duration : 0}
+          step={0.1}
+          value={known ? Math.min(time, duration) : 0}
+          disabled={!known || failed}
+          onChange={(e) => seekTo(Number(e.target.value))}
+        />
+        <div className="review-player-tools">
+          <form className="review-jump" onSubmit={submitJump}>
+            <input
+              type="text"
+              inputMode="decimal"
+              enterKeyHint="go"
+              autoComplete="off"
+              aria-label="Jump to time"
+              placeholder="mm:ss"
+              title="e.g. 1:23, 1:02:03 or 83.5"
+              value={jump}
+              onChange={(e) => setJump(e.target.value)}
+            />
+            <button type="submit" disabled={!jump.trim() || failed}>
+              Jump
+            </button>
+          </form>
+          {selected && (
+            <button type="button" onClick={() => seekTo(selected.start)} disabled={failed} title="Move the player to the selected line's start">
+              Go to line #{lineNumber(selected.idx)}
+            </button>
+          )}
+          <label className="review-subs">
+            Subtitles
+            <select value={subs} onChange={(e) => setSubs(e.target.value)}>
+              {SUBTITLE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+      {jumpError && (
+        <p className="error" role="alert">
+          {jumpError}
+        </p>
+      )}
+      {subsMissing && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
+    </div>
+  )
 
   return (
     <div className="review-player" role="group" aria-label="Player">
@@ -153,15 +328,13 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
           {formatTime(time)}
           <span className="review-duration"> / {formatDuration(duration)}</span>
         </span>
-        {segment && <span className="muted">Line #{lineNumber(segment.idx)}</span>}
+        {here && <span className="muted" data-testid="player-line">Line #{lineNumber(here.idx)}</span>}
         <label className="review-check" title="Repeat the line being played (L)">
           <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> Loop<span className="review-loop-word"> line</span>
         </label>
-        {kind === 'video' && (
-          <button type="button" className="link" aria-expanded={showVideo} onClick={() => setShowVideo(!showVideo)}>
-            {showVideo ? 'Hide video' : 'Show video'}
-          </button>
-        )}
+        <button type="button" className="link review-player-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Hide player' : 'Show player'}
+        </button>
         {trailing}
       </div>
       {failed && (
@@ -169,24 +342,17 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
           {PLAY_ERROR}
         </p>
       )}
-      {kind === 'video' ? (
-        // Kept mounted while hidden, so its sound still plays with the video folded away.
-        <video
-          ref={(el) => {
-            media.current = el
-          }}
-          className="review-video"
-          hidden={!showVideo}
-          playsInline
-          {...common}
-        />
-      ) : (
+      <div className="review-player-slot" ref={slotRef} />
+      {createPortal(panel, panelBox)}
+      {kind === 'audio' && (
         <audio
           ref={(el) => {
             media.current = el
           }}
           {...common}
-        />
+        >
+          {track}
+        </audio>
       )}
     </div>
   )

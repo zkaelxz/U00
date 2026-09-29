@@ -18,6 +18,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/sources/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/discover')).toEqual({ name: 'discover' })
     expect(parseRoute('#/discover/x')).toEqual({ name: 'library' })
+    expect(parseRoute('#/live')).toEqual({ name: 'live' })
+    expect(parseRoute('#/live/extra')).toEqual({ name: 'library' })
   })
 
   it('parses drama id and stage, defaulting the stage', () => {

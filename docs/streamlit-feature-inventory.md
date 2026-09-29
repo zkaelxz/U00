@@ -187,7 +187,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | ID | Feature | Source | Calls | React | API | Tests |
 |---|---|---|---|---|---|---|
 | R01 | Pick up a finished flag job before counting flags | 3982-3984 | `db.load_line_objects` | N/A | — | test_step20_ux_polish TestAutoQCToastVsWarning |
-| R02 | Media player with seek, "Jump to time", "Play current segment" (Alt+Space), selected line | 823-988, 3988-3990 | `st.video`/`st.audio`, `parse_timestamp` | PARTIAL `stages/review/Player.tsx` (#377): audio/video player for the selected line; "Jump to time" not verified | `GET`/`HEAD /api/media/dramas/{id}/audio` and `.../video` with Range (Slice 52, #352) | test_media_preview TestReviewPlayer, TestRowClickSeeksInWorkspace, TestParseTimestamp, TestPlayerTimes |
+| R02 | Media player with seek, "Jump to time", "Play current segment" (Alt+Space), selected line | 823-988, 3988-3990 | `st.video`/`st.audio`, `parse_timestamp` | DONE `stages/review/Player.tsx` (#377, `react-review-player`): open by default (Hide/Show player), seek bar with time/duration, "Jump to time" (mm:ss, h:mm:ss or seconds), "Go to line #N" for the selected line, Alt+Space; subtitles on the video (English, Original, Both or Off, re-read after every save; audio shows the current cue as text); phones keep the video and tools below the sticky toolbar. Burned-subtitle preview not ported | `GET`/`HEAD /api/media/dramas/{id}/audio` and `.../video` with Range (Slice 52, #352); subtitles from `GET /api/reader/dramas/{id}/captions/{track}` (lines.read) | test_media_preview TestReviewPlayer, TestRowClickSeeksInWorkspace, TestParseTimestamp, TestPlayerTimes |
 | R03 | Burned-subtitle preview around the selected line (video) | 958-987, 877-894 | `video_export.render_preview_clip` | MISSING | no API | test_media_preview TestBurnPreview |
 | R04 | Find and replace over translations: preview, apply by line id, skip stale lines, update translation memory | 3992-4066 | `scanlate.bulk_find_replace_preview`, `db.update_translation_memory_after_replace` | `stages/review/FindReplacePanel.tsx` | `POST /api/review/.../find-replace/preview`, `POST /api/lines/.../find-replace/apply` | test_review_workspace TestLineFindAndReplace |
 | R05 | Search the transcript and jump to the line's page | 4068-4085 | `_search_transcript` | PARTIAL `stages/review/LinesPanel.tsx` search (jump to page MISSING) | `GET /api/review/dramas/{id}/search` | test_step20_ux_polish TestSearchTranscript, TestTranscriptSearchJumpsToCorrectPage |
@@ -198,7 +198,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R10 | Content-blocked line: retry with another engine | 4144-4194 | `engine.translate_batch` | `stages/review/LineRow.tsx` (Edit details, engine picker) | `POST /api/lines/dramas/{id}/lines/{line_id}/retry-blocked` (`blocked_retry_service`) | wt TestContentBlockedRetryWithDifferentEngine |
 | R11 | Translation memory suggestion per line: accept or dismiss | 4195-4212 | `translation_memory.suggest_for_lines`, `db.bump_translation_memory_use` | PARTIAL `stages/review/RecordsPanel.tsx` accept (list, not per line); dismiss MISSING | `GET /api/review/.../tm-suggestions`, `POST /api/lines/.../accept-tm` | test_translation_memory TestTranslationMemoryInReview |
 | R12 | Edit a line's start, end, speaker, source and translation | 4213-4225, 4428-4458 | — | `stages/review/LineRow.tsx` | `POST /api/lines/dramas/{id}/lines/{line_id}` | wt TestSaveEditsDoesNotRoundUntouchedTimestamps, TestLineEditingNotLockedDuringAJob |
-| R13 | Row "▶" seeks the player to that line | 4227-4232 | `_seek_to_line` | `stages/review/LineRow.tsx` "▶ Play" (#377) | — | test_media_preview TestRowClickSeeksInWorkspace |
+| R13 | Row "▶" seeks the player to that line | 4227-4232 | `_seek_to_line` | DONE `stages/review/LineRow.tsx` "▶ Play" (#377) seeks the player and plays the line; the player's "Go to line #N" seeks without playing (`react-review-player`) | — | test_media_preview TestRowClickSeeksInWorkspace |
 | R14 | Mark a line as a non-verbal/SFX cue | 4234-4238 | `Line.sfx` | `stages/review/LineRow.tsx` "Sound cue" checkbox (#377) | same endpoint (`sfx`) | test_media_preview TestSfxPersistence, TestSfxExport |
 | R15 | Improve translation, then "Use this" | 4241-4266 | `line_tools.improve_line`, `db.record_edit_sample` | `stages/review/LineAi.tsx` | `POST /api/line-ai/.../improve` | wt TestImproveTranslationUseThisRefreshesTheEnBox |
 | R16 | "Why this?" explanation | 4272-4279 | `line_tools.explain_translation` | `stages/review/LineAi.tsx` | `POST /api/line-ai/.../explain` | wt TestPerLineExplainToolsMovedFromReader |
@@ -207,7 +207,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R19 | Pronounce (edge-tts clip) | 4296-4302 | `line_tools.pronunciation_audio` | MISSING | no API | same |
 | R20 | "What happened?": speaker, engine, flag, glossary matches, notes, consistency, neighbours | 4303-4336 | `debug_view.explain_line` | `stages/review/LineOrigin.tsx` (#392) | `GET /api/review/.../lines/{id}/provenance` | — |
 | R21 | Save a bug-reproduction bundle | 4337-4346 | `debug_view.save_bug_bundle` | MISSING (a Diagnostics extra, undecided) | no API | test_diagnostics_and_export TestBugBundleDeleteNeedsConfirmation |
-| R22 | Play just this line's audio | 4355-4375, `_line_audio_clip` 789 | `core.extract_audio_slice` | `stages/review/LineRow.tsx` "▶ Play" (#377) | no API | test_review_workspace TestLineAudioClip |
+| R22 | Play just this line's audio | 4355-4375, `_line_audio_clip` 789 | `core.extract_audio_slice` | DONE `stages/review/LineRow.tsx` "▶ Play" (#377): plays the line's span of the drama audio/video and stops at its end (Loop line repeats it); no separate clip file | no API (uses the Range stream) | test_review_workspace TestLineAudioClip |
 | R23 | Re-transcribe one line, then "Use this" | 4376-4411 | `core.transcribe_for_timing` (via `transcribe_service.start_retranscribe_line` / `get_retranscribe_result` / `apply_retranscribe_line`) | `stages/review/RetranscribeLine.tsx` in the line details: "Heard" next to the current text, "Use this" / "Discard" | `POST /api/transcribe/dramas/{id}/lines/{line_id}/retranscribe` (`jobs.start`), `GET` same path (`lines.read`), `.../retranscribe/apply` (`lines.edit`) | wt TestRetranscribeUseThisRefreshesTheZhBox, test_api_retranscribe_line |
 | R24 | Compare with the original transcript, and restore it | 4412-4427 | `raw_transcript.original_text_for_line` | PARTIAL `stages/review/LineOrigin.tsx` shows the original (#392); restore MISSING | `GET /api/review/.../lines/{id}/original-text` + line patch | test_raw_transcript TestRestoreOneLineInReview |
 | R25 | Save edits (Ctrl+S), record edit samples and translation memory, "Unsaved changes (N)" indicator | 4460-4491, `_unsaved_line_count` 990 | `db.save_lines`, `record_edit_sample`, `record_translation_memory` | `stages/review/LineRow.tsx` per-line save (server records samples/TM, `lines_service.py:164-166`); page-level unsaved count N/A | `POST /api/lines/...` | test_review_workspace TestUnsavedLineCount, TestReviewAndEditUI |
@@ -319,7 +319,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G13 | Ollama context window override | 373-381 | — | MISSING | no API | — |
 | G14 | Monthly spending cap | 383-395 | — | MISSING (read from `BAIHE_MONTHLY_CAP_USD` server side, UNK) | no API | wt TestSpendingCapUI |
 | G15 | yt-dlp cookies from a browser or a cookies.txt | 397-413 | `video_download.COOKIE_BROWSERS` | MISSING | no API | test_settings_tab TestCookieBasedLoginSettings; test_live_tab |
-| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | PARTIAL `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s; PC only). Engine for extension pages MISSING (no API) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372) | test_page_server_settings |
+| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | DONE `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s, engine and model for extension pages saved as an app setting and hooked into page_server at API startup; PC only) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372); `GET /api/extension/engine` (admin.settings), `POST /api/extension/engine` (local_only) | test_page_server_settings |
 
 ## 5. Diagnostics (`tabs/diagnostics_tab.py`, 987 lines)
 
@@ -425,18 +425,18 @@ React: the Discover page `#/discover` (branch `react-discover-page`) covers DI01
 
 ## 10. Live (`tabs/live_tab.py`, 149 lines)
 
-Kept and to be ported (plan section 8, M6). The whole page is MISSING; the L-1 API (polling) is merged (#372).
+Kept and ported (plan section 8, M6). React page `#/live` (`frontend/src/pages/Live.tsx`, branch `react-live-page`) over the L-1 API (polling, #372). Deleting `tabs/live_tab.py` still waits on the user's real-stream check (plan section 8).
 
-| ID | Feature | Source | Calls | Tests |
-|---|---|---|---|---|
-| LV01 | Stream URL, language, Whisper size, chunk length and overlap | 41-66 | — | test_live_tab TestOverlapSettingReachesTheStartButton |
-| LV02 | Engine and API key | 68-85 | `translate_engines.get_engine` | — |
-| LV03 | Start the live capture job (cookies from Settings) | 87-107 | `live_translate.run_live_job` | test_live_tab TestCookieSettingsReachTheStartButton |
-| LV04 | Queued: cancel, falling back to a real stop | 108-116 | `background_jobs.cancel_queued`, `live_translate.bump_generation` | test_live_tab TestQueuedJobCancelButton |
-| LV05 | Stop (discards chunks still in flight) | 117-127 | same | — |
-| LV06 | Feed of the latest 50 cues, refresh, error details | 129-149 | — | — |
+| ID | Feature | Source | Calls | Tests | React |
+|---|---|---|---|---|---|
+| LV01 | Stream URL, language, Whisper size, chunk length and overlap | 41-66 | — | test_live_tab TestOverlapSettingReachesTheStartButton | DONE: link, Language; Whisper, Chunk (s), Overlap (s) under Advanced (remembered per browser). e2e live.spec.ts |
+| LV02 | Engine and API key | 68-85 | `translate_engines.get_engine` | — | DONE: Engine picker lists engines with a key; keys are resolved server-side (no key field; add keys in Settings) |
+| LV03 | Start the live capture job (cookies from Settings) | 87-107 | `live_translate.run_live_job` | test_live_tab TestCookieSettingsReachTheStartButton | DONE: Start (POST /api/live/sessions, `media.import_url`), plus Stop after (min) and Use GPU. Cookies do not travel over the API (decision); a signed-in-only stream won't resolve |
+| LV04 | Queued: cancel, falling back to a real stop | 108-116 | `background_jobs.cancel_queued`, `live_translate.bump_generation` | test_live_tab TestQueuedJobCancelButton | DONE: Cancel while queued (the stop route does cancel_queued or a real stop) |
+| LV05 | Stop (discards chunks still in flight) | 117-127 | same | — | DONE: Stop (POST .../stop, `jobs.cancel`) |
+| LV06 | Feed of the latest 50 cues, refresh, error details | 129-149 | — | — | DONE: newest 50 lines, polled every 2 s (no Refresh button); error text is the service's cleaned message (no traceback over the API). Reopening the page shows the running or latest session |
 
-Known port fixes are recorded in plan section 8: `use_gpu`, a per-session temp dir, `max_minutes`, URL expiry, cookies over the API.
+Port fixes from plan section 8 are in `services/live_service.py` (`use_gpu`, a per-session temp dir, `max_minutes`); URL expiry still needs a restart to re-resolve.
 
 ## 11. Scanlate (`tabs/scanlate_tab.py`, 639 lines): DEFERRED
 
@@ -507,7 +507,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 | 1 | API key and endpoint entry in Settings (G06, X20, T07, D01, N03). Without it, paid engines only work after editing `.env` by hand. Endpoint URLs (Ollama, LibreTranslate, GPT-SoVITS) have no API | Settings | S (keys) / M (URLs) | part |
 | 2 | Edit-metadata form, including the series picker, custom tags and episode number/summary (P10, P11, X09) | Workspace preamble | S | yes |
 | 3 | Content-mode and transcript-mode pickers (S03, S08) | Source | S | yes |
-| 4 | Review media player: Range endpoint, seek, jump to time, play segment, row ▶, per-line clip (R02, R13, R22) | Review | L | no |
+| 4 | ~~Review media player: Range endpoint, seek, jump to time, play segment, row ▶, per-line clip (R02, R13, R22)~~ Done (`react-review-player`; burned-subtitle preview not ported) | Review | L | yes |
 | 5 | Line-structure UI: re-segment preview and apply, history restore, merge (R47, R48, R46) | Review | M | yes (merge: part) |
 | 6 | Character voice setup: clone engine, voice design, ref text, offline voice, voice-bank apply, custom pronouns (C06, C07, C10-C12, C14); ref clip upload and auto-extract (C09, C01) | Translate/Characters | M + M | yes / no |
 | 7 | New-drama form: credits, summary, series, preset (P06-P08) | Library | S | yes |
@@ -569,7 +569,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 7. Style guidance text (X04). S, no.
 
 **Workspace: Review**
-1. Media player and per-line audio (R02, R13, R22). L, no.
+1. ~~Media player and per-line audio (R02, R13, R22).~~ Done (`react-review-player`).
 2. Re-segment, merge, history restore (R47, R46, R48). M, yes.
 3. Read-only panels (R26, R27, R29, R34, R36, R20, R41, R44). S each, yes.
 4. SFX toggle (R14). S, yes.
@@ -606,4 +606,4 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 **Reader** (L; needs the Range endpoint): RD01-RD14.
 **Sources** (L; S-3..S-7): SO01-SO19, including the scheduler move in M0-b.
 **Discover** (M/L; D-2): DI01, DI04-DI09. React page built (`react-discover-page`); left: DI07 pasted-text extraction (needs an API), DI08 in-app frame (replaced by a new tab).
-**Live** (L; L-1): LV01-LV06.
+**Live** (L; L-1): LV01-LV06 built (React `#/live`, branch `react-live-page`); tab deletion waits on the real-stream check.
