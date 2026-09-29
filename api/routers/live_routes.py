@@ -13,7 +13,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import require_engines_allowed, require_permission
+from api.auth import is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary)
 from services import live_service
@@ -35,7 +35,7 @@ def post_session(body: LiveSessionStart, request: Request):
         body.url, source_language=body.source_language, whisper_size=body.whisper_size,
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
-        use_gpu=body.use_gpu)
+        use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request))
 
 
 @router.get("/sessions", dependencies=[require_permission("library.read")],

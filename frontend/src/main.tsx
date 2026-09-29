@@ -5,6 +5,10 @@ import App from './App.tsx'
 import { installBootFallback, renderBootFallback } from './bootFallback'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { installCapture } from './report/capture'
+import { applyTheme, loadTheme } from './theme'
+
+// The saved light/dark choice, before the first paint.
+applyTheme(loadTheme())
 
 const rootEl = document.getElementById('root')!
 // Installed before the first render so a crash in it still shows a message.

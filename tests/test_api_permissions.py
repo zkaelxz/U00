@@ -575,6 +575,49 @@ class TestPaidEngines:
         assert c.post(cfg, json={"use_groq": True}, headers=_h(paid)).status_code == 200
         assert c.post(run, json={}, headers=_h(paid)).status_code not in (401, 403)
 
+    def test_remote_transcribe_run_cannot_pick_tesseract_binary(self, isolated_db, monkeypatch):
+        """Security review (PR #439): the server executes tesseract_cmd, so a
+        remote caller (even an admin) gets 403 and nothing starts; the PC may."""
+        from services import transcribe_service
+        started = []
+        monkeypatch.setattr(transcribe_service, "start_transcribe_run",
+                            lambda *a, **k: started.append(k) or {"job_id": "j"})
+        drama_id = db.create_drama(title_en="T", source_language="zh")
+        run = f"/api/transcribe/dramas/{drama_id}/run"
+        _u, s = _user(admin=True)
+        r = _remote(_app()).post(run, json={"tesseract_cmd": r"\\evil\share\x.exe"},
+                                 headers=_h(s))
+        assert r.status_code == 403 and "at the PC" in r.json()["error"]["message"]
+        assert started == []
+        assert _remote(_app()).post(run, json={}, headers=_h(s)).status_code == 200
+        assert started[-1]["tesseract_cmd"] is None
+        r = _local(_app("off")).post(run, json={"tesseract_cmd": "/usr/bin/tesseract"},
+                                     )
+        assert r.status_code == 200 and started[-1]["tesseract_cmd"] == "/usr/bin/tesseract"
+
+    def test_paid_summary_engine_skipped_without_engines_paid(self, isolated_db, monkeypatch):
+        """Security review (PR #439): a free run by a household user must not
+        trigger a cloud episode summary on the owner's key (single and bulk)."""
+        from services import library_admin_service, translate_run_service
+        runs, bulks = [], []
+        monkeypatch.setattr(translate_run_service, "start_translate_run",
+                            lambda *a, **k: runs.append(k) or {})
+        monkeypatch.setattr(library_admin_service, "bulk_translate_engines",
+                            lambda ids: {"engines": ["ollama"], "by_drama": {1: "ollama"}})
+        monkeypatch.setattr(library_admin_service, "start_bulk_translate",
+                            lambda *a, **k: bulks.append(k) or {})
+        c = _remote(_app())
+        _u, s = _user("jobs.start")
+        _u2, paid = _user_named("paid@example.com", "jobs.start", "engines.paid")
+        url = "/api/translate-run/dramas/1/run"
+        c.post(url, json={"engine": "ollama"}, headers=_h(s))
+        c.post(url, json={"engine": "ollama"}, headers=_h(paid))
+        assert [r["allow_paid_summary"] for r in runs] == [False, True]
+        bulk = "/api/library/admin/bulk/translate"
+        c.post(bulk, json={"drama_ids": [1]}, headers=_h(s))
+        c.post(bulk, json={"drama_ids": [1]}, headers=_h(paid))
+        assert [b["allow_paid_summary"] for b in bulks] == [False, True]
+
     def test_engines_paid_unlocks(self, isolated_db):
         c = _remote(_app())
         _u, s = _user("engines.paid")

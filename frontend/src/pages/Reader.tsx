@@ -18,6 +18,7 @@ import { Section } from '../components/Section'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref } from '../router'
+import { isDarkTheme, loadTheme } from '../theme'
 import type {
   ReaderMediaAvailability,
   ReaderOverview,
@@ -191,7 +192,8 @@ function NotesSection({ dramaId }: { dramaId: number }) {
 
 export default function ReaderPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
-  const prefersDark = useMediaQuery('(prefers-color-scheme: dark)')
+  // The Reader's "auto" theme follows the app theme (Settings > Appearance).
+  const prefersDark = isDarkTheme(loadTheme(), useMediaQuery('(prefers-color-scheme: dark)'))
   const [prefs, setPrefsState] = useState<ReaderPrefs>(() => loadPrefs(browserStorage()))
   const [title, setTitle] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')

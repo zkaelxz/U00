@@ -53,7 +53,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         raise UnsupportedOperationError("This drama has no lines yet.")
     if precheck:
         precheck(lines)
-    engine_name = engine_name or drama.get("translation_engine") or "claude"
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     if not allow_translation_only and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:

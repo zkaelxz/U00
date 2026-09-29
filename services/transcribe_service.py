@@ -309,10 +309,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama's persisted values (Slice 21) -- update them first via
     update_transcribe_config if a run needs different ones.
     tesseract_cmd is an optional, client-supplied path to the tesseract
-    binary; Streamlit's own equivalent (settings_hf_token's sibling,
-    settings_tesseract_cmd) is a global Settings value with no
-    settings_service-backed home yet, so it isn't resolved automatically
-    here -- out of scope for this slice.
+    binary; omitted, the saved Settings Tesseract path applies
+    (settings_service.get_tesseract_cmd).
 
     Raises NotFoundError for an unknown drama id; UnsupportedOperationError
     if there's no audio available (non-hardsub_ocr modes) or no video
@@ -399,7 +397,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
         _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or ""), video_path,
         drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
-        drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
+        drama.get("hardsub_interval_sec") or 1.0,
+        tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
         settings_service.get_use_gpu(), asr_backend_choice, alignment_method,
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
@@ -585,21 +584,29 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 return
         else:
             try:
-                model_cached = core_module.is_whisper_model_cached(whisper_size)
+                # Settings > Offline Whisper model folder: a folder holding an
+                # already-downloaded faster-whisper model, used instead of a
+                # Hugging Face download.
+                local_model_path = settings_service.get_whisper_model_path()
+                model_cached = bool(local_model_path) or core_module.is_whisper_model_cached(
+                    whisper_size)
                 background_jobs.update_progress(job_id, 0.0, _model_loading_message(
                     whisper_size, model_cached))
                 # Loaded here (cached in core, so transcribe_for_timing reuses
                 # it) so the download/load phase and the device actually
                 # chosen are visible instead of "Starting..." for minutes.
-                core_module.load_whisper_model(whisper_size, use_gpu=use_gpu)
+                core_module.load_whisper_model(whisper_size, use_gpu=use_gpu,
+                                               local_model_path=local_model_path)
                 device_msg = core_module.describe_whisper_device(
-                    core_module.get_whisper_device_info(whisper_size, use_gpu=use_gpu))
+                    core_module.get_whisper_device_info(whisper_size, use_gpu=use_gpu,
+                                                        local_model_path=local_model_path))
                 device_suffix = f" ({device_msg})" if device_msg else ""
                 background_jobs.update_progress(
                     job_id, 0.0, f"Transcribing...{device_suffix}")
                 segments = transcribe_for_timing(
                     audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
-                    local_model_path=None, hf_token=None, initial_prompt=initial_prompt,
+                    local_model_path=local_model_path, hf_token=None,
+                    initial_prompt=initial_prompt,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                     on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module._short_reason(exc)),

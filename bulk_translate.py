@@ -1467,10 +1467,17 @@ def untranslated_line_count(drama_id: int) -> int:
                if (r.get("zh") or "").strip() and not (r.get("en") or "").strip())
 
 
+def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
+    name = summary_engine_choice or getattr(summary_engine, "name", "")
+    return (name not in translate_engines.FREE_ENGINES
+            and not getattr(summary_engine, "free_tier", False))
+
+
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
                            summary_engine=None, summary_engine_choice: str = None,
-                           line_scoped: bool = False) -> bool:
+                           line_scoped: bool = False,
+                           summary_monthly_cap_usd: float = None) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
     so the two can't drift (the CLI used to skip most of it): applies
@@ -1491,7 +1498,9 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     the next episode of the same series to read forward. None (the
     default) skips this entirely, e.g. when no engine could be built for
     it; a missing/unreachable summary engine must never fail the
-    translation run itself.
+    translation run itself. summary_monthly_cap_usd: Settings' monthly
+    spending cap; a paid summary engine is skipped once it's used up
+    (checked right before the call). None or 0 means no cap.
 
     line_scoped (B-27) marks a run restricted to some lines (e.g. a retry
     of one content-blocked line on another engine): it must not replace
@@ -1556,6 +1565,12 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         fields["status"] = "translated"
     db.update_drama(drama_id, **fields)
 
+    if (summary_engine is not None and summary_monthly_cap_usd
+            and _summary_engine_is_paid(summary_engine, summary_engine_choice)):
+        _cap, refusal = translate_engines.resolve_cost_cap(
+            None, summary_monthly_cap_usd, db.get_month_spend())
+        if refusal:
+            summary_engine = None
     if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
         _fresh_for_summary = db.load_line_objects(drama_id)
         summary = translate_engines.generate_episode_summary(
