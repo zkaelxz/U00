@@ -59,6 +59,8 @@ baihe-subtitler/
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
 │   │                             tree listing is the detailed per-file map, README.md is the
 │   │                             front door — keep both in sync if either changes
+│   ├── design/                   ui-refresh-spec.md (React visual direction + per-page changes and
+│   │                             rollout) and screens/{before,after}/ PNGs [spec — follow-up UI tasks]
 │   ├── adding-source.md          how to write a new sources/adapters/*.py adapter, incl. the
 │   │                             pre-coding site checklist [reference — read before adding a
 │   │                             source; tells the author to update content-sources.md]
@@ -465,7 +467,13 @@ baihe-subtitler/
 │   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
-│   │                              when React never mounts; index.html also holds a static no-JS note)
+│   │                              when React never mounts; index.html also holds a static no-JS note).
+│   │                              src/labels.ts: display labels for status, media type, language and engine
+│   │                              codes (unknown codes title-cased; one source of truth; unit-tested).
+│   │                              Design kit (docs/design/ui-refresh-spec.md): Toggle (role=switch), Button
+│   │                              (ButtonLink), Badge (pill), Card, components/labels.ts (humanize via src/labels.ts, status
+│   │                              tones), uiClasses.ts (buttonClass/badgeClass); tokens in src/index.css
+│   ├── scripts/design-screens.mjs  dark desktop/phone screenshots of the main screens (docs/design/screens/)
 │   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
 │   │                              errors, failed API calls (method/path/status/code only) and route history;
 │   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),

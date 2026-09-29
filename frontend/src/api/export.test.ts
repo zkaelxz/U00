@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError } from './client'
-import { getAssText, getSubtitleText, startBurnedVideo, subtitleQuery } from './export'
+import { ApiError, onUnauthorized } from './client'
+import { getAssText, getEpub, getSubtitleText, startBurnedVideo, subtitleQuery } from './export'
 
 const resp = (body: string, status = 200) => new Response(body, { status })
 const assReq = {
@@ -40,6 +40,56 @@ describe('text fetches', () => {
     await expect(
       getSubtitleText(1, { fmt: 'srt', field: 'en', includeNotes: false }, f),
     ).rejects.toBeInstanceOf(ApiError)
+  })
+})
+
+describe('CSRF and 401 on text/binary fetches', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const headers = (f: ReturnType<typeof vi.fn>) => f.mock.calls[0][1].headers as Record<string, string>
+
+  it('getAssText (a POST) sends X-CSRF-Token and X-Baihe-Local when signed in', async () => {
+    vi.stubGlobal('document', { cookie: '__Host-baihe_csrf=tok%3D' })
+    const f = vi.fn().mockResolvedValue(resp('[Script Info]'))
+    expect(await getAssText(4, assReq, f)).toBe('[Script Info]')
+    expect(f.mock.calls[0][0]).toBe('/api/export/dramas/4/ass')
+    expect(f.mock.calls[0][1].method).toBe('POST')
+    expect(headers(f)).toEqual({
+      Accept: 'text/plain',
+      'Content-Type': 'application/json',
+      'X-Baihe-Local': '1',
+      'X-CSRF-Token': 'tok=',
+    })
+    expect(JSON.parse(f.mock.calls[0][1].body)).toEqual(assReq)
+  })
+
+  it('getAssText with auth off (no cookie) sends no CSRF header', async () => {
+    const f = vi.fn().mockResolvedValue(resp('x'))
+    await getAssText(4, assReq, f)
+    expect(headers(f)['X-CSRF-Token']).toBeUndefined()
+    expect(headers(f)['X-Baihe-Local']).toBe('1')
+  })
+
+  it('GETs (subtitle text, EPUB) carry neither header', async () => {
+    vi.stubGlobal('document', { cookie: 'baihe_csrf=tok' })
+    const f = vi.fn().mockImplementation(async () => resp('x'))
+    await getSubtitleText(1, { fmt: 'srt', field: 'en', includeNotes: false }, f)
+    await getEpub(1, 'en', f)
+    for (const call of f.mock.calls) {
+      const h = (call[1]?.headers ?? {}) as Record<string, string>
+      expect(h['X-CSRF-Token']).toBeUndefined()
+      expect(h['X-Baihe-Local']).toBeUndefined()
+    }
+  })
+
+  it('a 401 notifies the session store and rejects with ApiError', async () => {
+    const seen = vi.fn()
+    const off = onUnauthorized(seen)
+    const f = vi
+      .fn()
+      .mockResolvedValue(resp(JSON.stringify({ error: { code: 'unauthorized', message: 'Sign in' } }), 401))
+    await expect(getAssText(4, assReq, f)).rejects.toMatchObject({ status: 401, code: 'unauthorized' })
+    expect(seen).toHaveBeenCalledTimes(1)
+    off()
   })
 })
 

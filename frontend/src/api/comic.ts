@@ -8,7 +8,7 @@ import type {
   ComicRegionsResponse,
   ComicVariant,
 } from '../types/comic'
-import { apiUrl, getJson, postJson } from './client'
+import { apiUrl, getJson, headStatus, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -33,9 +33,9 @@ export type ImageProblem = 'forbidden' | 'missing' | 'failed'
 // say "needs media playback permission" instead of showing a broken image.
 export async function probeImage(url: string, fetchImpl: Fetch = fetch): Promise<ImageProblem> {
   try {
-    const r = await fetchImpl(url, { method: 'HEAD' })
-    if (r.status === 401 || r.status === 403) return 'forbidden'
-    if (r.status === 404) return 'missing'
+    const status = await headStatus(url, fetchImpl)
+    if (status === 401 || status === 403) return 'forbidden'
+    if (status === 404) return 'missing'
     return 'failed'
   } catch {
     return 'failed'

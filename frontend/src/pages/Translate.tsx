@@ -10,7 +10,9 @@ import {
   usableEngines,
   validateTranslateInput,
 } from '../api/translate'
+import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
 import './translate.css'
 import type { TranslateDirection, TranslateEngine, TranslateHistoryEntry } from '../types/translate'
@@ -29,6 +31,9 @@ export default function TranslatePage() {
   const [sourceName, setSourceName] = useState<string | null>(null)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [resultTarget, setResultTarget] = useState('en')
+  const [clearing, setClearing] = useState(false)
+  const [clearError, setClearError] = useState<unknown>(null)
+  const pc = usePcOnly()
 
   const refreshHistory = useCallback(() => translateApi.history().then(setHistory, setError), [])
 
@@ -39,6 +44,15 @@ export default function TranslatePage() {
     }, setError)
     refreshHistory()
   }, [refreshHistory])
+
+  const clearHistory = () => {
+    setClearing(true)
+    setClearError(null)
+    translateApi
+      .clearHistory()
+      .then(() => refreshHistory(), setClearError)
+      .finally(() => setClearing(false))
+  }
 
   const usable = usableEngines(engines)
   const selected = usable.find((e) => e.name === engine)
@@ -181,6 +195,22 @@ export default function TranslatePage() {
         </div>
       )}
       <h3>History</h3>
+      {history.length > 0 &&
+        (pc === 'remote' ? (
+          <p className="muted">Clearing history is PC only.</p>
+        ) : (
+          <div className="actions">
+            <ConfirmButton
+              name="translation history"
+              label="Clear history…"
+              ariaLabel="Clear history"
+              verb="clear"
+              busy={clearing}
+              onConfirm={clearHistory}
+            />
+          </div>
+        ))}
+      <ErrorBanner error={clearError} describe={{ pcOnly: true }} onDismiss={() => setClearError(null)} />
       {history.length === 0 ? (
         <p className="muted">No translations yet.</p>
       ) : (
