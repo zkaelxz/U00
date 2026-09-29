@@ -105,3 +105,21 @@ Service modules: `scanlate_pages_service` (S1, S2, S6 fonts), `scanlate_regions_
 
 - **Q1 Coexistence:** Streamlit and the browser-extension bridge (`page_server.py`) may be frozen from writing bubbles once the editor ships (the user is not using Streamlit now). S0 can therefore assume the API is the only bubble writer at that point: keep S0 additive as specced (no change to `save_bubbles` until the freeze), and make the freeze itself an explicit later step that turns those two write paths off or read-only.
 - Still open: Q2 to Q12 (text preview approach, durable brush masks, Scanlate spend cap, detect overwrite policy, page delete/reorder, new columns, job semantics, upload caps, content-type gating, tesseract/OCR defaults, EXIF/strip height).
+
+## 9. Research on other tools and further decisions (2026-09-29)
+
+Research (read-only; WebSearch plus shallow clones of the public repos) on how open-source manga translators handle the preview and cleanup masks. The two tools the user named cannot be inspected: **OpenToon** is a closed-source mobile app (opentoon.co), and **Torii** is a closed, paid browser extension and web service (toriitranslate.com). Repos actually read: koharu-rs/koharu, dmMaze/BallonsTranslator, ogkalu2/comic-translate, zyddnys/manga-image-translator, meangrinch/MangaTranslator, surya758/webtoon-translator.
+
+**Q2, text preview.** Every project with an editor draws the on-canvas preview with the same engine as the export: Koharu compiles one Rust renderer (harfrust/skrifa/Vello) to WASM on WebGPU and feeds both the canvas and PNG/PSD export from the same prepared frame; BallonsTranslator and comic-translate export the Qt scene or the same Qt `TextBlockItem` classes they display. The batch tools (manga-image-translator, MangaTranslator, webtoon-translator) have no preview. None approximates text in a browser and exports with a different renderer.
+
+**Q3, cleanup masks.** Every project with an editor stores cleanup durably and separate from the original: Koharu as immutable `Cleanup`/`Paint` raster layers in the project (auto cleanup is skipped if a cleanup layer already exists; a Remove stroke inpaints only that area and merges it in); BallonsTranslator as per-page `mask/` and `inpainted/` files; comic-translate as vector brush strokes plus bbox+PNG inpaint patches drawn over the untouched original. Only the batch tools regenerate every run. Undo is always in memory per session, never stored. No project has per-site or per-series region presets (webtoon-translator's `credit` class erases site watermarks via the model each time, not a stored region).
+
+**Recommendation for Baihe (not yet approved by the user):**
+- **Preview:** cheapest accurate option is a hybrid: draw approximate CSS text on the canvas while dragging or typing, then after a short pause fetch a server-rendered PNG crop of that region from the same `process_page`/`render_text_in_box` path and show it as exact, flagging overflow. Trade-off: one round-trip per edit and a visible jump when the exact crop arrives. A WASM text engine like Koharu's is a large separate project.
+- **Masks:** this corrects an earlier lean toward not saving them. A design that stores only boxes and text and re-renders from the original loses manual cleanup, which is today's bug (`scanlate_tab.py:384`), and every editor above avoids it. Store per-page durable layers as files (comic-translate's stroke paths plus inpaint patches, or a mask PNG plus cleanup PNG), render original then cleanup then paint then text, re-run auto-inpaint only on request and skip it when a cleanup layer exists. Undo stays a client-side stack of inverse patches. Per-series "always erase" region presets (the user's idea) are new ground and belong after the editor works.
+- **Inpainting:** LaMa and AOT-GAN are the common base; OpenCV Telea remains the fallback, matching today's pair. The anime-tuned LaMa weights webtoon-translator uses are worth evaluating.
+
+**Decisions (user, 2026-09-29):**
+- **Q4 spend cap:** none. No monthly or per-run cap for Scanlate translation.
+- **Q1 freeze:** confirmed again: Streamlit and the extension bridge stop writing bubbles once the editor ships.
+- Still open: Q2 (preview approach) and Q3 (durable layers) pending the recommendations above; Q5-Q12.
