@@ -10,7 +10,7 @@ before /{name} so they are never read as a source name.
 
 from typing import List
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
@@ -78,9 +78,9 @@ def post_cache_clear(payload: SourceCacheClearRequest):
 
 @router.post("/tracked", dependencies=[require_permission("sources.import")], response_model=List[TrackedSeries],
              summary="Track or untrack one series (fetches nothing)", responses=_ERR)
-def post_tracked(payload: SourceTrackRequest):
+def post_tracked(payload: SourceTrackRequest, request: Request):
     return svc.set_tracked(payload.source, payload.series_id, payload.tracked, payload.title,
-                           payload.url, payload.drama_id)
+                           payload.url, payload.drama_id, principal=request.state.principal)
 
 
 @router.post("/notifications/{notification_id}/dismiss", dependencies=[require_permission("sources.import")], response_model=SourceNotification,

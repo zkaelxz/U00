@@ -24,6 +24,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
+from core import Line
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -186,3 +187,107 @@ class TestRouteWalk:
         client = _local(_app("off"))
         r = client.get(f"/api/library/dramas/{world['private']}")
         assert r.status_code == 200, r.text
+
+
+class TestLibraryLists:
+    """B sees shared items and their own, never A's private ones; admin
+    and auth off see everything."""
+
+    @pytest.fixture
+    def seeded(self, world):
+        for did, text in ((world["private"], "秘密"), (world["shared"], "公开"),
+                          (world["in_pseries"], "秘密")):
+            db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh=text, en="x")])
+            db.log_usage(did, "claude", "m", "translate", 10, 5, 0.01)
+        return world
+
+    def _ids(self, client, url, headers, key="id"):
+        r = client.get(url, headers=headers)
+        assert r.status_code == 200, r.text
+        return {item[key] for item in r.json()["items"]}
+
+    def test_drama_list(self, seeded):
+        w, client = seeded, _client(_app())
+        hidden = {w["private"], w["in_pseries"]}
+        b_ids = self._ids(client, "/api/library/dramas", w["b"])
+        assert w["shared"] in b_ids and not b_ids & hidden
+        for who in ("a", "admin"):
+            assert hidden <= self._ids(client, "/api/library/dramas", w[who])
+        off = _local(_app("off")).get("/api/library/dramas").json()["items"]
+        assert hidden <= {d["id"] for d in off}
+
+    def test_recent_costs_series_search(self, seeded):
+        w, client = seeded, _client(_app())
+        hidden = {w["private"], w["in_pseries"]}
+        assert not self._ids(client, "/api/library/recent", w["b"]) & hidden
+        assert hidden <= self._ids(client, "/api/library/recent", w["admin"])
+        assert not self._ids(client, "/api/library/costs", w["b"]) & hidden
+        assert hidden <= self._ids(client, "/api/library/costs", w["admin"])
+        # /series lists series holding two or more dramas.
+        db.create_drama(title_en="2nd", source_language="zh", series_id=w["pseries"],
+                        owner_user_id=w["a_id"])
+        assert w["pseries"] not in self._ids(client, "/api/library/series", w["b"])
+        assert w["pseries"] in self._ids(client, "/api/library/series", w["a"])
+        found = self._ids(client, "/api/library/search?q=秘密", w["b"], key="drama_id")
+        assert not found
+        assert self._ids(client, "/api/library/search?q=秘密", w["a"], key="drama_id") == hidden
+        assert self._ids(client, "/api/library/search?q=公开", w["b"], key="drama_id") \
+            == {w["shared"]}
+
+    def test_stats_count_only_visible(self, seeded):
+        w, client = seeded, _client(_app())
+        b = client.get("/api/library/stats", headers=w["b"]).json()
+        adm = client.get("/api/library/stats", headers=w["admin"]).json()
+        assert (b["total_dramas"], b["total_lines"]) == (1, 1)
+        assert (adm["total_dramas"], adm["total_lines"]) == (3, 3)
+
+
+class TestDramaIdsInBodies:
+    def test_bulk_translate_treats_invisible_as_missing(self, world):
+        db.update_drama(world["private"], status="aligned", translation_engine="ollama")
+        client = _client(_app())
+        r = client.post("/api/library/admin/bulk/translate", headers=world["b"],
+                        json={"drama_ids": [world["private"]]})
+        assert r.status_code == 422, r.text      # nothing left to queue
+        from services import library_admin_service as las
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        plan = las._bulk_translate_plan([world["private"], 999999], b)
+        assert plan[1] == [{"drama_id": world["private"], "reason": "not_found"},
+                           {"drama_id": 999999, "reason": "not_found"}]
+
+    def test_source_imports_404_on_invisible_drama(self, world):
+        from services import sources_import_service as svc
+        from services.service_errors import NotFoundError
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        with pytest.raises(NotFoundError):
+            svc._require_drama(world["private"], b)
+        assert svc._require_drama(world["shared"], b)["id"] == world["shared"]
+        assert svc._require_drama(world["private"], None)["id"] == world["private"]
+
+    def test_tracking_into_invisible_drama_404(self, world, monkeypatch):
+        from services import sources_registry_service as reg
+        from services.service_errors import ConflictError, NotFoundError
+        monkeypatch.setattr(reg, "_require_source", lambda name: None)
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        with pytest.raises(NotFoundError, match="No drama"):
+            reg.set_tracked("x", "s1", True, drama_id=world["private"], principal=b)
+        with pytest.raises(ConflictError):     # past the drama check: series not loaded
+            reg.set_tracked("x", "s1", True, drama_id=world["shared"], principal=b)
+
+
+class TestTranslateHistory:
+    def test_users_see_only_their_own_rows(self, world):
+        db.save_translate_history("zh", "en", "ollama", "a-text", "A", user_id=world["a_id"])
+        db.save_translate_history("zh", "en", "ollama", "b-text", "B", user_id=world["b_id"])
+        db.save_translate_history("zh", "en", "ollama", "pc-text", "PC")
+        client = _client(_app())
+
+        def texts(who):
+            r = client.get("/api/translate/history", headers=world[who])
+            assert r.status_code == 200, r.text
+            return {i["source_text"] for i in r.json()["items"]}
+        assert texts("b") == {"b-text"}
+        assert texts("a") == {"a-text"}
+        assert texts("admin") == {"a-text", "b-text", "pc-text"}
+        off = _local(_app("off")).get("/api/translate/history").json()["items"]
+        assert len(off) == 3

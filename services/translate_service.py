@@ -14,7 +14,7 @@ from typing import Optional
 
 import db
 import translate_engines
-from services import settings_service
+from services import ownership_service, settings_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
@@ -69,9 +69,11 @@ def list_engines(env_path: Optional[str] = None) -> list:
     return engines
 
 
-def list_history(limit: int = 50) -> list:
-    """Thin wrapper over db.list_translate_history -- most recent first."""
-    return db.list_translate_history(limit=limit)
+def list_history(limit: int = 50, principal=None) -> list:
+    """Thin wrapper over db.list_translate_history -- most recent first.
+    A household user (auth B2) sees only their own rows."""
+    return db.list_translate_history(
+        limit=limit, visible_to=ownership_service.visible_to_filter(principal))
 
 
 def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
@@ -96,7 +98,7 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
 
 def translate(text: str, engine_name: str, source_language: str, target_language: str,
               model: Optional[str] = None, free_tier: Optional[bool] = None,
-              env_path: Optional[str] = None) -> dict:
+              env_path: Optional[str] = None, principal=None) -> dict:
     """Translates text with engine_name (a translate_engines.ENGINES key),
     resolving its key server-side (D2) rather than accepting one from the
     caller, and saves the result to history -- the same two steps
@@ -133,7 +135,8 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     except translate_engines.UnsupportedDirectionError as exc:
         raise UnsupportedOperationError(str(exc)) from exc
 
-    db.save_translate_history(source_language, target_language, engine_name, text, translated_text)
+    db.save_translate_history(source_language, target_language, engine_name, text, translated_text,
+                              user_id=None if principal is None else principal.get("user_id"))
     return {"translated_text": translated_text}
 
 

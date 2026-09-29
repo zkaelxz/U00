@@ -22,6 +22,7 @@ import re
 from urllib.parse import urlsplit
 
 import db
+from services import ownership_service
 from services.service_errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from sources import auth_browser, cache as src_cache, health, ladder, registry, store
@@ -376,7 +377,7 @@ def dismiss_notification(notification_id: int) -> dict:
 
 
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
-                drama_id: int = None) -> list:
+                drama_id: int = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
     process's finished `sources_series_<source>` result for the same
     series (POST /api/sources/{name}/series): its chapters are recorded as
@@ -400,7 +401,8 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
             raise NotFoundError("That series isn't tracked.")
         store.untrack_series(source, series_id)
         return list_tracked()
-    if drama_id is not None and db.get_drama(drama_id) is None:
+    if drama_id is not None and (db.get_drama(drama_id) is None or not
+                                 ownership_service.can_edit_drama(principal, drama_id)):
         raise NotFoundError(f"No drama with id {drama_id}.")
     status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
     result = status.get("result") if status.get("status") == "done" else None

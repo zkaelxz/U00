@@ -208,7 +208,7 @@ class TestBulkTranslate:
         a = _new("A")
         seen = {}
 
-        def fake(drama_ids, default_locale="en-US", expected_engines=None):
+        def fake(drama_ids, default_locale="en-US", expected_engines=None, principal=None):
             seen["expected"] = expected_engines
             return {"job_id": "x", "queued": [a], "skipped": []}
         monkeypatch.setattr(las, "start_bulk_translate", fake)
