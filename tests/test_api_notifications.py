@@ -1,5 +1,6 @@
 """Step 44: Discord / ntfy job notifications (services/notification_service,
 api/routers/notification_routes). requests and DNS are faked: no network."""
+import io
 import os
 import socket
 import threading
@@ -28,18 +29,31 @@ SECRET_BITS = ("SECRETtoken", "baihe-secret-topic-xyz", "123456789012345678")
 LOCAL = "http://127.0.0.1:8600"
 REMOTE = "https://baihe.example.com"
 PUBLIC_IP = "93.184.216.34"
+_REAL_JOB_HOOK = background_jobs._notify_job_finished
 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch, isolated_db):
+    """Notifications on (conftest turns them off) with an empty .env. The
+    background_jobs hook is a no-op here, so a job thread left running by an
+    earlier test in this worker can't queue an event into this test; the
+    tests that exercise the hook ask for `job_hook` as well."""
     path = tmp_path / ".env"
     monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
-    for names in list(ns.ENV_VARS.values()) + [(ns.ALLOW_LOCAL_NTFY_ENV,), (ns.DISABLED_ENV,)]:
+    for names in list(ns.ENV_VARS.values()) + [(ns.ALLOW_LOCAL_NTFY_ENV,), (ns.DISABLED_ENV,),
+                                               (ns.API_PORT_ENV,)]:
         for n in names:
             monkeypatch.delenv(n, raising=False)
+    monkeypatch.setattr(background_jobs, "_notify_job_finished", lambda *a, **k: None)
     ns.reset_for_tests()
     yield path
     ns.reset_for_tests()
+
+
+@pytest.fixture
+def job_hook(env, monkeypatch):
+    """The real background_jobs -> notification_service hook."""
+    monkeypatch.setattr(background_jobs, "_notify_job_finished", _REAL_JOB_HOOK)
 
 
 @pytest.fixture
@@ -60,9 +74,17 @@ def dns(monkeypatch):
 class FakeResp:
     def __init__(self, status):
         self.status_code = status
+        self.closed = False
 
     def close(self):
-        pass
+        self.closed = True
+
+    def iter_content(self, *a, **k):
+        raise AssertionError("the reply body must never be read")
+
+    @property
+    def content(self):
+        raise AssertionError("the reply body must never be read")
 
 
 @pytest.fixture
@@ -78,7 +100,9 @@ def posts(monkeypatch):
         calls.append({"url": url, **kw})
         if Ctl.exc is not None:
             raise Ctl.exc
-        return FakeResp(Ctl.status)
+        resp = FakeResp(Ctl.status)
+        calls[-1]["resp"] = resp
+        return resp
 
     monkeypatch.setattr(requests.Session, "post", fake_post)
     Ctl.calls = calls
@@ -159,11 +183,39 @@ def test_ntfy_local_needs_explicit_opt_in(env, monkeypatch):
     assert ns.allow_local_ntfy() is True
     assert ns.validate_url("ntfy", LOCAL_NTFY) == LOCAL_NTFY
     assert ns.validate_url("ntfy", "http://localhost:8080/t") == "http://localhost:8080/t"
+    # IPv6 loopback is accepted too (it sits inside the reserved ::/8 block).
+    assert ns.validate_url("ntfy", "http://[::1]:8080/t") == "http://[::1]:8080/t"
     # Link-local (cloud metadata) and other non-LAN ranges stay refused.
     for url in ("http://169.254.169.254/t", "http://0.0.0.0/t", "http://[fe80::1]/t",
-                "http://224.0.0.1/t"):
+                "http://224.0.0.1/t", "http://[::]/t", "http://[ff02::1]/t"):
         with pytest.raises(ns.InvalidInputError):
             ns.validate_url("ntfy", url)
+
+
+def test_ipv6_loopback_is_refused_without_the_opt_in(env):
+    with pytest.raises(ns.InvalidInputError, match="BAIHE_NTFY_ALLOW_LOCAL"):
+        ns.validate_url("ntfy", "http://[::1]:8080/t")
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:8501/t", "http://127.0.0.1:8600/t", "http://127.0.0.1:8756/t",
+    "https://127.0.0.2:8756/t", "http://localhost:8600/t", "http://app.localhost:8501/t",
+    "http://[::1]:8756/t", "http://[::ffff:127.0.0.1]:8756/t", "http://127.0.0.1:9123/t"])
+def test_local_ntfy_never_targets_baihe_own_ports(env, monkeypatch, url):
+    env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
+    monkeypatch.setenv(ns.API_PORT_ENV, "9123")
+    with pytest.raises(ns.InvalidInputError) as exc:
+        ns.validate_url("ntfy", url)
+    assert str(exc.value) == ns._NTFY_OWN_PORT   # fixed text, never the address
+
+
+def test_api_port_from_dotenv_is_protected_too(env):
+    env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n{ns.API_PORT_ENV}=9124\n")
+    with pytest.raises(ns.InvalidInputError, match="belongs to Baihe"):
+        ns.validate_url("ntfy", "http://127.0.0.1:9124/t")
+    # A LAN address on those ports is not this PC's loopback and is allowed.
+    assert ns.validate_url("ntfy", "http://192.168.1.50:8600/t")
+    assert ns.validate_url("ntfy", "http://127.0.0.1:8080/t")
 
 
 def test_unknown_channel(env):
@@ -242,6 +294,7 @@ def test_connection_is_pinned_to_the_validated_address(env, dns, monkeypatch):
         seen["timeout"] = kw.get("timeout")
         r = requests.Response()
         r.status_code = 204
+        r.raw = io.BytesIO(b"")        # stream=True: closed, never read
         return r
 
     monkeypatch.setattr(HTTPAdapter, "send", fake_send)
@@ -277,6 +330,105 @@ def test_local_ntfy_only_when_opted_in(env, dns, posts):
     dns["ntfy.lan"] = ["169.254.169.254"]
     assert ns._deliver("x")["ntfy"] == "refused"
     assert len(posts.calls) == 1
+
+
+def test_local_name_resolving_to_loopback_on_a_baihe_port_is_refused(env, dns, posts):
+    dns["ntfy.lan"] = ["127.0.0.1"]
+    for port in (8501, 8600, 8756):
+        env.write_text(f"{ns.ENV_VARS['ntfy'][0]}=http://ntfy.lan:{port}/topic\n"
+                       f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
+        assert ns._deliver("x")["ntfy"] == "refused"
+    dns["ntfy.lan"] = ["::1"]
+    assert ns._deliver("x")["ntfy"] == "refused"
+    assert posts.calls == []
+    env.write_text(f"{ns.ENV_VARS['ntfy'][0]}=http://ntfy.lan:8080/topic\n"
+                   f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
+    assert ns._deliver("x")["ntfy"] == "sent"
+    assert posts.calls[0]["url"] == "http://ntfy.lan:8080/topic"
+
+
+def test_reply_is_streamed_and_its_body_never_read(env, dns, posts):
+    _write(env, ntfy=NTFY)
+    assert ns._deliver("x")["ntfy"] == "sent"
+    call = posts.calls[0]
+    assert call["stream"] is True and call["allow_redirects"] is False
+    assert call["resp"].closed
+
+
+def _serve_once(handler):
+    """One-connection loopback server running `handler(conn)` in a thread."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    stop = threading.Event()
+
+    def run():
+        try:
+            conn, _ = srv.accept()
+        except OSError:
+            return
+        with conn:
+            conn.settimeout(10)
+            try:
+                conn.recv(65536)
+                handler(conn, stop)
+            except OSError:
+                pass
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return srv, stop, t
+
+
+def test_a_slow_dripping_server_is_cut_off_by_the_deadline(monkeypatch):
+    import time
+
+    def drip(conn, stop):
+        conn.sendall(b"HTTP/1.1 200 OK\r\n")
+        while not stop.is_set():       # headers never finish; each byte beats HTTP_TIMEOUT
+            conn.sendall(b"X")
+            time.sleep(0.1)
+
+    monkeypatch.setattr(ns, "SEND_DEADLINE", 0.6)
+    srv, stop, t = _serve_once(drip)
+    port = srv.getsockname()[1]
+    started = time.monotonic()
+    try:
+        with pytest.raises(Exception):
+            ns._pinned_post(f"http://slow.test:{port}/t", "127.0.0.1", b"x", {})
+        assert time.monotonic() - started < 4
+    finally:
+        stop.set()
+        srv.close()
+        t.join(5)
+
+
+def test_a_huge_reply_body_is_not_downloaded():
+    import time
+
+    sent = []
+
+    def huge(conn, stop):
+        conn.sendall(b"HTTP/1.1 204 No Content\r\nContent-Length: 10000000000\r\n\r\n")
+        chunk = b"0" * 65536
+        while not stop.is_set():
+            try:
+                conn.sendall(chunk)
+            except OSError:
+                return
+            sent.append(len(chunk))
+
+    srv, stop, t = _serve_once(huge)
+    port = srv.getsockname()[1]
+    started = time.monotonic()
+    try:
+        assert ns._pinned_post(f"http://big.test:{port}/t", "127.0.0.1", b"x", {}) == 204
+        assert time.monotonic() - started < 3
+    finally:
+        stop.set()
+        srv.close()
+        t.join(5)
+    assert sum(sent) < 100_000_000
 
 
 def test_failures_are_reported_and_logged_without_secrets(env, dns, posts):
@@ -359,8 +511,8 @@ def _wait(job_id):
     raise AssertionError("job did not finish")
 
 
-def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, dns, posts, no_timer,
-                                                                      monkeypatch):
+def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_hook, dns, posts,
+                                                                      no_timer, monkeypatch):
     _write(env, discord=DISCORD)
     posts.exc = requests.ConnectionError(DISCORD)
     # The runner flips a job's status first and queues the push after, so
@@ -399,7 +551,7 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, dns, 
     assert ns.flush() == {"discord": "failed", "ntfy": "not_configured"}
 
 
-def test_a_raising_notifier_never_breaks_the_job(env, monkeypatch):
+def test_a_raising_notifier_never_breaks_the_job(env, job_hook, monkeypatch):
     def explode(*a, **k):
         raise RuntimeError("notifier down")
 

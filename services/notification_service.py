@@ -30,9 +30,12 @@ https://<host>/<topic>, and the host must resolve to public addresses only
 (loopback or RFC 1918 / IPv6 ULA addresses, http or https; never
 link-local, so no cloud metadata endpoint) is allowed only when
 `BAIHE_NTFY_ALLOW_LOCAL=1` is set in `.env` or the environment by hand --
-there is deliberately no API route that turns it on. Every send connects
-to the address that was validated (no second DNS lookup), with no
-redirects, no proxy and a timeout.
+there is deliberately no API route that turns it on. Even then, a target
+on this PC (loopback) may not use one of Baihe's own ports (Streamlit 8501,
+the API 8600 or the configured BAIHE_API_PORT, the extension bridge 8756).
+Every send connects to the address that was validated (no second DNS
+lookup), with no redirects, no proxy, a per-socket timeout and an overall
+SEND_DEADLINE; the reply body is never read (only the status code).
 
 `BAIHE_NOTIFY_DISABLED=1` turns automatic sends off (tests/conftest.py sets
 it so the suite never posts to a real webhook configured on the machine).
@@ -55,6 +58,9 @@ ALLOW_LOCAL_NTFY_ENV = "BAIHE_NTFY_ALLOW_LOCAL"
 DISABLED_ENV = "BAIHE_NOTIFY_DISABLED"
 
 HTTP_TIMEOUT = (3.05, 5)
+SEND_DEADLINE = 10.0          # wall clock for one POST, however slowly the server replies
+BAIHE_OWN_PORTS = (8501, 8600, 8756)   # Streamlit, API default, extension bridge
+API_PORT_ENV = "BAIHE_API_PORT"
 BURST_WINDOW = 5.0
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
@@ -73,6 +79,8 @@ _BAD_CHANNEL = "Unknown notification channel."
 _BAD_DISCORD = ("That is not a Discord webhook address. It should look like "
                 "https://discord.com/api/webhooks/...")
 _BAD_NTFY = "That is not an ntfy topic address. It should look like https://ntfy.sh/your-topic"
+_NTFY_OWN_PORT = ("That port belongs to Baihe itself. A local ntfy server must use a "
+                  "different port.")
 _NTFY_LOCAL_OFF = ("A local ntfy server needs BAIHE_NTFY_ALLOW_LOCAL=1 in .env on the Baihe PC; "
                    "otherwise use an https:// address on the internet.")
 
@@ -113,10 +121,29 @@ def get_status() -> dict:
             "ntfy_allow_local": allow_local_ntfy()}
 
 
+def _unmap(ip):
+    return ip.ipv4_mapped if getattr(ip, "ipv4_mapped", None) else ip
+
+
 def _is_local_ip(ip) -> bool:
-    if getattr(ip, "ipv4_mapped", None):
-        ip = ip.ipv4_mapped
+    ip = _unmap(ip)
     return any(ip.version == n.version and ip in n for n in _LOCAL_NETS)
+
+
+def _baihe_ports() -> set:
+    """Ports a loopback ntfy target may never use: Baihe's own servers,
+    plus BAIHE_API_PORT when it is set (environment or .env)."""
+    ports = set(BAIHE_OWN_PORTS)
+    for raw in (os.environ.get(API_PORT_ENV), _settings().resolve_env_names((API_PORT_ENV,))):
+        try:
+            ports.add(int(str(raw).strip()))
+        except (TypeError, ValueError):
+            pass
+    return ports
+
+
+def _effective_port(parts) -> int:
+    return parts.port or (443 if parts.scheme == "https" else 80)
 
 
 def _clean_value(value) -> str:
@@ -163,14 +190,19 @@ def validate_url(channel, value, allow_local=None) -> str:
         literal = ipaddress.ip_address(host.strip("[]"))
     except ValueError:
         pass
-    looks_local = (host == "localhost" or host.endswith(".localhost") or host.endswith(".local")
+    loopback_name = host == "localhost" or host.endswith(".localhost")
+    looks_local = (loopback_name or host.endswith(".local")
                    or (literal is not None and not literal.is_global))
     if not allow_local and (parts.scheme != "https" or looks_local):
         raise InvalidInputError(_NTFY_LOCAL_OFF)
-    if literal is not None and (literal.is_multicast or literal.is_reserved
-                                or literal.is_unspecified
-                                or (not literal.is_global and not _is_local_ip(literal))):
+    # Loopback / LAN first: IPv6 ::1 sits inside the reserved ::/8 block.
+    if literal is not None and not _is_local_ip(literal) and (
+            literal.is_multicast or literal.is_reserved or literal.is_unspecified
+            or not literal.is_global):
         raise InvalidInputError(bad)   # link-local, reserved, multicast ...
+    if ((loopback_name or (literal is not None and _unmap(literal).is_loopback))
+            and _effective_port(parts) in _baihe_ports()):
+        raise InvalidInputError(_NTFY_OWN_PORT)
     return value
 
 
@@ -259,13 +291,13 @@ def _resolve_target(channel, url) -> str:
 
 
 def _resolve_local(parts) -> str:
+    port = _effective_port(parts)
     try:
-        infos = socket.getaddrinfo(parts.hostname, parts.port
-                                   or (443 if parts.scheme == "https" else 80),
-                                   type=socket.SOCK_STREAM)
+        infos = socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
     except (UnicodeError, OSError):
         raise OSError("resolve failed") from None
     first = None
+    own_ports = None
     for info in infos:
         raw = info[4][0].split("%")[0]
         try:
@@ -274,6 +306,10 @@ def _resolve_local(parts) -> str:
             raise _Refused() from None
         if not _is_local_ip(ip):
             raise _Refused()   # a mix of local and other addresses is refused too
+        if _unmap(ip).is_loopback:
+            own_ports = _baihe_ports() if own_ports is None else own_ports
+            if port in own_ports:
+                raise _Refused()   # never one of Baihe's own servers on this PC
         first = first or raw
     if first is None:
         raise OSError("resolve failed")
@@ -282,12 +318,34 @@ def _resolve_local(parts) -> str:
 
 def _pinned_post(url, ip, body: bytes, headers: dict):
     """POST to `url` connecting to the already-validated `ip` (no second DNS
-    lookup), keeping SNI and the certificate check on the real host name."""
+    lookup), keeping SNI and the certificate check on the real host name.
+
+    Returns the status code only: the reply is streamed and its body is
+    never read. HTTP_TIMEOUT bounds each socket wait; SEND_DEADLINE bounds
+    the whole call (a server dripping headers one byte at a time is cut off
+    by shutting its socket down from a timer)."""
     import requests
     from requests.adapters import HTTPAdapter
+    from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
     parts = urlsplit(url)
     host = parts.hostname
+    opened = []
+    opened_lock = threading.Lock()
+    expired = threading.Event()
+
+    def _track(conn):
+        with opened_lock:
+            opened.append(conn)
+        return conn
+
+    class _TrackedHTTPPool(HTTPConnectionPool):
+        def _new_conn(self):
+            return _track(super()._new_conn())
+
+    class _TrackedHTTPSPool(HTTPSConnectionPool):
+        def _new_conn(self):
+            return _track(super()._new_conn())
 
     class _PinnedAdapter(HTTPAdapter):
         def init_poolmanager(self, *args, **kwargs):
@@ -295,6 +353,8 @@ def _pinned_post(url, ip, body: bytes, headers: dict):
                 kwargs["server_hostname"] = host
                 kwargs["assert_hostname"] = host
             super().init_poolmanager(*args, **kwargs)
+            self.poolmanager.pool_classes_by_scheme = {"http": _TrackedHTTPPool,
+                                                       "https": _TrackedHTTPSPool}
 
         def send(self, request, **kw):
             p = urlsplit(request.url)
@@ -303,16 +363,38 @@ def _pinned_post(url, ip, body: bytes, headers: dict):
             request.headers["Host"] = p.netloc
             return super().send(request, **kw)
 
+    def _expire():
+        expired.set()
+        with opened_lock:
+            conns = list(opened)
+        for conn in conns:
+            sock = getattr(conn, "sock", None)
+            try:
+                if sock is not None:
+                    sock.shutdown(socket.SHUT_RDWR)   # wakes a blocked recv/send
+            except OSError:
+                pass
+
     session = requests.Session()
     session.trust_env = False   # a proxy would re-resolve the host name itself
     session.mount(f"{parts.scheme}://", _PinnedAdapter())
+    watchdog = threading.Timer(SEND_DEADLINE, _expire)
+    watchdog.daemon = True
+    watchdog.name = "notify-deadline"
+    watchdog.start()
     try:
         resp = session.post(url, data=body, headers=headers, timeout=HTTP_TIMEOUT,
-                            allow_redirects=False)
-        status = resp.status_code
-        resp.close()
+                            allow_redirects=False, stream=True)
+        try:
+            status = resp.status_code
+        finally:
+            resp.close()   # stream=True: the body is never read
+        if expired.is_set():
+            # The shutdown can end the headers early and still yield a status.
+            raise TimeoutError("send deadline passed")
         return status
     finally:
+        watchdog.cancel()
         session.close()
 
 
