@@ -7,7 +7,7 @@ for the safety rules. OCR is a background job; poll GET /api/jobs/{id}.
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, Path, UploadFile
-
+from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, NovelAttachResult, NovelAttachTextRequest,
                          NovelOcrResult, NovelStatus)
 from services import novel_attach_service
@@ -17,20 +17,20 @@ _ERR = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
         422: {"model": ErrorResponse}}
 
 
-@router.post("/dramas/{drama_id}/attach-text", response_model=NovelAttachResult,
+@router.post("/dramas/{drama_id}/attach-text", dependencies=[local_only()], response_model=NovelAttachResult,
              summary="Attach pasted novel text to one drama", responses=_ERR)
 def post_attach_text(payload: NovelAttachTextRequest, drama_id: int = Path(ge=1)):
     return novel_attach_service.attach_text(drama_id, payload.text, payload.mode)
 
 
-@router.post("/dramas/{drama_id}/attach-epub", response_model=NovelAttachResult,
+@router.post("/dramas/{drama_id}/attach-epub", dependencies=[local_only()], response_model=NovelAttachResult,
              summary="Attach the plain text of an uploaded EPUB to one drama", responses=_ERR)
 def post_attach_epub(drama_id: int = Path(ge=1), file: UploadFile = File(...),
                      mode: str = Form("replace")):
     return novel_attach_service.attach_epub(drama_id, file.file, mode)
 
 
-@router.post("/dramas/{drama_id}/ocr-chapter", response_model=NovelOcrResult,
+@router.post("/dramas/{drama_id}/ocr-chapter", dependencies=[local_only()], response_model=NovelOcrResult,
              summary="Start a background OCR job over uploaded chapter images",
              responses={**_ERR, 503: {"model": ErrorResponse}})
 def post_ocr_chapter(drama_id: int = Path(ge=1), files: List[UploadFile] = File(...),
@@ -40,7 +40,7 @@ def post_ocr_chapter(drama_id: int = Path(ge=1), files: List[UploadFile] = File(
         drama_id, [(f.filename, f.file) for f in files], backend, mode, tesseract_cmd)
 
 
-@router.get("/dramas/{drama_id}/status", response_model=NovelStatus,
+@router.get("/dramas/{drama_id}/status", dependencies=[require_permission("library.read")], response_model=NovelStatus,
             summary="Whether novel text is attached (booleans and counts only)",
             responses={404: {"model": ErrorResponse}})
 def get_novel_status(drama_id: int = Path(ge=1)):

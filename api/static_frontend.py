@@ -24,6 +24,8 @@ from fastapi.responses import FileResponse
 from starlette.exceptions import HTTPException
 from starlette.routing import Match
 
+from api.auth import public_route
+
 log = logging.getLogger(__name__)
 
 DEFAULT_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
@@ -41,7 +43,9 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
         return False
     root = dist.resolve()
 
-    @app.get("/{path:path}", include_in_schema=False)
+    # public_route(): the app shell and its assets carry no data and must
+    # load before login; /api paths below it are never answered with data.
+    @app.get("/{path:path}", include_in_schema=False, dependencies=[public_route()])
     def serve_frontend(path: str, request: Request):
         if path == "api" or path.startswith("api/"):
             # A real API route that just doesn't take GET must stay a 405 (with

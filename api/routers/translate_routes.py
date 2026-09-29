@@ -11,7 +11,7 @@ requires an explicit confirm=true rather than a bare DELETE).
 """
 
 from fastapi import APIRouter, Query
-
+from api.auth import local_only, require_permission
 from api.schemas import (ClearHistoryResult, ErrorResponse, TranslateEngineListResponse,
                          TranslateHistoryResponse, TranslateRequest, TranslateResponse)
 from services import translate_service
@@ -19,19 +19,19 @@ from services import translate_service
 router = APIRouter(prefix="/api/translate", tags=["translate"])
 
 
-@router.get("/engines", response_model=TranslateEngineListResponse,
+@router.get("/engines", dependencies=[require_permission("library.read")], response_model=TranslateEngineListResponse,
             summary="Available translate engines and whether each has a key configured")
 def get_engines():
     return {"items": translate_service.list_engines()}
 
 
-@router.get("/history", response_model=TranslateHistoryResponse,
+@router.get("/history", dependencies=[require_permission("library.read")], response_model=TranslateHistoryResponse,
             summary="Standalone-translate history, most recent first")
 def get_history(limit: int = Query(50, ge=1, le=200)):
     return {"items": translate_service.list_history(limit=limit)}
 
 
-@router.post("", response_model=TranslateResponse,
+@router.post("", dependencies=[require_permission("engines.paid")], response_model=TranslateResponse,
             summary="Translate text with a chosen engine (server-side key resolution, D2)",
             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
                       503: {"model": ErrorResponse}})
@@ -41,7 +41,7 @@ def post_translate(payload: TranslateRequest):
         model=payload.model, free_tier=payload.free_tier, base_url=payload.base_url)
 
 
-@router.delete("/history", response_model=ClearHistoryResult,
+@router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,
               summary="Clear standalone-translate history (requires confirm=true)",
               responses={422: {"model": ErrorResponse}})
 def delete_history(confirm: bool = Query(False)):

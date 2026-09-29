@@ -17,7 +17,7 @@ job and Slice 30 the burned-in video job
 from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Response
-
+from api.auth import require_permission
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, ErrorResponse,
                          ExportReadiness, FlagActionResult, MediaExportStarted)
 from services import export_service, media_export_service
@@ -27,14 +27,14 @@ router = APIRouter(prefix="/api/export", tags=["export"])
 _MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt"}
 
 
-@router.get("/dramas/{drama_id}/readiness", response_model=ExportReadiness,
+@router.get("/dramas/{drama_id}/readiness", dependencies=[require_permission("library.read")], response_model=ExportReadiness,
             summary="Read-only export-readiness summary for one drama",
             responses={404: {"model": ErrorResponse}})
 def get_export_readiness(drama_id: int = Path(ge=1)):
     return export_service.get_export_readiness(drama_id)
 
 
-@router.get("/dramas/{drama_id}/subtitle",
+@router.get("/dramas/{drama_id}/subtitle", dependencies=[require_permission("lines.read")],
             summary="Generate SRT/VTT subtitle text for one drama (plain-text download)",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_subtitle_text(
@@ -53,28 +53,28 @@ def get_subtitle_text(
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-@router.post("/dramas/{drama_id}/flag-overlaps", response_model=FlagActionResult,
+@router.post("/dramas/{drama_id}/flag-overlaps", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,
             summary="Flag every currently-overlapping, not-yet-flagged line for review",
             responses={404: {"model": ErrorResponse}})
 def post_flag_overlaps(drama_id: int = Path(ge=1)):
     return export_service.flag_overlapping_lines(drama_id)
 
 
-@router.post("/dramas/{drama_id}/flag-dense-lines", response_model=FlagActionResult,
+@router.post("/dramas/{drama_id}/flag-dense-lines", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,
             summary="Flag every line too dense to read in its on-screen time",
             responses={404: {"model": ErrorResponse}})
 def post_flag_dense_lines(drama_id: int = Path(ge=1)):
     return export_service.flag_dense_lines(drama_id)
 
 
-@router.post("/dramas/{drama_id}/flag-auto-qc", response_model=AutoQcFlagResult,
+@router.post("/dramas/{drama_id}/flag-auto-qc", dependencies=[require_permission("lines.edit")], response_model=AutoQcFlagResult,
             summary="Run Auto QC's factual-detail check and update flags in place",
             responses={404: {"model": ErrorResponse}})
 def post_flag_auto_qc(drama_id: int = Path(ge=1)):
     return export_service.run_auto_qc_flagging(drama_id)
 
 
-@router.get("/dramas/{drama_id}/epub",
+@router.get("/dramas/{drama_id}/epub", dependencies=[require_permission("lines.read")],
             summary="Generate an EPUB for one novel-narration drama (binary download)",
             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                       422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
@@ -86,7 +86,7 @@ def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
-@router.post("/dramas/{drama_id}/ass",
+@router.post("/dramas/{drama_id}/ass", dependencies=[require_permission("lines.read")],
              summary="Generate ASS subtitle text for one drama (plain-text download)",
              responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
@@ -103,13 +103,13 @@ def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
 
 
 # Static path; every other route here lives under /dramas/..., so it can't be shadowed.
-@router.get("/ass-style-options", response_model=AssStyleOptions,
+@router.get("/ass-style-options", dependencies=[require_permission("library.read")], response_model=AssStyleOptions,
             summary="Presets, fonts, alignments and ranges for ASS style controls")
 def get_ass_style_options():
     return export_service.get_ass_style_options()
 
 
-@router.post("/dramas/{drama_id}/audiobook", response_model=MediaExportStarted,
+@router.post("/dramas/{drama_id}/audiobook", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,
              summary="Start the audiobook (.m4b) export job (poll GET /api/jobs/{job_id})",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
@@ -117,7 +117,7 @@ def post_audiobook(drama_id: int = Path(ge=1)):
     return media_export_service.start_audiobook_export(drama_id)
 
 
-@router.post("/dramas/{drama_id}/burned-video", response_model=MediaExportStarted,
+@router.post("/dramas/{drama_id}/burned-video", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,
              summary="Start the burned-in (hardsub ASS) video export job",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})

@@ -7,18 +7,18 @@ endpoint's own error to learn anything more specific.
 """
 
 from fastapi import APIRouter, Request
-
+from api.auth import public_route
 from api.schemas import API_VERSION, HealthResponse, MetaResponse
 
 router = APIRouter(prefix="/api", tags=["system"])
 
 
-@router.get("/health", response_model=HealthResponse, summary="Liveness check")
+@router.get("/health", dependencies=[public_route()], response_model=HealthResponse, summary="Liveness check")
 def health():
     return HealthResponse(status="ok")
 
 
-@router.get("/meta", response_model=MetaResponse, summary="API name, contract version, mode")
+@router.get("/meta", dependencies=[public_route()], response_model=MetaResponse, summary="API name, contract version, mode")
 def meta(request: Request):
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
                         environment=request.app.state.settings.environment)

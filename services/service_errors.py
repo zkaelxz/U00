@@ -80,3 +80,9 @@ class RateLimitedError(ServiceError):
     job starts). HTTP 429 `rate_limited`."""
 
     code = "rate_limited"
+
+
+class UnauthenticatedError(ServiceError):
+    """No valid session. HTTP 401 `unauthenticated`. Generic message only."""
+
+    code = "unauthenticated"

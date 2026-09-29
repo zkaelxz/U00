@@ -12,14 +12,14 @@ only way to trigger one as of this slice).
 """
 
 from fastapi import APIRouter, Path, Query
-
+from api.auth import require_permission
 from api.schemas import ErrorResponse, ReaderPageResponse
 from services import reader_service
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
 
 
-@router.get("/dramas/{drama_id}/page", response_model=ReaderPageResponse,
+@router.get("/dramas/{drama_id}/page", dependencies=[require_permission("library.read")], response_model=ReaderPageResponse,
             summary="One page of a drama's Reader view, definitions from cache only",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_reader_page(

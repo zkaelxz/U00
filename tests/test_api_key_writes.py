@@ -223,7 +223,11 @@ def test_guard_runs_before_body_parsing(env_file):
               _client(peer=("10.0.0.1", 1))):
         r = c.post("/api/settings/keys/claude", **bad)
         assert r.status_code == 403
-        assert r.json()["error"]["message"] == "Not allowed from this connection."
+        # Remote callers are now refused earlier, by the off-mode loopback gate
+        # (Step 133), with its generic message; the route's own guard still
+        # answers the loopback caller when key writes are disabled.
+        assert r.json()["error"]["message"] in ("Not allowed from this connection.",
+                                                "Not allowed.")
         assert c.post("/api/settings/keys/claude/clear", **bad).status_code == 403
     # allowed caller with a malformed body still gets a plain 422
     assert _client().post("/api/settings/keys/claude", **bad).status_code == 422

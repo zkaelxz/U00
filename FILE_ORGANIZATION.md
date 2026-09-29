@@ -276,17 +276,23 @@ baihe-subtitler/
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
 │   │                             preview + apply job, version-history restore (snapshot first,
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
+│   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
 │   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │                                 attempts, settings, profiles, tracked, notifications) and config
 │                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
-│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
+│   │                             `grant-admin <email>` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
+│   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
+│   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
+│   │                             LoopbackOnlyGate (auth off: direct loopback requests only)
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/

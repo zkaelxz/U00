@@ -12,6 +12,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query
 
+from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
                          SourceCacheStats, SourceDetail, SourceHealth, SourceNotification,
                          SourceProfileDomain, SourceProfileRollbackRequest,
@@ -24,35 +25,35 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 _NAME = Path(min_length=1, max_length=60)
 
 
-@router.get("", response_model=List[SourceSummary], summary="List every source adapter")
+@router.get("", dependencies=[require_permission("library.read")], response_model=List[SourceSummary], summary="List every source adapter")
 def list_sources():
     return svc.list_sources()
 
 
-@router.get("/settings", response_model=SourcesSettings,
+@router.get("/settings", dependencies=[require_permission("admin.settings")], response_model=SourcesSettings,
             summary="Source pacing/cache settings (numbers and enums; proxy is a bool only)")
 def get_settings():
     return svc.get_settings()
 
 
-@router.get("/profiles", response_model=List[SourceProfileDomain],
+@router.get("/profiles", dependencies=[require_permission("admin.settings")], response_model=List[SourceProfileDomain],
             summary="Saved per-domain extraction profiles (version summaries only)")
 def list_profiles():
     return svc.list_profiles()
 
 
-@router.get("/tracked", response_model=List[TrackedSeries], summary="Tracked series")
+@router.get("/tracked", dependencies=[require_permission("library.read")], response_model=List[TrackedSeries], summary="Tracked series")
 def list_tracked():
     return svc.list_tracked()
 
 
-@router.get("/notifications", response_model=List[SourceNotification],
+@router.get("/notifications", dependencies=[require_permission("library.read")], response_model=List[SourceNotification],
             summary="New-chapter notifications")
 def list_notifications(include_dismissed: bool = False):
     return svc.list_notifications(include_dismissed)
 
 
-@router.get("/{name}", response_model=SourceDetail,
+@router.get("/{name}", dependencies=[require_permission("library.read")], response_model=SourceDetail,
             summary="One source's capability record, health and recorded terms (information only)",
             responses={404: {"model": ErrorResponse}})
 def get_source(name: str = _NAME):
@@ -62,33 +63,33 @@ def get_source(name: str = _NAME):
 _ERR = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 
 
-@router.post("/settings", response_model=SourcesSettings,
+@router.post("/settings", dependencies=[local_only()], response_model=SourcesSettings,
              summary="Update whitelisted source settings (no proxy URL; pacing floor enforced)",
              responses=_ERR)
 def post_settings(payload: SourcesSettingsUpdate):
     return svc.update_settings(payload.model_dump(exclude_unset=True))
 
 
-@router.post("/cache/clear", response_model=SourceCacheStats,
+@router.post("/cache/clear", dependencies=[require_permission("admin.settings")], response_model=SourceCacheStats,
              summary="Clear the raw-content cache (needs confirm=true)", responses=_ERR)
 def post_cache_clear(payload: SourceCacheClearRequest):
     return svc.clear_cache(payload.confirm)
 
 
-@router.post("/tracked", response_model=List[TrackedSeries],
+@router.post("/tracked", dependencies=[require_permission("sources.import")], response_model=List[TrackedSeries],
              summary="Track or untrack one series (fetches nothing)", responses=_ERR)
 def post_tracked(payload: SourceTrackRequest):
     return svc.set_tracked(payload.source, payload.series_id, payload.tracked, payload.title,
                            payload.url, payload.drama_id)
 
 
-@router.post("/notifications/{notification_id}/dismiss", response_model=SourceNotification,
+@router.post("/notifications/{notification_id}/dismiss", dependencies=[require_permission("sources.import")], response_model=SourceNotification,
              summary="Dismiss one new-chapter notification", responses=_ERR)
 def post_dismiss(notification_id: int = Path(ge=1)):
     return svc.dismiss_notification(notification_id)
 
 
-@router.post("/profiles/{domain}/{kind}/rollback", response_model=List[SourceProfileVersion],
+@router.post("/profiles/{domain}/{kind}/rollback", dependencies=[require_permission("admin.settings")], response_model=List[SourceProfileVersion],
              summary="Make an earlier saved profile version active again", responses=_ERR)
 def post_profile_rollback(payload: SourceProfileRollbackRequest,
                           domain: str = Path(min_length=1, max_length=200),
@@ -96,26 +97,26 @@ def post_profile_rollback(payload: SourceProfileRollbackRequest,
     return svc.rollback_profile(domain, kind, payload.version)
 
 
-@router.post("/{name}/enabled", response_model=SourceSummary,
+@router.post("/{name}/enabled", dependencies=[require_permission("admin.settings")], response_model=SourceSummary,
              summary="Switch one source on or off", responses=_ERR)
 def post_enabled(payload: SourceToggle, name: str = _NAME):
     return svc.set_source_enabled(name, payload.enabled)
 
 
-@router.post("/{name}/adult", response_model=SourceSummary,
+@router.post("/{name}/adult", dependencies=[require_permission("admin.settings")], response_model=SourceSummary,
              summary="Adult-flagged works toggle (only sources that support it)",
              responses={**_ERR, 400: {"model": ErrorResponse}})
 def post_adult(payload: SourceToggle, name: str = _NAME):
     return svc.set_adult_enabled(name, payload.enabled)
 
 
-@router.post("/{name}/health/reset", response_model=SourceHealth,
+@router.post("/{name}/health/reset", dependencies=[require_permission("admin.settings")], response_model=SourceHealth,
              summary="Clear a source's backoff window (an explicit user action)", responses=_ERR)
 def post_health_reset(name: str = _NAME):
     return svc.reset_health(name)
 
 
-@router.get("/{name}/attempts", response_model=List[SourceAttempt],
+@router.get("/{name}/attempts", dependencies=[require_permission("admin.settings")], response_model=List[SourceAttempt],
             summary="Recent access attempts (URLs without query strings, text scrubbed)",
             responses={404: {"model": ErrorResponse}})
 def list_attempts(name: str = _NAME, limit: int = Query(20, ge=1, le=100)):

@@ -10,14 +10,14 @@ and, for now, stay PC-local).
 """
 
 from fastapi import APIRouter
-
+from api.auth import require_permission
 from api.schemas import DiagnosticsOverview
 from services import diagnostics_service
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
 
-@router.get("", response_model=DiagnosticsOverview,
+@router.get("", dependencies=[require_permission("admin.diagnostics")], response_model=DiagnosticsOverview,
             summary="Read-only Diagnostics overview (deps, GPU, versions, running jobs, log tail)")
 def get_overview():
     return diagnostics_service.get_diagnostics_overview()

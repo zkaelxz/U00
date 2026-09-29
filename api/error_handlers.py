@@ -12,6 +12,9 @@ so the React client (and later the browser extension) can branch on
 | HTTP | code                    | raised by                                   |
 |------|-------------------------|---------------------------------------------|
 | 422  | validation_error        | FastAPI request validation, `InvalidInputError` |
+| 401  | unauthenticated         | `UnauthenticatedError` (auth on, no session) |
+| 403  | forbidden               | `ForbiddenError` (missing permission/CSRF)  |
+| 429  | rate_limited            | `RateLimitedError`                          |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
 | 409  | conflict                | `ConflictError`                             |
@@ -34,12 +37,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
-                                     ServiceError, UnsupportedOperationError)
+                                     ServiceError, UnauthenticatedError,
+                                     UnsupportedOperationError)
 
 _STATUS_BY_ERROR = (
     (InvalidInputError, 422),
     (NotFoundError, 404),
     (UnsupportedOperationError, 400),
+    (UnauthenticatedError, 401),
     (ForbiddenError, 403),
     (ConflictError, 409),
     (RateLimitedError, 429),
