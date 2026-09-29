@@ -1029,7 +1029,19 @@ def init_db():
             _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
             _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
             _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
-        bulk_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
+        page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
+        if "rev" not in page_cols:
+            # Scanlate S0: rev is bumped by every id-preserving region write
+            # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
+            # the legacy save_bubbles); context_summary is the rolling
+            # translation context after this page; run_notes is a redacted
+            # JSON list of {level, message} from the last automatic run.
+            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
+        if "context_summary" not in page_cols:
+            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
+        if "run_notes" not in page_cols:
+            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
+        bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
         if "kind" not in bulk_job_cols:
             # Step 9d: see the `bulk_jobs` table's own comment above -- every
             # bulk job predating this column was a translation job.
@@ -1965,9 +1977,19 @@ def create_page(drama_id: int, idx: int, filename: str, width: int, height: int)
     return new_id
 
 
+_PAGE_UPDATE_FIELDS = ("idx", "filename", "rendered_filename", "width", "height",
+                       "context_summary", "run_notes")
+
+
 def update_page(page_id: int, **fields):
+    """Field-scoped page update. Keys are interpolated into the SQL, so only
+    _PAGE_UPDATE_FIELDS are accepted (ValueError otherwise); rev is bumped
+    only by the region writes below, never set directly."""
     if not fields:
         return
+    bad = [k for k in fields if k not in _PAGE_UPDATE_FIELDS]
+    if bad:
+        raise ValueError(f"update_page: unknown field(s) {bad}")
     with contextlib.closing(get_conn()) as conn:
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE pages SET {set_clause} WHERE id = ?", list(fields.values()) + [page_id])
@@ -1978,6 +2000,216 @@ def list_pages(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM pages WHERE drama_id = ? ORDER BY idx", (drama_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_page(page_id: int, drama_id: int = None):
+    """One page row, or None. With drama_id, None unless the page belongs to
+    that drama (ids from a request must be scoped to their drama)."""
+    with contextlib.closing(get_conn()) as conn:
+        if drama_id is None:
+            row = conn.execute("SELECT * FROM pages WHERE id = ?", (page_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM pages WHERE id = ? AND drama_id = ?",
+                               (page_id, drama_id)).fetchone()
+    return dict(row) if row else None
+
+
+def next_page_idx(drama_id: int) -> int:
+    """MAX(idx)+1 for a drama's pages (0 for none). Unlike len(list_pages),
+    never reuses an idx after a gap. Callers adding pages hold their own
+    per-drama lock around this and the inserts."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT MAX(idx) FROM pages WHERE drama_id = ?", (drama_id,)).fetchone()
+    return 0 if row is None or row[0] is None else int(row[0]) + 1
+
+
+# Scanlate S0: id-preserving region writes. Unlike save_bubbles (a full
+# delete-and-reinsert that gives every bubble a new id, still used by the
+# Streamlit tab and the extension bridge until they are frozen), each of
+# these keeps every other bubble's id and bumps pages.rev once.
+BUBBLE_EDIT_FIELDS = ("x", "y", "w", "h", "source_text", "translated_text", "font_size",
+                      "skip", "font_category", "kind", "kind_confidence", "confidence",
+                      "language", "orientation", "panel_id", "include_sfx")
+_BUBBLE_TEXT_FIELDS = ("source_text", "translated_text", "font_category", "kind",
+                       "language", "orientation")
+_BUBBLE_BOOL_FIELDS = ("skip", "include_sfx")
+
+
+def _bubble_row_values(b: dict) -> tuple:
+    return (b["x"], b["y"], b["w"], b["h"], b.get("source_text", "") or "",
+            b.get("translated_text", "") or "", b.get("font_size", 18),
+            int(bool(b.get("skip", False))), b.get("font_category") or "regular",
+            b.get("kind") or "bubble", b.get("kind_confidence"), b.get("confidence"),
+            b.get("language"), b.get("orientation"), b.get("panel_id"),
+            int(bool(b.get("include_sfx"))))
+
+
+_BUBBLE_INSERT_SQL = (
+    "INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, "
+    "font_size, skip, font_category, kind, kind_confidence, confidence, language, "
+    "orientation, panel_id, include_sfx) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+
+
+def _bump_page_rev(conn, page_id: int):
+    conn.execute("UPDATE pages SET rev = COALESCE(rev, 0) + 1 WHERE id = ?", (page_id,))
+
+
+def _bubble_value(field, value):
+    if field in _BUBBLE_BOOL_FIELDS:
+        return int(bool(value))
+    return value
+
+
+def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
+                         page_id: int = None) -> bool:
+    """Compare-and-set for one bubble: ONE conditional UPDATE that writes
+    `fields` only if every `expected` column still holds the value the
+    caller saw (text columns: NULL equals ""; skip/include_sfx as bools).
+    With page_id, the bubble must also be on that page. Returns True if the
+    row changed (and bumps its page's rev), False if it no longer matches
+    or no longer exists -- nothing is written then. Unknown columns raise
+    ValueError (they are interpolated into the SQL)."""
+    expected = expected or {}
+    bad = [k for k in list(fields) + list(expected) if k not in BUBBLE_EDIT_FIELDS]
+    if bad or not fields:
+        raise ValueError(f"update_bubble_fields: bad field(s) {bad or 'none given'}")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    params = [_bubble_value(k, v) for k, v in fields.items()]
+    where = ["id = ?"]
+    params.append(bubble_id)
+    if page_id is not None:
+        where.append("page_id = ?")
+        params.append(page_id)
+    for k, v in expected.items():
+        if k in _BUBBLE_TEXT_FIELDS:
+            where.append(f"COALESCE({k}, '') = ?")
+            params.append("" if v is None else v)
+        elif v is None:
+            where.append(f"{k} IS NULL")
+        else:
+            where.append(f"{k} = ?")
+            params.append(_bubble_value(k, v))
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute(f"UPDATE bubbles SET {sets} WHERE {' AND '.join(where)}", params)
+        changed = cur.rowcount > 0
+        if changed:
+            pid = conn.execute("SELECT page_id FROM bubbles WHERE id = ?", (bubble_id,)).fetchone()[0]
+            _bump_page_rev(conn, pid)
+        conn.commit()
+        return changed
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def insert_bubble(page_id: int, bubble: dict, position: int = None) -> int:
+    """Adds one bubble to a page without touching the others' ids. position
+    None appends in reading order; otherwise it is inserted at that list
+    position (clamped) and later bubbles' idx shift by one. Returns the new id."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
+        pos = len(ids) if position is None else max(0, min(int(position), len(ids)))
+        cur = conn.execute(_BUBBLE_INSERT_SQL, (page_id, pos) + _bubble_row_values(bubble))
+        new_id = cur.lastrowid
+        ids.insert(pos, new_id)
+        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
+                         [(i, bid) for i, bid in enumerate(ids)])
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return new_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def delete_bubble(page_id: int, bubble_id: int) -> bool:
+    """Deletes one bubble of that page; the others keep their ids (idx is
+    renumbered to stay contiguous). False if it isn't on that page."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute("DELETE FROM bubbles WHERE id = ? AND page_id = ?", (bubble_id, page_id))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
+        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
+                         [(i, bid) for i, bid in enumerate(ids)])
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def reorder_bubbles(page_id: int, ordered_ids) -> bool:
+    """Sets reading order to `ordered_ids`, which must be exactly the page's
+    current bubble ids (no more, no fewer, no repeats); False, and nothing
+    written, otherwise."""
+    ordered_ids = [int(i) for i in ordered_ids]
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current = {r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
+        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) != current:
+            conn.rollback()
+            return False
+        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
+                         [(i, bid) for i, bid in enumerate(ordered_ids)])
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles):
+    """Conditional full replace for a background job: in ONE transaction,
+    replaces the page's bubbles with `bubbles` (reading order = list order)
+    only if the page's current bubble-id set is exactly `expected_ids` --
+    so a page the user (or another writer) changed since the job read it is
+    left alone. Returns the new ids in order, or None if nothing was written."""
+    expected = {int(i) for i in expected_ids}
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM pages WHERE id = ?", (page_id,)).fetchone() is None:
+            conn.rollback()
+            return None
+        current = {r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
+        if current != expected:
+            conn.rollback()
+            return None
+        conn.execute("DELETE FROM bubbles WHERE page_id = ?", (page_id,))
+        new_ids = [conn.execute(_BUBBLE_INSERT_SQL, (page_id, i) + _bubble_row_values(b)).lastrowid
+                   for i, b in enumerate(bubbles)]
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return new_ids
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def save_bubbles(page_id: int, bubbles):
