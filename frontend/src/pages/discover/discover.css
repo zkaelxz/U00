@@ -1,0 +1,57 @@
+/* Discover page (#/discover). Tokens only; shared rules live in index.css. */
+
+.discover-page { display: grid; gap: var(--space-5); max-width: 860px; margin-inline: auto; min-width: 0; }
+.discover-page > * { min-width: 0; }
+.discover-page h2 { margin: 0; font-size: var(--text-2xl); font-weight: 600; }
+.discover-page h4 { margin: 0; }
+.discover-head { display: grid; gap: var(--space-2); }
+.discover-head > * { margin: 0; }
+.discover-engine { max-width: 22rem; }
+.discover-page .card details.section { margin: 0; }
+@media (max-width: 640px) {
+  .discover-page { gap: var(--space-4); }
+  .discover-page > .card { padding: var(--space-4); }
+  .discover-engine { max-width: none; }
+}
+
+.discover-block { display: grid; gap: var(--space-3); min-width: 0; }
+.discover-block > * { margin: 0; }
+.discover-lead { margin: 0; }
+.discover-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; }
+.discover-row > .field-item { flex: 1 1 14rem; min-width: 0; }
+.discover-row > button { flex: 0 0 auto; }
+.discover-filters { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+.discover-form-grid { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.discover-page input, .discover-page select, .discover-page textarea { max-width: 100%; box-sizing: border-box; }
+.discover-page .field-control > input:not([type='checkbox']),
+.discover-page .field-control > select,
+.discover-page .field-control > textarea { width: 100%; }
+.discover-ok { color: var(--ok); margin: 0; }
+.discover-empty { display: grid; gap: var(--space-2); justify-items: start; }
+.discover-open { display: inline-flex; align-items: center; min-height: 44px; }
+
+ul.discover-list, ul.discover-review { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
+.discover-card {
+  padding: var(--space-2) var(--space-3) !important;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.discover-card > * { margin: 0; }
+.discover-card-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: center; }
+.discover-card-head { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; }
+.discover-card-detail p { margin: var(--space-1) 0 0; }
+.discover-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+
+ul.discover-links, ul.discover-labels { margin: 0; overflow-wrap: anywhere; }
+.discover-links li { padding: var(--space-1) 0; }
+.discover-result { display: grid; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.discover-result > * { margin: 0; }
+.discover-steps { white-space: pre-wrap; overflow-wrap: anywhere; }
+.discover-review label { display: flex; gap: var(--space-2); align-items: flex-start; min-height: 44px; overflow-wrap: anywhere; }
+.discover-review input[type='checkbox'] { margin-top: 0.25rem; flex: 0 0 auto; }
+.discover-sub > summary { cursor: pointer; }
