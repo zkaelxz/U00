@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import {
-  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
+  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText,
+  extensionEngineNote, extensionSummary, extensionToggleNote,
   headerParts, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
   setupRows, setupSummary,
