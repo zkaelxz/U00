@@ -461,3 +461,21 @@ def test_auth_on(fakes):
     assert r.status_code == 200
     _wait(f"sourceimport_{did}")
     assert c.get(f"/api/sources/jobs/sourceimport_{did}/result", headers=h).status_code == 200
+
+
+def test_add_page_images_claims_the_index_whatever_the_extension(fakes, monkeypatch):
+    """Security review L-2: another process computed the same next index
+    and wrote page_0000.jpg (or still holds its claim on 0001): this one
+    must not add a second index-0/1 page as .png."""
+    from tests.sources_helpers import png
+    did = db.create_drama(title_en="M", media_type="manhua")
+    pages_dir = os.path.join(db.drama_dir(did), "pages")
+    os.makedirs(pages_dir)
+    with open(os.path.join(pages_dir, "page_0000.jpg"), "wb") as f:
+        f.write(b"other process")
+    open(os.path.join(pages_dir, "page_0001.claim"), "wb").close()   # held elsewhere
+    monkeypatch.setattr(pipeline, "_next_page_index", lambda drama_id, d: 0)   # stale scan
+    assert pipeline.add_page_images(did, [(png(20, 30, seed=1), ".png")]) == 1
+    assert [(p["idx"], p["filename"]) for p in db.list_pages(did)] == [
+        (2, os.path.join("pages", "page_0002.png"))]
+    assert sorted(os.listdir(pages_dir)) == ["page_0000.jpg", "page_0001.claim", "page_0002.png"]

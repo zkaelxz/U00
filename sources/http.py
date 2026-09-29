@@ -27,6 +27,7 @@ import random
 import re
 import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
@@ -209,31 +210,133 @@ def _check_limits(limits: FetchLimits, deadline_at: float):
         raise ResponseTooSlow()
 
 
+# The encodings the body decoder handles itself; anything else is refused
+# rather than handed to urllib3's decoder (its read loop runs until it has
+# decoded output, so a stream of empty deflate blocks would never return
+# to our deadline/cancel checks -- security review M-1).
+ACCEPT_ENCODING = "gzip, deflate"
+UNSUPPORTED_ENCODING = "Refused: the response used an unsupported compression."
+_DECODE_STEP = 1_048_576
+
+
+class UnsupportedEncoding(ResponseRefused):
+    status = 422
+
+    def __init__(self, attempt=None):
+        super().__init__(UNSUPPORTED_ENCODING, attempt)
+
+
+class BodyDecoder:
+    """Decodes a response body fed in raw chunks, never producing more than
+    `cap` + 1 decoded bytes in total and at most _DECODE_STEP per call to
+    zlib, with `check()` run between steps. gzip (x-gzip) and deflate
+    (zlib-wrapped, or raw as some servers send it) only; identity or no
+    header passes the bytes through. `feed`/`finish` return the decoded
+    bytes; the caller counts them against its cap."""
+
+    def __init__(self, content_encoding: str, cap: int, check=None):
+        enc = (content_encoding or "").strip().lower()
+        if enc in ("", "identity"):
+            self._d = None
+        elif enc in ("gzip", "x-gzip"):
+            self._d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        elif enc == "deflate":
+            self._d = zlib.decompressobj()
+            self._first = b""  # until zlib's header is accepted, kept for a raw retry
+        else:
+            raise UnsupportedEncoding()
+        self._deflate = enc == "deflate"
+        self._cap, self._out, self._check = cap, 0, check or (lambda: None)
+
+    def _run(self, data: bytes) -> bytes:
+        parts = []
+        while True:
+            self._check()
+            if self._d.eof:
+                return b"".join(parts)  # trailing bytes after the stream end are ignored
+            step = min(_DECODE_STEP, max(self._cap + 1 - self._out, 1))
+            out = self._d.decompress(data, step)
+            self._out += len(out)
+            parts.append(out)
+            if self._out > self._cap:
+                raise ResponseTooLarge()
+            data = self._d.unconsumed_tail
+            if not data:
+                return b"".join(parts)
+
+    def feed(self, chunk: bytes) -> bytes:
+        if self._d is None:
+            self._out += len(chunk)
+            return chunk
+        if self._deflate and self._first is not None:
+            self._first += chunk
+            try:
+                out = self._run(chunk)
+            except zlib.error:
+                self._d, self._out = zlib.decompressobj(-zlib.MAX_WBITS), 0
+                data, self._first = self._first, None
+                try:
+                    return self._run(data)
+                except zlib.error:
+                    raise FetchFailed("The response could not be decoded.",
+                                      FailureReason.HTTP_ERROR) from None
+            if out or len(self._first) >= 2:
+                self._first = None
+            return out
+        try:
+            return self._run(chunk)
+        except zlib.error:
+            raise FetchFailed("The response could not be decoded.",
+                              FailureReason.HTTP_ERROR) from None
+
+    def finish(self) -> bytes:
+        if self._d is None:
+            return b""
+        try:
+            out = self._d.flush()
+        except zlib.error:
+            raise FetchFailed("The response could not be decoded.",
+                              FailureReason.HTTP_ERROR) from None
+        self._out += len(out)
+        if self._out > self._cap:
+            raise ResponseTooLarge()
+        return out
+
+
+def read_raw_chunk(raw, n: int) -> bytes:
+    """Up to n undecoded bytes: whatever arrived (read1) where the stream
+    has it. Never decode_content=True (see BodyDecoder)."""
+    read1 = getattr(raw, "read1", None)
+    if read1 is not None:
+        return read1(n, decode_content=False)
+    return raw.read(min(n, 8192), decode_content=False)
+
+
 def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
     """At most the cap for the response's type (images get their own),
-    refused early on a Content-Length over it. Reads in small pieces
-    (read1 returns whatever arrived), checking cancel and the deadline
-    between pieces. Counts decoded bytes, so a compressed bomb is capped
-    too."""
+    refused early on a Content-Length over it. Reads raw bytes in small
+    pieces (read1 returns whatever arrived) and decodes them itself
+    (BodyDecoder), checking cancel and the deadline between every raw
+    piece and every decode step. Both the raw and the decoded bytes are
+    counted against the cap, so a compressed bomb is capped too."""
     ctype = _header(r.headers, "content-type").lower()
     cap = limits.max_image_bytes if ctype.startswith("image/") else limits.max_page_bytes
     length = _header(r.headers, "content-length").strip()
     if length.isdigit() and int(length) > cap:
         raise ResponseTooLarge()
-    raw = r.raw
-    read = getattr(raw, "read1", None)
-    chunks, total = [], 0
+    check = lambda: _check_limits(limits, deadline_at)  # noqa: E731
+    decoder = BodyDecoder(_header(r.headers, "content-encoding"), cap, check)
+    chunks, raw_total = [], 0
     while True:
-        _check_limits(limits, deadline_at)
-        want = min(_BODY_CHUNK, cap + 1 - total)
-        chunk = read(want, decode_content=True) if read else raw.read(min(want, 8192),
-                                                                      decode_content=True)
+        check()
+        chunk = read_raw_chunk(r.raw, _BODY_CHUNK)
         if not chunk:
             break
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > cap:
+        raw_total += len(chunk)
+        if raw_total > cap:
             raise ResponseTooLarge()
+        chunks.append(decoder.feed(chunk))
+    chunks.append(decoder.finish())
     return b"".join(chunks)
 
 
@@ -289,6 +392,10 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     hops = []
     current, cur_method, cur_data, cur_headers = url, method, data, dict(headers or {})
+    # Only encodings BodyDecoder handles (requests would also offer br/zstd
+    # when those packages are installed).
+    if not any(k.lower() == "accept-encoding" for k in cur_headers):
+        cur_headers["Accept-Encoding"] = ACCEPT_ENCODING
     for _ in range(MAX_REDIRECTS + 1):
         _check_limits(limits, deadline_at)
         current = _ascii_url(current)

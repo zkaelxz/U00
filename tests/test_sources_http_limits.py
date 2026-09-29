@@ -155,6 +155,123 @@ def test_client_does_not_retry_a_refused_response_and_uses_its_limits(net):
 
 
 # ---------------------------------------------------------------------------
+# Security review M-1: the body is read raw and decoded by BodyDecoder, so a
+# deflate stream of endless empty stored blocks (urllib3's own read1 loops
+# on it forever) still reaches the deadline/cancel/cap checks
+# ---------------------------------------------------------------------------
+
+import gzip  # noqa: E402
+import io  # noqa: E402
+import zlib  # noqa: E402
+
+EMPTY_BLOCK = b"\x00\x00\x00\xff\xff"   # raw deflate: non-final stored block, 0 bytes
+
+
+class _EndlessEmptyBlocks(io.RawIOBase):
+    def __init__(self):
+        self.pos = 0
+
+    def readable(self):
+        return True
+
+    def readinto(self, b):
+        n = min(len(b), 8192)
+        k = self.pos % len(EMPTY_BLOCK)
+        b[:n] = (EMPTY_BLOCK * (n // len(EMPTY_BLOCK) + 2))[k:k + n]
+        self.pos += n
+        return n
+
+
+class RealRaw:
+    """A real urllib3 HTTPResponse over a stream, with FakeRaw's read counter
+    and hook; forwards decode_content so a regression to True would hang
+    (the test would then time out rather than pass)."""
+
+    def __init__(self, stream, encoding, on_read=None):
+        import urllib3
+        self.resp = urllib3.HTTPResponse(body=io.BufferedReader(stream),
+                                         headers={"Content-Encoding": encoding},
+                                         preload_content=False, decode_content=False)
+        self.on_read, self.reads = on_read, 0
+
+    def read1(self, n, decode_content=None):
+        assert decode_content is False
+        self.reads += 1
+        if self.on_read:
+            self.on_read(self)
+        return self.resp.read1(n, decode_content=decode_content)
+
+
+def _endless_resp(on_read=None, encoding="deflate"):
+    resp = FakeResp(headers={"Content-Encoding": encoding})
+    resp.raw = RealRaw(_EndlessEmptyBlocks(), encoding, on_read)
+    return resp
+
+
+def test_endless_empty_deflate_blocks_hit_the_raw_cap(net):
+    resp = _endless_resp()
+    net(resp)
+    with pytest.raises(ResponseTooLarge):
+        http._requests_transport("GET", PAGE, {}, None, 5,
+                                 limits=_limits(max_page_bytes=200_000))
+    assert resp.closed and resp.raw.reads <= 200_000 // 8192 + 2   # read1 returns 8 KB here
+
+
+def test_endless_empty_deflate_blocks_hit_the_deadline(net):
+    now = [0.0]
+    resp = _endless_resp(on_read=lambda raw: now.__setitem__(0, now[0] + 7.0))
+    net(resp)
+    with pytest.raises(ResponseTooSlow):
+        http._requests_transport("GET", PAGE, {}, None, 5,
+                                 limits=_limits(max_page_bytes=10**9, deadline=60,
+                                                clock=lambda: now[0]))
+    assert resp.closed and resp.raw.reads <= 10
+
+
+def test_endless_empty_deflate_blocks_cancel(net):
+    flag = {"cancel": False}
+    resp = _endless_resp(on_read=lambda raw: flag.__setitem__("cancel", raw.reads >= 3))
+    net(resp)
+    with pytest.raises(Cancelled):
+        http._requests_transport("GET", PAGE, {}, None, 5,
+                                 limits=_limits(max_page_bytes=10**9,
+                                                cancel_check=lambda: flag["cancel"]))
+    assert resp.raw.reads == 3 and resp.closed
+
+
+def test_compressed_body_decoded_bytes_are_capped(net):
+    bomb = gzip.compress(b"\0" * 5_000_000)   # ~5 KB on the wire
+    assert len(bomb) < 1000 * 10
+    resp = FakeResp([bomb], headers={"Content-Encoding": "gzip"})
+    net(resp)
+    with pytest.raises(ResponseTooLarge):
+        http._requests_transport("GET", PAGE, {}, None, 5,
+                                 limits=_limits(max_page_bytes=50_000))
+    assert resp.closed
+
+
+@pytest.mark.parametrize("encoding,body", [
+    ("gzip", gzip.compress(b"<html>hi</html>")),
+    ("deflate", zlib.compress(b"<html>hi</html>")),
+    ("deflate", zlib.compress(b"<html>hi</html>")[2:-4]),   # raw deflate, as some servers send
+    ("identity", b"<html>hi</html>"),
+])
+def test_gzip_and_deflate_are_decoded(net, encoding, body):
+    net(FakeResp([body[:3], body[3:]], headers={"Content-Encoding": encoding}))
+    r = http._requests_transport("GET", PAGE, {}, None, 5, limits=_limits())
+    assert r.content == b"<html>hi</html>"
+
+
+def test_other_encodings_refused_and_only_gzip_deflate_offered(net):
+    resp = FakeResp([b"xx"], headers={"Content-Encoding": "br"})
+    s = net(resp)
+    with pytest.raises(http.UnsupportedEncoding) as e:
+        http._requests_transport("GET", PAGE, {}, None, 5, limits=_limits())
+    assert str(e.value) == http.UNSUPPORTED_ENCODING and resp.raw.reads == 0 and resp.closed
+    assert s.calls[0][2]["headers"]["Accept-Encoding"] == "gzip, deflate"
+
+
+# ---------------------------------------------------------------------------
 # The pasted-URL preview job (R1), end to end through the real ladder
 # ---------------------------------------------------------------------------
 
@@ -221,6 +338,18 @@ def test_preview_cancel_mid_read_ends_the_job(api, net):
             background_jobs.request_cancel("sources_url_preview")
         time.sleep(0.005)
     resp = FakeResp([b"."] * 100_000, on_read=on_read)
+    net(resp)
+    st = _preview(api)
+    assert st["status"] == "cancelled"
+    assert resp.closed and resp.raw.reads < 10
+
+
+def test_preview_endless_empty_deflate_blocks_cancel_ends_the_job(api, net):
+    def on_read(raw):
+        if raw.reads == 3:
+            background_jobs.request_cancel("sources_url_preview")
+        time.sleep(0.005)
+    resp = _endless_resp(on_read=on_read)
     net(resp)
     st = _preview(api)
     assert st["status"] == "cancelled"

@@ -75,7 +75,8 @@ def _error_view(exc, source: str = None) -> dict:
         return {"status": 409, "code": ConflictError.code, "message": "Cancelled.",
                 "details": {"reason": "CANCELLED"}}
     if isinstance(exc, ResponseRefused):
-        return {"status": exc.status, "code": _CLASS_BY_STATUS[exc.status].code,
+        status = exc.status if exc.status in _CLASS_BY_STATUS else 500
+        return {"status": status, "code": _CLASS_BY_STATUS.get(status, ServiceError).code,
                 "message": str(exc), "details": {"reason": "RESPONSE_REFUSED"}}
     if isinstance(exc, SourceError):
         return {"status": 500, "code": ServiceError.code, "message": msg,

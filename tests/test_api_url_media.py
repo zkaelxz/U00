@@ -370,14 +370,15 @@ class _Resp:
 @pytest.fixture
 def direct(env, monkeypatch):
     from services import metadata_service
-    hops = []
+    hops, sent = [], []
     script = {}
 
     def fake_get(url, ip, headers):
         hops.append((url, ip))
+        sent.append(dict(headers))
         return script.get(url) or _Resp()
     monkeypatch.setattr(metadata_service, "_pinned_get", fake_get)
-    return types.SimpleNamespace(hops=hops, script=script)
+    return types.SimpleNamespace(hops=hops, script=script, sent=sent)
 
 
 def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
@@ -446,3 +447,140 @@ def test_direct_media_ext():
     assert svc.direct_media_ext("https://a.example/x/ep.MP3?t=1") == ".mp3"
     assert svc.direct_media_ext("https://a.example/watch?v=x.mp4") is None
     assert svc.direct_media_ext("https://a.example/page.html") is None
+
+
+# ---------------------------------------------------------------------------
+# Security review M-1/L-3: the direct download reads raw bytes and decodes
+# them itself, so cancel, the wall clock and both byte caps are checked
+# even on a deflate body of endless empty blocks
+# ---------------------------------------------------------------------------
+
+import gzip  # noqa: E402
+import io  # noqa: E402
+
+EMPTY_BLOCK = b"\x00\x00\x00\xff\xff"
+
+
+class _EndlessEmptyBlocks(io.RawIOBase):
+    def __init__(self):
+        self.pos = 0
+
+    def readable(self):
+        return True
+
+    def readinto(self, b):
+        n = min(len(b), 8192)
+        k = self.pos % len(EMPTY_BLOCK)
+        b[:n] = (EMPTY_BLOCK * (n // len(EMPTY_BLOCK) + 2))[k:k + n]
+        self.pos += n
+        return n
+
+
+class _RealRaw:
+    """A real urllib3 HTTPResponse over an endless empty-block stream."""
+
+    def __init__(self, on_read=None):
+        import urllib3
+        self.resp = urllib3.HTTPResponse(body=io.BufferedReader(_EndlessEmptyBlocks()),
+                                         headers={"Content-Encoding": "deflate"},
+                                         preload_content=False, decode_content=False)
+        self.on_read, self.reads = on_read, 0
+
+    def read1(self, n, decode_content=None):
+        assert decode_content is False
+        self.reads += 1
+        if self.on_read:
+            self.on_read(self)
+        return self.resp.read1(n, decode_content=decode_content)
+
+
+def _endless(on_read=None):
+    r = _Resp(headers={"Content-Encoding": "deflate"})
+    r.raw = _RealRaw(on_read)
+    return r
+
+
+def test_direct_link_cancelled_mid_stream(client, env, direct, monkeypatch):
+    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 10**12)
+    did = _drama()
+
+    def on_read(raw):
+        if raw.reads == 3:
+            background_jobs.request_cancel(f"urlmedia_{did}")
+        time.sleep(0.002)
+    resp = _endless(on_read)
+    direct.script[DIRECT] = resp
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "cancelled", st
+    assert resp.closed and resp.raw.reads < 10
+    assert direct.sent[0]["Accept-Encoding"] == "identity"
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def test_direct_link_wall_clock_limit(client, env, direct, monkeypatch):
+    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 10**12)
+    monkeypatch.setattr(svc, "MAX_WALL_SECONDS", 0.2)
+    resp = _endless(lambda raw: time.sleep(0.01))
+    direct.script[DIRECT] = resp
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._TOO_SLOW), st
+    assert resp.closed and env.writes == []
+    _no_tmp(did)
+
+
+def test_direct_link_endless_empty_blocks_hit_the_raw_cap(client, env, direct, monkeypatch):
+    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 100_000)
+    resp = _endless()
+    direct.script[DIRECT] = resp
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE), st
+    assert resp.closed and resp.raw.reads <= 100_000 // 8192 + 2
+    _no_tmp(did)
+
+
+def test_direct_link_compressed_body_decoded_bytes_capped(client, env, direct, monkeypatch):
+    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 10_000)
+    bomb = gzip.compress(b"\0" * 2_000_000)
+    assert len(bomb) < 10_000
+    direct.script[DIRECT] = _Resp(headers={"Content-Encoding": "gzip"}, chunks=[bomb])
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE), st
+    assert env.writes == []
+    _no_tmp(did)
+
+
+def test_direct_link_gzip_decoded_and_other_encoding_refused(client, env, direct):
+    direct.script[DIRECT] = _Resp(headers={"Content-Encoding": "gzip"},
+                                  chunks=[gzip.compress(b"ID3data")])
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    assert _wait(f"urlmedia_{did}")["status"] == "done"
+    background_jobs.clear_job(f"urlmedia_{did}")
+    direct.script[DIRECT] = _Resp(headers={"Content-Encoding": "br"})
+    did2 = _drama()
+    client.post(f"/api/media/dramas/{did2}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did2}")
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED), st
+    _no_tmp(did2)
+
+
+def test_direct_link_more_than_five_redirects_refused(client, env, direct):
+    chain = [f"https://cdn.example/r{i}/ep.mp3" for i in range(8)]
+    direct.script[DIRECT] = _Resp(302, {"Location": chain[0]})
+    for a, b in zip(chain, chain[1:]):
+        direct.script[a] = _Resp(302, {"Location": b})
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED), st
+    assert len(direct.hops) == svc.MAX_DIRECT_REDIRECTS + 1
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)

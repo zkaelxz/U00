@@ -61,14 +61,36 @@ def _next_page_index(drama_id: int, pages_dir: str) -> int:
     return idx
 
 
+def _claim_page_index(pages_dir: str, idx: int):
+    """Claims page index `idx` whatever the image's extension (security
+    review L-2): an exclusive `page_NNNN.claim` file, then no page_NNNN.*
+    file may exist already (a page another writer finished). Returns the
+    claim's path (the caller removes it once the file and row exist), or
+    None when the index is taken."""
+    claim = os.path.join(pages_dir, f"page_{idx:04d}.claim")
+    try:
+        os.close(os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return None
+    prefix = f"page_{idx:04d}."
+    if any(n.startswith(prefix) and n != os.path.basename(claim)
+           for n in os.listdir(pages_dir)):
+        os.remove(claim)
+        return None
+    return claim
+
+
 def add_page_images(drama_id: int, images) -> int:
     """`images`: iterable of (bytes, ext). Returns how many pages were
     added. Same files and rows as Scanlate's own upload path.
 
     Safe against a second writer (security review MED-2): a per-drama lock
     covers the index computation and the writes in this process, and each
-    file is created exclusively ("xb"), moving to the next index if another
-    process took that name, so an existing page is never overwritten."""
+    index is claimed across processes whatever the extension
+    (_claim_page_index; another process may be writing page_0005.jpg while
+    this one writes page_0005.png), moving to the next index if it is
+    taken; the file itself is still created exclusively ("xb"), so an
+    existing page is never overwritten and no index gets two rows."""
     from PIL import Image
     pages_dir = os.path.join(db.drama_dir(drama_id), "pages")
     os.makedirs(pages_dir, exist_ok=True)
@@ -85,17 +107,25 @@ def add_page_images(drama_id: int, images) -> int:
                     im.convert("RGB").save(buf, "PNG")
                     content, ext = buf.getvalue(), ".png"
             while True:
-                fname = f"page_{idx:04d}{ext}"
-                fpath = os.path.join(pages_dir, fname)
-                try:
-                    with open(fpath, "xb") as out:
-                        out.write(content)
-                    break
-                except FileExistsError:
+                claim = _claim_page_index(pages_dir, idx)
+                if claim is None:
                     idx += 1
-            with Image.open(fpath) as im:
-                w, h = im.size
-            db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+                    continue
+                try:
+                    fname = f"page_{idx:04d}{ext}"
+                    fpath = os.path.join(pages_dir, fname)
+                    try:
+                        with open(fpath, "xb") as out:
+                            out.write(content)
+                    except FileExistsError:  # a writer that doesn't claim (Scanlate upload)
+                        idx += 1
+                        continue
+                    with Image.open(fpath) as im:
+                        w, h = im.size
+                    db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+                finally:
+                    os.remove(claim)
+                break
             idx += 1
             added += 1
     return added

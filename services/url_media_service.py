@@ -69,7 +69,8 @@ DIRECT_MEDIA_EXTENSIONS = (media_upload_service.AUDIO_EXTENSIONS
 MAX_DIRECT_REDIRECTS = 5
 _REDIRECT_CODES = (301, 302, 303, 307, 308)
 _CHUNK = 65_536
-_DIRECT_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
+_DIRECT_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)",
+                   "Accept-Encoding": "identity"}
 
 
 def job_id_for(drama_id: int) -> str:
@@ -173,19 +174,18 @@ def direct_media_ext(url: str):
     return ext if ext in DIRECT_MEDIA_EXTENSIONS else None
 
 
-def _read_some(resp, n: int) -> bytes:
-    raw = resp.raw
-    read1 = getattr(raw, "read1", None)
-    return read1(n, decode_content=True) if read1 else raw.read(min(n, 8192), decode_content=True)
-
-
 def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monotonic) -> str:
     """A direct media link, without yt-dlp: each hop (first included) must
     be http(s) with only public addresses and is connected to the checked
     address; at most MAX_DIRECT_REDIRECTS hops. The body is streamed into
     `tmp` under the upload byte cap and the 2 h wall clock, cancel checked
-    between chunks. Fixed-text errors only."""
+    between chunks. Raw bytes are read and decoded here (a server may still
+    gzip/deflate the body despite `identity`; any other encoding is
+    refused), so the cancel and wall-clock checks run after every raw chunk
+    and every decode step, and both raw and decoded bytes count against the
+    cap (security review M-1). Fixed-text errors only."""
     from services import metadata_service as ms
+    from sources import http as shttp
     limit = media_upload_service.max_upload_bytes()
     started = clock()
     current = url
@@ -207,27 +207,43 @@ def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monot
             length = str(resp.headers.get("Content-Length") or "").strip()
             if length.isdigit() and int(length) > limit:
                 raise RuntimeError(_TOO_LARGE)
+
+            def check():
+                if background_jobs.is_cancel_requested(job_id):
+                    raise background_jobs.JobCancelled(job_id)
+                if clock() - started > MAX_WALL_SECONDS:
+                    raise RuntimeError(_TOO_SLOW)
+
+            try:
+                decoder = shttp.BodyDecoder(resp.headers.get("Content-Encoding"), limit, check)
+            except shttp.ResponseRefused:
+                raise RuntimeError(_FAILED) from None
             path = os.path.join(tmp, "downloaded" + ext)
-            got = 0
+            raw_got = got = 0
+            total = int(length) if length.isdigit() else 0
             with open(path, "xb") as out:
                 while True:
-                    if background_jobs.is_cancel_requested(job_id):
-                        raise background_jobs.JobCancelled(job_id)
-                    if clock() - started > MAX_WALL_SECONDS:
-                        raise RuntimeError(_TOO_SLOW)
+                    check()
                     try:
-                        chunk = _read_some(resp, _CHUNK)
+                        chunk = shttp.read_raw_chunk(resp.raw, _CHUNK)
                     except Exception:
                         raise RuntimeError(_FAILED) from None
-                    if not chunk:
-                        break
-                    got += len(chunk)
-                    if got > limit:
+                    last = not chunk
+                    raw_got += len(chunk)
+                    if raw_got > limit:
                         raise RuntimeError(_TOO_LARGE)
-                    out.write(chunk)
-                    total = int(length) if length.isdigit() else 0
+                    try:
+                        data = decoder.finish() if last else decoder.feed(chunk)
+                    except shttp.ResponseTooLarge:
+                        raise RuntimeError(_TOO_LARGE) from None
+                    except shttp.FetchFailed:
+                        raise RuntimeError(_FAILED) from None
+                    got += len(data)
+                    out.write(data)
+                    if last:
+                        break
                     background_jobs.update_progress(
-                        job_id, 0.05 + 0.8 * (min(got / total, 1.0) if total else 0.0),
+                        job_id, 0.05 + 0.8 * (min(raw_got / total, 1.0) if total else 0.0),
                         "Downloading...")
             if got == 0:
                 raise RuntimeError(_FAILED)

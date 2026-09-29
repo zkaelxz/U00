@@ -631,6 +631,17 @@ class TestConstraintsFile:
                        "torchaudio<3", "streamlit<2", "faster-whisper<2"):
             assert pinned in text, f"missing pin: {pinned}"
 
+    def test_urllib3_has_the_2_6_floor(self):
+        """Security review L-1: requests alone allows urllib3 1.26 (no
+        read1, CVE-2025-66471); the floor is in the requirements, the
+        constraints and both launchers' "already installed?" checks."""
+        assert "urllib3>=2.6" in self._read_constraints()
+        core = open(os.path.join(PROJECT_ROOT, "requirements-core.txt"), encoding="utf-8").read()
+        assert "urllib3>=2.6" in core
+        for launcher in ("start.bat", "start.ps1"):
+            text = open(os.path.join(PROJECT_ROOT, launcher), encoding="utf-8").read()
+            assert ">= (2, 6)" in text, launcher
+
     def test_yt_dlp_and_edge_tts_are_left_uncapped(self):
         """Both need to stay current against sites/services that change
         often -- capping them would trade a fixable problem for a worse,
