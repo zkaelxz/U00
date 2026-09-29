@@ -23,6 +23,24 @@ export interface RunForm {
   fallbacks: string[] // engine names, in order
   force: boolean
   forceConfirmed: boolean
+  reflect: boolean
+  bulk: boolean
+}
+
+// Engines that only translate (no free-form prompting) cannot run Reflect.
+const TRANSLATION_ONLY = ['deepl', 'google', 'nllb', 'libretranslate']
+
+export function reflectAvailable(engine: string): boolean {
+  return !TRANSLATION_ONLY.includes(engine)
+}
+
+export function bulkAvailable(engine: string, supported: string[]): boolean {
+  return supported.includes(engine)
+}
+
+// Bulk Reflect needs a batch API (Claude or Gemini), not DeepSeek off-peak.
+export function bulkReflectAvailable(engine: string, supported: string[]): boolean {
+  return bulkAvailable(engine, supported) && engine !== 'deepseek'
 }
 
 export function initialForm(c: TranslateRunConfig): RunForm {
@@ -39,6 +57,8 @@ export function initialForm(c: TranslateRunConfig): RunForm {
     fallbacks: [],
     force: false,
     forceConfirmed: false,
+    reflect: false,
+    bulk: false,
   }
 }
 
@@ -57,7 +77,16 @@ export function parseCap(raw: string): number | null | undefined {
   return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-export function validateRun(f: RunForm, defaultEngine: string): string | null {
+export function validateRun(
+  f: RunForm,
+  defaultEngine: string,
+  bulkSupported: string[] = [],
+): string | null {
+  const eff = f.engine || defaultEngine
+  if (f.reflect && !reflectAvailable(eff)) return `${eff} cannot run Reflect.`
+  if (f.bulk && !bulkAvailable(eff, bulkSupported)) return 'Bulk needs Claude, Gemini or DeepSeek.'
+  if (f.bulk && f.reflect && !bulkReflectAvailable(eff, bulkSupported)) return 'Bulk Reflect needs Claude or Gemini.'
+  if ((f.bulk || f.reflect) && f.fallbacks.length) return 'Fallback engines only apply to a normal run.'
   if (intIn(f.batch_size, 1, 200) === null) return 'Batch size must be a whole number from 1 to 200.'
   if (intIn(f.context_window, 0, 100) === null) return 'Context window must be a whole number from 0 to 100.'
   if (intIn(f.context_window_ahead, 0, 100) === null)
@@ -88,6 +117,8 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     batch_size: Number(f.batch_size),
     ...(typeof cap === 'number' ? { job_cost_cap_usd: cap } : {}),
     ...(chain.length ? { fallback_chain: chain } : {}),
+    ...(f.reflect ? { reflect: true } : {}),
+    ...(f.bulk ? { bulk: true } : {}),
   }
 }
 
@@ -100,6 +131,8 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     model: f.model || undefined,
     force_retranslate: f.force && f.forceConfirmed,
     job_cost_cap_usd: cap,
+    ...(f.reflect ? { reflect: true } : {}),
+    ...(f.bulk ? { bulk: true } : {}),
   }
 }
 

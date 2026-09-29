@@ -18,6 +18,7 @@ export interface TranslateRunConfig {
   monthly_cap_usd: number
   month_spend: number
   cap_applies_by_engine: Record<string, boolean>
+  bulk_supported_engines: string[]
 }
 
 export interface TranslateRunEstimate {
@@ -37,6 +38,8 @@ export interface EstimateParams {
   model?: string
   force_retranslate?: boolean
   job_cost_cap_usd?: number
+  reflect?: boolean
+  bulk?: boolean
 }
 
 export interface FallbackEngine {
@@ -56,6 +59,13 @@ export interface TranslateRunStartBody {
   batch_size: number
   job_cost_cap_usd?: number
   fallback_chain?: FallbackEngine[]
+  reflect?: boolean
+  bulk?: boolean
+}
+
+export interface BulkResumeResult {
+  drama_id: number
+  jobs: { bulk_job_id: number; state: string }[]
 }
 
 export interface TranslateRunStarted {
