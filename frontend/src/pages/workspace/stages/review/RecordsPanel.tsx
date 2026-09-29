@@ -8,9 +8,12 @@ import {
   listTmSuggestions,
   listVersions,
 } from '../../../../api/review'
+import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
+import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
+import { JOB_RUNNING_MESSAGE, structureErrorText } from './reviewLogic'
 
 interface Records {
   notes: ReviewNote[]
@@ -23,13 +26,17 @@ interface Props {
   dramaId: number
   reloads: number
   onChanged: () => void
+  jobRunning: boolean
 }
 
-// Notes (add lives on each line), translation versions and history (read-only;
-// restore is a later slice) and translation-memory suggestions.
-export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
+// Notes (add lives on each line), translation versions (read-only), line
+// history with a typed-confirm Restore, and translation-memory suggestions.
+export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props) {
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [restoring, setRestoring] = useState<HistoryItem | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [restored, setRestored] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -57,6 +64,24 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
       onChanged()
     }, setError)
 
+  // The restore endpoint needs the drama's current line ids; the snapshot of
+  // the current lines is taken by the server before anything is replaced.
+  const restore = (h: HistoryItem) => {
+    setBusy(true)
+    listAllLines(dramaId)
+      .then((all) => restoreSnapshot(dramaId, h.id, all.map((l) => l.id)))
+      .then(
+        () => {
+          setError(null)
+          setRestoring(null)
+          setRestored(`Restored “${h.label ?? `Snapshot ${h.id}`}”. The lines before it are saved as a new snapshot.`)
+          onChanged()
+        },
+        setError,
+      )
+      .finally(() => setBusy(false))
+  }
+
   if (!records) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
   const { notes, tm, versions, history } = records
   const counts: [string, number][] = [
@@ -76,7 +101,12 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
       count={total}
       summary={counts.filter(([, c]) => c > 0).map(([l, c]) => `${l} ${c}`).join(' · ')}
     >
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {structureErrorText(error) ? (
+        <p className="error" role="alert">{structureErrorText(error)}</p>
+      ) : (
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      )}
+      {restored && <p role="status" data-testid="restore-status">{restored}</p>}
       {notes.length > 0 && (
         <>
           <h4>Notes</h4>
@@ -133,7 +163,27 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
           <ul data-testid="history-list">
             {history.map((h) => (
               <li key={h.id}>
-                {h.label ?? `Snapshot ${h.id}`} <span className="muted">{h.created_at}</span>
+                {h.label ?? `Snapshot ${h.id}`} <span className="muted">{h.created_at}</span>{' '}
+                {restoring?.id !== h.id && (
+                  <button type="button" className="link" onClick={() => { setRestored(null); setRestoring(h) }}>
+                    Restore…
+                  </button>
+                )}
+                {restoring?.id === h.id && (
+                  <TypedConfirm
+                    word="restore"
+                    action="Restore snapshot"
+                    busy={busy}
+                    blocked={jobRunning ? JOB_RUNNING_MESSAGE : null}
+                    onConfirm={() => restore(h)}
+                    onCancel={() => setRestoring(null)}
+                  >
+                    <p className="muted">
+                      Replaces every line with “{h.label ?? `Snapshot ${h.id}`}” ({h.created_at}). Your current lines
+                      are saved as a snapshot first.
+                    </p>
+                  </TypedConfirm>
+                )}
               </li>
             ))}
           </ul>

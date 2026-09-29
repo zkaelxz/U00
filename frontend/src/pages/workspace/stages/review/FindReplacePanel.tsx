@@ -2,16 +2,18 @@ import { useState } from 'react'
 
 import { applyFindReplace, previewFindReplace } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
-import { Section } from '../../../../components/Section'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
 import { staleLabels } from './reviewLogic'
 
 interface Props {
   dramaId: number
   onChanged: () => void
+  onClose: () => void
 }
 
-export function FindReplacePanel({ dramaId, onChanged }: Props) {
+// Opened from the toolbar's "Replace…" (open state remembered under the
+// review.findreplace key). Preview first; apply skips lines changed since.
+export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
   const [find, setFind] = useState('')
   const [replace, setReplace] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -42,12 +44,11 @@ export function FindReplacePanel({ dramaId, onChanged }: Props) {
   }
 
   return (
-    <Section
-      storageKey="review.findreplace"
-      title="Find and replace"
-      count={matches?.length}
-      summary={find ? `“${find}” → “${replace}”` : 'change a word across every line'}
-    >
+    <section className="review-replace" aria-label="Find and replace">
+      <div className="review-replace-head">
+        <h3>Find and replace</h3>
+        <button type="button" className="link" onClick={onClose}>Close</button>
+      </div>
       <div className="filters">
         <input aria-label="Find" value={find} onChange={(e) => { setFind(e.target.value); setMatches(null) }} />
         <input aria-label="Replace with" value={replace} onChange={(e) => { setReplace(e.target.value); setMatches(null) }} />
@@ -85,6 +86,6 @@ export function FindReplacePanel({ dramaId, onChanged }: Props) {
           )}
         </div>
       )}
-    </Section>
+    </section>
   )
 }
