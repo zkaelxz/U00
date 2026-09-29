@@ -41,6 +41,22 @@ def _restore_library(previous, temp_dir):
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def _private_library():
+    """Every test here gets its own library, not just the classes with a
+    setup_method. Job status is mirrored to job_records and GPU-touching
+    jobs take db.gpu_lock, both in whatever library db points at; left at
+    the default that is the repo's own library/library.db, shared by all
+    pytest-xdist workers. Another worker's GPU job holding that lock made
+    a GPU job here queue instead of run
+    (test_a_process_job_queues_behind_a_running_gpu_thread_job saw
+    'running' where it expected 'queued'). Classes that isolate again in
+    setup_method nest inside this and restore back to it."""
+    state = _isolate_library()
+    yield
+    _restore_library(*state)
+
+
 def _wait(job_id, timeout=2.0):
     start = time.time()
     while bg.is_running(job_id) and time.time() - start < timeout:
