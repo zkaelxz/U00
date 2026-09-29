@@ -100,7 +100,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         </p>
         {(status?.has_novel_text || hasRaw) && (
           <p className="muted">
-            <a href={`#/drama/${dramaId}/translate`}>Build a glossary from this novel →</a>
+            <a href={`#/drama/${dramaId}/translate`}>Build a glossary from this novel (Translate → Glossary) →</a>
           </p>
         )}
         {hasRaw && (

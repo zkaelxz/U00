@@ -85,13 +85,17 @@ export function reportPcOnlyError(
 }
 
 // Two-step confirm state: the first press arms, the second fires; a timeout,
-// Cancel, Escape or blur disarm. Pure so it is unit-testable.
-export type ConfirmEvent = 'press' | 'timeout' | 'cancel'
+// Cancel, Escape, blur or the button becoming disabled ('disable') disarm.
+// Pure so it is unit-testable.
+export type ConfirmEvent = 'press' | 'timeout' | 'cancel' | 'disable'
 export function confirmStep(armed: boolean, event: ConfirmEvent): { armed: boolean; fire: boolean } {
   if (event === 'press') return armed ? { armed: false, fire: true } : { armed: true, fire: false }
   return { armed: false, fire: false }
 }
 
 export const CONFIRM_TIMEOUT_MS = 5000
+
+// The 5 s revert runs only while armed and not paused (keyboard focus inside).
+export const revertTimerRuns = (armed: boolean, keyboardFocus: boolean) => armed && !keyboardFocus
 
 export const PC_ONLY_NOTE = 'Deleting is PC only.'

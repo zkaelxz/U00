@@ -102,7 +102,7 @@ test.describe('Auto-tune min silence', () => {
     await start.click()
     await expect(page.getByTestId('autotune-running')).toContainText('Testing 2 of 3 (800 ms)…')
     await page.getByTestId('autotune-running').getByRole('button', { name: 'Cancel' }).click()
-    expect(cancelled).toBe(true)
+    await expect.poll(() => cancelled).toBe(true)
     expect(JSON.parse(startBody)).toEqual({})
 
     state = 'done'
@@ -111,6 +111,9 @@ test.describe('Auto-tune min silence', () => {
     await expect(table.locator('tbody tr').nth(1)).toContainText('Fewest long lines')
     await expect(page.getByText('Fewest long lines')).toHaveCount(1)
     await shot(page, 'autotune-desktop')
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await shot(page, 'autotune-desktop-dark')
+    await page.emulateMedia({ colorScheme: 'light' })
     await table.getByRole('button', { name: 'Use 800 ms' }).click()
     await expect(page.getByTestId('autotune')).toContainText('Min silence set to 800 ms. Transcribe again to apply.')
     expect(JSON.parse(applyBody)).toEqual({ candidate_ms: 800 })
@@ -208,14 +211,22 @@ test.describe('Glossary from novel', () => {
     await expect(add).toBeVisible()
     await page.getByLabel('Select 蓝湛').uncheck()
     await shot(page, 'glossary-from-novel-desktop')
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await shot(page, 'glossary-from-novel-desktop-dark')
+    await page.emulateMedia({ colorScheme: 'light' })
     await page.getByRole('button', { name: 'Add 2 terms to series glossary' }).click()
     await expect(page.getByTestId('novel-glossary')).toContainText('Added 2.')
     expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴', '云深不知处'] })
     await expect(page.getByTestId('novel-glossary').locator('button.primary')).toHaveCount(1)
   })
 
-  test('overwriting existing terms needs a confirm and sends confirm: true', async ({ page }) => {
+  test('overwriting always confirms, counts against the current glossary and sends confirm: true', async ({ page }) => {
     await inSeries(page)
+    await page.route('**/api/glossary/dramas/1/terms', (route) =>
+      route.fulfill({
+        json: [{ id: 1, term_original: '江澄', term_translation: 'Jiang Cheng', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }],
+      }),
+    )
     await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
     await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
       route.fulfill({
@@ -233,26 +244,51 @@ test.describe('Glossary from novel', () => {
     await page.goto('/#/drama/1/translate')
     await openSection(page, 'Glossary')
     await openSection(page, 'From novel')
-    await page.getByLabel('Select 江澄').check()
+    await page.getByTestId('novel-glossary-proposals').getByLabel('Select 江澄').check()
     await page.getByLabel('Overwrite existing terms').check()
+    await expect(page.getByText('Tick terms marked "already in glossary" to replace them.')).toBeVisible()
     await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
+    await expect(page.getByText('Replace 1 existing term in the series glossary?')).toBeVisible()
     expect(applyBody).toBe('')
     await page.getByRole('button', { name: 'Yes, overwrite' }).click()
     await expect(page.getByTestId('novel-glossary')).toContainText('Overwrote 1.')
     expect(JSON.parse(applyBody)).toEqual({ terms: ['江澄'], overwrite_existing: true, confirm: true })
+  })
+
+  test('a lost extraction (400 on apply) asks to run again', async ({ page }) => {
+    await inSeries(page)
+    await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+    await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
+      route.fulfill({
+        json: {
+          job_id: 'novelglossary_1', status: 'done', progress: 1, message: '',
+          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false }],
+        },
+      }),
+    )
+    await page.route('**/api/glossary/dramas/1/from-novel/apply', (route) =>
+      route.fulfill({ status: 400, json: { error: { code: 'unsupported_operation', message: 'No finished glossary extraction for this drama.' } } }),
+    )
+    await page.goto('/#/drama/1/translate')
+    await openSection(page, 'Glossary')
+    await openSection(page, 'From novel')
+    await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
+    await expect(page.getByRole('alert').filter({ hasText: 'Run the extraction again (results are kept only until the app restarts).' })).toBeVisible()
   })
 })
 
 test.describe('PC-only stage deletes', () => {
   const version = { id: 9, drama_id: 1, label: 'Claude pass 1', engine: 'claude', model: 'm', is_active: true, created_at: '2026-09-01' }
 
+  const version2 = { ...version, id: 10, label: 'Claude pass 2', is_active: false }
+
   async function mockVersions(page: Page) {
-    let versions = [version]
+    let versions = [version, version2]
     const calls: { body: string; local: string | null }[] = []
     await page.route('**/api/review/dramas/1/versions', (route) => route.fulfill({ json: versions }))
     await page.route('**/api/review/dramas/1/versions/9/delete', (route) => {
       calls.push({ body: route.request().postData() ?? '', local: route.request().headers()['x-baihe-local'] ?? null })
-      versions = []
+      versions = [version2]
       return route.fulfill({ json: { drama_id: 1, version_id: 9, deleted: true, was_active: true } })
     })
     return calls
@@ -269,7 +305,9 @@ test.describe('PC-only stage deletes', () => {
     await expect(list).toContainText('Press again to delete Claude pass 1.')
     await shot(page, 'records-version-delete-armed-desktop')
     await list.getByRole('button', { name: 'Confirm delete Claude pass 1' }).click()
-    await expect(page.getByTestId('versions-list')).toHaveCount(0)
+    await expect(list.locator('li')).toHaveCount(1)
+    // Focus moves to the next row's Delete button.
+    await expect(list.getByRole('button', { name: 'Delete Claude pass 2' })).toBeFocused()
     expect(calls).toHaveLength(1)
     expect(JSON.parse(calls[0].body)).toEqual({ confirm: true })
     expect(calls[0].local).toBe('1')
@@ -327,7 +365,7 @@ test.describe('PC-only stage deletes', () => {
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
-    await expect(page.getByRole('link', { name: 'Build a glossary from this novel →' })).toHaveAttribute('href', '#/drama/1/translate')
+    await expect(page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })).toHaveAttribute('href', '#/drama/1/translate')
     await page.getByRole('button', { name: 'Remove raw novel…' }).click()
     await page.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Removed.' }).last()).toBeVisible()

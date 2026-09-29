@@ -89,9 +89,26 @@ export function chosenTerms(proposals: NovelGlossaryProposal[], sel: Set<string>
   return proposals.filter((p) => sel.has(p.term)).map((p) => p.term)
 }
 
-export function countExisting(proposals: NovelGlossaryProposal[], terms: string[]): number {
-  const set = new Set(terms)
-  return proposals.filter((p) => p.already_in_glossary && set.has(p.term)).length
+// How many chosen terms are in the series glossary right now (re-read at
+// confirm time, not the run's already_in_glossary snapshot).
+export function countInGlossary(chosen: string[], glossaryOriginals: string[]): number {
+  const have = new Set(glossaryOriginals.map((t) => t.trim()))
+  return chosen.filter((t) => have.has(t.trim())).length
+}
+
+// null = the current glossary could not be read; say "may" instead of a count.
+export function overwriteConfirmText(existing: number | null): string {
+  if (existing === null) return 'This may replace existing terms in the series glossary.'
+  if (existing === 0) return 'None of the chosen terms are in the series glossary now; they will be added.'
+  return `Replace ${existing} existing term${existing === 1 ? '' : 's'} in the series glossary?`
+}
+
+export const GLOSSARY_EXPIRED = 'Run the extraction again (results are kept only until the app restarts).'
+
+// Apply answers 400 when no finished extraction is held (app restarted).
+export function novelGlossaryApplyErrorText(err: unknown): string | null {
+  const e = err as { status?: number } | null
+  return e?.status === 400 ? GLOSSARY_EXPIRED : null
 }
 
 export const addTermsLabel = (n: number) => `Add ${n} term${n === 1 ? '' : 's'} to series glossary`

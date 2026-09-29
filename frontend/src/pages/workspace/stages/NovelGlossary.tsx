@@ -4,6 +4,7 @@ import { applyNovelGlossary, getNovelGlossary, startNovelGlossary } from '../../
 import { ApiError } from '../../../api/client'
 import { cancelJob } from '../../../api/jobs'
 import { getSourceConfig } from '../../../api/source'
+import { getGlossaryTerms } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
@@ -16,9 +17,11 @@ import {
   addTermsLabel,
   applySummary,
   chosenTerms,
-  countExisting,
+  countInGlossary,
   defaultTermSelection,
   isActiveStatus,
+  overwriteConfirmText,
+  novelGlossaryApplyErrorText,
   novelGlossaryBlocker,
   novelGlossaryProgressText,
   novelGlossaryStartErrorText,
@@ -38,12 +41,15 @@ interface Props {
 export function NovelGlossary({ onApplied }: Props) {
   const { dramaId, drama } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
-  const { status, error: loadError, refresh } = useRunStatus(dramaId, getNovelGlossary)
+  const { status, error: loadError, refresh, clearError } = useRunStatus(dramaId, getNovelGlossary)
   const [hasNovel, setHasNovel] = useState<boolean | null>(null)
   // null = the default selection for the current proposals.
   const [picked, setPicked] = useState<Set<string> | null>(null)
   const [overwrite, setOverwrite] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  // Chosen terms already in the series glossary, re-read when confirming
+  // an overwrite; null while reading or if the read failed.
+  const [existing, setExisting] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -65,7 +71,6 @@ export function NovelGlossary({ onApplied }: Props) {
   const proposals: NovelGlossaryProposal[] = status?.status === 'done' ? status.proposals ?? [] : []
   const sel = picked ?? defaultTermSelection(proposals)
   const chosen = chosenTerms(proposals, sel)
-  const existing = overwrite ? countExisting(proposals, chosen) : 0
   const engine = drama.translation_engine || 'claude'
 
   const start = () => {
@@ -94,8 +99,15 @@ export function NovelGlossary({ onApplied }: Props) {
       .finally(() => setBusy(false))
   }
 
+  // Cancel stays disabled after a press until the next poll brings new status.
+  const [cancelSentFor, setCancelSentFor] = useState<object | null>(null)
   const cancel = () => {
-    if (status) cancelJob(status.job_id).then(refresh, setError)
+    if (!status) return
+    setCancelSentFor(status)
+    cancelJob(status.job_id).then(refresh, (e: unknown) => {
+      setCancelSentFor(null)
+      setError(e)
+    })
   }
 
   const apply = () => {
@@ -113,12 +125,25 @@ export function NovelGlossary({ onApplied }: Props) {
           setPicked(new Set(chosen.filter((t) => !r.added.includes(t) && !r.overwritten.includes(t))))
           onApplied()
         },
-        setError,
+        (e: unknown) => {
+          const text = novelGlossaryApplyErrorText(e)
+          if (text) setProblem(text)
+          else setError(e)
+        },
       )
       .finally(() => setBusy(false))
   }
 
-  const onAdd = () => (existing > 0 ? setConfirming(true) : apply())
+  // Overwrite always asks first; the count comes from the glossary as it is now.
+  const onAdd = () => {
+    if (!overwrite) return apply()
+    setExisting(null)
+    setConfirming(true)
+    getGlossaryTerms(dramaId).then(
+      (terms) => setExisting(countInGlossary(chosen, terms.map((t) => t.term_original))),
+      () => setExisting(null),
+    )
+  }
   const toggle = (term: string) => {
     setConfirming(false)
     setPicked(toggleTerm(sel, term))
@@ -145,7 +170,9 @@ export function NovelGlossary({ onApplied }: Props) {
         {active && status ? (
           <p className="actions" role="status" data-testid="novel-glossary-running">
             <span>{novelGlossaryProgressText(status.status, status.progress)}</span>
-            <button type="button" onClick={cancel}>Cancel</button>
+            <button type="button" disabled={cancelSentFor === status} onClick={cancel}>
+              Cancel
+            </button>
           </p>
         ) : (
           <div className="actions">
@@ -197,7 +224,12 @@ export function NovelGlossary({ onApplied }: Props) {
                 <tbody>
                   {proposals.map((p) => (
                     <tr key={p.term}>
-                      <td>{checkbox(p)}</td>
+                      <td>
+                        <label className="novel-glossary-check">
+                          {checkbox(p)}
+                          <span className="visually-hidden">Select {p.term}</span>
+                        </label>
+                      </td>
                       <td>
                         {p.term} {p.already_in_glossary && inGlossary}
                       </td>
@@ -212,7 +244,7 @@ export function NovelGlossary({ onApplied }: Props) {
             </div>
           ))}
         {proposals.length > 0 && (
-          <>
+          <div className="novel-glossary-apply">
             <label className="check">
               <input
                 type="checkbox"
@@ -224,6 +256,9 @@ export function NovelGlossary({ onApplied }: Props) {
               />{' '}
               Overwrite existing terms
             </label>
+            {overwrite && (
+              <p className="muted">Tick terms marked "already in glossary" to replace them.</p>
+            )}
             {!confirming ? (
               <div className="actions">
                 <button type="button" className="primary" disabled={chosen.length === 0 || busy} onClick={onAdd}>
@@ -233,20 +268,24 @@ export function NovelGlossary({ onApplied }: Props) {
               </div>
             ) : (
               <div className="actions" role="alert">
-                <span>
-                  Replace {existing} existing term{existing === 1 ? '' : 's'} in the series glossary?
-                </span>
+                <span>{overwriteConfirmText(existing)}</span>
                 <button type="button" className="danger" disabled={busy} onClick={apply}>
                   Yes, overwrite
                 </button>
                 <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
               </div>
             )}
-          </>
+          </div>
         )}
         {note && <p role="status">{note}</p>}
         {problem && <p className="error" role="alert">{problem}</p>}
-        <ErrorBanner error={error ?? loadError} onDismiss={() => setError(null)} />
+        <ErrorBanner
+          error={error ?? loadError}
+          onDismiss={() => {
+            setError(null)
+            clearError()
+          }}
+        />
       </div>
     </Section>
   )

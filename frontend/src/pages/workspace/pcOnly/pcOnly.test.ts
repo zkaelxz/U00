@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../../api/client'
-import { confirmStep, fetchIsLocal, pcOnlyErrorText, reportPcOnlyError } from './pcOnly'
+import { confirmStep, fetchIsLocal, pcOnlyErrorText, reportPcOnlyError, revertTimerRuns } from './pcOnly'
 
 const meta = (body: unknown, status = 200) =>
   (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
@@ -29,6 +29,15 @@ describe('confirmStep', () => {
   it('timeout and cancel disarm without firing', () => {
     expect(confirmStep(true, 'timeout')).toEqual({ armed: false, fire: false })
     expect(confirmStep(true, 'cancel')).toEqual({ armed: false, fire: false })
+  })
+  it('becoming disabled disarms, so re-enabling never shows an armed button', () => {
+    expect(confirmStep(true, 'disable')).toEqual({ armed: false, fire: false })
+    expect(confirmStep(false, 'disable')).toEqual({ armed: false, fire: false })
+  })
+  it('the 5 s revert pauses while keyboard focus is inside', () => {
+    expect(revertTimerRuns(true, false)).toBe(true)
+    expect(revertTimerRuns(true, true)).toBe(false)
+    expect(revertTimerRuns(false, false)).toBe(false)
   })
 })
 

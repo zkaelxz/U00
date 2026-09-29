@@ -1,11 +1,12 @@
 // Private two-step confirm button (stand-in for components/ConfirmButton.tsx
 // on branch react-library-admin; swap at merge time). The first press turns
 // "Remove…" into "Confirm remove ‹name›" (danger) plus Cancel; the second
-// press calls onConfirm. Reverts after 5 s, on Cancel, Escape or blur.
+// press calls onConfirm. Reverts after 5 s (paused while keyboard focus is
+// inside), on Cancel, Escape, blur, or when the button becomes disabled.
 
 import { useEffect, useRef, useState } from 'react'
 
-import { CONFIRM_TIMEOUT_MS, confirmStep, type ConfirmEvent } from './pcOnly'
+import { CONFIRM_TIMEOUT_MS, confirmStep, revertTimerRuns, type ConfirmEvent } from './pcOnly'
 import './pcOnly.css'
 
 interface Props {
@@ -23,7 +24,16 @@ interface Props {
 
 export function ConfirmButton({ label, confirmLabel, onConfirm, disabled = false, disabledReason, ariaLabel }: Props) {
   const [armed, setArmed] = useState(false)
+  const [keyboardFocus, setKeyboardFocus] = useState(false)
   const wrap = useRef<HTMLSpanElement>(null)
+
+  // Disarm as soon as the button becomes disabled (e.g. a job started), so it
+  // never comes back already armed. Adjusted during render, not in an effect.
+  const [wasDisabled, setWasDisabled] = useState(disabled)
+  if (disabled !== wasDisabled) {
+    setWasDisabled(disabled)
+    if (disabled) setArmed(confirmStep(armed, 'disable').armed)
+  }
 
   const send = (event: ConfirmEvent) => {
     const next = confirmStep(armed, event)
@@ -32,10 +42,10 @@ export function ConfirmButton({ label, confirmLabel, onConfirm, disabled = false
   }
 
   useEffect(() => {
-    if (!armed) return
+    if (!revertTimerRuns(armed, keyboardFocus)) return
     const t = setTimeout(() => setArmed(false), CONFIRM_TIMEOUT_MS)
     return () => clearTimeout(t)
-  }, [armed])
+  }, [armed, keyboardFocus])
 
   const isArmed = armed && !disabled
   const action = confirmLabel.replace(/^Confirm /, '')
@@ -47,8 +57,11 @@ export function ConfirmButton({ label, confirmLabel, onConfirm, disabled = false
       onKeyDown={(e) => {
         if (e.key === 'Escape') send('cancel')
       }}
+      onFocus={(e) => setKeyboardFocus(e.target.matches(':focus-visible'))}
       onBlur={(e) => {
-        if (!wrap.current?.contains(e.relatedTarget as Node | null)) send('cancel')
+        if (wrap.current?.contains(e.relatedTarget as Node | null)) return
+        setKeyboardFocus(false)
+        send('cancel')
       }}
     >
       <button

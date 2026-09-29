@@ -57,6 +57,7 @@ export function useRunStatus<T extends { status: string }>(
   }, [dramaId, load, intervalMs, tick])
 
   const refresh = useCallback(() => setTick((n) => n + 1), [])
+  const clearError = useCallback(() => setState((s) => ({ ...s, error: null })), [])
   const cur = state.id === dramaId ? state : { status: null, error: null, loaded: false }
-  return { status: cur.status, error: cur.error, loaded: cur.loaded, refresh }
+  return { status: cur.status, error: cur.error, loaded: cur.loaded, refresh, clearError }
 }

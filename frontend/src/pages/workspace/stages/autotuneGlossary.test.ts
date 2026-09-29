@@ -12,7 +12,10 @@ import {
   autotuneBlocker,
   autotuneProgressText,
   chosenTerms,
-  countExisting,
+  countInGlossary,
+  GLOSSARY_EXPIRED,
+  novelGlossaryApplyErrorText,
+  overwriteConfirmText,
   defaultTermSelection,
   isActiveStatus,
   novelGlossaryBlocker,
@@ -81,9 +84,20 @@ describe('glossary-from-novel helpers', () => {
     expect(chosenTerms(props, less)).toEqual(['a', 'c'])
     expect(addTermsLabel(chosenTerms(props, less).length)).toBe('Add 2 terms to series glossary')
     expect(addTermsLabel(1)).toBe('Add 1 term to series glossary')
-    expect(countExisting(props, ['a', 'd'])).toBe(1)
     // A term no longer proposed is never sent.
     expect(chosenTerms(props, new Set(['zz', 'a']))).toEqual(['a'])
+  })
+  it('counts overwrites against the glossary as it is now, not the run snapshot', () => {
+    // 'a' was new when the run finished but has been added since; 'd' was removed.
+    expect(countInGlossary(['a', 'd'], ['a ', 'x'])).toBe(1)
+    expect(overwriteConfirmText(1)).toBe('Replace 1 existing term in the series glossary?')
+    expect(overwriteConfirmText(2)).toBe('Replace 2 existing terms in the series glossary?')
+    expect(overwriteConfirmText(null)).toBe('This may replace existing terms in the series glossary.')
+    expect(overwriteConfirmText(0)).toMatch(/will be added/)
+  })
+  it('maps a lost-results apply 400 to "run again"', () => {
+    expect(novelGlossaryApplyErrorText(new ApiError(400, { code: 'unsupported_operation', message: 'x' }))).toBe(GLOSSARY_EXPIRED)
+    expect(novelGlossaryApplyErrorText(new ApiError(422, { code: 'validation_error', message: 'x' }))).toBeNull()
   })
   it('summarises an apply result', () => {
     expect(applySummary({ added: ['a', 'b'], overwritten: ['d'], skipped_existing: [], unknown: [] })).toBe(

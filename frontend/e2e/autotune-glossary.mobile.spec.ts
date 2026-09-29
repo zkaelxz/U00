@@ -6,8 +6,14 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const SHOTS = process.env.SHOT_DIR
 
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true })
+async function shot(page: Page, name: string, fullPage = true) {
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage })
+}
+
+async function darkShot(page: Page, name: string, fullPage = true) {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await shot(page, name, fullPage)
+  await page.emulateMedia({ colorScheme: 'light' })
 }
 
 test.afterEach(async ({ page }) => {
@@ -62,6 +68,7 @@ test('auto-tune results are cards with 44px Use buttons', async ({ page }) => {
   await expectNoHorizontalOverflow(page)
   await cards.nth(1).scrollIntoViewIfNeeded()
   await shot(page, 'autotune-phone')
+  await darkShot(page, 'autotune-phone-dark')
 })
 
 test('glossary proposals are cards with 44px checkboxes and one primary', async ({ page }) => {
@@ -92,6 +99,37 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
   await expectNoHorizontalOverflow(page)
   await box.scrollIntoViewIfNeeded()
   await shot(page, 'glossary-from-novel-phone')
+  await darkShot(page, 'glossary-from-novel-phone-dark')
+})
+
+test('with 30 proposals the apply row stays in reach at the bottom', async ({ page }) => {
+  await page.route('**/api/library/dramas/1', async (route) => {
+    const resp = await route.fetch()
+    await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
+  })
+  await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+  const proposals = Array.from({ length: 30 }, (_, i) => ({
+    term: `术语${i + 1}`, suggested_translation: `Term ${i + 1}`, category: 'term', policy: 'translate',
+    reason: 'Appears in several chapters', already_in_glossary: i % 7 === 0,
+  }))
+  await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
+    route.fulfill({ json: { job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', proposals } }),
+  )
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Glossary')
+  await openSection(page, 'From novel')
+  const box = page.getByTestId('novel-glossary')
+  await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(30)
+  await box.locator('ul.novel-glossary-cards > li').nth(10).scrollIntoViewIfNeeded()
+  const primary = box.locator('button.primary')
+  await expect(primary).toHaveText('Add 25 terms to series glossary')
+  const b = await primary.boundingBox()
+  expect(b, 'primary is rendered').not.toBeNull()
+  expect(b!.y + b!.height, 'primary is inside the viewport').toBeLessThanOrEqual(844)
+  expect(b!.y, 'primary is inside the viewport').toBeGreaterThanOrEqual(0)
+  await expectNoHorizontalOverflow(page)
+  await shot(page, 'glossary-30-proposals-sticky-phone', false)
+  await darkShot(page, 'glossary-30-proposals-sticky-phone-dark', false)
 })
 
 test('PC-only delete buttons are 44px and on their own line', async ({ page }) => {

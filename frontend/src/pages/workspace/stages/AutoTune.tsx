@@ -35,7 +35,7 @@ const BEST = 'Fewest long lines'
 export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
   const { dramaId } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
-  const { status, error: loadError, refresh } = useRunStatus(dramaId, getAutotune)
+  const { status, error: loadError, refresh, clearError } = useRunStatus(dramaId, getAutotune)
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -63,8 +63,15 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
       .finally(() => setStarting(false))
   }
 
+  // Cancel stays disabled after a press until the next poll brings new status.
+  const [cancelSentFor, setCancelSentFor] = useState<object | null>(null)
   const cancel = () => {
-    if (status) cancelJob(status.job_id).then(refresh, setError)
+    if (!status) return
+    setCancelSentFor(status)
+    cancelJob(status.job_id).then(refresh, (e: unknown) => {
+      setCancelSentFor(null)
+      setError(e)
+    })
   }
 
   const use = (ms: number) => {
@@ -100,12 +107,14 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
       <div className="autotune" data-testid="autotune">
         <p className="muted">
           Transcribes the audio once per test value and counts the long lines each gives. Uses
-          the GPU and can take a while.
+          the GPU and can take a while. It uses the Initial prompt above.
         </p>
         {active && status ? (
           <p className="actions" role="status" data-testid="autotune-running">
             <span>{autotuneProgressText(status.status, status.message)}</span>
-            <button type="button" onClick={cancel}>Cancel</button>
+            <button type="button" disabled={cancelSentFor === status} onClick={cancel}>
+              Cancel
+            </button>
           </p>
         ) : (
           <div className="actions">
@@ -164,7 +173,13 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
           ))}
         {note && <p role="status">{note}</p>}
         {problem && <p className="error" role="alert">{problem}</p>}
-        <ErrorBanner error={error ?? loadError} onDismiss={() => setError(null)} />
+        <ErrorBanner
+          error={error ?? loadError}
+          onDismiss={() => {
+            setError(null)
+            clearError()
+          }}
+        />
       </div>
     </Section>
   )

@@ -41,39 +41,36 @@ export function SeriesCast({ seriesId }: { seriesId: number }) {
     )
   }
 
-  if (!cast) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
+  // Nothing to show (not loaded, or no series characters): only a load error.
+  if (!cast || cast.length === 0) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
   return (
     <Section
       storageKey="translate.characters.series"
       title="Series cast"
       count={cast.length}
-      summary={cast.length ? 'shared by every drama in the series' : 'none yet'}
+      summary="shared by every drama in the series"
     >
-      {cast.length === 0 ? (
-        <p className="muted">No series characters yet.</p>
-      ) : (
-        <ul className="series-cast" data-testid="series-cast">
-          {cast.map((c) => (
-            <li key={c.id}>
-              <span>
-                <strong>{c.character_name}</strong>
-                {c.pronouns && <span className="muted"> · {c.pronouns}</span>}
-                {c.aliases && <span className="muted"> · also {c.aliases}</span>}
-              </span>
-              {isLocal && (
-                <ConfirmButton
-                  label="Remove"
-                  ariaLabel={`Remove ${c.character_name} from series`}
-                  confirmLabel={`Confirm remove ${c.character_name} from series`}
-                  onConfirm={() => remove(c)}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {isLocal === false && cast.length > 0 && <p className="muted">{PC_ONLY_NOTE}</p>}
+      <ul className="series-cast" data-testid="series-cast">
+        {cast.map((c) => (
+          <li key={c.id}>
+            <span>
+              <strong>{c.character_name}</strong>
+              {c.pronouns && <span className="muted"> · {c.pronouns}</span>}
+              {c.aliases && <span className="muted"> · also {c.aliases}</span>}
+            </span>
+            {isLocal && (
+              <ConfirmButton
+                label="Remove"
+                ariaLabel={`Remove ${c.character_name} from series`}
+                confirmLabel={`Confirm remove ${c.character_name} from series`}
+                onConfirm={() => remove(c)}
+              />
+            )}
+          </li>
+        ))}
+      </ul>
+      {isLocal === false && <p className="muted">{PC_ONLY_NOTE}</p>}
       {notice && <p role="status">{notice}</p>}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
