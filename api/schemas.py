@@ -1806,3 +1806,57 @@ class TranslateBulkCancelResult(BaseModel):
     drama_id: int
     bulk_job: TranslateBulkJobEntry
     message: str
+
+
+# ---------------------------------------------------------------------------
+# PC-only delete routes (migration handoff "Next queue" item 2)
+# ---------------------------------------------------------------------------
+
+class DeleteConfirm(BaseModel):
+    """Body of every PC-only delete: the Streamlit buttons are gated by a
+    plain Confirm checkbox, so `confirm: true` (strict) is the whole bar."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class MediaRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    audio_file_removed: bool
+    video_file_removed: bool
+    has_audio: bool
+    has_video: bool
+
+
+class RawNovelRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    has_raw_novel_context: bool
+
+
+class TranslationVersionDeleteResult(BaseModel):
+    drama_id: int
+    version_id: int
+    deleted: bool
+    was_active: bool
+
+
+class SeriesCharacterDeleteResult(BaseModel):
+    series_id: int
+    character_id: int
+    deleted: bool
+
+
+class BugBundleDeleteResult(BaseModel):
+    bundle_id: int
+    deleted: bool
+
+
+class PresetDeleteResult(BaseModel):
+    preset_id: int
+    deleted: bool
+
+
+class VoiceBankDeleteResult(BaseModel):
+    entry_id: int
+    deleted: bool
