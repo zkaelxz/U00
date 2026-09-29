@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TranslateRunConfig } from '../../types/translateStage'
-import { buildEstimateParams, buildRunBody, initialForm, parseCap, splitLines, validateRun } from './translateForm'
+import {
+  buildEstimateParams,
+  buildRunBody,
+  bulkAvailable,
+  bulkReflectAvailable,
+  initialForm,
+  parseCap,
+  reflectAvailable,
+  splitLines,
+  validateRun,
+} from './translateForm'
 
 const config = {
   default_style_preset: 'natural',
@@ -60,5 +70,22 @@ describe('translate form', () => {
 
   it('splits one-per-line lists', () => {
     expect(splitLines(' a \n\nb\na\n')).toEqual(['a', 'b'])
+  })
+
+  it('gates Reflect and bulk by engine and sends the flags', () => {
+    const base = initialForm(config)
+    const sup = ['claude', 'gemini', 'deepseek']
+    expect(reflectAvailable('deepl')).toBe(false)
+    expect(bulkAvailable('ollama', sup)).toBe(false)
+    expect(bulkReflectAvailable('deepseek', sup)).toBe(false)
+    expect(validateRun({ ...base, engine: 'deepl', reflect: true }, 'x', sup)).toMatch(/Reflect/)
+    expect(validateRun({ ...base, engine: 'ollama', bulk: true }, 'x', sup)).toMatch(/Bulk/)
+    expect(validateRun({ ...base, engine: 'deepseek', bulk: true, reflect: true }, 'x', sup)).toMatch(/Bulk Reflect/)
+    expect(validateRun({ ...base, engine: 'claude', bulk: true, fallbacks: ['gemini'] }, 'x', sup)).toMatch(/Fallback/)
+    const ok = { ...base, engine: 'claude', bulk: true, reflect: true }
+    expect(validateRun(ok, 'x', sup)).toBeNull()
+    expect(buildRunBody(ok)).toMatchObject({ bulk: true, reflect: true })
+    expect(buildEstimateParams(ok)).toMatchObject({ bulk: true, reflect: true })
+    expect(buildRunBody(base)).not.toHaveProperty('bulk')
   })
 })
