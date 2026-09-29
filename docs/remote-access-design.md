@@ -1,5 +1,7 @@
 # Remote access design: M8-H (Tailscale + Tailscale Serve)
 
+> **SUPERSEDED 2026-09-29** by [`remote-access-decision.md`](remote-access-decision.md) (Caddy plus a real Baihe login). Kept for history and for the parts D5 still uses (admin listener, permissions ideas).
+
 > **Status: design only, nothing built.** Written 2026-09-28 on the
 > unmerged `migration/react-fastapi-foundation` branch from the user's
 > decisions. It's the proposed resolution of the roadmap's deferred

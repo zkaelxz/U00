@@ -45,8 +45,11 @@ transcribe/narration docs and docstrings that still say chunk_and_tag or audiobo
 Held-roadmap fold-ins: Step 43 (soft-delete) stays held (plug into `_hard_delete_drama`); Steps 100-105, 40b, 42, 60, 72 stay held.
 After the service queue: frontend (React) slices and Streamlit retirement -- not yet planned in this repo; ask the migration-architect.
 
+## Remote access (decided 2026-09-29)
+D6 is replaced: Caddy on the always-on PC with a real Baihe login (Google OIDC + users allowlist), deny-by-default permissions, admin on the D5 loopback listener. Full decision, repo work list and open verifications: `docs/remote-access-decision.md`. Proposed steps 133-140 in `docs/baihe-roadmap-master.md` section 5. Nothing is built; do not expose the API beyond loopback until step 133 (auth and permissions) is merged and tested on the LAN.
+
 ## Owed to the user (cannot verify here)
-Not blocking: GPU check output from the user's PC (venv python: ctranslate2 CUDA device count, `torch.cuda.is_available()`); phone-access choice (home Wi-Fi only / Cloudflare Tunnel with login / Tailscale; the user questioned the VPN, unresolved, reopens D6); Slice 34 real-model check; real-hardware checks.
+Not blocking: GPU check output from the user's PC (venv python: ctranslate2 CUDA device count, `torch.cuda.is_available()`); Slice 34 real-model check; real-hardware checks.
 Real TTS, ffmpeg, Whisper on GPU, paid LLM keys, and a gated-access HF token for pyannote diarization.
 Also for the planning session: candidate notes on Fanjiao/GLify/YuriAudio2Notion, and `sources/` gaps (ETag revalidation in
 `chapter_check.py`, partial-import retry state).

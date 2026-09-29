@@ -491,6 +491,8 @@ problem.
 ### 7. Authentication and remote access (deferred: roadmap M8-H)
 
 > **Correction (2026-09-29).** Still no authentication in the API. But
+> **Update 2026-09-29:** D6 was replaced by Caddy plus a real Baihe login, see [`remote-access-decision.md`](remote-access-decision.md). The text below is the earlier decision.
+>
 > M8-H is no longer undecided: D6 (2026-09-28) chose Tailscale plus
 > Tailscale Serve, and D5 says admin actions are PC-only with explicit
 > confirmation and Streamlit is never published through Tailscale. See

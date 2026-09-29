@@ -118,6 +118,14 @@ The 13 false leads (pure keyword collisions, nothing to adopt): baihepailei, bai
 | 130 | Doc-only drift sweep | B-21 |
 | 131 | Frontend/API hygiene: CORS decision, `useJob` retry/backoff | B-17, B-18 |
 | 132 | Streamlit-parity items to resolve at tab retirement | B-11, B-13 |
+| 133 | Remote access: users table, allowlist, server-side sessions, permission dependency (deny by default, one permission per route) plus the static test; `python -m api grant-admin` | D6 replaced 2026-09-29 |
+| 134 | Remote access: Google OIDC login and callback (Authlib; `sub`, `email_verified`, PKCE, state, nonce), CSRF, login rate limits, audit log | needs 133 |
+| 135 | Remote access: per-device extension tokens, then move the extension bridge from `page_server.py` into the API (never route 8756) | needs 133 |
+| 136 | Remote access: URL-import guards (http/https, private/loopback/link-local incl. after redirects, size/count/concurrency caps); B-25 redirect-target gap belongs here | needs Slice 54 |
+| 137 | Remote access: per-user job limits and per-user media bandwidth caps; verify Range/seek with a multi-GB file and job progress through Caddy | needs 133, slice 52 |
+| 138 | Remote access: PWA manifest + minimal service worker (app shell only); check session cookies in installed PWAs on real devices | user checks |
+| 139 | Remote access: hardening (no public `/api/docs`, production mode, Streamlit never exposed) and operations (services on boot, uptime alert, backups, dynamic DNS, cert renewal monitoring, per-device session list and revocation) | needs 133-134 |
+| 140 | Remote access: Caddy config, LAN test with a real certificate, then open the router port last | needs 133-139 |
 
 ## 5b. Needs to be added to the roadmap (3 items)
 Real findings with nowhere to live yet: flagged in review, not written up as a numbered step in `docs/baihe-roadmap.md`, or waiting on their own verification before they can be.

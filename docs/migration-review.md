@@ -1185,8 +1185,8 @@ Status as of 2026-09-28 (user answers in brackets).
   During the transition, **Streamlit is never published through
   Tailscale**; it stays PC-only until it's removed. Remote access is
   React-only. See [`remote-access-design.md`](remote-access-design.md) §6.
-- **D6. Remote access (M8-H). [Decided 2026-09-28: Tailscale + Tailscale
-  Serve (option A).]** Private to the household's tailnet, no open ports,
+- **D6. Remote access (M8-H). [REPLACED 2026-09-29: Caddy on the PC with a real Baihe login (Google OIDC + allowlist); see [`remote-access-decision.md`](remote-access-decision.md). The 2026-09-28 Tailscale decision below is kept for history. D5 is unchanged.]** [Was decided 2026-09-28: Tailscale + Tailscale
+  Serve (option A).] Private to the household's tailnet, no open ports,
   no domain, HTTPS and identity from Tailscale. Baihe adds
   deny-by-default permissions keyed on `Tailscale-User-Login`. Option E
   (built-in logins, publicly exposed) was chosen first and then reversed
