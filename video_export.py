@@ -130,8 +130,10 @@ def _write_srt_tempfile(srt_text: str) -> str:
 
 
 def _escape_filter_path(path: str) -> str:
-    # ffmpeg's subtitles filter needs escaped colons/backslashes in the path
-    return path.replace("\\", "\\\\").replace(":", "\\:")
+    # ffmpeg's subtitles filter needs escaped colons/backslashes in the path.
+    # Callers wrap the result in single quotes (subtitles='...'), where a
+    # backslash can't escape a quote: close the quote, add \', reopen it.
+    return path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "'\\\\\\''")
 
 
 def burn_subtitles(video_path: str, srt_text: str, out_path: str,

@@ -26,6 +26,18 @@ class TestProbeDuration:
         assert ve.probe_duration_seconds("video.mp4") == pytest.approx(123.456)
 
 
+class TestEscapeFilterPath:
+    def test_plain_path_only_escapes_colon_and_backslash(self):
+        assert ve._escape_filter_path("C:\\tmp\\a.ass") == "C\\:\\\\tmp\\\\a.ass"
+
+    def test_single_quote_cannot_break_out_of_the_quoted_filter_arg(self):
+        # Wrapped as subtitles='<escaped>': a quote must be closed, escaped
+        # (backslash-escaped at both ffmpeg parsing levels) and reopened.
+        assert ve._escape_filter_path("/tmp/it's.ass") == "/tmp/it'\\\\\\''s.ass"
+        wrapped = f"subtitles='{ve._escape_filter_path(chr(39))}'"
+        assert wrapped == "subtitles=''\\\\\\'''"
+
+
 class TestEstimate:
     def test_estimate_scales_with_duration(self):
         short = ve.estimate_vertical_export(30)

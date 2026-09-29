@@ -119,6 +119,48 @@ class TestPatch:
         svc.patch_line(did, ids[0], en="X", expected={"en": "Hello", "start": 0.0, "speaker": "A"})
         assert _row(did, ids[0])["en"] == "X"
 
+    def test_expected_write_is_one_conditional_update(self, isolated_db):
+        did, ids = _seed()
+        # sfx bool, float timing tolerance, NULL speaker == "" all match
+        svc.patch_line(did, ids[2], en="Z", expected={"speaker": "", "sfx": False, "start": 2.0000000001})
+        assert _row(did, ids[2])["en"] == "Z"
+
+    def test_concurrent_change_between_check_and_write_conflicts(self, isolated_db, monkeypatch):
+        did, ids = _seed()
+        real = db.update_line_fields_if
+
+        def racing(drama_id, line_id, values, expected):
+            # another writer lands after the service's read, before its write
+            db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Theirs",
+                                     speaker="A", id=ids[0])], fields=("en",))
+            return real(drama_id, line_id, values, expected)
+
+        monkeypatch.setattr(db, "update_line_fields_if", racing)
+        with pytest.raises(ConflictError) as ei:
+            svc.patch_line(did, ids[0], zh="MINE", en="Mine", expected={"en": "Hello"})
+        assert ei.value.details == {"fields": ["en"]}
+        row = _row(did, ids[0])
+        assert row["en"] == "Theirs" and row["zh"] == "你好"
+
+    def test_expected_write_on_removed_line_is_404(self, isolated_db, monkeypatch):
+        did, ids = _seed()
+        real = db.update_line_fields_if
+
+        def racing(drama_id, line_id, values, expected):
+            db.save_lines(did, [ln for ln in db.load_line_objects(did) if ln.id != ids[0]])
+            return real(drama_id, line_id, values, expected)
+
+        monkeypatch.setattr(db, "update_line_fields_if", racing)
+        with pytest.raises(NotFoundError):
+            svc.patch_line(did, ids[0], en="X", expected={"en": "Hello"})
+
+    def test_expected_write_clears_flag_and_sets_speaker_manual(self, isolated_db):
+        did, ids = _seed()
+        svc.patch_line(did, ids[1], en="Fixed", speaker="Bob", expected={"en": "Bye"})
+        row = _row(did, ids[1])
+        assert row["en"] == "Fixed" and row["speaker"] == "Bob" and not row["flag"]
+        assert row["speaker_manual"]
+
     def test_unknown_line_never_inserts(self, save_spy):
         did, ids = _seed()
         with pytest.raises(NotFoundError):

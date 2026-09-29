@@ -22,6 +22,7 @@ paths this audit touched.
 import argparse
 import io
 import contextlib
+import os
 import sys
 
 import json
@@ -982,3 +983,54 @@ class TestCmdDoctor:
         monkeypatch.setattr(sys, "argv", ["cli.py", "doctor", "--engine", "ollama"])
         cli.main()
         assert captured["args"].ollama_url is None
+
+
+class _SeqEngine:
+    """Claude-shaped fake returning canned raw responses, one per call."""
+    supports_reference = True
+    model = "fake-model"
+
+    def __init__(self, responses):
+        self.client = self
+        self.messages = self
+        self.responses = list(responses)
+
+    def create(self, model, max_tokens, messages):
+        text = self.responses.pop(0) if self.responses else "{}"
+        block = type("B", (), {"type": "text", "text": text})()
+        return type("Resp", (), {"content": [block]})()
+
+
+class TestNarratePrepIdKeyed:
+    """B-10: cmd_narrate_prep must attach speakers by id, not list position."""
+
+    NOVEL = "他说：你好。\n\n夜很深了。\n\n风很大。"
+
+    def _run(self, isolated_db, monkeypatch, engine):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        with open(os.path.join(isolated_db.drama_dir(did), dub_module.NOVEL_SOURCE_FILENAME),
+                  "w", encoding="utf-8") as f:
+            f.write(self.NOVEL)
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        monkeypatch.setattr(cli, "chunk_novel_text", lambda text: text.split("\n\n"))
+        cli.cmd_narrate_prep(argparse.Namespace(
+            id=did, engine="claude", api_key="k", model=None, ollama_url=None))
+        return did, [ln.speaker for ln in isolated_db.load_line_objects(did)]
+
+    def test_reordered_and_extra_ids_land_on_the_right_chunks(self, isolated_db, monkeypatch):
+        engine = _SeqEngine(['{"3": "Cara", "99": "Ghost", "1": "Ann", "2": "Narrator"}'])
+        did, speakers = self._run(isolated_db, monkeypatch, engine)
+        assert speakers == ["Ann", "Narrator", "Cara"]
+        labels = {c["speaker_label"] for c in isolated_db.list_characters(did)}
+        assert "Ghost" not in labels and {"Ann", "Cara"} <= labels
+
+    def test_short_response_retries_missing_id_then_defaults_to_narrator(self, isolated_db, monkeypatch):
+        engine = _SeqEngine(['{"1": "Ann"}', '{"3": "Cara"}'])  # id 2 never answered
+        _, speakers = self._run(isolated_db, monkeypatch, engine)
+        assert speakers == ["Ann", "Narrator", "Cara"]
+
+    def test_list_that_is_not_one_label_per_chunk_falls_back_to_narrator(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "tag_speakers_llm",
+                            lambda chunks, engine, known, **k: ["Ann"])
+        _, speakers = self._run(isolated_db, monkeypatch, _SeqEngine([]))
+        assert speakers == ["Narrator"] * 3

@@ -1321,6 +1321,42 @@ def _line_value(ln, f):
     return "" if (f == "flag_note" and v is None) else v
 
 
+def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: dict) -> bool:
+    """Compare-and-set for one line: ONE conditional UPDATE that writes
+    `values` (column -> new value) only if every `expected` column still
+    holds the value the caller saw (start/end within 1e-6, sfx as a bool,
+    text/speaker with NULL equal to ""). Returns True if the row changed,
+    False if it no longer matches (or no longer exists) -- nothing is
+    written then. Never inserts or deletes."""
+    sets, args = [], []
+    for col, val in values.items():
+        if col not in _LINE_COLUMNS:
+            raise ValueError(f"Unknown line column: {col}")
+        sets.append(f"{col} = ?")
+        args.append(val)
+    conds, cargs = ["id = ?", "drama_id = ?"], [line_id, drama_id]
+    for col, val in (expected or {}).items():
+        if col in ("start", "end"):
+            conds.append(f"ABS({col} - ?) < 1e-6")
+            cargs.append(float(val))
+        elif col == "sfx":
+            conds.append("COALESCE(sfx, 0) = ?")
+            cargs.append(int(bool(val)))
+        elif col in ("zh", "en", "speaker"):
+            conds.append(f"COALESCE({col}, '') = ?")
+            cargs.append(val or "")
+        else:
+            raise ValueError(f"Unknown expected column: {col}")
+    conn = get_conn()
+    try:
+        cur = conn.execute(f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}",
+                           args + cargs)
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def save_lines(drama_id: int, lines, fields=None):
     """Saves a drama's lines by their permanent id (Line.id).
 
