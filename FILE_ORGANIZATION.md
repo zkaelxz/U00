@@ -481,6 +481,9 @@ baihe-subtitler/
 │   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
 │   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
 │   │                              types/novelFiles.ts
+│   │                              VoiceClonePanel (Dub > Voices and cloning: clip upload/extract/pick, voice
+│   │                              bank, voice actor, series link, clone warnings) + voiceClone.ts (pure,
+│   │                              unit-tested); API in src/api/voiceClone.ts, types in src/types/voiceClone.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
