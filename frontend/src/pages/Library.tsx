@@ -36,7 +36,9 @@ import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
-import { costLabel, costMeta, countsLine, usageLine } from './libraryParity/libraryParity'
+import {
+  costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+} from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 
@@ -289,21 +291,35 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
 }) {
   const { series, costs, history, presets, voices } = loads
   const grouped = history.data ? groupHistory(history.data.items) : undefined
+  const shared = series.data ? sharedSeries(series.data.items) : undefined
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
   return (
     <section className="library-tools" aria-labelledby="library-tools-heading">
       <h3 id="library-tools-heading" className="tools-heading">Library tools</h3>
       <div className="tools-grid">
-        <ToolSection title="Series" count={series.data?.items.length} error={series.error}>
-          <ul className="tool-list">
-            {series.data?.items.map((x) => (
-              <li key={x.id}>
+        <ToolSection title="Series" count={shared?.length} summary="Dramas that share characters and glossary" error={series.error}>
+          <ul className="tool-list series-list">
+            {shared?.map((x) => (
+              <li key={x.id} className="series-item">
                 <span className="tool-row"><strong>{x.name}</strong> <span className="muted">{countDramas(x.dramas.length)}</span></span>
-                {x.dramas.length > 0 && (
-                  <span className="series-dramas">
-                    {x.dramas.map((d) => <a key={d.id} href={workspaceHref(d.id)}>{dramaName(d)}</a>)}
-                  </span>
-                )}
+                <span className="muted series-meta">{countsLine(x.types, 'mediaType')}</span>
+                <span className="muted series-meta">{sharedLine(x)}</span>
+                <ul className="series-drama-list" aria-label={`Dramas in ${x.name}`}>
+                  {x.dramas.map((d) => (
+                    <li key={d.id} className="series-drama">
+                      <span className="series-drama-text">
+                        <span>{dramaName(d)}</span>
+                        <span className="series-drama-meta">
+                          <Badge kind="mediaType" value={d.media_type || 'audio_drama'} />
+                          {d.status && <Badge kind="status" value={d.status} />}
+                        </span>
+                      </span>
+                      <ButtonLink size="sm" href={workspaceHref(d.id)} aria-label={`Open ${dramaName(d)}`}>
+                        Open
+                      </ButtonLink>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -318,7 +334,7 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
             {costs.data?.items.map((c) => (
               <li key={c.id}>
                 <span className="tool-row">
-                  <a href={workspaceHref(c.id)}>{dramaName(c)}</a>
+                  <a className="cost-link" href={workspaceHref(c.id)}>{dramaName(c)}</a>
                   <span className="num">{costLabel(c.estimated_cost_usd)}</span>
                 </span>
                 <span className="muted num cost-meta">

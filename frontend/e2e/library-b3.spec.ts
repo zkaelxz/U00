@@ -68,3 +68,41 @@ test('Cost by drama: tokens, cache hits, and free engines labelled (L04)', async
   await expect(rows.nth(1)).toContainText('$0.00 (free)')
   await expect(rows.nth(1)).toContainText('272k in · 100k out · 0% cache hits · 1 call')
 })
+
+const ref = (id: number, title_en: string, media_type: string | null, status: string) =>
+  ({ id, title_en, title_zh: null, media_type, status, updated_at: '2026-09-29T12:00:00' })
+
+const series = {
+  items: [
+    {
+      id: 1, name: 'Mo Dao Zu Shi', character_count: 14, glossary_term_count: 1,
+      dramas: [ref(1, 'Grandmaster of Demonic Cultivation', null, 'translated'), ref(4, 'MDZS (manhua)', 'manhua', 'transcribed')],
+    },
+    { id: 2, name: 'Lonely Series', character_count: 3, glossary_term_count: 5, dramas: [ref(2, 'Solo', 'audio_drama', 'new')] },
+  ],
+}
+
+test('Series view: only 2+ dramas, types, shared counts, Open (L05)', async ({ page }) => {
+  await page.route('**/api/library/series', (r) => r.fulfill({ json: series }))
+  await page.goto('/')
+  const tools = page.getByRole('region', { name: 'Library tools' })
+  await tools.locator('summary', { hasText: 'Series' }).click()
+  const panel = tools.getByRole('region', { name: 'Series' })
+  await expect(panel).toContainText('Mo Dao Zu Shi')
+  await expect(panel).not.toContainText('Lonely Series')
+  await expect(panel).toContainText('Audio drama 1 · Manhua 1')
+  await expect(panel).toContainText('14 shared characters · 1 glossary term')
+  const dramas = panel.getByRole('list', { name: 'Dramas in Mo Dao Zu Shi' }).getByRole('listitem')
+  await expect(dramas).toHaveCount(2)
+  await expect(dramas.nth(1)).toContainText('Transcribed')
+  await expect(panel.getByRole('link', { name: 'Open MDZS (manhua)' })).toHaveAttribute('href', '#/drama/4')
+})
+
+test('Series fold is hidden when no series has 2+ dramas (L05)', async ({ page }) => {
+  await page.route('**/api/library/series', (r) =>
+    r.fulfill({ json: { items: [series.items[1]] } }))
+  await page.goto('/')
+  const tools = page.getByRole('region', { name: 'Library tools' })
+  await expect(tools.locator('summary', { hasText: 'Cost by drama' }).or(tools.locator('summary', { hasText: 'Backup' })).first()).toBeVisible()
+  await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
+})

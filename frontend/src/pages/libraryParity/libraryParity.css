@@ -1,3 +1,13 @@
 /* Library parity batch B3 (inventory L01, L04, L05). */
 .stats-breakdown { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); }
 .cost-meta { font-size: var(--text-sm); }
+.series-item { gap: var(--space-1); }
+.series-meta { font-size: var(--text-sm); }
+.series-drama-list { list-style: none; margin: var(--space-1) 0 0; padding: 0; display: grid; gap: var(--space-1); }
+.series-drama { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-block: 2px; border-top: 1px solid var(--border); }
+.series-drama-text { display: grid; gap: 2px; min-width: 0; font-size: var(--text-sm); }
+.series-drama-text > span:first-child { overflow-wrap: anywhere; }
+.series-drama-meta { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+@media (pointer: coarse), (max-width: 640px) {
+  .cost-link { display: inline-flex; align-items: center; min-height: 44px; }
+}

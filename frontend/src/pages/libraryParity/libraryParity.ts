@@ -43,3 +43,21 @@ export function costMeta(c: { input_tokens: number; output_tokens: number; cache
     plural(c.call_count, 'call'),
   ].join(' · ')
 }
+
+// Parity L05: only a series with 2+ dramas is shown (one drama shares
+// nothing), with a count per media type; a drama with no type is an audio
+// drama, as in Streamlit.
+export function sharedSeries<S extends { dramas: { media_type: string | null }[] }>(items: S[]): (S & { types: Record<string, number> })[] {
+  return items.filter((s) => s.dramas.length >= 2).map((s) => {
+    const types: Record<string, number> = {}
+    for (const d of s.dramas) {
+      const t = d.media_type || 'audio_drama'
+      types[t] = (types[t] ?? 0) + 1
+    }
+    return { ...s, types }
+  })
+}
+
+// Parity L05: "14 shared characters · 1 glossary term".
+export const sharedLine = (s: { character_count: number; glossary_term_count: number }) =>
+  `${plural(s.character_count, 'shared character')} · ${plural(s.glossary_term_count, 'glossary term')}`

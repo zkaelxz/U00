@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { cacheHitShare, compactCount, costLabel, costMeta, countsLine, usageLine } from './libraryParity'
+import {
+  cacheHitShare, compactCount, costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+} from './libraryParity'
 
 const usage = { input_tokens: 812000, output_tokens: 301000, cache_read_tokens: 243600, estimated_cost_usd: 3.47, call_count: 318 }
 
@@ -37,5 +39,21 @@ describe('cost rows (parity L04)', () => {
       .toBe('540k in · 201k out · 30% cache hits · 212 calls')
     expect(costMeta({ input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, call_count: 1 }))
       .toBe('0 in · 0 out · 0% cache hits · 1 call')
+  })
+})
+
+describe('series view (parity L05)', () => {
+  const d = (media_type: string | null) => ({ media_type })
+  it('keeps only series with 2+ dramas and counts their types', () => {
+    const out = sharedSeries([
+      { id: 1, dramas: [d('audio_drama'), d(null), d('novel')] },
+      { id: 2, dramas: [d('manhua')] },
+      { id: 3, dramas: [] },
+    ])
+    expect(out.map((s) => s.id)).toEqual([1])
+    expect(out[0].types).toEqual({ audio_drama: 2, novel: 1 })
+  })
+  it('shared line', () => {
+    expect(sharedLine({ character_count: 14, glossary_term_count: 1 })).toBe('14 shared characters · 1 glossary term')
   })
 })
