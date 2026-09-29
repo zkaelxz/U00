@@ -2011,3 +2011,93 @@ class ReaderChatTurn(BaseModel):
 class ReaderAskRequest(ReaderEngineFields):
     question: str = Field(min_length=1, max_length=2000)
     chat_history: List[ReaderChatTurn] = Field(default_factory=list, max_length=40)
+
+
+# ---------------------------------------------------------------------------
+# Route batch 2C: auto-tune speech splitting + glossary from novel
+# (imports kept local to this section so parallel slices don't collide on
+# the module's import line)
+# ---------------------------------------------------------------------------
+
+from typing import Annotated  # noqa: E402
+
+from pydantic import StrictInt  # noqa: E402
+
+AutotuneCandidateMs = Annotated[StrictInt, Field(ge=300, le=3000)]
+
+
+class AutotuneRunRequest(BaseModel):
+    """candidates default to core.DEFAULT_AUTOTUNE_CANDIDATES_MS; 1-6
+    distinct values (the service rejects duplicates)."""
+    model_config = ConfigDict(extra="forbid")
+    candidates: Optional[List[AutotuneCandidateMs]] = Field(None, min_length=1, max_length=6)
+    initial_prompt: str = Field("", max_length=1000)
+
+
+class AutotuneRunResult(BaseModel):
+    job_id: str
+    candidates: List[int]
+
+
+class AutotuneCandidateScore(BaseModel):
+    candidate_ms: int
+    long_lines: int
+    total_lines: int
+
+
+class AutotuneStatus(BaseModel):
+    """This drama's auto-tune job as held in this app session. results /
+    best_candidate_ms only once status is "done"."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    results: Optional[List[AutotuneCandidateScore]] = None
+    best_candidate_ms: Optional[int] = None
+
+
+class AutotuneApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_ms: AutotuneCandidateMs
+
+
+class NovelGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    paired: bool
+
+
+class NovelGlossaryProposal(BaseModel):
+    term: str
+    suggested_translation: str
+    category: Optional[str] = None
+    policy: Optional[str] = None
+    reason: str = ""
+    already_in_glossary: bool
+
+
+class NovelGlossaryStatus(BaseModel):
+    """This drama's glossary-from-novel job as held in this app session.
+    proposals only once status is "done". Never carries a key."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    proposals: Optional[List[NovelGlossaryProposal]] = None
+
+
+class NovelGlossaryApplyRequest(BaseModel):
+    """Terms are matched by their text against the finished run's
+    proposals, never by position. overwrite_existing needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    terms: List[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        min_length=1, max_length=1000)
+    overwrite_existing: StrictBool = False
+    confirm: StrictBool = False
+
+
+class NovelGlossaryApplyResult(BaseModel):
+    added: List[str]
+    overwritten: List[str]
+    skipped_existing: List[str]
+    unknown: List[str]
