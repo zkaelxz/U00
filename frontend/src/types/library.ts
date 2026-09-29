@@ -133,6 +133,7 @@ export interface DramaPresetDefaults {
   locale: string | null
   default_female_pronouns: boolean
   include_genre_notes: boolean
+  engine_model?: string | null // for the drama's saved translation_engine
 }
 
 // api/schemas.py DramaCreateResult: the new drama plus its preset's values.

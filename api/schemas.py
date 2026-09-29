@@ -531,6 +531,7 @@ class DramaPresetDefaults(BaseModel):
     locale: Optional[str] = None
     default_female_pronouns: bool
     include_genre_notes: bool
+    engine_model: Optional[str] = None  # applies to the drama's saved translation_engine
 
 
 class DramaCreateResult(DramaDetail):
@@ -1150,6 +1151,9 @@ class TranslateRunStart(BaseModel):
     fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
     reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
     bulk: bool = False  # Slice 41: batch API / DeepSeek off-peak, job bulk_translate_{id}
+    # A preset's prompt toggles; None = the tab's defaults (she/her off, genre notes on).
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
 
 
 class TranslateRunStarted(BaseModel):

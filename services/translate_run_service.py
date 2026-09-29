@@ -113,7 +113,8 @@ def get_translate_config(drama_id: int) -> dict:
         "last_translate_errors": _parse_errors(drama.get("last_translate_errors")),
         "previous_episode_summary_present": bool(drama.get("previous_episode_summary")),
         "monthly_cap_usd": monthly_cap,
-        "month_spend": db.get_month_spend() if monthly_cap else 0.0,
+        # Always the real spend: the form shows it with or without a cap.
+        "month_spend": db.get_month_spend(),
         "cap_applies_by_engine": {name: _cap_applies(name, free_tier)
                                   for name in translate_engines.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
@@ -217,7 +218,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         gemini_free_tier: bool = None,
                         job_cost_cap_usd: float = None,
                         fallback_chain: list = None, reflect: bool = False,
-                        bulk: bool = False) -> dict:
+                        bulk: bool = False, default_female_pronouns: bool = None,
+                        include_genre_notes: bool = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -244,6 +246,12 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     are applied by line id by bulk_translate itself. Neither mode takes a
     fallback chain (Reflect calls call_llm_json, which FallbackEngine does
     not wrap; a batch is bound to one provider); bulk takes no line_ids.
+
+    default_female_pronouns / include_genre_notes: the tab's "Default
+    ambiguous pronouns to she/her" and "Include baihe/GL genre guidance"
+    toggles (a preset's values, which the client holds; nothing links a
+    drama to a preset in the DB). None means the tab's own widget defaults:
+    she/her off, genre guidance on.
 
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
@@ -370,6 +378,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = translation_guide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
+        include_genre_notes=True if include_genre_notes is None else bool(include_genre_notes),
+        default_female_pronouns=bool(default_female_pronouns),
         custom_notes="\n\n".join(b for b in (
             learned, emotion_block,
             translation_guide.build_character_gender_hints(series_chars, drama_chars)) if b))

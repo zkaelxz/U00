@@ -87,7 +87,7 @@ def test_create_with_new_series(client):
     assert resp.json()["series_id"] == db.list_series()[0]["id"]
 
 
-def test_create_with_preset_returns_exactly_four_defaults(client):
+def test_create_with_preset_returns_exactly_five_defaults(client):
     pid = db.save_preset("P", translation_engine="gemini", engine_model="m",
                          style_preset="casual", locale="en-GB",
                          default_female_pronouns=True, include_genre_notes=False)
@@ -96,7 +96,8 @@ def test_create_with_preset_returns_exactly_four_defaults(client):
     body = resp.json()
     assert body["preset_defaults"] == {"style_preset": "casual", "locale": "en-GB",
                                        "default_female_pronouns": True,
-                                       "include_genre_notes": False}
+                                       "include_genre_notes": False,
+                                       "engine_model": "m"}
     assert body["translation_engine"] == "gemini"
 
 

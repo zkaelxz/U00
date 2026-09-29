@@ -16,6 +16,7 @@ import {
   initialForm,
   loadPresetStart,
   MAX_FALLBACKS,
+  monthSpendText,
   reflectAvailable,
   validateRun, type RunForm,
 } from '../translateForm'
@@ -52,6 +53,8 @@ function advancedSummary(f: RunForm, base: RunForm): string {
     parts.push(`context ${f.context_window}/${f.context_window_ahead}`)
   }
   if (f.cost_cap.trim()) parts.push(`cap $${f.cost_cap.trim()}`)
+  if (f.genre_notes !== base.genre_notes) parts.push(f.genre_notes ? 'genre notes on' : 'genre notes off')
+  if (f.female_pronouns !== base.female_pronouns) parts.push(f.female_pronouns ? 'she/her default' : 'no she/her default')
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
   if (f.reflect) parts.push('reflect')
   if (f.bulk) parts.push('bulk')
@@ -168,7 +171,7 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
           <Field
             label="Cost cap"
             unit="$"
-            help={`Stop this run at this many dollars; blank means no cap. Spend this month: $${config.month_spend.toFixed(2)} of $${config.monthly_cap_usd.toFixed(2)}.`}
+            help={`Stop this run at this many dollars; blank means no cap. ${monthSpendText(config.month_spend, config.monthly_cap_usd)}`}
           >
             <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
           </Field>
@@ -209,6 +212,16 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
                 <input type="checkbox" checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(e) => set('bulk', e.target.checked)} />
               </Field>
             )}
+          </div>
+          <div className="advanced-wide check-row">
+            <label className="inline" title="Pronoun clarity, kinship-term nuance, and not softening romantic content.">
+              <input type="checkbox" checked={f.genre_notes} onChange={(e) => set('genre_notes', e.target.checked)} />{' '}
+              Include baihe/GL genre guidance
+            </label>
+            <label className="inline" title="Spoken Mandarin does not distinguish he/she; for a mostly female cast, default an ambiguous pronoun to she/her. A character's own pronouns always win.">
+              <input type="checkbox" checked={f.female_pronouns} onChange={(e) => set('female_pronouns', e.target.checked)} />{' '}
+              Default ambiguous pronouns to she/her
+            </label>
           </div>
           <div className="advanced-wide check-row">
             <label className="inline">

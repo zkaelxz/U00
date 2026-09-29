@@ -8,6 +8,7 @@ import {
   bulkReflectAvailable,
   initialForm,
   loadPresetStart,
+  monthSpendText,
   parseCap,
   reflectAvailable,
   savePresetStart,
@@ -58,6 +59,8 @@ describe('translate form', () => {
       batch_size: 20,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
+      default_female_pronouns: false,
+      include_genre_notes: true,
     })
     expect('line_ids' in body).toBe(false)
     expect(buildRunBody({ ...base, force: true }).force_retranslate).toBe(false)
@@ -69,6 +72,13 @@ describe('translate form', () => {
     expect(parseCap('0')).toBe(0)
     expect(buildEstimateParams({ ...initialForm(config), cost_cap: 'x' })).toBeNull()
     expect(buildEstimateParams({ ...initialForm(config), engine: 'ollama' })).toMatchObject({ engine: 'ollama', force_retranslate: false })
+  })
+
+  it('describes month spend without implying a zero cap was reached', () => {
+    expect(monthSpendText(1.5, 10)).toBe('Spend this month: $1.50 of $10.00.')
+    // No cap set: the API still reports the real month spend.
+    expect(monthSpendText(4.25, 0)).toBe('Spent this month: $4.25 (no monthly cap).')
+    expect(monthSpendText(4.25, -1)).toBe('Spent this month: $4.25 (no monthly cap).')
   })
 
   it('splits one-per-line lists', () => {
@@ -124,6 +134,43 @@ describe('preset start values', () => {
     expect(loadPresetStart(5)).toEqual({ locale: 'en-GB' })
     savePresetStart(3, null)
     expect(loadPresetStart(3)).toEqual({})
+  })
+
+  it('remembers the pronoun, genre and model values from preset_defaults', () => {
+    vi.stubGlobal('localStorage', memory())
+    savePresetStart(7, {
+      style_preset: null, locale: null, default_female_pronouns: true,
+      include_genre_notes: false, engine_model: 'gemini-pro',
+    })
+    expect(loadPresetStart(7)).toEqual({
+      default_female_pronouns: true, include_genre_notes: false, engine_model: 'gemini-pro',
+    })
+    savePresetStart(8, { default_female_pronouns: false, include_genre_notes: true, engine_model: null })
+    expect(loadPresetStart(8)).toEqual({ default_female_pronouns: false, include_genre_notes: true })
+  })
+
+  it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {
+    const plain = initialForm(config)
+    expect(plain).toMatchObject({ female_pronouns: false, genre_notes: true })
+    expect(buildRunBody(plain)).toMatchObject({ default_female_pronouns: false, include_genre_notes: true })
+    const f = initialForm(config, { default_female_pronouns: true, include_genre_notes: false })
+    expect(f).toMatchObject({ female_pronouns: true, genre_notes: false })
+    expect(buildRunBody(f)).toMatchObject({ default_female_pronouns: true, include_genre_notes: false })
+  })
+
+  it('prefills the preset model only when the drama engine offers it', () => {
+    const withEngines = {
+      ...config,
+      translation_engine: 'gemini',
+      engines: [{ name: 'gemini', models: ['gemini-flash', 'gemini-pro'] }, { name: 'claude', models: ['c1'] }],
+    } as unknown as TranslateRunConfig
+    const f = initialForm(withEngines, { engine_model: 'gemini-pro' })
+    expect(f).toMatchObject({ engine: '', model: 'gemini-pro' })
+    expect(buildRunBody(f)).toMatchObject({ model: 'gemini-pro' })
+    expect(buildEstimateParams(f)).toMatchObject({ model: 'gemini-pro' })
+    expect(initialForm(withEngines, { engine_model: 'c1' }).model).toBe('')
+    expect(initialForm({ ...withEngines, translation_engine: 'claude' }, { engine_model: 'gemini-pro' }).model).toBe('')
+    expect(initialForm(config, { engine_model: 'gemini-pro' }).model).toBe('')
   })
 
   it('ignores corrupt data and survives throwing storage', () => {

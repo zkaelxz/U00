@@ -77,6 +77,14 @@ def test_last_translate_errors_parsing(isolated_db):
     assert svc.get_translate_config(bad)["last_translate_errors"] is None
 
 
+@pytest.mark.parametrize("cap_usd", [0, 12.5])
+def test_month_spend_reported_with_or_without_a_cap(isolated_db, cap, cap_usd):
+    cap(cap_usd, spend=4.25)
+    cfg = svc.get_translate_config(_drama())
+    assert cfg["monthly_cap_usd"] == float(cap_usd)
+    assert cfg["month_spend"] == 4.25
+
+
 def test_no_secret_leak_and_cap_from_resolved(isolated_db, monkeypatch):
     secrets = {"claude": "sk-ant-FAKE1", "deepseek": "sk-ds-FAKE2", "monthly_cap_usd": "12.5"}
     monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: secrets.get(k))

@@ -40,7 +40,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | `settings_{claude,deepseek,gemini,deepl,google,groq,hf_token}` (keys), `settings_{ollama_url,libretranslate_url,gpt_sovits_url}` | `settings_tab.py:69-76` (from `.env`), `:297-305`, and `common.synced_api_key_input` everywhere | Workspace, Translate, Reader, Discover, Sources, Diagnostics, Live, Library bulk translate, page_server bridge | Server reads `.env` (`settings_service.resolve_key`); React **MISSING** key entry (API exists) |
 | `use_gpu`, `gemini_free_tier`, `settings_limit_one_gpu_job`, `settings_notify_on_job_done` | `settings_tab.py:307,337-371` | Every job start | `pages/Settings.tsx` toggles; `GET/POST /api/settings` |
 | `settings_default_engine`, `settings_default_locale`, `settings_default_style_note`, `settings_episode_summary_engine` | `settings_tab.py:264-290` | Workspace translate defaults (`:2781,2869-2872`), Translate/Live/Discover engine default, `_episode_summary_engine` (`:325`), benchmark | MISSING (no API) |
-| `settings_{claude,gemini,ollama}_model` | Workspace model pickers (`:2791-2824`), presets/tiers (`:84-129`) | Library bulk translate (`library_tab.py:235-237`), Translate tab, Diagnostics model versions (`diagnostics_tab.py:518`) | Per-run `model` in `TranslateRunStart`; no stored default |
+| `settings_{claude,gemini,ollama}_model` | Workspace model pickers (`:2791-2824`), presets/tiers (`:84-129`) | Library bulk translate (`library_tab.py:235-237`), Translate tab, Diagnostics model versions (`diagnostics_tab.py:518`) | Per-run `model` in `TranslateRunStart`; no stored default. A preset's model comes back as `preset_defaults.engine_model` and prefills the Translate form's model for the drama's saved engine (branch `fix-translate-preset-parity`) |
 | `settings_ocr_backend`, `settings_ocr_prefer_paddle_vl_manga`, `settings_tesseract_cmd`, `settings_whisper_model_path`, `settings_ollama_num_ctx_override`, `settings_monthly_cap_usd`, `settings_cookies_browser`, `settings_cookies_file` | `settings_tab.py:237-413` | OCR, transcribe, translate cap, URL download, Live | MISSING (Tesseract path is typed per OCR run in `stages/NovelPanel.tsx`) |
 | `app_dark_mode`, `spoiler_free_mode`, `reader_{font_size,line_height,max_width,theme,font}` | `settings_tab.py:200-235` | `ui_theme`, Reader | MISSING (Reader not ported) |
 | `active_profile_id` | `settings_tab.py:138-190` | Reader progress/notes, Library continue reading/history, Workspace personal notes | **DROPPED** (plan section 10: profile picker) |
@@ -136,8 +136,8 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | X02 | Starting tier (Draft/Standard/Release sets engine, model, Reflect and Auto QC) | 2416-2428, `apply_workflow_tier` 117 | `translate_engines.WORKFLOW_TIERS` | MISSING | no API | test_project_instructions TestWorkflowTiers |
 | X03 | Apply a saved preset | 2430-2447 | `apply_preset_to_session` | MISSING | no API (presets list only) | wt TestPresetsInWorkspaceUI |
 | X04 | Translation style and its guidance text | 2455-2467 | `tguide.STYLE_PRESETS` | `stages/TranslateStage.tsx` Style (guidance text MISSING) | run `style_preset` | — |
-| X05 | Include baihe/GL genre guidance toggle | 2476-2480 | used in `tguide.build_style_guidelines` 3539 | MISSING | no API field | — |
-| X06 | Default ambiguous pronouns to she/her | 2481-2490 | same | MISSING | no API field | wt TestPerDramaPronounPicker |
+| X05 | Include baihe/GL genre guidance toggle | 2476-2480 | used in `tguide.build_style_guidelines` 3539 | `stages/TranslateStage.tsx` Advanced checkbox, prefilled from the preset (branch `fix-translate-preset-parity`) | run `include_genre_notes` (omitted: on); CLI `--no-genre-notes` | test_translate_run_start (prompt toggles); translateForm.test |
+| X06 | Default ambiguous pronouns to she/her | 2481-2490 | same | `stages/TranslateStage.tsx` Advanced checkbox, prefilled from the preset (branch `fix-translate-preset-parity`) | run `default_female_pronouns` (omitted: off); CLI `--female-pronouns` | wt TestPerDramaPronounPicker; test_translate_run_start (prompt toggles); translateForm.test |
 | X07 | Project instructions, saved on change | 2496-2506 | `db.update_drama(project_instructions)` | `stages/GlossaryPanel.tsx` | `POST /api/glossary/dramas/{id}/instructions/project` | test_project_instructions TestInstructionsPersistAndInherit, TestInstructionsUi |
 | X08 | Series instructions | 2518-2527 | `db.update_series_instructions` | `stages/GlossaryPanel.tsx` | `.../instructions/series` | same |
 | X09 | Series picker inside the glossary box | 2513 | `_series_picker` | MISSING (see P11) | metadata `series_id` | test_library_features TestSeriesPickerSharedBetweenMetadataAndGlossary |
@@ -515,7 +515,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 | 11 | Novel reference translation upload (T01) and raw-novel priming upload plus auto initial prompt (S04, T08, S12) | Source/Transcript | M | no |
 | 12 | URL / yt-dlp import (S07; the same backend as Sources SO05) | Source | L | no (S-5) |
 | 13 | Bulk-jobs panel: list, check now, cancel (X35) and the last-run failure notice (X01) | Translate | M | part |
-| 14 | Presets and tiers: save, apply, delete, workflow tier, genre/she-her toggles (X02, X03, X05, X06, X22, L18) | Translate/Library | M | no |
+| 14 | Presets and tiers: save, apply, delete, workflow tier (X02, X03, X22, L18). Genre/she-her toggles (X05, X06) done on branch `fix-translate-preset-parity` | Translate/Library | M | no |
 | 15 | Export completion: all ASS style controls plus a live preview, base filename, "Mark as exported", notes position (E11, E04, E22, E09) | Export | M | yes (mark exported: no) |
 
 ### By screen
@@ -561,7 +561,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 1. Characters voice fields (C06, C07, C10-C12, C14). M, yes.
 2. Glossary delete, bulk delete, series people (X12, X13, X15-X17). M, part.
 3. Bulk-jobs panel and failure notice (X35, X01). M, part.
-4. Presets and tiers, genre/she-her toggles (X02, X03, X05, X06, X22). M, no.
+4. Presets and tiers (X02, X03, X22). M, no. Genre/she-her toggles (X05, X06) done on branch `fix-translate-preset-parity`.
 5. Reference clip upload, auto-extract, voice suggestions, known series character, remember, save to voice bank (C09, C01, C02, C03, C08, C13). M, no.
 6. Extract terms and review-glossary-before-translate (X10, X28). M, no.
 7. Style guidance text (X04). S, no.
