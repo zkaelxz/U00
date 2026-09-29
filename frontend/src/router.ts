@@ -6,17 +6,25 @@ export type Route =
   | { name: 'settings' }
   | { name: 'diagnostics' }
   | { name: 'translate' }
+  | { name: 'read'; id: number; page: number | null }
 
 export const DEFAULT_STAGE = 'source'
 
 // Parses a location hash ("#/drama/3/review"). Unknown or malformed
 // paths fall back to the library.
 export function parseRoute(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
+  const [path, qs = ''] = hash.replace(/^#\/?/, '').split('?')
+  const parts = path.split('/').filter(Boolean)
   const [head, a, b] = parts
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
+  if (head === 'read' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
+    // "#/read/3?page=2"; a missing or bad page means "resume where I left off".
+    const p = new URLSearchParams(qs).get('page')
+    const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
+    return { name: 'read', id: Number(a), page }
+  }
   if (head === 'drama' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length <= 3) {
     let stage = DEFAULT_STAGE
     if (b) {
@@ -33,6 +41,7 @@ export function parseRoute(hash: string): Route {
 
 export function routeHref(r: Route): string {
   if (r.name === 'drama') return `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
+  if (r.name === 'read') return `#/read/${r.id}${r.page ? `?page=${r.page}` : ''}`
   return `#/${r.name}`
 }
 

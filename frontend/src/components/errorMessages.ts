@@ -14,6 +14,20 @@ const GENERIC: Record<string, string> = {
   application_error: 'The action failed. Nothing was changed unless stated otherwise.',
   internal_error: 'Something went wrong inside Baihe. Details are in the app log.',
   network_error: 'Could not reach the Baihe API. Is it running?',
+  forbidden: 'Not allowed from this device or account.',
+  unauthenticated: 'Your session has ended. Sign in again.',
+  rate_limited: 'Too many requests. Wait a moment and try again.',
+}
+
+// A PC-only call refused with 403 (the viewer is not at the main PC).
+export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
+
+export interface DescribeOptions {
+  // PC-only callers: a 403 reads PC_ONLY_FORBIDDEN instead of the generic text.
+  pcOnly?: boolean
+  // Admin/restore callers: validation_error and invalid_input show the
+  // server's own text too (fixed sentences, no paths; still safeDetail-filtered).
+  serverText?: boolean
 }
 
 const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable']
@@ -27,10 +41,20 @@ export function safeDetail(message: string): string | null {
   return m
 }
 
-export function describeError(err: unknown): { title: string; detail: string | null } {
+const OPT_IN_SERVER_TEXT_CODES = ['validation_error', 'invalid_input']
+
+export function describeError(
+  err: unknown,
+  opts: DescribeOptions = {},
+): { title: string; detail: string | null } {
   const e = err as Partial<ApiError> | null
   const code = e?.code ?? 'internal_error'
-  const title = GENERIC[code] ?? GENERIC.application_error
-  const detail = e?.message && SERVER_TEXT_CODES.includes(code) ? safeDetail(e.message) : null
+  const title =
+    opts.pcOnly && (code === 'forbidden' || e?.status === 403)
+      ? PC_ONLY_FORBIDDEN
+      : (GENERIC[code] ?? GENERIC.application_error)
+  const showServer =
+    SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
+  const detail = e?.message && showServer ? safeDetail(e.message) : null
   return { title, detail }
 }

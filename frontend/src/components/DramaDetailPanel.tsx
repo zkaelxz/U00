@@ -17,9 +17,12 @@ interface Props {
   dramaId: number
   // When given, the panel offers a typed-confirmation delete.
   onDeleted?: (result: DramaDeleteResult) => void
+  // Shown where the delete button would be when onDeleted is omitted
+  // (e.g. "Deleting is PC only." for a remote viewer).
+  deleteNote?: string
 }
 
-export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
+export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
   const [drama, setDrama] = useState<DramaDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -81,6 +84,8 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
           ))}
       </dl>
       <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Open workspace</a>
+      {' · '}<a href={routeHref({ name: 'read', id: dramaId, page: null })}>Read</a>
+      {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
       {onDeleted && !confirming && (
         <button type="button" className="danger" onClick={() => setConfirming(true)}>
           Delete drama…
