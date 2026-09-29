@@ -10,11 +10,14 @@ import type {
   GlossaryInstructions,
   GlossaryTerm,
   GlossaryTermUpsert,
+  TranslatePresetBody,
+  TranslatePresetSaved,
   TranslateRunConfig,
   TranslateRunEstimate,
   TranslateRunStartBody,
   TranslateRunStarted,
   VoiceBankEntry,
+  WorkflowTierApplied,
 } from '../types/translateStage'
 import { deleteJson, getJson, postJson } from './client'
 
@@ -38,6 +41,10 @@ export const getTranslateEstimate = (id: number, p: EstimateParams, f?: Fetch) =
   getJson<TranslateRunEstimate>(`/api/translate-run/dramas/${id}/estimate${buildEstimateQuery(p)}`, f)
 export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: Fetch) =>
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
+export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
+  postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
+export const saveTranslatePreset = (body: TranslatePresetBody, f?: Fetch) =>
+  postJson<TranslatePresetSaved>('/api/translate-run/presets', body, f)
 export const resumeBulkTranslations = (id: number, f?: Fetch) =>
   postJson<BulkResumeResult>(`/api/translate-run/dramas/${id}/bulk/resume`, {}, f)
 export const listBulkTranslations = (id: number, f?: Fetch) =>
