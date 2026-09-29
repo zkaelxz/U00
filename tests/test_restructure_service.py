@@ -160,7 +160,7 @@ class TestConcurrency:
 
     def test_running_job_refused(self, monkeypatch):
         did, ids = _seed()
-        monkeypatch.setattr(drama_service, "_job_running_for_drama", lambda d: True)
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda d: True)
         with pytest.raises(ConflictError):
             svc.delete_line(did, ids[0], ids, confirm=True)
         db.save_line_history_snapshot(did, db.load_line_objects(did), "x")

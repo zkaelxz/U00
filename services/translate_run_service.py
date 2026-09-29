@@ -310,7 +310,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     job_id = f"translate_{drama_id}"
     for c in chain:
         name = c["engine"]
-        api_key = translate_service._resolve_api_key(name)
+        api_key = translate_service.resolve_api_key(name)
         if api_key is None and name != "nllb":
             raise DependencyUnavailableError(
                 f"No {name} key is configured. Set one in Settings first.")
@@ -497,7 +497,7 @@ def resume_bulk_translations(drama_id: int) -> dict:
     _require_drama(drama_id)
 
     def factory(engine_name, model):
-        key = translate_service._resolve_api_key(engine_name)
+        key = translate_service.resolve_api_key(engine_name)
         return translate_engines.get_engine(engine_name, key, model or None) if key else None
     out = bulk_translate.resume_pending(drama_id, factory, _monthly_cap() or None)
     return {"drama_id": drama_id,

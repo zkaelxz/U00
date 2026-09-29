@@ -61,7 +61,7 @@ def upload_media(drama_id, client_filename, fileobj) -> dict:
         raise NotFoundError(f"No drama with id {drama_id}.")
     if (drama.get("content_mode") or "audio_drama") not in _UPLOAD_CONTENT_MODES:
         raise InvalidInputError(_NO_UPLOAD_MODE)
-    if drama_service._job_running_for_drama(drama_id):
+    if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
     limit = max_upload_bytes()
     ddir = db.drama_dir(drama_id)
