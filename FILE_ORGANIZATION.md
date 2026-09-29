@@ -409,7 +409,10 @@ baihe-subtitler/
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
-│   │                              reviewLogic.ts (pure, unit-tested)
+│   │                              reviewLogic.ts (pure, unit-tested); AI results and checks: ReviewFindings
+│   │                              (consistency, emotion), ReviewChecks (coverage/pacing, tendencies, version
+│   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
+│   │                              text), FindingList, reviewResults.ts (pure, unit-tested)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

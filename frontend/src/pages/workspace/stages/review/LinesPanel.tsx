@@ -37,6 +37,7 @@ import {
   suggestionPatch,
   type LineDraft,
 } from './reviewLogic'
+import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
 import type { SplitChoice } from './SplitDialog'
@@ -50,6 +51,9 @@ interface Props {
   mediaKind: MediaKind | null
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
+  // A finding elsewhere in the stage asked to open a line; seq makes a repeat
+  // click on the same line count again.
+  goTo?: { target: LineTarget; seq: number } | null
 }
 
 type Target = 'first' | 'last' | 'firstFlagged' | 'lastFlagged' | number
@@ -83,7 +87,7 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const [filter, setFilter] = useState<LineFilter>('all')
   const [page, setPage] = useState(1)
@@ -644,12 +648,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     setInput(v)
     if (v === '') setTerm('')
   }
-  const goToNumber = async (n: number) => {
+  // By permanent id where the caller has one; typed numbers go by position.
+  const goToLine = async (t: LineTarget) => {
     try {
       const all = await listAllLines(dramaId)
-      const pos = all.findIndex((l) => l.idx === idxFromLineNumber(n))
+      const pos =
+        'lineId' in t
+          ? all.findIndex((l) => l.id === t.lineId)
+          : all.findIndex((l) => l.idx === idxFromLineNumber(t.lineNumber))
       if (pos === -1) {
-        setStatus(`No line #${n}.`)
+        setStatus('lineId' in t ? 'That line no longer exists.' : `No line #${t.lineNumber}.`)
         return
       }
       if (!(await ctl.leaveEdit())) return
@@ -667,6 +675,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       setError(e)
     }
   }
+  const goToNumber = (n: number) => goToLine({ lineNumber: n })
+  const goToRef = useRef(goToLine)
+  useEffect(() => {
+    goToRef.current = goToLine
+  })
+  useEffect(() => {
+    if (goTo) void goToRef.current(goTo.target)
+  }, [goTo])
   const toggleReplace = () => {
     const next = !replaceOpen
     setReplaceOpen(next)
