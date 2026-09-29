@@ -34,7 +34,9 @@ import translate_engines
 from services.workspace_job_service import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
                                  run_fix_flagged_lines_job, run_translate_job)
-from tabs.workspace_tab import _compute_workspace_stage_index
+# Repointed from tabs.workspace_tab (Streamlit retirement): the tab only
+# re-exported this service function.
+from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
 import video_download
 import core as core_module
 from core import Line
@@ -908,9 +910,9 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
     with open(audio_path, "wb") as f:
         f.write(b"x")
 
-    import tabs.workspace_tab as wt
-    monkeypatch.setattr(wt.core_module, "extract_audio_slice", lambda *a, **k: None)
-    monkeypatch.setattr(wt.core_module, "transcribe_for_timing",
+    # wt.core_module was the plain `core` module; patched directly now.
+    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(core_module, "transcribe_for_timing",
                          lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "她昨天来了"}])
 
     engine = FakeFixEngine(translations={"她昨天来了": "She came yesterday."})
@@ -1094,15 +1096,15 @@ def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_
     with open(audio_path, "wb") as f:
         f.write(b"x")
 
-    import tabs.workspace_tab as wt
-    monkeypatch.setattr(wt.core_module, "extract_audio_slice", lambda *a, **k: None)
+    # wt.core_module was the plain `core` module; patched directly now.
+    monkeypatch.setattr(core_module, "extract_audio_slice", lambda *a, **k: None)
 
     def _fake_transcribe(slice_path, **kwargs):
         if "_1.wav" in slice_path:
             raise RuntimeError("model download failed partway through")
         return [{"start": 0.0, "end": 1.0, "text": "重新转录"}]
 
-    monkeypatch.setattr(wt.core_module, "transcribe_for_timing", _fake_transcribe)
+    monkeypatch.setattr(core_module, "transcribe_for_timing", _fake_transcribe)
 
     # Line 1's own translation would otherwise still succeed against its
     # stale (un-re-transcribed) text and clear its flag -- failing that
@@ -2971,7 +2973,7 @@ class TestRetranscribeUseThisRefreshesTheZhBox:
         import tabs.workspace_tab as wt
 
         monkeypatch.setattr(wt.core_module, "extract_audio_slice", lambda *a, **k: None)
-        monkeypatch.setattr(wt.core_module, "transcribe_for_timing",
+        monkeypatch.setattr(core_module, "transcribe_for_timing",
                              lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": retrans_text}])
 
         def _render():
@@ -6223,8 +6225,9 @@ class TestMusicMediaType:
     """Step 89: add music alongside the existing anime/asmr entries."""
 
     def test_music_is_a_media_type_option(self):
-        import tabs.workspace_tab as wt
-        assert "music" in wt.MEDIA_TYPE_OPTIONS
+        # Repointed to the service copy of the list (Streamlit retirement).
+        from services import drama_service
+        assert "music" in drama_service.MEDIA_TYPE_OPTIONS
 
     def test_music_displays_with_ordinary_title_case(self):
         import tabs.workspace_tab as wt
