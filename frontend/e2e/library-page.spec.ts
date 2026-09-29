@@ -6,7 +6,9 @@ import { expect, test } from '@playwright/test'
 test('shows summary panels and global line search', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('stats')).toContainText('drama(s)')
+  await page.getByText(/^Recently active \(/).click()
   await expect(page.getByRole('region', { name: 'Recently active' })).toContainText('Signal')
+  await page.getByText('Search all lines', { exact: true }).click()
   await page.getByLabel('Search all lines').fill('zzz-no-such-line')
   await page.getByRole('button', { name: 'Search' }).click()
   await expect(page.getByTestId('search-count')).toHaveText('0 match(es)')
@@ -14,12 +16,14 @@ test('shows summary panels and global line search', async ({ page }) => {
 
 test('create form validates client-side', async ({ page }) => {
   await page.goto('/')
+  await page.getByText('New drama', { exact: true }).click()
   await page.getByRole('button', { name: 'Create drama' }).click()
   await expect(page.getByRole('alert')).toContainText('title')
 })
 
 test('create then delete with typed confirmation', async ({ page }) => {
   await page.goto('/')
+  await page.getByText('New drama', { exact: true }).click()
   await page.getByLabel('English title').fill('E2E Temp Drama')
   await page.getByRole('button', { name: 'Create drama' }).click()
   const detail = page.getByRole('region', { name: 'E2E Temp Drama' })
