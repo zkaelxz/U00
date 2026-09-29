@@ -26,3 +26,4 @@ dist-ssr
 # Playwright output
 test-results/
 playwright-report/
+e2e/screenshots-tmp/
