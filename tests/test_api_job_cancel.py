@@ -89,3 +89,113 @@ def test_stale_orphan_record_is_closed_on_cancel(client):
     assert r.json()["status"] == "cancelled"
     assert db.get_job_record("orphan")["status"] == "cancelled"
     assert client.post("/api/jobs/orphan/cancel").status_code == 409
+
+
+
+def _age(job_id, seconds):
+    import time
+    with db.get_conn() as conn:
+        conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = ?",
+                     (time.time() - seconds, job_id))
+        conn.commit()
+
+
+def test_fresh_unowned_record_is_not_closed(client):
+    """B-04: a record another process heartbeated recently stays running;
+    only the cancel flag is set."""
+    db.save_job_record("fresh", "running")
+    _age("fresh", 60)
+    r = client.post("/api/jobs/fresh/cancel")
+    assert r.json()["status"] == "running"
+    rec = db.get_job_record("fresh")
+    assert rec["status"] == "running" and rec["cancel_requested"] == 1
+
+
+def test_cancel_request_does_not_refresh_staleness(client):
+    """The flag write must not bump updated_at, or a second cancel on an
+    orphan could never close it."""
+    db.save_job_record("orphan2", "running")
+    _age("orphan2", 3600)
+    before = db.get_job_record("orphan2")["updated_at"]
+    db.request_job_record_cancel("orphan2")
+    assert db.get_job_record("orphan2")["updated_at"] == before
+
+
+def test_stale_close_loses_to_a_late_heartbeat_or_done(isolated_db):
+    """The close is one conditional UPDATE: a heartbeat or a terminal
+    write from the owner in between wins."""
+    import time
+    db.save_job_record("race", "running")
+    _age("race", 3600)
+    cutoff = time.time() - 900
+    db.touch_job_records(["race"])                 # owner heartbeats in between
+    assert not db.close_stale_job_record("race", cutoff)
+    assert db.get_job_record("race")["status"] == "running"
+    db.save_job_record("race", "done")
+    _age("race", 3600)
+    assert not db.close_stale_job_record("race", cutoff)
+    assert db.get_job_record("race")["status"] == "done"
+
+
+def test_heartbeat_touches_only_live_owned_jobs(isolated_db):
+    _own("hb")
+    db.save_job_record("hb", "running")
+    db.save_job_record("other", "running")
+    _age("hb", 3600)
+    _age("other", 3600)
+    try:
+        background_jobs._heartbeat_once()
+        import time
+        assert time.time() - db.get_job_record("hb")["updated_at"] < 60
+        assert time.time() - db.get_job_record("other")["updated_at"] > 3000
+    finally:
+        _disown("hb")
+
+
+_OWNER_SCRIPT = r"""
+import sys, time
+sys.path.insert(0, sys.argv[2])
+import db, background_jobs as bg
+db.configure_library_dir(sys.argv[1])
+bg.HEARTBEAT_INTERVAL = 0.2
+bg._DB_CANCEL_CHECK_INTERVAL = 0.1
+
+def work():
+    t0 = time.time()
+    while time.time() - t0 < 30:
+        if bg.is_cancel_requested("live"):
+            raise bg.JobCancelled("live")
+        time.sleep(0.05)
+
+bg.start_job("live", work)
+print("started", flush=True)
+while bg.get_status("live")["status"] == "running":
+    time.sleep(0.05)
+print(bg.get_status("live")["status"], flush=True)
+"""
+
+
+def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch):
+    """B-04 (HIGH): a job alive in another process, older than the stale
+    threshold but heartbeating, gets the cancel flag and ends cancelled
+    by its owner -- the API never closes it out from under it."""
+    import os
+    import subprocess
+    import sys
+    import time
+    from services import jobs_service
+    monkeypatch.setattr(jobs_service, "STALE_JOB_SECONDS", 1.0)
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    proc = subprocess.Popen([sys.executable, "-c", _OWNER_SCRIPT, db.LIBRARY_DIR, repo],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "started"
+        time.sleep(2.0)       # past STALE_JOB_SECONDS; only the heartbeat keeps it fresh
+        r = client.post("/api/jobs/live/cancel")
+        assert r.status_code == 200 and r.json()["status"] == "running"
+        out, err = proc.communicate(timeout=20)
+        assert out.strip() == "cancelled", err
+        assert db.get_job_record("live")["status"] == "cancelled"
+    finally:
+        if proc.poll() is None:
+            proc.kill()

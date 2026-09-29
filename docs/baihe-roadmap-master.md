@@ -65,8 +65,8 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | F-20 | B-16, #286 | engine list labels now reflect the `gemini_free_tier` setting |
 | F-21 | B-18, #279 | `useJob` retries network errors and 5xx with capped backoff, surfaces after 5 consecutive failures; 4xx still stops |
 | F-22 | B-10, this PR | `cmd_narrate_prep`, the Workspace tab and `narration_service` paired speaker labels by list position; now `translate_engines.tag_speakers_by_id` returns `{chunk idx: label}` and callers look up by idx (missing -> Narrator, unknown ids ignored) |
-| F-23 | B-04, this PR | cancelling a queued/running job record with no live owner in this process and no update for 15 min (`jobs_service.STALE_JOB_SECONDS`) now closes it as `cancelled` instead of leaving it "running" |
-| F-24 | B-05, this PR | audiobook and burned-video ffmpeg runs go through `background_jobs.run_cancellable` (killed on cancel, job ends `cancelled` via `JobCancelled`); flag/consistency/notes jobs skip their save when cancelled. An LLM call already in flight still finishes (not interruptible) |
+| F-23 | B-04, this PR | cancel always sets the job_records flag first; a queued/running record whose owner has not heartbeated for 15 min (`jobs_service.STALE_JOB_SECONDS`; owners bump `updated_at` every `background_jobs.HEARTBEAT_INTERVAL` = 60 s) and that is not live in this process is then closed as `cancelled` by one conditional UPDATE (`db.close_stale_job_record`), so a live owner's heartbeat or `done` always wins |
+| F-24 | B-05, this PR | audiobook and burned-video ffmpeg runs go through `background_jobs.run_cancellable` (own process group; the whole tree is killed on cancel, bounded drain; job ends `cancelled` via `JobCancelled`); flag/consistency/notes jobs check cancel before every LLM batch and skip their save. The one batch already in flight still finishes and is billed |
 
 ## 4. To-do queue (in order)
 **Waiting on the user (cannot proceed):**

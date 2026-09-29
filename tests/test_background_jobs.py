@@ -1407,3 +1407,19 @@ class TestRunCancellable:
         import subprocess
         with pytest.raises(subprocess.CalledProcessError):
             bg.run_cancellable("rc2", [sys.executable, "-c", "raise SystemExit(3)"])
+
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process-group kill")
+    def test_cancel_kills_grandchild_holding_the_pipes(self, isolated_db):
+        """A wrapper (shim) whose child inherits stdout/stderr: killing only
+        the wrapper would leave communicate() waiting on the grandchild."""
+        wrapper = ("import subprocess, sys, time; "
+                   "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                   "time.sleep(60)")
+        assert bg.start_job("rc3", lambda: bg.run_cancellable(
+            "rc3", [sys.executable, "-c", wrapper], poll_interval=0.05, kill_timeout=5))
+        time.sleep(0.5)
+        t0 = time.time()
+        bg.request_cancel("rc3")
+        assert _wait_for(lambda: bg.get_status("rc3")["status"] == "cancelled", timeout=8)
+        assert time.time() - t0 < 4
