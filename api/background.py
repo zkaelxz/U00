@@ -18,11 +18,12 @@ the dataclass default (every test that builds `ApiSettings(...)`) and
 `BAIHE_API_BACKGROUND=0` (tests/conftest.py sets it for `load_settings`).
 Nothing is stopped at shutdown: both are daemon threads.
 
-Not done here: the Settings sidebar also pushes the extension's engine
-choice and key into `page_server.set_translation_config` from Streamlit
-session state. That choice is not persisted anywhere, so under the API the
-endpoint runs with no engine and returns OCR text marked untranslated until
-a config route exists.
+The extension's translation engine: Streamlit pushed it (and its key) into
+`page_server.set_translation_config` from session state. The API saves the
+choice as an app setting (`services/extension_service.py`, routes under
+`/api/extension/engine`) and `extension_service.push_translation_config`
+hooks it into page_server here at startup, resolving the key from .env on
+every request, so the endpoint translates without Streamlit.
 """
 
 import threading
@@ -91,6 +92,11 @@ def start_background_services() -> dict:
         from sources import store as src_store
         if bool(src_store.get_setting("page_server_enabled")):
             import page_server
+            try:
+                from services import extension_service
+                extension_service.push_translation_config()
+            except Exception as exc:
+                _log("browser-extension engine was not set: %s", exc)
             page_server.ensure_server_started()
             state["page_server"] = page_server.server_running()
     except Exception as exc:

@@ -1,21 +1,24 @@
 /*
- * Settings > Browser extension: turn the extension bridge on or off and
- * show its token (PC only). The token lives only in this component's state:
+ * Settings > Browser extension: turn the extension bridge on or off, pick
+ * the engine it translates pages with, and show its token (PC only). The
+ * engine's key stays on the PC; only whether one is saved comes back. The token lives only in this component's state:
  * never persisted, never logged, and cleared on Hide, on unmount and after
  * 120 s.
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { getExtensionStatus, revealExtensionToken, setExtensionEnabled } from '../../api/extension'
+import {
+  getExtensionEngine, getExtensionStatus, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
+} from '../../api/extension'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
-import type { ExtensionStatus } from '../../types/extension'
+import type { ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import {
-  COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionSummary, extensionToggleNote,
+  COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
 } from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
 
@@ -106,11 +109,92 @@ function ExtensionControls() {
             <p className="muted" aria-live="polite" data-testid="extension-note">
               {note ?? extensionSummary(status)}
             </p>
+            <EnginePicker />
             <TokenReveal />
           </>
         )}
       </div>
     </Section>
+  )
+}
+
+function EnginePicker() {
+  const [settings, setSettings] = useState<ExtensionEngineSettings | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+
+  useEffect(() => {
+    let live = true
+    getExtensionEngine().then(
+      (s) => live && setSettings(s),
+      (e: unknown) => live && setError(e),
+    )
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const save = (engine: string | null, model: string | null) => {
+    setSaving(true)
+    setError(null)
+    setExtensionEngine(engine, model).then(
+      (s) => {
+        setSettings(s)
+        setSaving(false)
+      },
+      (e: unknown) => {
+        setError(e)
+        setSaving(false)
+      },
+    )
+  }
+
+  const models = settings?.engines.find((e) => e.name === settings.engine)?.models ?? null
+
+  return (
+    <div className="diag-stack">
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={SERVER} />
+      {settings && (
+        <>
+          <div className="field-row">
+            <Field label="Translate pages with" help="Uses the key saved on this PC for that engine.">
+              <select
+                value={settings.engine ?? ''}
+                disabled={saving}
+                onChange={(e) => save(e.target.value || null, null)}
+              >
+                <option value="">None (original text only)</option>
+                {settings.engines.map((e) => (
+                  <option key={e.name} value={e.name}>
+                    {e.name}
+                    {e.key_configured ? '' : ' (no key)'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {models && (
+              <Field label="Model">
+                <select
+                  value={settings.model ?? ''}
+                  disabled={saving}
+                  onChange={(e) => save(settings.engine, e.target.value || null)}
+                >
+                  <option value="">Default</option>
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+          </div>
+          <p className="muted" aria-live="polite" data-testid="extension-engine-note">
+            {extensionEngineNote(settings)}
+          </p>
+        </>
+      )}
+    </div>
   )
 }
 

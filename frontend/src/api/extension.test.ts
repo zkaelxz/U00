@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getExtensionStatus, revealExtensionToken, setExtensionEnabled } from './extension'
+import {
+  getExtensionEngine, getExtensionStatus, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
+} from './extension'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
 function reply(status: number, body: unknown) {
@@ -44,5 +46,24 @@ describe('extension api', () => {
     const { f } = reply(403, { error: { code: 'forbidden', message: 'PC only.' } })
     await expect(getExtensionStatus(f)).rejects.toMatchObject({ status: 403 })
     expect(getPcMode()).toBe('remote')
+  })
+
+  it('engine read is a plain GET', async () => {
+    const body = { engine: 'claude', model: null, ready: true, engines: [] }
+    const { mock, f } = reply(200, body)
+    expect(await getExtensionEngine(f)).toEqual(body)
+    const [url, init] = mock.mock.calls[0]
+    expect(url).toBe('/api/extension/engine')
+    expect(init.method).toBeUndefined()
+  })
+
+  it('engine save sends only engine and model, PC only', async () => {
+    const { mock, f } = reply(200, { engine: null, model: null, ready: false, engines: [] })
+    await setExtensionEngine(null, null, f)
+    const [url, init] = mock.mock.calls[0]
+    expect(url).toBe('/api/extension/engine')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ engine: null, model: null })
+    expect(localHeader(init)).toBe('1')
   })
 })

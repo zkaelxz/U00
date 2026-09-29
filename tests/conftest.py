@@ -210,3 +210,22 @@ def _testclient_defaults_to_loopback():
         yield
     finally:
         TestClient.__init__ = original
+
+
+@pytest.fixture(autouse=True)
+def _isolated_page_server_config():
+    """page_server keeps the extension's translation config and the API's
+    config provider (services/extension_service.push_translation_config) in
+    module globals, so one test enabling the bridge would leave a provider
+    behind that overrides a later test's pushed config. Restored by hand,
+    for the same reason as the TestClient fixture above."""
+    import page_server
+    with page_server._config_lock:
+        saved = (dict(page_server._config), page_server._config_provider)
+    try:
+        yield
+    finally:
+        with page_server._config_lock:
+            page_server._config.clear()
+            page_server._config.update(saved[0])
+            page_server._config_provider = saved[1]

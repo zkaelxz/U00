@@ -17,8 +17,9 @@ restarts (`restart_needed`), because page_server has no stop.
 
 from fastapi import APIRouter, Request, Response
 
-from api.auth import local_only
+from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, ExtensionEnabledRequest, ExtensionEnabledResult,
+                         ExtensionEngineRequest, ExtensionEngineSettings,
                          ExtensionStatus, ExtensionToken, ExtensionTokenRequest)
 from services import extension_service as svc
 
@@ -49,3 +50,17 @@ def post_token(body: ExtensionTokenRequest, response: Response):
     result = svc.reveal_token(confirm=body.confirm)
     response.headers.update(_NO_STORE)
     return result
+
+
+@router.get("/engine", dependencies=[require_permission("admin.settings")],
+            response_model=ExtensionEngineSettings,
+            summary="The extension's translation engine and model (no keys)")
+def get_engine():
+    return svc.get_translation_settings()
+
+
+@router.post("/engine", dependencies=[local_only()], response_model=ExtensionEngineSettings,
+             summary="PC only: set the extension's translation engine and model (persisted)",
+             responses={422: {"model": ErrorResponse}})
+def post_engine(body: ExtensionEngineRequest):
+    return svc.set_translation_settings(body.engine, body.model)

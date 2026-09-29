@@ -125,6 +125,7 @@ _server_port = None
 _config_lock = threading.Lock()
 _config = {
     "engine": None,            # engine name, e.g. "claude"; None = OCR only
+    "model": None,             # model key for that engine; None = its default
     "api_key": "",
     "free_tier": False,
     "base_url": None,
@@ -203,6 +204,13 @@ def _token_matches(sent: str, expected: str) -> bool:
 
 
 # -- configuration pushed in from the UI -------------------------------
+# Optional callable returning config overrides, read on every request. The
+# API registers one (services/extension_service.py) that resolves the saved
+# engine and its key from .env server-side, so a key saved in Settings after
+# startup is picked up on the next page without another push.
+_config_provider = None
+
+
 def set_translation_config(**kwargs):
     """Called from the Settings sidebar on each render (the established
     settings->thread bridge). Unknown keys are ignored rather than
@@ -213,9 +221,39 @@ def set_translation_config(**kwargs):
                 _config[key] = value
 
 
+def set_config_provider(provider):
+    """Registers (or, with None, removes) the per-request config provider.
+    Its dict is merged over the pushed config; unknown keys are ignored."""
+    global _config_provider
+    with _config_lock:
+        _config_provider = provider
+
+
 def get_translation_config() -> dict:
     with _config_lock:
-        return dict(_config)
+        config = dict(_config)
+        provider = _config_provider
+    if provider is not None:
+        try:
+            overrides = provider() or {}
+        except Exception:
+            overrides = {}      # a broken provider keeps the pushed config
+        config.update({k: v for k, v in overrides.items() if k in config})
+    return config
+
+
+def _no_engine_note(config, captured: str) -> list:
+    """The warning for a page answered without translation: names the
+    engine when one is chosen but has no key, never the key itself."""
+    name = (config.get("engine") or "").strip()
+    if name and (config.get("api_key") or "").strip():
+        return ["warning", f"the extension's translation engine ({name}) couldn't be started, "
+                           f"so only the original text was {captured}"]
+    if name:
+        return ["warning", f"the extension's translation engine ({name}) has no key saved in "
+                           f"Settings, so only the original text was {captured}"]
+    return ["warning", "no translation engine is configured in Settings, so "
+                       f"only the original text was {captured}"]
 
 
 def _build_engine(config):
@@ -231,6 +269,7 @@ def _build_engine(config):
     try:
         return translate_engines.get_engine(
             name, config.get("api_key") or "",
+            model=config.get("model") or None,
             free_tier=bool(config.get("free_tier")) and name == "gemini",
             base_url=config.get("base_url") if name == "ollama" else None)
     except Exception:
@@ -356,8 +395,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
                                              "the source text below was still read"])
             elif bubbles and engine is None:
-                notes.append(["warning", "no translation engine is configured in Settings, so "
-                                         "only the original text was read"])
+                notes.append(_no_engine_note(config, "read"))
 
             if page is not None:
                 db.save_bubbles(page["id"], bubbles)
@@ -400,8 +438,7 @@ def translate_text_block(text: str, source_language: str, target_language: str,
     notes = []
     engine = _build_engine(config)
     if engine is None:
-        notes.append(["warning", "no translation engine is configured in Settings, so "
-                                 "only the original text was captured"])
+        notes.append(_no_engine_note(config, "captured"))
         return {"source_text": text, "translated_text": "", "engine": None,
                 "source_language": source_language, "target_language": target_language,
                 "notes": notes, "saved_to_history": False}
