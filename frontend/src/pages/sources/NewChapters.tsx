@@ -1,32 +1,57 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { dismissNotification } from '../../api/sources'
+import { CHECK_JOB_ID, dismissNotification, setTrackedDrama, startCheckNow } from '../../api/sources'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
-import type { OpenSeries, SourceNotification, TrackedSeries } from '../../types/sources'
-import { ago, isoTime } from './sourcesFormat'
+import type { CheckResult, OpenSeries, SourceNotification, SourceSummary, TrackedSeries } from '../../types/sources'
+import { ago, checkSummary, isoTime, percent, trackedDramaChoices } from './sourcesFormat'
+import { dramaLabel } from './urlImportFormat'
+import { useDramaList } from './useDramaList'
+import { useSourcesJob } from './useSourcesJob'
 
 type Props = {
   notifications: SourceNotification[]
   tracked: TrackedSeries[]
+  sources: SourceSummary[] | null
   display: (source: string) => string
+  // False from another device while Sources writes are PC only: no Check now, no drama link.
+  canAct: boolean
   onOpen: (series: OpenSeries, opener: string) => void
   onDismissed: (id: number) => void
   onUntrack: (t: TrackedSeries) => void
+  onTracked: (t: TrackedSeries[]) => void
+  // A check finished: reload tracked series and notifications.
+  onChecked: () => void
   untrackBusy: string | null
   untrackError: unknown
   clearUntrackError: () => void
 }
 
+const AUTO_HELP =
+  'Where new chapters are imported when "Auto-import new chapters" is on in Source settings. Otherwise they are only announced here.'
+
 // Only rendered when there are notifications or tracked series.
 export function NewChapters({
-  notifications, tracked, display, onOpen, onDismissed, onUntrack, untrackBusy, untrackError, clearUntrackError,
+  notifications, tracked, sources, display, canAct, onOpen, onDismissed, onUntrack, onTracked, onChecked,
+  untrackBusy, untrackError, clearUntrackError,
 }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<number | null>(null)
+  const [linking, setLinking] = useState<string | null>(null)
+  const check = useSourcesJob<CheckResult>(canAct ? CHECK_JOB_ID : null)
+  const dramas = useDramaList(canAct && tracked.length > 0)
   const titleOf = (n: SourceNotification) =>
     tracked.find((t) => t.source === n.source && t.series_id === n.series_id)?.title || n.series_id
+
+  // Reload once per finished run that this page started.
+  const reloaded = useRef<CheckResult | null>(null)
+  useEffect(() => {
+    if (check.status === 'done' && check.startedHere && check.result && reloaded.current !== check.result) {
+      reloaded.current = check.result
+      onChecked()
+    }
+  }, [check.status, check.startedHere, check.result, onChecked])
 
   async function dismiss(id: number) {
     setError(null)
@@ -41,6 +66,23 @@ export function NewChapters({
     }
   }
 
+  async function link(t: TrackedSeries, value: string) {
+    const key = `${t.source}:${t.series_id}`
+    setError(null)
+    setLinking(key)
+    try {
+      onTracked(await setTrackedDrama(t.source, t.series_id, value ? Number(value) : null))
+    } catch (e) {
+      setError(e)
+    } finally {
+      setLinking(null)
+    }
+  }
+
+  const running = check.status === 'running'
+  const result = check.status === 'done' ? check.result : null
+  const failures = result ? Object.entries(result.errors) : []
+
   return (
     <Section
       title="New chapters"
@@ -50,6 +92,39 @@ export function NewChapters({
       storageKey="sources.new"
     >
       <ErrorBanner error={error ?? untrackError} onDismiss={() => (error ? setError(null) : clearUntrackError())} />
+      {canAct && tracked.length > 0 && (
+        <div className="sources-check" data-testid="sources-check">
+          <div className="actions">
+            <button type="button" disabled={running} onClick={() => check.start(() => startCheckNow())}>
+              {running ? 'Checking…' : 'Check now'}
+            </button>
+            <span className="muted" aria-live="polite">
+              {running
+                ? `${check.message ?? 'Checking tracked series…'} ${percent(check.progress)}`.trim()
+                : result
+                  ? checkSummary(result)
+                  : 'New chapters are announced here, never downloaded unless auto-import is on.'}
+            </span>
+          </div>
+          {failures.length > 0 && (
+            <details>
+              <summary>Why {failures.length === 1 ? 'one' : `${failures.length}`} failed</summary>
+              <ul>
+                {failures.map(([title, why]) => (
+                  <li key={title}>
+                    {title}: {why}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <ErrorBanner
+            error={check.startError ?? check.error}
+            onDismiss={check.startError ? check.clearStartError : check.reset}
+            describe={{ serverText: true }}
+          />
+        </div>
+      )}
       {notifications.length > 0 && (
         <ul className="sources-rows">
           {notifications.map((n) => (
@@ -77,30 +152,53 @@ export function NewChapters({
       {tracked.length > 0 && (
         <>
           <h4>Tracked series</h4>
-          <ul className="sources-rows">
-            {tracked.map((t) => (
-              <li key={`${t.source}:${t.series_id}`}>
-                <span>
-                  {t.title || t.series_id} · {display(t.source)}
-                  {t.last_check_error ? (
-                    <span className="warn"> · last check failed: {t.last_check_error}</span>
-                  ) : !t.last_checked ? (
-                    ' · not checked yet'
-                  ) : (
-                    <>
-                      {' '}· checked <time dateTime={isoTime(t.last_checked)}>{ago(t.last_checked)}</time>
-                    </>
+          <ul className="sources-rows sources-tracked">
+            {tracked.map((t) => {
+              const key = `${t.source}:${t.series_id}`
+              const choices = trackedDramaChoices(dramas.items ?? [], sources?.find((s) => s.name === t.source))
+              const current = t.drama_id !== null && !choices.some((d) => d.id === t.drama_id)
+              return (
+                <li key={key}>
+                  <span>
+                    {t.title || t.series_id} · {display(t.source)}
+                    {t.last_check_error ? (
+                      <span className="warn"> · last check failed: {t.last_check_error}</span>
+                    ) : !t.last_checked ? (
+                      ' · not checked yet'
+                    ) : (
+                      <>
+                        {' '}· checked <time dateTime={isoTime(t.last_checked)}>{ago(t.last_checked)}</time>
+                      </>
+                    )}
+                  </span>
+                  {canAct && (
+                    <label className="sources-autoimport" title={AUTO_HELP}>
+                      <span>Auto-import into</span>
+                      <select
+                        value={t.drama_id ?? ''}
+                        disabled={!dramas.items || linking === key}
+                        onChange={(e) => link(t, e.target.value)}
+                      >
+                        <option value="">None</option>
+                        {current && <option value={t.drama_id!}>Drama #{t.drama_id}</option>}
+                        {choices.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {dramaLabel(d)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   )}
-                </span>
-                <ConfirmButton
-                  label="Stop tracking…"
-                  verb="stop tracking"
-                  name={t.title || t.series_id}
-                  busy={untrackBusy === `${t.source}:${t.series_id}`}
-                  onConfirm={() => onUntrack(t)}
-                />
-              </li>
-            ))}
+                  <ConfirmButton
+                    label="Stop tracking…"
+                    verb="stop tracking"
+                    name={t.title || t.series_id}
+                    busy={untrackBusy === key}
+                    onConfirm={() => onUntrack(t)}
+                  />
+                </li>
+              )
+            })}
           </ul>
         </>
       )}

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import {
@@ -18,6 +18,7 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import type { SourceHealth, SourceProfileDomain, SourcesSettings, SourceSummary } from '../../types/sources'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { PacingForm } from './PacingForm'
+import { ProxyForm } from './ProxyForm'
 import { SourceDetail } from './SourceDetail'
 import { healthText, pacingSummary, profileLine, settingsSummary } from './sourcesFormat'
 
@@ -137,6 +138,13 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
         </Field>
       </div>
     ) : null
+  const signinChanged = useCallback(
+    (name: string, has: boolean) => {
+      const s = sources.find((x) => x.name === name)
+      if (s && s.has_saved_signin !== has) onSource({ ...s, has_saved_signin: has })
+    },
+    [sources, onSource],
+  )
   const signin = (s: SourceSummary) => (s.auth_supported ? (s.has_saved_signin ? 'Sign-in saved' : 'No sign-in') : '')
   const domains = profiles.filter((p) => p.versions.length > 0)
 
@@ -163,7 +171,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                 <span className="muted">{signin(s)}</span>
                 {detailsButton(s)}
               </div>
-              {open === s.name && <SourceDetail name={s.name} onHealth={onHealth} />}
+              {open === s.name && <SourceDetail name={s.name} onHealth={onHealth} onSignin={signinChanged} />}
             </li>
           ))}
         </ul>
@@ -198,7 +206,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                   {open === s.name && (
                     <tr className="source-detail-row">
                       <td colSpan={6}>
-                        <SourceDetail name={s.name} onHealth={onHealth} />
+                        <SourceDetail name={s.name} onHealth={onHealth} onSignin={signinChanged} />
                       </td>
                     </tr>
                   )}
@@ -214,6 +222,8 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
           <Section title="Pacing & cache" summary={pacingSummary(settings)} storageKey="sources.pacing">
             <PacingForm settings={settings} onSaved={setSettings} />
           </Section>
+
+          <ProxyForm settings={settings} onSaved={setSettings} />
 
           <div className="actions" data-testid="sources-cache">
             <span>

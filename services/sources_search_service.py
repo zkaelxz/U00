@@ -283,22 +283,28 @@ _IDENTITY_LOCK = threading.Lock()
 # Results
 # ---------------------------------------------------------------------------
 
-def _is_ours(job_id: str) -> bool:
-    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID):
+def _is_ours(job_id: str, local: bool = False) -> bool:
+    from services import sources_signin_service as signin
+    from sources.chapter_check import CHECK_JOB_ID
+    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, CHECK_JOB_ID):
         return True
+    if signin.is_pc_only_job(job_id):
+        # Sign-in and tier-test outcomes are for the owner at the PC.
+        return local
     if job_id.startswith(SERIES_JOB_PREFIX):
         return len(job_id) > len(SERIES_JOB_PREFIX)
     return (job_id.startswith(IMPORT_JOB_PREFIX)
             and job_id[len(IMPORT_JOB_PREFIX):].isdigit())
 
 
-def get_job_result(job_id) -> dict:
+def get_job_result(job_id, local: bool = False) -> dict:
     """{job_id, status, progress, message, result}. 404 when the job is not
-    resident in this process; a failed job raises its mapped error (503
+    resident in this process (or is a PC-only sign-in/tier-test job and the
+    request is not `local`); a failed job raises its mapped error (503
     with retry_after, 409 handoff, 400 terms/hidden/unsupported)."""
     job_id = str(job_id or "")
     with _IDENTITY_LOCK:
-        status = background_jobs.get_status(job_id) if _is_ours(job_id) else None
+        status = background_jobs.get_status(job_id) if _is_ours(job_id, local) else None
         started_for = _SERIES_IDENTITY.get(job_id)
     if not status:
         raise NotFoundError("No such Sources job in this app session.")

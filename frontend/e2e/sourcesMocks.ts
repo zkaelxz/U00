@@ -223,6 +223,12 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     record(route)
     return notFound(route)
   })
+  // New chapters looks for an earlier "Check now" run on load: none here
+  // (sourcesAccessMocks.ts overrides this).
+  await page.route(/\/api\/sources\/jobs\/sources_chapter_check\/result$/, (route) => {
+    record(route)
+    return notFound(route)
+  })
   await page.route(/\/api\/jobs\/sources_search\/cancel$/, (route) => {
     record(route)
     s.search = 'done'

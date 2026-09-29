@@ -242,3 +242,39 @@ export interface OpenSeries {
   series_id: string
   title: string
 }
+
+// "Check now" (sources_chapter_check). `errors` is keyed by series title.
+export interface CheckResult {
+  checked: number
+  new: number
+  errors: Record<string, string>
+  queued: string[]
+  skipped?: boolean
+}
+
+// PC-only jobs: sources_signin_<name> and sources_tiertest_<name>.
+export type SourceTier = 'static' | 'browser' | 'signed_in'
+
+export interface SigninResult {
+  kind: 'signin'
+  source: string
+  ok: boolean
+  message: string
+  lines: string[]
+  has_saved_signin: boolean
+}
+
+export interface TierTestResult {
+  kind: 'tier_test'
+  source: string
+  tier: SourceTier
+  ok: boolean
+  reason: string | null
+  detail: string | null
+}
+
+export interface SourceSigninForgetResult {
+  source: string
+  forgotten: boolean
+  has_saved_signin: boolean
+}

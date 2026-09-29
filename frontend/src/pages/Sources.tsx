@@ -1,13 +1,18 @@
 /*
- * Sources page (#/sources), docs spec ux-sources-diagnostics §1.
+ * Sources page (#/sources).
  *
  * Search the enabled sources by title (a paced background job), open a
- * series to see its chapter list (another job, per source), follow tracked
- * series' new chapters, and (PC only) the per-source switches, pacing and
- * cache. Cover images are never rendered: loading them would bypass pacing.
- * Paste a link (UrlBox, S-5) to preview it and open its series, import a
- * novel page or download a video; tick chapters in an open series to import
- * them into a drama, or track it for new chapters (SeriesPanel, S-4).
+ * series to see its chapter list (another job, per source), tick chapters
+ * to import them into a drama or track the series for new chapters
+ * (SeriesPanel). Paste a link (UrlBox) to preview it, open its series or
+ * import a novel page. New chapters: Check now, the notifications, and the
+ * tracked series (stop tracking, which drama auto-import goes to). Cover
+ * images are never rendered: loading them would bypass pacing.
+ *
+ * Source settings (PC only): per-source switches, health, details with
+ * sign-in (a window on the PC) and per-tier "Test now", pacing and cache,
+ * the proxy, site profiles. Searching, importing, tracking and Check now
+ * are PC only for now too (SEARCH_REMOTE_ALLOWED / IMPORT_REMOTE_ALLOWED).
  *
  * Desktop (>=1024 px): search and results left, the open series right
  * (sticky), New chapters and Source settings below both. Narrower: one
@@ -77,14 +82,18 @@ export default function SourcesPage() {
   const [wasBusy, setWasBusy] = useState(false)
   if (view.busyOther && !wasBusy) setWasBusy(true)
 
-  useEffect(() => {
-    listSources().then(setSources, setLoadError)
-    // Together, so New chapters mounts once with both (it opens when there is news).
-    Promise.all([listTracked().catch(() => []), listNotifications().catch(() => [])]).then(([t, n]) => {
-      setTracked(t)
-      setNotifications(n)
+  // Together, so New chapters mounts once with both (it opens when there is news).
+  const loadTracking = useCallback(() => {
+    Promise.all([listTracked().catch(() => null), listNotifications().catch(() => null)]).then(([t, n]) => {
+      if (t) setTracked(t)
+      if (n) setNotifications(n)
     })
   }, [])
+
+  useEffect(() => {
+    listSources().then(setSources, setLoadError)
+    loadTracking()
+  }, [loadTracking])
 
   const display = useCallback(
     (name: string) => sources?.find((s) => s.name === name)?.display_name ?? name,
@@ -240,10 +249,14 @@ export default function SourcesPage() {
           <NewChapters
             notifications={notifications}
             tracked={tracked}
+            sources={sources}
             display={display}
+            canAct={!remote || IMPORT_REMOTE_ALLOWED}
             onOpen={openSeries}
             onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
             onUntrack={untrack}
+            onTracked={setTracked}
+            onChecked={loadTracking}
             untrackBusy={untrackBusy}
             untrackError={untrackError}
             clearUntrackError={() => setUntrackError(null)}

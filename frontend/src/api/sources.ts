@@ -5,9 +5,13 @@
 // `sources.import`. Everything in Source settings (switches, health reset,
 // cache, profiles, pacing) is admin/PC-only, so it goes through pcOnlyFetch
 // (X-Baihe-Local; a 403 marks the tab remote). Bodies never carry URLs:
-// search takes text and source names, series takes an id.
+// search takes text and source names, series takes an id. The exceptions
+// are PC-only: sign-in and "Test now" take a page on the source's own site
+// (the server checks it), and the proxy URL, which is never read back.
 import type {
   SourceAttempt,
+  SourceSigninForgetResult,
+  SourceTier,
   SourceCacheStats,
   SourceDetail,
   SourceHealth,
@@ -31,6 +35,9 @@ const seg = (s: string) => encodeURIComponent(s)
 
 export const SEARCH_JOB_ID = 'sources_search'
 export const seriesJobId = (source: string) => `sources_series_${source}`
+export const CHECK_JOB_ID = 'sources_chapter_check'
+export const signinJobId = (source: string) => `sources_signin_${source}`
+export const tierTestJobId = (source: string) => `sources_tiertest_${source}`
 
 // Reads
 export const listSources = (f?: Fetch) => getJson<SourceSummary[]>(BASE, f)
@@ -56,6 +63,9 @@ export const dismissNotification = (id: number, f?: Fetch) =>
   postJson<SourceNotification>(`${BASE}/notifications/${id}/dismiss`, undefined, f)
 export const untrackSeries = (source: string, series_id: string, f?: Fetch) =>
   postJson<TrackedSeries[]>(`${BASE}/tracked`, { source, series_id, tracked: false }, f)
+export const setTrackedDrama = (source: string, series_id: string, drama_id: number | null, f?: Fetch) =>
+  postJson<TrackedSeries[]>(`${BASE}/tracked/drama`, { source, series_id, drama_id }, f)
+export const startCheckNow = (f?: Fetch) => postJson<SourcesJobStarted>(`${BASE}/check-now`, undefined, f)
 
 // Source settings (PC-only)
 export const setSourceEnabled = (name: string, enabled: boolean, f?: Fetch) =>
@@ -72,3 +82,13 @@ export const rollbackProfile = (domain: string, kind: string, version: number, f
   postJson<SourceProfileVersion[]>(
     `${BASE}/profiles/${seg(domain)}/${seg(kind)}/rollback`, { version }, pcOnlyFetch(f),
   )
+
+// Sign-in, per-tier tests and the proxy (local_only: PC only)
+export const openSignin = (name: string, url: string, f?: Fetch) =>
+  postJson<SourcesJobStarted>(`${BASE}/${seg(name)}/signin/open`, { url }, pcOnlyFetch(f))
+export const forgetSignin = (name: string, f?: Fetch) =>
+  postJson<SourceSigninForgetResult>(`${BASE}/${seg(name)}/signin/forget`, { confirm: true }, pcOnlyFetch(f))
+export const startTierTest = (name: string, tier: SourceTier, url: string, f?: Fetch) =>
+  postJson<SourcesJobStarted>(`${BASE}/${seg(name)}/tier-test`, { tier, url }, pcOnlyFetch(f))
+export const setSourcesProxy = (url: string, f?: Fetch) =>
+  postJson<SourcesSettings>(`${BASE}/settings/proxy`, { url }, pcOnlyFetch(f))

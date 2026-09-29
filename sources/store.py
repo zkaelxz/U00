@@ -304,6 +304,15 @@ def imported_chapter_ids(source: str, series_id: str, drama_id: int) -> set:
             "AND drama_id=?", (source, str(series_id), int(drama_id)))}
 
 
+def set_tracked_drama(source: str, series_id: str, drama_id) -> bool:
+    """Points a tracked series' auto-import at another drama (None = no
+    auto-import target). Touches nothing else; False if not tracked."""
+    with connect() as conn:
+        cur = conn.execute("UPDATE tracked_series SET drama_id=? WHERE source=? AND series_id=?",
+                           (drama_id, source, series_id))
+        return cur.rowcount > 0
+
+
 def untrack_series(source: str, series_id: str):
     with connect() as conn:
         conn.execute("DELETE FROM tracked_series WHERE source=? AND series_id=?", (source, series_id))

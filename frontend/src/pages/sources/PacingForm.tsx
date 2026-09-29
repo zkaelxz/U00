@@ -103,7 +103,6 @@ export function PacingForm({ settings, onSaved }: Props) {
           </Field>
         ))}
       </div>
-      <p className="muted">Proxy: {settings.proxy_configured ? 'set' : 'none'}</p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
       <div className="actions">
         <button type="button" className={dirty && !invalid ? 'primary' : ''} disabled={!dirty || invalid || saving} onClick={save}>

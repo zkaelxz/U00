@@ -49,6 +49,9 @@ SETTING_KEYS = (
 _URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*")
 _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
+# A query after a relative request path (requests' "url: /book/7?sig=..."),
+# which _URL_IN_TEXT (absolute URLs only) doesn't see.
+_REL_QUERY = re.compile(r"(?<=[\w/\]])\?[^\s)'\"<>]+")
 _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-~@+]*|"
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
 
@@ -81,6 +84,7 @@ def _scrub(text):
     text = _UNC_PATH.sub("[path]", text)
     text = _WIN_PATH.sub("[path]", text)
     text = _POSIX_PATH.sub("[path]", text)
+    text = _REL_QUERY.sub("", text)
     return text
 
 
@@ -339,6 +343,36 @@ def update_settings(changes: dict) -> dict:
     for k, v in clean.items():
         store.set_setting(k, v)
     src_http.reset_pacing_state()
+    return get_settings()
+
+
+MAX_PROXY_URL_LEN = 500
+
+
+def set_proxy_url(url) -> dict:
+    """PC-only (the route is local_only): sets or clears ("") the HTTP(S)
+    proxy every source request goes through. Never echoed back: settings
+    show `proxy_configured` only, and no error names the value. A loopback
+    or private address is allowed here (a local proxy is the usual case)."""
+    if not isinstance(url, str):
+        raise InvalidInputError("The proxy must be text.")
+    text = url.strip()
+    if text:
+        bad = InvalidInputError("Use an http:// or https:// proxy address, e.g. "
+                                "http://127.0.0.1:8080.")
+        if len(text) > MAX_PROXY_URL_LEN or any(c.isspace() or ord(c) < 32 or ord(c) == 127
+                                                for c in text):
+            raise bad
+        try:
+            parts = urlsplit(text)
+            host = parts.hostname
+            parts.port  # noqa: B018 -- raises ValueError on a bad port
+        except ValueError:
+            raise bad from None
+        if parts.scheme.lower() not in ("http", "https") or not host or parts.query \
+                or parts.fragment or parts.path not in ("", "/"):
+            raise bad
+    store.set_setting("http_proxy_url", text)   # read per request (sources.http)
     return get_settings()
 
 
