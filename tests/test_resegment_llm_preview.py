@@ -298,3 +298,23 @@ def test_note_racing_the_apply_job_needs_confirm(monkeypatch):
     job = _wait("resegment_x")
     assert job["status"] == "error" and "confirm=true" in job["error"]
     assert _snapshot(did) == before and len(db.list_translation_notes(did)) == 1
+
+
+def test_stale_preview_for_other_lines_is_not_read_back(monkeypatch):
+    """Review fix: previews are kept per drama id in memory. Once the
+    drama's lines are replaced (a reset, a backup restore, a deleted drama
+    whose id comes back), the old preview -- which carries the old lines'
+    text -- is a 404 and is dropped, not served."""
+    did = _seed()
+    _preview(monkeypatch, did)
+    assert svc.get_llm_resegment_preview(did)["changed"]
+    # a plain edit keeps the line ids: the preview is still readable
+    ids = svc.get_llm_resegment_preview(did)["source_line_ids"]
+    db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="短", en="edited")],
+                  fields=("en",))
+    assert svc.get_llm_resegment_preview(did)["source_line_ids"] == ids
+    # the lines are replaced wholesale (new ids): stale
+    db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="别的", en="other")])
+    with pytest.raises(NotFoundError):
+        svc.get_llm_resegment_preview(did)
+    assert did not in svc._llm_previews

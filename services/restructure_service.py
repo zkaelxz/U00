@@ -508,10 +508,19 @@ def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
 def get_llm_resegment_preview(drama_id: int) -> dict:
     """The last finished LLM preview for this drama (same shape as
     preview_resegmentation, plus the engine). NotFoundError when none is
-    ready: none was started, it is still running, or it failed."""
+    ready: none was started, it is still running, or it failed -- or it was
+    made for other lines (the drama's line ids no longer match: its lines
+    were replaced, or the drama was deleted and its id reused), in which
+    case the stale preview is dropped."""
     _require_drama(drama_id)
     with _llm_previews_lock:
         preview = _llm_previews.get(drama_id)
+    if preview is not None and (
+            [ln.id for ln in db.load_line_objects(drama_id)] != preview["source_line_ids"]):
+        with _llm_previews_lock:
+            if _llm_previews.get(drama_id) is preview:
+                _llm_previews.pop(drama_id, None)
+        preview = None
     if preview is None:
         raise NotFoundError("No LLM re-segmentation preview is ready for this drama.")
     return {k: v for k, v in preview.items() if not k.startswith("_")}
