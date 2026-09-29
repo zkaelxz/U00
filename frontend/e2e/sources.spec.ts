@@ -169,15 +169,24 @@ test('series B on the same source while A is still running never shows A', async
   s.search = 'done'
   await expect(page.getByText('3 results', { exact: true })).toBeVisible()
 
-  // A (a0) starts and keeps running.
-  await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(0).click()
+  // A (a0) starts and keeps running. A double click starts it once.
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(0).dblclick()
   const panel = page.getByRole('region', { name: 'Series' })
   await expect(panel.getByText(/Loading the series/)).toBeVisible()
+  expect(posted(s, '/api/sources/alpha/series')).toHaveLength(1)
+
+  // Opening A again while it loads just goes to it: no new start, progress kept.
+  await page.getByRole('searchbox', { name: 'Title' }).focus()
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(0).click()
+  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 1' })).toBeFocused()
+  await expect(panel.getByText(/Loading the series/)).toBeVisible()
+  await expect(panel.getByText(/Another series/)).toHaveCount(0)
+  expect(posted(s, '/api/sources/alpha/series')).toHaveLength(1)
 
   // B (a1) on the same source: the server says 409 (its job id is per source).
   await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(1).click()
   await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 2' })).toBeVisible()
-  await expect(panel.getByText('Another series is loading from this source.')).toBeVisible()
+  await expect(panel.getByText('Another series from Alpha Comics is still loading.')).toBeVisible()
   await expect(panel.getByText(/Loading the series/)).toHaveCount(0)
 
   // A finishes on the server: its chapters must not appear under B.
@@ -192,6 +201,9 @@ test('series B on the same source while A is still running never shows A', async
   s.seriesHold = true
   await panel.getByRole('button', { name: 'Cancel it' }).click()
   await expect.poll(() => posted(s, '/api/jobs/sources_series_alpha/cancel').length).toBe(1)
+  await expect(panel.getByText('Asked the other series to stop. Try again in a moment.')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Cancel it' })).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Try again' })).toBeVisible()
   await panel.getByRole('button', { name: 'Try again' }).click()
   s.seriesHold = false
   s.seriesTitle = 'Heaven Book 2'

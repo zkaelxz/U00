@@ -83,6 +83,11 @@ export default function SourcesPage() {
 
   function openSeries(s: OpenSeries, openerKey?: string) {
     opener.current = openerKey ? { key: openerKey, scrollY: window.scrollY } : null
+    // Already open and loading (or its start is in flight): just go to it.
+    if (open && open.source === s.source && open.series_id === s.series_id && view.status === 'running') {
+      setFocusKey((k) => k + 1)
+      return
+    }
     setStoredSeries(s)
     setCleared(false)
     setFocusKey((k) => k + 1)

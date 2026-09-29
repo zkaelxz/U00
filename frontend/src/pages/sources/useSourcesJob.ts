@@ -116,6 +116,9 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
   // the previous run must not show) and after a failed start (the running
   // run is not the one asked for).
   const mutedRef = useRef<string | null>(null)
+  // The id whose start POST is in flight: a second start for it (a double
+  // click) is ignored.
+  const inFlightRef = useRef<string | null>(null)
   useEffect(() => {
     idRef.current = jobId
   })
@@ -148,7 +151,8 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
   // state is dropped at once, so it never shows under the new request.
   const start = useCallback(
     (post: () => Promise<SourcesJobStarted>, id = idRef.current) => {
-      if (!id) return
+      if (!id || inFlightRef.current === id) return
+      inFlightRef.current = id
       setStartError(null)
       setStarting(true)
       setStartedHere(false)
@@ -162,10 +166,12 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
       }
       post().then(
         () => {
+          inFlightRef.current = null
           setStarting(false)
           attach()
         },
         (e: unknown) => {
+          inFlightRef.current = null
           setStarting(false)
           if (reattachOn409 && isSameJobConflict(e, id)) attach()
           else setStartError(e) // stays muted: the running run is someone else's
@@ -175,10 +181,17 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
     [reattachOn409],
   )
 
-  const cancel = useCallback(() => {
+  /** Ask the server to stop the job; true once the request was accepted. */
+  const cancel = useCallback((): Promise<boolean> => {
     const id = idRef.current
-    if (!id) return
-    cancelJob(id).catch((e: unknown) => setStartError(e))
+    if (!id) return Promise.resolve(false)
+    return cancelJob(id).then(
+      () => true,
+      (e: unknown) => {
+        setStartError(e)
+        return false
+      },
+    )
   }, [])
 
   /** Forget the shown result locally (the server keeps it). */

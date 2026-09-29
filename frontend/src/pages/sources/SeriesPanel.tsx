@@ -40,6 +40,16 @@ export function SeriesPanel({
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
   const [shown, setShown] = useState(CHAPTERS_PAGE)
+  // "Cancel it" was accepted for the other series; reset whenever busyOther changes.
+  const [stopAsked, setStopAsked] = useState(false)
+  const [busySeen, setBusySeen] = useState(view.busyOther)
+  if (busySeen !== view.busyOther) {
+    setBusySeen(view.busyOther)
+    setStopAsked(false)
+  }
+  const askStop = () => {
+    void job.cancel().then((ok) => ok && setStopAsked(true))
+  }
 
   useEffect(() => {
     if (focusKey) headRef.current?.focus({ preventScroll: false })
@@ -70,16 +80,24 @@ export function SeriesPanel({
       </div>
 
       {view.busyOther ? (
-        <p className="warn" role="alert">
-          Another series is loading from this source.{' '}
-          <button type="button" className="link" onClick={job.cancel}>
-            Cancel it
-          </button>
-          {' '}
-          <button type="button" onClick={onReload}>
-            Try again
-          </button>
-        </p>
+        <div className="sources-busy">
+          <p className="warn" role="alert">
+            Another series from {display} is still loading.
+          </p>
+          <p aria-live="polite" className="muted">
+            {stopAsked ? 'Asked the other series to stop. Try again in a moment.' : ''}
+          </p>
+          <div className="actions">
+            {!stopAsked && (
+              <button type="button" onClick={askStop}>
+                Cancel it
+              </button>
+            )}
+            <button type="button" onClick={onReload}>
+              Try again
+            </button>
+          </div>
+        </div>
       ) : (
         <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
       )}
@@ -153,6 +171,11 @@ export function SeriesPanel({
             </button>
           )}
         </Section>
+      )}
+      {showBack && result && (
+        <button type="button" className="link sources-back" onClick={onClose}>
+          ‹ Results
+        </button>
       )}
     </section>
   )

@@ -51,7 +51,9 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await more.click()
   await expect(panel.getByRole('button', { name: 'Less' })).toBeVisible()
 
-  await panel.getByRole('button', { name: '‹ Results' }).click()
+  // "‹ Results" at the top and again after the chapter list; use the bottom one.
+  await expect(panel.getByRole('button', { name: '‹ Results' })).toHaveCount(2)
+  await panel.getByRole('button', { name: '‹ Results' }).last().click()
   await expect(page.getByTestId('search-results')).toBeVisible()
   await expect(opener).toBeFocused()
   await expect(page.locator('img')).toHaveCount(0)

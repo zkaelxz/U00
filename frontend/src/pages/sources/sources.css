@@ -118,3 +118,5 @@ ul.source-cards > li {
   .sources-search-row { flex-wrap: wrap; }
   .sources-search-row input { flex: 1 1 12rem; }
 }
+.sources-busy { display: grid; gap: var(--space-2); }
+.sources-busy p { margin: 0; }
