@@ -361,6 +361,72 @@ def _fake_engine(monkeypatch):
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
 
 
+_EVIL = '</script><img src=x onerror=alert(1)>"'
+
+
+def _evil_page(monkeypatch):
+    import reader
+    import segment
+    monkeypatch.setattr(segment, "segment_and_annotate",
+                        lambda text, lang, *a, **k: [(_EVIL, _EVIL)])
+    ln = Line(idx=0, start=0.0, end=1.0, zh=_EVIL, en=_EVIL)
+    defs = {_EVIL: {"reading": _EVIL, "definitions": [_EVIL, "a b c  &"]}}
+    return reader.build_reader_html([ln], "zh", defs)
+
+
+class TestReaderHtmlEscaping:
+    """B-30: LLM-sourced words/readings/definitions must not inject HTML."""
+
+    def test_no_raw_script_close_or_tag(self, monkeypatch):
+        page = _evil_page(monkeypatch)
+        assert page.count("</script>") == 1  # only the page's own closing tag
+        assert "<img" not in page
+        assert " " not in page and " " not in page
+
+    def test_defs_json_round_trips(self, monkeypatch):
+        import json
+        import re
+        page = _evil_page(monkeypatch)
+        m = re.search(r"const DEFS = (.*?);\n", page)
+        raw = m.group(1)
+        assert "&" not in raw and "\\u0026" in raw and "\\u2028" in raw
+        entry = json.loads(raw)[_EVIL]
+        assert entry["reading"] == _EVIL
+        assert entry["definitions"][1] == "a b c  &"
+
+    def test_data_word_attribute_quoted(self, monkeypatch):
+        import html
+        page = _evil_page(monkeypatch)
+        assert f'data-word="{html.escape(_EVIL, quote=True)}"' in page
+
+    def test_popup_uses_text_nodes_and_csp(self, monkeypatch):
+        page = _evil_page(monkeypatch)
+        assert "innerHTML" not in page
+        assert 'http-equiv="Content-Security-Policy"' in page
+
+    def test_browser_shows_literal_text(self, monkeypatch, tmp_path):
+        sync_api = pytest.importorskip("playwright.sync_api")
+        f = tmp_path / "r.html"
+        f.write_text(_evil_page(monkeypatch), encoding="utf-8")
+        try:
+            with sync_api.sync_playwright() as p:
+                browser = p.chromium.launch()
+                try:
+                    pg = browser.new_page()
+                    pg.goto(f.as_uri())
+                    pg.click("ruby.word")
+                    imgs = pg.locator("img").count()
+                    text = pg.inner_text("#popup")
+                finally:
+                    browser.close()
+        except Exception as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip("Chromium not installed")
+            raise
+        assert imgs == 0
+        assert _EVIL in text
+
+
 class TestLookupDefinitions:
     def _setup(self, isolated_db, monkeypatch, lang="zh"):
         import dictionary
