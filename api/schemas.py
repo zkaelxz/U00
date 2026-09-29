@@ -2013,3 +2013,120 @@ class SourcesJobResult(BaseModel):
     progress: Optional[float] = None
     message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Diagnostics gaps (Streamlit retirement M1) -- /api/diagnostics/...
+# ---------------------------------------------------------------------------
+
+class DiagnosticsSetupPython(BaseModel):
+    version: Optional[str] = None
+    ok: bool
+
+
+class DiagnosticsSetupFfmpeg(BaseModel):
+    found: bool
+    version: Optional[str] = None
+
+
+class DiagnosticsSetupJsRuntime(BaseModel):
+    found: bool
+    name: Optional[str] = None
+
+
+class DiagnosticsSetupCuda(BaseModel):
+    torch_installed: bool
+    cuda_available: Optional[bool] = None
+
+
+class DiagnosticsSetupFiles(BaseModel):
+    all_present: bool
+    missing_top_level: List[str]
+    missing_tabs: List[str]
+
+
+class DiagnosticsSetupChecks(BaseModel):
+    """Found/version/name only; never a path."""
+    python: DiagnosticsSetupPython
+    ffmpeg: DiagnosticsSetupFfmpeg
+    js_runtime: DiagnosticsSetupJsRuntime
+    cuda: DiagnosticsSetupCuda
+    files: DiagnosticsSetupFiles
+    library_writable: bool
+
+
+class DiagnosticsHfCacheEntry(BaseModel):
+    repo_id: str
+    repo_type: str
+    revision: str
+    size_bytes: int
+
+
+class DiagnosticsPiperVoice(BaseModel):
+    voice: str
+    size_bytes: int
+
+
+class DiagnosticsModelCache(BaseModel):
+    hf_cache: List[DiagnosticsHfCacheEntry]
+    hf_total_bytes: int
+    piper_voices: List[DiagnosticsPiperVoice]
+    piper_total_bytes: int
+
+
+class DiagnosticsPyannoteModel(BaseModel):
+    model: str
+    accessible: bool
+
+
+class DiagnosticsPyannoteReadiness(BaseModel):
+    """Booleans only; the token is never returned."""
+    pyannote_installed: bool
+    hf_token_configured: bool
+    models: Optional[List[DiagnosticsPyannoteModel]] = None
+    ready: bool
+
+
+class DiagnosticsJobHistoryItem(BaseModel):
+    job_id: str
+    label: str
+    status: Optional[str] = None
+    description: Optional[str] = None
+    message: str = ""
+    error: Optional[str] = None
+    gpu_touching: bool = False
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    duration_seconds: Optional[float] = None
+
+
+class DiagnosticsLogTail(BaseModel):
+    lines: List[str]
+
+
+class DiagnosticsSupportReport(BaseModel):
+    report: str
+
+
+class DiagnosticsAdminConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class DiagnosticsInstallResult(BaseModel):
+    package: str
+    ok: bool
+    output_tail: List[str]
+
+
+class DiagnosticsResetRequest(BaseModel):
+    """confirm=true and confirm_text "RESET" (the word the Streamlit button
+    made the user type)."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    confirm_text: str = Field("", max_length=20)
+
+
+class DiagnosticsResetResult(BaseModel):
+    ok: bool
+    reset_at: float

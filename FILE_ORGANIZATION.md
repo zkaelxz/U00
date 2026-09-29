@@ -193,7 +193,7 @@ baihe-subtitler/
 │   │                             versions, running jobs, log tail); no admin action, no network call
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
-│   │                             install/upgrade/reset wrappers. No router yet.
+│   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -367,8 +367,11 @@ baihe-subtitler/
 │       ├── live_routes.py        /api/live/sessions (POST start, GET list), /{id} (GET poll), /{id}/stop (spec L-1; API batch 1)
 │       ├── discover_lookup_routes.py /api/discover/translate-query|baihehub-search|import-suggestion|bulk-extract[/result]|
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
-│       └── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
-│                                 /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
+│       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
+│       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
+│       └── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
+│                                 support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
+│                                 reset-library (POST, local_only + confirm; API batch 1)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

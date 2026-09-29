@@ -32,6 +32,7 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     characters_routes,
+    diagnostics_gaps_routes,
     diagnostics_routes,
     diarization_routes,
     discover_lookup_routes,
@@ -150,6 +151,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(live_routes.router)
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
+    app.include_router(diagnostics_gaps_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

@@ -23,6 +23,7 @@ import time
 import background_jobs
 import db
 import diagnostics
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 
 LOG_TAIL_DEFAULT = 50
 LOG_TAIL_MAX = 200
@@ -200,17 +201,33 @@ def build_support_report(recent_error_lines: int = 20) -> str:
 # refuses while any background job runs.
 # ---------------------------------------------------------------------------
 
-class AdminActionRefused(Exception):
+RESET_CONFIRM_TEXT = "RESET"
+
+
+class AdminActionRefused(ServiceError):
     """Raised when an admin action is not confirmed, targets an unknown
-    package, or jobs are running."""
+    package, or jobs are running. The subclasses below carry the HTTP
+    mapping (422 / 404 / 409); callers can keep catching this one."""
+
+
+class AdminActionUnconfirmed(AdminActionRefused, InvalidInputError):
+    pass
+
+
+class AdminActionUnknownPackage(AdminActionRefused, NotFoundError):
+    pass
+
+
+class AdminActionJobsRunning(AdminActionRefused, ConflictError):
+    pass
 
 
 def _guard(confirm: bool):
     if confirm is not True:
-        raise AdminActionRefused("Confirmation required.")
+        raise AdminActionUnconfirmed("Confirmation required.")
     running = background_jobs.list_running_jobs()
     if running:
-        raise AdminActionRefused(
+        raise AdminActionJobsRunning(
             f"{len(running)} background job(s) running; wait for them to finish.")
 
 
@@ -236,7 +253,7 @@ def _run_stream(gen) -> dict:
 def install_dependency(name: str, confirm: bool = False) -> dict:
     _guard(confirm)
     if name not in installable_packages():
-        raise AdminActionRefused("Unknown or non-installable package.")
+        raise AdminActionUnknownPackage("Unknown or non-installable package.")
     result = _run_stream(diagnostics.stream_dependency_install(name, project_root=_project_root()))
     result["package"] = name
     return result
@@ -245,16 +262,21 @@ def install_dependency(name: str, confirm: bool = False) -> dict:
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
     _guard(confirm)
     if name not in installable_packages():
-        raise AdminActionRefused("Unknown or non-installable package.")
+        raise AdminActionUnknownPackage("Unknown or non-installable package.")
     result = _run_stream(diagnostics.stream_pip_install(
         diagnostics.upgrade_pip_args(name, _project_root())))
     result["package"] = name
     return result
 
 
-def reset_library(confirm: bool = False) -> dict:
+def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
     """Irreversible. Unlike the Streamlit button it does not cancel
-    running jobs; it refuses instead, so a caller must stop them first."""
+    running jobs; it refuses instead, so a caller must stop them first.
+    `confirm_text`, when given (the API always gives it), must be exactly
+    "RESET", the word the Streamlit button made the user type."""
+    if confirm_text is not None and confirm_text != RESET_CONFIRM_TEXT:
+        raise AdminActionUnconfirmed(
+            f'Resetting the library needs confirm=true and confirm_text "{RESET_CONFIRM_TEXT}".')
     _guard(confirm)
     db.reset_library()
     background_jobs.clear_all_jobs()
