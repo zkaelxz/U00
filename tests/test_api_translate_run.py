@@ -169,3 +169,32 @@ def test_bulk_line_count_uses_count(isolated_db):
                              [(1, "k", "h", ""), (2, "k", "h", "")])
     assert db.count_bulk_job_lines(jid) == 2
     assert db.count_bulk_job_lines(jid + 999) == 0
+
+
+@pytest.mark.parametrize("engine,model", [
+    ("nllb", "someone/evil-repo"), ("nllb", "../models/x"), ("claude", "not-a-claude-model"),
+    ("test_offline", "anything"), ("deepseek", 123)])
+def test_run_refuses_model_not_offered(client, monkeypatch, engine, model):
+    import translate_engines
+    from services import translate_service
+    built = []
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: built.append(a))
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    r = client.post(f"{BASE}/{_seed()}/run", json={"engine": engine, "model": model})
+    assert r.status_code == 422
+    if not isinstance(model, int):  # a non-string is refused by the request schema
+        assert r.json()["error"]["message"] == "That model isn't offered for this engine."
+        assert str(model) not in r.text
+    assert built == []
+
+
+def test_offered_or_default_models_pass_the_check():
+    import translate_engines
+    from services import translate_run_service as svc
+    from services.service_errors import InvalidInputError
+    svc._require_offered_model("nllb", None)
+    svc._require_offered_model("nllb", next(iter(translate_engines.NLLB_MODELS)))
+    svc._require_offered_model("claude", next(iter(translate_engines.CLAUDE_MODELS)))
+    svc._require_offered_model("deepseek", svc._default_model("deepseek"))
+    with pytest.raises(InvalidInputError):
+        svc._require_offered_model("deepseek", "other-model")

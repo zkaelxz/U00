@@ -214,6 +214,21 @@ def _summary_engine():
         return None, None
 
 
+def _require_offered_model(engine_name: str, model) -> None:
+    """InvalidInputError unless `model` is None or one this engine offers
+    (translate_service.list_engines, the same list preset saving checks);
+    for an engine without a model list only its own default is allowed. A
+    free-form model string would otherwise reach the engine as is (nllb
+    hands it to transformers.pipeline as a Hugging Face repo id)."""
+    if model is None:
+        return
+    models = next((e["models"] for e in translate_service.list_engines()
+                   if e["name"] == engine_name), None)
+    allowed = models if models is not None else [_default_model(engine_name)]
+    if not isinstance(model, str) or model not in allowed:
+        raise InvalidInputError("That model isn't offered for this engine.")
+
+
 def start_translate_run(drama_id: int, engine_name: str = None, model: str = None,
                         style_preset: str = None, style_note: str = "",
                         locale: str = "en-US", force_retranslate: bool = False,
@@ -322,6 +337,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
             raise InvalidInputError(
                 "A fallback chain can't mix instruction-following engines with "
                 "translation-only ones.")
+    for c in chain:
+        _require_offered_model(c["engine"], c["model"])
     monthly_cap = _monthly_cap()
     month_spend = db.get_month_spend() if monthly_cap else 0.0
     built, caps = [], []
