@@ -49,6 +49,9 @@ export interface NovelGlossaryStatus {
   progress: number | null
   message: string
   proposals: NovelGlossaryProposal[] | null
+  // Names this run (null if unknown); an apply sends it back and gets a
+  // 409 if the run was replaced since.
+  run_id: string | null
 }
 
 export interface NovelGlossaryApplyRequest {
