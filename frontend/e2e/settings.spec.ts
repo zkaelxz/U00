@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 // the placeholder is shown and this spec fails by design.
 test('settings toggles round-trip and keys are yes/no only', async ({ page }) => {
   await page.goto('/#/settings')
-  const box = page.getByRole('checkbox', { name: /Notify when a job finishes/ })
+  const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
   await page.locator('details.section', { hasText: 'API keys configured' }).locator('summary').click()
   await expect(page.getByText(/Setting keys works only on that PC/)).toBeVisible()
@@ -36,7 +36,7 @@ test('a failed update rolls the toggle back and shows an error', async ({ page }
       : route.continue(),
   )
   await page.goto('/#/settings')
-  const box = page.getByRole('checkbox', { name: /Use the GPU/ })
+  const box = page.getByRole('switch', { name: /Use the GPU/ })
   const before = await box.isChecked()
   await box.click()
   await expect(page.getByRole('alert')).toBeVisible()
@@ -59,4 +59,27 @@ test('a collapsible section shows a summary, remembers its state and fits a phon
   await expect(page.locator('details.section', { hasText: 'API keys configured' })).toHaveAttribute('open', '')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.evaluate(() => localStorage.removeItem('baihe.section.settings.api-keys'))
+})
+
+test('settings booleans are keyboard-operable switches', async ({ page }) => {
+  await page.goto('/#/settings')
+  const switches = page.getByRole('switch')
+  await expect(switches).toHaveCount(4)
+  await expect(page.getByRole('checkbox')).toHaveCount(0)
+  const sw = page.getByRole('switch', { name: /Gemini free tier/ })
+  const before = (await sw.getAttribute('aria-checked')) === 'true'
+  const saved = () => page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'POST')
+
+  await sw.focus()
+  await expect(sw).toBeFocused()
+  await Promise.all([saved(), page.keyboard.press('Space')])
+  await expect(sw).toHaveAttribute('aria-checked', String(!before))
+  await Promise.all([saved(), page.keyboard.press('Enter')]) // restore
+  await expect(sw).toHaveAttribute('aria-checked', String(before))
+
+  // Clicking the visible label flips the switch too (label htmlFor -> button).
+  await Promise.all([saved(), page.locator('label', { hasText: 'Gemini free tier' }).click()])
+  await expect(sw).toHaveAttribute('aria-checked', String(!before))
+  await Promise.all([saved(), sw.click()]) // restore
+  await expect(sw).toHaveAttribute('aria-checked', String(before))
 })

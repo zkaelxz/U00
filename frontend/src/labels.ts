@@ -8,7 +8,7 @@
 
 type Code = string | null | undefined
 
-const STATUS_LABELS: Record<string, string> = {
+export const STATUS_LABELS: Record<string, string> = {
   'not started': 'Not started',
   aligned: 'Aligned',
   translated: 'Translated',
@@ -16,7 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
   exported: 'Exported',
 }
 
-const MEDIA_TYPE_LABELS: Record<string, string> = {
+export const MEDIA_TYPE_LABELS: Record<string, string> = {
   audio_drama: 'Audio drama',
   video_drama: 'Video drama',
   anime: 'Anime',
@@ -25,19 +25,23 @@ const MEDIA_TYPE_LABELS: Record<string, string> = {
   manga: 'Manga',
   manhua: 'Manhua',
   asmr: 'ASMR',
+  novel_narration: 'Novel narration',
   streamer_vod: 'Streamer VOD',
+  game: 'Game',
   music: 'Music',
   other: 'Other',
 }
 
-const LANGUAGE_LABELS: Record<string, string> = {
+export const LANGUAGE_LABELS: Record<string, string> = {
   zh: 'Chinese',
+  'zh-hans': 'Chinese (Simplified)',
+  'zh-hant': 'Chinese (Traditional)',
   ja: 'Japanese',
   ko: 'Korean',
   en: 'English',
 }
 
-const ENGINE_LABELS: Record<string, string> = {
+export const ENGINE_LABELS: Record<string, string> = {
   claude: 'Claude',
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
@@ -47,6 +51,12 @@ const ENGINE_LABELS: Record<string, string> = {
   nllb: 'NLLB',
   libretranslate: 'LibreTranslate',
   test_offline: 'Offline test',
+  groq: 'Groq',
+  openai: 'OpenAI',
+  hf_token: 'Hugging Face token',
+  ollama_url: 'Ollama URL',
+  libretranslate_url: 'LibreTranslate URL',
+  gpt_sovits_url: 'GPT-SoVITS URL',
 }
 
 /** "new_thing" / "new-thing" / "new thing" -> "New Thing". */
