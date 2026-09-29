@@ -370,7 +370,7 @@ def _evil_page(monkeypatch):
     monkeypatch.setattr(segment, "segment_and_annotate",
                         lambda text, lang, *a, **k: [(_EVIL, _EVIL)])
     ln = Line(idx=0, start=0.0, end=1.0, zh=_EVIL, en=_EVIL)
-    defs = {_EVIL: {"reading": _EVIL, "definitions": [_EVIL, "a b"]}}
+    defs = {_EVIL: {"reading": _EVIL, "definitions": [_EVIL, "a b c  &"]}}
     return reader.build_reader_html([ln], "zh", defs)
 
 
@@ -381,14 +381,18 @@ class TestReaderHtmlEscaping:
         page = _evil_page(monkeypatch)
         assert page.count("</script>") == 1  # only the page's own closing tag
         assert "<img" not in page
-        assert " " not in page
+        assert " " not in page and " " not in page
 
     def test_defs_json_round_trips(self, monkeypatch):
         import json
         import re
         page = _evil_page(monkeypatch)
         m = re.search(r"const DEFS = (.*?);\n", page)
-        assert json.loads(m.group(1))[_EVIL]["reading"] == _EVIL
+        raw = m.group(1)
+        assert "&" not in raw and "\\u0026" in raw and "\\u2028" in raw
+        entry = json.loads(raw)[_EVIL]
+        assert entry["reading"] == _EVIL
+        assert entry["definitions"][1] == "a b c  &"
 
     def test_data_word_attribute_quoted(self, monkeypatch):
         import html

@@ -92,6 +92,11 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     """
     import segment
 
+    # These land in <style>; coerce so a string can't inject CSS/HTML.
+    font_size = int(font_size)
+    line_height = float(line_height)
+    max_width = int(max_width)
+
     rows_html = []
     for ln in lines:
         segments = segment.segment_and_annotate(ln.zh, source_language)
@@ -140,7 +145,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src data: blob:; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src data: blob:; img-src data:">
 <style>
   body {{ font-family: {font_stack}; margin: 0 auto; padding: 12px;
          max-width: {max_width}px;
