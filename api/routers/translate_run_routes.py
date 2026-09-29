@@ -35,7 +35,7 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                reflect: bool = False,
                                force_retranslate: bool = False,
                                bulk: bool = False,
-                               gemini_free_tier: bool = False,
+                               gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
     return translate_run_service.estimate_translate_cost(
         drama_id, engine_name=engine, model=model, reflect=reflect,

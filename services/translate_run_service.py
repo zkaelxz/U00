@@ -126,8 +126,9 @@ def _default_model(engine_name: str) -> Optional[str]:
 
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
                             reflect: bool = False, force_retranslate: bool = False,
-                            bulk: bool = False, gemini_free_tier: bool = False,
+                            bulk: bool = False, gemini_free_tier: bool = None,
                             job_cost_cap_usd: float = None) -> dict:
+    gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
     engine_name = engine_name or drama.get("translation_engine") or "claude"
     if engine_name not in translate_engines.ENGINES:
@@ -209,7 +210,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         locale: str = "en-US", force_retranslate: bool = False,
                         context_window: int = None, context_window_ahead: int = None,
                         batch_size: int = None, line_ids: list = None,
-                        gemini_free_tier: bool = False,
+                        gemini_free_tier: bool = None,
                         job_cost_cap_usd: float = None,
                         fallback_chain: list = None, reflect: bool = False,
                         bulk: bool = False) -> dict:
@@ -243,7 +244,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
     engine), DependencyUnavailableError (no key), ConflictError (already
-    running)."""
+    running). gemini_free_tier None means the saved Settings value."""
+    gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
     engine_name = engine_name or drama.get("translation_engine") or "claude"
     if engine_name not in translate_engines.ENGINES:
