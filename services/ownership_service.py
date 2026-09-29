@@ -33,6 +33,8 @@ User decisions applied (2026-09-29):
   dramas out of a private series.
 """
 
+import contextvars
+import re
 import sqlite3
 
 import db
@@ -231,3 +233,67 @@ def get_or_create_series_for(principal, name: str) -> int:
         return db.create_series(name, **new_item_defaults(principal))
     except sqlite3.IntegrityError:
         raise ConflictError("That series name is taken") from None
+
+
+# --- who is acting, and jobs (auth B2) --------------------------------------
+# A per-request holder set by api.server's ActingPrincipalMiddleware and
+# filled by api.auth's dependencies. The holder is a dict (not the
+# principal itself) because FastAPI runs sync dependencies and handlers in
+# threadpool copies of the request's context: a set() there wouldn't reach
+# the handler, but a mutation of the shared holder does. Threads a job
+# starts get a fresh context, so a job started by a job has no owner.
+_ACTING = contextvars.ContextVar("baihe_acting_principal", default=None)
+
+
+def bind_request():
+    """Start a request's holder; returns the token for unbind_request."""
+    return _ACTING.set({})
+
+
+def unbind_request(token) -> None:
+    _ACTING.reset(token)
+
+
+def note_acting_principal(principal) -> None:
+    holder = _ACTING.get()
+    if holder is not None:
+        holder["principal"] = principal
+
+
+def acting_user_id():
+    """The signed-in user this code runs for, or None (the local owner,
+    auth off, Streamlit, the CLI, a background thread)."""
+    holder = _ACTING.get()
+    return _user_id(holder.get("principal")) if holder else None
+
+
+def drama_id_of_job(job_id):
+    """The drama a `<prefix><drama_id>` job id (background_jobs.
+    DRAMA_JOB_PREFIXES) is for, else None. Only an exact prefix followed
+    by digits counts."""
+    import background_jobs
+    job_id = str(job_id or "")
+    for prefix in background_jobs.DRAMA_JOB_PREFIXES:
+        rest = job_id[len(prefix):]
+        if job_id.startswith(prefix) and re.fullmatch(r"[0-9]{1,18}", rest):
+            return int(rest)
+    return None
+
+
+def can_see_job(principal, job_id, owner_user_id) -> bool:
+    """Admins, the local owner and auth off see every job. Otherwise a job
+    is visible to the user who started it, and a drama's job to anyone
+    who can see that drama. Anything else (another user's or the PC's
+    Discover/Sources/Live/library job) is hidden."""
+    if _sees_everything(principal):
+        return True
+    uid = _user_id(principal)
+    if uid is not None and owner_user_id == uid:
+        return True
+    drama_id = drama_id_of_job(job_id)
+    return drama_id is not None and can_see_drama(principal, drama_id)
+
+
+def require_job_visible(principal, job_id, owner_user_id) -> None:
+    if not can_see_job(principal, job_id, owner_user_id):
+        raise NotFoundError("No such job.")

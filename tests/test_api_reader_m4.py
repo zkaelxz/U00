@@ -505,11 +505,13 @@ def test_household_lookup(on_client):
                           headers=_h(s)).status_code == 404
 
 
-def test_lookup_llm_needs_jobs_start(on_client):
+def test_lookup_llm_needs_jobs_start(on_client, drama):
     s = _session("editor@example.com", perms=["library.read", "lines.read", "lines.edit",
                                               "engines.paid"])
-    url = f"{BASE}/99999/lookup"
-    assert on_client.post(url, json={"page": 1}, headers=_h(s)).status_code == 404
+    # A missing drama is a 404 before anything else (auth B2 path guard).
+    missing = f"{BASE}/99999/lookup"
+    assert on_client.post(missing, json={"page": 1}, headers=_h(s)).status_code == 404
+    url = f"{BASE}/{drama}/lookup"
     assert on_client.post(url, json={"page": 1, "use_llm": True, "engine": "ollama"},
                           headers=_h(s)).status_code == 403
 

@@ -13,7 +13,7 @@ Importing chapters (spec S-4) needs `sources.import` and is not built:
 the service has no import action yet.
 """
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Request
 
 from api.auth import require_permission
 from api.schemas import (ErrorResponse, SourcesJobResult, SourcesJobStarted,
@@ -45,5 +45,5 @@ def post_series(body: SourcesSeriesRequest, name: str = Path(min_length=1, max_l
             response_model=SourcesJobResult,
             summary="A Sources job's status and result (this process only; 404 otherwise)",
             responses=_ERRS)
-def get_job_result(job_id: str = Path(min_length=1, max_length=100)):
-    return svc.get_job_result(job_id)
+def get_job_result(request: Request, job_id: str = Path(min_length=1, max_length=100)):
+    return svc.get_job_result(job_id, principal=request.state.principal)

@@ -41,20 +41,21 @@ def post_session(body: LiveSessionStart, request: Request):
 @router.get("/sessions", dependencies=[require_permission("library.read")],
             response_model=List[LiveSessionSummary],
             summary="Live sessions started in this process")
-def list_sessions():
-    return live_service.list_sessions()
+def list_sessions(request: Request):
+    return live_service.list_sessions(principal=request.state.principal)
 
 
 @router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],
             response_model=LiveSessionStatus,
             summary="Session status and cues[after:] (poll with after=next_index)",
             responses=_ERRS)
-def get_session(session_id: str = _SID, after: int = Query(0, ge=0, le=10**9)):
-    return live_service.get_session(session_id, after)
+def get_session(request: Request, session_id: str = _SID,
+                after: int = Query(0, ge=0, le=10**9)):
+    return live_service.get_session(session_id, after, principal=request.state.principal)
 
 
 @router.post("/sessions/{session_id}/stop", dependencies=[require_permission("jobs.cancel")],
              response_model=LiveSessionStopped,
              summary="Stop a session (idempotent on a finished one)", responses=_ERRS)
-def post_stop(session_id: str = _SID):
-    return live_service.stop_session(session_id)
+def post_stop(request: Request, session_id: str = _SID):
+    return live_service.stop_session(session_id, principal=request.state.principal)

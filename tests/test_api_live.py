@@ -166,14 +166,17 @@ def test_auth_on_permissions(fake_live):
     spender = _headers("media.import_url", "engines.paid", email="pay@example.com")
     # past the permission checks; refused only because one session is running
     assert c.post("/api/live/sessions", json=paid, headers=spender).status_code == 409
-    # reads: library.read; stop: jobs.cancel (both household defaults)
-    assert c.get(f"/api/live/sessions/{sid}", headers=household).status_code == 200
-    assert c.get("/api/live/sessions", headers=household).status_code == 200
+    # reads: library.read; stop: jobs.cancel (both household defaults).
+    # Auth B2: a session is its starter's; another user gets a 404.
+    assert c.get(f"/api/live/sessions/{sid}", headers=importer).status_code == 200
+    assert c.get(f"/api/live/sessions/{sid}", headers=household).status_code == 404
+    assert c.get("/api/live/sessions", headers=household).json() == []
     reader_only = _headers(email="ro@example.com", revoke=("jobs.cancel",))
     assert c.post(f"/api/live/sessions/{sid}/stop", headers=reader_only).status_code == 403
     no_read = _headers(email="nr@example.com", revoke=("library.read",))
     assert c.get(f"/api/live/sessions/{sid}", headers=no_read).status_code == 403
-    assert c.post(f"/api/live/sessions/{sid}/stop", headers=household).status_code == 200
+    assert c.post(f"/api/live/sessions/{sid}/stop", headers=household).status_code == 404
+    assert c.post(f"/api/live/sessions/{sid}/stop", headers=importer).status_code == 200
 
 
 def test_one_session_at_a_time(client, fake_live):

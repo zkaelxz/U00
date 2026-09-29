@@ -345,3 +345,89 @@ class TestNewItemsAreStamped:
         tid = db.create_known_title(title_en="Known", language="zh", media_type="audio_drama")
         d = svc.import_to_library(tid, principal=a)
         assert self._row(d["id"])["owner_user_id"] == world["a_id"]
+
+
+class TestJobs:
+    def test_job_records_its_starter(self, world):
+        import background_jobs
+        from api.auth import require_permission
+        app = _app()
+
+        @app.post("/api/zz-start", dependencies=[require_permission("jobs.start")])
+        def start():
+            background_jobs.start_job("zz_owner_probe", lambda: None)
+            return {}
+        r = _client(app).post("/api/zz-start", headers=world["b"])
+        assert r.status_code == 200, r.text
+        assert background_jobs.get_status("zz_owner_probe")["owner_user_id"] == world["b_id"]
+        assert db.get_job_record("zz_owner_probe")["owner_user_id"] == world["b_id"]
+        # Outside a request (Streamlit, the CLI, a job's own thread): the PC.
+        background_jobs.start_job("zz_owner_probe2", lambda: None)
+        assert background_jobs.get_status("zz_owner_probe2")["owner_user_id"] is None
+
+    @pytest.fixture
+    def jobs(self, world):
+        w = world
+        rows = {"priv": f"translate_{w['private']}", "shared": f"translate_{w['shared']}",
+                "a_fixed": "discover_bulk_extract", "pc_fixed": "library_backup",
+                "b_fixed": "sources_search"}
+        owners = {"priv": w["a_id"], "shared": w["a_id"], "a_fixed": w["a_id"],
+                  "pc_fixed": None, "b_fixed": w["b_id"]}
+        for key, job_id in rows.items():
+            db.save_job_record(job_id, "running", started_at=1.0, owner_user_id=owners[key])
+        return rows
+
+    def test_list_get_cancel(self, world, jobs):
+        client = _client(_app())
+        seen = {j["job_id"] for j in client.get("/api/jobs", headers=world["b"]).json()["items"]}
+        assert seen == {jobs["shared"], jobs["b_fixed"]}
+        assert {j["job_id"] for j in client.get(
+            "/api/jobs", headers=world["admin"]).json()["items"]} >= set(jobs.values())
+        a_seen = {j["job_id"] for j in client.get("/api/jobs", headers=world["a"]).json()["items"]}
+        assert a_seen == {jobs["priv"], jobs["shared"], jobs["a_fixed"]}
+        for key in ("priv", "a_fixed", "pc_fixed"):
+            assert client.get(f"/api/jobs/{jobs[key]}", headers=world["b"]).status_code == 404
+            assert client.post(f"/api/jobs/{jobs[key]}/cancel",
+                               headers=world["b"]).status_code == 404
+        assert client.get(f"/api/jobs/{jobs['shared']}", headers=world["b"]).status_code == 200
+        assert client.get(f"/api/jobs/{jobs['priv']}", headers=world["admin"]).status_code == 200
+        off = _local(_app("off")).get("/api/jobs").json()["items"]
+        assert {j["job_id"] for j in off} >= set(jobs.values())
+
+    def test_shared_fixed_id_results_are_per_starter(self, world, monkeypatch):
+        import background_jobs
+        from services import live_service
+        status = {"status": "done", "progress": 1.0, "message": "", "result": {"rows": []},
+                  "owner_user_id": world["a_id"]}
+        monkeypatch.setattr(background_jobs, "get_status",
+                            lambda job_id: dict(status) if job_id in (
+                                "discover_bulk_extract", "discover_navigation_help",
+                                "sources_search", "live_" + "a" * 32) else None)
+        sid = "live_" + "a" * 32
+        monkeypatch.setitem(live_service._sessions, sid,
+                            {"dir": None, "engine": "ollama", "owner_user_id": world["a_id"]})
+        client = _client(_app())
+        urls = ["/api/discover/bulk-extract/result", "/api/discover/navigation-help/result",
+                "/api/sources/jobs/sources_search/result", f"/api/live/sessions/{sid}"]
+        for url in urls:
+            assert client.get(url, headers=world["b"]).status_code == 404, url
+            assert client.get(url, headers=world["a"]).status_code == 200, url
+            assert client.get(url, headers=world["admin"]).status_code == 200, url
+        assert client.post(f"/api/live/sessions/{sid}/stop",
+                           headers=world["b"]).status_code == 404
+        listed = client.get("/api/live/sessions", headers=world["b"]).json()
+        assert sid not in {s["session_id"] for s in listed}
+        listed = client.get("/api/live/sessions", headers=world["a"]).json()
+        assert sid in {s["session_id"] for s in listed}
+
+    def test_import_job_result_follows_drama_visibility(self, world, monkeypatch):
+        import background_jobs
+        status = {"status": "running", "progress": 0.5, "message": "", "result": None,
+                  "owner_user_id": None}
+        monkeypatch.setattr(background_jobs, "get_status", lambda job_id: dict(status))
+        client = _client(_app())
+        priv = f"/api/sources/jobs/sourceimport_{world['private']}/result"
+        shared = f"/api/sources/jobs/sourceimport_{world['shared']}/result"
+        assert client.get(priv, headers=world["b"]).status_code == 404
+        assert client.get(shared, headers=world["b"]).status_code == 200
+        assert client.get(priv, headers=world["a"]).status_code == 200

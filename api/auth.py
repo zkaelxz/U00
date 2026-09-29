@@ -122,6 +122,7 @@ def require_permission(permission: str):
         if permission not in principal["permissions"]:
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
+        ownership_service.note_acting_principal(principal)
         require_path_visible(request, principal)
         return principal
 
@@ -502,3 +503,24 @@ class LoopbackOnlyGate:
                     return await send({"type": "websocket.close", "code": 1008})
                 return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         return await self.app(scope, receive, send)
+
+
+class ActingPrincipalMiddleware:
+    """Pure-ASGI middleware, installed only with auth on (auth B2). Binds a
+    per-request holder (ownership_service.bind_request) that
+    require_permission fills with the principal, so background_jobs can
+    record which user started a job without every service passing it
+    through. Pure ASGI (not BaseHTTPMiddleware) so the context var reaches
+    the endpoint."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        token = ownership_service.bind_request()
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            ownership_service.unbind_request(token)

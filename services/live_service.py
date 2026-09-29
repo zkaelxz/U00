@@ -29,7 +29,7 @@ from typing import Optional
 import background_jobs
 import live_translate
 import translate_engines
-from services import settings_service, translate_service, url_guard
+from services import ownership_service, settings_service, translate_service, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
@@ -231,7 +231,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "starting": True}
+        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "starting": True,
+                                 "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = background_jobs.start_job(
             session_id, _make_target(session_id),
@@ -257,19 +258,24 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     return {"session_id": session_id}
 
 
-def _require(session_id) -> dict:
+def _visible(principal, session_id, entry) -> bool:
+    return ownership_service.can_see_job(principal, session_id, entry.get("owner_user_id"))
+
+
+def _require(session_id, principal=None) -> dict:
+    """Another user's session is a 404 like an unknown one (auth B2)."""
     with _lock:
-        known = isinstance(session_id, str) and session_id in _sessions
-    if not known:
+        entry = _sessions.get(session_id) if isinstance(session_id, str) else None
+    if entry is None or not _visible(principal, session_id, entry):
         raise NotFoundError("No such live session.")
     return background_jobs.get_status(session_id)
 
 
-def stop_session(session_id) -> dict:
+def stop_session(session_id, principal=None) -> dict:
     """Bumps the generation first (so an in-flight chunk's result is
     discarded), then cancels: cancel_queued if still queued, else
     request_cancel. Idempotent on a finished session."""
-    job = _require(session_id)
+    job = _require(session_id, principal)
     live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
         _remove_dir(session_id)
@@ -287,10 +293,10 @@ def _status(job) -> str:
     return status if status in ("queued", "running", "done", "error", "cancelled") else "error"
 
 
-def get_session(session_id, after=0) -> dict:
+def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index}. Never a
     traceback, a filesystem path or a key."""
-    job = _require(session_id)
+    job = _require(session_id, principal)
     _reap()
     after = int(_num("after", after, 0, 10 ** 9))
     status = _status(job)
@@ -313,12 +319,14 @@ def get_session(session_id, after=0) -> dict:
             "cues": out, "next_index": max(after, len(cues))}
 
 
-def list_sessions() -> list:
+def list_sessions(principal=None) -> list:
     _reap()
     with _lock:
         items = list(_sessions.items())
     result = []
     for sid, entry in items:
+        if not _visible(principal, sid, entry):
+            continue
         job = background_jobs.get_status(sid)
         cues = (job or {}).get("result") or []
         result.append({"session_id": sid, "status": _status(job), "engine": entry.get("engine"),
