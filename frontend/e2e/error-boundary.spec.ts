@@ -52,16 +52,43 @@ test('a page render error shows the fallback, and navigating away recovers', asy
   await expect(page.getByTestId('error-fallback')).toHaveCount(0)
 })
 
-test('the static note is replaced on a normal start, and shows if the script never loads', async ({ page }) => {
-  await page.goto('/')
-  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
-  await expect(page.locator('#boot-static')).toHaveCount(0)
-
-  // Simulate the Windows text/plain case: the app bundle never runs.
+// The app bundle never runs (the Windows text/plain case, or a download that
+// stalls). The note says "Still loading…" at 4 s and only swaps to the help
+// text at 15 s; the 15 s stage is reached by seeking the note's CSS
+// animations rather than waiting.
+async function checkStalledStart(page: Page) {
   await page.route('**/assets/*.js', (route) => route.abort())
   await page.goto('/')
   const note = page.locator('#boot-static')
-  await expect(note).toContainText("Baihe's screens didn't load.")
+  const wait = note.locator('.boot-wait')
+  const help = note.locator('.boot-fail')
+  await expect(note).toHaveAttribute('role', 'alert')
+  await expect(note).toHaveCSS('opacity', '0')
   await expect(note).toHaveCSS('opacity', '1', { timeout: 10_000 })
+  await expect(wait).toHaveText('Still loading…')
+  await expect(wait).toHaveCSS('visibility', 'visible')
+  await expect(help).toHaveCSS('visibility', 'hidden')
+
+  await page.evaluate(() => {
+    for (const a of document.getAnimations()) a.currentTime = 16_000
+  })
+  await expect(wait).toHaveCSS('visibility', 'hidden')
+  await expect(help).toHaveCSS('visibility', 'visible')
+  await expect(help).toContainText("Baihe's screens didn't load.")
+}
+
+test('the static note is replaced on a normal start', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
+  await expect(page.locator('#boot-static')).toHaveCount(0)
+})
+
+test('a stalled start says "Still loading…" first, then shows the help', async ({ page }) => {
+  await checkStalledStart(page)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/desktop-static-note.png` })
+})
+
+test('both stages still appear with reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await checkStalledStart(page)
 })

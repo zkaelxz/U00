@@ -9,20 +9,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Baihe Studio</title>
     <!-- Styles for the static note below. Inline because the app's own CSS
-         may be what failed to load; it appears after a few seconds so a
-         normal start never flashes it (React replaces it on first render). -->
+         may be what failed to load. React replaces it on first render, so a
+         normal start never shows it. After 4 s it says "Still loading…"
+         (a slow phone connection is not an error); only after 15 s does it
+         swap to the "didn't load" help. The two lines share one grid cell
+         and swap by visibility. The !important keeps these delays working
+         under the app's reduced-motion rule (animation: none). -->
     <style>
       #boot-static {
+        display: grid;
         max-width: 40rem; margin: 2rem auto; padding: 1rem;
         font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
         border: 1px solid GrayText; border-radius: 10px;
-        opacity: 0; animation: boot-static-show 0s linear 3s forwards !important;
+        opacity: 0; animation: boot-static-show 0s linear 4s forwards !important;
       }
+      #boot-static > p { grid-area: 1 / 1; margin: 0; }
+      #boot-static .boot-wait { animation: boot-static-hide 0s linear 15s forwards !important; }
+      #boot-static .boot-fail { visibility: hidden; animation: boot-static-reveal 0s linear 15s forwards !important; }
       @keyframes boot-static-show { to { opacity: 1; } }
+      @keyframes boot-static-hide { to { visibility: hidden; } }
+      @keyframes boot-static-reveal { to { visibility: visible; } }
     </style>
   </head>
   <body>
-    <div id="root"><div id="boot-static" role="alert"><p>Baihe's screens didn't load. Press Ctrl+Shift+I, check Console, or see Diagnostics.</p></div></div>
+    <div id="root"><div id="boot-static" role="alert"><p class="boot-wait">Still loading…</p><p class="boot-fail">Baihe's screens didn't load. Press Ctrl+Shift+I, check Console, or see Diagnostics.</p></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
