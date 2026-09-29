@@ -3704,7 +3704,7 @@ class TestTranscribeQueuesBehindAnotherGpuJob:
             job = background_jobs.get_status(f"transcribe_{did}")
             assert job is not None
             assert job["status"] == "queued"
-            assert "GPU busy" in job["message"]
+            assert job["message"].startswith("Waiting for the GPU")  # names no other job (auth B2, M-1)
         finally:
             release.set()
             background_jobs.clear_job(f"transcribe_{did}")

@@ -132,7 +132,8 @@ def _already_imported(t: dict):
     return None
 
 
-def import_to_library(title_id) -> dict:
+def import_to_library(title_id, principal=None) -> dict:
+    """Creates a drama from a known title, owned by `principal` (auth B2)."""
     t = _find(title_id)
     existing = _already_imported(t)
     if existing is not None:
@@ -144,7 +145,7 @@ def import_to_library(title_id) -> dict:
         title_en=t["title_en"] or "",
         title_zh=(t["title_original"] or "") if t["language"] == "zh" else "",
         author=t["author"] or "", summary=t["summary_en"] or "",
-        media_type=media_type)
+        media_type=media_type, principal=principal)
 
 
 def list_platforms(language="", content_type="") -> dict:

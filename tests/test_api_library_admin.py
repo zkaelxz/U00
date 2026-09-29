@@ -209,7 +209,7 @@ class TestBulkTranslate:
         seen = {}
 
         def fake(drama_ids, default_locale="en-US", expected_engines=None,
-                 allow_paid_summary=True):
+                 allow_paid_summary=True, principal=None):
             seen["expected"] = expected_engines
             seen["allow_paid_summary"] = allow_paid_summary
             return {"job_id": "x", "queued": [a], "skipped": []}

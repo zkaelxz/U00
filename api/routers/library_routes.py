@@ -14,7 +14,7 @@ instead of on the event loop.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 from api.auth import require_permission
 from api.schemas import (
     DramaDetail, DramaListResponse, DramaSummary, ErrorResponse, LibraryCostResponse,
@@ -48,6 +48,7 @@ def _to_detail(drama: dict) -> DramaDetail:
             summary="List dramas in the library (the Library tab's 'All dramas' list)",
             responses={422: {"model": ErrorResponse}})
 def list_dramas(
+        request: Request,
         search: str = Query("", max_length=200, description="Substring of title or summary."),
         studio: str = Query("", max_length=200),
         author: str = Query("", max_length=200),
@@ -61,7 +62,7 @@ def list_dramas(
     dramas = library_service.list_library_dramas(
         search=search, studio=studio, author=author, voice_actor=voice_actor, status=status,
         source_language=source_language, media_type=media_type,
-        quick_filter=quick_filter, custom_tags=tag)
+        quick_filter=quick_filter, custom_tags=tag, principal=request.state.principal)
     items = [_to_summary(d) for d in dramas]
     return DramaListResponse(items=items, count=len(items))
 
@@ -78,37 +79,39 @@ _ERR_WRITE = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
 
 
 @router.get("/stats", dependencies=[require_permission("library.read")], response_model=LibraryDashboard, summary="Dashboard counts and spend")
-def get_stats():
-    return library_service.get_library_dashboard()
+def get_stats(request: Request):
+    return library_service.get_library_dashboard(principal=request.state.principal)
 
 
 @router.get("/recent", dependencies=[require_permission("library.read")], response_model=LibraryRecentResponse, responses=_ERR,
             summary="Recently active dramas")
-def get_recent(limit: int = Query(8, ge=1, le=50)):
-    return {"items": library_service.list_recently_active(limit)}
+def get_recent(request: Request, limit: int = Query(8, ge=1, le=50)):
+    return {"items": library_service.list_recently_active(
+        limit, principal=request.state.principal)}
 
 
 @router.get("/costs", dependencies=[require_permission("library.read")], response_model=LibraryCostResponse, summary="Cost breakdown by drama")
-def get_costs():
-    return {"items": library_service.list_cost_by_drama()}
+def get_costs(request: Request):
+    return {"items": library_service.list_cost_by_drama(principal=request.state.principal)}
 
 
 @router.get("/series", dependencies=[require_permission("library.read")], response_model=LibrarySeriesResponse,
             summary="Series that contain two or more dramas")
-def get_series():
-    return {"items": library_service.list_series_with_dramas()}
+def get_series(request: Request):
+    return {"items": library_service.list_series_with_dramas(principal=request.state.principal)}
 
 
 @router.get("/search", dependencies=[require_permission("library.read")], response_model=LibrarySearchResponse, responses=_ERR,
             summary="Search line text across every drama")
-def search(q: str = Query(min_length=1, max_length=200), limit: int = Query(50, ge=1, le=100)):
-    return library_service.search_lines(q, limit)
+def search(request: Request, q: str = Query(min_length=1, max_length=200),
+           limit: int = Query(50, ge=1, le=100)):
+    return library_service.search_lines(q, limit, principal=request.state.principal)
 
 
 @router.get("/history", dependencies=[require_permission("library.read")], response_model=LibraryHistoryResponse, responses=_ERR,
             summary="Reading history (default profile)")
-def get_history(limit: int = Query(25, ge=1, le=100)):
-    return {"items": library_service.list_history(limit)}
+def get_history(request: Request, limit: int = Query(25, ge=1, le=100)):
+    return {"items": library_service.list_history(limit, principal=request.state.principal)}
 
 
 @router.get("/presets", dependencies=[require_permission("library.read")], response_model=LibraryPresetsResponse, summary="Saved presets")

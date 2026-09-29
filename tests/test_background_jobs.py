@@ -568,19 +568,27 @@ class TestGpuJobGuard:
         bg.clear_job("gpu_f")
         bg.clear_job("gpu_g")
 
-    def test_gpu_busy_description_reflects_the_running_job(self):
+    def test_queued_message_never_names_the_running_job(self):
+        # Auth B2 (review M-1): the busy job may be another user's private
+        # drama, and whoever can see the waiting job reads its message.
         release = threading.Event()
         started = threading.Event()
         bg.start_job("gpu_h", lambda: (started.set(), release.wait(timeout=2.0)),
                      gpu_touching=True, description="Transcription for Test Drama")
         started.wait(timeout=2.0)
+        bg.start_job("gpu_h2", lambda: None, gpu_touching=True, description="Mine")
 
-        assert bg.gpu_busy_description() == "Transcription for Test Drama"
+        queued = bg.get_status("gpu_h2")
+        assert queued["status"] == "queued"
+        assert queued["message"] == bg.GPU_WAIT_MESSAGE
+        assert "Test Drama" not in queued["message"] and "gpu_h" not in queued["message"]
         assert "Transcription for Test Drama" in bg.get_status("gpu_h")["description"]
 
         release.set()
         _wait("gpu_h")
+        _wait("gpu_h2")
         bg.clear_job("gpu_h")
+        bg.clear_job("gpu_h2")
 
     def test_clearing_a_queued_job_drops_it_from_the_queue(self):
         release = threading.Event()
@@ -645,9 +653,11 @@ class TestExternalGpuLoadGuard:
         assert calls == [1]  # non-GPU jobs never consult the GPU guard at all
         bg.clear_job("cpu_ext")
 
-    def test_gpu_busy_description_falls_back_to_a_generic_name_for_external_load(self, monkeypatch):
+    def test_queued_message_for_external_load_is_generic(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
-        assert bg.gpu_busy_description() == "another application"
+        bg.start_job("gpu_ext_c", lambda: None, gpu_touching=True)
+        assert bg.get_status("gpu_ext_c")["message"] == bg.GPU_WAIT_MESSAGE
+        bg.clear_job("gpu_ext_c")
 
 
 class TestCancelQueued:

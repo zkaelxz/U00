@@ -33,7 +33,7 @@ Text is scrubbed, URLs reduced to scheme+host+path.
 
 import background_jobs
 import db
-from services import drama_service
+from services import drama_service, ownership_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import _import_supported, _scrub, safe_url
@@ -83,11 +83,12 @@ def _chapter_ids(values) -> list:
     return out
 
 
-def _require_drama(drama_id) -> dict:
+def _require_drama(drama_id, principal=None) -> dict:
+    """A drama `principal` can't see (auth B2) is a 404 like a missing one."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
         raise InvalidInputError("drama_id must be a positive integer.")
     drama = db.get_drama(drama_id)
-    if drama is None:
+    if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
         raise NotFoundError(f"No drama with id {drama_id}.")
     return drama
 
@@ -170,7 +171,7 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
     background_jobs.set_result(job_id, _import_result(chapters, raw.get("cancelled"), handoff))
 
 
-def start_chapter_import(name, series_id, chapter_ids, drama_id) -> dict:
+def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None) -> dict:
     """Starts `sourceimport_<drama_id>`. 404 unknown source or drama; 400
     source off or unable to import; 422 bad ids or the drama's media type
     doesn't match (comic sources need manhua/manga/manhwa, text sources a
@@ -183,7 +184,7 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id) -> dict:
     if not _import_supported(adapter) or not adapter.supports("get_chapters"):
         raise UnsupportedOperationError("This source can't import chapters.",
                                         details={"reason": "NOT_SUPPORTED"})
-    drama = _require_drama(drama_id)
+    drama = _require_drama(drama_id, principal)
     media = (drama.get("media_type") or "").lower()
     if adapter.supports("get_pages"):
         if media not in COMIC_MEDIA_TYPES:
@@ -236,13 +237,13 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool):
                                         "char_count": len(text)})
 
 
-def start_url_import(url, drama_id, local: bool = True) -> dict:
+def start_url_import(url, drama_id, local: bool = True, principal=None) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
     appended to a novel drama's raw-novel text. 422 bad/private URL or not
     a novel drama; 503 the host doesn't resolve; 404 no drama; 409 while a
     job runs for the drama."""
     url = check_public_url(url)
-    drama = _require_drama(drama_id)
+    drama = _require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
                                 "or create one first.")

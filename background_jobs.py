@@ -42,6 +42,11 @@ import traceback
 _jobs = {}
 
 
+def _acting_user_id():
+    from services import ownership_service
+    return ownership_service.acting_user_id()
+
+
 def _mirror_locked(job_id):
     """Caller must already hold _lock. Writes this job's current
     status-transition fields (Migration Slice 7) to the cross-process
@@ -67,7 +72,7 @@ def _mirror_locked(job_id):
             message=job.get("message"), error=job.get("error"),
             description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
             started_at=job.get("started_at"), finished_at=job.get("finished_at"),
-            result_json=result_json)
+            result_json=result_json, owner_user_id=job.get("owner_user_id"))
     except Exception:
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
@@ -216,34 +221,11 @@ def _other_gpu_job_running_locked(exclude_job_id):
     return None
 
 
-def gpu_busy_description():
-    """The description of whichever GPU-touching job is currently running,
-    for a "Waiting -- GPU busy with <this>" message. None if the GPU is free.
-    Step 25w: also checks the cross-process lock (see _gpu_slot_available_locked)
-    so this can name a `cli.py` run holding the GPU, not just another job in
-    this same process. Step 26d: falls back to a generic name when neither of
-    those explains it but the GPU is still loaded per nvidia-smi -- some
-    other application entirely (Jellyfin transcoding on the same card, say)."""
-    with _lock:
-        jid = _other_gpu_job_running_locked(None)
-        if jid is not None:
-            return _jobs[jid].get("description") or jid
-    try:
-        import db
-        _, description = db.gpu_lock_status()
-        if description:
-            return description
-    except Exception:
-        # Best-effort only, same as _gpu_slot_available_locked below -- an
-        # unreachable library DB shouldn't break this status message.
-        pass
-    try:
-        import diagnostics
-        if diagnostics.external_gpu_is_busy():
-            return "another application"
-    except Exception:
-        pass
-    return None
+# A queued job's message never names the job holding the GPU (auth B2,
+# review M-1): anyone who can see the waiting job reads its message, and
+# the busy job may be another user's private drama. Also what job_records
+# mirrors, so the persisted row doesn't carry it either.
+GPU_WAIT_MESSAGE = "Waiting for the GPU (another job is running)"
 
 
 def _gpu_slot_available_locked(job_id, description):
@@ -399,7 +381,8 @@ def _promote_next_queued_gpu_job():
             if entry.get("kind") == "process":
                 proc, result_queue = _register_process_job(
                     job_id, entry["target"], entry["args"],
-                    _jobs[job_id]["gpu_touching"], entry["description"])
+                    _jobs[job_id]["gpu_touching"], entry["description"],
+                    _jobs[job_id].get("owner_user_id"))
                 on_done = entry.get("on_done")
                 break
             _jobs[job_id]["status"] = "running"
@@ -488,9 +471,14 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     When the "limit to one GPU job at a time" setting is on and another
     gpu_touching job is already running (any job_id, any drama), this one
     is queued instead of started -- see _promote_next_queued_gpu_job().
-    description is a short human label for the "GPU busy with <this>"
-    message; defaults to job_id if not given.
+    description is a short human label for the job itself (never shown
+    in another job's queued message; see GPU_WAIT_MESSAGE).
+
+    The job records who started it (auth B2): the user id of the API
+    request this runs in (ownership_service.acting_user_id), or None for
+    the PC owner, auth off, Streamlit, the CLI and jobs started by jobs.
     """
+    owner_user_id = _acting_user_id()
     with _lock:
         if _exclusive_label is not None:
             return False
@@ -500,10 +488,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if gpu_touching and get_gpu_limit_enabled() and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
-                "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
+                "message": GPU_WAIT_MESSAGE,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False, "result": None,
                 "gpu_touching": True, "description": description, "kind": "thread",
+                "owner_user_id": owner_user_id,
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
@@ -514,6 +503,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             "error": None, "started_at": time.time(), "finished_at": None,
             "cancel_requested": False, "result": None,
             "gpu_touching": gpu_touching, "description": description, "kind": "thread",
+            "owner_user_id": owner_user_id,
         }
         _mirror_locked(job_id)
 
@@ -555,8 +545,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     and only Streamlit's render loop persists it -- an API-started job
     passes on_done so it can apply its own result. If on_done raises, the
     job ends "error" with a redacted message. Not called on error/cancel.
-    Carried through the GPU queue like target/args.
+    Carried through the GPU queue like target/args. Records its starter
+    like start_job().
     """
+    owner_user_id = _acting_user_id()
     with _lock:
         if _exclusive_label is not None:
             return False
@@ -566,25 +558,26 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         if gpu_touching and get_gpu_limit_enabled() and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
-                "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
+                "message": GPU_WAIT_MESSAGE,
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False, "result": None,
                 "gpu_touching": True, "description": description, "kind": "process",
-                "process": None,
+                "process": None, "owner_user_id": owner_user_id,
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done})
             return True
-        proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description)
+        proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
+                                                   owner_user_id)
     proc.start()
     threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, gpu_touching),
                      kwargs={"on_done": on_done}, daemon=True, name=f"job-watcher:{job_id}").start()
     return True
 
 
-def _register_process_job(job_id, target, args, gpu_touching, description):
+def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -598,7 +591,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description):
         "error": None, "started_at": time.time(), "finished_at": None,
         "cancel_requested": False, "result": None,
         "gpu_touching": gpu_touching, "description": description, "kind": "process",
-        "process": proc,
+        "process": proc, "owner_user_id": owner_user_id,
     }
     _mirror_locked(job_id)
     return proc, result_queue

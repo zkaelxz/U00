@@ -20,6 +20,7 @@ import re
 import time
 
 import db
+from services import ownership_service
 import diagnostics
 import background_jobs
 from services.service_errors import ConflictError, NotFoundError
@@ -369,30 +370,40 @@ def _redact(record: dict) -> dict:
     return out
 
 
-def list_jobs() -> list:
-    """Every job_records row, newest-started first, redacted for HTTP."""
-    return [_redact(r) for r in db.list_job_records()]
+def _visible(principal, record) -> bool:
+    return ownership_service.can_see_job(principal, record.get("job_id"),
+                                         record.get("owner_user_id"))
 
 
-def get_job(job_id: str) -> dict:
+def list_jobs(principal=None) -> list:
+    """Every job_records row `principal` may see (auth B2:
+    ownership_service.can_see_job; None = auth off, all), newest-started
+    first, redacted for HTTP."""
+    return [_redact(r) for r in db.list_job_records() if _visible(principal, r)]
+
+
+def get_job(job_id: str, principal=None) -> dict:
     """One job's record. Raises NotFoundError if no such job has ever
     been mirrored -- a plain KeyError-shaped miss, not a soft None, same
-    vocabulary every other service in this migration uses."""
+    vocabulary every other service in this migration uses -- and, the
+    same way, for a job `principal` may not see."""
     record = db.get_job_record(job_id)
-    if record is None:
+    if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
     return _redact(record)
 
 
-def cancel_job(job_id: str) -> dict:
+def cancel_job(job_id: str, principal=None) -> dict:
     """Requests cancellation of a queued/running job, possibly owned by
     another process. In-process jobs get the normal cancel flag at once;
     the job_records flag is set either way so the owning process notices
     it (throttled check in background_jobs). Unknown id -> NotFoundError;
     already finished -> ConflictError (409). Cancellation is
-    asynchronous: the returned status is the record's current one."""
+    asynchronous: the returned status is the record's current one. A job
+    `principal` may not see is a 404 (visibility, not starter-only: anyone
+    who can see a drama may cancel its jobs, as before)."""
     record = db.get_job_record(job_id)
-    if record is None:
+    if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
