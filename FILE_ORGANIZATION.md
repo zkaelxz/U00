@@ -263,6 +263,9 @@ baihe-subtitler/
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── sources_search_service.py     Sources S-3 -- search and series jobs with error mapping, scrubbed res
 │   │                             ults, known-chapter helper (no router yet)
+
+│   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
+│   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
