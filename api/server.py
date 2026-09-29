@@ -67,10 +67,13 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
         title="Baihe Studio API",
         version=API_VERSION,
         description="HTTP API for Baihe Studio. Runs alongside the Streamlit app and "
-                    "shares its library. Local/trusted-network use only; no authentication.",
-        docs_url="/api/docs",
+                    "shares its library. Authentication is off by default (local use); "
+                    "set BAIHE_API_AUTH=on to enforce sessions and permissions.",
+        # With auth on, the interactive docs/schema would publish every route
+        # to anyone who can reach the port, so they are not served.
+        docs_url=None if settings.auth_enabled else "/api/docs",
         redoc_url=None,
-        openapi_url="/api/openapi.json",
+        openapi_url=None if settings.auth_enabled else "/api/openapi.json",
     )
     app.state.settings = settings
     if settings.is_development and settings.cors_origins:

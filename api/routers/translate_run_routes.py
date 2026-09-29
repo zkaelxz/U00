@@ -9,7 +9,7 @@ see services/translate_run_service.py for the scope decision.
 from typing import Optional
 
 from fastapi import APIRouter, Path, Query
-
+from api.auth import require_permission
 from api.schemas import (ErrorResponse, TranslateBulkResumeResult, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted)
 from services import translate_run_service
@@ -17,14 +17,14 @@ from services import translate_run_service
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
 
 
-@router.get("/dramas/{drama_id}/config", response_model=TranslateRunConfig,
+@router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=TranslateRunConfig,
             summary="Read-only Translate-stage summary for one drama",
             responses={404: {"model": ErrorResponse}})
 def get_translate_run_config(drama_id: int = Path(ge=1)):
     return translate_run_service.get_translate_config(drama_id)
 
 
-@router.get("/dramas/{drama_id}/estimate", response_model=TranslateRunEstimate,
+@router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
             summary="Advisory pre-run cost estimate for one drama",
             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                        422: {"model": ErrorResponse}})
@@ -42,7 +42,7 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
         gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
 
 
-@router.post("/dramas/{drama_id}/run", response_model=TranslateRunStarted,
+@router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,
              summary="Start a translation (normal, Reflect and/or bulk) as a background job",
              responses={400: {"model": ErrorResponse},
                         404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
@@ -61,7 +61,7 @@ def start_translate_run(body: TranslateRunStart, drama_id: int = Path(ge=1)):
         reflect=body.reflect, bulk=body.bulk)
 
 
-@router.post("/dramas/{drama_id}/bulk/resume", response_model=TranslateBulkResumeResult,
+@router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,
              summary="Resume polling this drama's pending bulk jobs after a restart",
              responses={404: {"model": ErrorResponse}})
 def resume_bulk_translations(drama_id: int = Path(ge=1)):

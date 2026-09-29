@@ -7,7 +7,7 @@ in services/review_jobs_service.py.
 """
 
 from fastapi import APIRouter, Path
-
+from api.auth import require_permission
 from api.schemas import (EmotionJobStart, ErrorResponse, FixFlaggedJobStart,
                          ReviewJobStart, ReviewJobStarted)
 from services import review_jobs_service
@@ -19,35 +19,35 @@ _ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
            503: {"model": ErrorResponse}}
 
 
-@router.post("/dramas/{drama_id}/consistency", response_model=ReviewJobStarted,
+@router.post("/dramas/{drama_id}/consistency", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
              summary="Start the translation consistency check", responses=_ERRORS)
 def start_consistency(body: ReviewJobStart, drama_id: int = Path(ge=1)):
     return review_jobs_service.start_consistency_check(
         drama_id, body.engine, body.model, body.gemini_free_tier)
 
 
-@router.post("/dramas/{drama_id}/emotion", response_model=ReviewJobStarted,
+@router.post("/dramas/{drama_id}/emotion", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
              summary="Start emotional-register tagging", responses=_ERRORS)
 def start_emotion(body: EmotionJobStart, drama_id: int = Path(ge=1)):
     return review_jobs_service.start_emotion_tagging(
         drama_id, body.engine, body.model, body.gemini_free_tier, body.use_audio_cues)
 
 
-@router.post("/dramas/{drama_id}/notes", response_model=ReviewJobStarted,
+@router.post("/dramas/{drama_id}/notes", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
              summary="Start translation-notes generation", responses=_ERRORS)
 def start_notes(body: ReviewJobStart, drama_id: int = Path(ge=1)):
     return review_jobs_service.start_translation_notes(
         drama_id, body.engine, body.model, body.gemini_free_tier)
 
 
-@router.post("/dramas/{drama_id}/flag", response_model=ReviewJobStarted,
+@router.post("/dramas/{drama_id}/flag", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
              summary="Start the 'needs a second look' flag pass", responses=_ERRORS)
 def start_flag(body: ReviewJobStart, drama_id: int = Path(ge=1)):
     return review_jobs_service.start_flag_review(
         drama_id, body.engine, body.model, body.gemini_free_tier)
 
 
-@router.post("/dramas/{drama_id}/fix-flagged", response_model=ReviewJobStarted,
+@router.post("/dramas/{drama_id}/fix-flagged", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
              summary="Re-transcribe and re-translate flagged lines", responses=_ERRORS)
 def start_fix_flagged(body: FixFlaggedJobStart, drama_id: int = Path(ge=1)):
     return review_jobs_service.start_fix_flagged(

@@ -11,10 +11,8 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 `BAIHE_MONTHLY_CAP_USD` variables.
 
 - `BAIHE_API_HOST` (default `127.0.0.1`) -- loopback only by default.
-  Setting `0.0.0.0` exposes the API to the LAN with **no
-  authentication**; that matches today's trusted-network assumption
-  for Streamlit (Step 10e) but is not a remote-access story -- see the
-  roadmap's M8-H.
+  A non-loopback host is refused at startup unless `BAIHE_API_AUTH=on`
+  (Step 133, see below); the API has no authentication otherwise.
 - `BAIHE_API_PORT` (default `8600`) -- not adjacent to Streamlit's 8501
   or the extension bridge's 8756 (`page_server.DEFAULT_PORT`).
 - `BAIHE_API_ENV` (`development` or `production`, default
@@ -35,6 +33,13 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   React app (`frontend/dist`) at `/` from the same process. Has no
   effect when `frontend/dist/index.html` doesn't exist (API only).
   Unrelated to CORS and to the host binding.
+- `BAIHE_API_AUTH` (`off` default, or `on`) -- Step 133. `off` keeps
+  today's behaviour: every request is the local owner with every
+  permission. `on` enforces sessions, permissions and CSRF (see
+  `api/auth.py`). A non-loopback `BAIHE_API_HOST` is refused unless this
+  is `on` (`check_bind_safety`, called by `python -m api`).
+- `BAIHE_API_COOKIE_SECURE` (`1` default) -- the session cookie is always
+  `Secure` unless this is `0` AND the request is plain-http loopback (dev).
 """
 
 import os
@@ -56,6 +61,12 @@ class ApiSettings:
     cors_origins: tuple = field(default_factory=tuple)
     allow_key_writes: bool = False
     serve_frontend: bool = True
+    auth_mode: str = "off"        # "off" | "on"
+    cookie_secure: bool = True
+
+    @property
+    def auth_enabled(self) -> bool:
+        return self.auth_mode == "on"
 
     @property
     def is_development(self) -> bool:
@@ -97,6 +108,26 @@ def load_settings(environ=None) -> ApiSettings:
         serve_frontend = False
     else:
         raise ValueError(f"BAIHE_API_SERVE_FRONTEND must be 1 or 0, got {serve_text!r}")
+    auth_mode = (env.get("BAIHE_API_AUTH") or "off").strip().lower()
+    if auth_mode not in ("off", "on"):
+        raise ValueError(f"BAIHE_API_AUTH must be 'off' or 'on', got {auth_mode!r}")
+    cookie_secure = (env.get("BAIHE_API_COOKIE_SECURE") or "1").strip() != "0"
     return ApiSettings(host=host, port=port, environment=environment,
                        cors_origins=cors_origins, allow_key_writes=allow_key_writes,
-                       serve_frontend=serve_frontend)
+                       serve_frontend=serve_frontend, auth_mode=auth_mode,
+                       cookie_secure=cookie_secure)
+
+
+def is_loopback_host(host: str) -> bool:
+    return (host or "").strip().lower() in ("127.0.0.1", "localhost", "::1", "[::1]")
+
+
+def check_bind_safety(settings: ApiSettings):
+    """Refuses (ValueError) to listen on a non-loopback address while
+    authentication is off, so an unauthenticated API can't be exposed by
+    a single env var."""
+    if not is_loopback_host(settings.host) and not settings.auth_enabled:
+        raise ValueError(
+            f"Refusing to listen on {settings.host}: it is reachable from other machines and "
+            "BAIHE_API_AUTH is not 'on'. Set BAIHE_API_AUTH=on (and allowlist users with "
+            "`python -m api grant-admin <email>`), or use the default 127.0.0.1.")
