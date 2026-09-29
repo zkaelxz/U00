@@ -61,7 +61,9 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         job_cost_cap_usd=body.job_cost_cap_usd,
         fallback_chain=[f.model_dump() for f in body.fallback_chain]
         if body.fallback_chain else None,
-        reflect=body.reflect, bulk=body.bulk)
+        reflect=body.reflect, bulk=body.bulk,
+        default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes)
 
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,
