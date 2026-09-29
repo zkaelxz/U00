@@ -11,9 +11,9 @@ flagging function writes ONLY the flag/flag_note fields
 write that can't clobber a concurrent edit to a line's text/timing/
 speaker, the same discipline every other background-job write in this
 app follows (see root CLAUDE.md's "A background job must not silently
-overwrite another job's work"). What's still deliberately out of scope,
-each its own separate slice: audiobook/burned-in-video export (each its
-own subprocess dependency, ffmpeg in particular). Slice 27 adds ASS text
+overwrite another job's work"). Audiobook/burned-in-video export
+(each its own subprocess dependency, ffmpeg) live in
+services/media_export_service.py (Slices 29-30), not here. Slice 27 adds ASS text
 generation (generate_ass_text) with per-request style (not persisted) and
 get_ass_style_options.
 
@@ -158,7 +158,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     does. notes_as_separate_line requires include_notes.
 
     Out of scope: persisting the style per drama (it's per-request), the
-    burned-in-video and audiobook exports, the Package zip, "Mark as
+    Package zip, "Mark as
     exported", and any binary/file download.
 
     Raises NotFoundError (unknown drama) and InvalidInputError (unknown
@@ -261,8 +261,8 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     include_notes folds in this drama's saved translation notes
     (db.list_translation_notes), appended inline the same way the
     Streamlit tab's own "Include translation notes inline" checkbox
-    does -- ASS's separate-note-line option is not modeled here (see
-    this module's own docstring for why ASS itself is out of scope).
+    does -- ASS's separate-note-line option is not modeled here (use
+    generate_ass_text for ASS, Slice 27).
     wrap_chars_en/wrap_chars_source optionally cap characters per line
     (subtitle_formats.wrap_lines); None on either side leaves that
     language unwrapped.

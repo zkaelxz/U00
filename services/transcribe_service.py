@@ -40,10 +40,8 @@ DependencyUnavailableError, both raised at start (not inside the job).
 
 Deliberately out of scope for this slice (each a real, separately
 buildable follow-up, not an oversight):
-  - The `chunk_and_tag` novel_narration path -- fully synchronous today
-    (no background job at all), a real LLM call over the whole chunked
-    text with no natural job boundary; needs its own scope/benchmark
-    pass before deciding whether a synchronous API call is a good fit.
+  - The `chunk_and_tag` novel_narration path -- now Slice 33, see
+    services/narration_service.py (a job-does-everything background job).
   - Audio/video upload (per Slice 19 -- unchanged: this slice still
     requires audio already on disk, i.e. source_service's
     audio_available == True).
