@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { Field } from '../../../../components/Field'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import { gapForNewLine } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
@@ -69,10 +70,10 @@ export function AddLineForm({ after, next, busy, blocked, onAdd, onCancel }: Pro
       {problem && <p className="error" role="alert">{problem}</p>}
       {blocked && <p className="muted">{blocked}</p>}
       <div className="actions">
-        <button type="submit" className="primary" disabled={!!problem || busy || !!blocked}>
+        <button type="submit" className={buttonClass('primary')} disabled={!!problem || busy || !!blocked}>
           {busy ? 'Adding…' : after ? `Add after #${lineNumber(after.idx)}` : 'Add first line'}
         </button>
-        {onCancel && <button type="button" className="link" onClick={onCancel}>Back</button>}
+        {onCancel && <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Back</button>}
       </div>
     </form>
   )

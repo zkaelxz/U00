@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { getConsistency, getEmotions, searchLines } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
+import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { ConsistencyIssue, EmotionSummary, ReviewLine } from '../../../../types/review'
 import { FindingList, FindingRow } from './FindingList'
@@ -136,7 +137,7 @@ function ConsistencyItem({ dramaId, issue, reloads, onGoTo }: { dramaId: number;
       {issue.variants.length > 0 && <span> → {issue.variants.join(' / ')}</span>}
       {issue.note && <div className="muted">{issue.note}</div>}
       {hits === null ? (
-        <button type="button" className="link review-jump" disabled={busy || noWords} onClick={() => {
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy || noWords} onClick={() => {
             setError(null)
             setShown(true)
             setTries((n) => n + 1)
@@ -177,7 +178,7 @@ function EmotionSection({ summary, onGoTo }: { summary: EmotionSummary; onGoTo: 
         ))}
       </ul>
       {lines.length > shown.length && (
-        <button type="button" className="link review-jump" onClick={() => setAll(true)}>
+        <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setAll(true)}>
           Show all {lines.length}
         </button>
       )}

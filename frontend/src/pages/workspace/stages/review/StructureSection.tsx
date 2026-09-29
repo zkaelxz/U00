@@ -5,6 +5,8 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
+import { humanize } from '../../../../components/labels'
+import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ResegmentPreview } from '../../../../types/restructure'
 import { useStage } from '../../StageContext'
@@ -91,11 +93,13 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                     <li className="muted">and {preview.changed.length - SHOWN_CHANGES} more</li>
                   )}
                 </ul>
-                <label className="review-check">
-                  <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} /> Use AI
-                </label>
+                <div className="setting-list review-toggles">
+                  <Field label="Use AI">
+                    <Toggle checked={useAi} onChange={setUseAi} />
+                  </Field>
+                </div>
                 {useAi && (
-                  <Section title="Advanced" summary={`engine ${engine || 'default'} · model ${model || 'default'}`}>
+                  <Section title="Advanced" summary={`${engine ? humanize('engine', engine) : 'Default engine'} · ${model || 'default model'}`}>
                     <div className="review-edit-row">
                       <Field label="Engine" help="Blank uses the default translation engine from Settings.">
                         <input value={engine} onChange={(e) => setEngine(e.target.value)} />

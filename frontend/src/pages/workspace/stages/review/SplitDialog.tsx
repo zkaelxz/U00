@@ -1,6 +1,8 @@
 import { useState, type SyntheticEvent } from 'react'
 
 import { Field } from '../../../../components/Field'
+import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import { charCount, codePointOffset, estimateSplitTime, splitPieces } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
@@ -91,9 +93,11 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
         </Field>
       </div>
       {enLen > 1 && (
-        <label className="review-check">
-          <input type="checkbox" checked={splitEn} onChange={(e) => setSplitEn(e.target.checked)} /> Also split the translation
-        </label>
+        <div className="setting-list review-toggles">
+          <Field label="Also split the translation">
+            <Toggle checked={splitEn} onChange={setSplitEn} />
+          </Field>
+        </div>
       )}
       {splitEn && (
         <Field label="Translation" help="Tap where the translation should break.">
@@ -106,10 +110,10 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
       </div>
       {blocked && <p className="muted">{blocked}</p>}
       <div className="actions">
-        <button type="submit" className="primary" disabled={!valid || busy || !!blocked}>
+        <button type="submit" className={buttonClass('primary')} disabled={!valid || busy || !!blocked}>
           {busy ? 'Splitting…' : 'Split line'}
         </button>
-        <button type="button" className="link" onClick={onCancel}>Back</button>
+        <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Back</button>
       </div>
     </form>
   )

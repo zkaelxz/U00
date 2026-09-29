@@ -33,9 +33,9 @@ describe('AI check bodies (R50/R33)', () => {
     expect(checkJobBody('emotion', { ...EMPTY_CHECK_FORM, audioCues: true })).toEqual({ use_audio_cues: true })
   })
   it('summarises the choices, with the audio default following the drama', () => {
-    expect(checkFormSummary(EMPTY_CHECK_FORM, 'gemini', true)).toBe('gemini engine · audio cues')
-    expect(checkFormSummary(EMPTY_CHECK_FORM, '', false)).toBe('default engine')
-    expect(checkFormSummary({ engine: 'claude', model: 'm1', audioCues: false }, 'gemini', true)).toBe('claude · m1')
+    expect(checkFormSummary(EMPTY_CHECK_FORM, 'gemini', true)).toBe('Gemini engine · audio cues')
+    expect(checkFormSummary(EMPTY_CHECK_FORM, '', false)).toBe('Default engine')
+    expect(checkFormSummary({ engine: 'claude', model: 'm1', audioCues: false }, 'gemini', true)).toBe('Claude · m1')
   })
 })
 
@@ -62,7 +62,7 @@ describe('fix-flagged body', () => {
   })
   it('summarises the choice', () => {
     expect(fixFormSummary(EMPTY_FIX_FORM, 'Gemini')).toBe('Gemini engine · no cost cap')
-    expect(fixFormSummary({ engine: 'openai', model: 'm', cap: '2' }, 'Gemini')).toBe('openai · m · cap $2')
+    expect(fixFormSummary({ engine: 'openai', model: 'm', cap: '2' }, 'Gemini')).toBe('OpenAI · m · cap $2')
   })
 })
 

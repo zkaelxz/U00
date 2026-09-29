@@ -13,8 +13,10 @@ import {
   patchLine,
   searchLines,
 } from '../../../../api/review'
+import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
+import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { useShortcut } from '../../../../hooks/useShortcut'
 import { routeHref } from '../../../../router'
@@ -74,6 +76,7 @@ type Target = 'first' | 'last' | number
 type Pending = { target: Target; edit?: boolean }
 
 const PHONE = '(max-width: 640px)'
+const WIDE = '(min-width: 1024px)'
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
 const DRAFT_NOT_SAVED = 'Your edit to this line could not be saved, so nothing else was changed. Close this and check the line.'
 const SEARCH_DEBOUNCE_MS = 300
@@ -101,6 +104,8 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, onFlaggedCount, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
+  // Wide screens: a source video gets its own sticky card beside the lines.
+  const isWide = useMediaQuery(WIDE)
   const [filter, setFilter] = useState<LineFilter>('all')
   const [page, setPage] = useState(1)
   const [input, setInput] = useState('')
@@ -128,6 +133,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const player = useRef<PlayerHandle>(null)
   // Phones: the player's video and tools sit here, under the sticky toolbar.
   const [playerDock, setPlayerDock] = useState<HTMLDivElement | null>(null)
+  // Wide screens with a video: the video, seek bar and subtitles sit in the side card.
+  const [sideDock, setSideDock] = useState<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const pending = useRef<Pending | null>(null)
@@ -883,206 +890,215 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const editingActive = edit !== null && edit.lineId === activeId
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager
+  const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
 
   return (
-    <section className="review-editor" aria-label="Lines" ref={sectionRef}>
-      {!emptyDrama && (
-      <ReviewToolbar
-        isPhone={isPhone}
-        filter={filter}
-        counts={counts}
-        onFilter={(f) => void changeFilter(f)}
-        search={input}
-        searchRef={searchRef}
-        onSearch={(v) => void changeSearch(v)}
-        resultCount={searching && found ? found.length : null}
-        page={page}
-        pages={pages}
-        showPager={showPager && !pagerInPlayer}
-        onPage={(p) => void ctl.goPage(p, 'first')}
-        onGoTo={(n) => void goToNumber(n)}
-        replaceOpen={replaceOpen}
-        onToggleReplace={toggleReplace}
-        onKeys={() => setKeysOpen(true)}
-        player={
-          mediaKind ? (
-            <Player
-              ref={player}
-              dramaId={dramaId}
-              kind={mediaKind}
-              lines={shown}
-              selected={active}
-              captionVersion={reloads}
-              panelHost={isPhone ? playerDock : undefined}
-              trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
-            />
-          ) : null
-        }
-      />
-      )}
-      {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
-      {data && (
-        <p className="sr-only" data-testid="line-counts">
-          {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+    <section className={sideVideo ? 'review-editor has-side' : 'review-editor'} aria-label="Lines" ref={sectionRef}>
+      <div className="review-main">
+        {!emptyDrama && (
+        <ReviewToolbar
+          isPhone={isPhone}
+          filter={filter}
+          counts={counts}
+          onFilter={(f) => void changeFilter(f)}
+          search={input}
+          searchRef={searchRef}
+          onSearch={(v) => void changeSearch(v)}
+          resultCount={searching && found ? found.length : null}
+          page={page}
+          pages={pages}
+          showPager={showPager && !pagerInPlayer}
+          onPage={(p) => void ctl.goPage(p, 'first')}
+          onGoTo={(n) => void goToNumber(n)}
+          replaceOpen={replaceOpen}
+          onToggleReplace={toggleReplace}
+          onKeys={() => setKeysOpen(true)}
+          player={
+            mediaKind ? (
+              <Player
+                ref={player}
+                dramaId={dramaId}
+                kind={mediaKind}
+                lines={shown}
+                selected={active}
+                captionVersion={reloads}
+                panelHost={isPhone ? playerDock : sideVideo ? sideDock : undefined}
+                trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
+              />
+            ) : null
+          }
+        />
+        )}
+        {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
+        {data && (
+          <p className="sr-only" data-testid="line-counts">
+            {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+          </p>
+        )}
+        {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
+        {!searching && !!data?.flagged_count && (
+          <div className="review-flagnav" role="group" aria-label="Flagged lines">
+            <button type="button" className={buttonClass('secondary', 'sm')} title="Previous flagged line (Alt+↑)" onClick={() => void ctl.moveFlagged(-1)}>
+              ‹ Previous flagged
+            </button>
+            <button type="button" className={buttonClass('secondary', 'sm')} title="Next flagged line (Alt+↓)" onClick={() => void ctl.moveFlagged(1)}>
+              Next flagged ›
+            </button>
+          </div>
+        )}
+        <p className="review-status" role="status">
+          {status}
         </p>
-      )}
-      {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-      {!searching && !!data?.flagged_count && (
-        <div className="review-flagnav" role="group" aria-label="Flagged lines">
-          <button type="button" title="Previous flagged line (Alt+↑)" onClick={() => void ctl.moveFlagged(-1)}>
-            ‹ Previous flagged
-          </button>
-          <button type="button" title="Next flagged line (Alt+↓)" onClick={() => void ctl.moveFlagged(1)}>
-            Next flagged ›
-          </button>
-        </div>
-      )}
-      <p className="review-status" role="status">
-        {status}
-      </p>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {hiddenEdit && (
-        <div className="banner review-hidden-edit" role="alert" data-testid="hidden-edit">
-          <span>
-            Your edit to #{lineNumber(hiddenEdit.base.idx)} is outside this view.
-            {issue?.lineId === hiddenEdit.lineId && issue.conflict && ' It changed elsewhere, so it could not be saved.'}
-          </span>
-          <span className="actions">
-            <button type="button" onClick={() => void ctl.saveEdit().then((ok) => ok && ctl.setEditNow(null))}>Save</button>
-            <button type="button" onClick={discardHidden}>Discard</button>
-            <button type="button" onClick={() => void showHidden()}>Show</button>
-          </span>
-        </div>
-      )}
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {hiddenEdit && (
+          <div className="banner review-hidden-edit" role="alert" data-testid="hidden-edit">
+            <span>
+              Your edit to #{lineNumber(hiddenEdit.base.idx)} is outside this view.
+              {issue?.lineId === hiddenEdit.lineId && issue.conflict && ' It changed elsewhere, so it could not be saved.'}
+            </span>
+            <span className="actions">
+              <button type="button" className={buttonClass('primary', 'sm')} onClick={() => void ctl.saveEdit().then((ok) => ok && ctl.setEditNow(null))}>Save</button>
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void showHidden()}>Show</button>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={discardHidden}>Discard</button>
+            </span>
+          </div>
+        )}
 
-      {loading && (
-        <ul className="review-lines" aria-hidden="true">
-          {Array.from({ length: 6 }, (_, i) => (
-            <li key={i} className="review-line review-skeleton" />
+        {loading && (
+          <ul className="review-lines" aria-hidden="true">
+            {Array.from({ length: 6 }, (_, i) => (
+              <li key={i} className="review-line review-skeleton" />
+            ))}
+          </ul>
+        )}
+        {!loading && shown.length === 0 && !error && (
+          <div className="review-empty">
+            <p className="muted">{emptyMessage(filter, term)}</p>
+            {filter === 'all' && !searching ? (
+              <div className="actions">
+                <ButtonLink variant="primary" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+                  Go to Source
+                </ButtonLink>
+                <button type="button" className={buttonClass('secondary')} disabled={jobRunning} onClick={() => void ctl.openSheet(null, 'add')}>
+                  Add first line
+                </button>
+              </div>
+            ) : (
+              <button type="button" className={buttonClass('ghost')} onClick={() => void changeFilter('all')}>
+                All lines
+              </button>
+            )}
+          </div>
+        )}
+        <ul className="review-lines" ref={listRef}>
+          {shown.map((l) => (
+            <LineRow
+              key={l.id}
+              dramaId={dramaId}
+              line={l}
+              active={l.id === activeId}
+              isPhone={isPhone}
+              hasMedia={mediaKind !== null}
+              jobRunning={jobRunning}
+              limited={limited}
+              edit={edit?.lineId === l.id ? edit : null}
+              ai={ai?.lineId === l.id ? ai.mode : null}
+              tm={tmByLine.get(l.id) ?? null}
+              issue={issue?.lineId === l.id ? issue : null}
+              actions={actions}
+            />
           ))}
         </ul>
-      )}
-      {!loading && shown.length === 0 && !error && (
-        <div className="review-empty">
-          <p className="muted">{emptyMessage(filter, term)}</p>
-          {filter === 'all' && !searching ? (
-            <div className="actions">
-              <a className="review-primary-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                Go to Source
-              </a>
-              <button type="button" disabled={jobRunning} onClick={() => void ctl.openSheet(null, 'add')}>
-                Add first line
-              </button>
-            </div>
-          ) : (
-            <button type="button" className="link" onClick={() => void changeFilter('all')}>
-              All lines
-            </button>
-          )}
-        </div>
-      )}
-      <ul className="review-lines" ref={listRef}>
-        {shown.map((l) => (
-          <LineRow
-            key={l.id}
-            dramaId={dramaId}
-            line={l}
-            active={l.id === activeId}
-            isPhone={isPhone}
-            hasMedia={mediaKind !== null}
-            jobRunning={jobRunning}
-            limited={limited}
-            edit={edit?.lineId === l.id ? edit : null}
-            ai={ai?.lineId === l.id ? ai.mode : null}
-            tm={tmByLine.get(l.id) ?? null}
-            issue={issue?.lineId === l.id ? issue : null}
-            actions={actions}
-          />
-        ))}
-      </ul>
-      {showPager && (
-        <div className="review-bottom-pager">
-          <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} />
-        </div>
-      )}
+        {showPager && (
+          <div className="review-bottom-pager">
+            <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} />
+          </div>
+        )}
 
-      {isPhone && active && (
-        <div className="review-editbar" role="toolbar" aria-label="Line actions">
-          {editingActive ? (
-            <>
-              <button type="button" onClick={actions.cancelEdit}>Cancel</button>
-              <button type="button" onClick={actions.save}>Save</button>
-              <button type="button" className="primary" onClick={actions.saveAndNext}>Save &amp; next</button>
-            </>
-          ) : (
-            <>
-              {mediaKind && (
+        {isPhone && active && (
+          <div className="review-editbar" role="toolbar" aria-label="Line actions">
+            {editingActive ? (
+              <>
+                <button type="button" className={buttonClass('ghost')} onClick={actions.cancelEdit}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} onClick={actions.save}>Save</button>
+                <button type="button" className={buttonClass('primary')} onClick={actions.saveAndNext}>Save &amp; next</button>
+              </>
+            ) : (
+              <>
+                {mediaKind && (
+                  <button
+                    type="button"
+                    aria-label={`Play line ${lineNumber(active.idx)}`}
+                    onClick={() => {
+                      showActive()
+                      player.current?.toggleLine(active)
+                    }}
+                  >
+                    ▶ #{lineNumber(active.idx)}
+                  </button>
+                )}
+                <button type="button" aria-label="Previous line" onClick={() => ctl.move(-1)}>‹ Prev</button>
+                <button type="button" aria-label="Next line" onClick={() => ctl.move(1)}>Next ›</button>
                 <button
                   type="button"
-                  aria-label={`Play line ${lineNumber(active.idx)}`}
                   onClick={() => {
                     showActive()
-                    player.current?.toggleLine(active)
+                    void ctl.openEdit(active.id)
                   }}
                 >
-                  ▶ #{lineNumber(active.idx)}
+                  Edit #{lineNumber(active.idx)}
                 </button>
-              )}
-              <button type="button" aria-label="Previous line" onClick={() => ctl.move(-1)}>‹ Prev</button>
-              <button type="button" aria-label="Next line" onClick={() => ctl.move(1)}>Next ›</button>
-              <button
-                type="button"
-                onClick={() => {
-                  showActive()
-                  void ctl.openEdit(active.id)
-                }}
-              >
-                Edit #{lineNumber(active.idx)}
-              </button>
-            </>
-          )}
-        </div>
-      )}
+              </>
+            )}
+          </div>
+        )}
 
-      <LineActionsSheet
-        state={sheet}
-        line={sheetLine}
-        run={sheetRun}
-        hasMedia={mediaKind !== null}
-        jobRunning={jobRunning}
-        busy={busy}
-        error={structError}
-        errorText={sheetNote ?? structureErrorText(structError)}
-        limited={limited}
-        onView={(view) => {
-          setStructError(null)
-          setSheetNote(null)
-          // Split/merge/add work on saved text: save a draft first, stay on the menu if that fails.
-          void (view === 'menu' ? Promise.resolve(true) : ctl.leaveEdit()).then((ok) => {
-            if (ok) setSheet((s) => (s ? { ...s, view, armDelete: false } : s))
-            else setSheetNote(DRAFT_NOT_SAVED)
-          })
-        }}
-        onClose={() => setSheet(null)}
-        onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
-        onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
-        onImprove={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'improve'))}
-        onWhy={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain'))}
-        onTool={(mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode))}
-        onDismissFlag={() => closeSheetThen(() => sheetLine && actions.dismissFlag(sheetLine.id))}
-        onAddNote={() =>
-          closeSheetThen(() => {
-            if (!sheetLine) return
-            const id = sheetLine.id
-            void ctl.openEdit(id, true).then((ok) => ok && actions.setNote({ term: '', type: 'translation', text: '' }))
-          })
-        }
-        onSplit={doSplit}
-        onMerge={doMerge}
-        onAdd={doAdd}
-        onDelete={doDelete}
-      />
-      <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
+        <LineActionsSheet
+          state={sheet}
+          line={sheetLine}
+          run={sheetRun}
+          hasMedia={mediaKind !== null}
+          jobRunning={jobRunning}
+          busy={busy}
+          error={structError}
+          errorText={sheetNote ?? structureErrorText(structError)}
+          limited={limited}
+          onView={(view) => {
+            setStructError(null)
+            setSheetNote(null)
+            // Split/merge/add work on saved text: save a draft first, stay on the menu if that fails.
+            void (view === 'menu' ? Promise.resolve(true) : ctl.leaveEdit()).then((ok) => {
+              if (ok) setSheet((s) => (s ? { ...s, view, armDelete: false } : s))
+              else setSheetNote(DRAFT_NOT_SAVED)
+            })
+          }}
+          onClose={() => setSheet(null)}
+          onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}
+          onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
+          onImprove={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'improve'))}
+          onWhy={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain'))}
+          onTool={(mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode))}
+          onDismissFlag={() => closeSheetThen(() => sheetLine && actions.dismissFlag(sheetLine.id))}
+          onAddNote={() =>
+            closeSheetThen(() => {
+              if (!sheetLine) return
+              const id = sheetLine.id
+              void ctl.openEdit(id, true).then((ok) => ok && actions.setNote({ term: '', type: 'translation', text: '' }))
+            })
+          }
+          onSplit={doSplit}
+          onMerge={doMerge}
+          onAdd={doAdd}
+          onDelete={doDelete}
+        />
+        <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
+      </div>
+      {sideVideo && (
+        <aside className="card review-watch" aria-label="Video with subtitles">
+          <h3 className="card-title">Video with subtitles</h3>
+          <div className="review-watch-dock" ref={setSideDock} />
+        </aside>
+      )}
     </section>
   )
 }

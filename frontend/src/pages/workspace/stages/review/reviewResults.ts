@@ -1,6 +1,7 @@
 // Pure helpers for the Review stage's results and checks (ReviewFindings,
 // ReviewChecks, LineOrigin) and the AI jobs' start options. Lines are
 // linked by permanent id; idx is shown only as lineNumber(idx).
+import { humanize } from '../../../../components/labels'
 import { lineNumber } from '../../../../lineNumber'
 import type {
   Coverage,
@@ -13,6 +14,11 @@ import type {
 } from '../../../../types/review'
 
 // ---- fix-flagged start options ----
+
+// The chosen engine's label, else "<default> engine": "Claude", "Gemini engine".
+function engineName(engine: string, defaultEngine: string): string {
+  return engine ? humanize('engine', engine) : `${defaultEngine ? humanize('engine', defaultEngine) : 'Default'} engine`
+}
 
 export interface FixForm {
   engine: string // '' = the server's default engine
@@ -60,7 +66,7 @@ export function checkJobBody(kind: ReviewJobKind, f: CheckForm): ReviewJobBody {
 }
 
 export function checkFormSummary(f: CheckForm, defaultEngine: string, hasAudio: boolean): string {
-  const parts = [f.engine || `${defaultEngine || 'default'} engine`]
+  const parts = [engineName(f.engine, defaultEngine)]
   if (f.model) parts.push(f.model)
   if (f.audioCues ?? hasAudio) parts.push('audio cues')
   return parts.join(' · ')
@@ -74,7 +80,7 @@ export function spendText(spent: number, monthlyCap: number): string {
 }
 
 export function fixFormSummary(f: FixForm, defaultEngine: string): string {
-  const parts = [f.engine || `${defaultEngine || 'default'} engine`]
+  const parts = [engineName(f.engine, defaultEngine)]
   if (f.model) parts.push(f.model)
   parts.push(f.cap.trim() ? `cap $${f.cap.trim()}` : 'no cost cap')
   return parts.join(' · ')

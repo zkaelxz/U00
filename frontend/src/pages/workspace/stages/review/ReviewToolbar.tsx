@@ -1,5 +1,6 @@
 import { useState, type ReactNode, type RefObject } from 'react'
 
+import { buttonClass } from '../../../../components/uiClasses'
 import type { LineFilter } from '../../../../types/review'
 import { chipLabel } from './reviewLogic'
 
@@ -106,7 +107,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
 
   const extras = (
     <div className="review-toolbar-row review-extras">
-      <button type="button" aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
+      <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
         Replace…
       </button>
       <form
@@ -122,8 +123,8 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
           <input inputMode="numeric" aria-label="Go to line number" value={goTo} onChange={(e) => setGoTo(e.target.value)} />
         </label>
       </form>
-      <button type="button" aria-haspopup="dialog" onClick={p.onKeys}>
-        Keys ?
+      <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
+        Shortcuts
       </button>
     </div>
   )
@@ -150,7 +151,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
           </button>
         )}
         {p.isPhone && (
-          <button type="button" className="review-more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+          <button type="button" className={buttonClass('ghost', 'sm', 'review-more-toggle')} aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
             More
           </button>
         )}

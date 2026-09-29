@@ -146,7 +146,7 @@ test('A second block keeps the flag, updates its note in place and shows the rea
   await row.getByRole('button', { name: 'Edit details' }).click()
   const retry = row.getByTestId('blocked-retry')
   await retry.getByRole('button', { name: 'Retry line' }).click()
-  await expect(retry.getByTestId('blocked-again')).toHaveText('gemini also blocked this line: SAFETY')
+  await expect(retry.getByTestId('blocked-again')).toHaveText('Gemini also blocked this line: SAFETY')
   await expect(row).toHaveAttribute('data-flagged', 'true')
   await expect(row.getByTestId('line-flag')).toContainText('gemini: SAFETY')
 })
