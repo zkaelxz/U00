@@ -8,6 +8,7 @@ import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
@@ -115,6 +116,8 @@ export default function SourceStage() {
     <div className="stage-source">
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
       <NovelPanel />
+      <AutofillPanel />
+      <AnalyzePanel hasMedia={!!media && (media.has_audio || media.has_source_video)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
     </div>
   )

@@ -81,3 +81,24 @@ export interface NovelStatus {
   chapters: number
   ocr_running: boolean
 }
+
+// Mirrors api/schemas.py MediaAnalysis / AutofillRequest / AutofillSuggestion (Slice 37).
+export interface MediaAnalysis {
+  drama_id: number
+  duration_seconds: number
+  has_video: boolean
+  has_audio: boolean
+  audio_track_count: number
+  sample_rate: number | null
+}
+
+export interface AutofillRequest {
+  url?: string
+  page_text?: string
+}
+
+export interface AutofillSuggestion {
+  drama_id: number
+  suggestion: Record<string, string>
+  found: boolean
+}
