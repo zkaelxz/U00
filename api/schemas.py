@@ -1491,3 +1491,31 @@ class EngineKeyClearRequest(BaseModel):
 class EngineKeyResult(BaseModel):
     engine: str
     configured: bool
+
+
+class LineExplainRequest(BaseModel):
+    """Per-line AI helper request (Migration Slice 49). No keys/URLs."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    gemini_free_tier: bool = False
+
+
+class LineImproveRequest(LineExplainRequest):
+    issue: str = Field("", max_length=500)
+
+
+class LineImprovement(BaseModel):
+    line_id: int
+    current_en: str
+    suggestion: str
+    changed: bool
+    engine: str
+    model: Optional[str] = None
+
+
+class LineExplanation(BaseModel):
+    line_id: int
+    explanation: str
+    engine: str
+    model: Optional[str] = None
