@@ -54,3 +54,60 @@ def compute_workspace_stage_index(drama, lines, ddir):
     if _untranslated:
         return 3
     return 4
+
+
+# Stage keys of the React stage bar (five stages) and the 7-tab index each
+# one covers (docs/specs/ux-workspace-shell-and-review.md, "Stage status").
+STAGE_KEYS = ("source", "translate", "review", "dub", "export")
+_STAGE_FOR_INDEX = {0: "source", 1: "source", 2: "source", 3: "translate",
+                    4: "review", 5: "dub", 6: "export"}
+
+
+def get_drama_progress(drama_id: int) -> dict:
+    """The drama's pipeline progress for the React stage bar: the 7-tab
+    `stage_index` from compute_workspace_stage_index, the five-stage key it
+    maps to, whole-drama counts, booleans, and one state per stage
+    ("done", "current", "pending", "optional" or "blocked"). NotFoundError
+    for an unknown drama. Reads only; never creates the drama folder, and
+    returns no path or file name."""
+    import core as core_module
+    import db
+    from services.service_errors import NotFoundError
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    ddir = os.path.join(db.DRAMAS_DIR, str(drama_id))
+    index = compute_workspace_stage_index(drama, lines, ddir)
+    line_count = len(lines)
+    # Same definitions as the Review stage's counts (review_lines_service).
+    untranslated = sum(1 for ln in lines if (ln.zh or "").strip() and not (ln.en or "").strip())
+    flagged = sum(1 for ln in lines if ln.flag)
+    has_audio = bool(drama.get("audio_filename") or drama.get("source_video_filename"))
+    has_dub_track = os.path.isfile(os.path.join(ddir, "dub_track.wav"))
+    exported = drama.get("status") == "exported"
+    current = _STAGE_FOR_INDEX[index]
+    no_lines = line_count == 0
+
+    def state(key):
+        if key == "source":
+            return "current" if current == "source" else "done"
+        if key == "dub":
+            if has_dub_track:
+                return "done"
+            return "blocked" if no_lines else "optional"
+        if no_lines:
+            return "blocked"
+        if key == current and not (key == "export" and exported):
+            return "current"
+        if key == "translate":
+            return "done" if index > 3 and untranslated == 0 else "pending"
+        if key == "review":
+            return "done" if index >= 6 else "pending"
+        return "done" if exported else "pending"  # export
+
+    return {"drama_id": drama_id, "stage_index": index, "stage": current,
+            "line_count": line_count, "untranslated_count": untranslated,
+            "flagged_count": flagged, "has_audio": has_audio,
+            "has_dub_track": has_dub_track, "exported": exported,
+            "stages": [{"key": k, "state": state(k)} for k in STAGE_KEYS]}

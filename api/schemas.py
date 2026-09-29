@@ -1806,3 +1806,28 @@ class TranslateBulkCancelResult(BaseModel):
     drama_id: int
     bulk_job: TranslateBulkJobEntry
     message: str
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: workflow progress (GET /api/workflow/dramas/{id}/progress)
+# ---------------------------------------------------------------------------
+
+class WorkflowStageState(BaseModel):
+    key: str     # source | translate | review | dub | export
+    state: str   # done | current | pending | optional | blocked
+
+
+class WorkflowProgress(BaseModel):
+    """Pipeline progress for the React stage bar. `stage_index` is the 7-tab
+    scale of `compute_workspace_stage_index` (0-2 source, 3 translate,
+    4 review, 6 export; 5/dub is never current). Booleans only, no paths."""
+    drama_id: int
+    stage_index: int
+    stage: str
+    line_count: int
+    untranslated_count: int
+    flagged_count: int
+    has_audio: bool
+    has_dub_track: bool
+    exported: bool
+    stages: List[WorkflowStageState]

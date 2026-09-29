@@ -59,6 +59,7 @@ from api.routers import (
     transcribe_routes,
     translate_routes,
     translate_run_routes,
+    workflow_routes,
 )
 from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
@@ -142,6 +143,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
     app.include_router(sources_catalog_routes.router)
+    app.include_router(workflow_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

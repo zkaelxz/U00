@@ -181,7 +181,8 @@ baihe-subtitler/
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
 │   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
-│   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
+│   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab;
+│   │                             get_drama_progress (per-stage state + counts for the API)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
@@ -357,7 +358,8 @@ baihe-subtitler/
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
-│       └── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
+│       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
+│       └── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
