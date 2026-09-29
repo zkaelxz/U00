@@ -131,7 +131,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 
   const ocr = await open(page, 'OCR')
   await ocr.getByLabel('Default backend', { exact: true }).selectOption('manga_ocr')
-  await ocr.getByLabel('Japanese: prefer PaddleOCR-VL', { exact: true }).check()
+  await ocr.getByRole('switch', { name: 'Japanese: prefer PaddleOCR-VL' }).click()
   await ocr.getByLabel('Tesseract program', { exact: true }).fill('  C:\\Tess\\tesseract.exe ')
   await ocr.getByRole('button', { name: 'Save' }).click()
   await expect(ocr.getByRole('status')).toHaveText('Saved.')

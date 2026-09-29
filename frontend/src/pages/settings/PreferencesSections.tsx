@@ -12,6 +12,8 @@ import { clearEndpointUrl, setEndpointUrl, updatePreferences } from '../../api/s
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
+import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import { applyTheme, loadTheme, saveTheme, THEME_OPTIONS, type ThemePref } from '../../theme'
 import type { EndpointName, SettingsOverview, SettingsPreferences } from '../../types/settings'
@@ -134,7 +136,7 @@ export function PreferencesSections({ settings, onSettings }: Props) {
               </select>
             </Field>
             <Field label="Japanese: prefer PaddleOCR-VL" help="Only changes what Auto picks for Japanese. Leave off unless a side-by-side on your own pages shows it reads better than manga_ocr.">
-              <input type="checkbox" checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(e) => set('ocr_prefer_paddle_vl_manga', e.target.checked)} />
+              <Toggle checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(next) => set('ocr_prefer_paddle_vl_manga', next)} />
             </Field>
             <Field label="Tesseract program" help="Only needed if OCR says Tesseract is not installed or not on PATH after installing it. The full path to tesseract.exe on the Baihe PC. Blank if OCR already works.">
               <input type="text" spellCheck={false} value={String(d.tesseract_cmd)} onChange={(e) => set('tesseract_cmd', e.target.value)} placeholder="C:\Program Files\Tesseract-OCR\tesseract.exe" />
@@ -293,11 +295,11 @@ function PrefsSection({ title, storageKey, summary, prefs, remote, fromPrefs, to
         {children(draft, set)}
         {problem && <p className="error" role="alert">{problem}</p>}
         <div style={row}>
-          <button type="button" disabled={busy || !dirty} onClick={save}>
+          <button type="button" className={buttonClass('primary')} disabled={busy || !dirty} onClick={save}>
             {busy ? 'Saving…' : 'Save'}
           </button>
           {dirty && !busy && (
-            <button type="button" onClick={() => { setDraft(base); setProblem(null) }}>
+            <button type="button" className={buttonClass('ghost')} onClick={() => { setDraft(base); setProblem(null) }}>
               Undo changes
             </button>
           )}
@@ -434,10 +436,10 @@ function EndpointForm({ name, label, help, placeholder, current, configured, onR
       </Field>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <div style={row}>
-        <button type="button" disabled={busy || !draft.trim() || draft.trim() === current} onClick={save}>
+        <button type="button" className={buttonClass('primary')} disabled={busy || !draft.trim() || draft.trim() === current} onClick={save}>
           Save
         </button>
-        <button type="button" disabled={busy || !configured} onClick={() => run(() => clearEndpointUrl(name), 'Cleared.')}>
+        <button type="button" className={buttonClass('secondary')} disabled={busy || !configured} onClick={() => run(() => clearEndpointUrl(name), 'Cleared.')}>
           Clear
         </button>
         <span className="muted" role="status">{note ?? clearNote ?? ''}</span>
