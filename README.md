@@ -68,7 +68,8 @@ URL you have the right to download from, only.
 - **Known limitations.** The browser-extension bridge (`page_server.py`)
   and the scheduled chapter check are still only started by the
   Streamlit app. Launching through `start.bat` / `python -m api` does
-  not start them yet. Starting them from the API is a follow-up.
+  not start them yet; starting them with the API is a follow-up after
+  step 133.
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
@@ -312,12 +313,11 @@ comes back once authentication and permissions exist; see
 
 ### Running the app
 
-**GUI:**
+**GUI:** double-click `start.bat` (see Installation). Manual equivalent,
+from the repo root inside the venv, once `frontend/dist` exists:
 ```bash
-streamlit run app.py     # from the repo root, inside the venv
+python -m api     # then open http://127.0.0.1:8600/
 ```
-Streamlit serves on port 8501 by default (`start.bat` passes
-`--server.headless true --server.port 8501`).
 
 **CLI (headless batch):**
 ```bash
@@ -359,24 +359,21 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.
 - `npm run build` produces `frontend/dist`, and `python -m api` serves it
   at `/` when it exists (see below); `npm run preview` also works.
-- Loopback-only by default and no login. Setting `BAIHE_API_HOST=0.0.0.0`
-  exposes it, unauthenticated, to your network -- only on a network you
-  trust. See [`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md).
+- Loopback-only and no login. Keep `BAIHE_API_HOST` at `127.0.0.1` until
+  authentication exists (`start.bat` forces it); see
+  [`docs/remote-access-decision.md`](docs/remote-access-decision.md).
 
 #### React app in one command
 
-One process, one port, no Vite/npm at runtime. On Windows, double-click
-**`start-react.bat`** (needs the `venv` from `start.bat`; builds the
-frontend once if Node.js is installed, starts the API, opens
-`http://127.0.0.1:8600/`). The manual equivalent, from the repo root:
+`start.bat` is the one-command flow: one process, one port, no Vite/npm at
+runtime (see Installation). The manual equivalent, from the repo root:
 
 ```bash
-cd frontend && npm ci && npm run build && cd ..   # once
+cd frontend && npm ci && npm run build && cd ..   # once, or unzip the release zip
 python -m api                                     # then open http://127.0.0.1:8600/
 ```
 
-Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only. `start-react.bat` has not
-been run on real Windows yet.
+Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only.
 
 ### Trying it for free first
 
@@ -1549,7 +1546,7 @@ fails with `getaddrinfo failed` or `LocalEntryNotFoundError`, it's a
 network problem, not an audio one. In order of likelihood on Windows:
 
 1. **Antivirus or firewall** blocking Python's network access -- allow
-   `python.exe` and `streamlit.exe` explicitly.
+   `python.exe` explicitly.
 2. **A VPN** that's connected but not routing.
 3. **DNS**: `ipconfig /flushdns`, then set your adapter's DNS servers to
    `1.1.1.1` and `8.8.8.8`.
@@ -1571,7 +1568,7 @@ network problem, not an audio one. In order of likelihood on Windows:
 5. **Hugging Face blocked by your ISP or region** -- use a mirror:
    ```
    $env:HF_ENDPOINT="https://hf-mirror.com"     # PowerShell
-   streamlit run app.py
+   python -m api
    ```
 
 Check which case you're in:

@@ -21,6 +21,7 @@ on:
       - requirements-core.txt
       - constraints.txt
       - check_setup.py
+      - "api/**"
   pull_request:
     branches: [baihe-subtitler]
     paths:
@@ -28,6 +29,7 @@ on:
       - requirements-core.txt
       - constraints.txt
       - check_setup.py
+      - "api/**"
 
 # Cancel a still-running CI run for the same branch/PR once a newer push
 # supersedes it -- checked safe: this repo has no deployment/release
