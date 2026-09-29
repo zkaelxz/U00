@@ -261,6 +261,30 @@ class TestImportExportBulk:
         other = _drama(isolated_db, "T")
         assert client.post(_url(other, "import"), json={"text": r.text}).json()["added"] == ["沈清疑"]
 
+    @pytest.mark.parametrize("lead", ["=", "+", "-", "@"])
+    def test_export_csv_neutralises_formulas_and_round_trips(self, client, isolated_db, lead):
+        did = _drama(isolated_db)
+        term = {"term_original": f"{lead}HYPERLINK(1)", "term_translation": f"{lead}cmd|x",
+                "notes": f"{lead}1+1"}
+        assert client.post(_url(did, "terms"), json=term).status_code == 200
+        text = client.get(_url(did, "export.csv")).text
+        import csv, io
+        row = list(csv.reader(io.StringIO(text)))[1]
+        for cell in row:
+            assert not cell.startswith(("=", "+", "-", "@", "\t", "\r")), row
+        assert row[0] == f"'{lead}HYPERLINK(1)" and row[5] == f"'{lead}1+1"
+        other = _drama(isolated_db, "T")
+        assert client.post(_url(other, "import"), json={"text": text}).status_code == 200
+        t = client.get(_url(other, "terms")).json()[0]
+        assert (t["term_original"], t["term_translation"], t["notes"]) == (
+            term["term_original"], term["term_translation"], term["notes"])
+
+    def test_import_keeps_a_quote_not_before_a_formula_char(self, client, isolated_db):
+        did = _drama(isolated_db)
+        client.post(_url(did, "import"), json={"text": "term,translation\n'tis,'Twas\n"})
+        t = client.get(_url(did, "terms")).json()[0]
+        assert (t["term_original"], t["term_translation"]) == ("'tis", "'Twas")
+
     def test_export_csv_empty_and_unknown(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
         r = client.get(_url(did, "export.csv"))

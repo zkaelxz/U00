@@ -229,6 +229,21 @@ MAX_IMPORT_CHARS = 1_000_000
 MAX_IMPORT_TERMS = 2000
 MAX_BULK_DELETE = 1000
 _MAX_WARNINGS = 20
+# A spreadsheet reads a cell starting with one of these as a formula, so the
+# CSV export prefixes such a cell with ' and the import drops that one '.
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value):
+    if isinstance(value, str) and value.startswith(_FORMULA_STARTS):
+        return "'" + value
+    return value
+
+
+def _csv_unescape(value):
+    if isinstance(value, str) and value.startswith("'") and value[1:].startswith(_FORMULA_STARTS):
+        return value[1:]
+    return value
 
 
 def import_glossary_text(drama_id: int, text: str, filename: str = "",
@@ -270,9 +285,11 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
     for e in entries:
         original = e["term_original"]
         try:
-            original = _text(original, "term_original", MAX_TERM_LEN, required=True)
-            translation = _text(e["term_translation"], "term_translation", MAX_TERM_LEN)
-            notes = _text(e["notes"], "notes", MAX_NOTES_LEN)
+            original = _text(_csv_unescape(original), "term_original", MAX_TERM_LEN,
+                             required=True)
+            translation = _text(_csv_unescape(e["term_translation"]), "term_translation",
+                                MAX_TERM_LEN)
+            notes = _text(_csv_unescape(e["notes"]), "notes", MAX_NOTES_LEN)
         except InvalidInputError:
             report["invalid"].append(original[:MAX_TERM_LEN])
             continue
@@ -293,10 +310,12 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
 
 def glossary_csv(drama_id: int) -> str:
     """The tab's "Export glossary as CSV" (tguide.glossary_to_csv): the
-    series glossary as CSV text; just the header row when there is none."""
+    series glossary as CSV text; just the header row when there is none.
+    A cell that a spreadsheet would run as a formula is prefixed with '."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    return tguide.glossary_to_csv(db.list_glossary_terms(sid) if sid else [])
+    terms = db.list_glossary_terms(sid) if sid else []
+    return tguide.glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
