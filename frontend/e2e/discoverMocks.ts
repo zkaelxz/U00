@@ -166,6 +166,12 @@ export async function mockDiscover(page: Page, over: Partial<DiscoverMock> = {})
     s.bulk = 'running'
     return json(route, { job_id: 'discover_bulk_extract', started: true })
   })
+  // DI07 manual fallback: pasted listing text runs the same bulk job.
+  await page.route(/\/api\/discover\/bulk-extract\/pasted$/, (route) => {
+    record(route)
+    s.bulk = 'running'
+    return json(route, { job_id: 'discover_bulk_extract', started: true })
+  })
   await page.route(/\/api\/discover\/bulk-extract\/result$/, (route) => {
     record(route)
     if (s.bulk === 'none') return json(route, { error: { code: 'not_found', message: 'No such job.' } }, 404)
