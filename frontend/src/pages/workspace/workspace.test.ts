@@ -11,7 +11,7 @@ import {
   validateConfig,
   whisperModelWarning,
 } from './sourceForm'
-import { STAGE_IDS, isStageId, parseStage, stageStates, startStage } from './stages'
+import { STAGE_IDS, isStageId, parseStage, stageCount, stageStates, startStage } from './stages'
 import { pickForId } from './useDrama'
 
 describe('stage parsing', () => {
@@ -136,5 +136,20 @@ describe('source form persistence', () => {
   })
   it('names the reattachable job ids', () => {
     expect(sourceJobIds(7)).toEqual(['transcribe_7', 'diarize_7', 'ocrchapter_7', 'extract_audio_7', 'urlmedia_7'])
+  })
+})
+
+describe('stepper counts (§3.3)', () => {
+  const p = { line_count: 40, untranslated_count: 32, flagged_count: 12 }
+  it('shows untranslated on Translate and flagged on Review', () => {
+    expect(stageCount('translate', p)).toBe('32 left')
+    expect(stageCount('review', p)).toBe('12 flagged')
+    expect(stageCount('source', p)).toBeNull()
+    expect(stageCount('export', p)).toBeNull()
+  })
+  it('shows nothing with no progress, no lines or zero counts', () => {
+    expect(stageCount('translate', null)).toBeNull()
+    expect(stageCount('translate', { ...p, line_count: 0 })).toBeNull()
+    expect(stageCount('review', { ...p, flagged_count: 0 })).toBeNull()
   })
 })

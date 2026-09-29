@@ -5,6 +5,9 @@ import { getTranslateConfig } from '../../../../api/translateStage'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
+import { humanize } from '../../../../components/labels'
+import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateEngine } from '../../../../types/translate'
@@ -52,13 +55,13 @@ function EngineModelFields({
   const models = engines.find((e) => e.name === (engine || defaultEngine))?.models ?? null
   const engineLabel = (name: string) => {
     const e = engines.find((x) => x.name === name)
-    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
+    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : humanize('engine', name)
   }
   return (
     <>
       <Field label="Engine" help={help}>
         <select value={engine} onChange={(e) => onChange({ engine: e.target.value, model: '' })}>
-          <option value="">Default{defaultEngine ? ` (${defaultEngine})` : ''}</option>
+          <option value="">Default{defaultEngine ? ` (${humanize('engine', defaultEngine)})` : ''}</option>
           {engines.map((e) => (
             <option key={e.name} value={e.name}>
               {engineLabel(e.name)}
@@ -163,7 +166,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
       <Section storageKey="review.ai" title="AI review" summary="consistency, emotion, notes, flag, fix flagged">
         <div className="review-actions review-ai-actions">
           {KINDS.map(({ kind, label }) => (
-            <button key={kind} type="button" disabled={busy} onClick={() => void start(kind, checkJobBody(kind, checks))}>
+            <button key={kind} type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => void start(kind, checkJobBody(kind, checks))}>
               {label}
             </button>
           ))}
@@ -178,14 +181,11 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
               help="Which service runs these checks. The default is the drama's engine; engines marked (no key) cannot run, and translation-only engines cannot run these checks."
               onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
             />
-            <label className="review-ai-cues">
-              <input
-                type="checkbox"
-                checked={cuesOn}
-                onChange={(e) => setChecks((c) => ({ ...c, audioCues: e.target.checked }))}
-              />
-              Tag emotion: use audio delivery cues
-            </label>
+            <div className="setting-list review-toggles">
+              <Field label="Tag emotion: use audio delivery cues">
+                <Toggle checked={cuesOn} onChange={(on) => setChecks((c) => ({ ...c, audioCues: on }))} />
+              </Field>
+            </div>
           </div>
         </Section>
         {busy && <p className="muted review-ai-busy">A review job is running.</p>}
@@ -193,7 +193,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
           <legend>Fix flagged lines</legend>
           <p className="muted review-fix-hint">Redoes the source and English of every flagged line.</p>
           <div className="review-actions">
-            <button type="button" disabled={busy || noFlagged} onClick={startFix}>
+            <button type="button" className={buttonClass('secondary')} disabled={busy || noFlagged} onClick={startFix}>
               Fix flagged lines
             </button>
             {noFlagged && <span className="muted">Still needed: a flagged line.</span>}
