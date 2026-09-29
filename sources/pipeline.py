@@ -23,7 +23,7 @@ import time
 import background_jobs
 import db
 
-from . import ladder, registry
+from . import ladder, registry, store
 from .cache import RawCache
 from .http import Cancelled
 from .models import ChallengeDetected, ChapterInfo, SourceError, TermsProhibited
@@ -88,11 +88,27 @@ def import_job_id(source: str, series_id: str) -> str:
     return f"source_import_{source}_{series_id}"
 
 
-def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None):
+def _record_imported(source: str, ch, drama_id: int):
+    """Best effort: a failed bookkeeping write never fails the import."""
+    try:
+        store.record_imported(source, ch.series_id, ch.chapter_id, drama_id)
+    except Exception:
+        import applog
+        applog.get_logger().warning("Could not record an imported chapter", exc_info=True)
+
+
+def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
+                   skip_ids=None):
     """Background-job body. `chapters` are ChapterInfo (or their dicts) --
     only the ones the person ticked. Stores a result dict with per-chapter
     outcomes, the final Source Access stats, and a hand-off record if a
-    verification page stopped it."""
+    verification page stopped it.
+
+    `skip_ids`: chapter ids (matched by id, never by position) not to fetch
+    -- e.g. already imported into this drama; each gets a
+    {"skipped": True} outcome. Every chapter imported is recorded in
+    store.imported_chapters."""
+    skip_ids = {str(i) for i in (skip_ids or ())}
     chapters = [c if isinstance(c, ChapterInfo) else ChapterInfo(**c) for c in chapters]
     total = len(chapters)
     cache = RawCache()
@@ -129,6 +145,10 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         for i, ch in enumerate(chapters, start=1):
             state.update(chapter=i, page=0, pages=0)
             publish(adapter.client.snapshot())
+            if str(ch.chapter_id) in skip_ids:
+                results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                "ok": True, "skipped": True})
+                continue
             try:
                 ladder.check_terms(source, adapter.capabilities())
                 if adapter.supports("get_pages"):
@@ -140,15 +160,18 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         publish(adapter.client.snapshot())
                         images.append(adapter.download_page(page))
                     added = add_page_images(drama_id, images)
+                    _record_imported(source, ch, drama_id)
                     results.append({"chapter_id": ch.chapter_id, "title": ch.title,
                                     "ok": True, "pages": added})
                 else:
                     text = adapter.get_chapter_text(ch)
                     save_novel_text(drama_id, text, append=True, heading=ch.title)
+                    _record_imported(source, ch, drama_id)
                     results.append({"chapter_id": ch.chapter_id, "title": ch.title,
                                     "ok": True, "chars": len(text)})
             except ChallengeDetected as e:
-                handoff = {"url": e.url, "reason": e.reason.value, "chapter": ch.title}
+                handoff = {"url": e.url, "reason": e.reason.value, "chapter": ch.title,
+                           "chapter_id": ch.chapter_id}
                 results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,
                                 "error": str(e)})
                 break
@@ -169,9 +192,10 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                                             "finished_at": time.time()})
 
 
-def start_import(source: str, series_id: str, chapters, drama_id: int) -> bool:
+def start_import(source: str, series_id: str, chapters, drama_id: int, job_id: str = None,
+                 skip_ids=None) -> bool:
     chapters = list(chapters)
-    job_id = import_job_id(source, series_id)
+    job_id = job_id or import_job_id(source, series_id)
     return background_jobs.start_job(
-        job_id, run_import_job, job_id, source, chapters, drama_id,
+        job_id, run_import_job, job_id, source, chapters, drama_id, skip_ids=skip_ids,
         description=f"Import {len(chapters)} chapter(s) from {source}")

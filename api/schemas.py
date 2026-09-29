@@ -2827,3 +2827,19 @@ class TranslatePresetSave(BaseModel):
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+# ---------------------------------------------------------------------------
+# Sources S-4 chapter import (services/sources_import_service.py). Results
+# are read with GET /api/sources/jobs/{job_id}/result (SourcesJobResult).
+# ---------------------------------------------------------------------------
+
+from pydantic import StrictStr  # noqa: E402
+
+class SourcesChapterImportRequest(BaseModel):
+    """Chapter ids only: never chapter objects or URLs (the job re-fetches
+    the series' chapter list and keeps these ids). The drama must exist."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(min_length=1, max_length=200)
+    chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
+    drama_id: int = Field(ge=1)

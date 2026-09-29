@@ -33,6 +33,8 @@ from sources.models import (ChallengeDetected, ContentHidden, NotSupportedError,
 
 SEARCH_JOB_ID = "sources_search"
 SERIES_JOB_PREFIX = "sources_series_"
+# Chapter import (S-4) and pasted-URL novel import (S-5), one per drama.
+IMPORT_JOB_PREFIX = "sourceimport_"
 MAX_QUERY_LEN = 200
 MAX_ID_LEN = 200
 
@@ -75,8 +77,8 @@ def _error_view(exc, source: str = None) -> dict:
             "message": f"{type(exc).__name__}: {msg}", "details": None}
 
 
-_CLASS_BY_STATUS = {400: UnsupportedOperationError, 409: ConflictError,
-                    503: DependencyUnavailableError}
+_CLASS_BY_STATUS = {400: UnsupportedOperationError, 404: NotFoundError, 409: ConflictError,
+                    422: InvalidInputError, 503: DependencyUnavailableError}
 
 
 def _raise_error_view(err: dict):
@@ -262,8 +264,12 @@ def start_series(name, series_id) -> dict:
 # ---------------------------------------------------------------------------
 
 def _is_ours(job_id: str) -> bool:
-    return job_id == SEARCH_JOB_ID or (job_id.startswith(SERIES_JOB_PREFIX)
-                                       and len(job_id) > len(SERIES_JOB_PREFIX))
+    if job_id == SEARCH_JOB_ID:
+        return True
+    if job_id.startswith(SERIES_JOB_PREFIX):
+        return len(job_id) > len(SERIES_JOB_PREFIX)
+    return (job_id.startswith(IMPORT_JOB_PREFIX)
+            and job_id[len(IMPORT_JOB_PREFIX):].isdigit())
 
 
 def get_job_result(job_id) -> dict:

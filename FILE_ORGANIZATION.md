@@ -286,6 +286,8 @@ baihe-subtitler/
 │   │                             temp dir, use_gpu, max_minutes stop, redacted cues); router: live_routes.py
 │   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
+│   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
+│   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters)
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
@@ -397,6 +399,7 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
+│       ├── sources_import_routes.py POST /api/sources/{name}/import (sources.import; spec S-4)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)

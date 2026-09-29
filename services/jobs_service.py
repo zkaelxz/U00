@@ -42,6 +42,8 @@ RESULT_ALLOWED_KEYS = (
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id",
+    # Sources chapter import (S-4): int counts only, never text.
+    "imported_count", "skipped_count", "failed_count",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
