@@ -85,34 +85,35 @@ export default function SourceStage() {
     )
   }
 
-  return (
-    <div className="stage-source">
-      <section className="panel" aria-label="Media">
-        <h3>Media</h3>
-        {media && (
-          <p className="muted" data-testid="media-status">
-            Audio: {media.has_audio ? 'attached' : 'none'} · Source video:{' '}
-            {media.has_source_video ? 'attached' : 'none'} · Upload limit {media.upload_max_mb} MB
-          </p>
-        )}
-        <label>
-          Audio or video file
-          <input
-            type="file"
-            aria-label="Audio or video file"
-            accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
-            disabled={!media}
-            onChange={(e) => pick(e.target.files?.[0] ?? null)}
-          />
-        </label>
+  const mediaSlot = (
+    <>
+      {media && (
+        <p className="muted" data-testid="media-status">
+          Audio: {media.has_audio ? 'attached' : 'none'} · Source video:{' '}
+          {media.has_source_video ? 'attached' : 'none'} · limit {media.upload_max_mb} MB
+        </p>
+      )}
+      <div className="source-file">
+        <input
+          type="file"
+          aria-label="Audio or video file"
+          accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
+          disabled={!media}
+          onChange={(e) => pick(e.target.files?.[0] ?? null)}
+        />
         <button type="button" disabled={!file || busy} onClick={upload}>
           Upload
         </button>
-        {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
-        {uploaded && <p role="status">{uploaded}</p>}
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      </section>
-      <TranscribeStage file={file} busy={busy} onJobStarted={setJobId} />
+      </div>
+      {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
+      {uploaded && <p role="status">{uploaded}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </>
+  )
+
+  return (
+    <div className="stage-source">
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
       <NovelPanel />
       {jobId && <JobPanel job={job} pollError={pollError} />}
     </div>
