@@ -12,6 +12,7 @@ import {
   glossaryText,
   mergeSearchHits,
   pacingFindings,
+  spendText,
   termsText,
 } from './reviewResults'
 
@@ -33,6 +34,14 @@ describe('fix-flagged body', () => {
     expect(fixFlaggedBody({ ...EMPTY_FIX_FORM, cap: '-1' })).toMatch(/0 or more/)
     expect(fixFlaggedBody({ ...EMPTY_FIX_FORM, cap: 'abc' })).toMatch(/number of dollars/)
   })
+  it('rejects what a number field would silently drop', () => {
+    for (const cap of ['5$', '1,5', '-', '$5']) expect(fixFlaggedBody({ ...EMPTY_FIX_FORM, cap })).toMatch(/number of dollars/)
+  })
+  it('shows spend against the monthly cap, or says there is none', () => {
+    expect(spendText(1.5, 10)).toBe('Spent this month: $1.50 of $10.00.')
+    expect(spendText(0, 0)).toBe('Spent this month: $0.00 (no monthly cap).')
+    expect(spendText(2, -1)).toBe('Spent this month: $2.00 (no monthly cap).')
+  })
   it('summarises the choice', () => {
     expect(fixFormSummary(EMPTY_FIX_FORM, 'Gemini')).toBe('Gemini engine · no cost cap')
     expect(fixFormSummary({ engine: 'openai', model: 'm', cap: '2' }, 'Gemini')).toBe('openai · m · cap $2')
@@ -48,11 +57,8 @@ describe('coverage and pacing findings', () => {
   }
   it('links each finding by line id and shows idx + 1', () => {
     const groups = coverageGroups(cov)
-    expect(groups.map((g) => g.title)).toEqual([
-      'Long lines (maybe several merged)',
-      'Large gaps (maybe missed speech)',
-      'Not translated',
-    ])
+    expect(groups.map((g) => g.title)).toEqual(['Long lines', 'Large gaps', 'Not translated'])
+    expect(groups.every((g) => g.hint.length > 0)).toBe(true)
     expect(groups[0].items[0]).toMatchObject({ lineId: 40, where: '#5', text: '14.3s for 3 characters' })
     expect(groups[1].items[0]).toMatchObject({ lineId: 11, where: 'after #2', text: '5.0s silent' })
     expect(groups[2].items[0]).toMatchObject({ lineId: 10, where: '#1', text: '你好' })

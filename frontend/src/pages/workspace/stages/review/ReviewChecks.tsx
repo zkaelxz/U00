@@ -24,42 +24,54 @@ interface Props {
 }
 
 interface Checks {
-  coverage: Coverage
-  pacing: Pacing
-  tendencies: Tendencies
+  coverage: Coverage | null
+  pacing: Pacing | null
+  tendencies: Tendencies | null
   versions: VersionItem[]
   noteCount: number
 }
 
+const EMPTY: Checks = { coverage: null, pacing: null, tendencies: null, versions: [], noteCount: 0 }
+
 // Small read-only checks, each a folded Section that only appears when it
 // has something to show: coverage and pacing, edit tendencies, a version
-// compare and the notes-as-Markdown link.
+// compare and the notes-as-Markdown link. Refetched after every save; one
+// failed request does not hide the others.
 export function ReviewChecks({ dramaId, reloads, onGoTo }: Props) {
-  const [checks, setChecks] = useState<Checks | null>(null)
+  const [checks, setChecks] = useState<Checks>(EMPTY)
   const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getCoverage(dramaId), getPacingFlags(dramaId), getTendencies(dramaId), listVersions(dramaId), listNotes(dramaId)]).then(
-      ([coverage, pacing, tendencies, versions, notes]) => {
-        if (cancelled) return
-        setError(null)
-        setChecks({ coverage, pacing, tendencies, versions, noteCount: notes.length })
-      },
-      (e: unknown) => !cancelled && setError(e),
-    )
+    void Promise.allSettled([
+      getCoverage(dramaId),
+      getPacingFlags(dramaId),
+      getTendencies(dramaId),
+      listVersions(dramaId),
+      listNotes(dramaId),
+    ]).then(([coverage, pacing, tendencies, versions, notes]) => {
+      if (cancelled) return
+      const failed = [coverage, pacing, tendencies, versions, notes].find((r) => r.status === 'rejected')
+      setError(failed && failed.status === 'rejected' ? failed.reason : null)
+      setChecks((prev) => ({
+        coverage: coverage.status === 'fulfilled' ? coverage.value : prev.coverage,
+        pacing: pacing.status === 'fulfilled' ? pacing.value : prev.pacing,
+        tendencies: tendencies.status === 'fulfilled' ? tendencies.value : prev.tendencies,
+        versions: versions.status === 'fulfilled' ? versions.value : prev.versions,
+        noteCount: notes.status === 'fulfilled' ? notes.value.length : prev.noteCount,
+      }))
+    })
     return () => {
       cancelled = true
     }
   }, [dramaId, reloads])
 
-  if (!checks) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
   const { coverage, pacing, tendencies, versions, noteCount } = checks
   return (
     <>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <CoverageSection coverage={coverage} pacing={pacing} onGoTo={onGoTo} />
-      <TendenciesSection t={tendencies} />
+      {tendencies && <TendenciesSection t={tendencies} />}
       {versions.length >= 2 && <CompareSection key={versions.map((v) => v.id).join(',')} dramaId={dramaId} versions={versions} />}
       {noteCount > 0 && (
         <Section storageKey="review.notesExport" title="Notes export" count={noteCount} summary="Markdown">
@@ -72,23 +84,23 @@ export function ReviewChecks({ dramaId, reloads, onGoTo }: Props) {
   )
 }
 
-function CoverageSection({ coverage, pacing, onGoTo }: { coverage: Coverage; pacing: Pacing; onGoTo: GoToLine }) {
-  const groups = coverageGroups(coverage)
-  const pace = pacingFindings(pacing.flags)
+function CoverageSection({ coverage, pacing, onGoTo }: { coverage: Coverage | null; pacing: Pacing | null; onGoTo: GoToLine }) {
+  const groups = coverage ? coverageGroups(coverage) : []
+  const pace = pacing ? pacingFindings(pacing.flags) : []
   const total = groups.reduce((n, g) => n + g.items.length, 0) + pace.length
   if (total === 0) return null
-  const summary = [...groups.map((g) => `${g.title.replace(/ \(.*\)$/, '')} ${g.items.length}`), ...(pace.length ? [`Pacing ${pace.length}`] : [])]
+  const summary = [...groups.map((g) => `${g.title} ${g.items.length}`), ...(pace.length ? [`Pacing ${pace.length}`] : [])]
   return (
     <Section storageKey="review.coverage" title="Coverage and pacing" count={total} summary={summary.join(' · ')}>
       {groups.map((g) => (
         <div key={g.title}>
-          <h4>{g.title}</h4>
+          <h4 title={g.hint}>{g.title}</h4>
           <FindingList items={g.items} onGoTo={onGoTo} />
         </div>
       ))}
       {pace.length > 0 && (
         <div>
-          <h4>Pacing (translation vs. time slot)</h4>
+          <h4 title="The translation is a poor fit for the line's time slot.">Pacing</h4>
           <FindingList items={pace} onGoTo={onGoTo} testId="pacing-list" />
         </div>
       )}
@@ -150,7 +162,8 @@ function CompareSection({ dramaId, versions }: { dramaId: number; versions: Vers
       .then(
         (r) => {
           setError(null)
-          setResult(r)
+          // A reply for another pair (the selects are locked while busy; belt and braces).
+          if (r.left.id === left && r.right.id === right) setResult(r)
         },
         setError,
       )
@@ -162,15 +175,19 @@ function CompareSection({ dramaId, versions }: { dramaId: number; versions: Vers
       {v.is_active ? ' (active)' : ''}
     </option>
   ))
+  const name = (id: number) => {
+    const v = versions.find((x) => x.id === id)
+    return v ? versionName(v) : `Version ${id}`
+  }
 
   return (
-    <Section storageKey="review.compare" title="Compare versions" count={versions.length} summary="pick two saved translations">
+    <Section storageKey="review.compare" title="Compare versions" count={versions.length} summary={`${name(left)} → ${name(right)}`}>
       <div className="review-edit-row review-compare-pick">
         <Field label="Older">
-          <select value={left} onChange={(e) => { setLeft(Number(e.target.value)); setResult(null) }}>{options}</select>
+          <select value={left} disabled={busy} onChange={(e) => { setLeft(Number(e.target.value)); setResult(null) }}>{options}</select>
         </Field>
         <Field label="Newer">
-          <select value={right} onChange={(e) => { setRight(Number(e.target.value)); setResult(null) }}>{options}</select>
+          <select value={right} disabled={busy} onChange={(e) => { setRight(Number(e.target.value)); setResult(null) }}>{options}</select>
         </Field>
       </div>
       <div className="review-actions">
@@ -191,10 +208,16 @@ function CompareSection({ dramaId, versions }: { dramaId: number; versions: Vers
             <ul className="review-diffs" data-testid="compare-list">
               {result.diffs.map((d) => (
                 <li key={d.idx}>
-                  <span className="review-idx">#{lineNumber(d.idx)}</span> <span lang="zh">{d.zh}</span>
+                  <span className="muted">#{lineNumber(d.idx)}</span> <span lang="zh">{d.zh}</span>
                   <div className="review-diff-pair">
-                    <del>{d.left_en || '(blank)'}</del>
-                    <ins>{d.right_en || '(blank)'}</ins>
+                    <del>
+                      <span className="sr-only">Older: </span>
+                      {d.left_en || '(blank)'}
+                    </del>
+                    <ins>
+                      <span className="sr-only">Newer: </span>
+                      {d.right_en || '(blank)'}
+                    </ins>
                   </div>
                 </li>
               ))}

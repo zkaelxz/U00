@@ -37,6 +37,13 @@ export function fixFlaggedBody(f: FixForm): ReviewJobBody | string {
   return body
 }
 
+// A monthly cap of 0 (or less) means there is none.
+export function spendText(spent: number, monthlyCap: number): string {
+  return monthlyCap > 0
+    ? `Spent this month: $${spent.toFixed(2)} of $${monthlyCap.toFixed(2)}.`
+    : `Spent this month: $${spent.toFixed(2)} (no monthly cap).`
+}
+
 export function fixFormSummary(f: FixForm, defaultEngine: string): string {
   const parts = [f.engine || `${defaultEngine || 'default'} engine`]
   if (f.model) parts.push(f.model)
@@ -59,7 +66,7 @@ export const FINDINGS_SHOWN = 20
 const where = (idx: number | null | undefined, prefix = '') =>
   typeof idx === 'number' ? `${prefix}#${lineNumber(idx)}` : '?'
 
-export function coverageGroups(c: Coverage): { title: string; items: Finding[] }[] {
+export function coverageGroups(c: Coverage): { title: string; hint: string; items: Finding[] }[] {
   const entry = (group: string, e: CoverageEntry, i: number, text: string): Finding => ({
     key: `${group}-${e.id ?? e.after_id ?? 'x'}-${i}`,
     lineId: e.id ?? null,
@@ -68,13 +75,15 @@ export function coverageGroups(c: Coverage): { title: string; items: Finding[] }
   })
   const groups = [
     {
-      title: 'Long lines (maybe several merged)',
+      title: 'Long lines',
+      hint: 'Much longer than its text: maybe several lines merged into one.',
       items: c.long_lines.map((e, i) =>
         entry('long', e, i, e.duration != null ? `${e.duration.toFixed(1)}s for ${e.char_count ?? 0} characters` : 'long line'),
       ),
     },
     {
-      title: 'Large gaps (maybe missed speech)',
+      title: 'Large gaps',
+      hint: 'A long silence between lines: maybe speech that was missed.',
       items: c.large_gaps.map((e, i) => ({
         key: `gap-${e.after_id ?? 'x'}-${i}`,
         lineId: e.after_id ?? null,
@@ -82,8 +91,8 @@ export function coverageGroups(c: Coverage): { title: string; items: Finding[] }
         text: e.gap_seconds != null ? `${e.gap_seconds.toFixed(1)}s silent` : 'gap',
       })),
     },
-    { title: 'No source text', items: c.blank_zh.map((e, i) => entry('zh', e, i, 'blank source')) },
-    { title: 'Not translated', items: c.blank_en.map((e, i) => entry('en', e, i, e.zh ?? '')) },
+    { title: 'No source text', hint: 'The line has no source text.', items: c.blank_zh.map((e, i) => entry('zh', e, i, 'blank source')) },
+    { title: 'Not translated', hint: 'The line has source text but no translation.', items: c.blank_en.map((e, i) => entry('en', e, i, e.zh ?? '')) },
   ]
   return groups.filter((g) => g.items.length > 0)
 }
@@ -162,4 +171,5 @@ export function termsText(rows: unknown[]): string[] {
 // By permanent id wherever the route gives one. Emotion tags carry only the
 // line's current position (no id in the route), so they open by number.
 export type LineTarget = { lineId: number } | { lineNumber: number }
-export type GoToLine = (t: LineTarget) => void
+// Resolves to null once the line is open, else a plain message saying why not.
+export type GoToLine = (t: LineTarget) => Promise<string | null>

@@ -21,7 +21,9 @@ with contextlib.closing(db.get_conn()) as c:
     c.commit()
 `
 
-export function seedReviewResults() {
+// extraUntranslated adds that many untranslated lines after the four (to
+// fill Coverage past its first 20 rows).
+export function seedReviewResults(extraUntranslated = 0) {
   python(`${CLEAR}
 from core import Line
 db.update_drama(3, audio_filename=None)
@@ -30,7 +32,7 @@ lines = [
     Line(idx=1, start=1.5, end=3.0, zh='魏婴来了', en='Wei Ying is here'),
     Line(idx=2, start=3.0, end=4.5, zh='魏婴走了', en='Wei Wuxian left', flag='uncertain', flag_note='check'),
     Line(idx=3, start=9.0, end=26.0, zh='谢谢', en=''),
-]
+] + [Line(idx=4 + i, start=26.0 + i, end=27.0 + i, zh=f'第{i + 1}句', en='') for i in range(${extraUntranslated})]
 db.save_lines(3, lines)
 db.save_consistency_issues(3, [{'term': '魏婴', 'variants': ['Wei Ying', 'Wei Wuxian'], 'note': 'One person, two names.'}])
 db.save_emotions(3, {1: {'emotion': 'anger', 'intensity': 0.9, 'note': 'shouting'}, 0: {'emotion': 'calm', 'intensity': 0.2, 'note': ''}})
@@ -45,4 +47,14 @@ db.record_edit_sample(3, '你好', 'Hello', 'Hello there, my dear old friend fro
 
 export function clearReviewResults() {
   python(CLEAR)
+}
+
+// Deletes line #n behind the page's back (a finding still points at it).
+export function deleteLine(lineNumber: number) {
+  python(`
+import contextlib
+with contextlib.closing(db.get_conn()) as c:
+    c.execute('DELETE FROM lines WHERE drama_id = 3 AND idx = ?', (${lineNumber - 1},))
+    c.commit()
+`)
 }

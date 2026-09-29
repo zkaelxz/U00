@@ -51,9 +51,12 @@ interface Props {
   mediaKind: MediaKind | null
   // The drama's whole line count, whenever the "all" view reports it.
   onLineCount?: (n: number) => void
+  // The drama's flagged-line count, whenever a page reports it.
+  onFlaggedCount?: (n: number) => void
   // A finding elsewhere in the stage asked to open a line; seq makes a repeat
   // click on the same line count again.
-  goTo?: { target: LineTarget; seq: number } | null
+  // resolve gets null once the line is open, else a plain message.
+  goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
 type Target = 'first' | 'last' | 'firstFlagged' | 'lastFlagged' | number
@@ -87,7 +90,7 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // edit mode, the "⋯" line sheet with structure edits, a sticky toolbar with the
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, onFlaggedCount, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const [filter, setFilter] = useState<LineFilter>('all')
   const [page, setPage] = useState(1)
@@ -131,6 +134,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (allTotal !== null) onLineCount?.(allTotal)
   }, [allTotal, onLineCount])
+  useEffect(() => {
+    if (data) onFlaggedCount?.(data.flagged_count)
+  }, [data, onFlaggedCount])
 
   // Search as you type.
   useEffect(() => {
@@ -649,39 +655,49 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     if (v === '') setTerm('')
   }
   // By permanent id where the caller has one; typed numbers go by position.
-  const goToLine = async (t: LineTarget) => {
+  // Returns null once the line is open, else a plain message saying why not.
+  const goToLine = async (t: LineTarget): Promise<string | null> => {
+    const label = 'lineId' in t ? 'that line' : `#${t.lineNumber}`
     try {
       const all = await listAllLines(dramaId)
       const pos =
         'lineId' in t
           ? all.findIndex((l) => l.id === t.lineId)
           : all.findIndex((l) => l.idx === idxFromLineNumber(t.lineNumber))
-      if (pos === -1) {
-        setStatus('lineId' in t ? 'That line no longer exists.' : `No line #${t.lineNumber}.`)
-        return
+      if (pos === -1) return 'lineId' in t ? 'That line no longer exists.' : `No line #${t.lineNumber}.`
+      const draft = st.current.edit
+      if (!(await ctl.leaveEdit())) {
+        // The draft could not be saved: bring it into view so it can be fixed.
+        if (draft) listRef.current?.querySelector<HTMLElement>(`[data-line-id="${draft.lineId}"]`)?.scrollIntoView?.({ block: 'center' })
+        return `Could not open ${label}: your edit to #${draft ? lineNumber(draft.base.idx) : '?'} is not saved yet.`
       }
-      if (!(await ctl.leaveEdit())) return
       const id = all[pos].id
       const pg = pageForPosition(pos)
       if (!searching && filter === 'all' && page === pg) ctl.focusTo(id)
       else {
+        if (searching || filter !== 'all') setStatus(`Showing all lines to open #${lineNumber(all[pos].idx)}.`)
         pending.current = { target: id }
         setFilter('all')
         setInput('')
         setTerm('')
         setPage(pg)
       }
+      return null
     } catch (e) {
       setError(e)
+      return `Could not open ${label}.`
     }
   }
-  const goToNumber = (n: number) => goToLine({ lineNumber: n })
+  const goToNumber = async (n: number) => {
+    const message = await goToLine({ lineNumber: n })
+    if (message) setStatus(message)
+  }
   const goToRef = useRef(goToLine)
   useEffect(() => {
     goToRef.current = goToLine
   })
   useEffect(() => {
-    if (goTo) void goToRef.current(goTo.target)
+    if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
   const toggleReplace = () => {
     const next = !replaceOpen

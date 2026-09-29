@@ -5,7 +5,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { lineNumber } from '../../../../lineNumber'
 import type { ConsistencyIssue, EmotionSummary, ReviewLine } from '../../../../types/review'
-import { FindingList } from './FindingList'
+import { FindingList, FindingRow } from './FindingList'
 import {
   emotionCounts,
   emotionLines,
@@ -17,32 +17,31 @@ import {
 
 interface Props {
   dramaId: number
-  reloads: number
+  // Bumped when a review job finishes: only jobs change these results.
+  jobsDone: number
   onGoTo: GoToLine
 }
 
 // What the last consistency check and emotion tagging found (stored results,
-// refetched after every job). Nothing stored, nothing shown.
-export function ReviewFindings({ dramaId, reloads, onGoTo }: Props) {
+// refetched after every job). Nothing stored, nothing shown; one failed
+// request does not hide the other's results.
+export function ReviewFindings({ dramaId, jobsDone, onGoTo }: Props) {
   const [issues, setIssues] = useState<ConsistencyIssue[]>([])
   const [emotions, setEmotions] = useState<EmotionSummary | null>(null)
   const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getConsistency(dramaId), getEmotions(dramaId)]).then(
-      ([c, e]) => {
-        if (cancelled) return
-        setError(null)
-        setIssues(c)
-        setEmotions(e)
-      },
-      (e: unknown) => !cancelled && setError(e),
-    )
+    void Promise.allSettled([getConsistency(dramaId), getEmotions(dramaId)]).then(([c, e]) => {
+      if (cancelled) return
+      if (c.status === 'fulfilled') setIssues(c.value)
+      if (e.status === 'fulfilled') setEmotions(e.value)
+      setError(c.status === 'rejected' ? c.reason : e.status === 'rejected' ? e.reason : null)
+    })
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId, jobsDone])
 
   return (
     <>
@@ -99,8 +98,8 @@ function ConsistencyItem({ dramaId, issue, onGoTo }: { dramaId: number; issue: C
 
   return (
     <li>
-      <strong lang="zh">{issue.term}</strong>{' '}
-      {issue.variants.length > 0 && <span>→ {issue.variants.join(' / ')}</span>}
+      <strong lang="zh">{issue.term}</strong>
+      {issue.variants.length > 0 && <span> → {issue.variants.join(' / ')}</span>}
       {issue.note && <div className="muted">{issue.note}</div>}
       {hits === null ? (
         <button type="button" className="link review-jump" disabled={busy || words.length === 0} onClick={show}>
@@ -123,27 +122,20 @@ function EmotionSection({ summary, onGoTo }: { summary: EmotionSummary; onGoTo: 
   const counts = emotionCounts(summary)
   return (
     <Section storageKey="review.emotion" title="Emotion" count={summary.total} summary={counts}>
-      <p className="muted">
-        {counts}
-        {summary.high_risk > 0 && ` · ${summary.high_risk} strong`}
-      </p>
+      {summary.high_risk > 0 && <p className="muted">{summary.high_risk} strong</p>}
       <ul className="review-findings" data-testid="emotion-list">
         {shown.map((t) => (
-          <li key={t.line_idx}>
-            <button
-              type="button"
-              className="link review-jump"
-              title="Open this line in the editor"
-              onClick={() => onGoTo({ lineNumber: lineNumber(t.line_idx) })}
-            >
-              #{lineNumber(t.line_idx)}
-            </button>{' '}
-            <span className="review-finding-text">
-              <strong>{t.emotion}</strong>
-              {t.intensity !== null && ` (${t.intensity})`}
-              {t.note && ` · ${t.note}`}
-            </span>
-          </li>
+          <FindingRow
+            key={t.line_idx}
+            where={`#${lineNumber(t.line_idx)}`}
+            target={{ lineNumber: lineNumber(t.line_idx) }}
+            title={`Opens line #${lineNumber(t.line_idx)} (numbered when tagged)`}
+            onGoTo={onGoTo}
+          >
+            <strong>{t.emotion}</strong>
+            {t.intensity !== null && ` (${t.intensity})`}
+            {t.note && ` · ${t.note}`}
+          </FindingRow>
         ))}
       </ul>
       {lines.length > shown.length && (

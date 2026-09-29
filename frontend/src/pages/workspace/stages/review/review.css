@@ -213,7 +213,10 @@ a.review-primary-link {
 .review-fix-hint { margin: 0; font-size: var(--font-sm); }
 .review-findings, .review-issues, .review-diffs { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
 .review-issues > li, .review-diffs > li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; min-width: 0; }
-.review-findings > li { overflow-wrap: anywhere; min-width: 0; }
+.review-findings > li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-2); align-items: baseline; overflow-wrap: anywhere; min-width: 0; }
+.review-jump-msg { display: block; font-size: var(--font-sm); color: var(--warn); }
+.review-ai-busy { margin: var(--space-2) 0 0; font-size: var(--font-sm); }
+.review-fix .section { margin: 0; }
 .review-jump { font-variant-numeric: tabular-nums; font-weight: 600; }
 .review-finding-text { overflow-wrap: anywhere; }
 .review-diff-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1) var(--space-4); margin-top: 2px; }
@@ -229,8 +232,12 @@ a.review-primary-link {
 .review-origin-list dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .review-diff-pair, .review-origin-list > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .review-fix .review-edit-row, .review-compare-pick { grid-template-columns: minmax(0, 1fr); }
+  .review-ai-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .review-ai-actions button { min-width: 0; white-space: normal; }
+  .stage-review .section-body h4 { margin: var(--space-2) 0 var(--space-1); }
 }
 /* Line links are text buttons; on touch they still get a full-size target. */
 @media (pointer: coarse), (max-width: 640px) {
-  .stage-review .review-jump { display: inline-flex; align-items: center; min-height: var(--touch); min-width: var(--touch); }
+  .stage-review .review-jump { display: inline-flex; align-items: center; justify-content: flex-start; min-height: var(--touch); min-width: var(--touch); }
 }

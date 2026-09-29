@@ -8,12 +8,13 @@ import { emotionText, glossaryText, termsText } from './reviewResults'
 
 // "Where this line came from", folded inside the line's details: the original
 // transcription and what the app knows about how the translation was made.
-// Nothing is fetched until it is opened.
+// Fetched each time it is opened, so it never shows data from before a save.
 export function LineOrigin({ dramaId, lineId }: { dramaId: number; lineId: number }) {
   const [data, setData] = useState<{ p: LineProvenance; o: LineOriginalText } | null>(null)
   const [error, setError] = useState<unknown>(null)
 
   const load = () => {
+    setData(null)
     Promise.all([getLineProvenance(dramaId, lineId), getLineOriginalText(dramaId, lineId)]).then(
       ([p, o]) => {
         setError(null)
@@ -28,7 +29,7 @@ export function LineOrigin({ dramaId, lineId }: { dramaId: number; lineId: numbe
       className="review-origin"
       data-testid="line-origin"
       onToggle={(e) => {
-        if (e.currentTarget.open && !data) load()
+        if (e.currentTarget.open) load()
       }}
     >
       <summary>Where this line came from</summary>
@@ -55,19 +56,19 @@ function OriginBody({ p, o }: { p: LineProvenance; o: LineOriginalText }) {
 
   return (
     <div className="review-origin-body">
-      <p data-testid="original-text">
-        {!o.has_raw_transcript ? (
-          <span className="muted">No raw transcription saved for this project.</span>
-        ) : o.original_text === null ? (
-          <span className="muted">The raw transcription has nothing at this time.</span>
-        ) : o.differs ? (
-          <>
-            Originally transcribed as <span lang="zh">“{o.original_text}”</span>
-          </>
-        ) : (
-          <span className="muted">Same as the original transcription.</span>
-        )}
-      </p>
+      {o.has_raw_transcript && (
+        <p data-testid="original-text">
+          {o.original_text === null ? (
+            <span className="muted">No original text at this time.</span>
+          ) : o.differs ? (
+            <>
+              Originally transcribed as <span lang="zh">“{o.original_text}”</span>
+            </>
+          ) : (
+            <span className="muted">Same as the original transcription.</span>
+          )}
+        </p>
+      )}
       {rows.length > 0 && (
         <dl className="review-origin-list">
           {rows.map(([k, v]) => (
