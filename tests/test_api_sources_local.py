@@ -374,3 +374,20 @@ def test_auth_on_permissions(fakes):
     assert c.post("/api/sources/check-now", headers=ha).status_code == 200
     _wait(chapter_check.CHECK_JOB_ID)
     assert c.get("/api/sources/jobs/sources_chapter_check/result", headers=ha).status_code == 200
+
+
+def test_tier_detail_drops_a_relative_url_query(client, fakes, monkeypatch):
+    """Security review LOW-2: requests' "url: /book/7?sig=..." form (no
+    scheme) must not carry the query into the stored tier detail."""
+    fakes["alpha"] = _make("alpha")
+    token = "sig=AbC123token"
+
+    def failing_static(_client):
+        def run(url):
+            return TierOutcome(False, detail=f"ConnectTimeout: Max retries exceeded with url: /book/7?{token} (x)")
+        return run
+    monkeypatch.setattr(ladder, "static_tier", failing_static)
+    assert client.post("/api/sources/alpha/tier-test", json={"tier": "static", "url": PAGE}).status_code == 200
+    r = _result(client, "sources_tiertest_alpha")
+    assert r.status_code == 200 and "AbC123token" not in r.text
+    assert "AbC123token" not in client.get("/api/sources/alpha").text

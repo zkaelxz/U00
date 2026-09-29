@@ -49,6 +49,9 @@ SETTING_KEYS = (
 _URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*")
 _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
+# A query after a relative request path (requests' "url: /book/7?sig=..."),
+# which _URL_IN_TEXT (absolute URLs only) doesn't see.
+_REL_QUERY = re.compile(r"(?<=[\w/\]])\?[^\s)'\"<>]+")
 _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-~@+]*|"
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
 
@@ -81,6 +84,7 @@ def _scrub(text):
     text = _UNC_PATH.sub("[path]", text)
     text = _WIN_PATH.sub("[path]", text)
     text = _POSIX_PATH.sub("[path]", text)
+    text = _REL_QUERY.sub("", text)
     return text
 
 

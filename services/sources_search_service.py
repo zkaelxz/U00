@@ -283,7 +283,7 @@ _IDENTITY_LOCK = threading.Lock()
 # Results
 # ---------------------------------------------------------------------------
 
-def _is_ours(job_id: str, local: bool = True) -> bool:
+def _is_ours(job_id: str, local: bool = False) -> bool:
     from services import sources_signin_service as signin
     from sources.chapter_check import CHECK_JOB_ID
     if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, CHECK_JOB_ID):
@@ -297,7 +297,7 @@ def _is_ours(job_id: str, local: bool = True) -> bool:
             and job_id[len(IMPORT_JOB_PREFIX):].isdigit())
 
 
-def get_job_result(job_id, local: bool = True) -> dict:
+def get_job_result(job_id, local: bool = False) -> dict:
     """{job_id, status, progress, message, result}. 404 when the job is not
     resident in this process (or is a PC-only sign-in/tier-test job and the
     request is not `local`); a failed job raises its mapped error (503

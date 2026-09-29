@@ -17,7 +17,10 @@ to that site. ToS enforcement is OFF (Step 90), but `adapter.login` and
 `ladder.test_tier` still call `ladder.check_terms` first.
 
 Jobs (one per source; results via GET /api/sources/jobs/{id}/result, which
-answers them only to a request from this PC):
+answers them only to a request from this PC). Not hidden elsewhere: like
+every job they show in GET /api/jobs (status, description, message, scrubbed
+error; `library.read`), and a tier test's outcome is saved in the source's
+capability record (GET /api/sources/{name}). Text is scrubbed either way.
 - `sources_signin_<name>`: `adapter.login(url)` opens a visible window and
   waits, with no timeout, until the person closes it; it cannot be
   cancelled from the API (the window is the way out). Then the page is read
