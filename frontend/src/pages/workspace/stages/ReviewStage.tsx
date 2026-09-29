@@ -15,8 +15,8 @@ export default function ReviewStage() {
 
   return (
     <div className="stage-review" role="region" aria-label="Review">
-      <ReviewJobsPanel dramaId={dramaId} onChanged={changed} />
       <LinesPanel dramaId={dramaId} reloads={reloads} onChanged={changed} />
+      <ReviewJobsPanel dramaId={dramaId} onChanged={changed} />
       <FindReplacePanel dramaId={dramaId} onChanged={changed} />
       <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} />
     </div>

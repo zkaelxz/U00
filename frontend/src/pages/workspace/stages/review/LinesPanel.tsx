@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { listLines, searchLines } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -37,17 +37,47 @@ export function LinesPanel({ dramaId, reloads, onChanged }: Props) {
     }
   }, [dramaId, page, filter, term, reloads])
 
+  const listRef = useRef<HTMLUListElement>(null)
+
+  // Alt+Down / Alt+Up move focus to the next / previous flagged line on this page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>('li[data-flagged="true"]') ?? [])
+      if (rows.length === 0) return
+      e.preventDefault()
+      const current = rows.findIndex((r) => r.contains(document.activeElement))
+      const down = e.key === 'ArrowDown'
+      const next = current === -1 ? (down ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, current + (down ? 1 : -1)))
+      rows[next].focus()
+      rows[next].scrollIntoView?.({ block: 'nearest' })
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
   const shown = found ?? data?.lines ?? []
   const pages = data ? pageCount(data.total) : 1
 
   return (
     <section className="panel" aria-label="Lines">
-      <h3>Lines</h3>
-      {data && (
-        <p className="muted" data-testid="line-counts">
-          {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
-        </p>
-      )}
+      <div className="review-head">
+        <h3>Lines</h3>
+        <button
+          type="button"
+          className="review-hint"
+          aria-label="Keyboard shortcuts"
+          title="Click a translation to edit it. Enter or Ctrl+S saves, Esc cancels. Alt+Down / Alt+Up jump to the next / previous flagged line."
+        >
+          ?
+        </button>
+        {data && (
+          <p className="muted" data-testid="line-counts">
+            {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
+          </p>
+        )}
+      </div>
       <form
         className="filters"
         onSubmit={(e) => {
@@ -79,7 +109,7 @@ export function LinesPanel({ dramaId, reloads, onChanged }: Props) {
       </form>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {shown.length === 0 && !error && <p className="muted">No lines to show.</p>}
-      <ul className="review-lines">
+      <ul className="review-lines" ref={listRef}>
         {shown.map((l) => (
           <LineRow key={l.id} dramaId={dramaId} line={l} onChanged={onChanged} />
         ))}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { applyFindReplace, previewFindReplace } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { Section } from '../../../../components/Section'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
 import { staleLabels } from './reviewLogic'
 
@@ -41,8 +42,12 @@ export function FindReplacePanel({ dramaId, onChanged }: Props) {
   }
 
   return (
-    <section className="panel" aria-label="Find and replace">
-      <h3>Find and replace</h3>
+    <Section
+      storageKey="review.findreplace"
+      title="Find and replace"
+      count={matches?.length}
+      summary={find ? `“${find}” → “${replace}”` : 'change a word across every line'}
+    >
       <div className="filters">
         <input aria-label="Find" value={find} onChange={(e) => { setFind(e.target.value); setMatches(null) }} />
         <input aria-label="Replace with" value={replace} onChange={(e) => { setReplace(e.target.value); setMatches(null) }} />
@@ -80,6 +85,6 @@ export function FindReplacePanel({ dramaId, onChanged }: Props) {
           )}
         </div>
       )}
-    </section>
+    </Section>
   )
 }

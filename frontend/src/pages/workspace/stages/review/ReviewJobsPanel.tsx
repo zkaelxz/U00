@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { startReviewJob } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ReviewJobKind } from '../../../../types/review'
 import { useStage } from '../../StageContext'
@@ -40,19 +41,26 @@ export function ReviewJobsPanel({ dramaId, onChanged }: { dramaId: number; onCha
       setError,
     )
 
+  // The job status stays outside the collapsed section so a running or
+  // reattached job is always visible.
   return (
-    <section className="panel" aria-label="AI checks">
-      <h3>AI review</h3>
-      <p className="muted">Runs in the background with this drama&apos;s translation engine.</p>
-      <div className="review-actions">
-        {KINDS.map(({ kind, label }) => (
-          <button key={kind} type="button" disabled={busy} onClick={() => start(kind)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    <div aria-label="AI checks" role="group">
+      <Section
+        storageKey="review.ai"
+        title="AI review"
+        count={KINDS.length}
+        summary="consistency, emotion, notes, flag, fix flagged"
+      >
+        <div className="review-actions">
+          {KINDS.map(({ kind, label }) => (
+            <button key={kind} type="button" disabled={busy} onClick={() => start(kind)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      </Section>
       {jobId && <JobPanel job={job} pollError={pollError} />}
-    </section>
+    </div>
   )
 }

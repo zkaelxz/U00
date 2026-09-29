@@ -9,6 +9,7 @@ import {
   listVersions,
 } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { Section } from '../../../../components/Section'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 
 interface Records {
@@ -56,16 +57,31 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
       onChanged()
     }, setError)
 
+  if (!records) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
+  const { notes, tm, versions, history } = records
+  const counts: [string, number][] = [
+    ['Notes', notes.length],
+    ['TM suggestions', tm.length],
+    ['Versions', versions.length],
+    ['History', history.length],
+  ]
+  const total = counts.reduce((n, [, c]) => n + c, 0)
+  // No empty panel: nothing to show means nothing is rendered.
+  if (total === 0) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
   return (
-    <section className="panel" aria-label="Records">
-      <h3>Records</h3>
+    <Section
+      storageKey="review.records"
+      title="Records"
+      count={total}
+      summary={counts.filter(([, c]) => c > 0).map(([l, c]) => `${l} ${c}`).join(' · ')}
+    >
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {records && (
+      {notes.length > 0 && (
         <>
           <h4>Notes</h4>
           <ul data-testid="notes-list">
-            {records.notes.length === 0 && <li className="muted">No notes yet.</li>}
-            {records.notes.map((n) => (
+            {notes.map((n) => (
               <li key={n.id}>
                 <span className="muted">#{n.line_idx ?? '?'}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
                 <button type="button" className="link" onClick={() => act(deleteNote(dramaId, n.id))}>
@@ -74,10 +90,13 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
               </li>
             ))}
           </ul>
+        </>
+      )}
+      {tm.length > 0 && (
+        <>
           <h4>Translation memory suggestions</h4>
           <ul data-testid="tm-list">
-            {records.tm.length === 0 && <li className="muted">No suggestions.</li>}
-            {records.tm.map((s) => (
+            {tm.map((s) => (
               <li key={s.entry_id}>
                 <span className="muted">#{s.line_idx}</span> {s.suggestion}{' '}
                 <span className="muted">({Math.round(s.similarity * 100)}%{s.exact ? ', exact' : ''})</span>{' '}
@@ -93,20 +112,26 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
               </li>
             ))}
           </ul>
+        </>
+      )}
+      {versions.length > 0 && (
+        <>
           <h4>Translation versions</h4>
           <ul data-testid="versions-list">
-            {records.versions.length === 0 && <li className="muted">No saved versions.</li>}
-            {records.versions.map((v) => (
+            {versions.map((v) => (
               <li key={v.id}>
                 {v.label ?? `Version ${v.id}`} · {v.engine} {v.model}
                 {v.is_active ? ' · active' : ''} <span className="muted">{v.created_at}</span>
               </li>
             ))}
           </ul>
+        </>
+      )}
+      {history.length > 0 && (
+        <>
           <h4>Line history</h4>
           <ul data-testid="history-list">
-            {records.history.length === 0 && <li className="muted">No history snapshots.</li>}
-            {records.history.map((h) => (
+            {history.map((h) => (
               <li key={h.id}>
                 {h.label ?? `Snapshot ${h.id}`} <span className="muted">{h.created_at}</span>
               </li>
@@ -114,6 +139,6 @@ export function RecordsPanel({ dramaId, reloads, onChanged }: Props) {
           </ul>
         </>
       )}
-    </section>
+    </Section>
   )
 }

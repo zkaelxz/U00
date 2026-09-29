@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState, type KeyboardEvent } from 'react'
 
 import { ApiError } from '../../../../api/client'
 import { addNote, dismissFlag, patchLine } from '../../../../api/review'
@@ -12,8 +12,13 @@ interface Props {
   onChanged: () => void
 }
 
-export function LineRow({ dramaId, line, onChanged }: Props) {
+// One line as compact text. Click the English text to edit it in place
+// (Enter or Ctrl+S saves, Esc cancels); "Edit details" reveals the timing,
+// speaker, source, flag and note controls. The details are only rendered while
+// open, so a long list stays light.
+function LineRowImpl({ dramaId, line, onChanged }: Props) {
   const [draft, setDraft] = useState<LineDraft | null>(null)
+  const [details, setDetails] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [conflict, setConflict] = useState(false)
@@ -26,19 +31,47 @@ export function LineRow({ dramaId, line, onChanged }: Props) {
     } else setError(e)
   }
   const set = (k: keyof LineDraft, v: string) => draft && setDraft({ ...draft, [k]: v })
+  const open = () => {
+    setDraft((d) => d ?? draftFromLine(line))
+    setConflict(false)
+  }
+  const close = () => {
+    setDraft(null)
+    setDetails(false)
+    setProblem(null)
+  }
 
   const save = () => {
     if (!draft) return
     const patch = buildPatch(line, draft)
-    if (typeof patch === 'string') return setProblem(patch)
+    if (typeof patch === 'string') {
+      setProblem(patch)
+      setDetails(true)
+      return
+    }
     setProblem(null)
-    if (patch === null) return setDraft(null)
+    if (patch === null) return close()
     patchLine(dramaId, line.id, patch).then(() => {
-      setDraft(null)
+      close()
       setError(null)
       setConflict(false)
       onChanged()
     }, fail)
+  }
+
+  // Enter saves (Shift+Enter adds a new line), Ctrl/Cmd+S saves, Esc cancels.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      close()
+    } else if ((e.key === 's' || e.key === 'S') && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      save()
+    } else if (e.key === 'Enter' && !e.shiftKey && e.target instanceof HTMLTextAreaElement) {
+      e.preventDefault()
+      save()
+    }
   }
 
   const dismiss = () =>
@@ -60,65 +93,102 @@ export function LineRow({ dramaId, line, onChanged }: Props) {
   }
 
   return (
-    <li className="review-line" data-testid={`line-${line.id}`}>
+    <li
+      className="review-line"
+      data-testid={`line-${line.id}`}
+      data-flagged={line.flag ? 'true' : undefined}
+      tabIndex={-1}
+      onKeyDown={draft ? onKey : undefined}
+    >
       <div className="review-line-meta muted">
-        #{line.idx} · {formatTime(line.start)}–{formatTime(line.end)}
-        {line.speaker ? ` · ${line.speaker}` : ''}
-        {line.sfx ? ' · sound cue' : ''}
-        {line.dub_filename ? ` · dub: ${line.dub_filename}` : ''}
+        <span>#{line.idx}</span>
+        <span>{formatTime(line.start)}–{formatTime(line.end)}</span>
+        {line.speaker && <span>{line.speaker}</span>}
+        {line.sfx && <span>sound cue</span>}
+        {line.dub_filename && <span>dub: {line.dub_filename}</span>}
+        <button
+          type="button"
+          className="link"
+          aria-expanded={details}
+          onClick={() => {
+            if (details) close()
+            else {
+              open()
+              setDetails(true)
+            }
+          }}
+        >
+          Edit details
+        </button>
+        {line.flag && (
+          <span className="review-flag" data-testid="line-flag">
+            Flagged: {line.flag}
+            {line.flag_note ? ` (${line.flag_note})` : ''}{' '}
+            <button type="button" className="link" onClick={dismiss}>
+              Dismiss flag
+            </button>
+          </span>
+        )}
       </div>
-      {line.flag && (
-        <div className="review-flag" data-testid="line-flag">
-          Flagged: {line.flag}
-          {line.flag_note ? ` (${line.flag_note})` : ''}{' '}
-          <button type="button" className="link" onClick={dismiss}>
-            Dismiss flag
+      <div className="review-body">
+        <div lang="zh" className="review-zh">{line.zh}</div>
+        {draft ? (
+          <div className="review-en-edit">
+            <textarea
+              aria-label="Translation"
+              autoFocus
+              value={draft.en}
+              onChange={(e) => set('en', e.target.value)}
+              rows={2}
+            />
+            <div className="review-actions">
+              <button type="button" onClick={save}>Save line</button>
+              <button type="button" onClick={close}>Cancel</button>
+              <span className="muted review-keys">Enter save · Shift+Enter new line · Esc cancel</span>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="review-en"
+            data-testid="line-en"
+            title="Click to edit the translation"
+            onClick={open}
+          >
+            {line.en || <span className="muted">(not translated)</span>}
           </button>
-        </div>
-      )}
-      {draft ? (
+        )}
+      </div>
+      {details && draft && (
         <div className="review-edit">
           <label>
             Source
             <textarea value={draft.zh} onChange={(e) => set('zh', e.target.value)} rows={2} />
           </label>
-          <label>
-            Translation
-            <textarea value={draft.en} onChange={(e) => set('en', e.target.value)} rows={2} />
-          </label>
-          <label>
-            Speaker
-            <input value={draft.speaker} onChange={(e) => set('speaker', e.target.value)} />
-          </label>
-          <label>
-            Start (s)
-            <input value={draft.start} onChange={(e) => set('start', e.target.value)} />
-          </label>
-          <label>
-            End (s)
-            <input value={draft.end} onChange={(e) => set('end', e.target.value)} />
-          </label>
+          <div className="review-edit-row">
+            <label>
+              Speaker
+              <input value={draft.speaker} onChange={(e) => set('speaker', e.target.value)} />
+            </label>
+            <label>
+              Start (s)
+              <input value={draft.start} onChange={(e) => set('start', e.target.value)} />
+            </label>
+            <label>
+              End (s)
+              <input value={draft.end} onChange={(e) => set('end', e.target.value)} />
+            </label>
+          </div>
           {problem && <p className="error" role="alert">{problem}</p>}
           <div className="review-actions">
-            <button type="button" onClick={save}>Save line</button>
-            <button type="button" onClick={() => { setDraft(null); setProblem(null) }}>Cancel</button>
-          </div>
-        </div>
-      ) : (
-        <div className="review-text">
-          <div lang="zh">{line.zh}</div>
-          <div data-testid="line-en">{line.en || <span className="muted">(not translated)</span>}</div>
-          <div className="review-actions">
-            <button type="button" onClick={() => { setDraft(draftFromLine(line)); setConflict(false) }}>
-              Edit
-            </button>
+            <button type="button" onClick={save}>Save details</button>
             <button type="button" onClick={() => setNote(note ? null : { term: '', type: 'translation', text: '' })}>
               Add note
             </button>
           </div>
         </div>
       )}
-      {note && (
+      {details && note && (
         <div className="review-edit">
           <label>
             Term
@@ -140,7 +210,7 @@ export function LineRow({ dramaId, line, onChanged }: Props) {
       {conflict && (
         <div className="banner error-banner" role="alert" data-testid="line-conflict">
           <span>{CONFLICT_MESSAGE}</span>
-          <button type="button" className="link" onClick={() => { setDraft(null); setConflict(false); onChanged() }}>
+          <button type="button" className="link" onClick={() => { close(); setConflict(false); onChanged() }}>
             Reload
           </button>
         </div>
@@ -149,3 +219,5 @@ export function LineRow({ dramaId, line, onChanged }: Props) {
     </li>
   )
 }
+
+export const LineRow = memo(LineRowImpl)
