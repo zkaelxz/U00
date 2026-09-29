@@ -1018,19 +1018,19 @@ class TestNarratePrepIdKeyed:
         return did, [ln.speaker for ln in isolated_db.load_line_objects(did)]
 
     def test_reordered_and_extra_ids_land_on_the_right_chunks(self, isolated_db, monkeypatch):
-        engine = _SeqEngine(['{"3": "Cara", "99": "Ghost", "1": "Ann", "2": "Narrator"}'])
+        engine = _SeqEngine(['{"2": "Cara", "99": "Ghost", "0": "Ann", "1": "Narrator"}'])
         did, speakers = self._run(isolated_db, monkeypatch, engine)
         assert speakers == ["Ann", "Narrator", "Cara"]
         labels = {c["speaker_label"] for c in isolated_db.list_characters(did)}
         assert "Ghost" not in labels and {"Ann", "Cara"} <= labels
 
     def test_short_response_retries_missing_id_then_defaults_to_narrator(self, isolated_db, monkeypatch):
-        engine = _SeqEngine(['{"1": "Ann"}', '{"3": "Cara"}'])  # id 2 never answered
+        engine = _SeqEngine(['{"0": "Ann"}', '{"2": "Cara"}'])  # id 1 never answered
         _, speakers = self._run(isolated_db, monkeypatch, engine)
         assert speakers == ["Ann", "Narrator", "Cara"]
 
-    def test_list_that_is_not_one_label_per_chunk_falls_back_to_narrator(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(translate_engines, "tag_speakers_llm",
-                            lambda chunks, engine, known, **k: ["Ann"])
+    def test_partial_and_unknown_keys_only_touch_their_own_chunk(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id",
+                            lambda chunks, engine, known, **k: {2: "Cara", 42: "Ghost"})
         _, speakers = self._run(isolated_db, monkeypatch, _SeqEngine([]))
-        assert speakers == ["Narrator"] * 3
+        assert speakers == ["Narrator", "Narrator", "Cara"]

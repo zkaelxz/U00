@@ -12,8 +12,8 @@ background_jobs' own runner redacts secrets from a failed job's error.
 Input is the drama's attached novel text (`dub.NOVEL_SOURCE_FILENAME` in
 its folder). The LLM engine is chosen per request; its key is resolved
 server-side and never returned (D2). Speakers come from
-`tag_speakers_llm`, which is id-keyed internally; the job only pairs its
-result with the chunks it just built, and only when the lengths match.
+`tag_speakers_by_id`, which returns {chunk idx: label}; the job looks each
+chunk's label up by its idx (missing -> "Narrator"), never by list position.
 
 Writes replace the drama's lines wholesale, exactly as Streamlit and the
 CLI do (the lines are brand new), but only after a "before chunk & tag
@@ -121,15 +121,13 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model):
         engine_name, api_key, model,
         base_url=(settings_service.resolve_key("ollama_url") if engine_name == "ollama" else None))
     known = [c["character_name"] for c in db.list_characters(drama_id) if c["character_name"]]
-    speakers = translate_engines.tag_speakers_llm(
-        [ln.zh for ln in lines], engine, known,
+    by_idx = translate_engines.tag_speakers_by_id(
+        {ln.idx: ln.zh for ln in lines}, engine, known,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
-    if len(speakers) != len(lines):
-        speakers = ["Narrator"] * len(lines)
-    for ln, sp in zip(lines, speakers):
-        ln.speaker = sp or "Narrator"
+    for ln in lines:
+        ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
     background_jobs.update_progress(job_id, 0.9, "Saving lines...")
     for label in sorted({ln.speaker for ln in lines}):

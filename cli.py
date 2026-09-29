@@ -130,13 +130,9 @@ def cmd_narrate_prep(args):
         lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
         if engine:
             known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
-            speakers = translate_engines.tag_speakers_llm([ln.zh for ln in lines], engine, known)
-            # Key each label by its chunk's idx and look it up by that idx --
-            # never zip a returned list onto lines. A list that isn't exactly
-            # one label per chunk can't be trusted to line up, so it falls
-            # back to "Narrator" (same guard as narration_service).
-            by_idx = ({ln.idx: sp for ln, sp in zip(lines, speakers)}
-                      if len(speakers) == len(lines) else {})
+            # Labels come back keyed by each chunk's idx; a chunk with no
+            # label defaults to "Narrator" -- never paired by list position.
+            by_idx = translate_engines.tag_speakers_by_id({ln.idx: ln.zh for ln in lines}, engine, known)
             for ln in lines:
                 ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
             for label in sorted({ln.speaker for ln in lines}):

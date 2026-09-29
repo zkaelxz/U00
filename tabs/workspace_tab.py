@@ -3247,15 +3247,15 @@ def render_workspace_tab():
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
                         base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
-                    speakers = translate_engines.tag_speakers_llm(
-                        [ln.zh for ln in lines], engine, known_chars,
+                    by_idx = translate_engines.tag_speakers_by_id(
+                        {ln.idx: ln.zh for ln in lines}, engine, known_chars,
                         usage_cb=lambda inp, out: db.log_usage(
                             picked_id, engine_choice, getattr(engine, "model", engine_choice),
                             "tag_speakers", inp, out,
                             translate_engines.estimate_cost_for_engine(engine, inp, out)))
-                    for ln, sp in zip(lines, speakers):
-                        ln.speaker = sp
-                    for label in sorted(set(speakers)):
+                    for ln in lines:
+                        ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
+                    for label in sorted({ln.speaker for ln in lines}):
                         db.upsert_character(picked_id, label, character_name=label)
             else:
                 if _translation_only_engine:

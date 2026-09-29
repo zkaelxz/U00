@@ -865,7 +865,7 @@ request (ffmpeg). Out of scope: yt-dlp URL download, ref-audio/cover uploads.
 count, job running) and `POST /api/narration/dramas/{id}/run` (`{engine?, model?}`,
 default engine `claude`; claude/deepseek/gemini/ollama) -> `{"job_id": "narration_<id>"}`.
 The job does everything (Slice 20 pattern): chunks the drama's attached
-`novel_narration_source.txt`, tags speakers with `tag_speakers_llm` (id-keyed; a
+`novel_narration_source.txt`, tags speakers with `tag_speakers_by_id` (id-keyed; a
 wrong-length result falls back to all Narrator), upserts characters, takes a "before chunk
 & tag speakers" history snapshot, then replaces the drama's lines (the same full replace
 Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: unknown drama
