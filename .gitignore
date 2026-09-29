@@ -16,8 +16,11 @@ env/
 *.egg-info/
 
 # start.bat's own server output log, from its --ci/--server-only launch path
-streamlit_ci.log
-streamlit_ci_err.log
+api_server.log
+api_server_err.log
+
+# scripts/build_release.py's output (baihe-frontend-<version>.zip)
+/dist/
 
 # OS
 .DS_Store
