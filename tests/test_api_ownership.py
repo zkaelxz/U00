@@ -10,8 +10,10 @@ unchanged.
 `TestEveryOwnedRouteIsGuarded` is the static half: every route whose path
 names a drama or series must go through `require_permission` (which runs
 `api.auth.require_path_visible`) or `local_only()` (the owner at the PC),
-and a path parameter that looks drama-scoped but isn't `drama_id`/
-`series_id` must be listed in `OWNERSHIP_EXEMPT_PARAMS` with a reason.
+a path parameter that looks drama-scoped but isn't `drama_id`/
+`series_id` must be listed in `OWNERSHIP_EXEMPT_PARAMS` with a reason,
+every job/Live-session route must be listed in `JOB_ROUTES`, and every
+call from api/ to a service taking `principal=None` must pass one.
 """
 
 import re
@@ -37,8 +39,6 @@ NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PER
 # Each is either nested under a `{drama_id}`/`{series_id}` path (the guard
 # covers the parent; the service scopes the child to it) or not drama-scoped.
 OWNERSHIP_EXEMPT_PARAMS = {
-    "job_id": "jobs: filtered by owner in jobs_routes/job visibility (B2 slice 4)",
-    "session_id": "live sessions: filtered by owner (B2 slice 4)",
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
     "name": "a source adapter name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
@@ -52,6 +52,20 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "report_id": "bug report (admin.diagnostics / PC-only)",
     "channel": "notification channel (PC-only)",
 }
+# Routes naming a job or Live session. The path guard can't see these, so
+# each one is listed with the owner check its service runs (review L-4): a
+# new `/.../{job_id}/...` route fails the static test until it's added here,
+# and TestJobs.test_every_job_route_hides_other_users_jobs walks them all.
+JOB_ROUTES = {
+    ("GET", "/api/jobs/{job_id}"): "jobs_service.get_job -> can_see_job",
+    ("POST", "/api/jobs/{job_id}/cancel"): "jobs_service.cancel_job -> can_see_job",
+    ("GET", "/api/sources/jobs/{job_id}/result"):
+        "sources_search_service.get_job_result -> can_see_job",
+    ("GET", "/api/live/sessions/{session_id}"): "live_service.get_session -> can_see_job",
+    ("POST", "/api/live/sessions/{session_id}/stop"):
+        "live_service.stop_session -> can_see_job",
+}
+JOB_PARAMS = {"job_id", "session_id"}
 # Children that only appear under a guarded `{drama_id}`/`{series_id}`.
 NESTED_PARAMS = {"line_id", "term_id", "note_id", "history_id", "version_id", "page_id",
                  "character_id", "candidate_id", "bulk_job_id", "track", "kind"}
@@ -131,6 +145,8 @@ class TestEveryOwnedRouteIsGuarded:
         unknown = []
         for _route, path, _m, _d in api_auth.iter_route_declarations(app):
             params = set(re.findall(r"\{([^}:]+)", path))
+            if params & JOB_PARAMS:
+                continue                    # test_job_routes_are_listed
             for p in params - set(api_auth.OWNED_PATH_PARAMS):
                 nested = p in NESTED_PARAMS and params & set(api_auth.OWNED_PATH_PARAMS)
                 if not nested and p not in OWNERSHIP_EXEMPT_PARAMS:
@@ -138,6 +154,58 @@ class TestEveryOwnedRouteIsGuarded:
         assert not unknown, ("A route names an item by a path parameter the ownership guard "
                              "doesn't know. Use {drama_id}/{series_id}, or add it to "
                              "OWNERSHIP_EXEMPT_PARAMS with a reason: %r" % unknown)
+
+    def test_job_routes_are_listed(self):
+        app = _app()
+        found = set()
+        for _route, path, methods, _d in api_auth.iter_route_declarations(app):
+            if set(re.findall(r"\{([^}:]+)", path)) & JOB_PARAMS:
+                found |= {(m, path) for m in methods - {"HEAD"}}
+        assert found == set(JOB_ROUTES), (
+            "A route names a job or Live session. Check the caller can see it "
+            "(ownership_service.can_see_job) and list it in JOB_ROUTES: %r"
+            % (found ^ set(JOB_ROUTES)))
+
+    def test_api_always_passes_the_principal(self):
+        # Services take `principal=None` to mean auth off (Streamlit, the CLI);
+        # from the API that would grant full visibility. Every call from api/
+        # to a service function with that default must pass one explicitly.
+        import ast
+        import importlib
+        import inspect
+        import pathlib
+        checked, bad = 0, []
+        for path in sorted(pathlib.Path(api_auth.__file__).parent.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module \
+                        and node.module.split(".")[0] == "services":
+                    for a in node.names:
+                        names[a.asname or a.name] = (
+                            importlib.import_module(f"services.{a.name}")
+                            if node.module == "services"
+                            else getattr(importlib.import_module(node.module), a.name, None))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                f, fn = node.func, None
+                if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) \
+                        and inspect.ismodule(names.get(f.value.id)):
+                    fn = getattr(names[f.value.id], f.attr, None)
+                elif isinstance(f, ast.Name) and inspect.isfunction(names.get(f.id)):
+                    fn = names[f.id]
+                if not inspect.isfunction(fn):
+                    continue
+                param = inspect.signature(fn).parameters.get("principal")
+                if param is None or param.default is inspect.Parameter.empty:
+                    continue            # a required one: Python refuses a missing one
+                checked += 1
+                passed = {k.arg: k.value for k in node.keywords}.get("principal")
+                if passed is None or (isinstance(passed, ast.Constant) and passed.value is None):
+                    bad.append(f"{path.name}:{node.lineno} {fn.__qualname__}")
+        assert checked > 20
+        assert not bad, bad
 
 
 class TestRouteWalk:
@@ -476,6 +544,26 @@ class TestJobs:
         assert sid not in {s["session_id"] for s in listed}
         listed = client.get("/api/live/sessions", headers=world["a"]).json()
         assert sid in {s["session_id"] for s in listed}
+
+    def test_every_job_route_hides_other_users_jobs(self, world, monkeypatch):
+        import background_jobs
+        from services import live_service
+        sid = "live_" + "b" * 32
+        status = {"status": "done", "progress": 1.0, "message": "", "result": {"rows": []},
+                  "owner_user_id": world["a_id"]}
+        monkeypatch.setattr(background_jobs, "get_status",
+                            lambda job_id: dict(status) if job_id in ("sources_search", sid)
+                            else None)
+        monkeypatch.setitem(live_service._sessions, sid,
+                            {"dir": None, "engine": "ollama", "owner_user_id": world["a_id"]})
+        db.save_job_record("sources_search", "done", started_at=1.0, owner_user_id=world["a_id"])
+        client = _client(_app())
+        for method, path in JOB_ROUTES:
+            url = path.replace("{job_id}", "sources_search").replace("{session_id}", sid)
+            r = client.request(method, url, headers=world["b"])
+            assert r.status_code == 404, (method, url, r.status_code)
+            if method == "GET":
+                assert client.get(url, headers=world["a"]).status_code == 200, url
 
     def test_import_job_result_follows_drama_visibility(self, world, monkeypatch):
         import background_jobs
