@@ -72,14 +72,21 @@ def _require_local_admin(request: Request):
     peer = request.client.host if request.client else None
     if not _is_loopback_peer(peer):
         deny()
-    if _host_name(request.headers.get("host", "")) not in _LOOPBACK_HOSTS:
+    host_header = request.headers.get("host", "")
+    if "@" in host_header or _host_name(host_header) not in _LOOPBACK_HOSTS:
         deny()
     if any(h in request.headers for h in _PROXY_HEADERS):
         deny()
     origin = request.headers.get("origin")
     if origin is not None:
-        parts = urlsplit(origin)
-        if parts.scheme not in ("http", "https") or _host_name(parts.netloc) not in _LOOPBACK_HOSTS:
+        try:
+            parts = urlsplit(origin)
+            hostname = parts.hostname   # drops any userinfo
+        except ValueError:
+            deny()
+        if ("@" in origin or parts.scheme not in ("http", "https")
+                or not hostname
+                or (f"[{hostname}]" if ":" in hostname else hostname) not in _LOOPBACK_HOSTS):
             deny()
 
 
@@ -88,17 +95,29 @@ def _require_confirm(confirm: bool):
         raise InvalidInputError("Confirmation required (confirm=true).")
 
 
+async def _read_body(request: Request, model):
+    """Parsed only AFTER the guard so a disallowed caller always gets the
+    generic 403, never a body-validation 422. Errors never echo input."""
+    try:
+        data = await request.json()
+        return model.model_validate(data)
+    except Exception:
+        raise InvalidInputError("The request is invalid.")
+
+
 @router.post("/keys/{engine}", response_model=EngineKeyResult,
              summary="Set an engine API key (write-only; disabled by default, local PC only)")
-def set_engine_key(engine: str, body: EngineKeySetRequest, request: Request):
+async def set_engine_key(engine: str, request: Request):
     _require_local_admin(request)
+    body = await _read_body(request, EngineKeySetRequest)
     _require_confirm(body.confirm)
     return settings_service.set_engine_key(engine, body.value)
 
 
 @router.post("/keys/{engine}/clear", response_model=EngineKeyResult,
              summary="Remove an engine API key from .env (disabled by default, local PC only)")
-def clear_engine_key(engine: str, body: EngineKeyClearRequest, request: Request):
+async def clear_engine_key(engine: str, request: Request):
     _require_local_admin(request)
+    body = await _read_body(request, EngineKeyClearRequest)
     _require_confirm(body.confirm)
     return settings_service.clear_engine_key(engine)

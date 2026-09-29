@@ -10,6 +10,7 @@ never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
 import os
+import threading
 from typing import Optional
 
 import background_jobs
@@ -183,7 +184,15 @@ def _validate_key_value(value) -> str:
     return value
 
 
+_ENV_LOCK = threading.Lock()
+
+
 def _rewrite_env(env_path: str, transform):
+    with _ENV_LOCK:
+        _rewrite_env_locked(env_path, transform)
+
+
+def _rewrite_env_locked(env_path: str, transform):
     """Atomically rewrites the .env file: `transform(lines)` returns the
     new line list. Temp file in the same folder + os.replace; keeps the
     existing file's permission bits (new files get 0600)."""
@@ -200,6 +209,11 @@ def _rewrite_env(env_path: str, transform):
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.writelines(new_lines)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
         try:
             os.chmod(tmp, mode)
         except OSError:

@@ -199,3 +199,62 @@ def test_clear_without_file_ok(env_file):
     r = _client().post("/api/settings/keys/claude/clear", json={"confirm": True})
     assert r.status_code == 200 and r.json()["configured"] is False
     assert not env_file.exists()
+
+
+@pytest.mark.parametrize("origin", [
+    "http://localhost:80@evil.com", "http://[::1]@evil.com", "http://localhost@evil.com",
+    "http://127.0.0.1:1@evil.com:8080"])
+def test_origin_userinfo_bypass_refused(env_file, origin):
+    assert _set(_client(), headers={"Origin": origin}).status_code == 403
+    assert not env_file.exists()
+
+
+def test_origin_ipv6_loopback_ok(env_file):
+    assert _set(_client(), headers={"Origin": "http://[::1]:5173"}).status_code == 200
+
+
+def test_host_with_userinfo_refused(env_file):
+    assert _set(_client(), headers={"Host": "localhost@evil.com"}).status_code == 403
+
+
+def test_guard_runs_before_body_parsing(env_file):
+    bad = {"content": b"{not json", "headers": {"Content-Type": "application/json"}}
+    for c in (_client(enabled=False), _client(base="http://evil.example"),
+              _client(peer=("10.0.0.1", 1))):
+        r = c.post("/api/settings/keys/claude", **bad)
+        assert r.status_code == 403
+        assert r.json()["error"]["message"] == "Not allowed from this connection."
+        assert c.post("/api/settings/keys/claude/clear", **bad).status_code == 403
+    # allowed caller with a malformed body still gets a plain 422
+    assert _client().post("/api/settings/keys/claude", **bad).status_code == 422
+
+
+def test_concurrent_writes_keep_both_keys(env_file):
+    import threading
+    errors = []
+
+    def go(engine, value):
+        try:
+            for _ in range(20):
+                settings_service.set_engine_key(engine, value, env_path=str(env_file))
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    ts = [threading.Thread(target=go, args=("claude", "k-claude")),
+          threading.Thread(target=go, args=("groq", "k-groq"))]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert not errors
+    assert sorted(env_file.read_text().splitlines()) == [
+        "BAIHE_CLAUDE_KEY=k-claude", "BAIHE_GROQ_KEY=k-groq"]
+    assert [p.name for p in env_file.parent.iterdir()] == [".env"]
+
+
+def test_temp_file_removed_on_failure(env_file, monkeypatch):
+    env_file.write_text("A=1\n")
+    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("boom")))
+    with pytest.raises(OSError):
+        settings_service.set_engine_key("claude", "k", env_path=str(env_file))
+    monkeypatch.undo()
+    assert [p.name for p in env_file.parent.iterdir()] == [".env"]
+    assert env_file.read_text() == "A=1\n"
