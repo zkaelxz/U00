@@ -326,7 +326,16 @@ class TestStartTranscribeRun:
         assert captured["use_groq"] is False
         assert captured["initial_prompt"] == "names"
         assert captured["use_gpu"] is False
-        assert list(captured)[-1] == "use_gpu"
+        assert list(captured)[-3:] == ["use_gpu", "asr_backend_choice", "alignment_method"]
+        assert captured["asr_backend_choice"] == "whisper"
+        assert captured["alignment_method"] == "whisper_diff"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_whisper_load(monkeypatch):
+    """The job body pre-loads the Whisper model to report stage/device;
+    tests never load a real model."""
+    monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
 
 
 @pytest.fixture(autouse=True)
@@ -742,3 +751,169 @@ class TestRunTranscribeAndApplyJobHardsubOcr:
         # not a reason to fail the whole job.
         assert background_jobs.get_status(job_id)["result"]["line_count"] == 1
         _clear(job_id)
+
+
+
+class TestQwen3Backends:
+    """Slice 34: the stored qwen3_asr / qwen3_forced_align choices are honoured
+    by the run. Fake backend classes only -- no model, GPU or network."""
+
+    _AUDIO_ARGS = ("simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False,
+                   None, None, None)
+
+    def _run(self, did, ddir, mode, text=None, **kw):
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), mode, text, "zh", *self._AUDIO_ARGS, **kw)
+        return job_id
+
+    def _raw(self, ddir):
+        import json
+        with open(os.path.join(ddir, "raw_transcript.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_qwen3_asr_choice_replaces_text_keeps_timing_and_records_backend(
+            self, isolated_db, monkeypatch):
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.5, "text": "whisper text"}])
+        calls = []
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False):
+                calls.append((language, whisper_segments, use_gpu))
+                return [{"start": s["start"], "end": s["end"], "text": "qwen text"}
+                        for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+        messages = []
+        real_update = background_jobs.update_progress
+        monkeypatch.setattr(background_jobs, "update_progress",
+                            lambda j, f, m="": (messages.append(m), real_update(j, f, m)))
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr", use_gpu=True)
+
+        assert len(calls) == 1 and calls[0][0] == "zh" and calls[0][2] is True
+        saved = isolated_db.load_lines(did)
+        assert [(r["zh"], r["start"], r["end"]) for r in saved] == [("qwen text", 0.0, 1.5)]
+        raw = self._raw(ddir)
+        assert (raw["backend"], raw["model"]) == ("qwen3_asr", "Qwen3-ASR")
+        assert any("Qwen3-ASR" in m for m in messages)
+        assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
+        _clear(job_id)
+
+    def test_default_whisper_path_never_touches_qwen3(self, isolated_db, monkeypatch):
+        import asr_backend
+        import forced_align
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        def boom(*a, **k):
+            raise AssertionError("Qwen3 must not be used")
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", boom)
+        monkeypatch.setattr(forced_align, "align_with_qwen3", boom)
+
+        job_id = self._run(did, ddir, "whisper")
+
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["hi"]
+        assert self._raw(ddir)["backend"] == "whisper"
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["asr_backend"] == "whisper" and result["alignment_method"] == "whisper_diff"
+        _clear(job_id)
+
+    def test_qwen3_asr_import_error_fails_job_without_saving(self, isolated_db, monkeypatch):
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        class Broken:
+            def transcribe(self, *a, **k):
+                raise ImportError("No module named 'qwen_asr'")
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", Broken)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["failed_reason"] == "dependency_missing"
+        assert "pip install qwen-asr torch" in result["detail"]
+        assert isolated_db.load_lines(did) == []
+        assert not os.path.exists(os.path.join(ddir, "raw_transcript.json"))
+        _clear(job_id)
+
+    def test_forced_align_choice_uses_true_alignment(self, isolated_db, monkeypatch):
+        import forced_align
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "x"}])
+        calls = []
+
+        def fake_align(audio_path, user_lines, segments, language, use_gpu=False):
+            calls.append((language, use_gpu, list(user_lines)))
+            return [Line(idx=0, start=0.25, end=1.75, zh="hi there")]
+        monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align)
+
+        job_id = self._run(did, ddir, "have_transcript", "hi there",
+                           alignment_method="qwen3_forced_align")
+
+        assert len(calls) == 1 and calls[0][0] == "zh"
+        saved = isolated_db.load_lines(did)
+        assert [(r["start"], r["end"]) for r in saved] == [(0.25, 1.75)]
+        assert self._raw(ddir)["mode"] == "aligned_transcript"
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["alignment_method"] == "qwen3_forced_align"
+        assert result["forced_align_error"] is None
+        _clear(job_id)
+
+    def test_forced_align_value_error_falls_back_and_is_reported(self, isolated_db, monkeypatch):
+        import forced_align
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "hi there"}])
+
+        def too_long(*a, **k):
+            raise ValueError("Line 0 spans 400s on its own")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", too_long)
+
+        job_id = self._run(did, ddir, "have_transcript", "hi there",
+                           alignment_method="qwen3_forced_align")
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["line_count"] == 1
+        assert "spans 400s" in result["forced_align_error"]
+        assert result["alignment_method"] == "whisper_diff"
+        _clear(job_id)
+
+    def test_start_forced_align_without_transcript_is_invalid_input(self, isolated_db):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
+                                   alignment_method="qwen3_forced_align")
+        with pytest.raises(InvalidInputError, match="needs a transcript"):
+            transcribe_service.start_transcribe_run(did)
+
+    def test_start_missing_package_is_dependency_unavailable(self, isolated_db, monkeypatch):
+        import importlib.util
+        real_find = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a, **k: None if name == "qwen_asr" else real_find(name, *a, **k))
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
+                                   asr_backend_choice="qwen3_asr")
+        with pytest.raises(DependencyUnavailableError, match="pip install qwen-asr torch"):
+            transcribe_service.start_transcribe_run(did)
+        did2, _ = _drama_with_audio(isolated_db, transcript_mode="have_transcript",
+                                    alignment_method="qwen3_forced_align")
+        with pytest.raises(DependencyUnavailableError, match="qwen-asr"):
+            transcribe_service.start_transcribe_run(did2, transcript_text="hi")
+
+    def test_start_passes_choices_to_the_job_when_packages_present(self, isolated_db, monkeypatch):
+        import importlib.util
+        monkeypatch.setattr(importlib.util, "find_spec", lambda *a, **k: object())
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper",
+                                   asr_backend_choice="qwen3_asr")
+        captured = []
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **k: captured.extend(a) or True)
+        transcribe_service.start_transcribe_run(did)
+        assert captured[-2:] == ["qwen3_asr", "whisper_diff"]

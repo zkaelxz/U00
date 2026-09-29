@@ -54,7 +54,7 @@ started**, **gated** (waiting on a user decision or check).
 | 3 | Extract job runners | done | `run_*_job` functions moved to `services/workspace_job_service.py` (Slice 2); `migration-review.md` section 5.1 records that all were already extracted | none | none |
 | 4 | API host + jobs API | done except SSE | Own-process API (D1); `init_db` ALTER race guard (Slice 6, #207); cross-process job records (Slice 7, #208); `GET /api/jobs`, `GET /api/jobs/{id}` (Slice 8, #209); cross-process cancel (Slice 22, #242); `app_settings` table (Slice 9, #210); process-job completion hook (Slice 49, #235) | SSE / job push (nothing exists; jobs are polled). A generic `POST /api/jobs` was never built: each feature has its own start endpoint | D1 |
 | 5 | Settings service + standalone Translate | done except key writes | `GET /api/settings` (Slice 10, #211); non-secret settings writes and persisted `use_gpu` (Slice 23, #236); Translate read endpoints (Slice 11, #212), translate action (Slice 13, #214), history clear (Slice 17, #218); Translate config and estimate (Slice 39, #226) | **Slice 24, API-key writes: gated** on the D5 loopback/admin policy decision | D2 (decided), D5 for Slice 24 |
-| 6 | Workspace, stage by stage (API side) | done except Slice 34 | Export: readiness (#213), SRT/VTT (#215), flags (#216), EPUB (#219), ASS (#224), audiobook and burned-in video jobs (Slices 29+30, #250), artifact download (#239). Diarize (#217). Source/Transcribe: config (#220), transcribe (#221), hardsub OCR (#222), upload (#240), upload-and-transcribe (#245), metadata auto-fill (#247), novel attach and chapter OCR (#248), narration (#241). Dub: config/pacing (#223), run (#243). Translate: run (#244), Reflect and bulk (#266). Characters (#227), glossary (#228), line edits (#237), Review reads (#229, #230), Review AI jobs (#249), restructure and version restore (Slice 45, #267), drama create/update/delete (#225, #231) | **Slice 34** (`qwen3_asr` / `qwen3_forced_align` backends): **gated** on a real-model check by the user | phases 3-5 |
+| 6 | Workspace, stage by stage (API side) | done; Slice 34 built with mocks, real-model check owed | Export: readiness (#213), SRT/VTT (#215), flags (#216), EPUB (#219), ASS (#224), audiobook and burned-in video jobs (Slices 29+30, #250), artifact download (#239). Diarize (#217). Source/Transcribe: config (#220), transcribe (#221), hardsub OCR (#222), upload (#240), upload-and-transcribe (#245), metadata auto-fill (#247), novel attach and chapter OCR (#248), narration (#241). Dub: config/pacing (#223), run (#243). Translate: run (#244), Reflect and bulk (#266). Characters (#227), glossary (#228), line edits (#237), Review reads (#229, #230), Review AI jobs (#249), restructure and version restore (Slice 45, #267), drama create/update/delete (#225, #231) | **Slice 34** (`qwen3_asr` / `qwen3_forced_align` backends): built with mocks; real-model check still owed by the user | phases 3-5 |
 | 7 | Scanlate editor | not started | No Scanlate API or React screen exists | React canvas editor; needs its own API first | phase 4 |
 | 8 | Sources / Discover / Live | not started | No Sources-tab, Discover or Live APIs exist (`api/routers/source_routes.py` serves the Workspace source stage, not the Sources tab) | Local-only marking for sign-in flows; SSE for Live | phases 4-5 |
 | 9 | Admin actions | not started | none | Install/upgrade, reset, restore over the API, if ever | D5 / D6 (decided in principle; see `remote-access-design.md`) |
@@ -90,7 +90,7 @@ version restore) now have an API (Slice 45) but no React UI.
 
 - **Slice 24 (API-key writes):** needs the D5 loopback/admin policy decision
   applied to key writes.
-- **Slice 34 (Qwen3 ASR / forced align backends):** needs a real-model check.
+- **Slice 34 (Qwen3 ASR / forced align backends):** built with mocks; the real-model check is still owed by the user.
 - **Real-hardware / real-account checks only the user can run:** real TTS,
   ffmpeg/libass, Whisper on GPU, paid LLM keys, real OCR and EPUBs, a
   gated-access Hugging Face token for pyannote diarization, a real-audio
@@ -714,8 +714,8 @@ The full ordered list is in [`baihe-roadmap-master.md`](baihe-roadmap-master.md)
   prebuilt `frontend/dist` from FastAPI plus a combined launcher story
   (end users must not need Node); server-side typed confirmation for the
   destructive Library actions deferred in E0.
-- **Gated:** Slice 24 (API-key writes, needs the D5 policy decision) and
-  Slice 34 (needs a real-model check).
+- **Gated:** Slice 24 (API-key writes, needs the D5 policy decision). Slice 34 is built with mocks;
+  its real-model check is still owed by the user.
 - **Deferred / held:** Step 43 soft-delete; Steps 100-105, 40b, 42, 60, 72;
   the fix and cleanup steps 121-132 and the deferred steps 106-119 in the
   roadmap master.
