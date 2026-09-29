@@ -269,7 +269,7 @@ class TestExportBackupArtifacts:
         a = _new("Exported", "translated")
         db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi")])
         _new("Skip", "aligned")
-        r = _clean(client.post(f"{BASE}/export"))
+        r = _clean(client.post(f"{BASE}/export", json={}))
         assert r.status_code == 200, r.text
         assert r.json()["drama_ids"] == [a]
         st = _wait(r.json()["job_id"])
@@ -314,16 +314,20 @@ class TestExportBackupArtifacts:
 
     def test_backup_duplicate_409_and_strict_flag(self, client):
         _put_job(las.BACKUP_JOB_ID)
-        assert client.post(f"{BASE}/backup").status_code == 409
+        assert client.post(f"{BASE}/backup", json={}).status_code == 409
         assert client.post(f"{BASE}/backup",
                            json={"database_only": "true"}).status_code == 422
 
 
 # ---- restore -----------------------------------------------------------------
 
-def _restore(client, data, confirm="true", text="RESTORE", **kw):
+LOCAL_HDR = {"X-Baihe-Local": "1"}   # batch 1 will require it on multipart local_only POSTs
+
+
+def _restore(client, data, confirm="true", text="RESTORE", headers=None):
     return client.post(f"{BASE}/restore", files={"file": ("b.zip", data, "application/zip")},
-                       data={"confirm": confirm, "confirm_text": text}, **kw)
+                       data={"confirm": confirm, "confirm_text": text},
+                       headers={**LOCAL_HDR, **(headers or {})})
 
 
 @pytest.fixture
@@ -369,9 +373,19 @@ class TestRestore:
         assert _error(r)["message"] == "The uploaded file is too large."
         assert validated == [] and no_swap == []
 
+    def test_read_capped_without_declared_size(self, monkeypatch):
+        """No UploadFile.size (e.g. chunked): the single limit+1 read refuses."""
+        from fastapi import UploadFile
+        monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.001")
+        limit = library_admin_routes.media_upload_service.max_upload_bytes()
+        with pytest.raises(library_admin_routes.InvalidInputError):
+            library_admin_routes._read_capped(UploadFile(io.BytesIO(b"0" * (limit + 1))))
+        data = library_admin_routes._read_capped(UploadFile(io.BytesIO(b"0" * limit)))
+        assert len(data) == limit
+
     def test_real_round_trip(self, client):
         a = _new("Kept")
-        assert client.post(f"{BASE}/backup").status_code == 200
+        assert client.post(f"{BASE}/backup", json={}).status_code == 200
         assert _wait(las.BACKUP_JOB_ID)["status"] == "done"
         data = client.get(f"{BASE}/artifacts/backup").content
         _new("Added after backup")
@@ -464,11 +478,12 @@ def _admin():
 _LOCAL_ONLY = [
     ("post", "/bulk/delete", {"json": {"drama_ids": [1], "confirm": True,
                                         "confirm_text": "DELETE"}}),
-    ("post", "/export", {}),
+    ("post", "/export", {"json": {}}),
     ("post", "/backup", {"json": {"database_only": True}}),
     ("get", "/artifacts/backup", {}),
     ("post", "/restore", {"files": {"file": ("b.zip", b"PK", "application/zip")},
-                          "data": {"confirm": "true", "confirm_text": "RESTORE"}}),
+                          "data": {"confirm": "true", "confirm_text": "RESTORE"},
+                          "headers": {"X-Baihe-Local": "1"}}),
     ("post", "/storage/clean", {"json": {"preset": "balanced", "confirm": True,
                                           "confirm_text": "CLEAN"}}),
 ]
@@ -492,7 +507,8 @@ class TestAuthOn:
         c = _remote_app()
         a = _new("A")
         h = _admin()
-        r = getattr(c, method)(BASE + path, headers=h, **kw)
+        kw = dict(kw)
+        r = getattr(c, method)(BASE + path, headers={**h, **kw.pop("headers", {})}, **kw)
         assert r.status_code == 403, path
         assert db.get_drama(a) is not None
         assert background_jobs.list_all_jobs() == {}
@@ -574,7 +590,49 @@ class TestAuthOn:
         monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
         files = {"file": ("b.zip", b"0" * 4096, "application/zip")}
         data = {"confirm": "true", "confirm_text": "RESTORE"}
-        assert c.post(f"{BASE}/restore", files=files, data=data).status_code == 403
         assert c.post(f"{BASE}/restore", files=files, data=data,
-                      headers=h).status_code == 403
+                      headers=LOCAL_HDR).status_code == 403
+        assert c.post(f"{BASE}/restore", files=files, data=data,
+                      headers={**h, **LOCAL_HDR}).status_code == 403
         assert read == [] and no_swap == []
+
+
+# ---- security review follow-ups (L2, L3) ---------------------------------------
+
+class TestMaintenanceBlocksArchiving:
+    @pytest.mark.parametrize("path,body", [("/export", {}), ("/backup", {}),
+                                           ("/backup", {"database_only": True})])
+    def test_409_during_delete_or_cleanup(self, client, path, body):
+        _new("A", "translated")
+        assert background_jobs.enter_maintenance()
+        try:
+            r = client.post(BASE + path, json=body)
+            assert r.status_code == 409, r.text
+            assert background_jobs.list_all_jobs() == {}
+        finally:
+            background_jobs.exit_maintenance()
+        assert not background_jobs.maintenance_active()
+        assert client.post(BASE + path, json=body).status_code == 200
+
+
+class TestBulkTranslateDoesNotAdopt:
+    def test_start_refused_is_skipped_running(self, isolated_db, monkeypatch):
+        from core import Line
+        did = _new("A", translation_engine="test_offline")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        per_job = f"translate_{did}"
+        cancels = []
+
+        def racing_start(job_id, *a, **k):
+            _put_job(job_id)          # someone else's run started first
+            return False
+        monkeypatch.setattr(background_jobs, "start_job", racing_start)
+        monkeypatch.setattr(background_jobs, "request_cancel", lambda j: cancels.append(j))
+        monkeypatch.setattr(background_jobs, "cancel_queued", lambda j: cancels.append(j))
+        _put_job("bulk_test")
+        wjs.run_bulk_series_translate_job("bulk_test", [did], {})
+        result = background_jobs.get_status("bulk_test")["result"]
+        assert result["skipped_running"] == [did]
+        assert result["translated"] == []
+        assert cancels == []
+        assert background_jobs.get_status(per_job)["status"] == "running"

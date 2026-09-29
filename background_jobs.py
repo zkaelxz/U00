@@ -446,6 +446,12 @@ def exit_maintenance():
         _maintenance_count = max(0, _maintenance_count - 1)
 
 
+def maintenance_active() -> bool:
+    """True while a bulk delete / storage cleanup (enter_maintenance) runs."""
+    with _lock:
+        return _maintenance_count > 0
+
+
 def exclusive_active() -> bool:
     with _lock:
         return _exclusive_label is not None

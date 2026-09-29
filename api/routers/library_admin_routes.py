@@ -38,6 +38,7 @@ _ERR_404 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 _MEDIA_TYPES = {"backup": "application/zip", "export": "application/zip",
                 "database": "application/octet-stream"}
 _NO_ARTIFACT = "No artifact available."
+_TOO_LARGE = "The uploaded file is too large."
 
 
 def _redacted(result: dict) -> dict:
@@ -132,17 +133,17 @@ def get_artifact(kind: LibraryArtifactKind = Path()):
         "Content-Length": str(size), "X-Content-Type-Options": "nosniff"})
 
 
-def _read_capped(fileobj) -> bytes:
-    """The upload in 1 MiB chunks, refused (422) past BAIHE_MAX_UPLOAD_MB."""
+def _read_capped(upload: UploadFile) -> bytes:
+    """The upload as one bytes object, refused (422) past BAIHE_MAX_UPLOAD_MB.
+    One read of limit+1 bytes, so the peak is the upload itself, not a copy."""
     limit = media_upload_service.max_upload_bytes()
-    buf = bytearray()
-    while True:
-        chunk = fileobj.read(_CHUNK)
-        if not chunk:
-            return bytes(buf)
-        if len(buf) + len(chunk) > limit:
-            raise InvalidInputError("The uploaded file is too large.")
-        buf += chunk
+    size = getattr(upload, "size", None)
+    if size is not None and size > limit:
+        raise InvalidInputError(_TOO_LARGE)
+    data = upload.file.read(limit + 1)
+    if len(data) > limit:
+        raise InvalidInputError(_TOO_LARGE)
+    return data
 
 
 @router.post("/restore", dependencies=[local_only()], response_model=LibraryRestoreDone,
@@ -158,7 +159,7 @@ def post_restore(request: Request, file: UploadFile = File(...),
     if confirm != "true" or confirm_text != las.RESTORE_CONFIRM_TEXT:
         raise InvalidInputError(f"Restoring a backup needs confirm=true and confirm_text set "
                                 f"to the word {las.RESTORE_CONFIRM_TEXT}, in capitals.")
-    data = _read_capped(file.file)
+    data = _read_capped(file)
     principal = getattr(request.state, "principal", None) or {}
     return las.restore_backup(data, confirm=True, confirm_text=confirm_text,
                               actor_id=principal.get("user_id"))
