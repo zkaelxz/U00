@@ -110,6 +110,13 @@ export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch
   return { en: suggestion, expected: { en: line.en } }
 }
 
+// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R19).
+export type ToolMode = 'alternatives' | 'grammar' | 'pronounce'
+export type PanelMode = 'improve' | 'explain' | ToolMode
+
+export const isToolMode = (m: PanelMode): m is ToolMode =>
+  m === 'alternatives' || m === 'grammar' || m === 'pronounce'
+
 // The suggestion was made for current_en; if the row shows something else now
 // it is stale and must not be applied.
 export function suggestionIsStale(line: ReviewLine, currentEn: string): boolean {

@@ -6,6 +6,9 @@ here?" provenance, and original-transcript-text lookup. Mirrors the
 matching blocks of `with tab_review:` in `tabs/workspace_tab.py`, but reads
 the database by permanent `Line.id` instead of the browser session list.
 
+Also read-only, added later: the nearest flagged line across pages and
+the page it is on (review parity R08).
+
 Explicitly OUT OF SCOPE for this slice (each its own later slice): every
 write (applying a replace, editing, flagging, restoring original text), the
 media player / burned preview / pronunciation, translation-memory
@@ -92,12 +95,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     _, lines = _load_drama_and_lines(drama_id)
     flagged = sum(1 for ln in lines if _is_flagged(ln))
     untranslated = sum(1 for ln in lines if _is_untranslated(ln))
-    if only == "flagged":
-        visible = [ln for ln in lines if _is_flagged(ln)]
-    elif only == "untranslated":
-        visible = [ln for ln in lines if _is_untranslated(ln)]
-    else:
-        visible = lines
+    visible = _visible(lines, only)
     start = (page - 1) * page_size
     return {
         "lines": [_line_dict(ln) for ln in visible[start:start + page_size]],
@@ -221,6 +219,52 @@ def get_original_text(drama_id: int, line_id: int) -> dict:
         "original_text": original,
         "differs": original is not None and original != ln.zh,
     }
+
+
+def _visible(lines, only: str) -> list:
+    if only == "flagged":
+        return [ln for ln in lines if _is_flagged(ln)]
+    if only == "untranslated":
+        return [ln for ln in lines if _is_untranslated(ln)]
+    return lines
+
+
+def _check_view(page_size, only):
+    if only not in _ONLY_VALUES:
+        raise InvalidInputError(f"Unknown filter {only!r}; use one of {_ONLY_VALUES}.")
+    if (not isinstance(page_size, int) or isinstance(page_size, bool)
+            or not 1 <= page_size <= MAX_PAGE_SIZE):
+        raise InvalidInputError(f"page_size must be between 1 and {MAX_PAGE_SIZE}.")
+
+
+def _position(lines, ln, page_size: int, only: str) -> dict:
+    """Where `ln` sits: its page in the `only` view (None when the filter
+    hides it) and its page with no filter."""
+    view_ids = [x.id for x in _visible(lines, only)]
+    all_ids = [x.id for x in lines]
+    page = view_ids.index(ln.id) // page_size + 1 if ln.id in view_ids else None
+    return {"line_id": ln.id, "idx": ln.idx, "page": page,
+            "page_all": all_ids.index(ln.id) // page_size + 1}
+
+
+def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int = None,
+                     page_size: int = 40, only: str = "all") -> dict:
+    """The nearest flagged line after (forward) or before `from_line_id`,
+    across every page (review parity R08). With no `from_line_id`: the
+    first (forward) or last flagged line. Returns {line_id, idx, page,
+    page_all}: `page` in the `only` view (None when the filter hides the
+    line), `page_all` with no filter; every field None when there's no
+    such line."""
+    _check_view(page_size, only)
+    _, lines = _load_drama_and_lines(drama_id)
+    if from_line_id is None:
+        ref = -1 if forward else float("inf")
+    else:
+        ref = _find_line(lines, from_line_id).idx
+    idx = adjacent_flagged_idx(lines, ref, forward)
+    if idx is None:
+        return {"line_id": None, "idx": None, "page": None, "page_all": None}
+    return _position(lines, next(ln for ln in lines if ln.idx == idx), page_size, only)
 
 
 def adjacent_flagged_idx(all_lines, ref_idx, forward):

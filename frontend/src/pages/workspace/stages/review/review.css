@@ -241,3 +241,18 @@ a.review-primary-link {
 @media (pointer: coarse), (max-width: 640px) {
   .stage-review .review-jump { display: inline-flex; align-items: center; justify-content: flex-start; min-height: var(--touch); min-width: var(--touch); }
 }
+
+/* ---- per-line tools (R08, R11, R17-R19, R28) ---- */
+.review-flagnav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.review-tm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); padding: var(--space-1) var(--space-2); border-left: 3px solid var(--accent); font-size: var(--font-sm); overflow-wrap: anywhere; min-width: 0; }
+.review-tm > span:first-child { min-width: 0; }
+.review-tm .review-actions { margin-top: 0; }
+.review-alts, .review-grammar { margin: 0; padding-left: 1.4em; display: grid; gap: var(--space-2); overflow-wrap: anywhere; min-width: 0; }
+.review-alts > li { display: grid; gap: 2px; justify-items: start; }
+.review-alts p { margin: 0; font-size: var(--font-sm); }
+.review-pronounce { width: 100%; max-width: 24rem; }
+.review-shorten { display: grid; gap: var(--space-2); margin-top: var(--space-2); justify-items: start; }
+.review-shorten p { margin: 0; }
+@media (max-width: 640px) {
+  .review-flagnav button { flex: 1 1 0; }
+}

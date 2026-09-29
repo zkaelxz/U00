@@ -27,8 +27,12 @@ import type {
   VersionItem,
   VersionActivateResult,
   BlockedRetryResult,
+  FlaggedPosition,
+  LineAlternatives,
+  LineGrammar,
+  ShortenResult,
 } from '../types/review'
-import { apiUrl, deleteJson, getJson, postJson } from './client'
+import { apiUrl, deleteJson, fetchBody, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -72,8 +76,12 @@ export const listHistory = (id: number, f?: Fetch) => getJson<HistoryItem[]>(`${
 
 export const listVersions = (id: number, f?: Fetch) => getJson<VersionItem[]>(`${review(id)}/versions`, f)
 
-export const listTmSuggestions = (id: number, f?: Fetch) =>
-  getJson<TmSuggestion[]>(`${review(id)}/tm-suggestions`, f)
+// lineIds (at most 200): only those lines' suggestions.
+export const listTmSuggestions = (id: number, f?: Fetch, lineIds?: number[]) =>
+  getJson<TmSuggestion[]>(
+    `${review(id)}/tm-suggestions${lineIds ? `?${lineIds.map((l) => `line_id=${l}`).join('&')}` : ''}`,
+    f,
+  )
 
 // body: only the fields the user set; {} leaves engine, model and cap to the server.
 export const startReviewJob = (id: number, kind: ReviewJobKind, body: ReviewJobBody = {}, f?: Fetch) =>
@@ -122,3 +130,34 @@ export const activateVersion = (id: number, versionId: number, f?: Fetch) =>
 // engine (the key is resolved on the PC, never sent from the browser).
 export const retryBlockedLine = (id: number, lineId: number, engine: string, f?: Fetch) =>
   postJson<BlockedRetryResult>(`${lines(id)}/lines/${lineId}/retry-blocked`, { engine }, f)
+
+// Review parity R17/R18: read-only, like improve/explain.
+export const lineAlternatives = (id: number, lineId: number, f?: Fetch) =>
+  postJson<LineAlternatives>(`${lineAi(id, lineId)}/alternatives`, {}, f)
+
+export const lineGrammar = (id: number, lineId: number, f?: Fetch) =>
+  postJson<LineGrammar>(`${lineAi(id, lineId)}/grammar`, {}, f)
+
+// Review parity R19: an MP3 of the line's source text (edge-tts on the PC).
+export const pronounceLine = (id: number, lineId: number, f?: Fetch) =>
+  fetchBody(`${lineAi(id, lineId)}/pronounce`, { method: 'POST', headers: { Accept: 'audio/mpeg' } }, (r) => r.blob(), f)
+
+// Review parity R28: rewrites only "en" of the too-long lines, after a
+// line-history snapshot; a line edited meanwhile is skipped as stale.
+export const shortenOverlong = (id: number, lineIds?: number[], f?: Fetch) =>
+  postJson<ShortenResult>(`${lines(id)}/shorten-overlong`, lineIds ? { line_ids: lineIds } : {}, f)
+
+// Review parity R08: the nearest flagged line before/after a line, any page.
+export const flaggedAdjacent = (
+  id: number,
+  direction: 'next' | 'prev',
+  fromLineId: number | null,
+  pageSize: number,
+  only: LineFilter,
+  f?: Fetch,
+) =>
+  getJson<FlaggedPosition>(
+    `${review(id)}/flagged-adjacent?direction=${direction}&page_size=${pageSize}&only=${only}` +
+      (fromLineId !== null ? `&from_line_id=${fromLineId}` : ''),
+    f,
+  )

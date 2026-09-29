@@ -144,6 +144,54 @@ export interface LineExplanation {
   model: string | null
 }
 
+// Review parity R17/R18: other translations and a source breakdown (read-only).
+export interface LineAlternative {
+  translation: string
+  approach: string
+  tradeoff: string
+}
+
+export interface LineAlternatives {
+  line_id: number
+  current_en: string
+  alternatives: LineAlternative[]
+  engine: string
+  model: string | null
+}
+
+export interface LineGrammarPart {
+  word: string
+  reading: string
+  meaning: string
+  function: string
+}
+
+export interface LineGrammar {
+  line_id: number
+  zh: string
+  parts: LineGrammarPart[]
+  engine: string
+  model: string | null
+}
+
+// Review parity R28: auto-shorten lines too long for their time slot.
+export interface ShortenResult {
+  shortened: number
+  unchanged: number
+  stale: number
+  remaining: number
+  snapshot_saved: boolean
+  lines: { id: number; idx: number; before: string; after: string }[]
+}
+
+// Review parity R08: the nearest flagged line across pages (all null: none).
+export interface FlaggedPosition {
+  line_id: number | null
+  idx: number | null
+  page: number | null
+  page_all: number | null
+}
+
 // ---- stored AI results and checks (ReviewRecords*, ReviewLines*) ----
 
 // Not tied to one line: a source term translated more than one way.

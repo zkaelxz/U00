@@ -7,14 +7,21 @@ accept, and translation-note add/delete.
 Lines are addressed by permanent line id, never by position, and every write
 is field-scoped (never a full line-list sync). Writes are POSTs; a note delete
 is a DELETE with no confirm, matching the Review tab.
+
+Auto-shorten overlong lines (review parity R28) calls an LLM, so besides
+`lines.edit` the handler runs `require_engines_allowed` and takes an LLM
+slot; it writes only `en` (compare-and-set per line) after a line_history
+snapshot (services/line_tools_service.py).
 """
 
-from fastapi import APIRouter, Path
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Request
+from api.auth import require_engines_allowed, require_permission
+from api.llm_slots import llm_slot
 from api.schemas import (ErrorResponse, LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
                          LinesFindReplaceApplyResult, LinesNote, LinesNoteCreate,
-                         LinesNoteDeleteResult, LinesPatchRequest, ReviewLinesLine)
-from services import lines_service
+                         LinesNoteDeleteResult, LinesPatchRequest, LinesShortenRequest,
+                         LinesShortenResult, ReviewLinesLine)
+from services import line_tools_service, lines_service
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
@@ -61,3 +68,15 @@ def post_add_note(body: LinesNoteCreate, drama_id: int = Path(ge=1)):
                responses={404: {"model": ErrorResponse}})
 def delete_note(drama_id: int = Path(ge=1), note_id: int = Path(ge=1)):
     return lines_service.delete_note(drama_id, note_id)
+
+
+@router.post("/dramas/{drama_id}/shorten-overlong", dependencies=[require_permission("lines.edit")],
+             response_model=LinesShortenResult,
+             summary="Rewrite lines too long for their time slot more concisely (LLM)",
+             responses={**_404_422, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
+                        503: {"model": ErrorResponse}})
+def post_shorten_overlong(body: LinesShortenRequest, request: Request, drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, body.engine)
+    with llm_slot(request):
+        return line_tools_service.shorten_overlong(drama_id, body.line_ids, body.engine,
+                                                   body.model, body.gemini_free_tier)
