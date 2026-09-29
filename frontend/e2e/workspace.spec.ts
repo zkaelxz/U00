@@ -42,6 +42,9 @@ test('opens the workspace from the library and navigates stages', async ({ page 
   // (Source here -- the seeded drama has no lines yet).
   await expect(page).toHaveURL(/#\/drama\/3$/)
   await expect(page.getByTestId('drama-title')).toHaveText('Signal')
+  // Header: humanized badges and a real back button.
+  await expect(page.locator('.workspace-header .pill').first()).not.toHaveText(/_/)
+  await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveClass(/btn/)
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('media-status')).toContainText('limit')
 
@@ -66,9 +69,11 @@ test('opens on the reported stage and marks progress in the stepper (P16/P17)', 
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('data-state', 'done')
-  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: next step')
+  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: next step · 1 flagged')
+  await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: done · 2 left')
+  await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toContainText('Translate· 2 left')
   await expect(nav.getByRole('link', { name: 'Dub', exact: true })).toHaveAttribute('data-state', 'optional')
-  await expect(page.getByTestId('stage-counts')).toHaveText('12 lines · 2 untranslated · 1 flagged')
+  await expect(page.getByTestId('stage-counts')).toHaveText('12 lines')
 
   // A stage named in the URL wins over the reported one.
   await page.goto('/#/drama/1/export')

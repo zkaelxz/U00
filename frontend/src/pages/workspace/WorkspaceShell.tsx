@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { getWorkflowProgress } from '../../api/workspace'
+import { Badge } from '../../components/Badge'
+import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { routeHref } from '../../router'
+import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageStates, startStage } from './stages'
+import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, stageStates, startStage } from './stages'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
+import './workspace.css'
 
 // P16/P17: the drama's pipeline progress, reloaded whenever the drama is
 // (after a job finishes or a stage calls refetchDrama). A failure only
@@ -46,39 +50,73 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     [id, drama, refetch],
   )
 
+  const title = drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`
+
   return (
     <section className="workspace" aria-label={`Drama ${id} workspace`}>
       <header className="workspace-header">
-        <a href={routeHref({ name: 'library' })}>Back to Library</a>
-        <h2 data-testid="drama-title">
-          {drama ? drama.title_en || drama.title_zh || `Drama #${id}` : `Drama #${id}`}
+        <ButtonLink href={routeHref({ name: 'library' })} variant="ghost" size="sm" className="ws-back" aria-label="Back to Library">
+          <span aria-hidden="true">‹</span>
+          <span className="ws-back-text" aria-hidden="true">Library</span>
+        </ButtonLink>
+        <h2 data-testid="drama-title" title={title}>
+          {title}
         </h2>
-        {drama?.status && <span className="badge">{drama.status}</span>}
+        <div className="ws-badges">
+          {drama?.status && <Badge kind="status" value={drama.status} />}
+          {drama?.media_type && (
+            <span className="ws-media">
+              <Badge kind="mediaType" value={drama.media_type} />
+            </span>
+          )}
+          {progress && progress.line_count > 0 && (
+            <span className="ws-lines muted" data-testid="stage-counts">
+              {progress.line_count} lines
+            </span>
+          )}
+        </div>
+        {drama && (
+          <ButtonLink
+            href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id, page: null })}
+            variant="ghost"
+            size="sm"
+            className="ws-read"
+          >
+            Read
+          </ButtonLink>
+        )}
       </header>
       <ErrorBanner error={error} />
       <nav className="stage-tabs" aria-label="Stages">
         {STAGE_IDS.map((s) => {
           const st = states[s]
+          const count = stageCount(s, progress)
+          // The state (and count) is the link's description, not its name, so "Review" stays "Review".
+          const desc = [st && STAGE_STATE_WORDS[st], count].filter(Boolean).join(' · ')
           return (
             <a
               key={s}
               href={routeHref({ name: 'drama', id, stage: s })}
               aria-current={s === active ? 'page' : undefined}
               data-state={st}
-              // The state is the link's description, not its name, so "Review" stays "Review".
-              title={st ? `${STAGE_LABELS[s]}: ${STAGE_STATE_WORDS[st]}` : undefined}
+              title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
             >
-              {st === 'done' && <span className="stage-mark" aria-hidden="true">✓ </span>}
-              {STAGE_LABELS[s]}
+              {st && (
+                <span className="stage-mark" aria-hidden="true">
+                  {st === 'done' ? '✓' : st === 'current' ? '●' : '○'}
+                </span>
+              )}
+              <span className="stage-label">{STAGE_LABELS[s]}</span>
+              {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
+              {count && (
+                <span className="stage-count" aria-hidden="true">
+                  · {count}
+                </span>
+              )}
             </a>
           )
         })}
       </nav>
-      {progress && progress.line_count > 0 && (
-        <p className="muted stage-counts" data-testid="stage-counts">
-          {progress.line_count} lines · {progress.untranslated_count} untranslated · {progress.flagged_count} flagged
-        </p>
-      )}
       {ctx && Stage ? (
         <StageContext.Provider value={ctx}>
           <Stage />

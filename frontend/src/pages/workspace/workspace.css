@@ -1,0 +1,71 @@
+/* Workspace shell (§3.3): drama header and the stage stepper. */
+
+/* Header: one row -- back, title, badges, Read on the right. */
+.workspace-header { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
+.workspace-header h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-header .ws-back { gap: var(--space-1); }
+.workspace-header .ws-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.workspace-header .ws-lines { font-size: var(--text-sm); }
+.workspace-header .ws-read { margin-left: auto; }
+
+/* Stepper: one tab per stage with a state marker; counts where they exist. */
+.stage-tabs { display: flex; gap: var(--space-1); margin: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.stage-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  text-decoration: none;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color var(--ease), border-color var(--ease);
+}
+.stage-tabs a:hover { color: var(--text); }
+.stage-tabs a[aria-current='page'] { color: var(--text); border-bottom-color: var(--accent); font-weight: var(--weight-bold); }
+/* P16: progress marks. "current" is the drama's next step, not the open tab. */
+.stage-tabs a[data-state='done'] { color: var(--text); }
+.stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: var(--weight-bold); }
+.stage-tabs a[data-state='blocked'] { opacity: 0.7; }
+.stage-tabs .stage-mark { font-size: var(--text-xs); color: var(--muted); }
+.stage-tabs a[data-state='done'] .stage-mark { color: var(--ok); font-size: var(--text-sm); }
+.stage-tabs a[data-state='current'] .stage-mark { color: var(--accent-text); }
+.stage-tabs .stage-count { color: var(--muted); font-weight: normal; font-size: var(--text-sm); }
+
+@media (pointer: coarse) {
+  .stage-tabs a { min-height: 44px; }
+}
+
+@media (max-width: 640px) {
+  /* Phone header: 44px "‹" back, the title on one line, then the status badge. */
+  .workspace-header { flex-wrap: nowrap; gap: var(--space-2); }
+  .workspace-header .ws-back { min-width: 44px; min-height: 44px; padding-inline: 0; font-size: var(--text-xl); }
+  .workspace-header .ws-back-text,
+  .workspace-header .ws-media,
+  .workspace-header .ws-lines,
+  .workspace-header .ws-read { display: none; }
+  .workspace-header h2 { flex: 1 1 auto; font-size: var(--text-lg); }
+  .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
+
+  /* Phone stepper: a 5-column grid, marker above the label, no sideways scroll; counts hidden. */
+  .stage-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: var(--space-2) 0; }
+  .stage-tabs a {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    min-height: 44px;
+    padding: var(--space-1) 0;
+    font-size: var(--text-sm);
+    line-height: 1.2;
+  }
+  .stage-tabs .stage-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .stage-tabs .stage-count { display: none; }
+}
