@@ -228,6 +228,18 @@ dd { margin: 0; }
 .form-grid { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
 .form-grid label { display: grid; gap: 2px; }
 
+/* ---- library page: main task first, secondary panels folded ---- */
+.stats-strip p { margin: 0; color: var(--muted); font-size: var(--font-sm); }
+.fold > summary { cursor: pointer; font-weight: 600; }
+.fold[open] > summary { margin-bottom: var(--space-3); }
+.more-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+.new-drama-slot { max-width: 520px; }
+
 /* ---- Section (components/Section.tsx) ---- */
 details.section { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }

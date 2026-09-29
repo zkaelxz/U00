@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { dubApi } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { useJob } from '../../../hooks/useJob'
+import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { DubConfig, DubPacing } from '../../../types/dub'
 import { useStage } from '../StageContext'
 import {
@@ -25,7 +25,7 @@ export default function DubStage() {
   const [pacing, setPacing] = useState<DubPacing | null>(null)
   const [form, setForm] = useState<DubForm | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
@@ -45,6 +45,7 @@ export default function DubStage() {
   }, [dramaId, reloads])
 
   const { job, done, error: pollError } = useJob(jobId, {
+    runKey,
     onDone: () => {
       onJobDone()
       setReloads((n) => n + 1)

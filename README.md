@@ -351,11 +351,26 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
 - The React app calls the relative path `/api`; the Vite dev server
   (5173) and `npm run preview` (4173) proxy it to
   `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.
-- `npm run build` produces `frontend/dist`, but FastAPI does not serve it
-  yet; use `npm run preview` to look at a build.
+- `npm run build` produces `frontend/dist`, and `python -m api` serves it
+  at `/` when it exists (see below); `npm run preview` also works.
 - Loopback-only by default and no login. Setting `BAIHE_API_HOST=0.0.0.0`
   exposes it, unauthenticated, to your network -- only on a network you
   trust. See [`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md).
+
+#### React app in one command
+
+One process, one port, no Vite/npm at runtime. On Windows, double-click
+**`start-react.bat`** (needs the `venv` from `start.bat`; builds the
+frontend once if Node.js is installed, starts the API, opens
+`http://127.0.0.1:8600/`). The manual equivalent, from the repo root:
+
+```bash
+cd frontend && npm ci && npm run build && cd ..   # once
+python -m api                                     # then open http://127.0.0.1:8600/
+```
+
+Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only. `start-react.bat` has not
+been run on real Windows yet.
 
 ### Trying it for free first
 
