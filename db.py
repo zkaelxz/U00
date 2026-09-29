@@ -2676,6 +2676,24 @@ def save_preset(name: str, translation_engine: str = None, engine_model: str = N
     return preset_id
 
 
+def insert_preset(name: str, translation_engine: str = None, engine_model: str = None,
+                  style_preset: str = None, locale: str = None,
+                  default_female_pronouns: bool = False, include_genre_notes: bool = True) -> int:
+    """Insert-only twin of save_preset: a taken name raises
+    sqlite3.IntegrityError (UNIQUE(name)) instead of replacing the row, so
+    a caller can refuse an overwrite without a check-then-write race."""
+    now = datetime.datetime.utcnow().isoformat()
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute("""
+            INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
+                                  default_female_pronouns, include_genre_notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, translation_engine, engine_model, style_preset, locale,
+              int(bool(default_female_pronouns)), int(bool(include_genre_notes)), now, now))
+        conn.commit()
+        return cur.lastrowid
+
+
 def list_presets():
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
