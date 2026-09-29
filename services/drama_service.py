@@ -37,7 +37,7 @@ import uuid
 
 import background_jobs
 import db
-from services import library_service
+from services import library_service, ownership_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -97,23 +97,22 @@ def _check_media_type(value):
                                 details={"allowed": list(MEDIA_TYPE_OPTIONS)})
 
 
-def _series_exists(series_id) -> bool:
-    return any(s["id"] == series_id for s in db.list_series())
-
-
 def _find_preset(preset_id):
     return next((p for p in db.list_presets() if p["id"] == preset_id), None)
 
 
 def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
                  director="", voice_actors="", summary="", media_type="audio_drama",
-                 series_id=None, new_series_name=None, preset_id=None) -> dict:
+                 series_id=None, new_series_name=None, preset_id=None,
+                 principal=None) -> dict:
     """Creates a drama (and optionally assigns a series and applies a
     preset) in one call. `source_language` is required (zh/ja/ko).
     `series_id` (must exist) and `new_series_name` are mutually exclusive;
     a whitespace-only `new_series_name` is rejected. Returns the drama
     detail plus `preset_defaults` (dict or None). All validation happens
-    before anything is written, so a rejected call creates nothing."""
+    before anything is written, so a rejected call creates nothing.
+    `principal` (None = auth off) goes through ownership_service: a series
+    the caller can't see is a 404, as is a name taken by one (409)."""
     if source_language not in _SOURCE_LANGUAGES:
         raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
                                 details={"allowed": list(_SOURCE_LANGUAGES)})
@@ -127,12 +126,16 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
     if series_id is not None:
         _check_id("series_id", series_id)
-        if not _series_exists(series_id):
-            raise NotFoundError("No series with that id.")
+        # The new drama isn't stamped with an owner here yet (auth B2), so
+        # it passes as PC-owned; B2 must pass the owner it stamps.
+        ownership_service.check_series_assignment(principal, series_id, None)
     if new_series_name is not None:
         new_series_name = _check_text("new_series_name", new_series_name).strip()
         if not new_series_name:
             raise InvalidInputError("new_series_name must not be blank.")
+        taken = db.get_series_id_by_name(new_series_name)
+        if taken is not None and not ownership_service.can_see_series(principal, taken):
+            raise ConflictError("That series name is taken")
 
     preset = None
     if preset_id is not None:
@@ -150,8 +153,17 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     # Hardening H1: a NEW series is created only after the drama row exists
     # (as the Streamlit form does), so a failed create can't leave a stray
     # series behind (db has no delete_series to clean one up).
+    # The series step can still be refused (a name taken or made private
+    # between the pre-check and here); undo the new drama so a rejected call
+    # creates nothing and a retry can't leave a duplicate.
     if new_series_name is not None:
-        db.update_drama(new_id, series_id=db.get_or_create_series(new_series_name))
+        try:
+            ownership_service.assign_drama_series(
+                principal, new_id,
+                ownership_service.get_or_create_series_for(principal, new_series_name))
+        except Exception:
+            db.delete_drama(new_id)
+            raise
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -167,14 +179,16 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     return detail
 
 
-def update_drama_metadata(drama_id, **partial) -> dict:
+def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     """Field-scoped partial update of the whitelisted metadata columns.
     Only fields passed (value not None) are validated and written; text
     fields may be cleared with "", and `chapter_count`/`episode_number`
     take a non-negative int where 0 clears it to NULL (the tab's "0 = not
     set" convention; None can't mean both "not passed" and "clear"). Raises
     NotFoundError for an unknown drama or series, InvalidInputError for a
-    non-whitelisted field or bad value. Returns the drama detail."""
+    non-whitelisted field or bad value, ConflictError for a move into a
+    private series the drama's owner doesn't own (ownership_service; a
+    series `principal` can't see is a 404). Returns the drama detail."""
     if isinstance(drama_id, int) and not isinstance(drama_id, bool) and drama_id > MAX_ID:
         raise InvalidInputError("drama_id is out of range.")
     library_service.get_library_drama(drama_id)  # id check + existence
@@ -202,10 +216,14 @@ def update_drama_metadata(drama_id, **partial) -> dict:
                                         details={"allowed": list(PUBLICATION_STATUSES)})
         elif key == "series_id":
             _check_id("series_id", value)
-            if not _series_exists(value):
-                raise NotFoundError("No series with that id.")
+            drama = db.get_item_ownership("drama", drama_id)
+            ownership_service.check_series_assignment(principal, value,
+                                                      drama.get("owner_user_id"))
         fields[key] = value
 
+    series_id = fields.pop("series_id", None)
+    if series_id is not None:   # first: a refused move writes nothing
+        ownership_service.assign_drama_series(principal, drama_id, series_id)
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
