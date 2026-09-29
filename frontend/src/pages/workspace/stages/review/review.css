@@ -61,6 +61,25 @@ button.review-play { min-width: 2.75rem; padding-inline: 10px; }
 .review-time { font-variant-numeric: tabular-nums; }
 .review-check { display: inline-flex; align-items: center; gap: var(--space-1); }
 .review-video { width: 100%; max-height: 30vh; background: black; border-radius: var(--radius-sm); }
+.review-player-panel { display: grid; gap: var(--space-1); min-width: 0; }
+.review-player-panel[hidden] { display: none; }
+.review-player-controls { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: center; min-width: 0; }
+.review-seek { flex: 1 1 16rem; min-width: 0; margin: 0; accent-color: var(--accent); }
+/* Phones: the open player sits under the sticky toolbar and scrolls away with the page. */
+.review-player-dock:empty { display: none; }
+.review-player-dock .review-player-panel { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.review-player-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; font-size: var(--font-sm); min-width: 0; }
+.review-jump { display: inline-flex; gap: var(--space-1); min-width: 0; }
+.review-jump input { width: 6.5em; }
+.review-subs { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+/* Audio only: the current subtitle as text (a video draws its own). */
+.review-caption { margin: 0; min-height: 1.5em; padding: var(--space-1) var(--space-2); white-space: pre-line; text-align: center; overflow-wrap: anywhere; background: var(--field-bg); border-radius: var(--radius-sm); }
+@media (pointer: coarse), (max-width: 640px) {
+  .review-video { max-height: 30vh; }
+  .review-seek { height: var(--touch, 44px); }
+  .review-player-tools button, .review-player-tools select, .review-jump input { min-height: var(--touch, 44px); }
+  button.review-player-toggle { min-height: var(--touch, 44px); }
+}
 
 /* ---- find and replace (opened from the toolbar) ---- */
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
