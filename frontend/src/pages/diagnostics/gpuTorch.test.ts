@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
 import {
-  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateBadge, stateIsProblem, stateText, variantVersionsText,
+  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateBadge, stateIsProblem, stateText,
   verifyText,
 } from './gpuTorch'
 
@@ -36,7 +36,6 @@ describe('gpuTorch', () => {
     expect(stateText(status({ state: 'cpu_on_gpu' }))).toContain('CPU only')
     expect(stateIsProblem(status({ state: 'mismatched' }))).toBe(true)
     expect(stateIsProblem(status({ state: 'recommended' }))).toBe(false)
-    expect(variantVersionsText(cu128)).toBe('torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128')
   })
 
   it('blocks setup without a GPU, with an old driver or an unsupported Python', () => {

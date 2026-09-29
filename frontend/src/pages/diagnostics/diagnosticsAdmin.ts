@@ -79,10 +79,8 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 
 // ---- Setup ----
 
-// `core`: a Q01 core requirement (Python, ffmpeg with libass, JS runtime),
-// always shown at the top of the page rather than inside the Setup fold.
 // `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
-export type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean; core?: boolean }
+export type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
@@ -102,7 +100,6 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
-  for (const r of rows) r.core = true
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
   const missing = c.files.missing_top_level.length + c.files.missing_tabs.length

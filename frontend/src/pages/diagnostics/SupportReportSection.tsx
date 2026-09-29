@@ -21,6 +21,8 @@ export function SupportReportSection() {
   const [note, setNote] = useState('')
   const [plain, setPlain] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
+  // Bumped only by the no-clipboard fallback, to re-mount the fold open.
+  const [forceOpen, setForceOpen] = useState(0)
   const preRef = useRef<HTMLPreElement>(null)
   const touch = useMediaQuery('(pointer: coarse)')
 
@@ -53,20 +55,27 @@ export function SupportReportSection() {
   }
 
   // Without clipboard access: show the plain text, select it, say how to copy.
+  // The selection waits for the <pre> to render (the effect below).
+  const selectPending = useRef(false)
   const selectPlain = () => {
+    if (!previewOpen) setForceOpen((n) => n + 1)
     setPreviewOpen(true)
     setPlain(true)
-    requestAnimationFrame(() => {
-      const pre = preRef.current
-      const sel = window.getSelection()
-      if (!pre || !sel) return
-      pre.scrollIntoView({ block: 'nearest' })
-      const range = document.createRange()
-      range.selectNodeContents(pre)
-      sel.removeAllRanges()
-      sel.addRange(range)
-    })
+    selectPending.current = true
+    setSelectTick((n) => n + 1)
   }
+  const [selectTick, setSelectTick] = useState(0)
+  useEffect(() => {
+    const pre = preRef.current
+    const sel = window.getSelection()
+    if (!selectPending.current || !pre || !sel) return
+    selectPending.current = false
+    pre.scrollIntoView({ block: 'nearest' })
+    const range = document.createRange()
+    range.selectNodeContents(pre)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }, [selectTick, forceOpen, plain, report])
 
   const copy = async () => {
     setWorking('copy')
@@ -143,8 +152,8 @@ export function SupportReportSection() {
         </span>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {/* Keyed so a fallback that opens it re-mounts the fold open. */}
-      <Section key={previewOpen ? 'open' : 'closed'} title="What's in it" defaultOpen={previewOpen}
+      {/* Keyed so the fallback can re-mount it open; opening it by hand keeps focus. */}
+      <Section key={forceOpen} title="What's in it" defaultOpen={forceOpen > 0}
         summary="Preview the report" onToggle={togglePreview}>
         {report === null ? (
           <p className="muted">{working ? 'Building the report…' : 'Nothing built yet.'}</p>
@@ -152,7 +161,7 @@ export function SupportReportSection() {
           <div className="diag-stack">
             <div className="actions">
               <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={plain} onClick={() => setPlain((p) => !p)}>
-                {plain ? 'Show as a list' : 'Show plain text'}
+                Plain text
               </button>
             </div>
             {plain ? (
@@ -174,7 +183,7 @@ function ReportList({ text }: { text: string }) {
     <dl className="report-list" aria-label="Support report" data-testid="report-list">
       {parseSupportReport(text).map((r, i) => (
         <div key={i} className="report-row">
-          <dt>{r.label}</dt>
+          <dt>{r.label || '—'}</dt>
           <dd>
             {r.value && <span>{r.value}</span>}
             {r.items.length > 0 && (

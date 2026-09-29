@@ -58,12 +58,11 @@ describe('setup rows', () => {
     expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: ffmpeg')
   })
 
-  it('checks ffmpeg for libass and marks the core rows', () => {
+  it('checks ffmpeg for libass', () => {
     const withLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: true } }), gpu)
     expect(withLibass[1]).toMatchObject({ text: 'ffmpeg: 6.1 (with libass)', problem: false })
     const noLibass = setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: false } }), gpu)
     expect(noLibass[1]).toMatchObject({ problem: true, text: expect.stringContaining('no libass') })
-    expect(noLibass.filter((r) => r.core).map((r) => r.key)).toEqual(['python', 'ffmpeg', 'js'])
     // Unknown (an older API or a failed version check) is not a problem.
     expect(setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: null } }), gpu)[1].problem).toBe(false)
   })

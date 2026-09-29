@@ -155,7 +155,7 @@ async function mockPage(page: Page) {
   }] } }))
 }
 
-/** Opens every closed fold (nested ones too), then builds the report if the page has a Build button. */
+/** Opens every closed fold (nested ones too); the before-shots also press the old Build report button. */
 async function openAll(page: Page) {
   // Outer folds first: an inner summary is only clickable once its parent is open.
   for (let i = 0; i < 40; i++) {

@@ -112,6 +112,8 @@ export default function DiagnosticsPage() {
 
   const setupProblems = setup ? setupRows(setup, overview?.gpu ?? null).filter((r) => r.problem).length : null
   const deps = overview ? splitDependencies(overview.dependencies) : null
+  // Running or failed jobs get a card at the top; finished ones a fold with the others.
+  const jobsUrgent = !!jobs && jobs.some((j) => isActive(j.status) || j.status === 'error')
   const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
     overview ? Object.keys(overview.dependencies).length : null, jobs ? running : null, adminBusy)
 
@@ -125,7 +127,7 @@ export default function DiagnosticsPage() {
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {jobs && jobs.length > 0 && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
 
       {setup ? (
         <SetupSection
@@ -145,6 +147,7 @@ export default function DiagnosticsPage() {
       <SupportReportSection />
 
       <div className="diag-folds">
+        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
         {overview && (
           <PackagesSection
             overview={overview}
@@ -169,7 +172,7 @@ export default function DiagnosticsPage() {
   )
 }
 
-/** Jobs: always shown while one is running or failed; otherwise a collapsed Section. */
+/** Jobs: a card while one is running or failed; otherwise a collapsed Section. */
 function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const list = phone ? <JobCards jobs={jobs} now={now} onCancel={onCancel} /> : <JobTable jobs={jobs} now={now} onCancel={onCancel} />

@@ -97,10 +97,13 @@
 
 /* GPU PyTorch: installed beside recommended; the index URL wraps on phones. */
 .gpu-torch code { overflow-wrap: anywhere; }
-.torch-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.table-scroll .torch-table, .torch-table { min-width: 0; width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .torch-table th, .torch-table td { text-align: left; padding: var(--space-1) var(--space-2) var(--space-1) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
-.torch-table thead th { color: var(--muted); font-weight: 500; }
+.torch-table thead th { color: var(--muted); font-weight: 500; font-size: var(--text-xs); }
 .torch-table tbody th { font-weight: 600; }
+.torch-table th { overflow-wrap: normal; }
+.torch-table tr > :last-child { padding-right: 0; }
+.torch-table thead th:nth-child(1), .torch-table thead th:nth-child(3) { width: 36%; }
 
 /* Install by task: a group heading, then task rows like package rows. */
 .task-group { margin: var(--space-2) 0 0; font-size: var(--font-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

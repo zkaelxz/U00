@@ -50,7 +50,7 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   // Support report: a card with Copy report; the preview fold shows it, plain text one tap away.
   await page.locator('summary', { hasText: "What's in it" }).click()
   await expect(page.getByTestId('report-list')).toContainText('Baihe report')
-  await page.getByRole('button', { name: 'Show plain text' }).click()
+  await page.getByRole('button', { name: 'Plain text' }).click()
   await expect(page.getByLabel('Support report')).toContainText('Baihe report')
 
   // The job blocks installs; drop it so the Install button works.

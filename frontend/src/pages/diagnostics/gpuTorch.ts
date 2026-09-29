@@ -38,10 +38,6 @@ export function stateText(s: DiagnosticsGpuTorchStatus): string {
 export const stateIsProblem = (s: DiagnosticsGpuTorchStatus) =>
   s.state === 'mismatched' || s.state === 'cpu_on_gpu' || s.nvidia.status === 'too_old'
 
-/** "torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128". */
-export const variantVersionsText = (v: DiagnosticsTorchVariant) =>
-  ['torch', 'torchvision', 'torchaudio'].map((n) => `${n} ${v.versions[n] ?? '?'}`).join(' · ')
-
 /** Why the setup can't run for this variant, or null. */
 export function setupBlockedReason(s: DiagnosticsGpuTorchStatus, v: DiagnosticsTorchVariant): string | null {
   if (!s.python_supported) return 'This Python version has no PyTorch wheels for the recommended set.'
