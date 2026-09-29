@@ -356,22 +356,31 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
 
 const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
 
+// What has been typed into "New drama". The page keeps it, so closing the
+// Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
+// successful create or Cancel clears it.
+type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
+
 // The "New drama" Sheet body. Language and type remember the last choice.
-function CreateForm({ onCreated, series, presets }: {
+function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
+  draft: CreateDraft | null
+  onDraft: (next: CreateDraft) => void
   onCreated: (id: number, title: string) => void
+  onCancel: () => void
   series: Loaded<Awaited<ReturnType<typeof getSeries>>>
   presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
 }) {
   const [lastLanguage, setLastLanguage] = usePersistedState('library.newDrama.language', 'zh')
   const [lastType, setLastType] = usePersistedState('library.newDrama.mediaType', 'audio_drama')
-  const [form, setForm] = useState<DramaCreateRequest>(() => ({
+  const form: DramaCreateRequest = draft?.form ?? {
     source_language: SOURCE_LANGUAGES.includes(lastLanguage) ? lastLanguage : 'zh',
     media_type: MEDIA_TYPES.includes(lastType) ? lastType : 'audio_drama',
     title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '',
-  }))
-  const [extras, setExtras] = useState<CreateExtras>(NO_EXTRAS)
+  }
+  const extras = draft?.extras ?? NO_EXTRAS
+  const setForm = (next: DramaCreateRequest) => onDraft({ form: next, extras })
   const setExtra = (k: keyof CreateExtras) => (e: { target: { value: string } }) =>
-    setExtras({ ...extras, [k]: e.target.value })
+    onDraft({ form, extras: { ...extras, [k]: e.target.value } })
   const [error, setError] = useState<unknown>(null)
   const [invalid, setInvalid] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -462,6 +471,7 @@ function CreateForm({ onCreated, series, presets }: {
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create drama</button>
+        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
     </form>
   )
@@ -470,6 +480,7 @@ function CreateForm({ onCreated, series, presets }: {
 export default function LibraryPage() {
   const [selected, setSelected] = useState<{ id: number; title: string } | null>(null)
   const [creating, setCreating] = useState(false)
+  const [draft, setDraft] = useState<CreateDraft | null>(null)
   const [created, setCreated] = useState<{ id: number; title: string } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
@@ -492,10 +503,12 @@ export default function LibraryPage() {
   const [bulkResult, setBulkResult] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
 
-  // Prune the selection on every reload so it only holds dramas still listed.
+  // Prune the selection on every reload so it only holds dramas still listed;
+  // with nothing listed there is nothing to select.
   const onItems = useCallback((next: DramaSummary[]) => {
     setItems(next)
     setChecked((c) => pruneSelection(c, next))
+    if (next.length === 0) setSelectMode(false)
   }, [])
 
   const openDetails = (id: number) => {
@@ -589,7 +602,11 @@ export default function LibraryPage() {
         <CreateForm
           series={series}
           presets={presets}
+          draft={draft}
+          onDraft={setDraft}
+          onCancel={() => { setDraft(null); setCreating(false) }}
           onCreated={(id, title) => {
+            setDraft(null)
             setCreating(false)
             setCreated({ id, title })
             setSelected({ id, title })

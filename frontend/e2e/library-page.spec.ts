@@ -7,8 +7,11 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('stats')).toContainText('3 dramas')
   const shelf = page.getByRole('region', { name: 'Continue' })
+  // One entry per seeded drama (reading or workspace activity).
+  await expect(shelf.getByRole('listitem')).toHaveCount(3)
   const resume = shelf.getByRole('link', { name: 'Resume work on Signal' })
-  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+$/)
+  // The drama's current stage: no stage in the link (the workspace picks it, #433) or an explicit one.
+  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+(\/[a-z]+)?$/)
   await expect(resume).toHaveClass(/btn/)
 
   await page.getByRole('radio', { name: 'Lines' }).check()
@@ -36,6 +39,32 @@ test('create form validates client-side', async ({ page }) => {
   await expect(sheet.getByLabel('Source language').locator('option:checked')).toHaveText('Chinese')
 })
 
+test('New drama keeps what was typed when the sheet closes; Cancel discards it', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'New drama' }).click()
+  let sheet = page.getByRole('dialog', { name: 'New drama' })
+  await sheet.getByLabel('English title').fill('Draft title')
+  await sheet.getByLabel('Media type').selectOption('novel')
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+
+  await page.getByRole('button', { name: 'New drama' }).click()
+  sheet = page.getByRole('dialog', { name: 'New drama' })
+  await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
+  await expect(sheet.getByLabel('Media type')).toHaveValue('novel')
+  await sheet.getByRole('button', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'New drama' }).click()
+  await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
+
+  await sheet.getByRole('button', { name: 'Cancel' }).click()
+  await expect(sheet).toBeHidden()
+  await page.getByRole('button', { name: 'New drama' }).click()
+  await expect(sheet.getByLabel('English title')).toHaveValue('')
+  await expect(sheet.getByLabel('Media type')).toHaveValue('audio_drama')
+  // Nothing was created.
+  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+})
+
 test('create (Enter submits) then delete with typed confirmation', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'New drama' }).click()
@@ -51,6 +80,6 @@ test('create (Enter submits) then delete with typed confirmation', async ({ page
   await detail.getByLabel('Type DELETE to confirm').fill('DELETE')
   await confirm.click()
   await expect(page.getByRole('dialog', { name: 'E2E Temp Drama' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'E2E Temp Drama' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'E2E Temp Drama' })).toHaveCount(0)
   await expect(page.getByTestId('created-notice')).toHaveCount(0)
 })
