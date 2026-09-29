@@ -283,7 +283,15 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
               onApplied={actions.applyLine}
             />
           )}
-          <LineOrigin dramaId={dramaId} lineId={line.id} />
+          <LineOrigin
+            dramaId={dramaId}
+            lineId={line.id}
+            // "Use this" wrote only zh: show it now; close the editor unless
+            // it holds unsaved changes (those stay, and a stale zh edit gets a 409).
+            onChanged={(applied) =>
+              actions.applyLine({ ...line, zh: applied.zh }, buildPatch(edit.base, draft) === null)
+            }
+          />
         </div>
       )}
       {edit?.note && (

@@ -4,14 +4,27 @@ import { getLineOriginalText, getLineProvenance } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { safeDetail } from '../../../../components/errorMessages'
 import type { LineOriginalText, LineProvenance } from '../../../../types/review'
+import type { RetranscribeApplyResult } from '../../../../types/workspace'
+import { RetranscribeLine } from './RetranscribeLine'
 import { emotionText, glossaryText, termsText } from './reviewResults'
 
 // "Where this line came from", folded inside the line's details: the original
 // transcription and what the app knows about how the translation was made.
 // Fetched each time it is opened, so it never shows data from before a save.
-export function LineOrigin({ dramaId, lineId }: { dramaId: number; lineId: number }) {
+// "Re-transcribe this line" sits right after it; onChanged (optional) gets
+// the new text when "Use this" replaced it, so the editor can update.
+export function LineOrigin({
+  dramaId,
+  lineId,
+  onChanged,
+}: {
+  dramaId: number
+  lineId: number
+  onChanged?: (applied: RetranscribeApplyResult) => void
+}) {
   const [data, setData] = useState<{ p: LineProvenance; o: LineOriginalText } | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [open, setOpen] = useState(false)
 
   const load = () => {
     setData(null)
@@ -25,17 +38,29 @@ export function LineOrigin({ dramaId, lineId }: { dramaId: number; lineId: numbe
   }
 
   return (
-    <details
-      className="review-origin"
-      data-testid="line-origin"
-      onToggle={(e) => {
-        if (e.currentTarget.open) load()
-      }}
-    >
-      <summary>Where this line came from</summary>
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {data ? <OriginBody p={data.p} o={data.o} /> : !error && <p className="muted">Loading…</p>}
-    </details>
+    <>
+      <details
+        className="review-origin"
+        data-testid="line-origin"
+        onToggle={(e) => {
+          setOpen(e.currentTarget.open)
+          if (e.currentTarget.open) load()
+        }}
+      >
+        <summary>Where this line came from</summary>
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {data ? <OriginBody p={data.p} o={data.o} /> : !error && <p className="muted">Loading…</p>}
+      </details>
+      <RetranscribeLine
+        dramaId={dramaId}
+        lineId={lineId}
+        reloadsEditor={!!onChanged}
+        onChanged={(applied) => {
+          if (open) load()
+          onChanged?.(applied)
+        }}
+      />
+    </>
   )
 }
 
