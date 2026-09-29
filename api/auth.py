@@ -287,20 +287,31 @@ class LocalOnlyCrossSiteGate:
     local_only() content-type/header rule (_cross_site_safe) to local_only
     routes before the body is read, so a no-cors multipart POST from a page
     on another loopback port is refused before Starlette spools the upload
-    to disk. The route dependency still runs the same check afterwards."""
+    to disk. The route dependency still runs the same check afterwards.
 
-    def __init__(self, app, local_only_fn):
+    With auth OFF (all_api=True) the rule covers every POST/PUT/PATCH under
+    /api, not just local_only routes: off mode grants owner rights with no
+    CSRF token, and the loopback Origin check ignores the port, so without
+    this a page on another local port (Streamlit, a dev server) could start
+    a paid LLM run or cancel a job with a no-preflight simple POST. With
+    auth on, every non-GET already needs the session's CSRF header (itself
+    a custom header that forces a preflight), so only local_only routes are
+    gated there."""
+
+    def __init__(self, app, local_only_fn, all_api=False):
         self.app = app
         self._local_only_fn = local_only_fn
         self._local_only = None
+        self._all_api = all_api
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and scope.get("method", "").upper() in _BODY_METHODS:
             if self._local_only is None:
                 self._local_only = self._local_only_fn()
             path, method = scope.get("path", ""), scope.get("method", "")
-            if any(rx.match(path) and method in methods for rx, methods in self._local_only) \
-                    and not _cross_site_safe(Request(scope)):
+            gated = (self._all_api and (path == "/api" or path.startswith("/api/"))) \
+                or any(rx.match(path) and method in methods for rx, methods in self._local_only)
+            if gated and not _cross_site_safe(Request(scope)):
                 return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         return await self.app(scope, receive, send)
 
