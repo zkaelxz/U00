@@ -14,7 +14,7 @@ field is a compatible change; renaming or removing one is not -- bump
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 API_VERSION = "0.1"
 
@@ -2213,6 +2213,22 @@ class ExtensionToken(BaseModel):
     token: str
 
 
+class ExtensionEngineSettings(BaseModel):
+    """The extension's saved translation engine (inventory G16). `ready`:
+    an engine is chosen and its key is configured. Never a key value."""
+    engine: Optional[str] = None
+    model: Optional[str] = None
+    ready: bool
+    engines: List[TranslateEngine]
+
+
+class ExtensionEngineRequest(BaseModel):
+    """engine null = OCR only (no translation)."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[StrictStr] = None
+    model: Optional[StrictStr] = None
+
+
 # ---------------------------------------------------------------------------
 # Route batch 2B (M4): Reader API over services/reader_service.py
 # ---------------------------------------------------------------------------
@@ -2822,6 +2838,13 @@ WorkflowTierKey = Literal[tuple(_translate_engines.WORKFLOW_TIERS)]
 class WorkflowTierApply(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tier: WorkflowTierKey
+
+
+class TranslateErrorsDismissed(BaseModel):
+    """X01: the last run's failed-batch notice is cleared; lines untouched.
+    `dismissed` is False when there was nothing to clear."""
+    drama_id: int
+    dismissed: bool
 
 
 class WorkflowTierApplied(BaseModel):
