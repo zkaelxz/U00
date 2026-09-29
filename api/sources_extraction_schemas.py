@@ -1,7 +1,7 @@
 """
 api/sources_extraction_schemas.py -- request/response models for the
-pasted-URL extraction extras (Streamlit Sources parity SO09): the AI
-fallback opt-in on the novel URL import and the engine list. Kept out of
+pasted-URL extraction extras (Streamlit Sources parity SO09, SO06): the AI
+fallback opt-in on the URL imports, the engine list and the comic import. Kept out of
 api/schemas.py so this batch could be built alongside another branch
 editing that file (precedent: api/comic_schemas.py); the shared
 ErrorResponse and SourcesUrlImportRequest still live there. No model
@@ -28,3 +28,8 @@ class SourcesAiEngines(BaseModel):
     is one of them. Names only: no key and no key status."""
     engines: List[str]
     default: Optional[str] = None
+
+
+class SourcesComicUrlImportRequest(SourcesUrlImportAiRequest):
+    """POST /api/sources/url/import-comic. The drama must be a manhua,
+    manga or manhwa drama."""

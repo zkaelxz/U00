@@ -302,7 +302,7 @@ baihe-subtitler/
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
-│   │                             S-5 novel text from a pasted URL
+│   │                             S-5 novel text and SO06 comic pages from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
 │   ├── sources_extraction_service.py Sources parity SO09 -- the pasted-URL AI fallback engine (opt-in, key on the PC)
 │   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler
@@ -464,7 +464,8 @@ baihe-subtitler/
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
-│       ├── sources_extraction_routes.py GET /api/sources/url/ai-engines (sources.import; parity SO09)
+│       ├── sources_extraction_routes.py GET /api/sources/url/ai-engines, POST /url/import-comic
+│       │                         (sources.import; parity SO09, SO06)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -568,7 +569,8 @@ baihe-subtitler/
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
 │   │                              sourcesFormat.ts (pure, unit-tested), sources.css; AiFallback + useAiEngines
-│   │                              (SO09 AI fallback picker), extractionFormat.ts (pure, unit-tested)
+│   │                              (SO09 AI fallback picker), ComicUrlImport (SO06), extractionFormat.ts
+│   │                              (pure, unit-tested), extraction.css
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),

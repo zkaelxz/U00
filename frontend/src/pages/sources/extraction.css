@@ -1,0 +1,4 @@
+/* Pasted-URL extraction extras (parity SO09, SO06, SO10). */
+.sources-ai { display: grid; gap: var(--space-2); margin-block: var(--space-2); }
+.sources-skipped ul { margin: var(--space-2) 0 0; padding-left: 1.2em; }
+.sources-skipped li { overflow-wrap: anywhere; }

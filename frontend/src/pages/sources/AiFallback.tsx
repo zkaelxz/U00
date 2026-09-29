@@ -12,6 +12,7 @@ import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import type { AiEngines } from '../../types/sourcesExtraction'
 import { AI_HELP, type AiChoice, aiReason, effectiveEngine, engineLabel } from './extractionFormat'
+import './extraction.css'
 
 type Props = {
   value: AiChoice

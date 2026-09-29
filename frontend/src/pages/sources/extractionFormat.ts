@@ -1,7 +1,7 @@
 // Pure logic and copy for the pasted-URL extraction extras (parity SO09):
-// the AI fallback picker. No React here; tested in extractionFormat.test.ts.
+// the AI fallback picker; SO06, the comic import's result. No React here; tested in extractionFormat.test.ts.
 import { humanize } from '../../components/labels'
-import type { AiEngines, AiRequestFields } from '../../types/sourcesExtraction'
+import type { AiEngines, AiRequestFields, ComicUrlImportResult } from '../../types/sourcesExtraction'
 
 export interface AiChoice {
   on: boolean
@@ -39,3 +39,19 @@ export function aiRequestFields(choice: AiChoice, engines: AiEngines | null): Ai
 }
 
 export const engineLabel = (name: string) => (name === 'ollama' ? 'Ollama (on this PC)' : humanize('engine', name))
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+
+export function comicImportText(r: ComicUrlImportResult): string {
+  if (r.needs_review) {
+    return 'Baihe couldn’t be sure which images are the pages, so nothing was added.'
+  }
+  return `Added ${plural(r.pages_added, 'page')} to the drama.`
+}
+
+/** The heading of the "left out" list, or null when nothing was left out. */
+export function skippedTitle(r: ComicUrlImportResult): string | null {
+  if (!r.skipped_count) return null
+  const shown = r.skipped.length < r.skipped_count ? ` (first ${r.skipped.length} shown)` : ''
+  return `${plural(r.skipped_count, 'image')} left out${shown}`
+}

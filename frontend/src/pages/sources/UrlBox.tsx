@@ -4,8 +4,9 @@
  *
  *   series / chapter link  "Open series" (the chapter is ticked)
  *   novel page             pick a drama, "Import text" (R2, sourceimport_<drama>)
+ *   comic page             pick a drama, "Import pages" (SO06, ComicUrlImport)
  *   video                  pick a drama, download it (R5, PC only, urlmedia_<drama>)
- *   comic / unknown        a short explanation
+ *   unknown                a short explanation
  *
  * A browser check shows a handoff card ("Open in your browser", "Try again");
  * nothing retries by itself. The link is kept in memory only: a preview
@@ -30,6 +31,7 @@ import type { MediaStatus } from '../../types/workspace'
 import { JobPanel } from '../workspace/stages/JobPanel'
 import { URL_PC_ONLY, UrlDownload } from '../workspace/stages/UrlDownload'
 import { AiFallback } from './AiFallback'
+import { ComicUrlImport } from './ComicUrlImport'
 import { DramaPicker } from './DramaPicker'
 import { AI_OFF, aiReason, aiRequestFields } from './extractionFormat'
 import { useDramaList } from './useDramaList'
@@ -159,7 +161,7 @@ function PreviewCard({ preview: p, url, display, onOpenSeries }: {
   const facts = previewFacts(p)
   const link = safeHref(p.display_url)
   const title = p.title?.trim() || p.chapter?.trim() || 'Untitled page'
-  const needLink = (action === 'novel' || action === 'video') && !url
+  const needLink = (action === 'novel' || action === 'video' || action === 'comic') && !url
   return (
     <article className="sources-card sources-preview" aria-label="Link preview" data-testid="url-preview">
       <div className="sources-series-head">
@@ -194,7 +196,8 @@ function PreviewCard({ preview: p, url, display, onOpenSeries }: {
       {needLink && <p className="muted">Paste the link again and press Preview to import it.</p>}
       {action === 'novel' && url && <NovelImport url={url} title={title} language={p.language} />}
       {action === 'video' && url && <VideoImport url={url} />}
-      {(action === 'comic' || action === 'unknown') && <p className="muted">{PREVIEW_NOTES[action]}</p>}
+      {action === 'comic' && url && <ComicUrlImport url={url} title={title} language={p.language} />}
+      {action === 'unknown' && <p className="muted">{PREVIEW_NOTES[action]}</p>}
     </article>
   )
 }

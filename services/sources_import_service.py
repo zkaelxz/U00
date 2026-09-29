@@ -27,6 +27,17 @@ engine is built in the request by sources_extraction_service, key on the
 PC). When the extraction needs review nothing is written. From another device the signed-in profile and the browser tier
 are off.
 
+`start_comic_url_import` (parity SO06) is the comic counterpart: the job
+runs adaptive.import_comic (same opt-in LLM fallback) and adds the kept
+pages to a manhua/manga/manhwa drama through pipeline.add_page_images, the
+Scanlate upload path. Image downloads go through the same paced, guarded
+client (every redirect hop re-checked) under the pasted-URL per-image cap,
+plus a per-page budget (generic_import.DownloadBudget: at most
+MAX_COMIC_IMAGES images and MAX_COMIC_TOTAL_BYTES in all, image or generic
+binary content types only); PIL must read each one. The result lists the
+images left out and why (the Streamlit "skipped as page furniture" list).
+When the extraction needs review nothing is written.
+
 Results live in this process only; read them with
 sources_search_service.get_job_result (GET /api/sources/jobs/{id}/result).
 Text is scrubbed, URLs reduced to scheme+host+path.
@@ -45,9 +56,16 @@ from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, _ena
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           source_client)
 from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
+from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
 
 MAX_CHAPTERS = 200
+# One pasted comic page (parity SO06): how many images it may download and
+# how many bytes of them may be held at once (each is also capped by
+# sources_url_service.PASTED_MAX_IMAGE_BYTES).
+MAX_COMIC_IMAGES = 300
+MAX_COMIC_TOTAL_BYTES = 150_000_000
+MAX_SKIPPED_LISTED = 100
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
@@ -257,3 +275,66 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
     job_id = import_job_id(drama_id)
     return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local), engine,
                   description="Import novel text from a pasted URL")
+
+
+# ---------------------------------------------------------------------------
+# Comic pages from a pasted URL (parity SO06)
+# ---------------------------------------------------------------------------
+
+_NO_PAGES = "No comic pages were found on that page."
+
+
+def skipped_view(candidates) -> list:
+    """The images left out, and why (scheme+host+path only, scrubbed)."""
+    return [{"display_url": safe_url(c.url), "reason": _scrub(c.reject_reason or "") or "not a page"}
+            for c in list(candidates)[:MAX_SKIPPED_LISTED]]
+
+
+def _comic_result(needs_review: bool, pages_added: int, rejected) -> dict:
+    rejected = list(rejected)
+    return {"kind": "comic_import", "needs_review": needs_review, "pages_added": pages_added,
+            "skipped": skipped_view(rejected), "skipped_count": len(rejected)}
+
+
+def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None):
+    background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
+    budget = DownloadBudget(MAX_COMIC_IMAGES, MAX_COMIC_TOTAL_BYTES)
+    try:
+        res, report = adaptive.import_comic(url, engine=engine, client=source_client(url, job_id),
+                                            allow_signed_in=local, allow_browser=local,
+                                            budget=budget)
+    except Cancelled:
+        raise background_jobs.JobCancelled(job_id) from None
+    except generic_import.NoContentFound:
+        fail_job(job_id, "comic_import", {"status": 422, "code": InvalidInputError.code,
+                                          "message": _NO_PAGES,
+                                          "details": {"reason": "NO_CONTENT"}})
+    except Exception as e:
+        fail_job(job_id, "comic_import", _error_view(e))
+    if res.ladder is not None and getattr(res.ladder, "handoff", None):
+        fail_job(job_id, "comic_import", handoff_error(res.ladder.handoff, url))
+    if report.needs_review or not res.images:
+        background_jobs.set_result(job_id, _comic_result(True, 0, res.rejected))
+        return
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+    background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
+    n = pipeline.add_page_images(drama_id, [(c.content, c.ext) for c in res.images])
+    background_jobs.set_result(job_id, _comic_result(False, n, res.rejected))
+
+
+def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
+                           ai_engine: str = None) -> dict:
+    """Starts `sourceimport_<drama_id>`: the page images of one pasted comic
+    chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
+    Same checks and errors as start_url_import."""
+    url = check_public_url(url)
+    drama = _require_drama(drama_id, principal)
+    if (drama.get("media_type") or "").lower() not in COMIC_MEDIA_TYPES:
+        raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama. "
+                                "Pick one of those, or create one first.")
+    _require_idle(drama_id)
+    engine = extraction.build_ai_engine(ai_engine)
+    job_id = import_job_id(drama_id)
+    return _start(job_id, _comic_url_import_job, job_id, url, drama_id, bool(local), engine,
+                  description="Import comic pages from a pasted URL")

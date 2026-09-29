@@ -65,8 +65,7 @@ export function previewAction(p: UrlPreview): PreviewAction {
   return 'unknown'
 }
 
-export const PREVIEW_NOTES: Record<'comic' | 'unknown', string> = {
-  comic: 'Comic pages from a single link can’t be imported here yet. If this site is a source, search for the series instead.',
+export const PREVIEW_NOTES: Record<'unknown', string> = {
   unknown: 'Baihe couldn’t tell what this page is. Try the series or chapter page itself, or a different link.',
 }
 

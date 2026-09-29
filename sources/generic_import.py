@@ -344,19 +344,56 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
     return result
 
 
-def download_candidates(candidates, page_url: str, client) -> None:
+@dataclass
+class DownloadBudget:
+    """Optional caps for download_candidates, shared across every call for
+    one page: how many images may be fetched and how many bytes may be
+    kept in total (the per-image cap is the client's own). With a budget,
+    a response that says it is neither an image nor a generic binary is
+    refused as well. Used by the API's pasted-URL comic import."""
+    max_images: int
+    max_total_bytes: int
+    images: int = 0
+    total_bytes: int = 0
+
+
+_BINARY_TYPES = ("", "application/octet-stream", "binary/octet-stream")
+
+
+def _refused_by_budget(c: ImageCandidate, resp, budget: DownloadBudget) -> str:
+    ctype = next((str(v) for k, v in (resp.headers or {}).items()
+                  if k.lower() == "content-type"), "").split(";")[0].strip().lower()
+    if not ctype.startswith("image/") and ctype not in _BINARY_TYPES:
+        return "couldn't download (the server didn't send an image)"
+    if budget.total_bytes + len(resp.content) > budget.max_total_bytes:
+        return "not downloaded (the page's images are over the total size limit)"
+    return ""
+
+
+def download_candidates(candidates, page_url: str, client, budget: DownloadBudget = None) -> None:
     """The resource downloader: fetches and measures each candidate not
-    fetched yet, through the paced client."""
+    fetched yet, through the paced client (and within `budget`, if given)."""
     for c in candidates:
         if c.content or c.reject_reason:
+            continue
+        if budget is not None and budget.images >= budget.max_images:
+            c.reject_reason = "not downloaded (too many images on the page)"
             continue
         try:
             resp = client.get(c.url, classify_body=False, headers={"Referer": page_url},
                               action=f"Checking image {c.order + 1}/{len(candidates)}")
-            c.content = resp.content
-            _measure(c)
         except SourceError as e:
             c.reject_reason = f"couldn't download ({e.reason.value})"
+            continue
+        if budget is not None:
+            budget.images += 1
+            refused = _refused_by_budget(c, resp, budget)
+            if refused:
+                c.reject_reason = refused
+                continue
+            budget.total_bytes += len(resp.content)
+        c.content = resp.content
+        _measure(c)
 
 
 def filter_candidates(candidates, page_url: str, remember: bool = True) -> tuple:

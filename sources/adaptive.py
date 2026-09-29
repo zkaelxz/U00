@@ -526,12 +526,15 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
 
 
 def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
-                 remember: bool = True, use_cache: bool = True):
+                 remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
+                 allow_browser: bool = True, budget=None):
     """The generic comic import with the Step 23g ladder. Returns
-    (ComicImportResult, report); raises NoContentFound (with `.report`)."""
+    (ComicImportResult, report); raises NoContentFound (with `.report`).
+    `budget` (generic_import.DownloadBudget) caps the image downloads."""
     report = ExtractionReport(url, "comic")
     client = generic_import._client(client, url)
-    lr = generic_import.fetch_page(url, client, rendered_fetch, user_html)
+    lr = generic_import.fetch_page(url, client, rendered_fetch, user_html,
+                                   allow_signed_in=allow_signed_in, allow_browser=allow_browser)
     _note_access(report, lr)
     out = ComicImportResult(page_url=url, ladder=lr)
     if lr.handoff:
@@ -551,7 +554,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
     page = ax.PageModel(lr.html, url)
     data, report = extract_comic(
         page, candidates, engine,
-        download=lambda cs: generic_import.download_candidates(cs, url, client),
+        download=lambda cs: generic_import.download_candidates(cs, url, client, budget),
         remember=remember, use_cache=use_cache, report=report)
     _log(report)
     if data is None:
