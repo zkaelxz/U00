@@ -22,6 +22,7 @@ describe('credits', () => {
       { key: 'author', label: 'Author', text: 'Mo Xiang Tong Xiu (墨香铜臭)', romanized: true },
       { key: 'studio', label: 'Studio', text: '晋江文学城', romanized: false },
     ])
+    expect(creditRows({ ...drama, director_romanized: 'Zhang San' }).map((r) => r.key)).toEqual(['author', 'studio'])
     expect(hasCredits(drama)).toBe(true)
     expect(hasCredits({ author: null, studio: ' ', director: null, voice_actors: null })).toBe(false)
   })

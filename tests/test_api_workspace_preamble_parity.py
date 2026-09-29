@@ -72,6 +72,11 @@ class TestRomanize:
                              "voice_actors": ""}, "zh") in engine
         assert db.get_usage_summary()["call_count"] == 1
 
+    def test_a_removed_credit_loses_its_old_romanized_form(self, client, engine):
+        did = _drama(author="墨香铜臭", director_romanized="Zhang San")   # director since removed
+        assert client.post(f"/api/metadata/dramas/{did}/romanize-credits", json={}).status_code == 200
+        assert db.get_drama(did)["director_romanized"] is None
+
     def test_defaults_to_the_drama_engine(self, client, engine):
         did = _drama(author="A", translation_engine="deepseek")
         assert client.post(f"/api/metadata/dramas/{did}/romanize-credits", json={}).status_code == 200
@@ -164,6 +169,20 @@ class TestCover:
         assert g.status_code == 200 and g.headers["content-type"] == "image/jpeg"
         assert g.headers["x-content-type-options"] == "nosniff"
         assert b"SecretCamera" not in g.content and b"Exif" not in g.content
+
+    def test_exif_rotation_is_applied_before_the_tag_is_dropped(self, client):
+        pytest.importorskip("PIL")
+        from PIL import Image
+        img = Image.new("RGB", (8, 12), (0, 0, 255))
+        ex = Image.Exif()
+        ex[0x0112] = 6                      # Orientation: rotate 90 degrees
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", exif=ex.tobytes())
+        did = _drama()
+        r = client.post(f"/api/dramas/{did}/cover", files={"file": ("p.jpg", buf.getvalue(), "image/jpeg")})
+        assert r.status_code == 200 and (r.json()["width"], r.json()["height"]) == (12, 8)
+        stored = Image.open(io.BytesIO(client.get(f"/api/dramas/{did}/cover").content))
+        assert stored.size == (12, 8) and not stored.getexif()
 
     def test_replacing_with_another_format_removes_the_old_file(self, client):
         pytest.importorskip("PIL")

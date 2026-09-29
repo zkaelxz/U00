@@ -26,6 +26,8 @@ export function creditRows(d: Pick<DramaDetail,
   'author_romanized' | 'studio_romanized' | 'director_romanized' | 'voice_actors_romanized'>): CreditRow[] {
   const rows: CreditRow[] = []
   for (const [key, label] of CREDITS) {
+    // A romanized form without its original (the credit was removed) is stale.
+    if (!(d[key] ?? '').trim()) continue
     const rom = d[`${key}_romanized`]
     const text = bilingualCredit(d[key], rom)
     if (text) rows.push({ key, label, text, romanized: !!(rom ?? '').trim() })

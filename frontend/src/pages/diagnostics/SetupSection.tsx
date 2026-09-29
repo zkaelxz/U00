@@ -27,7 +27,7 @@ export function SetupSection({ checks, gpu, engines, checking, onRecheck }: {
           </li>
         ))}
       </ul>
-      <Section title="Setup" storageKey="diagnostics.setup" defaultOpen={problems} summary={setupSummary(rows)}>
+      <Section title="Setup" storageKey="diagnostics.setup" defaultOpen={problems} summary={setupSummary(rest)}>
         <ul data-testid="setup-rows" className="diag-rows">
           {rest.map((r) => (
             <li key={r.key} className={r.problem ? 'warn' : undefined}>

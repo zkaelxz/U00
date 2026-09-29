@@ -58,6 +58,11 @@ def _clean_image(data: bytes):
             if width < 1 or height < 1 or width * height > MAX_COVER_PIXELS:
                 raise InvalidInputError("That image is too large (at most 25 megapixels).")
             img.load()
+            # Apply the EXIF rotation before the tag is dropped, or a phone
+            # photo would be stored sideways.
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+            width, height = img.size
             if fmt == "JPEG" and img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")         # CMYK/YCCK etc.
             elif fmt != "JPEG" and img.mode not in ("RGB", "RGBA", "L", "LA"):

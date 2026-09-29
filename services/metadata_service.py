@@ -294,7 +294,9 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
                  if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
     if romanized:
-        db.update_drama(drama_id, **{f"{k}_romanized": v for k, v in romanized.items()})
+        # All four, as the Streamlit button did: a credit not returned (e.g.
+        # one since removed) loses its stale romanized form.
+        db.update_drama(drama_id, **{f"{k}_romanized": romanized.get(k) for k in CREDIT_FIELDS})
     return {"drama_id": drama_id, "romanized": romanized, "updated": bool(romanized)}
 
 
