@@ -14,6 +14,7 @@ import type {
   LibraryVoiceBankResponse,
 } from '../types/library'
 import { deleteJson, getJson, postJson } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -38,4 +39,4 @@ export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: F
 // The API refuses unless both confirmation params match; the typed-word
 // check in the UI is a second gate on top of that.
 export const deleteDrama = (id: number, f?: Fetch) =>
-  deleteJson<DramaDeleteResult>(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`, f)
+  deleteJson<DramaDeleteResult>(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`, pcOnlyFetch(f))

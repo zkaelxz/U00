@@ -7,7 +7,7 @@ endpoint's own error to learn anything more specific.
 """
 
 from fastapi import APIRouter, Request
-from api.auth import public_route
+from api.auth import _auth_enabled, is_local_request, public_route
 from api.schemas import API_VERSION, HealthResponse, MetaResponse
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -20,5 +20,9 @@ def health():
 
 @router.get("/meta", dependencies=[public_route()], response_model=MetaResponse, summary="API name, contract version, mode")
 def meta(request: Request):
+    # `local` mirrors local_only(): true exactly when a PC-only route would
+    # let this request through. It only drives which controls the UI shows;
+    # the PC-only routes still enforce it themselves.
+    local = not _auth_enabled(request.app) or is_local_request(request)
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
-                        environment=request.app.state.settings.environment)
+                        environment=request.app.state.settings.environment, local=local)

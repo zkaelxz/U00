@@ -36,6 +36,17 @@ describe('DramaCards', () => {
     expect(out).toContain('>#7</a>')
     expect(out).toContain('class="selected"')
   })
+
+  it('select mode: checkboxes instead of links and Details', () => {
+    const out = renderToStaticMarkup(createElement(DramaCards, {
+      items: [drama({}), drama({ id: 8, title_en: 'Other' })], selectedId: null, onSelect: () => {},
+      selectMode: true, checked: new Set([7]), onToggle: () => {},
+    }))
+    expect(out).toContain('aria-label="Select Moonlit"')
+    expect(out).toContain('aria-label="Select Moonlit" checked=""')
+    expect(out).not.toContain('href=')
+    expect(out).not.toContain('Details')
+  })
 })
 
 describe('showFold', () => {
