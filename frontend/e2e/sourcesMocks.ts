@@ -217,6 +217,12 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
       result: seriesResult(124, s.seriesId, s.seriesTitle),
     })
   })
+  // The paste-a-link box looks for an earlier preview on load: none here
+  // (sourcesImportMocks.ts overrides this for the import flows).
+  await page.route(/\/api\/sources\/jobs\/sources_url_preview\/result$/, (route) => {
+    record(route)
+    return notFound(route)
+  })
   await page.route(/\/api\/jobs\/sources_search\/cancel$/, (route) => {
     record(route)
     s.search = 'done'

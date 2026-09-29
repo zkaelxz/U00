@@ -12,3 +12,7 @@
 .source-analysis dt { font-size: 0.85em; opacity: 0.7; }
 .source-analysis dd { margin: 0; }
 .source-analysis > div { display: block; min-width: 0; }
+
+/* Source media: "Upload a file | From a URL" (the link form is urlDownload.css). */
+.source-from { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
+.source-from label { display: inline-flex; align-items: center; gap: var(--space-2); }

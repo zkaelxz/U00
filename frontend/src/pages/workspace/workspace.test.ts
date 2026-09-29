@@ -107,6 +107,6 @@ describe('source form persistence', () => {
     expect(() => saveSourceForm(1, state)).not.toThrow()
   })
   it('names the reattachable job ids', () => {
-    expect(sourceJobIds(7)).toEqual(['transcribe_7', 'diarize_7', 'ocrchapter_7', 'extract_audio_7'])
+    expect(sourceJobIds(7)).toEqual(['transcribe_7', 'diarize_7', 'ocrchapter_7', 'extract_audio_7', 'urlmedia_7'])
   })
 })

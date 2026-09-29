@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources, searchResult } from './sourcesMocks'
 
 // Phone project (390x844, touch): the Sources page. Every Sources job and
@@ -91,5 +92,70 @@ test('phone: every main nav link is inside the viewport at 360 and 390 px', asyn
     }
     await noSideways(page)
   }
+  expect(s.unmocked).toEqual([])
+})
+
+// Import (S-4/S-5) on a phone: the link box, the preview card, the chapter
+// checkboxes and the sticky Import bar all fit and have 44 px targets.
+async function tallImportTargets(page: Page) {
+  const small = await page.locator('.sources-page').evaluate((root) => {
+    const sel = 'button:not(.link):not(.field-help-btn), select, input[type="url"], input[type="text"], .sources-pick label, .sources-select-all, .sources-preview a, .sources-outcomes a'
+    return [...root.querySelectorAll<HTMLElement>(sel)]
+      .filter((e) => e.offsetParent !== null)
+      .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
+      .filter((x) => x.h < 44)
+  })
+  expect(small).toEqual([])
+}
+
+test('phone: paste a chapter link, open the series, import from the sticky bar', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockImports(page, s)
+  await page.goto('/#/sources')
+  await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://alpha.example/a/c2')
+  await page.getByRole('button', { name: 'Preview' }).click()
+  const card = page.getByRole('article', { name: 'Link preview' })
+  await expect(card.getByRole('heading', { name: 'Heaven Book 1' })).toBeVisible({ timeout: 15_000 })
+  await noSideways(page)
+  await tallImportTargets(page)
+
+  await card.getByRole('button', { name: 'Open series' }).click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByRole('checkbox', { name: 'Chapter 2', exact: true })).toBeChecked({ timeout: 15_000 })
+  await panel.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Alpha Comic' })
+  await panel.getByRole('checkbox', { name: 'Chapter 5', exact: true }).check()
+
+  // The Import bar stays at the bottom of the screen while scrolling the list.
+  const bar = panel.getByTestId('import-bar')
+  await panel.getByRole('checkbox', { name: 'Chapter 40', exact: true }).scrollIntoViewIfNeeded()
+  const box = (await bar.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(844 + 1)
+  expect(box.y + box.height).toBeGreaterThan(844 - 120)
+  await noSideways(page)
+  await tallImportTargets(page)
+
+  await bar.getByRole('button', { name: 'Import 2 chapters' }).click()
+  await expect(panel.getByTestId('import-outcomes').getByText('1 imported · 1 already there · 1 failed')).toBeVisible({ timeout: 15_000 })
+  await noSideways(page)
+  await tallImportTargets(page)
+  expect(s.unmocked).toEqual([])
+})
+
+test('phone: novel link preview and import, one column', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockImports(page, s, { previewBody: NOVEL_PREVIEW })
+  await page.goto('/#/sources')
+  await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://novels.example/book/5')
+  await page.getByRole('button', { name: 'Preview' }).click()
+  const card = page.getByRole('article', { name: 'Link preview' })
+  await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'New drama…' }, { timeout: 15_000 })
+  await expect(card.getByRole('group', { name: 'New drama' })).toBeVisible()
+  await noSideways(page)
+  await tallImportTargets(page)
+  await card.getByRole('button', { name: 'Cancel' }).click()
+  await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
+  await card.getByRole('button', { name: 'Import text' }).click()
+  await expect(card.getByTestId('url-import-result')).toBeVisible({ timeout: 15_000 })
+  await noSideways(page)
   expect(s.unmocked).toEqual([])
 })

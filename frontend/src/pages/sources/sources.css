@@ -120,3 +120,68 @@ ul.source-cards > li {
 }
 .sources-busy { display: grid; gap: var(--space-2); }
 .sources-busy p { margin: 0; }
+
+/* Import (S-4/S-5): paste-a-link box, preview card, chapter import. */
+.sources-url { display: grid; gap: var(--space-2); }
+.sources-url > * { margin: 0; }
+.sources-url-row { align-items: flex-end; }
+.sources-url-row .field-item { flex: 1 1 auto; min-width: 0; margin: 0; }
+.sources-url-row input { width: 100%; }
+.sources-url-running { display: grid; gap: var(--space-1); }
+.sources-url-running progress { width: 100%; }
+.sources-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.sources-card > *, .sources-card p { margin: 0; }
+.sources-handoff { border-color: var(--warn); }
+.sources-link { overflow-wrap: anywhere; font-size: var(--font-sm); }
+.sources-notes { margin: 0; padding-left: 1.2rem; }
+.sources-import { display: grid; gap: var(--space-2); min-width: 0; }
+.sources-import > *, .sources-import p { margin: 0; }
+.drama-picker, .drama-new { display: grid; gap: var(--space-2); min-width: 0; }
+.drama-picker .field-item, .drama-new .field-item { margin: 0; }
+.drama-new { padding-left: var(--space-3); border-left: 2px solid var(--border); }
+.sources-select-all { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
+.sources-chapters ul.sources-pick { list-style: none; padding-left: 0; }
+.sources-pick label { display: inline-flex; align-items: center; gap: var(--space-2); overflow-wrap: anywhere; }
+.sources-import-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+/* .panel scrolls sideways (overflow-x: auto), which would make the series
+   panel the sticky bar's scroll box; on a phone the page scrolls instead. */
+.sources-page:not(.wide) .sources-series { overflow: clip visible; }
+.sources-import-bar.phone { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
+.sources-import-bar.phone button { flex: 1 1 100%; }
+.sources-outcomes { display: grid; gap: var(--space-1); }
+.sources-outcomes p { margin: 0; }
+.sources-outcome-list { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-1); }
+.sources-outcome-list > li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-2); }
+.sources-outcome-list > li > span:first-child { min-width: 0; flex: 1 1 10rem; overflow-wrap: anywhere; }
+.sources-outcome-list .ok { color: var(--ok); }
+.sources-outcome-list .bad { color: var(--bad); }
+.sources-outcome-list .warn { color: var(--warn); }
+.sources-outcome-list .muted { color: var(--muted); }
+@media (pointer: coarse), (max-width: 640px) {
+  .sources-pick label, .sources-select-all { min-height: 44px; }
+  .sources-preview a, .sources-handoff a, .sources-outcomes a, .sources-url .link, .drama-new .link { display: inline-flex; align-items: center; min-height: 44px; }
+}
+@media (max-width: 640px) {
+  .sources-url-row { flex-wrap: wrap; }
+  .sources-url-row button { flex: 1 1 100%; }
+  .sources-preview .actions > button { flex: 1 1 100%; }
+}

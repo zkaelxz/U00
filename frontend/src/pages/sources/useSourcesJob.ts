@@ -97,6 +97,14 @@ const idle = <R>(id: string): JobState<R> => ({
   id, status: 'idle', progress: null, message: null, result: null, error: null, runningFor: null,
 })
 
+/**
+ * Whether the shown run is one this page started (or reattached to). Tied
+ * to the id: the per-drama import ids are shared, so after switching drama
+ * the other drama's stored run must not read as started here.
+ */
+export const isStartedHere = (startedId: string | null, jobId: string | null) =>
+  startedId !== null && startedId === jobId
+
 export interface SourcesJobOptions {
   // A start's 409 for this same job id reattaches to the running run (search).
   // Off for series: the id is per source, so the running run may be another
@@ -108,9 +116,9 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
   const [state, setState] = useState<JobState<R> | null>(null)
   const [startError, setStartError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
-  // True once this page started (or reattached to) the current run itself,
-  // as opposed to finding it on mount.
-  const [startedHere, setStartedHere] = useState(false)
+  // The id whose current run this page started (or reattached to) itself,
+  // as opposed to finding it on mount (see isStartedHere).
+  const [startedId, setStartedId] = useState<string | null>(null)
   // Bumped to (re)start polling for the current id: mount, a start, a reattach.
   const [pollKey, setPollKey] = useState(0)
   const idRef = useRef(jobId)
@@ -158,12 +166,12 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
       inFlightRef.current = id
       setStartError(null)
       setStarting(true)
-      setStartedHere(false)
+      setStartedId(null)
       setState(idle(id))
       mutedRef.current = id
       const attach = () => {
         mutedRef.current = null
-        setStartedHere(true)
+        setStartedId(id)
         setState({ ...idle<R>(id), status: 'running' })
         setPollKey((k) => k + 1)
       }
@@ -212,7 +220,7 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
     result: cur?.result ?? null,
     error: cur?.error ?? null,
     runningFor: cur?.runningFor ?? null,
-    startedHere,
+    startedHere: isStartedHere(startedId, jobId),
     startError,
     clearStartError: () => setStartError(null),
     start,

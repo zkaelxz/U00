@@ -9,6 +9,7 @@ import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
+import { usePersistedState } from '../../../hooks/usePersistedState'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
@@ -16,9 +17,10 @@ import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
+import { UrlDownload } from './UrlDownload'
 
 export default function SourceStage() {
-  const { dramaId, onJobDone } = useStage()
+  const { dramaId, drama, onJobDone } = useStage()
   const [media, setMedia] = useState<MediaStatus | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fileProblem, setFileProblem] = useState<string | null>(null)
@@ -30,6 +32,9 @@ export default function SourceStage() {
   const [modeVersion, setModeVersion] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
+  // "Upload a file" or "From a URL", remembered per viewer.
+  const [from, setFrom] = usePersistedState<'file' | 'url'>('source.mediaFrom', 'file')
+  const fromUrl = from === 'url'
 
   useEffect(() => {
     let cancelled = false
@@ -124,18 +129,44 @@ export default function SourceStage() {
           {media.has_source_video ? 'attached' : 'none'} · limit {media.upload_max_mb} MB
         </p>
       )}
-      <div className="source-file">
-        <input
-          type="file"
-          aria-label="Audio or video file"
-          accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
-          disabled={!media}
-          onChange={(e) => pick(e.target.files?.[0] ?? null)}
-        />
-        <button type="button" disabled={!file || busy} onClick={upload}>
-          Upload
-        </button>
+      <div className="source-from" role="radiogroup" aria-label="Get audio or video">
+        <label>
+          <input type="radio" name={`source-from-${dramaId}`} checked={!fromUrl} onChange={() => setFrom('file')} />
+          Upload a file
+        </label>
+        <label>
+          <input type="radio" name={`source-from-${dramaId}`} checked={fromUrl} onChange={() => setFrom('url')} />
+          From a URL
+        </label>
       </div>
+      {fromUrl ? (
+        media && (
+          <UrlDownload
+            key={dramaId}
+            dramaId={dramaId}
+            contentMode={drama.content_mode}
+            hasAudio={media.has_audio}
+            busy={busy}
+            onStarted={(id) => {
+              setUploaded(null)
+              setJobId(id)
+            }}
+          />
+        )
+      ) : (
+        <div className="source-file">
+          <input
+            type="file"
+            aria-label="Audio or video file"
+            accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
+            disabled={!media}
+            onChange={(e) => pick(e.target.files?.[0] ?? null)}
+          />
+          <button type="button" disabled={!file || busy} onClick={upload}>
+            Upload
+          </button>
+        </div>
+      )}
       {hasMedia && pc === 'local' && (
         <div className="actions">
           <ConfirmButton

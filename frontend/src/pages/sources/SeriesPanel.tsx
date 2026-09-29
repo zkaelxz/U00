@@ -3,13 +3,16 @@ import { useEffect, useRef, useState } from 'react'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
-import type { OpenSeries, SeriesResult, TrackedSeries } from '../../types/sources'
+import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
+import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
+import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
 import {
   CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesMeta,
   type SeriesView,
 } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
+import { IMPORT_REMOTE_ALLOWED, allSelected, toggleId } from './urlImportFormat'
 
 type Props = {
   open: OpenSeries
@@ -31,6 +34,12 @@ type Props = {
   onClose: () => void
   onUntrack: (t: TrackedSeries) => void
   untrackBusy: boolean
+  // Chapter import and Track (S-4). Without sourceInfo there is no import.
+  sourceInfo?: SourceSummary | null
+  // A chapter to tick when the series opens (from a pasted chapter link).
+  preselect?: string | null
+  phone?: boolean
+  onTracked?: (list: TrackedSeries[]) => void
 }
 
 // A long description is clamped to 3 lines with More/Less.
@@ -38,6 +47,7 @@ const LONG_DESCRIPTION = 180
 
 export function SeriesPanel({
   open, display, job, view, tracked, remote, cleared, busyEnded, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
+  sourceInfo, preselect, phone = false, onTracked,
 }: Props) {
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
@@ -66,6 +76,20 @@ export function SeriesPanel({
   const siteUrl = safeHref(info?.url)
   const description = info?.description?.trim() ?? ''
   const extra = seriesExtra(info)
+  // Import (S-4): ticked chapter ids, the drama and the import job.
+  const [selected, setSelected] = useState<string[]>([])
+  // A pasted chapter link ticks its chapter, also when the series is already open.
+  const [preselectSeen, setPreselectSeen] = useState<string | null>(null)
+  const pre = preselect ?? null
+  if (pre !== preselectSeen) {
+    setPreselectSeen(pre)
+    if (pre) setSelected((cur) => toggleId(cur, pre, true))
+  }
+  const canImport = !!sourceInfo?.import_supported && (!remote || IMPORT_REMOTE_ALLOWED)
+  const imp = useChapterImport(open.source, open.series_id, !!sourceInfo?.supports.get_pages, canImport)
+  const importing = !!result && chapters.length > 0 && canImport
+  // Tracking (R4) works for any source, not only those with import; same remote rule.
+  const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
 
   return (
     <section className="panel sources-series" aria-label="Series">
@@ -173,9 +197,46 @@ export function SeriesPanel({
         </button>
       </div>
 
+      {importing && (
+        <ImportSetup
+          imp={imp}
+          source={open.source}
+          seriesId={open.series_id}
+          display={display}
+          comic={!!sourceInfo?.supports.get_pages}
+          title={title}
+          language={info?.language ?? null}
+          tracked={tracked}
+          onTracked={(list) => onTracked?.(list)}
+        />
+      )}
+      {!importing && canTrack && (
+        <TrackRow source={open.source} seriesId={open.series_id} dramaId={null} onTracked={(list) => onTracked?.(list)} />
+      )}
+      {result && chapters.length > 0 && !canImport && sourceInfo?.import_supported && remote && (
+        <p className="muted">Importing chapters is PC only for now.</p>
+      )}
+
       {result && chapters.length > 0 && (
         <Section title="Chapters" count={chapters.length} defaultOpen storageKey="sources.chapters">
-          <ChapterList groups={groups} shown={shown} />
+          {importing && (
+            <label className="sources-select-all">
+              <input
+                type="checkbox"
+                checked={allSelected(selected, chapters)}
+                disabled={imp.running}
+                onChange={(e) => setSelected(e.target.checked ? chapters.map((c) => c.chapter_id) : [])}
+              />
+              Select all {chapters.length}
+            </label>
+          )}
+          <ChapterList
+            groups={groups}
+            shown={shown}
+            selected={importing ? selected : undefined}
+            disabled={imp.running}
+            onToggle={(id, on) => setSelected((cur) => toggleId(cur, id, on))}
+          />
           {chapters.length > shown && (
             <button type="button" onClick={() => setShown(chapters.length)}>
               Show all {chapters.length}
@@ -183,6 +244,7 @@ export function SeriesPanel({
           )}
         </Section>
       )}
+      {importing && <ImportBar imp={imp} chapters={chapters} selected={selected} phone={phone} />}
       {showBack && result && (
         <button type="button" className="link sources-back" onClick={onClose}>
           ‹ Results
@@ -192,16 +254,37 @@ export function SeriesPanel({
   )
 }
 
-function ChapterList({ groups, shown }: { groups: ReturnType<typeof groupChapters>; shown: number }) {
+function ChapterList({ groups, shown, selected, disabled, onToggle }: {
+  groups: ReturnType<typeof groupChapters>
+  shown: number
+  // Import: tick boxes when given.
+  selected?: string[]
+  disabled?: boolean
+  onToggle?: (id: string, on: boolean) => void
+}) {
   const many = groups.length > 1
   return (
     <div className="sources-chapters">
       {limitGroups(groups, shown).map((g) => (
         <div key={g.group || '-'}>
           {many && <h4>{g.group || 'Other'}</h4>}
-          <ul>
+          <ul className={selected ? 'sources-pick' : undefined}>
             {g.chapters.map((c) => (
-              <li key={c.chapter_id}>{c.title || c.chapter_id}</li>
+              <li key={c.chapter_id}>
+                {selected ? (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(c.chapter_id)}
+                      disabled={disabled}
+                      onChange={(e) => onToggle?.(c.chapter_id, e.target.checked)}
+                    />
+                    {c.title || c.chapter_id}
+                  </label>
+                ) : (
+                  c.title || c.chapter_id
+                )}
+              </li>
             ))}
           </ul>
         </div>
