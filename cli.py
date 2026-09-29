@@ -442,9 +442,10 @@ def cmd_translate(args):
         drama_chars = db.list_characters_with_series_names(d["id"])
         # Step 25r: Workspace's own translate path also folds in the learned
         # style profile and per-line emotion guidance -- both DB-backed, so
-        # (unlike the pronoun-default/genre-notes toggles, which only ever
-        # live in browser session state) there's no structural reason for the
-        # CLI to leave them out.
+        # there's no structural reason for the CLI to leave them out. The
+        # pronoun-default/genre-notes toggles aren't stored on the drama, so
+        # they come from --female-pronouns / --no-genre-notes (defaults match
+        # the Workspace checkboxes and the API: she/her off, genre notes on).
         _scope = f"series:{d['series_id']}" if d.get("series_id") else "global"
         _prof = db.get_style_profile(_scope)
         _learned = adaptive_style.profile_to_prompt_block(_prof["profile"]) if _prof else ""
@@ -455,6 +456,8 @@ def cmd_translate(args):
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
         style_guidelines = tguide.build_style_guidelines(
             style_preset=style_preset, glossary_terms=glossary_terms,
+            include_genre_notes=not getattr(args, "no_genre_notes", False),
+            default_female_pronouns=getattr(args, "female_pronouns", False),
             custom_notes="\n\n".join(b for b in (
                 _learned, _emotion_block,
                 tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
@@ -742,6 +745,12 @@ def main():
                                    "(\"novel\" for a novel-narration drama, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_translate.add_argument("--female-pronouns", action="store_true",
+                           help="Default ambiguous pronouns to she/her (the Workspace "
+                                "checkbox / a preset's pronoun default).")
+    p_translate.add_argument("--no-genre-notes", action="store_true",
+                           help="Leave out the baihe/GL genre guidance (on by default, "
+                                "as in the Workspace).")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.add_argument("--ollama-num-ctx", type=int, default=None,
@@ -821,6 +830,12 @@ def main():
     p_run.add_argument("--status", default=None)
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
     p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_run.add_argument("--female-pronouns", action="store_true",
+                           help="Default ambiguous pronouns to she/her (the Workspace "
+                                "checkbox / a preset's pronoun default).")
+    p_run.add_argument("--no-genre-notes", action="store_true",
+                           help="Leave out the baihe/GL genre guidance (on by default, "
+                                "as in the Workspace).")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)

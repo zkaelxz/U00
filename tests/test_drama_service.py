@@ -69,14 +69,17 @@ def test_preset_applied(isolated_db):
     assert d["translation_engine"] == "gemini"
     assert d["preset_defaults"] == {
         "style_preset": "casual", "locale": "en-GB",
-        "default_female_pronouns": True, "include_genre_notes": False}
+        "default_female_pronouns": True, "include_genre_notes": False,
+        "engine_model": "m"}
 
 
 def test_preset_without_engine_leaves_default(isolated_db):
-    pid = db.save_preset("P", style_preset="casual")
+    pid = db.save_preset("P", style_preset="casual", engine_model="m")
     d = ds.create_drama(source_language="zh", preset_id=pid)
     assert d["translation_engine"] == db.get_drama(d["id"])["translation_engine"]
     assert d["preset_defaults"]["style_preset"] == "casual"
+    # The tab applies a preset's model only to the preset's own engine.
+    assert d["preset_defaults"]["engine_model"] is None
 
 
 @pytest.mark.parametrize("key", ["status", "content_mode", "source_language",

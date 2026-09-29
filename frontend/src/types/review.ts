@@ -112,6 +112,13 @@ export interface TmSuggestion {
 
 export type ReviewJobKind = 'consistency' | 'emotion' | 'notes' | 'flag' | 'fix-flagged'
 
+// ReviewJobStart / FixFlaggedJobStart: every field optional (server default).
+export interface ReviewJobBody {
+  engine?: string
+  model?: string
+  job_cost_cap_usd?: number
+}
+
 export interface ReviewJobStarted {
   job_id: string
   drama_id: number
@@ -135,4 +142,135 @@ export interface LineExplanation {
   explanation: string
   engine: string
   model: string | null
+}
+
+// ---- stored AI results and checks (ReviewRecords*, ReviewLines*) ----
+
+// Not tied to one line: a source term translated more than one way.
+export interface ConsistencyIssue {
+  id: number
+  term: string
+  variants: string[]
+  note: string
+  created_at: string | null
+}
+
+// line_idx is the line's CURRENT position (the server joins on line id); the
+// route returns no line id.
+export interface EmotionTag {
+  line_idx: number
+  emotion: string
+  intensity: number | null
+  note: string
+}
+
+export interface EmotionSummary {
+  drama_id: number
+  total: number
+  by_emotion: Record<string, number>
+  high_risk: number
+  lines: EmotionTag[]
+}
+
+export interface Tendencies {
+  drama_id: number
+  scope: string
+  tendencies: { total: number; shortened: number; expanded: number; rephrased: number; avg_word_delta: number }
+  profile: {
+    summary: string
+    confidence: unknown
+    preferences: string[]
+    sample_count: number
+    updated_at: string | null
+  } | null
+}
+
+export interface VersionDiff {
+  idx: number
+  zh: string
+  left_en: string
+  right_en: string
+}
+
+export interface VersionCompare {
+  drama_id: number
+  left: { id: number; label: string | null }
+  right: { id: number; label: string | null }
+  left_line_count: number
+  diff_count: number
+  diffs: VersionDiff[]
+}
+
+// Which fields are set depends on the list the entry is in.
+export interface CoverageEntry {
+  idx?: number | null
+  id?: number | null
+  start?: number | null
+  end?: number | null
+  duration?: number | null
+  zh?: string | null
+  char_count?: number | null
+  note?: string | null
+  after_idx?: number | null
+  before_idx?: number | null
+  after_id?: number | null
+  before_id?: number | null
+  gap_start?: number | null
+  gap_end?: number | null
+  gap_seconds?: number | null
+}
+
+export interface Coverage {
+  long_lines: CoverageEntry[]
+  large_gaps: CoverageEntry[]
+  blank_zh: CoverageEntry[]
+  blank_en: CoverageEntry[]
+}
+
+export interface PacingFlag {
+  id: number | null
+  idx: number
+  issue: string
+  detail: string | null
+}
+
+export interface Pacing {
+  flags: PacingFlag[]
+  count: number
+}
+
+// debug_view.explain_line; list sections have variable row shapes.
+export interface LineProvenance {
+  line_id: number
+  line_idx: number
+  zh: string
+  en: string
+  speaker: string | null
+  speaker_manual: boolean
+  flag: string | null
+  flag_reason: string | null
+  flag_note: string | null
+  translation_notes: unknown[]
+  emotion: unknown
+  edit_samples: unknown[]
+  consistency_issues: unknown[]
+  glossary_matches: unknown[]
+  glossary_matches_note: string | null
+  context_window_used: unknown
+  context_window_note: string | null
+  current_neighbors_before: unknown[]
+  current_neighbors_after: unknown[]
+  engine: string | null
+  model: string | null
+  engine_source: string | null
+  prompt_version_note: string | null
+}
+
+export interface LineOriginalText {
+  line_id: number
+  idx: number
+  current_zh: string
+  has_raw_transcript: boolean
+  original_text: string | null
+  differs: boolean
 }

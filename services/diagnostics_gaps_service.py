@@ -268,7 +268,8 @@ def _pip(*args) -> list:
 
 
 def _install_commands(name: str) -> list:
-    """(command, timeout) pairs for an install. torch on a machine with an
+    """(command, timeout) pairs for an install. torch (or torchaudio, which
+    must match it) on a machine with an
     NVIDIA GPU gets the CUDA build from PyTorch's index, like
     diagnostics.stream_gpu_torch_reinstall, but without uninstalling first:
     `--force-reinstall --no-deps` downloads both wheels before replacing
@@ -276,7 +277,7 @@ def _install_commands(name: str) -> list:
     torch in place; a second plain install then adds any missing
     dependencies (e.g. the nvidia-* wheels on Linux). Everything else is a
     plain install."""
-    if name == "torch" and shutil.which("nvidia-smi"):
+    if name in ("torch", "torchaudio") and shutil.which("nvidia-smi"):
         index = ["--index-url",
                  f"https://download.pytorch.org/whl/{diagnostics.gpu_torch_cuda_index()}"]
         constraints = os.path.join(_project_root(), "constraints.txt")
