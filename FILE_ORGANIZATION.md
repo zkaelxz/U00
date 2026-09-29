@@ -315,7 +315,7 @@ baihe-subtitler/
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
-│       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
+│       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
