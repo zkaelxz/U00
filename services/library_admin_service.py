@@ -154,6 +154,14 @@ def _maintenance(action: str):
         background_jobs.exit_maintenance()
 
 
+def _refuse_during_maintenance(label: str):
+    """A backup/export must not read the library while a bulk delete or
+    storage cleanup is changing it (_maintenance refuses the reverse)."""
+    if background_jobs.maintenance_active():
+        raise ConflictError(f"Dramas are being deleted or storage cleaned; the {label} "
+                            f"can start when that finishes.")
+
+
 def _refuse_duplicate(job_id: str, label: str):
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
@@ -432,6 +440,7 @@ def start_export_zip(drama_ids=None) -> dict:
     if not ids:
         raise InvalidInputError("No translated dramas to export.",
                                 details={"results": results} if results is not None else None)
+    _refuse_during_maintenance("library export")
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
     if not background_jobs.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
                                      description="Library export"):
@@ -497,6 +506,7 @@ def _backup_job(job_id):
 
 def start_backup() -> dict:
     """Job: full library backup zip (database snapshot + media)."""
+    _refuse_during_maintenance("backup")
     _refuse_duplicate(BACKUP_JOB_ID, "backup")
     if not background_jobs.start_job(BACKUP_JOB_ID, _backup_job, BACKUP_JOB_ID,
                                      description="Library backup"):
@@ -515,6 +525,7 @@ def start_database_backup() -> dict:
     """Job: database-only backup (the tab's "Database-only backup (fast,
     small)"): one consistent library.db snapshot, auth sessions removed,
     no media. Fetch it with admin_artifact_path("database")."""
+    _refuse_during_maintenance("database backup")
     _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
     if not background_jobs.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
                                      DATABASE_BACKUP_JOB_ID, description="Database backup"):
