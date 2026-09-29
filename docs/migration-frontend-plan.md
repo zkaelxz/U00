@@ -1,5 +1,7 @@
 # Frontend phase plan (React) -- from the migration-architect, 2026-09-28
 
+UI conciseness rules and per-screen change list: `docs/react-ui-guidelines.md`.
+
 Source: read-only architect report; facts checked against the repo at `baihe-subtitler`. Roadmap was not readable by the agent.
 Backend queue status lives in `docs/migration-handoff.md`. Job statuses (from `background_jobs`): queued, running, done, error, cancelled.
 
