@@ -76,8 +76,9 @@ describe('translate form', () => {
 
   it('describes month spend without implying a zero cap was reached', () => {
     expect(monthSpendText(1.5, 10)).toBe('Spend this month: $1.50 of $10.00.')
-    expect(monthSpendText(1.5, 0)).toBe('Spent this month: $1.50 (no monthly cap).')
-    expect(monthSpendText(0, -1)).toBe('Spent this month: $0.00 (no monthly cap).')
+    // No cap set: the API still reports the real month spend.
+    expect(monthSpendText(4.25, 0)).toBe('Spent this month: $4.25 (no monthly cap).')
+    expect(monthSpendText(4.25, -1)).toBe('Spent this month: $4.25 (no monthly cap).')
   })
 
   it('splits one-per-line lists', () => {
