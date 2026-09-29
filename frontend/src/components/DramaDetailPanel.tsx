@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { deleteDrama } from '../api/library'
 import type { DramaDetail } from '../api/types'
+import { engineLabel, languageLabel, mediaTypeLabel, statusLabel } from '../labels'
 import type { DramaDeleteResult } from '../types/library'
 import { isComicType } from '../pages/comic/comicLogic'
 import { canConfirmDelete } from '../pages/libraryForm'
@@ -60,12 +61,12 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
     ['Author', credit(drama.author, drama.author_romanized)],
     ['Studio', credit(drama.studio, drama.studio_romanized)],
     ['Voice actors', credit(drama.voice_actors, drama.voice_actors_romanized)],
-    ['Status', drama.status],
-    ['Type', drama.media_type],
-    ['Language', drama.source_language],
+    ['Status', statusLabel(drama.status)],
+    ['Type', mediaTypeLabel(drama.media_type)],
+    ['Language', languageLabel(drama.source_language)],
     ['Genre', drama.genre],
     ['Chapters', drama.chapter_count],
-    ['Translation engine', drama.translation_engine],
+    ['Translation engine', engineLabel(drama.translation_engine)],
     ['Tags', drama.custom_tags.join(', ')],
     ['Source media', drama.has_audio ? 'attached' : 'none'],
   ]
@@ -84,14 +85,16 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
             </div>
           ))}
       </dl>
-      <a href={routeHref({ name: 'drama', id: dramaId, stage: null })}>Open workspace</a>
-      {' · '}<a href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id: dramaId, page: null })}>Read</a>
+      <div className="actions">
+        <a className="button-link" href={routeHref({ name: 'drama', id: dramaId, stage: null })}>Open workspace</a>
+        <a className="button-link" href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id: dramaId, page: null })}>Read</a>
+        {onDeleted && !confirming && (
+          <button type="button" className="danger" onClick={() => setConfirming(true)}>
+            Delete drama…
+          </button>
+        )}
+      </div>
       {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
-      {onDeleted && !confirming && (
-        <button type="button" className="danger" onClick={() => setConfirming(true)}>
-          Delete drama…
-        </button>
-      )}
       {onDeleted && confirming && (
         <div className="delete-confirm">
           <p>This permanently deletes the drama and all its lines. Type DELETE to confirm.</p>

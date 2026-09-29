@@ -14,17 +14,6 @@ button.report-btn:hover:not(:disabled) { color: var(--text); }
 .report-note { margin: 0; font-size: var(--font-sm, 0.9rem); }
 .report-saved { margin: 0; font-weight: 600; color: var(--ok); }
 .report-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; margin-top: var(--space-2); }
-a.button-link {
-  display: inline-flex;
-  align-items: center;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  text-decoration: none;
-}
-a.button-link:hover { border-color: var(--accent); }
 .report-form details summary { cursor: pointer; }
 
 @media (pointer: coarse) {
