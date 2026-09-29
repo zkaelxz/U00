@@ -129,6 +129,8 @@ Guardrails:
 
 Sequence: step 133 and the three pending branches (B-04/B-05, slice 51, slice 52) merge; M0-b (startup hooks, single launcher, release zip); inventory, tag and test triage; one series of deletion PRs (all tabs, `app.py`, `common.py`, `ui_theme.py`, `ui/`, `.streamlit/`, the `streamlit`/`pandas`/canvas dependencies, launcher and doc references); then the React backlog. Expected removal: about 2026-10-05 to 10-08. The 2026-10-30 date now applies to closing the highest-ranked React gaps rather than to deletion.
 
+Status (docs sync 2026-09-29, base 4b2d5e5): step 133 (#339), B-04/B-05 (#350) and slices 51+52 (#352) are merged; the M0-b startup hook is merged (`api/background.py`: chapter-check scheduler + extension bridge, #372); feature inventory and test triage are merged (#343); the tag, `legacy/streamlit` branch and deletion PRs are not done. APIs now exist for Reader (#370), Sources search (#372), Discover D-2 (#372), media playback (#352) and Live (#372); their React pages are not merged yet.
+
 Until React catches up, these are unavailable: video URL import, Reader, the Sources and Discover screens, media playback, vertical/shorts and package export, Live (planned port) and Scanlate (held until after removal).
 
 ## 10. Prune decisions (user, 2026-09-29)

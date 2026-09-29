@@ -1817,6 +1817,365 @@ class TranslateBulkCancelResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# API batch 1: workflow progress (GET /api/workflow/dramas/{id}/progress)
+# ---------------------------------------------------------------------------
+
+class WorkflowStageState(BaseModel):
+    key: str     # source | translate | review | dub | export
+    state: str   # done | current | pending | optional | blocked
+
+
+class WorkflowProgress(BaseModel):
+    """Pipeline progress for the React stage bar. `stage_index` is the 7-tab
+    scale of `compute_workspace_stage_index` (0-2 source, 3 translate,
+    4 review, 6 export; 5/dub is never current). Booleans only, no paths."""
+    drama_id: int
+    stage_index: int
+    stage: str
+    line_count: int
+    untranslated_count: int
+    flagged_count: int
+    has_audio: bool
+    has_dub_track: bool
+    exported: bool
+    stages: List[WorkflowStageState]
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Live capture (spec L-1, polling) -- /api/live/sessions
+# ---------------------------------------------------------------------------
+
+class LiveSessionStart(BaseModel):
+    """Keys are resolved server-side; no browser cookies over the API.
+    Numbers are clamped to the service's ranges (segment 10-60 s, overlap
+    0-8 s and at most half the segment, max_minutes 1-240)."""
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=1, max_length=2000)
+    source_language: str = Field("zh", max_length=5)
+    whisper_size: str = Field("small", max_length=10)
+    segment_seconds: float = 20
+    overlap_seconds: float = 3
+    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+    model: Optional[str] = Field(None, max_length=100)
+    max_minutes: float = 60
+    use_gpu: StrictBool = False
+
+
+class LiveSessionStarted(BaseModel):
+    session_id: str
+
+
+class LiveCue(BaseModel):
+    start: float
+    end: float
+    text: str
+    translated: str
+
+
+class LiveSessionStatus(BaseModel):
+    session_id: str
+    status: str   # queued | running | done | error | cancelled
+    message: str
+    progress: float
+    cues: List[LiveCue]
+    next_index: int
+
+
+class LiveSessionSummary(BaseModel):
+    session_id: str
+    status: str
+    engine: Optional[str] = None
+    cue_count: int
+
+
+class LiveSessionStopped(BaseModel):
+    session_id: str
+    stopping: bool
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Discover network helpers (spec D-2) -- /api/discover/...
+# ---------------------------------------------------------------------------
+
+class DiscoverTranslateQueryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    q: str = Field(max_length=500)
+    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+
+
+class DiscoverTranslateQueryResult(BaseModel):
+    query: str
+    translated: str
+    engine: str
+
+
+class DiscoverBaihehubSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    q: str = Field(max_length=500)
+
+
+class DiscoverBaihehubHit(BaseModel):
+    title: str
+    url: str
+    snippet: str
+
+
+class DiscoverBaihehubResult(BaseModel):
+    results: List[DiscoverBaihehubHit]
+    fallback_url: str
+
+
+class DiscoverImportSuggestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(max_length=2000)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverImportSuggestion(BaseModel):
+    """A suggestion only; nothing is written. Apply it with POST /api/discover/titles."""
+    suggestion: Dict[str, str]
+    found: bool
+    needs_manual: bool
+    message: str
+
+
+class DiscoverBulkExtractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    urls: List[str] = Field(min_length=1, max_length=10)
+    source_label: str = Field("", max_length=100)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverNavigationHelpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(max_length=2000)
+    goal: str = Field(max_length=500)
+    target_language: str = Field("English", max_length=20)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverJobStarted(BaseModel):
+    job_id: str
+    started: bool
+
+
+class DiscoverJobResult(BaseModel):
+    """`result` is the job's own result once set: bulk extract
+    {entries, pages, source_label}; navigation help {labels, steps,
+    needs_manual, message}."""
+    job_id: str
+    status: Optional[str] = None
+    progress: float
+    message: str
+    result: Optional[Dict[str, Any]] = None
+
+
+class DiscoverBulkEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(max_length=300)
+    author: str = Field("", max_length=300)
+    tags: str = Field("", max_length=500)
+    source_url: str = Field("", max_length=2000)
+    has_audio_drama: StrictBool = False
+    language: str = Field("zh", max_length=10)
+    # From the bulk-extract result: the server stores its own full URL for
+    # it and ignores source_url (which the result shows without a query).
+    entry_id: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverBulkCommitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entries: List[DiscoverBulkEntry] = Field(min_length=1, max_length=500)
+    source_label: str = Field("", max_length=100)
+
+
+class DiscoverBulkCommitResult(BaseModel):
+    added: int
+    skipped: int
+    ids: List[int]
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Sources search / series (spec S-3) -- /api/sources/...
+# ---------------------------------------------------------------------------
+
+class SourcesSearchRequest(BaseModel):
+    """Names and text only, never URLs (adapters build their own)."""
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=200)
+    sources: Optional[List[str]] = Field(None, max_length=100)
+
+
+class SourcesSeriesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(max_length=200)
+
+
+class SourcesJobStarted(BaseModel):
+    job_id: str
+
+
+class SourcesJobResult(BaseModel):
+    """`result` (only once done): search {kind, query, cancelled, results,
+    errors, per_source_counts} or series {kind, source, series_id, info,
+    chapters}. URLs are scheme+host+path only; text is scrubbed."""
+    job_id: str
+    status: Optional[str] = None
+    progress: Optional[float] = None
+    message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Diagnostics gaps (Streamlit retirement M1) -- /api/diagnostics/...
+# ---------------------------------------------------------------------------
+
+class DiagnosticsSetupPython(BaseModel):
+    version: Optional[str] = None
+    ok: bool
+
+
+class DiagnosticsSetupFfmpeg(BaseModel):
+    found: bool
+    version: Optional[str] = None
+
+
+class DiagnosticsSetupJsRuntime(BaseModel):
+    found: bool
+    name: Optional[str] = None
+
+
+class DiagnosticsSetupCuda(BaseModel):
+    torch_installed: bool
+    cuda_available: Optional[bool] = None
+
+
+class DiagnosticsSetupFiles(BaseModel):
+    all_present: bool
+    missing_top_level: List[str]
+    missing_tabs: List[str]
+
+
+class DiagnosticsSetupChecks(BaseModel):
+    """Found/version/name only; never a path."""
+    python: DiagnosticsSetupPython
+    ffmpeg: DiagnosticsSetupFfmpeg
+    js_runtime: DiagnosticsSetupJsRuntime
+    cuda: DiagnosticsSetupCuda
+    files: DiagnosticsSetupFiles
+    library_writable: bool
+
+
+class DiagnosticsHfCacheEntry(BaseModel):
+    repo_id: str
+    repo_type: str
+    revision: str
+    size_bytes: int
+
+
+class DiagnosticsPiperVoice(BaseModel):
+    voice: str
+    size_bytes: int
+
+
+class DiagnosticsModelCache(BaseModel):
+    hf_cache: List[DiagnosticsHfCacheEntry]
+    hf_total_bytes: int
+    piper_voices: List[DiagnosticsPiperVoice]
+    piper_total_bytes: int
+
+
+class DiagnosticsPyannoteModel(BaseModel):
+    model: str
+    accessible: bool
+
+
+class DiagnosticsPyannoteReadiness(BaseModel):
+    """Booleans only; the token is never returned."""
+    pyannote_installed: bool
+    hf_token_configured: bool
+    models: Optional[List[DiagnosticsPyannoteModel]] = None
+    ready: bool
+
+
+class DiagnosticsJobHistoryItem(BaseModel):
+    job_id: str
+    label: str
+    status: Optional[str] = None
+    description: Optional[str] = None
+    message: str = ""
+    error: Optional[str] = None
+    gpu_touching: bool = False
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    duration_seconds: Optional[float] = None
+
+
+class DiagnosticsLogTail(BaseModel):
+    lines: List[str]
+
+
+class DiagnosticsSupportReport(BaseModel):
+    report: str
+
+
+class DiagnosticsAdminConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class DiagnosticsInstallResult(BaseModel):
+    package: str
+    ok: bool
+    output_tail: List[str]
+
+
+class DiagnosticsResetRequest(BaseModel):
+    """confirm=true and confirm_text "RESET" (the word the Streamlit button
+    made the user type)."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    confirm_text: str = Field("", max_length=20)
+
+
+class DiagnosticsResetResult(BaseModel):
+    ok: bool
+    reset_at: float
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: browser-extension bridge control (PC only) -- /api/extension/...
+# ---------------------------------------------------------------------------
+
+class ExtensionStatus(BaseModel):
+    """No port and no token, ever."""
+    enabled: bool
+    running: bool
+
+
+class ExtensionEnabledRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+
+
+class ExtensionEnabledResult(BaseModel):
+    """`restart_needed`: turned off, but this process still serves the
+    endpoint until the API restarts (page_server has no stop)."""
+    enabled: bool
+    running: bool
+    restart_needed: bool
+
+
+class ExtensionTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class ExtensionToken(BaseModel):
+    token: str
+
+
+# ---------------------------------------------------------------------------
 # Route batch 2B (M4): Reader API over services/reader_service.py
 # ---------------------------------------------------------------------------
 
