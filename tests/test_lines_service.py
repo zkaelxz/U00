@@ -261,23 +261,34 @@ class TestTm:
     def test_accept(self, save_spy):
         did, ids = _seed(series=True)
         e = self._entry(db.get_drama(did)["series_id"])
-        out = svc.accept_tm_suggestion(did, ids[0], e["id"])
-        assert out["en"] == "Howdy" and save_spy == [("en",)]
+        out = svc.accept_tm_suggestion(did, ids[0], e["id"], "Hello")
+        # one compare-and-set on en, never a line-list save
+        assert out["en"] == "Howdy" and save_spy == []
         assert db.list_translation_memory(e["series_id"])[0]["use_count"] == e["use_count"] + 1
+
+    def test_accept_refuses_when_the_line_changed(self, isolated_db):
+        did, ids = _seed(series=True)
+        e = self._entry(db.get_drama(did)["series_id"])
+        with pytest.raises(ConflictError):
+            svc.accept_tm_suggestion(did, ids[0], e["id"], "an older English")
+        assert _row(did, ids[0])["en"] == "Hello"
+        assert db.list_translation_memory(e["series_id"])[0]["use_count"] == e["use_count"]
+        with pytest.raises(InvalidInputError):
+            svc.accept_tm_suggestion(did, ids[0], e["id"], None)
 
     def test_other_series_entry_is_404(self, isolated_db):
         did, ids = _seed(series=True)
         other = db.get_or_create_series("Other")
         e = self._entry(other)
         with pytest.raises(NotFoundError):
-            svc.accept_tm_suggestion(did, ids[0], e["id"])
+            svc.accept_tm_suggestion(did, ids[0], e["id"], "Hello")
         assert _row(did, ids[0])["en"] == "Hello"
         assert db.list_translation_memory(other)[0]["use_count"] == e["use_count"]
 
     def test_no_series_is_404(self, isolated_db):
         did, ids = _seed()
         with pytest.raises(NotFoundError):
-            svc.accept_tm_suggestion(did, ids[0], 1)
+            svc.accept_tm_suggestion(did, ids[0], 1, "Hello")
 
 
 class TestNotes:
@@ -334,6 +345,6 @@ class TestNeverFullSync:
         svc.patch_line(did, ids[0], en="a", zh="b", start=0.1, end=0.9, speaker="Z", sfx=True)
         svc.dismiss_flag(did, ids[1])
         svc.apply_find_replace(did, [{"id": ids[2], "old_text": "Thanks", "new_text": "T"}])
-        svc.accept_tm_suggestion(did, ids[0], e["id"])
+        svc.accept_tm_suggestion(did, ids[0], e["id"], "a")
         svc.add_note(did, ids[0], "t", "idiom", "n")
         assert save_spy and all(f is not None and isinstance(f, tuple) for f in save_spy)

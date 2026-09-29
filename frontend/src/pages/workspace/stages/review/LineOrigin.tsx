@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
-import { getLineOriginalText, getLineProvenance } from '../../../../api/review'
+import { getLineOriginalText, getLineProvenance, patchLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { safeDetail } from '../../../../components/errorMessages'
-import type { LineOriginalText, LineProvenance } from '../../../../types/review'
+import type { LineOriginalText, LineProvenance, ReviewLine } from '../../../../types/review'
 import type { RetranscribeApplyResult } from '../../../../types/workspace'
 import { RetranscribeLine } from './RetranscribeLine'
 import { emotionText, glossaryText, termsText } from './reviewResults'
@@ -13,18 +13,42 @@ import { emotionText, glossaryText, termsText } from './reviewResults'
 // Fetched each time it is opened, so it never shows data from before a save.
 // "Re-transcribe this line" sits right after it; onChanged (optional) gets
 // the new text when "Use this" replaced it, so the editor can update.
+// "Restore original text" (R24) writes only the source text, compare-and-set
+// against the text shown here; onRestored gets the saved line.
 export function LineOrigin({
   dramaId,
   lineId,
   onChanged,
+  onRestored,
 }: {
   dramaId: number
   lineId: number
   onChanged?: (applied: RetranscribeApplyResult) => void
+  onRestored?: (saved: ReviewLine) => void
 }) {
   const [data, setData] = useState<{ p: LineProvenance; o: LineOriginalText } | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [open, setOpen] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const [restored, setRestored] = useState(false)
+
+  const restore = (o: LineOriginalText) => {
+    if (o.original_text === null) return
+    setRestoring(true)
+    setRestored(false)
+    setError(null)
+    patchLine(dramaId, lineId, { zh: o.original_text, expected: { zh: o.current_zh } })
+      .then(
+        (saved) => {
+          setRestored(true)
+          onRestored?.(saved)
+          load()
+        },
+        // A 409: the source text changed since this was shown (reopen to refresh).
+        setError,
+      )
+      .finally(() => setRestoring(false))
+  }
 
   const load = () => {
     setData(null)
@@ -49,7 +73,17 @@ export function LineOrigin({
       >
         <summary>Where this line came from</summary>
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        {data ? <OriginBody p={data.p} o={data.o} /> : !error && <p className="muted">Loading…</p>}
+        {restored && <p role="status" data-testid="restore-original-status">Original text restored.</p>}
+        {data ? (
+          <OriginBody
+            p={data.p}
+            o={data.o}
+            restoring={restoring}
+            onRestore={onRestored ? () => restore(data.o) : undefined}
+          />
+        ) : (
+          !error && <p className="muted">Loading…</p>
+        )}
       </details>
       <RetranscribeLine
         dramaId={dramaId}
@@ -64,7 +98,12 @@ export function LineOrigin({
   )
 }
 
-function OriginBody({ p, o }: { p: LineProvenance; o: LineOriginalText }) {
+function OriginBody({ p, o, restoring, onRestore }: {
+  p: LineProvenance
+  o: LineOriginalText
+  restoring: boolean
+  onRestore?: () => void
+}) {
   const glossary = glossaryText(p.glossary_matches)
   const issues = termsText(p.consistency_issues)
   const notes = termsText(p.translation_notes)
@@ -88,6 +127,14 @@ function OriginBody({ p, o }: { p: LineProvenance; o: LineOriginalText }) {
           ) : o.differs ? (
             <>
               Originally transcribed as <span lang="zh">“{o.original_text}”</span>
+              {onRestore && (
+                <>
+                  {' '}
+                  <button type="button" disabled={restoring} onClick={onRestore} data-testid="restore-original">
+                    {restoring ? 'Restoring…' : 'Restore original text'}
+                  </button>
+                </>
+              )}
             </>
           ) : (
             <span className="muted">Same as the original transcription.</span>
