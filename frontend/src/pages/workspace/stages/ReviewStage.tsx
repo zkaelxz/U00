@@ -54,7 +54,7 @@ export default function ReviewStage() {
         onFlaggedCount={setFlaggedCount}
         goTo={goTo}
       />
-      <ReviewJobsPanel dramaId={dramaId} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount} />
+      <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount} />
       {!!lineCount && <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
       {!!lineCount && <ReviewChecks dramaId={dramaId} reloads={reloads} onGoTo={goToLine} />}
       <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} />

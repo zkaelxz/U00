@@ -22,6 +22,7 @@ const KINDS: { kind: ReviewJobKind; label: string }[] = [
 
 interface Props {
   dramaId: number
+  reloads: number
   onChanged: () => void
   onGoTo: GoToLine
   // Flagged lines in the drama (from the editor); null until known.
@@ -31,7 +32,7 @@ interface Props {
 // After every job reaches a terminal state (done, error or cancelled) the
 // stage's lines, records and stored results are refetched, so translated
 // text, flags and findings never stay stale until a hard refresh.
-export function ReviewJobsPanel({ dramaId, onChanged, onGoTo, flaggedCount }: Props) {
+export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount }: Props) {
   const { onJobDone } = useStage()
   const [jobId, setJobId, runKey] = useJobRun()
   const [error, setError] = useState<unknown>(null)
@@ -164,7 +165,7 @@ export function ReviewJobsPanel({ dramaId, onChanged, onGoTo, flaggedCount }: Pr
           </Section>
         </fieldset>
       </Section>
-      <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} onGoTo={onGoTo} />
+      <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} reloads={reloads} onGoTo={onGoTo} />
     </div>
   )
 }

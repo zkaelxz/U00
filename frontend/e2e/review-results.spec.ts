@@ -42,9 +42,42 @@ test('consistency lines and emotion tags open their line in the editor', async (
 
   const e = await open(page, 'Emotion')
   await expect(e.getByTestId('emotion-list').locator('li').first()).toContainText('anger')
-  await expect(e.getByRole('button', { name: '#2' })).toHaveAttribute('title', 'Opens line #2 (numbered when tagged)')
+  await expect(e.getByRole('button', { name: '#2' })).toHaveAttribute('title', 'Opens line #2')
   await e.getByRole('button', { name: '#2' }).click()
   await expect(rows(page).nth(1)).toHaveAttribute('aria-current', 'true')
+})
+
+test('emotion tags follow their line after a line before them is deleted', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page)).toHaveCount(4)
+  const e = await open(page, 'Emotion')
+  await expect(e.getByTestId('emotion-list').locator('button')).toHaveText(['#2', '#1']) // anger, calm
+
+  // Delete line #1 (the calm one) with the real structure edit.
+  await rows(page).nth(0).getByRole('button', { name: /More actions for line/ }).click()
+  const sheet = page.getByRole('dialog', { name: /^Line #/ })
+  await sheet.getByRole('button', { name: 'Delete line…' }).click()
+  await sheet.getByRole('button', { name: /^Confirm delete #/ }).click()
+  await expect(rows(page)).toHaveCount(3)
+
+  // The anger tag was on "Wei Ying is here", now line #1.
+  await expect(e.getByTestId('emotion-list').locator('button')).toHaveText(['#1'])
+  await e.getByRole('button', { name: '#1' }).click()
+  await expect(rows(page).nth(0)).toHaveAttribute('aria-current', 'true')
+  await expect(rows(page).nth(0).getByTestId('line-en')).toHaveText('Wei Ying is here')
+})
+
+test('open consistency lines refresh after a save', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page)).toHaveCount(4)
+  const c = await open(page, 'Consistency')
+  await c.getByRole('button', { name: 'Show lines' }).click()
+  await expect(c.getByTestId('consistency-list')).toContainText('Wei Ying is here')
+  const row = rows(page).nth(1)
+  await row.getByTestId('line-en').click()
+  await row.getByLabel('Translation').fill('Wei Ying has come')
+  await row.getByLabel('Translation').press('Control+s')
+  await expect(c.getByTestId('consistency-list')).toContainText('Wei Ying has come')
 })
 
 test('a finding link says why its line cannot be opened', async ({ page }) => {
