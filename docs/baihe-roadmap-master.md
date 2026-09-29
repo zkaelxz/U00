@@ -59,7 +59,7 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 
 ## 4. To-do queue (in order)
 **Waiting on the user (cannot proceed):**
-- Slice 24 (API-key writes): needs the D5 loopback/admin policy decision.
+- Slice 24 (API-key writes): **user requirement (2026-09-29):** API keys live only on the main Baihe PC; jobs started from other authorized devices use those server-side keys; keys are never sent to a phone, tablet or laptop. The API already resolves keys server-side and never accepts or returns one (checked: `services/translate_service._resolve_api_key`; no `api_key` field in `api/schemas.py` or the routers). So no remote key-write endpoint is needed for this. Still open: how keys are *entered* on the PC (Streamlit now, or a PC-only admin listener later, D5).
 - Slice 34 (qwen3_asr / qwen3_forced_align): needs a real-model check by the user.
 - Real-run checks only the user can do: real TTS, ffmpeg/libass, Whisper on GPU, paid LLM keys, real OCR and EPUBs, a gated-access HF token for pyannote diarization, mobile/real-device checks for Streamlit retirement.
 
