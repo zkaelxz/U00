@@ -1,0 +1,53 @@
+/* Diagnostics admin sections. Tokens only; phone rules via index.css's coarse-pointer block. */
+.diag-header { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
+.diag-header h2, .diag-header p { margin: 0; }
+.diag-stack { display: grid; gap: var(--space-2); min-width: 0; }
+.diag-stack > p { margin: 0; }
+.diag-jobs { margin-bottom: var(--space-3); }
+.diag-jobs h3 { margin: 0; }
+.diag-rows { list-style: none; padding: 0 !important; margin: 0; }
+.diag-rows li { padding: 2px 0; }
+
+/* Package rows: name and purpose, then the Install…/Upgrade… button (own line on phones, index.css). */
+.pkg-list { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
+.pkg-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.pkg-list > li > span:first-child { flex: 1 1 16rem; min-width: 0; }
+
+/* Log, support report and install output. */
+.diag-pre {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 60vh;
+  overflow: auto;
+  font-size: var(--font-sm);
+}
+
+/* Jobs as cards (phone). */
+.job-cards { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
+.job-cards > li { padding: var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); display: grid; gap: var(--space-1); }
+.job-cards p { margin: 0; }
+.job-cards .job-cancel { display: flex; justify-content: flex-end; }
+
+/* Job history entries. */
+.diag-history { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-1); }
+.diag-history summary { cursor: pointer; }
+.diag-history p { margin: var(--space-1) 0 0; }
+
+/* Danger zone: set apart from everything above. */
+.danger-zone { margin-top: calc(var(--space-4) * 2); padding-top: var(--space-3); border-top: 2px solid var(--bad); }
+.danger-zone .section-title { color: var(--bad); }
+.danger-zone h3 { margin: 0; }
+
+/* Settings > Browser extension: the read-only token row. */
+.token-row { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.token-row input { flex: 1 1 14rem; font-family: ui-monospace, monospace; }
+
+/* "Accept terms ↗" is a small inline link: give it a 44 px target on touch and phones. */
+@media (pointer: coarse), (max-width: 640px) {
+  .hf-terms { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-1); }
+}

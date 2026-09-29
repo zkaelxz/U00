@@ -31,11 +31,43 @@ def seed(library_dir: str):
                     media_type="video_drama", source_language="ko")
 
 
+E2E_STUB_OUTPUT = ["stubbed in e2e"]
+E2E_STUB_TOKEN = "e2e-stub-token"
+
+
+def install_e2e_stubs(setattr_=setattr):
+    """Replace every action here that reaches outside the throwaway library:
+    pip install/upgrade, the library reset, and the extension bridge's
+    on/off and token. An e2e mock that leaks a request (a held route
+    Chromium lets through when the page closes) then hits a stub, never a
+    real pip run or the real extension token. `setattr_` lets a test pass
+    monkeypatch.setattr so the stubs are undone afterwards."""
+    from services import diagnostics_gaps_service as diag
+    from services import extension_service as ext
+    from services.service_errors import ConflictError
+
+    def refuse_pip(name, confirm=False):
+        raise ConflictError("Installing is disabled on the e2e server.")
+
+    def refuse_reset(confirm=False, confirm_text=None):
+        raise ConflictError("Resetting is disabled on the e2e server.")
+
+    setattr_(diag, "install_dependency", refuse_pip)
+    setattr_(diag, "upgrade_dependency", refuse_pip)
+    # Second layer: nothing that reaches the command runner starts a process.
+    setattr_(diag, "_run_commands", lambda cmds: {"ok": False, "output_tail": list(E2E_STUB_OUTPUT)})
+    setattr_(diag, "reset_library", refuse_reset)
+    setattr_(ext, "set_enabled", lambda enabled, start_now=True: {
+        "enabled": bool(enabled), "running": False, "restart_needed": False})
+    setattr_(ext, "reveal_token", lambda confirm=False: {"token": E2E_STUB_TOKEN})
+
+
 def main():
     import uvicorn
     from api.api_config import ApiSettings
     from api.server import create_app
 
+    install_e2e_stubs()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8611
     # A fixed, gitignored folder wiped at every start, rather than a temp
     # dir cleaned up on exit: Playwright may kill this process outright,

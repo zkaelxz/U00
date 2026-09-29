@@ -24,13 +24,24 @@ export function describeGpu(gpu: GpuStatus): string {
 // Started/finished are epoch seconds. Returns e.g. "42s", "3m 05s", "1h 02m".
 export function formatDuration(job: JobRecord, nowSec: number): string {
   if (job.started_at == null) return 'not started'
-  const total = Math.max(0, Math.floor((job.finished_at ?? nowSec) - job.started_at))
+  return formatSeconds((job.finished_at ?? nowSec) - job.started_at)
+}
+
+// A length in seconds as "42s", "3m 05s", "1h 02m".
+export function formatSeconds(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds))
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = total % 60
   if (h) return `${h}h ${String(m).padStart(2, '0')}m`
   if (m) return `${m}m ${String(s).padStart(2, '0')}s`
   return `${s}s`
+}
+
+// A job card's status line: "Running 40% · 3m 05s".
+export function jobStatusLine(job: JobRecord, nowSec: number): string {
+  const pct = job.progress != null && isActive(job.status) ? ` ${Math.round(job.progress * 100)}%` : ''
+  return `${statusLabel(job.status)}${pct} · ${formatDuration(job, nowSec)}`
 }
 
 export function statusLabel(status: string): string {
