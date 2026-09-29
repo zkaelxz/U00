@@ -6,6 +6,9 @@ import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/
 import { LineRow } from './LineRow'
 import { PAGE_SIZE, pageCount } from './reviewLogic'
 
+const SHORTCUT_HINT =
+  'Click a translation to edit it. Enter or Ctrl+S saves, Esc cancels. Alt+Down / Alt+Up jump to the next / previous flagged line.'
+
 interface Props {
   dramaId: number
   reloads: number
@@ -17,6 +20,7 @@ export function LinesPanel({ dramaId, reloads, onChanged }: Props) {
   const [page, setPage] = useState(1)
   const [input, setInput] = useState('')
   const [term, setTerm] = useState('')
+  const [hintOpen, setHintOpen] = useState(false)
   const [data, setData] = useState<ReviewLinesPage | null>(null)
   const [found, setFound] = useState<ReviewLine[] | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -68,7 +72,9 @@ export function LinesPanel({ dramaId, reloads, onChanged }: Props) {
           type="button"
           className="review-hint"
           aria-label="Keyboard shortcuts"
-          title="Click a translation to edit it. Enter or Ctrl+S saves, Esc cancels. Alt+Down / Alt+Up jump to the next / previous flagged line."
+          aria-expanded={hintOpen}
+          title={SHORTCUT_HINT}
+          onClick={() => setHintOpen((v) => !v)}
         >
           ?
         </button>
@@ -78,6 +84,7 @@ export function LinesPanel({ dramaId, reloads, onChanged }: Props) {
           </p>
         )}
       </div>
+      {hintOpen && <p className="muted">{SHORTCUT_HINT}</p>}
       <form
         className="filters"
         onSubmit={(e) => {

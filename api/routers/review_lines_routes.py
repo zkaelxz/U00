@@ -16,7 +16,7 @@ tools, bulk modes, and history/versions/notes reads (Slice 48).
 from typing import List
 
 from fastapi import APIRouter, Path, Query
-
+from api.auth import require_permission
 from api.schemas import (ErrorResponse, ReviewLinesCoverage, ReviewLinesFindReplaceRequest,
                          ReviewLinesLine, ReviewLinesMatch, ReviewLinesOriginalText,
                          ReviewLinesPacing, ReviewLinesPage, ReviewLinesProvenance)
@@ -28,7 +28,7 @@ _404 = {404: {"model": ErrorResponse}}
 _404_422 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 
 
-@router.get("/dramas/{drama_id}/lines", response_model=ReviewLinesPage,
+@router.get("/dramas/{drama_id}/lines", dependencies=[require_permission("lines.read")], response_model=ReviewLinesPage,
             summary="One page of a drama's lines, optionally only flagged/untranslated",
             responses=_404_422)
 def get_review_lines(drama_id: int = Path(ge=1), page: int = Query(1, ge=1),
@@ -36,7 +36,7 @@ def get_review_lines(drama_id: int = Path(ge=1), page: int = Query(1, ge=1),
     return review_lines_service.list_review_lines(drama_id, page, page_size, only)
 
 
-@router.get("/dramas/{drama_id}/search", response_model=List[ReviewLinesLine],
+@router.get("/dramas/{drama_id}/search", dependencies=[require_permission("lines.read")], response_model=List[ReviewLinesLine],
             summary="Lines whose source or translation contains a term",
             responses=_404_422)
 def search_review_lines(drama_id: int = Path(ge=1),
@@ -45,7 +45,7 @@ def search_review_lines(drama_id: int = Path(ge=1),
     return review_lines_service.search_lines(drama_id, term, limit)
 
 
-@router.post("/dramas/{drama_id}/find-replace/preview", response_model=List[ReviewLinesMatch],
+@router.post("/dramas/{drama_id}/find-replace/preview", dependencies=[require_permission("lines.read")], response_model=List[ReviewLinesMatch],
              summary="Preview a find-and-replace over translated text (writes nothing)",
              responses=_404_422)
 def post_find_replace_preview(body: ReviewLinesFindReplaceRequest, drama_id: int = Path(ge=1)):
@@ -55,21 +55,21 @@ def post_find_replace_preview(body: ReviewLinesFindReplaceRequest, drama_id: int
         use_regex=body.use_regex)
 
 
-@router.get("/dramas/{drama_id}/coverage", response_model=ReviewLinesCoverage,
+@router.get("/dramas/{drama_id}/coverage", dependencies=[require_permission("lines.read")], response_model=ReviewLinesCoverage,
             summary="Coverage check: long lines, large gaps, blank source/translation",
             responses=_404)
 def get_review_coverage(drama_id: int = Path(ge=1)):
     return review_lines_service.get_coverage_report(drama_id)
 
 
-@router.get("/dramas/{drama_id}/pacing-flags", response_model=ReviewLinesPacing,
+@router.get("/dramas/{drama_id}/pacing-flags", dependencies=[require_permission("lines.read")], response_model=ReviewLinesPacing,
             summary="Lines whose translation is a poor fit for their time slot",
             responses=_404)
 def get_review_pacing_flags(drama_id: int = Path(ge=1)):
     return review_lines_service.get_pacing_flags(drama_id)
 
 
-@router.get("/dramas/{drama_id}/lines/{line_id}/provenance",
+@router.get("/dramas/{drama_id}/lines/{line_id}/provenance", dependencies=[require_permission("lines.read")],
             response_model=ReviewLinesProvenance,
             summary="Read-only 'What happened here?' view for one line",
             responses=_404)
@@ -77,7 +77,7 @@ def get_review_line_provenance(drama_id: int = Path(ge=1), line_id: int = Path(g
     return review_lines_service.get_line_provenance(drama_id, line_id)
 
 
-@router.get("/dramas/{drama_id}/lines/{line_id}/original-text",
+@router.get("/dramas/{drama_id}/lines/{line_id}/original-text", dependencies=[require_permission("lines.read")],
             response_model=ReviewLinesOriginalText,
             summary="What the latest raw transcription originally said for one line",
             responses=_404)

@@ -1,11 +1,12 @@
-import { defineConfig } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test'
 
 // End-to-end: a real browser -> the built React app (vite preview) ->
 // its /api proxy -> the real FastAPI app on a seeded throwaway library.
 // Ports differ from the everyday dev defaults so this can run while a
-// normal dev stack is up.
-const API_PORT = 8611
-const WEB_PORT = 4174
+// normal dev stack is up; E2E_API_PORT / E2E_WEB_PORT override them so two
+// runs can share a machine.
+const API_PORT = Number(process.env.E2E_API_PORT ?? 8611)
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 4174)
 const python = process.env.PYTHON ?? 'python'
 
 export default defineConfig({
@@ -22,6 +23,23 @@ export default defineConfig({
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
       : {},
   },
+  projects: [
+    // Every other spec runs at the default desktop viewport.
+    { name: 'desktop', testIgnore: /mobile\.spec\.ts/ },
+    // Phone checks (touch targets, no sideways scroll) run only here.
+    {
+      name: 'phone',
+      testMatch: /mobile\.spec\.ts/,
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 3,
+        hasTouch: true,
+        isMobile: true,
+        userAgent: devices['iPhone 13'].userAgent,
+      },
+    },
+  ],
   webServer: [
     {
       command: `${python} e2e/serve_seeded_api.py ${API_PORT}`,

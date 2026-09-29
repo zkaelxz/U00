@@ -186,6 +186,9 @@ baihe-subtitler/
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
 │   │                             versions, running jobs, log tail); no admin action, no network call
+│   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
+│   │                             pyannote readiness, job history, support report, log tail; confirm-gated
+│   │                             install/upgrade/reset wrappers. No router yet.
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -258,6 +261,12 @@ baihe-subtitler/
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
+│   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
+│   │                             temp dir, use_gpu, max_minutes stop, redacted cues); no router yet
+│   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
+│   │                             results, known-chapter helper (no router yet)
+│   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
+│   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
@@ -269,17 +278,23 @@ baihe-subtitler/
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
 │   │                             preview + apply job, version-history restore (snapshot first,
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
+│   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
 │   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │                                 attempts, settings, profiles, tracked, notifications) and config
 │                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
-│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
+│   │                             `grant-admin <email>` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
+│   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
+│   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
+│   │                             LoopbackOnlyGate (auth off: direct loopback requests only)
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/
