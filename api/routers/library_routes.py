@@ -15,7 +15,7 @@ instead of on the event loop.
 from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query
-
+from api.auth import require_permission
 from api.schemas import (
     DramaDetail, DramaListResponse, DramaSummary, ErrorResponse, LibraryCostResponse,
     LibraryDashboard, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
@@ -44,7 +44,7 @@ def _to_detail(drama: dict) -> DramaDetail:
                        has_cover_art=bool(drama.get("cover_art_filename")))
 
 
-@router.get("/dramas", response_model=DramaListResponse,
+@router.get("/dramas", dependencies=[require_permission("library.read")], response_model=DramaListResponse,
             summary="List dramas in the library (the Library tab's 'All dramas' list)",
             responses={422: {"model": ErrorResponse}})
 def list_dramas(
@@ -66,7 +66,7 @@ def list_dramas(
     return DramaListResponse(items=items, count=len(items))
 
 
-@router.get("/dramas/{drama_id}", response_model=DramaDetail, summary="One drama's details",
+@router.get("/dramas/{drama_id}", dependencies=[require_permission("library.read")], response_model=DramaDetail, summary="One drama's details",
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_drama(drama_id: int = Path(ge=1)):
     return _to_detail(library_service.get_library_drama(drama_id))
@@ -77,58 +77,58 @@ _ERR_WRITE = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
               422: {"model": ErrorResponse}}
 
 
-@router.get("/stats", response_model=LibraryDashboard, summary="Dashboard counts and spend")
+@router.get("/stats", dependencies=[require_permission("library.read")], response_model=LibraryDashboard, summary="Dashboard counts and spend")
 def get_stats():
     return library_service.get_library_dashboard()
 
 
-@router.get("/recent", response_model=LibraryRecentResponse, responses=_ERR,
+@router.get("/recent", dependencies=[require_permission("library.read")], response_model=LibraryRecentResponse, responses=_ERR,
             summary="Recently active dramas")
 def get_recent(limit: int = Query(8, ge=1, le=50)):
     return {"items": library_service.list_recently_active(limit)}
 
 
-@router.get("/costs", response_model=LibraryCostResponse, summary="Cost breakdown by drama")
+@router.get("/costs", dependencies=[require_permission("library.read")], response_model=LibraryCostResponse, summary="Cost breakdown by drama")
 def get_costs():
     return {"items": library_service.list_cost_by_drama()}
 
 
-@router.get("/series", response_model=LibrarySeriesResponse,
+@router.get("/series", dependencies=[require_permission("library.read")], response_model=LibrarySeriesResponse,
             summary="Series that contain two or more dramas")
 def get_series():
     return {"items": library_service.list_series_with_dramas()}
 
 
-@router.get("/search", response_model=LibrarySearchResponse, responses=_ERR,
+@router.get("/search", dependencies=[require_permission("library.read")], response_model=LibrarySearchResponse, responses=_ERR,
             summary="Search line text across every drama")
 def search(q: str = Query(min_length=1, max_length=200), limit: int = Query(50, ge=1, le=100)):
     return library_service.search_lines(q, limit)
 
 
-@router.get("/history", response_model=LibraryHistoryResponse, responses=_ERR,
+@router.get("/history", dependencies=[require_permission("library.read")], response_model=LibraryHistoryResponse, responses=_ERR,
             summary="Reading history (default profile)")
 def get_history(limit: int = Query(25, ge=1, le=100)):
     return {"items": library_service.list_history(limit)}
 
 
-@router.get("/presets", response_model=LibraryPresetsResponse, summary="Saved presets")
+@router.get("/presets", dependencies=[require_permission("library.read")], response_model=LibraryPresetsResponse, summary="Saved presets")
 def get_presets():
     return {"items": library_service.list_presets()}
 
 
-@router.post("/presets/{preset_id}/rename", response_model=LibraryPreset,
+@router.post("/presets/{preset_id}/rename", dependencies=[require_permission("admin.library")], response_model=LibraryPreset,
              responses=_ERR_WRITE, summary="Rename a preset")
 def rename_preset(body: LibraryRename, preset_id: int = Path(ge=1, le=2**31 - 1)):
     return library_service.rename_preset(preset_id, body.name)
 
 
-@router.get("/voice-bank", response_model=LibraryVoiceBankResponse,
+@router.get("/voice-bank", dependencies=[require_permission("library.read")], response_model=LibraryVoiceBankResponse,
             summary="Voice bank entries (no file paths)")
 def get_voice_bank():
     return {"items": library_service.list_voice_bank()}
 
 
-@router.post("/voice-bank/{entry_id}/rename", response_model=LibraryVoice,
+@router.post("/voice-bank/{entry_id}/rename", dependencies=[require_permission("admin.library")], response_model=LibraryVoice,
              responses=_ERR_WRITE, summary="Rename a voice bank entry")
 def rename_voice(body: LibraryRename, entry_id: int = Path(ge=1, le=2**31 - 1)):
     return library_service.rename_voice_bank_entry(entry_id, body.name)
