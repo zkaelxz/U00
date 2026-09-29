@@ -288,34 +288,68 @@ def _install_commands(name: str) -> list:
     return [(_pip("install", name), PIP_TIMEOUT_SECONDS)]
 
 
-def _stream_tree(cmd: list, timeout: float):
+KILL_DRAIN_SECONDS = 5.0
+
+
+def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SECONDS):
     """Like diagnostics._stream_process ({"line"} per output line, then
     {"returncode", "timed_out"}), but pip runs in its own process group and
     on timeout (or if the caller stops early) the whole tree is killed
-    with background_jobs._kill_tree, not only pip itself."""
+    with background_jobs._kill_tree, not only pip itself.
+
+    Every wait is bounded, like background_jobs.run_cancellable's
+    kill_timeout: output is read on a helper thread, so a grandchild that
+    survives the kill (or outlives pip) and keeps the pipe open can hold
+    this for at most `drain_seconds` after the kill or after pip exits,
+    never forever. returncode is None if pip could not be reaped."""
+    import queue
     import subprocess
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             encoding="utf-8", errors="replace", bufsize=1, **group)
-    timed_out = threading.Event()
+    lines, eof = queue.Queue(), object()
 
-    def _kill():
-        timed_out.set()
-        background_jobs._kill_tree(proc)
-    timer = threading.Timer(timeout, _kill)
-    timer.start()
-    returncode = None
+    def _reader():
+        try:
+            for line in proc.stdout:
+                lines.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            lines.put(eof)
+    threading.Thread(target=_reader, daemon=True, name="pip-output").start()
+
+    deadline = time.monotonic() + timeout
+    timed_out, stop_by = False, None
     try:
-        for line in proc.stdout:
-            yield {"line": line.rstrip("\n")}
-        returncode = proc.wait()
+        while True:
+            now = time.monotonic()
+            if stop_by is None:
+                if now >= deadline:
+                    timed_out = True
+                    background_jobs._kill_tree(proc)
+                    stop_by = now + drain_seconds
+                elif proc.poll() is not None:
+                    stop_by = now + drain_seconds     # pip exited; finish reading
+            if stop_by is not None and now >= stop_by:
+                break
+            limit = deadline if stop_by is None else stop_by
+            try:
+                item = lines.get(timeout=max(0.01, min(0.5, limit - now)))
+            except queue.Empty:
+                continue
+            if item is eof:
+                break
+            yield {"line": item.rstrip("\n")}
     finally:
-        timer.cancel()
         if proc.poll() is None:
             background_jobs._kill_tree(proc)
-            proc.wait()
-    yield {"returncode": returncode, "timed_out": timed_out.is_set()}
+        try:
+            returncode = proc.wait(timeout=drain_seconds)
+        except subprocess.TimeoutExpired:
+            returncode = None
+    yield {"returncode": returncode, "timed_out": timed_out}
 
 
 def _run_commands(cmds: list) -> dict:
@@ -337,8 +371,9 @@ def _run_commands(cmds: list) -> dict:
 
 def _run_pip(name: str, confirm, cmds_for) -> dict:
     """Holds the library exclusively for the whole pip run, so no job,
-    restore, reset, cleanup or second install can start mid-upgrade (409
-    if the hold can't be taken)."""
+    restore, reset, cleanup or second install can start in this API
+    process mid-upgrade (409 if the hold can't be taken). Jobs in another
+    process are re-checked under the hold, as reset_library does."""
     _guard(confirm)
     if name not in installable_packages():
         raise AdminActionUnknownPackage("Unknown or non-installable package.")
@@ -346,6 +381,10 @@ def _run_pip(name: str, confirm, cmds_for) -> dict:
         raise AdminActionJobsRunning(
             "A job, restore, cleanup or another install is in progress; try again when it ends.")
     try:
+        from services import library_admin_service
+        if library_admin_service._any_job_running():     # re-check under the hold
+            raise AdminActionJobsRunning(
+                "A background job is running or queued; wait for it to finish.")
         result = _run_commands(cmds_for(name))
     finally:
         background_jobs.release_exclusive()

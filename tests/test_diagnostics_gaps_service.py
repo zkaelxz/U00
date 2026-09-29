@@ -390,3 +390,85 @@ def test_reset_releases_the_hold_when_it_fails(monkeypatch):
     with pytest.raises(OSError):
         svc.reset_library(confirm=True, confirm_text="RESET")
     assert background_jobs.exclusive_active() is False
+
+
+def _pipe_holder_script(marker, child_sleeps):
+    # the grandchild gets its own session, so killing pip's process group
+    # misses it (as when taskkill fails), and it inherits stdout
+    return ("import subprocess, sys, time\n"
+            "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],"
+            " start_new_session=True)\n"
+            f"open({str(marker)!r}, 'w').write(str(p.pid))\n"
+            "print('started', flush=True)\n"
+            f"time.sleep({child_sleeps})\n")
+
+
+def _kill_pid_from(marker):
+    import signal
+    try:
+        os.kill(int(marker.read_text()), signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sessions")
+def test_stream_tree_drain_is_bounded_when_a_survivor_holds_the_pipe(tmp_path):
+    """A grandchild outside the killed group keeps stdout open after the
+    timeout kill: the stream still ends within the drain bound."""
+    import sys
+    import time as _t
+    marker = tmp_path / "gc.pid"
+    try:
+        t0 = _t.monotonic()
+        items = list(svc._stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 60)],
+                                      timeout=1.0, drain_seconds=1.0))
+        assert _t.monotonic() - t0 < 15
+        assert items[0] == {"line": "started"} and items[-1]["timed_out"] is True
+    finally:
+        _kill_pid_from(marker)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sessions")
+def test_stream_tree_returns_when_pip_exits_but_a_child_holds_the_pipe(tmp_path):
+    import sys
+    import time as _t
+    marker = tmp_path / "gc.pid"
+    try:
+        t0 = _t.monotonic()
+        items = list(svc._stream_tree([sys.executable, "-c", _pipe_holder_script(marker, 0)],
+                                      timeout=60.0, drain_seconds=1.0))
+        assert _t.monotonic() - t0 < 15
+        assert items[-1] == {"returncode": 0, "timed_out": False}
+    finally:
+        _kill_pid_from(marker)
+
+
+def test_hold_released_when_a_hung_install_is_cut_off(monkeypatch, tmp_path):
+    """End to end through install_dependency: the survivor can't keep the
+    exclusive hold."""
+    import sys
+    if os.name == "nt":
+        pytest.skip("POSIX sessions")
+    _no_jobs(monkeypatch)
+    marker = tmp_path / "gc.pid"
+    real = svc._stream_tree
+    monkeypatch.setattr(svc, "_install_commands", lambda n: [
+        ([sys.executable, "-c", _pipe_holder_script(marker, 60)], 1.0)])
+    monkeypatch.setattr(svc, "_stream_tree",
+                        lambda cmd, timeout: real(cmd, timeout, drain_seconds=1.0))
+    try:
+        out = svc.install_dependency("edge_tts", confirm=True)
+        assert out["ok"] is False
+        assert background_jobs.exclusive_active() is False
+    finally:
+        _kill_pid_from(marker)
+
+
+def test_pip_rechecks_other_process_jobs_under_the_hold(monkeypatch):
+    from services import library_admin_service
+    answers = iter([False, True])      # _guard: none; under the hold: one appeared
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: next(answers))
+    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(svc.AdminActionJobsRunning):
+        svc.install_dependency("edge_tts", confirm=True)
+    assert background_jobs.exclusive_active() is False
