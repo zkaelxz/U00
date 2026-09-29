@@ -2,7 +2,8 @@
 api/routers/review_extras_routes.py -- the Review stage's optional extras
 (inventory R46, R37, R35, R03): merge short adjacent lines (read-only preview,
 then apply with a stale-id/stale-plan guard and a history snapshot), learn my
-style (one synchronous LLM call; paid-engine gate and the shared LLM slot),
+style (one synchronous LLM call; paid-engine gate and the shared LLM slot;
+reset is PC-only),
 SenseVoice audio tags (a job plus the side-by-side rows) and a burned-subtitle
 preview clip around one line (a job, then Range playback of the fixed-name
 clip). Thin wrapper over services/review_extras_service.py.
@@ -13,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse
 
-from api.auth import require_engines_allowed, require_permission
+from api.auth import local_only, require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (BurnPreviewInfo, BurnPreviewStart, BurnPreviewStarted, ErrorResponse,
                          MergeShortApply, MergeShortPreview, MergeShortResult, SenseVoiceStarted,
@@ -75,9 +76,11 @@ def post_style_apply(body: StyleApplyRequest, drama_id: int = Path(ge=1)):
     return svc.set_style_applied(drama_id, body.apply)
 
 
-@router.post("/dramas/{drama_id}/style/reset", dependencies=[require_permission("lines.edit")],
-             response_model=StyleState, summary="Forget the learned profile (confirm=true)",
-             responses=_R)
+# PC-only: irreversibly wipes a series-wide or library-wide learned profile
+# (deletes are PC-only, docs/remote-access-decision.md).
+@router.post("/dramas/{drama_id}/style/reset", dependencies=[local_only()],
+             response_model=StyleState, summary="Forget the learned profile (confirm=true; PC only)",
+             responses={**_R, 403: {"model": ErrorResponse}})
 def post_style_reset(body: StyleResetRequest, drama_id: int = Path(ge=1)):
     if body.confirm is not True:
         raise InvalidInputError("Resetting the learned style needs confirm=true.")

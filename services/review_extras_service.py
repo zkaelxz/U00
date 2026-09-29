@@ -13,14 +13,18 @@ extras, UI-free (inventory rows R46, R37, R35, R03):
   scope (series, else global). The apply toggle is stored on the profile as
   `"apply": false`, which `adaptive_style.profile_to_prompt_block` honours, so
   every translate path (API run, CLI, line AI, Streamlit) skips a paused
-  profile the same way. Reset stores an empty profile, as the tab does.
+  profile the same way. Reset stores an empty profile, as the tab does (PC
+  only). Learn re-reads the stored profile after the LLM call: a pause made
+  meanwhile is kept, and a reset/re-learn made meanwhile makes it a 409.
 - SenseVoice audio tags (R35): `workspace_job_service.run_sensevoice_job` as a
   `sensevoice_<id>` job (funasr optional; 503 when missing), and the
   `sensevoice_tags.side_by_side` rows.
 - Burned-subtitle preview clip (R03): `video_export.render_preview_clip`
   around one line (addressed by permanent id), as a `burnpreview_<id>` job.
   The clip is capped at MAX_CLIP_SECONDS, written to a fixed name in the
-  drama's own folder, and served only through `preview_clip_path`.
+  drama's own folder, and served only through `preview_clip_path` (404, and
+  the stale clip dropped, once the drama's source video is gone). ffmpeg is
+  killed after BURN_PREVIEW_TIMEOUT_SECONDS.
 
 No Streamlit/FastAPI import. Messages never echo keys or paths.
 """
@@ -32,6 +36,7 @@ import math
 import os
 import shutil
 import subprocess
+import threading
 from typing import Optional
 
 import adaptive_style
@@ -150,6 +155,11 @@ def apply_merge_short(drama_id: int, expected_line_ids, expected_groups, min_dur
 # R37: learn my style
 # ---------------------------------------------------------------------------
 
+# Serializes this module's read-modify-writes of a stored style profile
+# (learn's final save, the apply toggle, reset) within this process.
+_STYLE_LOCK = threading.Lock()
+
+
 def _scope(drama: dict) -> str:
     return f"series:{drama['series_id']}" if drama.get("series_id") else "global"
 
@@ -235,9 +245,17 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                                                         or "No clear patterns found yet.")[:500])
     profile = {"preferences": prefs, "summary": str(result.get("summary") or ""),
                "confidence": str(result.get("confidence") or "low")}
-    if existing.get("apply") is False:
-        profile["apply"] = False
-    db.save_style_profile(scope, profile, sample_count=len(samples))
+    with _STYLE_LOCK:
+        # Re-read after the (slow) LLM call: a pause/resume made meanwhile
+        # wins, and a reset (or another learn) made meanwhile is not undone
+        # by a result that was built on the profile it replaced.
+        current = (db.get_style_profile(scope) or {}).get("profile") or {}
+        if (current.get("preferences") or []) != (existing.get("preferences") or []):
+            raise ConflictError("The learned style was reset or changed while learning; "
+                                "nothing was saved. Learn again if you still want to.")
+        if current.get("apply") is False:
+            profile["apply"] = False
+        db.save_style_profile(scope, profile, sample_count=len(samples))
     return _style_view(drama_id, drama, message=f"Learned {len(prefs)} preference(s).")
 
 
@@ -247,22 +265,24 @@ def set_style_applied(drama_id: int, apply: bool) -> dict:
         raise InvalidInputError("apply must be true or false.")
     drama = _require_drama(drama_id)
     scope = _scope(drama)
-    stored = db.get_style_profile(scope)
-    profile = dict((stored or {}).get("profile") or {})
-    if not profile.get("preferences"):
-        raise NotFoundError("No learned style to turn on or off yet.")
-    if apply:
-        profile.pop("apply", None)
-    else:
-        profile["apply"] = False
-    db.save_style_profile(scope, profile, sample_count=stored.get("sample_count") or 0)
+    with _STYLE_LOCK:
+        stored = db.get_style_profile(scope)
+        profile = dict((stored or {}).get("profile") or {})
+        if not profile.get("preferences"):
+            raise NotFoundError("No learned style to turn on or off yet.")
+        if apply:
+            profile.pop("apply", None)
+        else:
+            profile["apply"] = False
+        db.save_style_profile(scope, profile, sample_count=stored.get("sample_count") or 0)
     return _style_view(drama_id, drama)
 
 
 def reset_style(drama_id: int) -> dict:
     """Forgets the learned profile for this drama's scope (as the tab's Reset)."""
     drama = _require_drama(drama_id)
-    db.save_style_profile(_scope(drama), {"preferences": []}, 0)
+    with _STYLE_LOCK:
+        db.save_style_profile(_scope(drama), {"preferences": []}, 0)
     return _style_view(drama_id, drama)
 
 
@@ -331,6 +351,7 @@ BURN_PREVIEW_META = "_burn_preview.json"
 MAX_CLIP_SECONDS = 30.0
 MAX_PAD_SECONDS = 5.0
 DEFAULT_PAD_SECONDS = 2.0
+BURN_PREVIEW_TIMEOUT_SECONDS = 120.0   # ffmpeg is killed after this (a hung one would block delete)
 
 
 def _ffmpeg_available() -> bool:
@@ -351,8 +372,12 @@ def _run_burn_preview_job(job_id, drama_id, video, ass, start, end, meta):
     tmp = os.path.join(ddir, "_burn_preview.part.mp4")
     background_jobs.update_progress(job_id, 0.1, "Rendering the preview clip...")
     try:
-        video_export.render_preview_clip(video, ass, tmp, start, end)
+        video_export.render_preview_clip(video, ass, tmp, start, end,
+                                         timeout=BURN_PREVIEW_TIMEOUT_SECONDS)
         os.replace(tmp, out)
+    except TimeoutError:   # an OSError subclass: before the generic clause
+        raise RuntimeError("ffmpeg took too long rendering the preview clip and was "
+                           "stopped.") from None
     except (subprocess.CalledProcessError, OSError):
         # fixed text: ffmpeg's own error carries paths
         raise RuntimeError("ffmpeg couldn't render the preview clip (it needs libass).") from None
@@ -407,10 +432,29 @@ def _preview_file(drama_id: int) -> Optional[str]:
     return path if os.path.isfile(path) and not os.path.islink(path) else None
 
 
+def _drop_stale_preview(drama_id: int) -> None:
+    """The source video was removed: its preview clip must not stay
+    streamable, so forget it (best effort; never while one renders)."""
+    job = background_jobs.get_status(f"{BURN_PREVIEW_JOB_PREFIX}{drama_id}")
+    if job and job.get("status") in ("running", "queued"):
+        return
+    ddir = db.drama_dir(drama_id)
+    for name in (BURN_PREVIEW_FILE, BURN_PREVIEW_META):
+        path = os.path.join(ddir, name)
+        try:
+            if os.path.isfile(path) and not os.path.islink(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+
 def get_burn_preview_info(drama_id: int) -> dict:
     _require_drama(drama_id)
     meta = None
-    if _preview_file(drama_id):
+    has_video = _video_path(drama_id) is not None
+    if not has_video:
+        _drop_stale_preview(drama_id)
+    elif _preview_file(drama_id):
         try:
             with open(os.path.join(db.drama_dir(drama_id), BURN_PREVIEW_META),
                       encoding="utf-8") as f:
@@ -420,15 +464,19 @@ def get_burn_preview_info(drama_id: int) -> dict:
         except (OSError, ValueError, AttributeError):
             meta = {"line_id": None, "idx": None, "start": None, "end": None, "preset": None,
                     "created_at": None}
-    return {"drama_id": drama_id, "has_video": _video_path(drama_id) is not None,
+    return {"drama_id": drama_id, "has_video": has_video,
             "ffmpeg_available": _ffmpeg_available(),
             "presets": list(subtitle_formats.ASS_PRESETS), "max_clip_seconds": MAX_CLIP_SECONDS,
             "max_pad_seconds": MAX_PAD_SECONDS, "clip": meta}
 
 
 def preview_clip_path(drama_id: int) -> str:
-    """The rendered clip's path, for the router's FileResponse only."""
+    """The rendered clip's path, for the router's FileResponse only. 404
+    once the drama's source video is gone (the stale clip is dropped)."""
     _require_drama(drama_id)
+    if _video_path(drama_id) is None:
+        _drop_stale_preview(drama_id)
+        raise NotFoundError("No preview clip has been rendered for this drama.")
     path = _preview_file(drama_id)
     if path is None:
         raise NotFoundError("No preview clip has been rendered for this drama.")

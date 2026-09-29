@@ -108,8 +108,10 @@ test('learn my style: learn, pause, reset (LLM mocked)', async ({ page }) => {
     bodies.apply.push(b)
     return route.fulfill({ json: { ...base, profile: { ...profile, applied: b.apply } } })
   })
+  const resetHeaders: (string | null)[] = []
   await page.route('**/api/review-extras/dramas/3/style/reset', (route) => {
     bodies.reset.push(route.request().postDataJSON())
+    resetHeaders.push(route.request().headers()['x-baihe-local'] ?? null)
     return route.fulfill({ json: { ...base, profile: null } })
   })
 
@@ -120,16 +122,42 @@ test('learn my style: learn, pause, reset (LLM mocked)', async ({ page }) => {
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
   expect(bodies.learn).toEqual([{}])
 
-  // Controlled by the server's answer, so click and wait rather than uncheck().
-  await extras.getByLabel('Use in future translations').click()
+  // A Toggle (role=switch) controlled by the server's answer: click, then wait.
+  const useIt = extras.getByRole('switch', { name: 'Use in future translations' })
+  await expect(useIt).toHaveAttribute('aria-checked', 'true')
+  await useIt.click()
   await expect(page.getByTestId('style-summary')).toContainText('paused')
-  await expect(extras.getByLabel('Use in future translations')).not.toBeChecked()
+  await expect(useIt).toHaveAttribute('aria-checked', 'false')
   expect(bodies.apply).toEqual([{ apply: false }])
 
   await extras.getByRole('button', { name: /Reset/ }).click()
   await extras.getByRole('button', { name: /Confirm reset/ }).click()
   await expect(page.getByTestId('style-preferences')).toHaveCount(0)
   expect(bodies.reset).toEqual([{ confirm: true }])
+  expect(resetHeaders).toEqual(['1'])
+})
+
+test('learn my style when remote: pausing works, Reset is PC only', async ({ page }) => {
+  const base = { drama_id: 3, scope: 'series', edit_count: 9, drama_edit_count: 9, min_samples: 8, message: null }
+  const profile = { summary: '', confidence: 'high', preferences: ['Keep lines short'], sample_count: 9, updated_at: null, applied: true }
+  const applied: unknown[] = []
+  await page.route('**/api/meta', (route) =>
+    route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await page.route('**/api/review-extras/dramas/3/style', (route) => route.fulfill({ json: { ...base, profile } }))
+  await page.route('**/api/review-extras/dramas/3/style/apply', (route) => {
+    const b = route.request().postDataJSON()
+    applied.push(b)
+    return route.fulfill({ json: { ...base, profile: { ...profile, applied: b.apply } } })
+  })
+
+  const extras = await openExtras(page)
+  await openSub(page, 'Learn my style')
+  await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
+  await expect(extras.getByText('Resetting the learned style is PC only.')).toBeVisible()
+  await expect(extras.getByRole('button', { name: /Reset/ })).toHaveCount(0)
+  await extras.getByRole('switch', { name: 'Use in future translations' }).click()
+  await expect(extras.getByRole('switch', { name: 'Use in future translations' })).toHaveAttribute('aria-checked', 'false')
+  expect(applied).toEqual([{ apply: false }])
 })
 
 test('SenseVoice: start the job, then show the side-by-side table (model mocked)', async ({ page }) => {

@@ -1,6 +1,7 @@
 // Review AI extras (/api/review-extras/...): auto-merge short lines (preview,
 // then apply with the preview's ids and groups; 409 if either changed), learn
-// my style, SenseVoice audio tags and the burned-subtitle preview clip.
+// my style (reset is PC-only), SenseVoice audio tags and the burned-subtitle
+// preview clip.
 import type {
   BurnPreviewInfo,
   BurnPreviewStart,
@@ -15,6 +16,7 @@ import type {
   StyleState,
 } from '../types/reviewExtras'
 import { apiUrl, getJson, postJson } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -49,8 +51,9 @@ export const learnStyle = (id: number, body: StyleLearnRequest = {}, f?: Fetch) 
 export const setStyleApplied = (id: number, apply: boolean, f?: Fetch) =>
   postJson<StyleState>(`${base(id)}/style/apply`, { apply }, f)
 
+// PC-only (it wipes a series-wide or library-wide profile): X-Baihe-Local, and a 403 marks the tab remote.
 export const resetStyle = (id: number, f?: Fetch) =>
-  postJson<StyleState>(`${base(id)}/style/reset`, { confirm: true }, f)
+  postJson<StyleState>(`${base(id)}/style/reset`, { confirm: true }, pcOnlyFetch(f))
 
 export const startSenseVoice = (id: number, f?: Fetch) =>
   postJson<SenseVoiceStarted>(`${base(id)}/sensevoice`, undefined, f)

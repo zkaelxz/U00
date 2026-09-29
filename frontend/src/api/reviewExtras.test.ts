@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { getPcMode, resetPcModeForTests } from './pcOnly'
 import * as rx from './reviewExtras'
 
 type Call = { url: string; init?: RequestInit }
@@ -47,6 +48,17 @@ describe('review extras api', () => {
     expect(sent(calls[1])).toEqual({ model: 'm' })
     expect(sent(calls[2])).toEqual({ apply: false })
     expect(sent(calls[3])).toEqual({ confirm: true })
+    expect(new Headers(calls[3].init?.headers).get('X-Baihe-Local')).toBe('1')
+  })
+
+  it('style reset is PC-only: its 403 marks the tab remote, a pause 403 does not', async () => {
+    const refused = fakeFetch({ error: { code: 'forbidden', message: 'no' } }, [], 403)
+    resetPcModeForTests('local')
+    await expect(rx.setStyleApplied(2, false, refused)).rejects.toBeTruthy()
+    expect(getPcMode()).toBe('local')
+    await expect(rx.resetStyle(2, refused)).rejects.toBeTruthy()
+    expect(getPcMode()).toBe('remote')
+    resetPcModeForTests()
   })
 
   it('sensevoice: start without a body, then read the rows', async () => {

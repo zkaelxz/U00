@@ -284,6 +284,105 @@ class TestLearnStyle:
         assert db.get_style_profile(f"series:{sid}")["profile"] == {"preferences": []}
 
 
+    def test_pause_made_during_learning_is_kept(self, client, fake_engine, monkeypatch):
+        did, sid = _style_drama()
+        db.save_style_profile(f"series:{sid}", {"preferences": ["Keep it short"]}, 8)
+
+        def analyze(*a, **k):   # the user pauses while the LLM call runs
+            svc.set_style_applied(did, False)
+            return {"preferences": ["Use contractions"], "summary": "New"}
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", analyze)
+        s = client.post(f"{BASE}/{did}/style/learn", json={}).json()
+        assert s["profile"]["preferences"] == ["Use contractions"]
+        assert s["profile"]["applied"] is False
+        stored = db.get_style_profile(f"series:{sid}")["profile"]
+        assert stored["apply"] is False and adaptive_style.profile_to_prompt_block(stored) == ""
+
+    def test_resume_made_during_learning_is_kept(self, client, fake_engine, monkeypatch):
+        did, sid = _style_drama()
+        db.save_style_profile(f"series:{sid}", {"preferences": ["Keep it short"], "apply": False}, 8)
+
+        def analyze(*a, **k):
+            svc.set_style_applied(did, True)
+            return {"preferences": ["Use contractions"]}
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", analyze)
+        assert client.post(f"{BASE}/{did}/style/learn", json={}).json()["profile"]["applied"] is True
+        assert "apply" not in db.get_style_profile(f"series:{sid}")["profile"]
+
+    def test_reset_made_during_learning_is_not_undone(self, client, fake_engine, monkeypatch):
+        did, sid = _style_drama()
+        db.save_style_profile(f"series:{sid}", {"preferences": ["Keep it short"]}, 8)
+
+        def analyze(*a, **k):   # the user resets while the LLM call runs
+            svc.reset_style(did)
+            return {"preferences": ["Keep it short", "Use contractions"]}
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", analyze)
+        msg = _error(client.post(f"{BASE}/{did}/style/learn", json={}), 409, "conflict")
+        assert "reset" in msg
+        assert db.get_style_profile(f"series:{sid}")["profile"] == {"preferences": []}
+        # a fresh learn after the reset saves normally
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: {"preferences": ["Use contractions"]})
+        s = client.post(f"{BASE}/{did}/style/learn", json={}).json()
+        assert s["profile"]["preferences"] == ["Use contractions"]
+
+
+REMOTE = "https://baihe.example.com"
+
+
+def _remote_client():
+    return TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                      raise_server_exceptions=False)
+
+
+def _session(email="kid@example.com", *extra):
+    from api import auth as api_auth
+    from services import auth_service
+    u = auth_service.add_user(email)
+    for p in extra:
+        auth_service.grant_permission(u["id"], p)
+    s = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+            api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+class TestStyleRemote:
+    @pytest.mark.parametrize("body", [{"engine": "claude"}, {"engine": "gemini"}, {}])
+    def test_learn_needs_engines_paid_for_a_paid_or_default_engine(
+            self, isolated_db, fake_engine, monkeypatch, body):
+        called = []
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: called.append(1) or {"preferences": ["Short"]})
+        did, sid = _style_drama()
+        c = _remote_client()
+        assert c.post(f"{BASE}/{did}/style/learn", json=body, headers=_session()).status_code == 403
+        assert called == [] and db.get_style_profile(f"series:{sid}") is None
+        r = c.post(f"{BASE}/{did}/style/learn", json=body,
+                   headers=_session("paid@example.com", "engines.paid"))
+        assert r.status_code == 200, r.text
+        assert called == [1]
+
+    def test_learn_with_a_free_engine_needs_no_engines_paid(self, isolated_db, fake_engine,
+                                                            monkeypatch):
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: {"preferences": ["Short"]})
+        did, _ = _style_drama()
+        r = _remote_client().post(f"{BASE}/{did}/style/learn", json={"engine": "ollama"},
+                                  headers=_session())
+        assert r.status_code == 200, r.text
+
+    def test_reset_is_pc_only_but_pause_is_not(self, isolated_db):
+        did, sid = _style_drama()
+        db.save_style_profile(f"series:{sid}", {"preferences": ["Keep it short"]}, 8)
+        c = _remote_client()
+        h = _session("owner@example.com", "engines.paid")
+        assert c.post(f"{BASE}/{did}/style/reset", json={"confirm": True},
+                      headers=h).status_code == 403
+        assert db.get_style_profile(f"series:{sid}")["profile"]["preferences"] == ["Keep it short"]
+        r = c.post(f"{BASE}/{did}/style/apply", json={"apply": False}, headers=h)
+        assert r.status_code == 200 and r.json()["profile"]["applied"] is False
+
+
 # ---------------------------------------------------------------------------
 # R35: SenseVoice tagging
 # ---------------------------------------------------------------------------
@@ -362,8 +461,9 @@ def fake_ffmpeg(monkeypatch):
     import video_export
     calls = []
 
-    def render(video, ass, out, start, end):
-        calls.append({"video": os.path.basename(video), "ass": ass, "start": start, "end": end})
+    def render(video, ass, out, start, end, timeout=None):
+        calls.append({"video": os.path.basename(video), "ass": ass, "start": start, "end": end,
+                      "timeout": timeout})
         with open(out, "wb") as f:
             f.write(b"CLIPDATA" * 16)
         return out
@@ -432,11 +532,46 @@ class TestBurnPreview:
         did, lid = _video_drama()
         monkeypatch.setattr(svc, "_ffmpeg_available", lambda: True)
 
-        def fail(video, ass, out, start, end):
+        def fail(video, ass, out, start, end, timeout=None):
             raise subprocess.CalledProcessError(1, ["ffmpeg", "-i", video])
         monkeypatch.setattr(video_export, "render_preview_clip", fail)
         job = _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         assert job["status"] == "error" and "v.mp4" not in (job["error"] or "")
+
+    def test_ffmpeg_timeout_ends_the_job_with_fixed_text(self, client, monkeypatch):
+        import video_export
+        did, lid = _video_drama()
+        monkeypatch.setattr(svc, "_ffmpeg_available", lambda: True)
+        seen = {}
+
+        def hung(cmd, **kw):
+            seen["timeout"] = kw.get("timeout")
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        monkeypatch.setattr(video_export.subprocess, "run", hung)
+        job = _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        assert job["status"] == "error" and "too long" in job["error"]
+        assert "v.mp4" not in job["error"] and seen["timeout"] == svc.BURN_PREVIEW_TIMEOUT_SECONDS
+        assert not os.path.exists(os.path.join(db.drama_dir(did), "_burn_preview.part.mp4"))
+        assert client.get(f"{BASE}/{did}/burn-preview/info").json()["clip"] is None
+
+    def test_clip_is_not_served_once_the_video_is_removed(self, client, fake_ffmpeg):
+        did, lid = _video_drama()
+        _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        assert client.get(f"{BASE}/{did}/burn-preview/clip").status_code == 200
+        db.update_drama(did, source_video_filename=None)
+        _error(client.get(f"{BASE}/{did}/burn-preview/clip"), 404, "not_found")
+        # the stale clip (and its meta) are dropped, so info reports none either
+        for name in (svc.BURN_PREVIEW_FILE, svc.BURN_PREVIEW_META):
+            assert not os.path.exists(os.path.join(db.drama_dir(did), name))
+        info = client.get(f"{BASE}/{did}/burn-preview/info").json()
+        assert info["clip"] is None and info["has_video"] is False
+
+    def test_info_hides_a_clip_whose_video_file_is_gone(self, client, fake_ffmpeg):
+        did, lid = _video_drama()
+        _wait(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
+        os.remove(os.path.join(db.drama_dir(did), "v.mp4"))
+        assert client.get(f"{BASE}/{did}/burn-preview/info").json()["clip"] is None
+        _error(client.get(f"{BASE}/{did}/burn-preview/clip"), 404, "not_found")
 
     def test_symlinked_clip_is_not_served(self, client, tmp_path):
         did, _ = _video_drama()

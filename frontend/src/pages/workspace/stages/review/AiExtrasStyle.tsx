@@ -5,6 +5,9 @@ import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
+import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
+import { usePcOnly } from '../../../../hooks/usePcOnly'
 import type { StyleState } from '../../../../types/reviewExtras'
 import { styleSummary } from './aiExtrasLogic'
 
@@ -15,13 +18,16 @@ interface Props {
 
 // Learn my style: one LLM call over every recorded edit; the learned
 // preferences go into future translations (series-wide, else global) unless
-// paused here.
+// paused here. Reset is PC-only (it wipes a series-wide or library-wide
+// profile); pausing works from anywhere.
 export function AiExtrasStyle({ dramaId, reloads }: Props) {
+  const pc = usePcOnly()
   const [state, setState] = useState<StyleState | null>(null)
   const [engine, setEngine] = useState('')
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [resetError, setResetError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -34,10 +40,16 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
     }
   }, [dramaId, reloads])
 
-  const run = (p: Promise<StyleState>) => {
+  // On a failure the stored profile may have changed meanwhile (a 409 when it
+  // was reset during learning): re-read it so the panel isn't stale.
+  const run = (p: Promise<StyleState>, onError: (e: unknown) => void = setError) => {
     setBusy(true)
     setError(null)
-    p.then(setState, setError).finally(() => setBusy(false))
+    setResetError(null)
+    p.then(setState, (e) => {
+      onError(e)
+      getStyle(dramaId).then(setState, () => undefined)
+    }).finally(() => setBusy(false))
   }
 
   const profile = state?.profile ?? null
@@ -63,15 +75,9 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
               <li key={i}>{p}</li>
             ))}
           </ul>
-          <label className="review-check">
-            <input
-              type="checkbox"
-              checked={profile.applied}
-              disabled={busy}
-              onChange={(e) => run(setStyleApplied(dramaId, e.target.checked))}
-            />{' '}
-            Use in future translations
-          </label>
+          <Field label="Use in future translations" help="Off pauses the learned style without forgetting it.">
+            <Toggle checked={profile.applied} disabled={busy} onChange={(next) => run(setStyleApplied(dramaId, next))} />
+          </Field>
         </div>
       )}
       <Section title="Advanced" summary={`engine ${engine || 'default'} · model ${model || 'default'}`}>
@@ -87,16 +93,19 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
       <div className="actions">
         <button
           type="button"
+          className={buttonClass('primary')}
           disabled={busy || !state || tooFew}
           onClick={() => run(learnStyle(dramaId, { engine: engine.trim() || null, model: model.trim() || null }))}
         >
           {busy ? 'Working…' : profile ? 'Learn again' : 'Learn my style'}
         </button>
-        {profile && (
-          <ConfirmButton name="learned style" label="Reset…" verb="reset" busy={busy} onConfirm={() => run(resetStyle(dramaId))} />
+        {profile && pc !== 'remote' && (
+          <ConfirmButton name="learned style" label="Reset…" verb="reset" busy={busy} onConfirm={() => run(resetStyle(dramaId), setResetError)} />
         )}
       </div>
+      {profile && pc === 'remote' && <p className="muted">Resetting the learned style is PC only.</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <ErrorBanner error={resetError} describe={{ pcOnly: true }} onDismiss={() => setResetError(null)} />
     </Section>
   )
 }

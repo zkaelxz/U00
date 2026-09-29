@@ -101,13 +101,19 @@ def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
     return out_path
 
 
-def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float):
+PREVIEW_CLIP_TIMEOUT_SECONDS = 120.0
+
+
+def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float,
+                        timeout: float = PREVIEW_CLIP_TIMEOUT_SECONDS):
     """Step 12c: a short [start, end) cut of the source with `ass_text`
     burned in -- for checking the current subtitle style over real video
     before a full export. `ass_text` must already be timed to the clip
     (subtitle_formats.lines_for_clip), the same contract as
     render_vertical_clip, just without the 9:16 crop. Re-encoded at a fast
-    preset since it's thrown away after viewing."""
+    preset since it's thrown away after viewing. ffmpeg is killed after
+    `timeout` seconds and TimeoutError (fixed text, no paths) is raised, so
+    a hung ffmpeg can't keep a preview job running forever."""
     fd, ass_path = tempfile.mkstemp(suffix=".ass")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(ass_text)
@@ -116,7 +122,12 @@ def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: fl
                "-t", str(max(end - start, 0.1)),
                "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out_path]
-        subprocess.run(cmd, check=True, capture_output=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # subprocess.run has already killed ffmpeg; fixed text (no paths).
+            raise TimeoutError("ffmpeg took too long rendering the preview clip and was "
+                               "stopped.") from None
     finally:
         os.unlink(ass_path)
     return out_path

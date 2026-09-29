@@ -5,6 +5,7 @@ import { listAllLines } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
+import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { BurnPreviewInfo } from '../../../../types/reviewExtras'
 import { JobPanel } from '../JobPanel'
@@ -104,7 +105,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
           </Field>
         </div>
         <div className="actions">
-          <button type="submit" disabled={!info || !!reason || !!padError || !lineText.trim() || running} aria-describedby={reason ? 'burn-reason' : undefined}>
+          <button type="submit" className={buttonClass('primary')} disabled={!info || !!reason || !!padError || !lineText.trim() || running} aria-describedby={reason ? 'burn-reason' : undefined}>
             {running ? 'Rendering…' : 'Render preview'}
           </button>
           {reason && (

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getSenseVoice, startSenseVoice } from '../../../../api/reviewExtras'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
+import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { lineNumber } from '../../../../lineNumber'
 import type { SenseVoiceTags } from '../../../../types/reviewExtras'
@@ -68,7 +69,7 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
         tags, never merged into them.
       </p>
       <div className="actions">
-        <button type="button" disabled={!tags || !!reason || running} onClick={start} aria-describedby={reason ? 'sensevoice-reason' : undefined}>
+        <button type="button" className={buttonClass('primary')} disabled={!tags || !!reason || running} onClick={start} aria-describedby={reason ? 'sensevoice-reason' : undefined}>
           {running ? 'Listening…' : tags && tags.tagged > 0 ? 'Tag again' : 'Tag from the audio'}
         </button>
         {reason && (

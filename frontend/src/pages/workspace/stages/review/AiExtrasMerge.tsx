@@ -4,6 +4,7 @@ import { applyMergeShort, previewMergeShort } from '../../../../api/reviewExtras
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
+import { buttonClass } from '../../../../components/uiClasses'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import { lineNumber } from '../../../../lineNumber'
 import type { MergeShortOptions, MergeShortPreview } from '../../../../types/reviewExtras'
@@ -79,7 +80,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
         </Field>
       </div>
       <div className="actions">
-        <button type="button" disabled={busy || !parsed.options} onClick={load}>
+        <button type="button" className={buttonClass(preview ? 'secondary' : 'primary')} disabled={busy || !parsed.options} onClick={load}>
           {busy && !preview ? 'Checking…' : preview ? 'Preview again' : 'Preview merge'}
         </button>
       </div>
