@@ -10,6 +10,7 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { jobSucceeded } from '../../../types/jobs'
+import { routeHref } from '../../../router'
 import type { DubConfig, DubPacing } from '../../../types/dub'
 import { useStage } from '../StageContext'
 import {
@@ -118,11 +119,22 @@ export default function DubStage() {
           )}
         </div>
         <div className="dub-actions">
-          <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || blocker !== null}
+            aria-describedby={blocker ? 'dub-settings' : undefined}
+            onClick={start}
+          >
             Generate dub
           </button>
-          <p className="muted" data-testid="dub-settings">
-            {blocker ?? dubSettingsLine(cfg, form)}
+          <p className="muted dub-reason" id="dub-settings" data-testid="dub-settings">
+            <span>{blocker ?? dubSettingsLine(cfg, form)}</span>
+            {cfg.speakable_line_count === 0 && (
+              <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+                Go to Source
+              </ButtonLink>
+            )}
           </p>
         </div>
         {cloneWarning && (
