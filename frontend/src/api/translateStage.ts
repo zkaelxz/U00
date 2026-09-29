@@ -1,4 +1,5 @@
 import type {
+  BulkResumeResult,
   CharacterEntry,
   CharacterUpdate,
   EstimateParams,
@@ -20,6 +21,8 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.engine) q.set('engine', p.engine)
   if (p.model) q.set('model', p.model)
   if (p.force_retranslate) q.set('force_retranslate', 'true')
+  if (p.reflect) q.set('reflect', 'true')
+  if (p.bulk) q.set('bulk', 'true')
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
   const s = q.toString()
   return s ? `?${s}` : ''
@@ -31,6 +34,8 @@ export const getTranslateEstimate = (id: number, p: EstimateParams, f?: Fetch) =
   getJson<TranslateRunEstimate>(`/api/translate-run/dramas/${id}/estimate${buildEstimateQuery(p)}`, f)
 export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: Fetch) =>
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
+export const resumeBulkTranslations = (id: number, f?: Fetch) =>
+  postJson<BulkResumeResult>(`/api/translate-run/dramas/${id}/bulk/resume`, {}, f)
 
 export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)

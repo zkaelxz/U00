@@ -1,14 +1,23 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getTranslateConfig, getTranslateEstimate, startTranslateRun } from '../../../api/translateStage'
+import { getTranslateConfig, getTranslateEstimate, resumeBulkTranslations, startTranslateRun } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { useJob, useJobRun } from '../../../hooks/useJob'
-import type { TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
+import type { BulkResumeResult, TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
-import { buildEstimateParams, buildRunBody, initialForm, MAX_FALLBACKS, validateRun, type RunForm } from '../translateForm'
+import {
+  buildEstimateParams,
+  buildRunBody,
+  bulkAvailable,
+  bulkReflectAvailable,
+  initialForm,
+  MAX_FALLBACKS,
+  reflectAvailable,
+  validateRun, type RunForm,
+} from '../translateForm'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { JobPanel } from './JobPanel'
@@ -42,6 +51,8 @@ function advancedSummary(f: RunForm, base: RunForm): string {
   }
   if (f.cost_cap.trim()) parts.push(`cap $${f.cost_cap.trim()}`)
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
+  if (f.reflect) parts.push('reflect')
+  if (f.bulk) parts.push('bulk')
   if (f.force) parts.push('re-translate existing')
   return parts.length ? parts.join(' · ') : 'defaults'
 }
@@ -62,6 +73,11 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
     const e = config.engines.find((x) => x.name === name)
     return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
   }
+  const effEngine = f.engine || config.translation_engine
+  const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
+  const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
+  const [resumed, setResumed] = useState<BulkResumeResult | null>(null)
+  const resume = () => resumeBulkTranslations(dramaId).then((r) => { setError(null); setResumed(r) }, setError)
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
 
   const runEstimate = () => {
@@ -79,7 +95,7 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
   }
 
   const start = () => {
-    const bad = validateRun(f, config.translation_engine)
+    const bad = validateRun(f, config.translation_engine, config.bulk_supported_engines)
     setProblem(bad)
     if (bad) return
     startTranslateRun(dramaId, buildRunBody(f)).then((r) => {
@@ -93,7 +109,7 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
       <h3>Translate</h3>
       <div className="translate-basics">
         <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
-          <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '' }))}>
+          <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
               <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>
@@ -180,6 +196,30 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
               <div className="fallback-row">
                 <button type="button" onClick={() => set('fallbacks', [...f.fallbacks, ''])}>Add fallback engine</button>
               </div>
+            )}
+          </div>
+          <div className="advanced-wide check-row">
+            {reflectAvailable(effEngine) && (
+              <Field label="Reflect" help="Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.">
+                <input type="checkbox" checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(e) => set('reflect', e.target.checked)} />
+              </Field>
+            )}
+            {bulkAvailable(effEngine, config.bulk_supported_engines) && (
+              <Field label="Bulk" help="Send the whole drama as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.">
+                <input type="checkbox" checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(e) => set('bulk', e.target.checked)} />
+              </Field>
+            )}
+            {config.bulk_supported_engines.length > 0 && (
+              <>
+                <button type="button" className="link" onClick={resume}>Resume pending batches</button>
+                {resumed && (
+                  <span className="muted" data-testid="bulk-resume">
+                    {resumed.jobs.length === 0
+                      ? 'No pending batches.'
+                      : resumed.jobs.map((j) => `#${j.bulk_job_id} ${j.state}`).join(', ')}
+                  </span>
+                )}
+              </>
             )}
           </div>
           <div className="advanced-wide check-row">
