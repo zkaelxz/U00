@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getSettings, TOGGLES, updateSetting } from '../api/settings'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { Section } from '../components/Section'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 
 export default function SettingsPage() {
@@ -41,15 +42,20 @@ export default function SettingsPage() {
               {label}
             </label>
           ))}
-          <h3>API keys configured</h3>
-          <dl>
-            {Object.entries(settings.engine_keys).map(([name, set]) => (
-              <div key={name}>
-                <dt>{name}</dt>
-                <dd data-testid={`key-${name}`}>{set ? 'Yes' : 'No'}</dd>
-              </div>
-            ))}
-          </dl>
+          <Section
+            storageKey="settings.api-keys"
+            title="API keys configured"
+            summary={`${Object.values(settings.engine_keys).filter(Boolean).length} of ${Object.keys(settings.engine_keys).length} configured`}
+          >
+            <dl>
+              {Object.entries(settings.engine_keys).map(([name, set]) => (
+                <div key={name}>
+                  <dt>{name}</dt>
+                  <dd data-testid={`key-${name}`}>{set ? 'Yes' : 'No'}</dd>
+                </div>
+              ))}
+            </dl>
+          </Section>
           <p className="muted">
             API-key entry is not available in this UI yet (Slice 24, pending the loopback policy
             decision). Keys are never shown here, only whether one is configured.

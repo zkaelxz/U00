@@ -37,3 +37,21 @@ test('a failed update rolls the toggle back and shows an error', async ({ page }
   await expect(page.getByRole('alert')).toBeVisible()
   await expect(box).toBeChecked({ checked: before })
 })
+
+test('a collapsible section shows a summary, remembers its state and fits a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 800 })
+  await page.goto('/#/settings')
+  const details = page.locator('details.section', { hasText: 'API keys configured' })
+  await expect(details.locator('.section-summary')).toHaveText(/\d+ of \d+ configured/)
+  await expect(details).not.toHaveAttribute('open', '')
+
+  await details.locator('summary').click()
+  await expect(details).toHaveAttribute('open', '')
+  await expect(details.locator('.section-summary')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('baihe.section.settings.api-keys'))).toBe('1')
+
+  await page.reload()
+  await expect(page.locator('details.section', { hasText: 'API keys configured' })).toHaveAttribute('open', '')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.evaluate(() => localStorage.removeItem('baihe.section.settings.api-keys'))
+})
