@@ -1,4 +1,4 @@
-"""B-28 (proposed): db.save_lines opens a DEFERRED transaction, reads, then
+"""B-29 (fixed: BEGIN IMMEDIATE): db.save_lines opened a DEFERRED transaction, reads, then
 writes. In WAL mode, if another connection commits between that read and the
 first write, SQLite refuses the read->write upgrade with SQLITE_BUSY at once
 (the 5 s busy timeout never applies), so the whole save fails with
@@ -20,10 +20,6 @@ import core
 from core import Line
 
 
-@pytest.mark.xfail(strict=True, raises=sqlite3.OperationalError,
-                   reason="B-28: db.save_lines' deferred BEGIN fails at once with "
-                          "'database is locked' when another connection commits "
-                          "between its SELECT and its first UPDATE")
 def test_save_lines_survives_a_commit_between_its_read_and_its_write(isolated_db, monkeypatch):
     db = isolated_db
     did = db.create_drama(title_en="Race", media_type="audio_drama", content_mode="audio_drama")

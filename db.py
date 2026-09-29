@@ -1422,7 +1422,10 @@ def save_lines(drama_id: int, lines, fields=None):
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
-        conn.execute("BEGIN")
+        # IMMEDIATE (B-29): a deferred BEGIN reads then upgrades to a write,
+        # and in WAL mode a commit from another connection in between fails
+        # that upgrade at once with "database is locked" (no busy wait).
+        conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
         kept = set()
