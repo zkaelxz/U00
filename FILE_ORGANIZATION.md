@@ -206,6 +206,11 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── maintenance_assistant_service.py  Step 42 -- in-app AI maintenance assistant, read-only v1: a fixed
+│   │                             table of read-only tools (list/read/search code, git status/log/diff, redacted
+│   │                             log, job history, support report, dependency/model checks, one test file),
+│   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
+│   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -379,6 +384,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -464,6 +470,8 @@ baihe-subtitler/
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{item_id}/delete)
+│       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;

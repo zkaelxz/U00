@@ -780,6 +780,16 @@ def init_db():
             value TEXT NOT NULL
         );
 
+        -- Step 42: the maintenance assistant's small project backlog
+        -- ("track this as a bug"). Written only by the user, through
+        -- services/maintenance_assistant_service.py.
+        CREATE TABLE IF NOT EXISTS assistant_backlog (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
         CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);

@@ -53,6 +53,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "channel": "notification channel (PC-only)",
     "revision": "a Hugging Face model-cache revision, not an item (PC-only delete)",
     "voice": "a Piper voice in the model cache, not an item (PC-only delete)",
+    "item_id": "maintenance-assistant backlog item: app-wide, PC-only (Step 42)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a
