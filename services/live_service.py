@@ -203,9 +203,15 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     max_minutes = _num("max_minutes", max_minutes, *MAX_MINUTES_RANGE)
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be a string.")
+    _reap()
+    # Refuse a second session before building the engine, so a start that
+    # would be refused costs no key lookup or model load. Re-checked below
+    # under the same lock hold as the reservation.
+    with _lock:
+        if _active_session_locked() is not None:
+            raise ConflictError("A live session is already running. Stop it first.")
     engine_name, eng = _build_engine(engine, model)
 
-    _reap()
     session_id = f"live_{uuid.uuid4().hex}"
     out_dir = tempfile.mkdtemp(prefix="baihe_live_")
     with _lock:
