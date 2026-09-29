@@ -31,6 +31,7 @@ import {
 } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
+import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { mediaFileInputId } from './stageBlockers'
 import { promptFields } from './transcribePrompt'
@@ -409,6 +410,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             Detect speakers only
           </button>
         </div>
+        <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
       </Section>
 
       {cf && (
