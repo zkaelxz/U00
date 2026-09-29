@@ -37,7 +37,10 @@ def _wait(job_id, timeout=5.0):
 @pytest.fixture
 def client(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "run_cancellable", _fake_ffmpeg)
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    # X-Baihe-Local: what the React upload helper sends; local_only refuses
+    # a multipart POST without it (api/auth.py _cross_site_safe)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})
 
 
 def _up(client, did, name="clip.mp3", data=b"fakeaudio"):
@@ -186,7 +189,10 @@ def test_running_job_409(client, isolated_db, monkeypatch):
 def test_missing_file_field_422(client, isolated_db):
     import db
     did = db.create_drama(title_en="D")
-    assert client.post(f"/api/media/dramas/{did}/upload").status_code == 422
+    # multipart without the "file" field (a body-less POST is now refused
+    # earlier by local_only's content-type check, see api/auth.py)
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"other": ("a.txt", b"x")})
+    assert r.status_code == 422
 
 
 def test_upload_rejected_for_novel_narration_drama(client, isolated_db):

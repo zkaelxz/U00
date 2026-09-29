@@ -186,7 +186,8 @@ baihe-subtitler/
 │   │                             unchanged; those tabs import them back and call them as before)
 │   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
 │   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
-│   │                             + stage_statuses_from_index (from ui/workflow.py)
+│   │                             + stage_statuses_from_index (from ui/workflow.py); get_drama_progress
+│   │                             (per-stage state + counts for the API)
 │   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
 │   │                             Scanlate pages (moved from tabs/scanlate_tab.py; Streamlit upload; API callers must pass
 │   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
@@ -195,9 +196,11 @@ baihe-subtitler/
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
 │   │                             versions, running jobs, log tail); no admin action, no network call
+│   ├── extension_service.py      API batch 1 -- browser-extension bridge (page_server) status, on/off
+│   │                             (persists page_server_enabled) and token reveal; for local_only routes
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
-│   │                             install/upgrade/reset wrappers. No router yet.
+│   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -275,11 +278,11 @@ baihe-subtitler/
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
-│   │                             temp dir, use_gpu, max_minutes stop, redacted cues); no router yet
+│   │                             temp dir, use_gpu, max_minutes stop, redacted cues); router: live_routes.py
 │   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
-│   │                             results, known-chapter helper (no router yet)
+│   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
-│   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
+│   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
@@ -302,7 +305,9 @@ baihe-subtitler/
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
 │   │                             `grant-admin <email>` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND
+│   ├── background.py             startup hook (lifespan): chapter-check scheduler + extension endpoint (if enabled);
+│   │                             off in tests (BAIHE_API_BACKGROUND=0); tests/test_api_background.py
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
@@ -371,7 +376,18 @@ baihe-subtitler/
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
-│       └── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
+│       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
+│       ├── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
+│       ├── live_routes.py        /api/live/sessions (POST start, GET list), /{id} (GET poll), /{id}/stop (spec L-1; API batch 1)
+│       ├── discover_lookup_routes.py /api/discover/translate-query|baihehub-search|import-suggestion|bulk-extract[/result]|
+│       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
+│       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
+│       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
+│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
+│       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
+│       │                         reset-library (POST, local_only + confirm; API batch 1)
+│       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
+│                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
