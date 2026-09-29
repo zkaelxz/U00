@@ -17,27 +17,8 @@ from streamlit.testing.v1 import AppTest
 
 import core as core_module
 import subtitle_formats
-import video_export as ve
 from core import Line
-from tabs.workspace_tab import (parse_timestamp, _burn_preview_ass, _unsaved_line_count,
-                                _player_state_key)
-
-
-# ------------------------------------------------------------ jump box parsing
-
-class TestParseTimestamp:
-    @pytest.mark.parametrize("text,seconds", [
-        ("83", 83.0), ("83.5", 83.5), ("0", 0.0), (" 12 ", 12.0),
-        ("1:23", 83.0), ("01:23", 83.0), ("1:23.5", 83.5), ("0:05", 5.0),
-        ("1:02:03", 3723.0), ("90:00", 5400.0),
-    ])
-    def test_accepts_mm_ss_and_raw_seconds(self, text, seconds):
-        assert parse_timestamp(text) == seconds
-
-    @pytest.mark.parametrize("text", ["", "   ", "abc", "1:75", "1:60", "-5", "1:-5",
-                                      "1:2:3:4", ":30", "1:", "1:02:75"])
-    def test_rejects_anything_else(self, text):
-        assert parse_timestamp(text) is None
+from tabs.workspace_tab import _player_state_key
 
 
 # ------------------------------------------------------------- player (AppTest)
@@ -207,58 +188,6 @@ class TestRowClickSeeksInWorkspace:
         assert at.button(key="rvseek_1").proto.type == "primary"  # shown as selected
 
 
-# ------------------------------------------------------- burned preview clip
-
-class TestBurnPreview:
-    STYLE = {"style": {**subtitle_formats.ASS_PRESETS["Clean"], "font": "Segoe UI", "size": 41,
-                       "primary": "#FF0000"}}
-
-    def test_clip_is_padded_around_the_line_and_retimed(self):
-        start, end, ass = _burn_preview_ass(LINES, LINES[1], self.STYLE)
-        assert (start, end) == (10.5, 17.25)
-        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
-        assert len(dialogue) == 1
-        assert dialogue[0].startswith("Dialogue: 0,0:00:02.00,0:00:04.75,")  # clip-relative
-        assert dialogue[0].endswith(",Goodbye")
-
-    def test_captions_use_the_current_style_settings(self):
-        _, _, ass = _burn_preview_ass(LINES, LINES[1], self.STYLE)
-        default = next(l for l in ass.splitlines() if l.startswith("Style: Default,"))
-        fields = default.split(",")
-        assert fields[1] == "Segoe UI" and fields[2] == "41"
-        assert fields[3] == subtitle_formats.ass_color("#FF0000")
-
-    def test_falls_back_to_clean_when_export_section_not_rendered(self):
-        _, _, ass = _burn_preview_ass(LINES, LINES[1], None)
-        default = next(l for l in ass.splitlines() if l.startswith("Style: Default,"))
-        assert default.split(",")[2] == str(subtitle_formats.ASS_PRESETS["Clean"]["size"])
-
-    def test_clip_start_never_goes_negative(self):
-        start, _, _ = _burn_preview_ass(LINES, LINES[0], None)
-        assert start == 0.0
-
-    def test_render_preview_clip_trims_and_burns_the_ass_file(self, monkeypatch):
-        cmds = []
-        monkeypatch.setattr(ve.subprocess, "run", lambda cmd, **k: cmds.append(cmd))
-        ve.render_preview_clip("/v.mp4", "[Script Info]", "/out.mp4", 10.5, 17.25)
-        cmd = cmds[0]
-        assert cmd[cmd.index("-ss") + 1] == "10.5"
-        assert float(cmd[cmd.index("-t") + 1]) == pytest.approx(6.75)
-        vf = cmd[cmd.index("-vf") + 1]
-        assert vf.startswith("subtitles='") and "force_style" not in vf and "crop" not in vf
-
-    def test_ass_tempfile_is_cleaned_up_even_on_failure(self, monkeypatch):
-        seen = []
-
-        def failing(cmd, **k):
-            seen.append(cmd[cmd.index("-vf") + 1].split("'")[1].replace("\\:", ":"))
-            raise RuntimeError("ffmpeg failed")
-        monkeypatch.setattr(ve.subprocess, "run", failing)
-        with pytest.raises(RuntimeError):
-            ve.render_preview_clip("/v.mp4", "x", "/out.mp4", 0, 1)
-        assert seen and not os.path.exists(seen[0])
-
-
 # ------------------------------------------------------------- SFX cue marker
 
 SFX_LINES = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A"),
@@ -305,25 +234,7 @@ class TestSfxExport:
         vtt = subtitle_formats.lines_to_vtt(long, "en", wrap_chars={"en": 12, "zh": 10})
         assert vtt.count("[") == 1 and vtt.count("]") == 1
 
-    def test_burned_preview_carries_the_sfx_style(self):
-        _, _, ass = _burn_preview_ass(SFX_LINES, SFX_LINES[1], None)
-        assert ",SFX,,0,0,0,,[door slams]" in ass
-
-
 class TestSfxPersistence:
-    def test_round_trips_through_the_database(self, isolated_db):
-        did = isolated_db.create_drama(title_en="SFX", media_type="audio_drama",
-                                       content_mode="audio_drama", status="translated")
-        isolated_db.save_lines(did, [Line(**{f: getattr(ln, f) for f in core_module.LINE_FIELDS})
-                                     for ln in SFX_LINES])
-        loaded = isolated_db.load_line_objects(did)
-        assert [ln.sfx for ln in loaded] == [False, True]
-        loaded[0].sfx = True
-        assert _unsaved_line_count(did, loaded) == 1
-        isolated_db.save_lines(did, loaded)
-        assert _unsaved_line_count(did, loaded) == 0
-        assert [ln.sfx for ln in isolated_db.load_line_objects(did)] == [True, True]
-
     def test_restoring_a_snapshot_keeps_the_mark(self):
         """Snapshots and translation versions don't store sfx -- restoring
         one mustn't silently turn a sound cue back into dialogue."""

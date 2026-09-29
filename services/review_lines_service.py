@@ -221,3 +221,41 @@ def get_original_text(drama_id: int, line_id: int) -> dict:
         "original_text": original,
         "differs": original is not None and original != ln.zh,
     }
+
+
+def adjacent_flagged_idx(all_lines, ref_idx, forward):
+    """The nearest flagged line's idx strictly after (forward=True) or
+    before (forward=False) ref_idx, or None if there isn't one. Step 20's
+    next/previous-flagged navigation -- there was previously no way to
+    step through flagged lines one at a time, only the "Show flagged
+    lines only" filter."""
+    if forward:
+        return next((ln.idx for ln in all_lines if ln.flag and ln.idx > ref_idx), None)
+    return next((ln.idx for ln in reversed(all_lines) if ln.flag and ln.idx < ref_idx), None)
+
+
+def unsaved_line_count(drama_id, lines):
+    """Step 21: how many of Review & edit's lines differ from what's
+    actually in the database -- not from st.session_state.lines, which the
+    page's splice-back updates on every rerun whether or not Save was
+    clicked. Timing is compared at the 2 decimals the start/end boxes
+    show, so a stored 1.2345 doesn't read as an edit of the box's 1.23.
+    A line with no id yet, or a saved line missing from `lines`, counts
+    as unsaved too."""
+    saved = {r["id"]: r for r in db.load_lines(drama_id)}
+    n = 0
+    seen = set()
+    for ln in lines:
+        row = saved.get(ln.id)
+        if row is None:
+            n += 1
+            continue
+        seen.add(ln.id)
+        if (round(ln.start, 2) != round(row["start"], 2)
+                or round(ln.end, 2) != round(row["end"], 2)
+                or (ln.zh or "") != (row["zh"] or "")
+                or (ln.en or "") != (row["en"] or "")
+                or (ln.speaker or "") != (row["speaker"] or "")
+                or bool(ln.sfx) != bool(row.get("sfx"))):
+            n += 1
+    return n + len(saved.keys() - seen)

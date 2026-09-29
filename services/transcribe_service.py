@@ -45,8 +45,17 @@ buildable follow-up, not an oversight):
   - Audio/video upload (per Slice 19 -- unchanged: this slice still
     requires audio already on disk, i.e. source_service's
     audio_available == True).
-  - The "🪄 Auto-tune" feature (a separate Source-tab action, not chained
-    off this one -- confirmed by the Slice 20 scoping pass).
+
+Auto-tune (Step 6h's "🪄 Auto-tune" speech-splitting sensitivity) is a
+separate action, not chained off the transcribe run: start_autotune_run
+re-transcribes the drama's audio once per candidate min_silence_ms in ONE
+process job (so Cancel terminates it mid-decode, as the tab's per-candidate
+process jobs do) and scores each with score_autotune_segments (moved here
+from the tab, which imports it back). Nothing is applied by the job itself
+(the tab never auto-applies either); apply_autotune_candidate writes only
+the drama's own min_silence_ms column (db.update_drama, one field), and
+only for a candidate the finished job actually measured. No paid engine is
+used (PAID_ENGINE_FUNCTIONS is empty): the run is local ASR.
 
 No Streamlit or FastAPI import: plain functions, plain dicts in, plain
 values out. The one exception to "plain dicts" is start_transcribe_run,
@@ -66,6 +75,9 @@ from services import diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
+
+# Auto-tune functions that may spend on a paid engine: none (local ASR only).
+PAID_ENGINE_FUNCTIONS = ()
 
 # Matches the Streamlit widgets' own hardcoded defaults exactly (see
 # tabs/workspace_tab.py: beam_size slider ~2184, min_silence_ms slider
@@ -353,6 +365,46 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     return {"job_id": job_id}
 
 
+def validate_transcribe_options(drama_id: int, source_language: Optional[str] = None,
+                                chinese_script: Optional[str] = None,
+                                transcript_text: Optional[str] = None, **_ignored) -> None:
+    """Validate-only pre-check for a run that starts after the audio exists
+    (B-09: upload-and-transcribe with a video). Raises the same errors as
+    start_transcribe_run for everything that doesn't depend on the audio or
+    video file being on disk yet; starts nothing. Keep in step with
+    start_transcribe_run's checks."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(
+            f"Drama {drama_id} has no audio pipeline (content mode "
+            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
+    if (source_language or drama.get("source_language") or "zh") not in _SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
+    if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
+        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
+    transcript_mode = drama.get("transcript_mode") or "have_transcript"
+    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
+        raise UnsupportedOperationError(
+            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+    asr_backend_choice = drama.get("asr_backend_choice") or "whisper"
+    alignment_method = drama.get("alignment_method") or "whisper_diff"
+    if transcript_mode == "whisper":
+        if alignment_method == "qwen3_forced_align":
+            raise InvalidInputError(
+                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
+                "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
+                "to 'whisper_diff'.")
+        if asr_backend_choice == "qwen3_asr":
+            _require_qwen3_packages("Qwen3-ASR")
+    elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
+        _require_qwen3_packages("Qwen3 forced alignment")
+    if drama.get("use_groq") and not settings_service.resolve_key("groq"):
+        raise DependencyUnavailableError(
+            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
+
+
 _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
                          "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}
@@ -610,3 +662,138 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         "forced_align_error": forced_align_error,
         "diarize_started": diarize_started,
     })
+
+
+# ---------------------------------------------------------------------------
+# Auto-tune speech-splitting sensitivity (Step 6h)
+# ---------------------------------------------------------------------------
+
+def autotune_job_id(drama_id: int) -> str:
+    return f"autotune_{drama_id}"
+
+
+def score_autotune_segments(candidate_ms, segments) -> dict:
+    """One candidate's score, exactly as the tab computed it: the number of
+    long/merged lines (core.diagnose_line_coverage) and total non-empty
+    lines. Moved out of tabs/workspace_tab.py (Step 6h), which imports it."""
+    cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
+                  for i, s in enumerate(segments or []) if (s.get("text") or "").strip()]
+    coverage = core_module.diagnose_line_coverage(cand_lines)
+    return {"candidate_ms": candidate_ms, "long_lines": len(coverage["long_lines"]),
+            "total_lines": len(cand_lines)}
+
+
+def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, initial_prompt,
+                         beam_size, candidates, vad_threshold, fast_mode, result_queue):
+    """Process-job target (top-level, picklable): transcribes once per
+    candidate, holding every other setting constant, and returns only the
+    scores (no segments, no token)."""
+    try:
+        results = []
+        for n, candidate_ms in enumerate(candidates):
+            background_jobs.report_progress(
+                result_queue, n / len(candidates),
+                f"Testing candidate {n + 1} of {len(candidates)} ({candidate_ms}ms)...")
+            segments = core_module.transcribe_for_timing(
+                audio_path, model_size, language=language, use_gpu=use_gpu,
+                hf_token=hf_token, initial_prompt=initial_prompt, beam_size=beam_size,
+                min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
+                fast_mode=fast_mode)
+            results.append(score_autotune_segments(candidate_ms, segments))
+        best = min(results, key=lambda r: r["long_lines"])["candidate_ms"] if results else None
+        result_queue.put(("ok", {"results": results, "best_candidate_ms": best}))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, redact_secrets(str(exc))))
+
+
+def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
+                       initial_prompt: str = "") -> dict:
+    """Starts the auto-tune process job for this drama's stored audio, using
+    the drama's own persisted whisper_size/beam_size/vad_threshold/
+    whisper_fast_mode and language (as the tab uses its current widgets).
+    candidates defaults to core.DEFAULT_AUTOTUNE_CANDIDATES_MS; each must be
+    an int in 300..3000 (the slider's range), at most 6, no duplicates.
+    Poll get_autotune_status(drama_id) (GET /api/transcribe/dramas/{id}/
+    autotune); its "done" result is
+    {"results": [{candidate_ms, long_lines, total_lines}], "best_candidate_ms"}.
+
+    NotFoundError, UnsupportedOperationError (no audio pipeline / no audio),
+    InvalidInputError (bad candidates), ConflictError (already running)."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    audio_path = _drama_audio_path(drama_id, drama)
+    if audio_path is None:
+        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+    if candidates is None:
+        candidates = list(core_module.DEFAULT_AUTOTUNE_CANDIDATES_MS)
+    if (not isinstance(candidates, (list, tuple)) or not candidates or len(candidates) > 6
+            or any(isinstance(c, bool) or not isinstance(c, int) or not 300 <= c <= 3000
+                   for c in candidates)
+            or len(set(candidates)) != len(candidates)):
+        raise InvalidInputError(
+            "candidates must be 1-6 distinct whole numbers between 300 and 3000 (ms).")
+    if not isinstance(initial_prompt, str):
+        raise InvalidInputError("initial_prompt must be text.")
+    job_id = autotune_job_id(drama_id)
+    started = background_jobs.start_process_job(
+        job_id, _autotune_all_worker,
+        args=(audio_path, drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+              drama.get("source_language") or "zh", settings_service.get_use_gpu(),
+              settings_service.resolve_key("hf_token") or None, initial_prompt,
+              drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
+              drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+              bool(drama.get("whisper_fast_mode"))),
+        gpu_touching=True, description=f"Auto-tuning (drama #{drama_id})")
+    if not started:
+        raise ConflictError(f"Auto-tune is already running for drama {drama_id}.")
+    return {"job_id": job_id, "candidates": list(candidates)}
+
+
+def get_autotune_status(drama_id: int) -> dict:
+    """{job_id, status, progress, message, result} for this drama's auto-tune
+    job; result is {"results": [...], "best_candidate_ms"} only when done
+    (else None). The message (or a failed job's error) is redacted.
+    NotFoundError when the drama doesn't exist or no auto-tune job is
+    resident in this process (results live only in background_jobs memory)."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    job_id = autotune_job_id(drama_id)
+    job = background_jobs.get_status(job_id)
+    if not job:
+        raise NotFoundError("No auto-tune run for this drama in this app session.")
+    status = job.get("status")
+    result = None
+    if status == "done":
+        raw = job.get("result") or {}
+        result = {
+            "results": [{"candidate_ms": r.get("candidate_ms"), "long_lines": r.get("long_lines"),
+                         "total_lines": r.get("total_lines")}
+                        for r in raw.get("results") or [] if isinstance(r, dict)],
+            "best_candidate_ms": raw.get("best_candidate_ms"),
+        }
+    message = job.get("error") if status == "error" else job.get("message")
+    return {"job_id": job_id, "status": status, "progress": job.get("progress"),
+            "message": redact_secrets(str(message)) if message else "", "result": result}
+
+
+def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
+    """The tab's "Use Nms" button: stores the chosen value as this drama's
+    own min_silence_ms (a single-column db.update_drama write -- nothing
+    else on the drama or its lines is touched). Only a candidate measured
+    by this drama's finished auto-tune job is accepted, so a stale or
+    foreign value can't be applied through this path (the plain config
+    update, update_transcribe_config, remains for hand-set values).
+    Returns the updated transcribe config."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    job = background_jobs.get_status(autotune_job_id(drama_id))
+    if not job or job.get("status") != "done":
+        raise UnsupportedOperationError("No finished auto-tune results for this drama.")
+    measured = {r.get("candidate_ms") for r in (job.get("result") or {}).get("results") or []}
+    if isinstance(candidate_ms, bool) or candidate_ms not in measured:
+        raise InvalidInputError("candidate_ms must be one of the measured candidates.")
+    db.update_drama(drama_id, min_silence_ms=candidate_ms)
+    return get_transcribe_config(drama_id)
