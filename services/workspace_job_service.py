@@ -120,7 +120,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     if not bulk_translate.finish_translation_run(
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
             cancelled=background_jobs.is_cancel_requested(job_id),
-            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice):
+            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
+            line_scoped=target_ids is not None):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
