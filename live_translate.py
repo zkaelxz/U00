@@ -192,8 +192,14 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     or, for testing, a local file -- ffmpeg treats both the same way once
     it's reading from them, which is what makes this testable without a
     real broadcast.
+
+    Any chunk_*.wav/padded_*.wav already in out_dir (left by an earlier
+    run sharing the directory) is removed first, so ffmpeg's new chunk
+    numbering never mixes with old audio that run_live_job would then
+    process as this run's (clear_stale_chunks).
     """
     os.makedirs(out_dir, exist_ok=True)
+    clear_stale_chunks(out_dir)
     pattern = os.path.join(out_dir, "chunk_%05d.wav")
     cmd = ["ffmpeg", "-y", "-i", source_url, "-vn", "-ac", "1", "-ar", str(sample_rate),
            "-f", "segment", "-segment_time", str(segment_seconds), "-reset_timestamps", "1",
@@ -516,9 +522,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     and dedup_overlap()). 0 turns overlap off entirely; capped at half a
     chunk so padding can never outweigh the chunk itself.
 
-    Stale-file guard: any chunk_*.wav/padded_*.wav already in out_dir
-    (left by an earlier run that shared the directory) is removed before
-    capture starts, so it can never be processed as this run's audio.
+    Stale-file guard: start_segment_capture() clears any chunk_*.wav/
+    padded_*.wav left in out_dir by an earlier run before ffmpeg starts.
 
     max_seconds: a hard stop -- once this much wall-clock time has passed
     since the call began, capture stops as if Stop were pressed. None
@@ -527,7 +532,6 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
     my_generation = bump_generation(job_id)
     started = time.monotonic()
-    clear_stale_chunks(out_dir)
 
     background_jobs.update_progress(job_id, 0.0, "Resolving stream URL...")
     source_url = resolve_stream_url(url, cookies_browser=cookies_browser, cookies_file=cookies_file)
