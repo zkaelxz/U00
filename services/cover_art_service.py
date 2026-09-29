@@ -35,7 +35,7 @@ _SERVE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"
 
 def _require_drama(drama_id) -> dict:
     drama = None
-    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and drama_id > 0:
+    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and 0 < drama_id <= 2**31 - 1:
         drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError("No drama with that id.")
@@ -101,7 +101,9 @@ def save_cover(drama_id: int, fileobj) -> dict:
         raise
     old = (db.get_drama(drama_id) or {}).get("cover_art_filename")
     db.update_drama(drama_id, cover_art_filename=name)
-    if old and old != name and _servable_name(old):
+    # Case-insensitive: an older "cover.JPG" is the same file as the new
+    # "cover.jpg" on Windows/macOS, and removing it would remove the new one.
+    if old and old.lower() != name.lower() and _servable_name(old):
         try:
             os.remove(os.path.join(folder, old))
         except OSError:

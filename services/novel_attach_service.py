@@ -284,11 +284,12 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     if not os.path.isfile(path):
         raise NotFoundError("No chapters have been imported for this drama.")
     with open(path, encoding="utf-8", errors="replace") as f:
-        text = _clean(f.read(MAX_TEXT_CHARS + 1))
+        raw = f.read(MAX_TEXT_CHARS + 1)
+    if len(raw) > MAX_TEXT_CHARS:     # checked before cleaning, so it never truncates
+        raise InvalidInputError("The imported chapters are too large.")
+    text = _clean(raw)
     if not text:
         raise InvalidInputError("The imported chapters are empty.")
-    if len(text) > MAX_TEXT_CHARS:
-        raise InvalidInputError("The imported chapters are too large.")
     _check_idle(drama_id)
     return {"char_count": _write_novel(drama_id, text, mode)}
 

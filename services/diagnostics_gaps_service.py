@@ -448,6 +448,24 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
 # services/delete_service.delete_bug_bundle)
 # ---------------------------------------------------------------------------
 
+def _exclusive_delete(delete, failed: str):
+    """Runs a model-cache delete while holding the library exclusively (as
+    _run_pip does), so no job can start and load the model mid-delete; jobs
+    in another process are re-checked under the hold."""
+    if not background_jobs.acquire_exclusive("Model cache delete"):
+        raise AdminActionJobsRunning(
+            "A job, restore, cleanup or install is in progress; try again when it ends.")
+    try:
+        from services import library_admin_service
+        if library_admin_service._any_job_running():     # re-check under the hold
+            raise AdminActionJobsRunning(
+                "A background job is running or queued; wait for it to finish.")
+        if not delete():
+            raise ServiceError(failed)
+    finally:
+        background_jobs.release_exclusive()
+
+
 def delete_hf_revision(revision: str, confirm: bool = False) -> dict:
     """Deletes one cached Hugging Face revision, named by a commit hash the
     cache scan lists (anything else is NotFoundError, so a caller can only
@@ -457,8 +475,8 @@ def delete_hf_revision(revision: str, confirm: bool = False) -> dict:
             e["revision"] == revision for e in diagnostics.scan_hf_cache()):
         raise NotFoundError("No cached model with that revision.")
     _guard(confirm)
-    if not diagnostics.delete_hf_cache_revision(revision):
-        raise ServiceError("Couldn't delete that model; see the log for details.")
+    _exclusive_delete(lambda: diagnostics.delete_hf_cache_revision(revision),
+                      "Couldn't delete that model; see the log for details.")
     return {"deleted": True, "name": revision}
 
 
@@ -469,8 +487,8 @@ def delete_piper_voice(voice: str, confirm: bool = False) -> dict:
             e["voice"] == voice for e in diagnostics.scan_piper_voices()):
         raise NotFoundError("No downloaded voice with that name.")
     _guard(confirm)
-    if not diagnostics.delete_piper_voice(voice):
-        raise ServiceError("Couldn't delete that voice; see the log for details.")
+    _exclusive_delete(lambda: diagnostics.delete_piper_voice(voice),
+                      "Couldn't delete that voice; see the log for details.")
     return {"deleted": True, "name": voice}
 
 

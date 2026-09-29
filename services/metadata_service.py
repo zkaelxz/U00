@@ -263,7 +263,7 @@ def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
     written then). No credits 422; no key / engine failure 503 (fixed text)."""
     import translation_guide
     drama = _require_drama(drama_id)
-    engine_name = romanize_engine_name(drama_id, engine_name)
+    engine_name = engine_name or drama.get("translation_engine") or DEFAULT_ENGINE
     supported = [e for e, cls in translate_engines.ENGINES.items()
                  if getattr(cls, "supports_reference", False)]
     if engine_name not in supported:

@@ -91,6 +91,21 @@ class TestModelCacheDelete:
         r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
         assert r.status_code == 409 and cache == []
 
+    def test_holds_the_library_while_deleting(self, client, cache, monkeypatch):
+        import background_jobs
+        seen = []
+        monkeypatch.setattr(diagnostics, "delete_piper_voice",
+                            lambda v, *a, **k: seen.append(background_jobs.exclusive_active()) or True)
+        r = client.post("/api/diagnostics/model-cache/piper/en_US-amy-medium/delete", json={"confirm": True})
+        assert r.status_code == 200 and seen == [True]
+        assert not background_jobs.exclusive_active()          # released afterwards
+        assert background_jobs.acquire_exclusive("test hold")
+        try:
+            r = client.post(f"/api/diagnostics/model-cache/hf/{REV}/delete", json={"confirm": True})
+            assert r.status_code == 409 and cache == []
+        finally:
+            background_jobs.release_exclusive()
+
     def test_failed_delete_is_reported(self, client, cache, monkeypatch):
         monkeypatch.setattr(diagnostics, "delete_piper_voice", lambda *a, **k: False)
         r = client.post("/api/diagnostics/model-cache/piper/en_US-amy-medium/delete", json={"confirm": True})

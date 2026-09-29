@@ -43,9 +43,11 @@ def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge
 def romanize_credits(payload: RomanizeCreditsRequest, request: Request, drama_id: int = Path(ge=1)):
     # A drama-metadata write (admin.library) that also calls an engine: a
     # paid one needs engines.paid, checked against the engine that will run.
-    require_engines_allowed(request, metadata_service.romanize_engine_name(drama_id, payload.engine))
+    # Resolved once, so the engine checked is the engine that runs.
+    engine = metadata_service.romanize_engine_name(drama_id, payload.engine)
+    require_engines_allowed(request, engine)
     with llm_slot(request):
-        return metadata_service.romanize_credits(drama_id, payload.engine)
+        return metadata_service.romanize_credits(drama_id, engine)
 
 
 @router.post("/dramas/{drama_id}/autofill/apply", dependencies=[require_permission("admin.library")],

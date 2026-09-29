@@ -63,7 +63,7 @@ def get_cover(drama_id: int = Path(ge=1)):
     path, media_type = cover_art_service.cover_file(drama_id)
     return FileResponse(path, media_type=media_type, content_disposition_type="inline",
                         filename=f"cover_{drama_id}{os.path.splitext(path)[1]}",
-                        headers={"Cache-Control": "no-cache",
+                        headers={"Cache-Control": "private, no-cache",
                                  "X-Content-Type-Options": "nosniff",
                                  "Content-Security-Policy": "default-src 'none'; sandbox"})
 

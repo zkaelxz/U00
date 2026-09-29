@@ -98,6 +98,25 @@ class TestRomanize:
         assert r.status_code == 200 and r.json()["updated"] is False
         assert db.get_drama(did)["author_romanized"] is None
 
+    def test_engine_check_runs_for_admin_library_without_engines_paid(self, isolated_db, engine,
+                                                                       monkeypatch):
+        # Admins hold every permission today; this pins the route's own
+        # require_engines_allowed check in case admin.library is ever split out.
+        did = _drama(author="A")
+        app = create_app(ApiSettings(auth_mode="on"))
+        remote = TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
+        u = auth_service.add_user("lib@example.com")
+        monkeypatch.setattr(auth_service, "effective_permissions",
+                            lambda uid: ["admin.library", "library.read"])
+        s = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+        from api import auth as api_auth
+        h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+        url = f"/api/metadata/dramas/{did}/romanize-credits"
+        assert remote.post(url, json={"engine": "claude"}, headers=h).status_code == 403
+        assert remote.post(url, json={}, headers=h).status_code == 403          # drama default: claude
+        assert db.get_drama(did)["author_romanized"] is None
+        assert remote.post(url, json={"engine": "ollama"}, headers=h).status_code == 200
+
     def test_paid_engine_needs_engines_paid(self, isolated_db, engine):
         did = _drama(author="A")
         app = create_app(ApiSettings(auth_mode="on"))
@@ -176,6 +195,20 @@ class TestCover:
                            files={"file": ("c.png", _image(), "image/png")}).status_code == 422
         assert db.get_drama(did)["cover_art_filename"] is None
         assert client.get(f"/api/dramas/{did}/cover").status_code == 404
+
+    def test_replacing_a_legacy_upper_case_cover_keeps_the_new_file(self, client):
+        # Streamlit kept the client's extension ("cover.JPG"); on Windows/macOS
+        # that is the same file as the new "cover.jpg", so it must not be removed.
+        pytest.importorskip("PIL")
+        did = _drama()
+        folder = db.drama_dir(did)
+        with open(os.path.join(folder, "cover.JPG"), "wb") as f:
+            f.write(_image("JPEG"))
+        db.update_drama(did, cover_art_filename="cover.JPG")
+        r = client.post(f"/api/dramas/{did}/cover", files={"file": ("a.jpg", _image("JPEG"), "image/jpeg")})
+        assert r.status_code == 200
+        assert os.path.exists(os.path.join(folder, "cover.JPG"))   # not removed
+        assert client.get(f"/api/dramas/{did}/cover").status_code == 200
 
     def test_legacy_or_odd_stored_names_are_not_served(self, client):
         did = _drama()
@@ -266,6 +299,15 @@ class TestFromSources:
         client.post(url, json={"mode": "append"})
         assert _narration(did) == "第一章\n\n第二章\n\n第一章\n\n第二章"
         assert client.post(url, json={"mode": "bogus"}).status_code == 422
+
+    def test_too_large_is_refused_not_truncated(self, client, monkeypatch):
+        monkeypatch.setattr(novel_svc, "MAX_TEXT_CHARS", 10)
+        did = _drama()
+        with open(os.path.join(db.drama_dir(did), "raw_novel_context.txt"), "w", encoding="utf-8") as f:
+            f.write("0123456789\n")      # 11 chars; cleaning would drop the newline
+        r = client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={})
+        assert r.status_code == 422
+        assert not os.path.exists(os.path.join(db.drama_dir(did), "novel_narration_source.txt"))
 
     def test_pc_only(self, isolated_db):
         did = _drama()
