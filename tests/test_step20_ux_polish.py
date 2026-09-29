@@ -6,7 +6,7 @@ Shortcuts themselves aren't automated here (that's Step 20's own manual
 check -- Streamlit's shortcut= dispatch is a frontend/browser concern
 AppTest doesn't drive), but the logic each shortcut/feature is built on
 is: the shared page-jump math (_page_for_line), next/previous-flagged
-navigation (_adjacent_flagged_idx), transcript search (_search_transcript),
+navigation (now tests/test_review_lines_service.py), transcript search (_search_transcript),
 and the toast-vs-message split for confirmations.
 """
 import os
@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Line
-from tabs.workspace_tab import _page_for_line, _search_transcript, _adjacent_flagged_idx
+from tabs.workspace_tab import _page_for_line, _search_transcript
 
 
 def _lines(n):
@@ -49,33 +49,6 @@ class TestPageForLine:
         lines = _lines(5)
         assert _page_for_line(999, lines, page_size=10) == 1
 
-
-class TestAdjacentFlaggedIdx:
-    def _flagged_lines(self):
-        lines = _lines(10)
-        lines[2].flag = "review"
-        lines[6].flag = "review"
-        return lines
-
-    def test_forward_finds_the_next_flagged_line(self):
-        lines = self._flagged_lines()
-        assert _adjacent_flagged_idx(lines, ref_idx=0, forward=True) == 2
-        assert _adjacent_flagged_idx(lines, ref_idx=2, forward=True) == 6
-
-    def test_backward_finds_the_previous_flagged_line(self):
-        lines = self._flagged_lines()
-        assert _adjacent_flagged_idx(lines, ref_idx=9, forward=False) == 6
-        assert _adjacent_flagged_idx(lines, ref_idx=6, forward=False) == 2
-
-    def test_none_when_nothing_further_in_that_direction(self):
-        lines = self._flagged_lines()
-        assert _adjacent_flagged_idx(lines, ref_idx=6, forward=True) is None
-        assert _adjacent_flagged_idx(lines, ref_idx=2, forward=False) is None
-
-    def test_none_when_nothing_flagged_at_all(self):
-        lines = _lines(10)
-        assert _adjacent_flagged_idx(lines, ref_idx=0, forward=True) is None
-        assert _adjacent_flagged_idx(lines, ref_idx=9, forward=False) is None
 
 
 class TestSearchTranscript:
