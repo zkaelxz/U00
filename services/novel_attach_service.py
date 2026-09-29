@@ -27,6 +27,11 @@ from html.parser import HTMLParser
 from typing import Optional
 from xml.etree import ElementTree
 
+try:
+    import lzma
+except ImportError:  # Python built without lzma: zipfile raises RuntimeError instead
+    lzma = None
+
 import background_jobs
 import db
 import dub
@@ -51,6 +56,8 @@ _BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
 _SKIP_TAGS = {"script", "style", "head"}
 _BAD_ENTRY_ERRORS = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError,
                      OSError, EOFError)
+if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not OSError
+    _BAD_ENTRY_ERRORS += (lzma.LZMAError,)
 
 
 def _require_drama(drama_id: int) -> dict:

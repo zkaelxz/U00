@@ -373,3 +373,32 @@ def test_corrupt_epub_entry_is_422_not_500(client):
     r = client.post(f"/api/novel/dramas/{did}/attach-epub",
                     files={"file": ("b.epub", _corrupt_epub(), "application/epub+zip")})
     assert r.status_code == 422, r.text
+
+
+def _corrupt_lzma_epub():
+    # an LZMA (method 14) entry whose compressed data is garbled: zipfile
+    # raises lzma.LZMAError ("Corrupt input data"), which is not an OSError
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_LZMA) as z:
+        z.writestr("OEBPS/a.xhtml", "<html><body><p>" + "第一章 " * 400 + "</p></body></html>")
+    data = bytearray(buf.getvalue())
+    info = zipfile.ZipFile(io.BytesIO(bytes(data))).infolist()[0]
+    start = info.header_offset + 30 + len(info.filename.encode()) + 9  # past the LZMA header
+    for i in range(start, start + 40):
+        data[i] ^= 0xFF
+    return bytes(data)
+
+
+def test_corrupt_lzma_epub_entry_is_422_not_500(client):
+    lzma = pytest.importorskip("lzma")
+    data = _corrupt_lzma_epub()
+    with zipfile.ZipFile(io.BytesIO(data)) as z, pytest.raises(lzma.LZMAError):
+        z.read("OEBPS/a.xhtml")  # the crafted entry really does raise LZMAError
+    did = _drama()
+    r = _up(client, _raw(did), data, name="b.epub")
+    assert r.status_code == 422, r.text
+    assert "not a valid EPUB" in r.json()["error"]["message"]
+    r = client.post(f"/api/novel/dramas/{did}/attach-epub",
+                    files={"file": ("b.epub", data, "application/epub+zip")})
+    assert r.status_code == 422, r.text
+    assert "not a valid EPUB" in r.json()["error"]["message"]
