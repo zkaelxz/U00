@@ -64,3 +64,22 @@ def test_auth_on_unchanged_for_non_local_only_routes(isolated_db):
     auth answer (401 here, no session), not the gate's 403."""
     c = _local("on")
     assert c.post("/api/jobs/nope/cancel").status_code == 401
+
+
+def test_every_mutating_route_refuses_a_headerless_contentless_post(isolated_db):
+    """Walks every POST/PUT/PATCH route: with auth off, a request with no
+    X-Baihe-Local header and no Content-Type (a no-cors Blob body, which
+    some FastAPI versions parse as JSON) is refused with 403."""
+    import re
+    from api.auth import iter_route_declarations
+    app = create_app(ApiSettings())
+    c = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
+                   raise_server_exceptions=False)
+    checked = 0
+    for _route, path, methods, _decl in iter_route_declarations(app):
+        for method in sorted(set(methods or ()) & {"POST", "PUT", "PATCH"}):
+            url = re.sub(r"\{[^}]+\}", "1", path)
+            r = c.request(method, url, content=b"{}")
+            assert r.status_code == 403, (method, path, r.status_code)
+            checked += 1
+    assert checked > 50

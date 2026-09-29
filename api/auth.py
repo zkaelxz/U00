@@ -309,6 +309,8 @@ class LocalOnlyCrossSiteGate:
             if self._local_only is None:
                 self._local_only = self._local_only_fn()
             path, method = scope.get("path", ""), scope.get("method", "")
+            # Matches the raw scope path. If the app is ever mounted under a
+            # root_path, strip it first or this prefix check stops matching.
             gated = (self._all_api and (path == "/api" or path.startswith("/api/"))) \
                 or any(rx.match(path) and method in methods for rx, methods in self._local_only)
             if gated and not _cross_site_safe(Request(scope)):
