@@ -17,6 +17,10 @@
  *   label         first-step text (default "Delete…")
  *   confirmLabel  second-step text (default "Confirm delete ‹name›")
  *   busy          the action is running: disabled, "Working…", aria-busy
+ *   verb          what the action does, in the default confirm label and the
+ *                 announcement (default "delete": "Confirm delete ‹name›")
+ *   tone          second-step style: 'danger' (default) or 'primary' for a
+ *                 non-destructive but overwriting action
  *   disabled      cannot run now (show the reason next to it)
  *
  * Layout: inline on desktop; on phones (.confirm-button, index.css) it takes
@@ -34,9 +38,11 @@ type Props = {
   confirmLabel?: string
   busy?: boolean
   disabled?: boolean
+  verb?: string
+  tone?: 'danger' | 'primary'
 }
 
-export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled }: Props) {
+export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger' }: Props) {
   const blocked = !!(busy || disabled)
   const [armed, setArmed] = useState(false)
   // Becoming busy/disabled disarms (state adjusted during render, no effect).
@@ -85,8 +91,8 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
     >
       {live ? (
         <>
-          <button ref={confirmRef} type="button" className="danger" onClick={() => on('press')}>
-            {confirmLabel ?? confirmLabelFor(name)}
+          <button ref={confirmRef} type="button" className={tone} onClick={() => on('press')}>
+            {confirmLabel ?? confirmLabelFor(name, verb)}
           </button>
           <button type="button" className="link" onClick={() => on('cancel')}>
             Cancel
@@ -104,7 +110,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
         </button>
       )}
       <span className="visually-hidden" aria-live="polite">
-        {live ? armedAnnouncement(name) : ''}
+        {live ? armedAnnouncement(name, verb) : ''}
       </span>
     </span>
   )

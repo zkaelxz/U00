@@ -25,6 +25,8 @@ import type {
   ReviewNote,
   TmSuggestion,
   VersionItem,
+  VersionActivateResult,
+  BlockedRetryResult,
 } from '../types/review'
 import { apiUrl, deleteJson, getJson, postJson } from './client'
 
@@ -110,3 +112,13 @@ export const improveLine = (id: number, lineId: number, issue: string, f?: Fetch
 
 export const explainLine = (id: number, lineId: number, f?: Fetch) =>
   postJson<LineExplanation>(`${lineAi(id, lineId)}/explain`, {}, f)
+
+// Review parity R39: make a saved version the current English. It overwrites
+// the translation of every line, so the caller confirms first.
+export const activateVersion = (id: number, versionId: number, f?: Fetch) =>
+  postJson<VersionActivateResult>(`${review(id)}/versions/${versionId}/activate`, { confirm: true }, f)
+
+// Review parity R10: re-translate one content-blocked line with the chosen
+// engine (the key is resolved on the PC, never sent from the browser).
+export const retryBlockedLine = (id: number, lineId: number, engine: string, f?: Fetch) =>
+  postJson<BlockedRetryResult>(`${lines(id)}/lines/${lineId}/retry-blocked`, { engine }, f)

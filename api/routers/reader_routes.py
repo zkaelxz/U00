@@ -25,7 +25,8 @@ the engine takes, at most LLM_MAX_IN_FLIGHT of them (the six LLM routes,
 the lookup with use_llm, and the rich .apkg export, which cuts audio
 with ffmpeg) run at once server-wide, and at most one per caller (user
 id, or "local" with auth off); a request over either cap gets 429
-`rate_limited` at once rather than queueing. The service bounds the work
+`rate_limited` at once rather than queueing (the pool, api/llm_slots.py, is
+shared with the Review blocked-line retry). The service bounds the work
 inside one request (recap input, wiki chunks per call, rich cards and
 ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
 `media.stream` (media bytes need it); otherwise the deck is text-only and
@@ -35,12 +36,12 @@ the drama title or a path. Media files themselves are played through
 the series glossary (the glossary routes cover it).
 """
 
-import threading
-from contextlib import contextmanager
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
+from api import llm_slots
 from api.auth import require_engines_allowed, require_permission
+from api.llm_slots import LLM_MAX_IN_FLIGHT, _ACTIVE_CALLERS, _ACTIVE_LOCK, _SLOTS  # noqa: F401 -- re-exported for tests
 from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
                          ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability,
                          ReaderNotes, ReaderNotesRequest, ReaderOverview, ReaderPageResponse,
@@ -50,7 +51,7 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
                          ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult)
 from services import reader_service
-from services.service_errors import ForbiddenError, NotFoundError, RateLimitedError
+from services.service_errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
 
@@ -62,37 +63,13 @@ _LLM_ERRS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
              429: {"model": ErrorResponse}, 500: {"model": ErrorResponse},
              503: {"model": ErrorResponse}}
 
-# Long synchronous work (LLM calls, ffmpeg): global and per-caller caps.
-LLM_MAX_IN_FLIGHT = 2
-_SLOTS = threading.BoundedSemaphore(LLM_MAX_IN_FLIGHT)
-_ACTIVE_CALLERS = set()
-_ACTIVE_LOCK = threading.Lock()
+# Long synchronous work (LLM calls, ffmpeg): global and per-caller caps, one
+# pool shared with the other synchronous LLM routes (api/llm_slots.py).
 _BUSY = "The reader's AI tools are busy; try again in a moment."
 
 
-def _caller_key(request: Request) -> str:
-    principal = getattr(request.state, "principal", None) or {}
-    user_id = principal.get("user_id")
-    return f"user:{user_id}" if user_id is not None else "local"
-
-
-@contextmanager
 def _llm_slot(request: Request):
-    """Non-blocking: 429 when this caller already has one running or the
-    server-wide cap is reached. Always released, even on an exception."""
-    key = _caller_key(request)
-    with _ACTIVE_LOCK:
-        if key in _ACTIVE_CALLERS:
-            raise RateLimitedError(_BUSY)
-        if not _SLOTS.acquire(blocking=False):
-            raise RateLimitedError(_BUSY)
-        _ACTIVE_CALLERS.add(key)
-    try:
-        yield
-    finally:
-        with _ACTIVE_LOCK:
-            _ACTIVE_CALLERS.discard(key)
-            _SLOTS.release()
+    return llm_slots.llm_slot(request, _BUSY)
 
 
 def _holds(request: Request, permission: str) -> bool:

@@ -274,3 +274,24 @@ export interface LineOriginalText {
   original_text: string | null
   differs: boolean
 }
+
+// Review parity R39: POST /api/review/dramas/{id}/versions/{vid}/activate
+export interface VersionActivateResult {
+  drama_id: number
+  version_id: number
+  label: string
+  activated: boolean
+  lines_changed: number
+}
+
+// Review parity R10: POST /api/lines/dramas/{id}/lines/{lid}/retry-blocked
+export interface BlockedRetryResult {
+  drama_id: number
+  line_id: number
+  engine: string
+  model: string | null
+  retried: boolean
+  blocked: boolean
+  reason: string | null
+  line: ReviewLine
+}

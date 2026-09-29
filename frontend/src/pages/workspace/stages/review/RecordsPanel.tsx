@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import {
   acceptTm,
+  activateVersion,
   deleteNote,
   listHistory,
   listNotes,
@@ -33,7 +34,7 @@ interface Props {
   jobRunning: boolean
 }
 
-// Notes (add lives on each line), translation versions (read-only), line
+// Notes (add lives on each line), translation versions (use or delete), line
 // history with a typed-confirm Restore, and translation-memory suggestions.
 export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props) {
   const [records, setRecords] = useState<Records | null>(null)
@@ -43,6 +44,9 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
   const [restored, setRestored] = useState<string | null>(null)
   const pc = usePcOnly()
   const [versionError, setVersionError] = useState<unknown>(null)
+  const [activating, setActivating] = useState<number | null>(null)
+  const [activated, setActivated] = useState<string | null>(null)
+  const [activateError, setActivateError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -98,6 +102,26 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
       },
       setVersionError,
     )
+  }
+
+  // "Use this version": the server rewrites only each line's English (by
+  // line id) after saving a snapshot, then the panel and lines reload.
+  const switchToVersion = (v: VersionItem) => {
+    setActivateError(null)
+    setActivated(null)
+    setActivating(v.id)
+    activateVersion(dramaId, v.id)
+      .then(
+        (r) => {
+          setError(null)
+          setActivated(
+            `Now using “${r.label || `Version ${v.id}`}” (${r.lines_changed} line${r.lines_changed === 1 ? '' : 's'} changed). The lines before it are saved in Line history.`,
+          )
+          onChanged()
+        },
+        setActivateError,
+      )
+      .finally(() => setActivating(null))
   }
 
   // The restore endpoint needs the drama's current line ids; the snapshot of
@@ -195,10 +219,24 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
                     onConfirm={() => removeVersion(v)}
                   />
                 )}
+                {!v.is_active && (
+                  <ConfirmButton
+                    name={v.label ?? `Version ${v.id}`}
+                    label="Use this version…"
+                    verb="use"
+                    tone="primary"
+                    confirmLabel={`Confirm: replace the English with ${v.label ?? `Version ${v.id}`}`}
+                    busy={activating === v.id}
+                    disabled={jobRunning || (activating !== null && activating !== v.id)}
+                    onConfirm={() => switchToVersion(v)}
+                  />
+                )}
               </li>
             ))}
           </ul>
-          {pc === 'local' && jobRunning && <p className="muted">Wait for the running job to finish.</p>}
+          {activated && <p role="status" data-testid="activate-status">{activated}</p>}
+          <ErrorBanner error={activateError} onDismiss={() => setActivateError(null)} />
+          {jobRunning && <p className="muted">Wait for the running job to finish.</p>}
           {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
           <ErrorBanner error={versionError} describe={{ pcOnly: true }} onDismiss={() => setVersionError(null)} />
         </>

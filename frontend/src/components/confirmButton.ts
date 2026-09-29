@@ -34,5 +34,5 @@ export function replay(events: { event: ConfirmEvent; blocked?: boolean }[]): nu
   return runs
 }
 
-export const confirmLabelFor = (name: string) => `Confirm delete ${name}`
-export const armedAnnouncement = (name: string) => `Press again to delete ${name}`
+export const confirmLabelFor = (name: string, verb = 'delete') => `Confirm ${verb} ${name}`
+export const armedAnnouncement = (name: string, verb = 'delete') => `Press again to ${verb} ${name}`

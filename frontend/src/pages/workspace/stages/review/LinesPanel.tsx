@@ -480,6 +480,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           st.current.onChanged()
         }, (e) => failLine(id, e))
       },
+      // A line the server already saved (blocked-line retry): show it without
+      // a reload. closeEdit ends a clean edit of that line, whose base is now stale.
+      applyLine: (saved, closeEdit) => {
+        if (closeEdit && st.current.edit?.lineId === saved.id) setEditNow(null)
+        replaceLine(saved)
+        setIssue(null)
+        st.current.onChanged()
+      },
       playLine: (line) => player.current?.playLine(line),
       clearIssue: () => setIssue(null),
       reload: () => {
