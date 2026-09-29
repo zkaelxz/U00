@@ -22,7 +22,7 @@ async function expectTall(page: Page, selector: string) {
 }
 
 async function visiblePrimaries(page: Page) {
-  return page.locator('button.primary').evaluateAll((els) =>
+  return page.locator('button.primary, .btn-primary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).length,
   )
 }
@@ -31,14 +31,14 @@ async function checkScreen(page: Page, extra: string[] = []) {
   await expectNoHorizontalOverflow(page)
   await expectTall(page, '.app-header nav a')
   for (const sel of extra) await expectTall(page, sel)
-  if ((await visiblePrimaries(page)) > 0) await expectTall(page, 'button.primary')
+  if ((await visiblePrimaries(page)) > 0) await expectTall(page, 'button.primary, .btn-primary')
 }
 
 test('Library: cards, title opens the workspace', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toBeVisible()
-  await expect(page.locator('.drama-cards')).toBeVisible()
-  await checkScreen(page, ['.drama-card-title', '.drama-cards button'])
+  await expect(page.locator('.drama-grid')).toBeVisible()
+  await checkScreen(page, ['.drama-grid .drama-card', '.drama-card-foot .btn', '.library-page .btn-primary', '.continue-item .btn'])
   await page.getByRole('link', { name: 'Signal', exact: true }).click()
   await expect(page).toHaveURL(/#\/drama\/\d+\/source$/)
 })
@@ -62,3 +62,20 @@ for (const [name, path] of [
     await checkScreen(page)
   })
 }
+
+test('Library at 360px: no sideways scroll; New drama and Details open bottom sheets', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/')
+  await expect(page.getByTestId('drama-count')).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+  await expectTall(page, '.segmented label')
+  await page.getByRole('button', { name: 'New drama' }).click()
+  await expect(page.getByRole('dialog', { name: 'New drama' })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+  await page.getByRole('button', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'Details: Signal' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Signal' })
+  await expectTall(page, '.drama-detail-actions .btn')
+  const box = await sheet.boundingBox()
+  expect(box && Math.round(box.y + box.height)).toBe(800)
+})

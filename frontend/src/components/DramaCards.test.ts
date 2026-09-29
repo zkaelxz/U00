@@ -16,25 +16,36 @@ const html = (items: DramaSummary[], selectedId: number | null = null) =>
   renderToStaticMarkup(createElement(DramaCards, { items, selectedId, onSelect: () => {} }))
 
 describe('DramaCards', () => {
-  it('links the title straight to the workspace and keeps a Details path', () => {
+  it('links the title to the workspace, with Read and Details as quiet buttons', () => {
     const out = html([drama({})])
-    expect(out).toContain('href="#/drama/7/source"')
-    expect(out).toContain('>Moonlit</a>')
+    expect(out).toContain('href="#/drama/7/source">Moonlit</a>')
     expect(out).toContain('月光')
     expect(out).toContain('aria-label="Details: Moonlit"')
+    expect(out).toContain('href="#/read/7" aria-label="Read Moonlit" class="btn btn-ghost btn-sm drama-card-read"')
+    expect(out).not.toContain('btn-primary')
   })
 
-  it('shows status badge and one type/lang line, no tags', () => {
+  it('shows humanized badges, the type and the tile character', () => {
     const out = html([drama({})])
-    expect(out).toContain('<span class="badge">Translated</span>')
-    expect(out).toContain('Audio drama · Chinese')
-    expect(out).not.toContain('fav')
+    expect(out).toContain('<span class="pill pill-accent">Translated</span>')
+    expect(out).toContain('<span class="pill pill-neutral">Chinese</span>')
+    expect(out).toContain('Audio drama')
+    expect(out).toContain('aria-hidden="true">月</div>')
+    expect(out).not.toMatch(/audio_drama|>zh</)
+  })
+
+  it('shows two tags then +N', () => {
+    const out = html([drama({ custom_tags: ['a', 'b', 'c', 'd'] })])
+    expect(out).toContain('>a</span>')
+    expect(out).toContain('>b</span>')
+    expect(out).not.toContain('>c</span>')
+    expect(out).toContain('>+2</span>')
   })
 
   it('falls back to the id when a drama has no title, and marks the selection', () => {
     const out = html([drama({ title_en: null, title_zh: null })], 7)
     expect(out).toContain('>#7</a>')
-    expect(out).toContain('class="selected"')
+    expect(out).toContain('class="drama-card selected"')
   })
 
   it('select mode: checkboxes instead of links and Details', () => {
