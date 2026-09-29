@@ -141,8 +141,10 @@ def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
 
 
 def _extract_cmd(video_path: str, wav_path: str) -> list:
-    return ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-            "-ar", "16000", "-ac", "1", wav_path]
+    """-protocol_whitelist file: a downloaded "mp4" could really be an HLS
+    playlist naming network URLs; ffmpeg may only open local files."""
+    return ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path, "-vn",
+            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path]
 
 
 def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:

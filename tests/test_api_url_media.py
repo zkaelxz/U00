@@ -172,6 +172,8 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
     assert db.get_drama(did)["title_en"] == "Mine" and not db.get_drama(did)["title_zh"]
     cmd = env.ffmpeg[0]
     assert cmd[0] == "ffmpeg" and os.path.basename(os.path.dirname(cmd[-1])).startswith(".urldl_")
+    i = cmd.index("-i")
+    assert cmd[i - 2:i] == ["-protocol_whitelist", "file"]
     _no_tmp(did)
 
 
