@@ -66,7 +66,11 @@ test('Report a problem: send, saved as #N, copy, GitHub link', async ({ page, co
   await page.route('**/api/library/stats', (r) =>
     r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'secret body text' } } }))
 
+  // Wait for the Library's failed stats call before leaving, or a fast
+  // navigation can cancel it before the capture sees it.
+  const stats = page.waitForResponse('**/api/library/stats')
   await page.goto('/#/library')
+  await stats
   await page.goto('/#/diagnostics')
   await page.evaluate(() => console.error('boom from test', { line: 'private line text' }))
 

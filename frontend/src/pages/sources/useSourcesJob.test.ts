@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import { isSameJobConflict } from './sourcesFormat'
-import { LOST_CONTACT, pollSourcesJob } from './useSourcesJob'
+import { LOST_CONTACT, isStartedHere, pollSourcesJob } from './useSourcesJob'
 
 const running = { job_id: 'j', status: 'running', progress: 0.1, message: null, result: null }
 const done = { job_id: 'j', status: 'done', progress: 1, message: null, result: { kind: 'search' } }
@@ -84,5 +84,15 @@ describe('isSameJobConflict', () => {
     expect(isSameJobConflict(conflict('sources_search'), 'sources_search')).toBe(true)
     expect(isSameJobConflict(conflict('other'), 'sources_search')).toBe(false)
     expect(isSameJobConflict(new ApiError(400, { code: 'x', message: 'x' }), 'sources_search')).toBe(false)
+  })
+})
+
+describe('isStartedHere', () => {
+  it('holds only for the id the run was started under', () => {
+    expect(isStartedHere('sourceimport_21', 'sourceimport_21')).toBe(true)
+    // Picked another drama after importing: its stored run was not started here.
+    expect(isStartedHere('sourceimport_21', 'sourceimport_12')).toBe(false)
+    expect(isStartedHere(null, 'sourceimport_12')).toBe(false)
+    expect(isStartedHere(null, null)).toBe(false)
   })
 })

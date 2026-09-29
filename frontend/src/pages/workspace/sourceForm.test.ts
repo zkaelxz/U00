@@ -34,4 +34,7 @@ describe('chapter OCR helpers', () => {
   it('reattaches to the OCR job', () => {
     expect(sourceJobIds(3)).toContain('ocrchapter_3')
   })
+  it('reattaches to a URL download', () => {
+    expect(sourceJobIds(3)).toContain('urlmedia_3')
+  })
 })
