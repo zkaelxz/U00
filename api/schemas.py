@@ -1491,6 +1491,9 @@ class ReviewJobStart(BaseModel):
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
+    # Parity R49: half price through Claude's/Gemini's batch API; results
+    # arrive later and are applied by line id. Not for fix-flagged.
+    bulk: StrictBool = False
 
 
 class EmotionJobStart(ReviewJobStart):
@@ -1499,6 +1502,7 @@ class EmotionJobStart(ReviewJobStart):
 
 class FixFlaggedJobStart(ReviewJobStart):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    bulk: Literal[False] = False   # there is no batch variant of fix-flagged
 
 
 class ReviewJobStarted(BaseModel):
@@ -1508,6 +1512,7 @@ class ReviewJobStarted(BaseModel):
     engine: str
     model: Optional[str] = None
     line_count: int
+    bulk: bool = False
 
 
 class MediaExportStarted(BaseModel):

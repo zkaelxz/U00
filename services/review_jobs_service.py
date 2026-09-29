@@ -15,13 +15,25 @@ user changed in the meantime is not overwritten (db.save_lines diffs
 against `orig`). AI results are matched by id inside the engine helpers,
 never by list position.
 
-Out of scope: the Claude/Gemini bulk (batch API) variants, Auto QC and the
-pacing auto-shorten (not jobs), and the restructure tools.
+bulk=True (parity R49) submits consistency / emotion / notes / flag through
+Claude's or Gemini's batch API at half price instead (bulk_translate's
+submit_bulk_* functions, the same ones the Workspace tab's Bulk checkbox
+uses; submit_bulk_review below is that glue, moved out of the tab). The job
+`bulk_<kind>_<drama_id>` submits, then polls until the batch is applied
+(translate_run_service.run_bulk_translate_job). Results are applied by
+bulk_translate itself, matched to lines by the request's custom_id and the
+permanent line ids recorded with it, never by position, with field-scoped
+writes (flag/flag_note; the emotions/notes/consistency tables). The batch
+shows up in the drama's bulk job list and is cancelled like any other one.
+
+Out of scope: Auto QC and the pacing auto-shorten (not jobs), and the
+restructure tools.
 """
 import os
 from typing import Optional
 
 import background_jobs
+import bulk_translate
 import core
 import db
 import translate_engines
@@ -39,12 +51,65 @@ _KINDS = {
     "fix-flagged": ("fixflag_", "fix flagged lines"),
 }
 
+# bulk_translate kind -> its submit function. The API's "notes" is the
+# batch kind "translation_notes".
+_BULK_SUBMIT = {
+    "flag": bulk_translate.submit_bulk_flag,
+    "consistency": bulk_translate.submit_bulk_consistency,
+    "emotion": bulk_translate.submit_bulk_emotion,
+    "translation_notes": bulk_translate.submit_bulk_translation_notes,
+}
+_BULK_KIND = {"consistency": "consistency", "emotion": "emotion",
+              "notes": "translation_notes", "flag": "flag"}
+
+
+def bulk_job_id(kind: str, drama_id: int) -> str:
+    return f"bulk_{kind}_{drama_id}"
+
+
+def submit_bulk_review(kind: str, drama_id: int, engine, engine_choice: str,
+                       **submit_kwargs):
+    """Submits a flag/consistency/emotion/translation_notes batch (kind is
+    the bulk_translate kind) with the drama's lines fresh from the database,
+    so each carries its permanent id. Returns (bulk_job_id, provider).
+    Moved from tabs/workspace_tab.py's _start_bulk_generic."""
+    lines = db.load_line_objects(drama_id)
+    provider = bulk_translate.make_provider(engine_choice, engine)
+    bulk_id = _BULK_SUBMIT[kind](drama_id, lines, engine, engine_choice,
+                                 provider=provider, **submit_kwargs)
+    return bulk_id, provider
+
+
+def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: int,
+                submit_kwargs: dict) -> dict:
+    """The bulk half of _start: one background job that submits the batch
+    and polls it until bulk_translate has applied the results."""
+    bulk_kind = _BULK_KIND[kind]
+    job_id = bulk_job_id(kind, drama_id)
+    pending = db.BULK_PENDING_STATUSES + ("submitting", "running")
+    if background_jobs.is_running(job_id) or any(
+            (j.get("kind") or "translate") == bulk_kind
+            for j in db.list_bulk_jobs(drama_id, statuses=pending)):
+        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
+
+    def submit():
+        return submit_bulk_review(bulk_kind, drama_id, engine, engine_name, **submit_kwargs)[0]
+    started = background_jobs.start_job(
+        job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
+        translate_run_service._monthly_cap() or None,
+        description=f"Bulk {_KINDS[kind][1]} (drama #{drama_id})")
+    if not started:
+        raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this drama.")
+    return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
+            "model": getattr(engine, "model", None), "line_count": line_count, "bulk": True}
+
 
 def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional[str],
            gemini_free_tier: bool, runner, make_args, allow_translation_only: bool = False,
-           precheck=None) -> dict:
+           precheck=None, bulk: bool = False, bulk_kwargs=None) -> dict:
     """make_args(drama, lines, engine, engine_name) -> (args, extra kwargs)
-    for start_job after the job id."""
+    for start_job after the job id. bulk_kwargs(drama) -> extra kwargs for
+    the kind's bulk_translate submit function."""
     prefix, label = _KINDS[kind]
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = translate_run_service._require_drama(drama_id)
@@ -62,10 +127,18 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     if (gemini_free_tier and engine_name == "gemini"
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
+    if bulk and (engine_name not in ("claude", "gemini")
+                 or (engine_name == "gemini" and gemini_free_tier)):
+        raise UnsupportedOperationError("Bulk mode needs Claude or Gemini (paid) batch APIs.")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
             f"No {engine_name} key is configured. Set one in Settings first.")
+    if bulk:
+        translate_run_service.refuse_when_cap_spent(engine_name, gemini_free_tier)
+        engine = translate_engines.get_engine(engine_name, api_key, model)
+        return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
+                           bulk_kwargs(drama) if bulk_kwargs else {})
     job_id = f"{prefix}{drama_id}"
     if background_jobs.is_running(job_id):
         raise ConflictError(f"A {label} is already running for this drama.")
@@ -82,46 +155,50 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     if not started:
         raise ConflictError(f"A {label} is already running for this drama.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
-            "model": getattr(engine, "model", model), "line_count": len(lines)}
+            "model": getattr(engine, "model", model), "line_count": len(lines), "bulk": False}
 
 
 def start_consistency_check(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = None) -> dict:
+                            gemini_free_tier: bool = None, bulk: bool = False) -> dict:
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_consistency_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}))
+                  lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
 
 
 def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = None,
                           gemini_free_tier: bool = None,
-                          use_audio_cues: bool = None) -> dict:
+                          use_audio_cues: bool = None, bulk: bool = False) -> dict:
     """Emotional register per line, saved by permanent line id. use_audio_cues
     defaults on when the drama has audio, like the tab."""
+    def cues(drama):
+        return bool(drama.get("audio_filename")) if use_audio_cues is None else use_audio_cues
+
     def make_args(drama, lines, eng, name):
-        cues = bool(drama.get("audio_filename")) if use_audio_cues is None else use_audio_cues
-        return (lines, eng, cues, name), {}
+        return (lines, eng, cues(drama), name), {}
     return _start("emotion", drama_id, engine_name, model, gemini_free_tier,
-                  workspace_job_service.run_emotion_job, make_args)
+                  workspace_job_service.run_emotion_job, make_args, bulk=bulk,
+                  bulk_kwargs=lambda drama: {"use_audio_cues": cues(drama)})
 
 
 def start_translation_notes(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = None) -> dict:
+                            gemini_free_tier: bool = None, bulk: bool = False) -> dict:
     """Notes for readers, saved to the notes table by permanent line id."""
     return _start("notes", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_translation_notes_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}))
+                  lambda d, lines, eng, name: ((lines, eng, name), {}), bulk=bulk)
 
 
 def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = None) -> dict:
+                      gemini_free_tier: bool = None, bulk: bool = False) -> dict:
     """LLM 'needs a second look' pass; writes only flag/flag_note by line id."""
     def precheck(lines):
         if not any((ln.en or "").strip() for ln in lines):
             raise UnsupportedOperationError("There are no translated lines to review yet.")
     return _start("flag", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_flag_job,
-                  lambda d, lines, eng, name: ((lines, eng, name), {}), precheck=precheck)
+                  lambda d, lines, eng, name: ((lines, eng, name), {}), precheck=precheck,
+                  bulk=bulk)
 
 
 def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
