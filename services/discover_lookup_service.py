@@ -223,7 +223,15 @@ def _job_result(job_id: str) -> dict:
     return {"job_id": job_id, "status": status.get("status"),
             "progress": status.get("progress") or 0.0,
             "message": _redact(status.get("message")),
-            "result": status.get("result")}
+            "result": _public_result(status.get("result"))}
+
+
+def _public_result(result):
+    """A job result as returned to a client: keys starting with "_" hold
+    server-only data (the full source URLs) and are dropped."""
+    if not isinstance(result, dict):
+        return result
+    return {k: v for k, v in result.items() if not str(k).startswith("_")}
 
 
 def _clean_entry(e) -> Optional[dict]:
@@ -241,7 +249,7 @@ def _clean_entry(e) -> Optional[dict]:
 
 
 def _run_bulk_extract(job_id, urls, source_label, engine):
-    rows, entries, seen = [], [], set()
+    rows, entries, seen, full_urls = [], [], set(), {}
     for i, url in enumerate(urls):
         if background_jobs.is_cancel_requested(job_id):
             break
@@ -258,7 +266,9 @@ def _run_bulk_extract(job_id, urls, source_label, engine):
                     if e is None or e["title"] in seen:
                         continue
                     seen.add(e["title"])
-                    e["source_url"] = _display_url(url)
+                    e["entry_id"] = f"e{len(entries)}"
+                    e["source_url"] = _display_url(url)      # display only
+                    full_urls[e["entry_id"]] = url          # what commit stores
                     entries.append(e)
                     row["count"] += 1
                 row["ok"] = row["count"] > 0
@@ -271,7 +281,17 @@ def _run_bulk_extract(job_id, urls, source_label, engine):
         background_jobs.update_progress(job_id, (i + 1) / len(urls),
                                         f"Read {i + 1} of {len(urls)} pages")
     background_jobs.set_result(job_id, {"entries": entries, "pages": rows,
-                                        "source_label": source_label})
+                                        "source_label": source_label,
+                                        "_source_urls": full_urls})
+
+
+def _extracted_source_urls() -> dict:
+    """entry_id -> full source URL from the current bulk-extract result
+    (this process only; empty if none)."""
+    status = background_jobs.get_status(BULK_JOB_ID) or {}
+    result = status.get("result")
+    urls = result.get("_source_urls") if isinstance(result, dict) else None
+    return dict(urls) if isinstance(urls, dict) else {}
 
 
 def bulk_extract(urls, source_label="", engine_name: Optional[str] = None) -> dict:
@@ -301,12 +321,21 @@ def bulk_extract_result() -> dict:
 def bulk_commit(entries, source_label="") -> dict:
     """Insert reviewed entries into known_titles. Skips entries whose title
     or source_url is already in the catalog (or repeated in this batch).
-    Each entry is validated by the catalog service's own rules."""
+    Each entry is validated by the catalog service's own rules.
+
+    An entry with `entry_id` (from the bulk-extract result) is stored with
+    the full source URL the server kept for it; the client's `source_url`
+    for it is ignored, because the result only shows scheme+host+path
+    (a `?id=` that identifies a book must survive to storage and dedupe).
+    An unknown entry_id (another extraction replaced the result, or a
+    restart) is 422. An entry without one is a manual entry: its
+    source_url is stored as sent."""
     if not isinstance(entries, list) or not entries:
         raise InvalidInputError("entries must be a non-empty list.")
     if len(entries) > MAX_COMMIT_ENTRIES:
         raise InvalidInputError(f"At most {MAX_COMMIT_ENTRIES} entries per commit.")
     source_label = _check_text("source_label", source_label, 100, required=False) or "manual"
+    server_urls = _extracted_source_urls()
     existing = db.list_known_titles()
     titles = {(r.get("title_original") or "").strip() for r in existing} - {""}
     urls = {(r.get("source_url") or "").strip() for r in existing} - {""}
@@ -316,7 +345,7 @@ def bulk_commit(entries, source_label="") -> dict:
             raise InvalidInputError("Each entry must be an object.")
         fields = {
             "title_original": e.get("title"), "author": e.get("author") or "",
-            "tags": e.get("tags") or "", "source_url": e.get("source_url") or "",
+            "tags": e.get("tags") or "", "source_url": _commit_url(e, server_urls),
             "source_name": source_label,
             "language": e.get("language") or "zh",
             "media_type": "audio_drama" if e.get("has_audio_drama") is True else "novel",
@@ -339,6 +368,16 @@ def bulk_commit(entries, source_label="") -> dict:
         if url:
             urls.add(url)
     return {"added": len(added), "skipped": skipped, "ids": added}
+
+
+def _commit_url(entry: dict, server_urls: dict):
+    entry_id = entry.get("entry_id")
+    if entry_id is None:
+        return entry.get("source_url") or ""
+    if not isinstance(entry_id, str) or entry_id not in server_urls:
+        raise InvalidInputError("That extracted entry is no longer available; "
+                                "run the extraction again.")
+    return server_urls[entry_id]
 
 
 def _url_is_detail(url: str, prepared: list) -> bool:

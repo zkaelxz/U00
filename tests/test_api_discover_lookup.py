@@ -118,6 +118,45 @@ def test_user_urls_come_back_without_query_or_fragment(client):
     b = res.json()["result"]
     assert b["pages"][0]["url"] == "https://a.example/list/1"
     assert b["entries"][0]["source_url"] == "https://a.example/list/1"
+    assert "_source_urls" not in b
+
+
+def test_urls_differing_only_by_query_stay_distinct(client, monkeypatch):
+    """Display strips the query; commit stores (and dedupes on) the full URL
+    the server kept, looked up by entry_id -- never the client's copy."""
+    pages = {"https://s.example/book.php?id=1": "Book One",
+             "https://s.example/book.php?id=2": "Book Two"}
+    monkeypatch.setattr(safe_fetch, "fetch_public_text",
+                        lambda url: safe_fetch.FetchResult(pages[url], False))
+    monkeypatch.setattr(bulk_import, "extract_listing_entries_llm",
+                        lambda text, eng, source_name="": [{"title": text}])
+    client.post("/api/discover/bulk-extract", json={"urls": list(pages), "engine": "claude"})
+    _wait(svc.BULK_JOB_ID)
+    res = client.get("/api/discover/bulk-extract/result")
+    assert "id=" not in res.text
+    entries = res.json()["result"]["entries"]
+    assert [e["source_url"] for e in entries] == ["https://s.example/book.php"] * 2
+    # a client that tampers with (or keeps) the display URL can't change what is stored
+    entries[0]["source_url"] = "https://evil.example/x"
+    c = client.post("/api/discover/bulk-commit", json={"entries": entries})
+    assert c.status_code == 200 and c.json()["added"] == 2
+    stored = sorted(r["source_url"] for r in db.list_known_titles())
+    assert stored == sorted(pages)
+    # a later book whose URL differs only by query is not deduped away
+    pages["https://s.example/book.php?id=3"] = "Book Three"
+    client.post("/api/discover/bulk-extract",
+                json={"urls": ["https://s.example/book.php?id=3"], "engine": "claude"})
+    _wait(svc.BULK_JOB_ID)
+    third = client.get("/api/discover/bulk-extract/result").json()["result"]["entries"]
+    assert client.post("/api/discover/bulk-commit", json={"entries": third}).json()["added"] == 1
+    assert "https://s.example/book.php?id=3" in {r["source_url"] for r in db.list_known_titles()}
+    # ids from the replaced result are gone
+    r = client.post("/api/discover/bulk-commit", json={"entries": entries})
+    assert r.status_code == 422
+    # a manual entry (no entry_id) is stored as sent
+    manual = {"title": "Manual", "source_url": "https://m.example/b?id=9"}
+    assert client.post("/api/discover/bulk-commit", json={"entries": [manual]}).json()["added"] == 1
+    assert "https://m.example/b?id=9" in {r["source_url"] for r in db.list_known_titles()}
 
 
 def test_navigation_help(client):

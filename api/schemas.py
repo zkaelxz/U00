@@ -1970,6 +1970,9 @@ class DiscoverBulkEntry(BaseModel):
     source_url: str = Field("", max_length=2000)
     has_audio_drama: StrictBool = False
     language: str = Field("zh", max_length=10)
+    # From the bulk-extract result: the server stores its own full URL for
+    # it and ignores source_url (which the result shows without a query).
+    entry_id: Optional[str] = Field(None, max_length=20)
 
 
 class DiscoverBulkCommitRequest(BaseModel):
