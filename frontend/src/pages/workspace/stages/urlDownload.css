@@ -1,0 +1,6 @@
+/* UrlDownload (Workspace "From a URL", Sources video preview). Tokens only. */
+.url-download { display: grid; gap: var(--space-2); min-width: 0; }
+.url-download > * { margin: 0; }
+.url-download input[type='url'] { width: 100%; min-width: 0; }
+.url-download-checks { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
+.url-download-checks label { display: inline-flex; align-items: center; gap: var(--space-2); }

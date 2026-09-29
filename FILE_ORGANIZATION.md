@@ -321,6 +321,8 @@ baihe-subtitler/
 │   ├── oidc_service.py           Step 134 (A1) -- Google sign-in: PKCE/state/nonce single-use login
 │   │                             transactions, id_token check against Google's JWKS (Authlib), user
 │   │                             resolution by sub then first-login email binding; tests/test_auth_login.py
+│   ├── ownership_service.py      Auth slice B1 -- drama/series visibility (owner, private flag,
+│   │                             admin/local owner see all; denied = 404), share-by-default setting
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
