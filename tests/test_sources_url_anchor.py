@@ -44,7 +44,9 @@ def test_real_bilibili_urls_still_match(url):
 
 def test_normalize_url_never_resolves_a_non_b23_host():
     calls = []
-    a = BilibiliSource(url_resolver=lambda u: calls.append(u) or u)
+    # B-25: a resolved short link must land on a bilibili video page.
+    a = BilibiliSource(url_resolver=lambda u: calls.append(u)
+                       or "https://www.bilibili.com/video/BV1xx411c7mD")
     a.normalize_url("http://169.254.169.254/?b23.tv/")
     assert calls == []
     a.normalize_url("https://b23.tv/abc")

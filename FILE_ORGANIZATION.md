@@ -264,6 +264,7 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
+│   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
