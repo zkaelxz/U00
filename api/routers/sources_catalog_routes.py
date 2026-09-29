@@ -43,8 +43,8 @@ def list_profiles():
 
 
 @router.get("/tracked", dependencies=[require_permission("library.read")], response_model=List[TrackedSeries], summary="Tracked series")
-def list_tracked():
-    return svc.list_tracked()
+def list_tracked(request: Request):
+    return svc.list_tracked(principal=request.state.principal)
 
 
 @router.get("/notifications", dependencies=[require_permission("library.read")], response_model=List[SourceNotification],

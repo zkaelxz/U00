@@ -343,6 +343,23 @@ class TestDramaIdsInBodies:
             reg.set_tracked("x", "s1", True, drama_id=world["shared"], principal=b)
 
 
+    def test_tracked_series_hide_an_invisible_linked_drama(self, world):
+        # Tracked series are household-wide; the linked private drama's id isn't.
+        from sources import store
+        store.track_series("manhuagui", "1", "Priv", drama_id=world["private"])
+        store.track_series("manhuagui", "2", "Shared", drama_id=world["shared"])
+        store.track_series("manhuagui", "3", "Unlinked")
+        client = _client(_app())
+
+        def linked(who):
+            r = client.get("/api/sources/tracked", headers=world[who])
+            assert r.status_code == 200, r.text
+            return {t["series_id"]: t["drama_id"] for t in r.json()}
+        assert linked("b") == {"1": None, "2": world["shared"], "3": None}
+        expected = {"1": world["private"], "2": world["shared"], "3": None}
+        assert linked("a") == expected
+        assert linked("admin") == expected
+
 class TestTranslateHistory:
     def test_users_see_only_their_own_rows(self, world):
         db.save_translate_history("zh", "en", "ollama", "a-text", "A", user_id=world["a_id"])
