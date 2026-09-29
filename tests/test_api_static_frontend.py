@@ -63,6 +63,13 @@ class TestServing:
             assert "FAKE-INDEX" not in r.text
             assert r.json()["error"]["code"] == "not_found"
 
+    def test_get_on_a_post_only_api_route_stays_405_with_allow(self, dist):
+        # The catch-all must not turn "wrong method" into "not found".
+        r = _client(dist).get("/api/transcribe/dramas/1/run")
+        assert r.status_code == 405
+        assert "POST" in r.headers.get("allow", "")
+        assert "FAKE-INDEX" not in r.text
+
     def test_post_to_unknown_path_is_not_served(self, dist):
         assert _client(dist).post("/anything").status_code == 405
 
