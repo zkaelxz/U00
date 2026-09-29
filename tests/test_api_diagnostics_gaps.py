@@ -77,6 +77,11 @@ def fakes(isolated_db, monkeypatch):
         yield {"returncode": 0, "timed_out": False}
 
     monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    monkeypatch.setattr(diagnostics, "nvidia_driver_info",
+                        lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
+    monkeypatch.setattr(svc, "verify_torch", lambda: {
+        "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128",
+        "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     return calls
@@ -188,10 +193,35 @@ def _h(s):
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote", "/api/diagnostics/job-history",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
-         "/api/diagnostics/install-presets")
+         "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch")
 WRITES = (("/api/diagnostics/dependencies/edge_tts/install", {"confirm": True}),
+          ("/api/diagnostics/gpu-torch/setup", {"confirm": True, "variant": "cu128"}),
           ("/api/diagnostics/dependencies/edge_tts/upgrade", {"confirm": True}),
           ("/api/diagnostics/reset-library", {"confirm": True, "confirm_text": "RESET"}))
+
+
+def test_gpu_torch_status_and_setup(client, fakes):
+    b = _clean(client.get("/api/diagnostics/gpu-torch"))
+    assert b["nvidia"]["found"] is True and b["nvidia"]["status"] == "ok"
+    assert b["recommended"]["variant"] == "cu128" and b["probe"] is None
+    assert b["recommended"]["index_url"] == "https://download.pytorch.org/whl/cu128"
+    assert _clean(client.get("/api/diagnostics/gpu-torch?probe=true"))["probe"]["cuda_available"]
+    r = client.post("/api/diagnostics/gpu-torch/setup", json={"confirm": True})
+    out = _clean(r)
+    assert r.status_code == 200 and out["ok"] is True and out["variant"] == "cu128"
+    assert out["verify"]["torch"] == "2.11.0+cu128"
+    assert len(fakes) == 2        # force-reinstall --no-deps, then the deps pass
+
+
+def test_gpu_torch_setup_refusals(client, fakes):
+    url = "/api/diagnostics/gpu-torch/setup"
+    for body in ({}, {"confirm": False}, {"confirm": True, "variant": "cu130"},
+                 {"confirm": True, "index_url": "https://evil.example/simple"},
+                 {"confirm": True, "variant": "cu128", "version": "2.14.0"}):
+        assert client.post(url, json=body).status_code == 422, body
+    RUNNING["on"] = True
+    assert client.post(url, json={"confirm": True}).status_code == 409
+    assert fakes == []
 
 
 def test_auth_on_reads_need_admin(fakes):

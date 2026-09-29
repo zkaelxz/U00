@@ -18,8 +18,10 @@ bundles, App Assistant, and the source-access tests.
 """
 
 import os
+import re
 import shutil
 import sys
+import tempfile
 import threading
 import time
 
@@ -238,6 +240,12 @@ class AdminActionJobsRunning(AdminActionRefused, ConflictError):
     pass
 
 
+class AdminActionNotPossible(AdminActionRefused, InvalidInputError):
+    """The action can't work on this machine (no NVIDIA GPU, a driver too
+    old for CUDA 12, an unsupported Python) or goes through another action
+    (torch's Upgrade is the GPU PyTorch setup)."""
+
+
 def _maintenance_active() -> bool:
     # background_jobs has no public reader for the counter that
     # enter_maintenance()/exit_maintenance() keep.
@@ -282,25 +290,23 @@ def _pip(command: str, *args) -> list:
 
 
 def _install_commands(name: str) -> list:
-    """(command, timeout) pairs for an install. torch (or torchaudio, which
-    must match it) on a machine with an
-    NVIDIA GPU gets the CUDA build from PyTorch's index, like
-    diagnostics.stream_gpu_torch_reinstall, but without uninstalling first:
-    `--force-reinstall --no-deps` downloads both wheels before replacing
-    anything, so a timeout during the (~2.5 GB) download leaves the old
-    torch in place; a second plain install then adds any missing
-    dependencies (e.g. the nvidia-* wheels on Linux). Everything else is a
-    plain install."""
-    if name in ("torch", "torchaudio") and shutil.which("nvidia-smi"):
-        index = ["--index-url",
-                 f"https://download.pytorch.org/whl/{diagnostics.gpu_torch_cuda_index()}"]
-        constraints = os.path.join(_project_root(), "constraints.txt")
-        if os.path.exists(constraints):
-            index += ["-c", constraints]
-        return [(_pip("install", "--force-reinstall", "--no-deps", "torch", "torchaudio",
-                      *index), GPU_TORCH_TIMEOUT_SECONDS),
-                (_pip("install", "torch", "torchaudio", *index), GPU_TORCH_TIMEOUT_SECONDS)]
+    """(command, timeout) pairs for an install. torch, torchvision or
+    torchaudio on a machine with an NVIDIA GPU installs the whole matched
+    CUDA triple (diagnostics.torch_setup_pip_args), never one of the three
+    alone: a plain `pip install torchaudio` resolves its own torch and can
+    swap a CUDA build for a CPU one. `--force-reinstall --no-deps` first
+    downloads every wheel before replacing anything, so a timeout during
+    the (~2.5 GB) download leaves the old torch in place; a second plain
+    install then adds any missing dependencies (e.g. the nvidia-* wheels
+    on Linux). Everything else is a plain install."""
+    if name in diagnostics.TORCH_FAMILY and shutil.which("nvidia-smi"):
+        return _torch_setup_commands(diagnostics.TORCH_RECOMMENDED_VARIANT_GPU)
     return [(_pip("install", diagnostics.pip_install_name(name)), PIP_TIMEOUT_SECONDS)]
+
+
+def _torch_setup_commands(variant: str) -> list:
+    return [(_pip("install", *args), GPU_TORCH_TIMEOUT_SECONDS)
+            for args in diagnostics.torch_setup_pip_args(variant, _project_root())]
 
 
 KILL_DRAIN_SECONDS = 5.0
@@ -367,15 +373,36 @@ def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SE
     yield {"returncode": returncode, "timed_out": timed_out}
 
 
-def _run_commands(cmds: list) -> dict:
+_TORCH_CONSTRAINT_RE = re.compile(r"\(constraint\)\s+(torch|torchvision|torchaudio)==",
+                                  re.IGNORECASE)
+
+
+def torch_conflict_hint(lines, pins: list) -> str:
+    """A plain-English refusal when pip stopped because the package needs a
+    different torch than the pinned one (pip names the constraint in its
+    "The conflict is caused by" block). pip resolves before it changes
+    anything, so nothing was installed or removed."""
+    for line in lines:
+        if _TORCH_CONSTRAINT_RE.search(line or ""):
+            have = ", ".join(p.replace("==", " ") for p in pins)
+            return ("This package needs a different PyTorch than the one installed "
+                    f"({have}), so nothing was changed: installing it would have replaced "
+                    "your PyTorch (and a CUDA build with a CPU one). Leave it, or set up a "
+                    "PyTorch version it supports under GPU PyTorch first.")
+    return None
+
+
+def _run_commands(cmds: list, torch_pins: list = None) -> dict:
     """Runs each (command, timeout) through _stream_tree; ok only if every
     one exits 0 in time. Stops at the first failure."""
-    tail, ok, hint = [], True, None
+    tail, ok, hint, raw = [], True, None, []
     for cmd, timeout in cmds:
         for item in _stream_tree(cmd, timeout):
             if "line" in item:
                 # Checked on the raw line: redaction rewrites the cache path.
                 hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
+                if torch_pins:
+                    raw = (raw + [item["line"]])[-200:]
                 tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
             elif "returncode" in item:
                 ok = ok and item["returncode"] == 0 and not item.get("timed_out")
@@ -383,17 +410,24 @@ def _run_commands(cmds: list) -> dict:
                     tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
         if not ok:
             break
+    if not ok and torch_pins:
+        hint = torch_conflict_hint(raw, torch_pins) or hint
     return {"ok": ok, "output_tail": tail, "hint": None if ok else hint}
 
 
-def _run_pip(name: str, confirm, cmds_for) -> dict:
-    """Holds the library exclusively for the whole pip run, so no job,
-    restore, reset, cleanup or second install can start in this API
-    process mid-upgrade (409 if the hold can't be taken). Jobs in another
-    process are re-checked under the hold, as reset_library does."""
-    _guard(confirm)
-    if name not in installable_packages():
-        raise AdminActionUnknownPackage("Unknown or non-installable package.")
+def _write_torch_pins(pins: list) -> str:
+    """A temporary constraints file holding `pins`; the caller removes it."""
+    fd, path = tempfile.mkstemp(prefix="baihe-torch-pins-", suffix=".txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(pins) + "\n")
+    return path
+
+
+def _under_install_hold(fn):
+    """Holds the library exclusively while fn() runs, so no job, restore,
+    reset, cleanup or second install can start in this API process
+    mid-install (409 if the hold can't be taken). Jobs in another process
+    are re-checked under the hold, as reset_library does."""
     if not background_jobs.acquire_exclusive("Dependency install"):
         raise AdminActionJobsRunning(
             "A job, restore, cleanup or another install is in progress; try again when it ends.")
@@ -402,9 +436,35 @@ def _run_pip(name: str, confirm, cmds_for) -> dict:
         if library_admin_service._any_job_running():     # re-check under the hold
             raise AdminActionJobsRunning(
                 "A background job is running or queued; wait for it to finish.")
-        result = _run_commands(cmds_for(name))
+        return fn()
     finally:
         background_jobs.release_exclusive()
+
+
+def _run_pip(name: str, confirm, cmds_for) -> dict:
+    """One whitelisted package's pip run under the install hold. Unless the
+    package is itself torch/torchvision/torchaudio, every command also gets
+    a constraints file pinning the installed torch family exactly, so pip
+    refuses (before changing anything) a package that needs another torch
+    instead of replacing a CUDA torch with a CPU one or moving torchvision."""
+    _guard(confirm)
+    if name not in installable_packages():
+        raise AdminActionUnknownPackage("Unknown or non-installable package.")
+
+    def run():
+        cmds = cmds_for(name)
+        pins = [] if name in diagnostics.TORCH_FAMILY else diagnostics.torch_pin_lines()
+        if not pins:
+            return _run_commands(cmds)
+        path = _write_torch_pins(pins)
+        try:
+            return _run_commands([(cmd + ["-c", path], t) for cmd, t in cmds], torch_pins=pins)
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    result = _under_install_hold(run)
     result["package"] = name
     return result
 
@@ -414,10 +474,151 @@ def install_dependency(name: str, confirm: bool = False) -> dict:
 
 
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
+    if name in diagnostics.TORCH_FAMILY:
+        _guard(confirm)
+        raise AdminActionNotPossible(
+            "torch, torchvision and torchaudio are upgraded together: use GPU PyTorch setup.")
     return _run_pip(name, confirm, lambda n: [
         (_pip("install", *diagnostics.upgrade_pip_args(diagnostics.pip_install_name(n),
                                                        _project_root())),
          PIP_TIMEOUT_SECONDS)])
+
+
+# ---------------------------------------------------------------------------
+# GPU PyTorch: status (read) and the matched-triple setup (local_only).
+# ---------------------------------------------------------------------------
+
+_VERIFY_LOCK = threading.Lock()
+
+
+def verify_torch() -> dict:
+    """Imports torch/torchvision/torchaudio in a fresh interpreter (this
+    process may hold an older torch) and reports versions and whether CUDA
+    works. Error text is redacted. One check at a time."""
+    with _VERIFY_LOCK:
+        return _verify_torch_once()
+
+
+def _verify_torch_once() -> dict:
+    import subprocess
+    try:
+        proc = subprocess.run([sys.executable, "-c", diagnostics.TORCH_VERIFY_SCRIPT],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=diagnostics.TORCH_VERIFY_TIMEOUT_SECONDS)
+        data = diagnostics.parse_torch_verify_output(proc.stdout)
+    except subprocess.TimeoutExpired:
+        data = {"error": "importing torch took too long"}
+    except OSError as e:
+        data = {"error": type(e).__name__}
+    out = {k: data.get(k) for k in ("torch", "torchvision", "torchaudio", "cuda_build",
+                                    "device")}
+    out = {k: (_redact(v)[:120] if v is not None else None) for k, v in out.items()}
+    out["cuda_available"] = data.get("cuda_available") if isinstance(
+        data.get("cuda_available"), bool) else None
+    errors = [data[k] for k in ("error", "torchvision_error", "torchaudio_error") if data.get(k)]
+    out["error"] = _redact(" | ".join(str(e) for e in errors))[:600] if errors else None
+    return out
+
+
+def _variant_row(variant: str) -> dict:
+    spec = diagnostics.TORCH_VARIANTS[variant]
+    return {"variant": variant, "label": spec["label"], "index_url": spec["index_url"],
+            "versions": dict(spec["versions"]), "needs_nvidia": spec["needs_nvidia"]}
+
+
+def _python_supported() -> bool:
+    lo, hi = diagnostics.TORCH_SUPPORTED_PYTHON
+    return lo <= tuple(sys.version_info[:2]) <= hi
+
+
+def get_gpu_torch_status(probe: bool = False) -> dict:
+    """NVIDIA GPU and driver (nvidia-smi), the installed torch family and
+    its build, mismatches, and the recommended matched triple. probe=True
+    also imports torch in a subprocess to report torch.cuda.is_available()
+    (a few seconds); otherwise "probe" is None."""
+    nvidia = diagnostics.nvidia_driver_info()
+    versions = diagnostics.torch_family_versions()
+    problems = diagnostics.torch_family_problems(versions)
+    variant = diagnostics.TORCH_RECOMMENDED_VARIANT_GPU if nvidia else "cpu"
+    recommended = _variant_row(variant)
+    driver = diagnostics.driver_check(nvidia["driver_version"]) if nvidia else None
+    installed = {n: versions[n]["version"] for n in diagnostics.TORCH_FAMILY}
+    if not installed["torch"]:
+        state = "missing"
+    elif problems:
+        state = "mismatched"
+    elif nvidia and versions["torch"]["build"] == "cpu":
+        state = "cpu_on_gpu"
+    elif all(installed[n] == recommended["versions"][n] for n in ("torch", "torchaudio")) and \
+            installed["torchvision"] in (None, recommended["versions"]["torchvision"]):
+        state = "recommended"
+    else:
+        state = "different"
+    return {
+        "nvidia": ({"found": True, "gpu_name": _redact(nvidia["gpu_name"]),
+                    "driver_version": nvidia["driver_version"], **driver}
+                   if nvidia else {"found": False, "gpu_name": None, "driver_version": None,
+                                   "status": "unknown", "recommended": None, "minimum": None}),
+        "installed": [{"name": n, "version": versions[n]["version"],
+                       "build": versions[n]["build"]} for n in diagnostics.TORCH_FAMILY],
+        "problems": problems,
+        "state": state,
+        "python_supported": _python_supported(),
+        "recommended": recommended,
+        "variants": [_variant_row(v) for v in diagnostics.TORCH_VARIANTS],
+        "probe": verify_torch() if probe else None,
+    }
+
+
+def setup_gpu_torch(variant: str = None, confirm: bool = False) -> dict:
+    """Installs the matched torch/torchvision/torchaudio triple for
+    `variant` (a diagnostics.TORCH_VARIANTS key; default: CUDA when an
+    NVIDIA GPU answers, else CPU) from its fixed index, then verifies it in
+    a fresh interpreter. Refuses (422) without an NVIDIA GPU for a CUDA
+    variant, with a driver too old for CUDA 12, or on a Python the wheels
+    don't cover. ok only when pip succeeded and the new torch imports as
+    the expected version (and, for CUDA, sees the GPU)."""
+    _guard(confirm)
+    nvidia = diagnostics.nvidia_driver_info()
+    if variant is None:
+        variant = diagnostics.TORCH_RECOMMENDED_VARIANT_GPU if nvidia else "cpu"
+    if variant not in diagnostics.TORCH_VARIANTS:
+        raise AdminActionNotPossible("Unknown PyTorch variant.")
+    spec = diagnostics.TORCH_VARIANTS[variant]
+    if not _python_supported():
+        lo, hi = diagnostics.TORCH_SUPPORTED_PYTHON
+        raise AdminActionNotPossible(
+            f"PyTorch {spec['versions']['torch']} has wheels for Python "
+            f"{lo[0]}.{lo[1]} to {hi[0]}.{hi[1]} only.")
+    if spec["needs_nvidia"]:
+        if not nvidia:
+            raise AdminActionNotPossible(
+                "No NVIDIA GPU answered (nvidia-smi not found or failed). Install or update "
+                "the NVIDIA driver first, or choose the CPU version.")
+        drv = diagnostics.driver_check(nvidia["driver_version"])
+        if drv["status"] == "too_old":
+            raise AdminActionNotPossible(
+                f"NVIDIA driver {nvidia['driver_version']} is too old for CUDA 12.8 "
+                f"(needs at least {drv['minimum']}, recommended {drv['recommended']}). "
+                "Update the driver from nvidia.com, then try again.")
+
+    def run():
+        result = _run_commands(_torch_setup_commands(variant))
+        result["verify"] = verify_torch() if result["ok"] else None
+        return result
+    result = _under_install_hold(run)
+    verify = result["verify"]
+    if verify is not None:
+        good = verify.get("torch") == spec["versions"]["torch"] and not verify.get("error")
+        if spec["needs_nvidia"]:
+            good = good and verify.get("cuda_available") is True
+        if not good:
+            result["ok"] = False
+            result["hint"] = ("pip finished, but the new PyTorch didn't pass the check "
+                              "(see below). Restart the app and open this section again; if "
+                              "CUDA still isn't available, update the NVIDIA driver.")
+    result.update(package="torch", variant=variant)
+    return result
 
 
 def _package_installed(name: str) -> bool:

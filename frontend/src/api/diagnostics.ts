@@ -2,6 +2,8 @@
 // (api/routers/diagnostics_gaps_routes.py). Install, upgrade and reset are
 // PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
 import type {
+  DiagnosticsGpuTorchSetupResult,
+  DiagnosticsGpuTorchStatus,
   DiagnosticsInstallPresets,
   DiagnosticsInstallResult,
   DiagnosticsJobHistoryItem,
@@ -61,6 +63,14 @@ export const upgradeDependency = (name: string, f?: Fetch) =>
   postJson<DiagnosticsInstallResult>(
     `${BASE}/dependencies/${encodeURIComponent(name)}/upgrade`, { confirm: true }, pcOnlyFetch(f),
   )
+
+// probe: the server also imports torch in a fresh Python to test CUDA (a few seconds).
+export const getGpuTorch = (probe = false, f?: Fetch) =>
+  getJson<DiagnosticsGpuTorchStatus>(`${BASE}/gpu-torch${probe ? '?probe=true' : ''}`, f)
+
+// Synchronous like installDependency: ~2.5 GB for the CUDA build.
+export const setupGpuTorch = (variant: 'cu128' | 'cpu', f?: Fetch) =>
+  postJson<DiagnosticsGpuTorchSetupResult>(`${BASE}/gpu-torch/setup`, { confirm: true, variant }, pcOnlyFetch(f))
 
 export const resetLibrary = (f?: Fetch) =>
   postJson<DiagnosticsResetResult>(

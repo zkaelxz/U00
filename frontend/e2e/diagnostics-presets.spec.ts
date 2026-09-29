@@ -75,6 +75,29 @@ const presets = {
   },
 }
 
+const CU128 = {
+  variant: 'cu128', label: 'NVIDIA GPU (CUDA 12.8)', index_url: 'https://download.pytorch.org/whl/cu128',
+  versions: { torch: '2.11.0+cu128', torchvision: '0.26.0+cu128', torchaudio: '2.11.0+cu128' }, needs_nvidia: true,
+}
+const VERIFY = {
+  torch: '2.11.0+cu128', torchvision: '0.26.0+cu128', torchaudio: '2.11.0+cu128', cuda_build: '12.8',
+  cuda_available: true, device: 'NVIDIA GeForce RTX 3080 Ti', error: null,
+}
+const gpuTorch = (probe: boolean) => ({
+  nvidia: {
+    found: true, gpu_name: 'NVIDIA GeForce RTX 3080 Ti', driver_version: '581.42', status: 'ok',
+    recommended: '570.65', minimum: '528.33',
+  },
+  installed: [
+    { name: 'torch', version: '2.11.0+cu128', build: 'cuda' },
+    { name: 'torchvision', version: '0.29.0', build: null },
+    { name: 'torchaudio', version: '2.11.0+cu128', build: 'cuda' },
+  ],
+  problems: ['torchvision 0.29.0 doesn\'t match torch 2.11.0+cu128 (torch 2.11 needs torchvision 0.26.x).'],
+  state: 'mismatched', python_supported: true, recommended: CU128,
+  variants: [CU128], probe: probe ? { ...VERIFY, torchvision: '0.29.0' } : null,
+})
+
 const HINT = 'pip couldn\'t write to its download cache. Close other Python windows, or delete %LOCALAPPDATA%\\pip\\cache.'
 
 async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string[] }> {
@@ -91,6 +114,14 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: setup }))
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: presets }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
+  await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch',
+    (r) => r.fulfill({ json: gpuTorch(new URL(r.request().url()).searchParams.get('probe') === 'true') }))
+  await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch/setup', (r) => {
+    sent.push(r.request())
+    return r.fulfill({
+      json: { package: 'torch', ok: true, output_tail: ['Successfully installed torch'], hint: null, variant: 'cu128', verify: VERIFY },
+    })
+  })
   await page.route('**/api/diagnostics/dependencies/**', (r) => {
     sent.push(r.request())
     const name = decodeURIComponent(r.request().url().split('/dependencies/')[1].split('/')[0])
@@ -165,5 +196,31 @@ test('missing packages show size, a safe Source link, and no Install for a not-o
   await page.getByRole('button', { name: 'Confirm install cv2' }).click()
   await expect(page.getByTestId('install-result')).toContainText('Installed cv2.')
   await expect(page.getByTestId('install-hint')).toHaveCount(0)
+  expect(unmocked).toEqual([])
+})
+
+test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the matched set', async ({ page }) => {
+  const { sent, unmocked } = await mockPage(page)
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await openSection(page, /^GPU PyTorch/)
+  const panel = page.getByTestId('gpu-torch')
+  await expect(panel.getByTestId('gpu-torch-state')).toContainText("don't match")
+  await expect(panel.getByTestId('gpu-torch-driver')).toHaveText('NVIDIA GeForce RTX 3080 Ti, driver 581.42')
+  await expect(panel).toContainText('torchvision 0.29.0 doesn\'t match torch 2.11.0+cu128')
+  await expect(panel.getByTestId('gpu-torch-recommended')).toContainText(
+    'torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128')
+
+  await panel.getByRole('button', { name: 'Check CUDA' }).click()
+  await expect(panel.getByTestId('gpu-torch-probe')).toHaveText('torch 2.11.0+cu128: CUDA works on NVIDIA GeForce RTX 3080 Ti.')
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-gpu-torch.png`, fullPage: true })
+
+  await panel.getByRole('button', { name: 'Set up GPU PyTorch' }).click()
+  expect(sent).toHaveLength(0)
+  await page.getByRole('button', { name: 'Confirm install GPU PyTorch (about 2.5 GB)' }).click()
+  await expect(page.getByTestId('install-result')).toContainText('PyTorch is set up. Restart Baihe to load it.')
+  expect(sent).toHaveLength(1)
+  expect(sent[0].postDataJSON()).toEqual({ confirm: true, variant: 'cu128' })
+  expect(sent[0].headers()['x-baihe-local']).toBe('1')
   expect(unmocked).toEqual([])
 })

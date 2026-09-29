@@ -306,21 +306,26 @@ def test_gpu_torch_install_never_uninstalls_first(monkeypatch):
     assert not any("uninstall" in cmd for cmd, _t in seen)
     first, second = seen[0][0], seen[1][0]
     assert first[3:6] == ["install", "--no-cache-dir", "--disable-pip-version-check"]
-    assert first[6:9] == ["--force-reinstall", "--no-deps", "torch"]
+    assert first[6:11] == ["--force-reinstall", "--no-deps", "torch==2.11.0+cu128",
+                           "torchvision==0.26.0+cu128", "torchaudio==2.11.0+cu128"]
     assert "--index-url" in first and "--index-url" in second
     assert "--force-reinstall" not in second
     assert all(t == svc.GPU_TORCH_TIMEOUT_SECONDS == 3600 for _c, t in seen)
 
 
-def test_torchaudio_follows_the_gpu_torch_path(monkeypatch):
+@pytest.mark.parametrize("name", ["torch", "torchaudio", "torchvision"])
+def test_torch_family_installs_the_matched_triple(monkeypatch, name):
     """A plain `pip install torchaudio` could swap a CUDA torch for a CPU
-    one, so on an NVIDIA machine torchaudio installs like torch does."""
+    one, so on an NVIDIA machine any of the three installs all three,
+    pinned together, from the fixed CUDA index."""
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
-    cmds = svc._install_commands("torchaudio")
+    cmds = svc._install_commands(name)
     assert len(cmds) == 2
     for cmd, timeout in cmds:
-        assert "--index-url" in cmd and "torch" in cmd and "torchaudio" in cmd
+        assert cmd[cmd.index("--index-url") + 1] == "https://download.pytorch.org/whl/cu128"
+        assert {"torch==2.11.0+cu128", "torchvision==0.26.0+cu128",
+                "torchaudio==2.11.0+cu128"} <= set(cmd)
         assert "uninstall" not in cmd
         assert timeout == svc.GPU_TORCH_TIMEOUT_SECONDS
 

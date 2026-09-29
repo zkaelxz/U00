@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { getInstallPresets, installDependency, upgradeDependency } from '../../api/diagnostics'
+import { getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import type {
-  DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo,
+  DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo, DiagnosticsTorchVariant,
 } from '../../types/diagnostics'
 import { splitDependencies } from '../diagnosticsFormat'
 import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, installBlockedReason, installConfirmLabel, installResultText,
   installableEngines, isInstallable, useDetailsOpen, type AdminBusy,
 } from './diagnosticsAdmin'
+import { GpuTorchPanel } from './GpuTorchPanel'
+import { setupConfirmLabel, verifyText } from './gpuTorch'
 import {
   firstHint, groupTasks, packageSizeText, safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes,
   taskOutput, taskResultText, taskStatus, type TaskRunResult,
@@ -58,9 +60,11 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     getInstallPresets().then(setPresets, () => undefined)
   }, [])
   useEffect(() => loadPresets(), [loadPresets])
+  const [gpuKey, setGpuKey] = useState(0)
   const changed = () => {
     onChanged()
     loadPresets()
+    setGpuKey((k) => k + 1)
   }
   const info = (name: string): DiagnosticsPackageInfo | undefined => presets?.packages[name]
   const torchInstalled = !!overview.dependencies.torch?.installed
@@ -79,6 +83,26 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
       if (r.ok) changed()
     } catch (e) {
       setOutcome({ kind, name, error: e })
+    } finally {
+      onBusy(null)
+    }
+  }
+
+  // GPU PyTorch: the matched torch/torchvision/torchaudio set from the server's table.
+  const GPU_NAME = 'GPU PyTorch'
+  const runGpuSetup = async (v: DiagnosticsTorchVariant) => {
+    onBusy({ kind: 'install', name: `${v.needs_nvidia ? 'GPU' : 'CPU'} PyTorch (about ${v.needs_nvidia ? '2.5 GB' : '300 MB'})` })
+    setOutcome(null)
+    try {
+      const r = await setupGpuTorch(v.variant)
+      const check = r.verify ? ` ${verifyText(r.verify)}` : ''
+      setOutcome({
+        kind: 'install', name: GPU_NAME, ok: r.ok, output: r.output_tail, hint: r.hint,
+        text: (r.ok ? 'PyTorch is set up. Restart Baihe to load it.' : 'PyTorch setup failed.') + check,
+      })
+      changed()
+    } catch (e) {
+      setOutcome({ kind: 'install', name: GPU_NAME, error: e })
     } finally {
       onBusy(null)
     }
@@ -145,6 +169,20 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           {running ?? ''}
         </p>
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
+        <GpuTorchPanel refreshKey={gpuKey} action={(v, reason) => local && (
+          <ConfirmButton
+            name={GPU_NAME}
+            label={v.needs_nvidia ? 'Set up GPU PyTorch…' : 'Set up PyTorch (CPU)…'}
+            ariaLabel={v.needs_nvidia ? 'Set up GPU PyTorch' : 'Set up PyTorch (CPU)'}
+            verb="install"
+            tone="primary"
+            confirmLabel={setupConfirmLabel(v)}
+            disabled={!!blocked || !!reason}
+            describedBy={running ? runningId : blocked ? reasonId : undefined}
+            busy={busy?.name.includes('PyTorch (about') ?? false}
+            onConfirm={() => void runGpuSetup(v)}
+          />
+        )} />
         {presets && presets.tasks.length > 0 && (
           <Section storageKey="diagnostics.tasks" title="Install by task"
             summary="Pick what you want to do; only its packages are installed.">

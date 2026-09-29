@@ -12,7 +12,7 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
@@ -2188,6 +2188,69 @@ class DiagnosticsInstallPresets(BaseModel):
     PyPI link and install caveats (GET /api/diagnostics/install-presets)."""
     tasks: List[DiagnosticsInstallTask]
     packages: Dict[str, DiagnosticsPackageInfo]
+
+
+class DiagnosticsGpuTorchNvidia(BaseModel):
+    found: bool
+    gpu_name: Optional[str] = None
+    driver_version: Optional[str] = None
+    # ok | old (works, below CUDA 12.8's own requirement) | too_old | unknown
+    status: str
+    recommended: Optional[str] = None
+    minimum: Optional[str] = None
+
+
+class DiagnosticsTorchPackage(BaseModel):
+    name: str
+    version: Optional[str] = None
+    build: Optional[str] = None      # "cuda", "cpu", or None (no build tag / not installed)
+
+
+class DiagnosticsTorchVariant(BaseModel):
+    variant: str
+    label: str
+    index_url: str
+    versions: Dict[str, str]
+    needs_nvidia: bool
+
+
+class DiagnosticsTorchVerify(BaseModel):
+    torch: Optional[str] = None
+    torchvision: Optional[str] = None
+    torchaudio: Optional[str] = None
+    cuda_build: Optional[str] = None
+    cuda_available: Optional[bool] = None
+    device: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DiagnosticsGpuTorchStatus(BaseModel):
+    """GET /api/diagnostics/gpu-torch: NVIDIA GPU/driver, the installed
+    torch family, mismatches and the recommended matched triple. `probe`
+    only with ?probe=true (imports torch in a subprocess)."""
+    nvidia: DiagnosticsGpuTorchNvidia
+    installed: List[DiagnosticsTorchPackage]
+    problems: List[str]
+    # missing | mismatched | cpu_on_gpu | recommended | different
+    state: str
+    python_supported: bool
+    recommended: DiagnosticsTorchVariant
+    variants: List[DiagnosticsTorchVariant]
+    probe: Optional[DiagnosticsTorchVerify] = None
+
+
+class DiagnosticsGpuTorchSetupRequest(BaseModel):
+    """confirm=true; variant is one of the server's fixed variants (omitted:
+    CUDA when an NVIDIA GPU answers, else CPU). No version or index is
+    accepted from the client."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    variant: Optional[Literal["cu128", "cpu"]] = None
+
+
+class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
+    variant: str
+    verify: Optional[DiagnosticsTorchVerify] = None
 
 
 class DiagnosticsResetRequest(BaseModel):

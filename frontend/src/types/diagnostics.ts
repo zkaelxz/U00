@@ -134,6 +134,58 @@ export interface DiagnosticsInstallPresets {
   packages: Record<string, DiagnosticsPackageInfo>
 }
 
+// GET /api/diagnostics/gpu-torch and POST /api/diagnostics/gpu-torch/setup.
+export interface DiagnosticsGpuTorchNvidia {
+  found: boolean
+  gpu_name: string | null
+  driver_version: string | null
+  status: 'ok' | 'old' | 'too_old' | 'unknown'
+  recommended: string | null
+  minimum: string | null
+}
+
+export interface DiagnosticsTorchPackage {
+  name: string
+  version: string | null
+  build: 'cuda' | 'cpu' | null
+}
+
+export interface DiagnosticsTorchVariant {
+  variant: 'cu128' | 'cpu'
+  label: string
+  index_url: string
+  versions: Record<string, string>
+  needs_nvidia: boolean
+}
+
+export interface DiagnosticsTorchVerify {
+  torch: string | null
+  torchvision: string | null
+  torchaudio: string | null
+  cuda_build: string | null
+  cuda_available: boolean | null
+  device: string | null
+  error: string | null
+}
+
+export type GpuTorchState = 'missing' | 'mismatched' | 'cpu_on_gpu' | 'recommended' | 'different'
+
+export interface DiagnosticsGpuTorchStatus {
+  nvidia: DiagnosticsGpuTorchNvidia
+  installed: DiagnosticsTorchPackage[]
+  problems: string[]
+  state: GpuTorchState
+  python_supported: boolean
+  recommended: DiagnosticsTorchVariant
+  variants: DiagnosticsTorchVariant[]
+  probe: DiagnosticsTorchVerify | null
+}
+
+export interface DiagnosticsGpuTorchSetupResult extends DiagnosticsInstallResult {
+  variant: string
+  verify: DiagnosticsTorchVerify | null
+}
+
 export interface DiagnosticsResetResult {
   ok: boolean
   reset_at: number

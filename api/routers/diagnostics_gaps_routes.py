@@ -7,10 +7,13 @@ Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
 only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
 the server-side token and returns booleans only), finished-job history
 (Q09), log tail with keyword filter (Q18), the support report (Q17) and
-install presets (packages grouped by task, approx. sizes, PyPI links).
+install presets (packages grouped by task, approx. sizes, PyPI links) and
+GPU PyTorch status (`probe=true` imports torch in a subprocess).
 
 Writes are `local_only()` plus `confirm=true`: dependency install and
-upgrade (Q06, package names from the service's whitelist only) and the
+upgrade (Q06, package names from the service's whitelist only), the GPU
+PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
+static table, never the request) and the
 library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
 background job runs (409). Model-cache delete, bug bundles, benchmark and
 the App Assistant are not exposed.
@@ -21,8 +24,9 @@ from typing import List
 from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsInstallPresets,
-                         DiagnosticsInstallResult,
+from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsGpuTorchSetupRequest,
+                         DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
+                         DiagnosticsInstallPresets, DiagnosticsInstallResult,
                          DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
@@ -85,6 +89,23 @@ def get_support_report():
             summary="Packages grouped by task, with approx. sizes, PyPI links and caveats")
 def get_install_presets():
     return svc.get_install_presets()
+
+
+@router.get("/gpu-torch", dependencies=[require_permission("admin.diagnostics")],
+            response_model=DiagnosticsGpuTorchStatus,
+            summary="NVIDIA GPU/driver, installed torch family, recommended matched triple "
+                    "(probe=true also imports torch in a subprocess)")
+def get_gpu_torch(probe: bool = Query(False)):
+    return svc.get_gpu_torch_status(probe=probe)
+
+
+@router.post("/gpu-torch/setup", dependencies=[local_only()],
+             response_model=DiagnosticsGpuTorchSetupResult,
+             summary="PC only: install the matched torch/torchvision/torchaudio from the fixed "
+                     "PyTorch index, then verify (confirm=true)",
+             responses=_ERRS)
+def post_gpu_torch_setup(body: DiagnosticsGpuTorchSetupRequest):
+    return svc.setup_gpu_torch(body.variant, confirm=body.confirm)
 
 
 @router.post("/dependencies/{package}/install", dependencies=[local_only()],

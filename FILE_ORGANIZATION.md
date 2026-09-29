@@ -439,8 +439,9 @@ baihe-subtitler/
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
-│       │                         reset-library (POST, local_only + confirm; API batch 1)
+│       │                         support-report|install-presets|gpu-torch (GET, admin.diagnostics);
+│       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library
+│       │                         (POST, local_only + confirm; API batch 1)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -488,7 +489,8 @@ baihe-subtitler/
 │   │                              libraryAdmin.ts (pure, unit-tested)
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
 │   │                              Install…/Upgrade…, synchronous; "Install by task" presets, approx.
-│   │                              sizes, PyPI Source links), PyannoteSection, ModelCacheSection,
+│   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
+│   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
