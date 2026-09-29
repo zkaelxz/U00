@@ -640,3 +640,75 @@ def test_review_auth_on(env, comic):
     assert c.post(f"/api/sources/dramas/{did}/extraction/import", headers=h,
                   json={"revision": rev}).status_code == 200
     _wait(f"sourceimport_{did}")
+
+
+# ---------------------------------------------------------------------------
+# Security review follow-ups
+# ---------------------------------------------------------------------------
+
+def test_unreadable_image_can_never_become_a_page(client, env, comic):
+    comic.files["https://img.comic.example/77/5/002.png"] = ("image/png", b"<html>not really</html>")
+    did, rv = _comic_review(client, env, comic)
+    bad = next(i for i in rv["comic"]["images"] if i["display_url"].endswith("002.png"))
+    assert bad["has_image"] is False and "readable" in bad["reason"]
+    assert client.get(f"/api/sources/dramas/{did}/extraction/images/{bad['id']}").status_code == 404
+    r = client.post(f"/api/sources/dramas/{did}/extraction/rerun-comic",
+                    json={"revision": rv["revision"], "images": [{"id": bad["id"], "role": "content", "page": 1}]})
+    assert r.status_code == 422
+    r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    assert r.status_code == 200
+    _wait(f"sourceimport_{did}")
+    import os
+    names = sorted(os.listdir(os.path.join(db.drama_dir(did), "pages")))
+    assert len(names) == len(db.list_pages(did)) == 2       # no stray non-image file
+
+
+def test_remote_runs_hold_even_a_high_profile(isolated_db):
+    from sources import adaptive, profiles
+    rules = {"content_selector": "#content"}
+    high = {"valid": True, "overall": {"bucket": "HIGH", "score": 0.95}, "problems": [], "confidence": {}}
+    held = adaptive.ExtractionReport("https://a.example/1", "novel", hold_profiles=True)
+    held.profile = {}
+    adaptive._offer(held, "a.example", "novel", rules, high, "llm")
+    assert held.pending_profile is not None and profiles.active("a.example", "novel") is None
+    saved = adaptive.ExtractionReport("https://a.example/1", "novel")
+    saved.profile = {}
+    adaptive._offer(saved, "a.example", "novel", rules, high, "llm")
+    assert saved.pending_profile is None and profiles.active("a.example", "novel") is not None
+
+
+def test_remote_import_holds_profiles(env, monkeypatch):
+    from sources import adaptive
+    seen = []
+    real = adaptive.import_novel
+
+    def spy(*a, **kw):
+        seen.append(kw.get("hold_profiles"))
+        return real(*a, **kw)
+    monkeypatch.setattr(adaptive, "import_novel", spy)
+    url = _novel_page(env)
+    did = db.create_drama(title_en="N", media_type="novel")
+    c, h = _remote_user_named("r@example.com", "sources.import")
+    assert c.post("/api/sources/url/import", json={"url": url, "drama_id": did}, headers=h).status_code == 200
+    _wait(f"sourceimport_{did}")
+    assert seen == [True]
+
+
+def test_signed_in_review_is_pc_only(env):
+    from services import sources_extraction_service as svc
+    url = _novel_page(env)
+    did = db.create_drama(title_en="N", media_type="novel")
+    html = env["fetch"].pages[url]
+    from sources import ai_extract
+    data = ai_extract.deterministic_novel(ai_extract.PageModel(html, url))
+    assert svc.open_review(did, "novel", url, html, data, None, svc.WHY_ASKED, pc_only=True)
+    c, h = _remote_user_named("r2@example.com", "sources.import")
+    assert c.get(f"/api/sources/dramas/{did}/extraction", headers=h).status_code == 404
+    local = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    assert local.get(f"/api/sources/dramas/{did}/extraction").status_code == 200
+
+
+def test_signed_paths_are_blanked():
+    from services import sources_extraction_service as svc
+    shown = svc.display_url("https://cdn.example/token/abcdefghijklmnopqrstuv/001.png?sig=1")
+    assert shown == "https://cdn.example/token/[REDACTED]/001.png"

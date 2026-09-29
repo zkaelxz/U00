@@ -225,7 +225,7 @@ def test_fetch_page_tiers_follow_the_flags(isolated_db, monkeypatch):
 def _fake_import(monkeypatch, text="正文" * 300, needs_review=False, exc=None, handoff=None,
                  calls=None):
     def fake(url, engine=None, client=None, rendered_fetch=None, user_html=None,
-             use_cache=True, allow_signed_in=True, allow_browser=True):
+             use_cache=True, allow_signed_in=True, allow_browser=True, hold_profiles=False):
         if calls is not None:
             calls.append({"url": url, "engine": engine, "signed_in": allow_signed_in,
                           "browser": allow_browser})

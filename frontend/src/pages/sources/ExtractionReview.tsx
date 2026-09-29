@@ -432,7 +432,8 @@ function ComicReview({ dramaId, comic, disabled, onApply }: {
               <div className="extraction-image-controls">
                 <select aria-label={`Role for ${label}`} value={c.role} disabled={disabled} onChange={(e) => edit(img.id, { role: e.target.value })}>
                   {comic.roles.map((r) => (
-                    <option key={r} value={r}>
+                    // An image that couldn't be downloaded or read can't be a page (the server refuses it too).
+                    <option key={r} value={r} disabled={r === 'content' && !img.has_image}>
                       {roleLabel(r)}
                     </option>
                   ))}

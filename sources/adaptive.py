@@ -62,6 +62,10 @@ class ExtractionReport:
     lines: list = field(default_factory=list)
     needs_review: bool = False
     pending_profile: dict = None
+    # Hold even a HIGH-confidence profile candidate for approval instead of
+    # saving it (a run the owner at the PC didn't start: profile writes are
+    # PC-only in the API).
+    hold_profiles: bool = False
     data: dict = None
     access: dict = field(default_factory=dict)          # Step 23k: ladder.access_facts()
     resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
@@ -222,7 +226,7 @@ def _offer(report, domain, kind, rules, validation, origin):
                     + "; ".join(validation.get("problems") or ["no usable result"]))
         return
     bucket = validation["overall"]["bucket"]
-    if bucket == ax.HIGH:
+    if bucket == ax.HIGH and not report.hold_profiles:
         entry = profiles.save_version(domain, kind, rules, validation, origin=origin)
         report.profile["saved"] = entry["version"]
         report.note(f"Saved site profile v{entry['version']} for {domain} -- the next chapter "
@@ -344,10 +348,11 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
 
 def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
                  use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True):
+                 allow_browser: bool = True, hold_profiles: bool = False):
     """The generic novel import with the Step 23g ladder. Returns
-    (NovelImportResult, report); raises NoContentFound (with `.report`)."""
-    report = ExtractionReport(url, "novel")
+    (NovelImportResult, report); raises NoContentFound (with `.report`).
+    `hold_profiles`: never auto-save a generated site profile."""
+    report = ExtractionReport(url, "novel", hold_profiles=hold_profiles)
     lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html,
                                    allow_signed_in=allow_signed_in, allow_browser=allow_browser)
     _note_access(report, lr)
@@ -527,11 +532,12 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
 
 def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
                  remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, budget=None):
+                 allow_browser: bool = True, budget=None, hold_profiles: bool = False):
     """The generic comic import with the Step 23g ladder. Returns
     (ComicImportResult, report); raises NoContentFound (with `.report`).
-    `budget` (generic_import.DownloadBudget) caps the image downloads."""
-    report = ExtractionReport(url, "comic")
+    `budget` (generic_import.DownloadBudget) caps the image downloads;
+    `hold_profiles`: never auto-save a generated site profile."""
+    report = ExtractionReport(url, "comic", hold_profiles=hold_profiles)
     client = generic_import._client(client, url)
     lr = generic_import.fetch_page(url, client, rendered_fetch, user_html,
                                    allow_signed_in=allow_signed_in, allow_browser=allow_browser)

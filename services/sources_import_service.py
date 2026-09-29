@@ -62,6 +62,7 @@ from services.sources_url_service import (check_public_url, fail_job, handoff_er
 from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
 from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
+from sources.models import AccessTier
 
 MAX_CHAPTERS = 200
 # One pasted comic page (parity SO06): how many images it may download and
@@ -239,7 +240,8 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
     background_jobs.update_progress(job_id, 0.1, "Reading the page...")
     try:
         res, report = adaptive.import_novel(url, engine=engine, client=source_client(url, job_id),
-                                            allow_signed_in=local, allow_browser=local)
+                                            allow_signed_in=local, allow_browser=local,
+                                            hold_profiles=not local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -253,7 +255,8 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
     why = extraction.review_reason(report, review)
     if why or not text.strip():
         opened = extraction.open_review(drama_id, "novel", url, getattr(res.ladder, "html", ""),
-                                        report.data, report, why or extraction.WHY_LOW_CONFIDENCE)
+                                        report.data, report, why or extraction.WHY_LOW_CONFIDENCE,
+                                        pc_only=_signed_in(res.ladder))
         background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": True,
                                             "char_count": len(text), "review_open": opened})
         return
@@ -293,9 +296,15 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
 _NO_PAGES = "No comic pages were found on that page."
 
 
+def _signed_in(lr) -> bool:
+    """Whether the page was read through the saved signed-in browser."""
+    return getattr(lr, "tier", None) == AccessTier.AUTHENTICATED_BROWSER.value
+
+
 def skipped_view(candidates) -> list:
-    """The images left out, and why (scheme+host+path only, scrubbed)."""
-    return [{"display_url": safe_url(c.url), "reason": _scrub(c.reject_reason or "") or "not a page"}
+    """The images left out, and why (scheme+host+path only, signed path
+    segments blanked, scrubbed)."""
+    return [{"display_url": extraction.display_url(c.url), "reason": _scrub(c.reject_reason or "") or "not a page"}
             for c in list(candidates)[:MAX_SKIPPED_LISTED]]
 
 
@@ -313,7 +322,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
     try:
         res, report = adaptive.import_comic(url, engine=engine, client=source_client(url, job_id),
                                             allow_signed_in=local, allow_browser=local,
-                                            budget=budget)
+                                            budget=budget, hold_profiles=not local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -328,7 +337,8 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
     if why or not res.images:
         opened = extraction.open_review(drama_id, "comic", url, getattr(res.ladder, "html", ""),
                                         report.data, report, why or extraction.WHY_LOW_CONFIDENCE,
-                                        candidates=list(res.images) + list(res.rejected))
+                                        candidates=list(res.images) + list(res.rejected),
+                                        pc_only=_signed_in(res.ladder))
         background_jobs.set_result(job_id, _comic_result(True, 0, res.rejected, opened))
         return
     if background_jobs.is_cancel_requested(job_id):

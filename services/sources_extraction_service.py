@@ -39,8 +39,13 @@ id (a block, link or image id, or a selector from the offered list), never
 by list position, and never free text: a correction changes which parts of
 the page are used, never the text or images themselves. Each change makes a
 new `revision`; a request naming an older one is a 409, so a stale screen
-can't import or save a result it didn't show. Text is scrubbed and URLs
-reduced to scheme+host+path.
+can't import or save a result it didn't show. An image whose download
+failed or that Pillow couldn't read can't be marked as a page. Text is
+scrubbed and URLs reduced to scheme+host+path, with signed path segments
+blanked (`display_url`). A review of a page read through the saved
+signed-in browser is shown only at this PC (it can carry the account's
+page chrome), and a run started from another device never auto-saves a
+site profile (adaptive `hold_profiles`).
 """
 
 import secrets
@@ -162,6 +167,7 @@ class _Review:
     rules: dict = None       # the corrections, as profile rules
     revision: str = ""
     created_at: float = 0.0
+    pc_only: bool = False    # read through the signed-in browser: this PC only
 
 
 _REVIEWS = {}
@@ -197,25 +203,25 @@ def _prune(now: float):
 
 
 def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, report,
-                why: str, candidates=()) -> bool:
+                why: str, candidates=(), pc_only: bool = False) -> bool:
     """Called by an import job instead of writing: keeps what it extracted
     for review. Replaces any earlier review for the drama. False when there
     is nothing to review (no result)."""
     if not data or kind not in ("novel", "comic"):
         return False
     rv = _Review(int(drama_id), kind, url, ai_extract.PageModel(html or "", url), data, report,
-                 why, list(candidates), None, _new_revision(), time.time())
+                 why, list(candidates), None, _new_revision(), time.time(), bool(pc_only))
     with _LOCK:
         _REVIEWS[rv.drama_id] = rv
         _prune(time.time())
     return rv.drama_id in _REVIEWS
 
 
-def _get(drama_id: int, revision=None) -> _Review:
+def _get(drama_id: int, revision=None, local: bool = True) -> _Review:
     with _LOCK:
         _prune(time.time())
         rv = _REVIEWS.get(int(drama_id))
-    if rv is None:
+    if rv is None or (rv.pc_only and not local):
         raise NotFoundError(_NO_REVIEW)
     if revision is not None and revision != rv.revision:
         raise ConflictError(_STALE, details={"revision": rv.revision})
@@ -230,6 +236,13 @@ def _require_drama(drama_id, principal):
 def drop_review(drama_id: int):
     with _LOCK:
         _REVIEWS.pop(int(drama_id), None)
+
+
+def display_url(url):
+    """scheme+host+path, with credential-shaped path segments blanked (a
+    signed CDN path is a credential, as for the AI prompt)."""
+    shown = safe_url(url)
+    return ai_extract._SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", shown) if shown else shown
 
 
 def _label(text) -> str:
@@ -247,7 +260,7 @@ def _confidence_view(data: dict) -> dict:
         value = (data or {}).get(f)
         shown = None if value is None or isinstance(value, (list, dict)) else _label(value)
         if f in ("next_url", "previous_url") and isinstance(value, str):
-            shown = safe_url(value)
+            shown = display_url(value)
         fields.append({"field": f, "bucket": c.get("bucket"), "score": float(c.get("score") or 0),
                        "checks": [_label(x) for x in c.get("checks") or []], "value": shown})
     return {"overall": {"bucket": o.get("bucket"), "score": float(o.get("score") or 0)},
@@ -327,7 +340,8 @@ def _novel_view(rv: _Review) -> dict:
         "exclude_selectors": [x for x in base.get("exclude_selectors") or [] if x in ex_now],
         "headings": [{"id": b.id, "text": _label(b.text)} for b in heads],
         "title_block": title_id if title_id in {b.id for b in heads} else None,
-        "links": [{"id": l.id, "text": _label(l.text), "url": safe_url(l.url)} for l in _links(rv)],
+        "links": [{"id": l.id, "text": _label(l.text), "url": display_url(l.url)}
+                  for l in _links(rv)],
         "next_link": _link_id_for(rv, data.get("next_url")),
         "previous_link": _link_id_for(rv, data.get("previous_url")),
         "number_from": base.get("number_from") if base.get("number_from") in NUMBER_FROM else "title",
@@ -343,19 +357,25 @@ def _comic_items(rv: _Review) -> list:
         p = roles.get(c.url) or {}
         role = p.get("role") or "other"
         page = (p.get("index") + 1) if role == "content" and isinstance(p.get("index"), int) else 0
-        out.append({"id": i, "display_url": safe_url(c.url), "attr": _label(c.attr or "src"),
+        out.append({"id": i, "display_url": display_url(c.url), "attr": _label(c.attr or "src"),
                     "width": int(c.width or 0), "height": int(c.height or 0),
                     "role": role if role in ai_extract.COMIC_ROLES else "other", "page": page,
                     "reason": _label(c.reject_reason or p.get("reason") or ""),
-                    "has_image": bool(c.content) and _image_type(c) is not None})
+                    "has_image": _usable(c)})
     return out
+
+
+def _usable(c) -> bool:
+    """Downloaded, read by Pillow as a raster type, with a size: only such
+    an image can become a page."""
+    return bool(c.content) and _image_type(c) is not None and c.width > 0 and c.height > 0
 
 
 def _kept_count(rv: _Review) -> int:
     by_url = {c.url: c for c in rv.candidates}
     return sum(1 for p in rv.data.get("pages") or []
                if p.get("role") == "content" and by_url.get(p["resource_url"]) is not None
-               and by_url[p["resource_url"]].content)
+               and _usable(by_url[p["resource_url"]]))
 
 
 def _comic_view(rv: _Review) -> dict:
@@ -363,13 +383,14 @@ def _comic_view(rv: _Review) -> dict:
             "page_count": _kept_count(rv)}
 
 
-def review_view(drama_id: int, principal=None) -> dict:
-    """The review for a drama: 404 when there is none (or it expired)."""
+def review_view(drama_id: int, principal=None, local: bool = True) -> dict:
+    """The review for a drama: 404 when there is none (or it expired, or
+    it is PC-only and the request isn't from this PC)."""
     _require_drama(drama_id, principal)
-    rv = _get(drama_id)
+    rv = _get(drama_id, local=local)
     out = {
         "kind": "extraction_review", "drama_id": rv.drama_id, "revision": rv.revision,
-        "content_type": rv.kind, "why": rv.why, "display_url": safe_url(rv.url),
+        "content_type": rv.kind, "why": rv.why, "display_url": display_url(rv.url),
         "confidence": _confidence_view(rv.data), "report": _report_view(rv.report),
         "can_save_profile": bool(rv.rules), "novel": None, "comic": None,
     }
@@ -389,12 +410,12 @@ def _offered(value, allowed, what: str):
 
 def rerun_novel(drama_id: int, revision: str, content_selector, exclude_selectors=(),
                 title_block=None, next_link=None, previous_link=None, number_from="title",
-                principal=None) -> dict:
+                principal=None, local: bool = True) -> dict:
     """Re-runs the extraction on the kept page with the chosen parts. 422
     for a choice the review didn't offer, or when the chosen parts give no
     text; 409 stale revision."""
     _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision)
+    rv = _get(drama_id, revision, local)
     if rv.kind != "novel":
         raise InvalidInputError("This review is for comic pages.")
     sel = _offered(content_selector, {c[0] for c in _containers(rv)}, "content_selector")
@@ -424,15 +445,16 @@ def rerun_novel(drama_id: int, revision: str, content_selector, exclude_selector
         if rv.revision != revision:
             raise ConflictError(_STALE, details={"revision": rv.revision})
         rv.data, rv.rules, rv.revision = new, rules, _new_revision()
-    return review_view(drama_id, principal)
+    return review_view(drama_id, principal, local)
 
 
-def rerun_comic(drama_id: int, revision: str, images, principal=None) -> dict:
+def rerun_comic(drama_id: int, revision: str, images, principal=None, local: bool = True) -> dict:
     """Applies the person's roles and page numbers, each keyed by the image
     id the review gave it. Images not named keep their current role and
-    page. 422 for an unknown id or role, or a page number out of range."""
+    page. 422 for an unknown id or role, a page number out of range, or an
+    image that can't be a page (not downloaded, or not readable)."""
     _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision)
+    rv = _get(drama_id, revision, local)
     if rv.kind != "comic":
         raise InvalidInputError("This review is for novel text.")
     current = {it["id"]: it for it in _comic_items(rv)}
@@ -445,10 +467,15 @@ def rerun_comic(drama_id: int, revision: str, images, principal=None) -> dict:
             raise InvalidInputError(_NOT_OFFERED, details={"field": "images.role"})
         if isinstance(page, bool) or not isinstance(page, int) or not 0 <= page <= MAX_PAGE_NUMBER:
             raise InvalidInputError(f"Page numbers go from 0 (not a page) to {MAX_PAGE_NUMBER}.")
+        if role == "content" and not _usable(rv.candidates[cid]):
+            raise InvalidInputError("That image couldn't be downloaded or read, so it can't be a page.",
+                                    details={"field": "images.role", "id": cid})
         chosen[cid] = (role, page)
     roles, order = {}, {}
     for cid, it in current.items():
         role, page = chosen.get(cid, (it["role"], it["page"]))
+        if role == "content" and not _usable(rv.candidates[cid]):
+            role, page = "other", 0
         url = rv.candidates[cid].url
         roles[url] = role
         if role == "content" and page > 0:
@@ -460,19 +487,29 @@ def rerun_comic(drama_id: int, revision: str, images, principal=None) -> dict:
         if rv.revision != revision:
             raise ConflictError(_STALE, details={"revision": rv.revision})
         rv.data, rv.rules, rv.revision = new, rules, _new_revision()
-    return review_view(drama_id, principal)
+    return review_view(drama_id, principal, local)
+
+
+def _snapshot(rv: _Review, revision: str) -> tuple:
+    """(data, rules) as of `revision`, read under the lock so a re-run from
+    another tab can't swap them in between (409 when it already has)."""
+    with _LOCK:
+        if rv.revision != revision:
+            raise ConflictError(_STALE, details={"revision": rv.revision})
+        return rv.data, rv.rules
 
 
 def save_profile(drama_id: int, revision: str, principal=None) -> dict:
     """Saves the corrections as the site's profile (a new version; the
     previous one is kept for rollback). 422 when there are no corrections
-    yet or the profile doesn't validate."""
+    yet or the profile doesn't validate. PC-only route."""
     _require_drama(drama_id, principal)
     rv = _get(drama_id, revision)
-    if not rv.rules:
+    data, rules = _snapshot(rv, revision)
+    if not rules:
         raise InvalidInputError("Re-run with your corrections first; those are what's saved.")
     try:
-        v = profiles.save_version(profiles.domain_of(rv.url), rv.kind, rv.rules, rv.data,
+        v = profiles.save_version(profiles.domain_of(rv.url), rv.kind, rules, data,
                                   origin="correction", approved=True)
     except profiles.ProfileRejected as e:
         raise InvalidInputError(_scrub(str(e))) from None
@@ -517,34 +554,40 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, revision
     background_jobs.set_result(job_id, result)
 
 
-def start_review_import(drama_id: int, revision: str, principal=None) -> dict:
+def start_review_import(drama_id: int, revision: str, principal=None,
+                        local: bool = True) -> dict:
     """Starts `sourceimport_<drama_id>`: writes the reviewed result (novel
     text appended to the raw-novel text, or the content images, in page
     order, added as pages). 422 nothing to import or the drama's media type
     no longer fits; 409 stale revision or a job running for the drama."""
     from services import sources_import_service as imp
     drama = _require_drama(drama_id, principal)
-    rv = _get(drama_id, revision)
+    rv = _get(drama_id, revision, local)
+    data, _rules = _snapshot(rv, revision)
     media = (drama.get("media_type") or "").lower()
     if rv.kind == "novel":
         if media not in imp.NOVEL_MEDIA_TYPES:
             raise InvalidInputError("Novel text imports into a novel drama.")
-        text = rv.data.get("content") or ""
+        text = data.get("content") or ""
         if not text.strip():
             raise InvalidInputError("There's no chapter text to import.")
-        heading = rv.data.get("chapter_title") or ""
+        heading = data.get("chapter_title") or ""
         snapshot = (text, heading)
     else:
         if media not in imp.COMIC_MEDIA_TYPES:
             raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama.")
-        kept, _rest = adaptive.images_for(rv.data, rv.candidates)
+        by_url = {c.url: c for c in rv.candidates}
+        kept = [by_url[p["resource_url"]] for p in sorted(
+            (p for p in data.get("pages") or [] if p.get("role") == "content"),
+            key=lambda p: p["index"]) if p["resource_url"] in by_url]
+        kept = [c for c in kept if _usable(c)]
         if not kept:
             raise InvalidInputError("No image is marked as a page.")
         snapshot = [(c.content, c.ext) for c in kept]
     imp._require_idle(drama_id)
     job_id = imp.import_job_id(drama_id)
     return imp._start(job_id, _review_import_job, job_id, int(drama_id), rv.kind, snapshot,
-                      rv.revision, description="Import a reviewed extraction")
+                      revision, description="Import a reviewed extraction")
 
 
 # ----- image previews ------------------------------------------------------
@@ -557,15 +600,15 @@ def _image_type(c):
     return _MEDIA_TYPES.get((c.ext or "").lower())
 
 
-def review_image(drama_id: int, candidate_id: int, principal=None) -> tuple:
+def review_image(drama_id: int, candidate_id: int, principal=None, local: bool = True) -> tuple:
     """(bytes, media type) of one downloaded image in a comic review, for
     its thumbnail. Raster types Pillow read only (never SVG or HTML)."""
     _require_drama(drama_id, principal)
-    rv = _get(drama_id)
+    rv = _get(drama_id, local=local)
     if rv.kind != "comic" or not 0 <= candidate_id < len(rv.candidates):
         raise NotFoundError("No such image in this review.")
     c = rv.candidates[candidate_id]
     media_type = _image_type(c)
-    if not c.content or media_type is None:
+    if not _usable(c):
         raise NotFoundError("No such image in this review.")
     return c.content, media_type

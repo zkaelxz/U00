@@ -81,7 +81,8 @@ _REVIEW = "/dramas/{drama_id}/extraction"
             response_model=ExtractionReview, responses=_ERRS,
             summary="The extraction waiting for review for this drama (404: none)")
 def get_review(request: Request, drama_id: int = Path(ge=1)):
-    return svc.review_view(drama_id, principal=request.state.principal)
+    return svc.review_view(drama_id, principal=request.state.principal,
+                           local=is_local_request(request))
 
 
 @router.post(_REVIEW + "/rerun-novel", dependencies=[require_permission("sources.import")],
@@ -92,7 +93,7 @@ def post_rerun_novel(body: ExtractionNovelRerunRequest, request: Request,
     return svc.rerun_novel(drama_id, body.revision, body.content_selector,
                            body.exclude_selectors, body.title_block, body.next_link,
                            body.previous_link, body.number_from,
-                           principal=request.state.principal)
+                           principal=request.state.principal, local=is_local_request(request))
 
 
 @router.post(_REVIEW + "/rerun-comic", dependencies=[require_permission("sources.import")],
@@ -102,7 +103,7 @@ def post_rerun_comic(body: ExtractionComicRerunRequest, request: Request,
                      drama_id: int = Path(ge=1)):
     return svc.rerun_comic(drama_id, body.revision,
                            [i.model_dump() for i in body.images],
-                           principal=request.state.principal)
+                           principal=request.state.principal, local=is_local_request(request))
 
 
 @router.post(_REVIEW + "/save-profile", dependencies=[local_only()],
@@ -126,7 +127,8 @@ def post_approve_profile(body: ExtractionRevisionRequest, request: Request,
              summary="Job: write the reviewed text or pages into the drama")
 def post_review_import(body: ExtractionRevisionRequest, request: Request,
                        drama_id: int = Path(ge=1)):
-    return svc.start_review_import(drama_id, body.revision, principal=request.state.principal)
+    return svc.start_review_import(drama_id, body.revision, principal=request.state.principal,
+                                   local=is_local_request(request))
 
 
 @router.get(_REVIEW + "/images/{candidate_id}",
@@ -136,7 +138,8 @@ def post_review_import(body: ExtractionRevisionRequest, request: Request,
 def get_review_image(request: Request, drama_id: int = Path(ge=1),
                      candidate_id: int = Path(ge=0, le=10_000)):
     body, media_type = svc.review_image(drama_id, candidate_id,
-                                        principal=request.state.principal)
+                                        principal=request.state.principal,
+                                        local=is_local_request(request))
     return Response(body, media_type=media_type, headers={
         "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
         "Content-Security-Policy": "default-src 'none'; sandbox"})
