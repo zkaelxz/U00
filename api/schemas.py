@@ -333,6 +333,9 @@ class TranscribeConfig(BaseModel):
     has_video_source: bool
     hardsub_ocr_backend: str
     hardsub_interval_sec: float
+    # Whisper prompt built from the series glossary and raw-novel excerpt;
+    # a run with an empty initial_prompt uses this.
+    auto_initial_prompt: str = ""
 
 
 class TranscribeConfigUpdate(BaseModel):

@@ -26,6 +26,7 @@ import {
   whisperModelWarning,
 } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { prefillPrompt } from './transcribePrompt'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
@@ -105,6 +106,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         if (cancelled) return
         setConfig(c)
         setCf(formFromConfig(c))
+        // Fill the prompt box with the automatic prompt unless the user already typed one.
+        setPrompt((p) => prefillPrompt(p, c.auto_initial_prompt))
       },
       (e: unknown) => !cancelled && setError(e),
     )
@@ -336,7 +339,14 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
           </div>
-          <Field label="Initial prompt" help="Names or terms that help the model spell things correctly.">
+          <Field
+            label="Initial prompt"
+            help={
+              config?.auto_initial_prompt
+                ? 'From glossary and novel. Names or terms that help the model spell things correctly; leave it empty to use the automatic prompt.'
+                : 'Names or terms that help the model spell things correctly.'
+            }
+          >
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
           </Field>
           <div className="source-checks">

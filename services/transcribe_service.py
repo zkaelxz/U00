@@ -124,6 +124,27 @@ def _default_hardsub_backend(source_language: str) -> str:
     return "paddle" if source_language == "zh" else "tesseract"
 
 
+def build_auto_initial_prompt(drama_id: int) -> str:
+    """Whisper's automatic initial_prompt for one drama: the series
+    glossary's names (core.build_initial_prompt) plus, when the drama has a
+    raw_novel_context.txt, a bounded novel excerpt merged in names-first and
+    trimmed by core.combine_initial_prompt (its 900-character cap). Shared by
+    cli.cmd_align and the API transcribe path so the two can't drift.
+    Returns "" when there's neither a glossary nor a novel. Raises
+    NotFoundError for an unknown drama id."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
+    prompt = core_module.build_initial_prompt(terms)
+    novel_path = os.path.join(db.drama_dir(drama_id), "raw_novel_context.txt")
+    if os.path.exists(novel_path):
+        with open(novel_path, "r", encoding="utf-8") as f:
+            prompt = core_module.combine_initial_prompt(
+                prompt, core_module.extract_novel_excerpt_for_prompt(f.read()))
+    return prompt
+
+
 def get_transcribe_config(drama_id: int) -> dict:
     """Read-only Transcript-stage summary for one drama: which action the
     "Transcribe & Align" button would run (from Slice 19's transcript_mode),
@@ -158,6 +179,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
                                or _default_hardsub_backend(source["source_language"]),
         "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
+        "auto_initial_prompt": build_auto_initial_prompt(drama_id),
     }
 
 
@@ -254,9 +276,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     source_language / chinese_script default to this drama's own stored
     values (Slice 19) when omitted. initial_prompt is an optional,
-    client-supplied names-to-expect string; Streamlit's automatic
-    derivation of one from the series glossary and raw-novel excerpt is
-    out of scope for this slice.
+    client-supplied names-to-expect string; when it's empty or omitted the
+    run uses build_auto_initial_prompt (series glossary plus raw-novel
+    excerpt), the same prompt cli.cmd_align builds.
 
     transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- per Slice 19, it's
@@ -355,7 +377,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
         bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
-        initial_prompt or "", video_path,
+        (initial_prompt or "").strip() or build_auto_initial_prompt(drama_id), video_path,
         drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
         drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
         settings_service.get_use_gpu(), asr_backend_choice, alignment_method,
