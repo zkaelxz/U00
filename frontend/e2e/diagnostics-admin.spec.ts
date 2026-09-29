@@ -35,8 +35,15 @@ const setup = (o: Record<string, unknown> = {}) => ({
   ...o,
 })
 
+// A held install is always answered by its mock, never left pending:
+// Chromium lets a pending intercepted request through to the server when
+// the page closes. afterEach releases it and waits for the answer to go out.
 let releaseInstall: () => void = () => undefined
-test.afterEach(() => releaseInstall())
+const pendingFulfils: Promise<void>[] = []
+test.afterEach(async () => {
+  releaseInstall()
+  await Promise.allSettled(pendingFulfils.splice(0))
+})
 
 /** Catch-all first (Playwright tries the newest route first, so later mocks win). */
 async function guard(page: Page): Promise<string[]> {
@@ -78,16 +85,17 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   const unmocked = await guard(page)
   await mockPage(page, { stats: { total_dramas: 3, total_lines: 10, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} } })
   const sent: Request[] = []
-  // The install is held until release(); it is always answered by the mock
-  // (afterEach releases it too), never left pending: Chromium lets a pending
-  // intercepted request through to the real server when the page closes.
+  // Held until release() (or afterEach); always fulfilled, never continued.
   const gate = new Promise<void>((res) => (releaseInstall = res))
   const release = () => releaseInstall()
   await page.route('**/api/diagnostics/dependencies/**', async (r) => {
     sent.push(r.request())
-    await gate
     const ok = r.request().url().includes('yt-dlp')
-    await r.fulfill({ json: { package: ok ? 'yt-dlp' : 'torch', ok, output_tail: ok ? ['Successfully installed'] : ['ERROR: no space'] } })
+    const answer = gate.then(() => r.fulfill({
+      json: { package: ok ? 'yt-dlp' : 'torch', ok, output_tail: ok ? ['Successfully installed'] : ['ERROR: no space'] },
+    }))
+    pendingFulfils.push(answer)
+    await answer
   })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
@@ -102,7 +110,11 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   expect(sent).toHaveLength(1)
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
-  await expect(page.getByTestId('dependency-panel')).toContainText('Wait for the install to finish.')
+  await expect(page.getByTestId('diagnostics-summary')).toContainText('· Installing yt-dlp')
+  // The running line is the reason (the "Wait…" line is hidden meanwhile) and describes the disabled buttons.
+  await expect(page.getByTestId('dependency-panel')).not.toContainText('Wait for the install to finish.')
+  const runningId = await page.getByTestId('install-running').getAttribute('id')
+  await expect(page.getByRole('button', { name: 'Install torch' })).toHaveAttribute('aria-describedby', runningId!)
   await expect(page.getByRole('button', { name: 'Install torch' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Upgrade jieba' })).toHaveCount(0) // installed list is closed
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
@@ -111,6 +123,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
 
   release()
   await expect(page.getByTestId('install-result')).toContainText('Installed yt-dlp.')
+  await expect(page.getByText('Installed yt-dlp.')).toBeFocused()
   await expect(page.getByTestId('install-result').locator('details')).not.toHaveAttribute('open', '')
   await expect(page.getByTestId('install-running')).toHaveText('')
 
@@ -288,12 +301,15 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
   const ext = page.locator('details.section', { hasText: 'Browser extension' })
   await expect(ext.locator('.section-summary')).toHaveText('Off · still running until Baihe restarts')
   await ext.locator('summary').click()
+  // The summary hides while open; the status stays visible in the body.
+  await expect(ext.getByTestId('extension-note')).toHaveText('Off · still running until Baihe restarts')
+  await expect(ext.getByTestId('extension-note')).toBeVisible()
 
   await ext.getByRole('checkbox', { name: 'Extension bridge' }).check()
   await expect(ext.getByRole('checkbox', { name: 'Extension bridge' })).toBeChecked()
   expect(toggles).toEqual([{ enabled: true }])
 
-  await ext.getByRole('button', { name: /^Show token/ }).click()
+  await ext.getByRole('button', { name: 'Show extension token' }).click()
   expect(tokenPosts).toBe(0)
   await ext.getByRole('button', { name: 'Confirm show extension token' }).click()
   const input = ext.getByLabel('Extension token', { exact: true })

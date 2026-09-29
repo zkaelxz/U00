@@ -62,7 +62,7 @@ export function PyannoteSection() {
                   ) : (
                     <>
                       <span className="warn">{m.model}: terms not accepted</span>{' '}
-                      <a href={hfModelUrl(m.model)} target="_blank" rel="noopener noreferrer">
+                      <a className="hf-terms" href={hfModelUrl(m.model)} target="_blank" rel="noopener noreferrer">
                         Accept terms ↗
                       </a>
                     </>

@@ -65,6 +65,8 @@ describe('header', () => {
     expect(headerParts(0, 22, 25, 1)).toEqual({ setup: 'Setup OK', warn: false, rest: '22 of 25 packages · 1 job running' })
     expect(headerParts(2, 22, 25, 0)).toEqual({ setup: '2 setup problems', warn: true, rest: '22 of 25 packages' })
     expect(headerParts(null, null, null, 3)).toEqual({ setup: null, warn: false, rest: '3 jobs running' })
+    expect(headerParts(0, 22, 25, 0, { kind: 'install', name: 'yt-dlp' }).rest).toBe('22 of 25 packages · Installing yt-dlp')
+    expect(headerParts(0, 22, 25, 0, { kind: 'reset', name: 'library' }).rest).toBe('22 of 25 packages')
   })
 })
 

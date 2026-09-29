@@ -14,7 +14,10 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { ExtensionStatus } from '../../types/extension'
-import { TOKEN_VISIBLE_MS, extensionSummary, extensionToggleNote } from '../diagnostics/diagnosticsAdmin'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
+import {
+  COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionSummary, extensionToggleNote,
+} from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
 
 const SERVER = { pcOnly: true, serverText: true } as const
@@ -95,8 +98,9 @@ function ExtensionControls() {
                 />
               </Field>
             </div>
+            {/* The section summary hides while open, so the status stays here. */}
             <p className="muted" aria-live="polite" data-testid="extension-note">
-              {note ?? ''}
+              {note ?? extensionSummary(status)}
             </p>
             <TokenReveal />
           </>
@@ -112,6 +116,13 @@ function TokenReveal() {
   const [announce, setAnnounce] = useState('')
   const [error, setError] = useState<unknown>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const touch = useMediaQuery('(pointer: coarse)')
+
+  useEffect(() => {
+    if (announce !== 'Copied.') return
+    const t = setTimeout(() => setAnnounce(''), COPIED_MS)
+    return () => clearTimeout(t)
+  }, [announce])
 
   // Auto-hide after 120 s; unmounting drops the state with it.
   useEffect(() => {
@@ -146,7 +157,7 @@ function TokenReveal() {
       setAnnounce('Copied.')
     } catch {
       inputRef.current?.focus() // selects it (onFocus)
-      setAnnounce('Selected. Copy it with Ctrl+C or a long-press.')
+      setAnnounce(copyFallbackText(touch))
     }
   }
 
@@ -154,7 +165,15 @@ function TokenReveal() {
     <div className="diag-stack">
       {token === null ? (
         <div className="actions">
-          <ConfirmButton label="Show token…" verb="show" tone="primary" name="extension token" busy={busy} onConfirm={reveal} />
+          <ConfirmButton
+            label="Show token…"
+            ariaLabel="Show extension token"
+            verb="show"
+            tone="primary"
+            name="extension token"
+            busy={busy}
+            onConfirm={reveal}
+          />
         </div>
       ) : (
         <div className="token-row">

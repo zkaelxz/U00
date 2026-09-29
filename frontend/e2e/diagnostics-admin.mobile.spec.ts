@@ -14,7 +14,8 @@ async function noSideways(page: Page) {
 
 const long = 'x'.repeat(400)
 
-test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', async ({ page }) => {
+/** Aborts any non-GET /api call no test mocked (later page.route mocks win). */
+async function guard(page: Page): Promise<string[]> {
   const unmocked: string[] = []
   await page.route('**/api/**', (route) => {
     const r = route.request()
@@ -22,6 +23,11 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
+  return unmocked
+}
+
+test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', async ({ page }) => {
+  const unmocked = await guard(page)
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 1, items: [{
     job_id: 'translate_1', status: 'running', progress: 0.4, message: 'Batch 2 of 5', error: null,
     description: 'Translate Signal', gpu_touching: false, started_at: Date.now() / 1000 - 185, finished_at: null, updated_at: 0,
@@ -74,17 +80,19 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
 })
 
 test('Settings on a phone: the extension section fits and its targets are 44px', async ({ page }) => {
+  const unmocked = await guard(page)
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   await page.route('**/api/extension/token', (r) => r.fulfill({ json: { token: 'tok-phone' } }))
   await page.goto('/#/settings')
   const ext = page.locator('details.section', { hasText: 'Browser extension' })
   await expect(ext.locator('.section-summary')).toHaveText('On · running')
   await ext.locator('summary').click()
-  await ext.getByRole('button', { name: /^Show token/ }).click()
+  await ext.getByRole('button', { name: 'Show extension token' }).click()
   await ext.getByRole('button', { name: 'Confirm show extension token' }).click()
   await expect(ext.getByLabel('Extension token', { exact: true })).toHaveValue('tok-phone')
   for (const name of ['Copy', 'Hide']) {
     expect((await ext.getByRole('button', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
   }
   await noSideways(page)
+  expect(unmocked).toEqual([])
 })

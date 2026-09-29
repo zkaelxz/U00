@@ -114,14 +114,17 @@ export function installableEngines(engines: ModelEngineVersion[], packageNames: 
   return engines.filter((m) => !m.installed && m.package && !seen.has(m.package))
 }
 
-/** Header line parts: setup ("Setup OK" / "2 setup problems"), packages, jobs (only when running). */
-export function headerParts(setupProblems: number | null, installed: number | null, total: number | null, running: number) {
+/** Header line parts: setup ("Setup OK" / "2 setup problems"), packages, jobs (only when running), a running install. */
+export function headerParts(
+  setupProblems: number | null, installed: number | null, total: number | null, running: number, busy: AdminBusy = null,
+) {
   const setup = setupProblems == null ? null
     : setupProblems === 0 ? 'Setup OK'
       : `${setupProblems} setup ${setupProblems === 1 ? 'problem' : 'problems'}`
   const rest: string[] = []
   if (installed != null && total != null) rest.push(`${installed} of ${total} packages`)
   if (running > 0) rest.push(`${running} ${running === 1 ? 'job' : 'jobs'} running`)
+  if (busy && busy.kind !== 'reset') rest.push(`${busy.kind === 'install' ? 'Installing' : 'Upgrading'} ${busy.name}`)
   return { setup, warn: !!setupProblems, rest: rest.join(' · ') }
 }
 

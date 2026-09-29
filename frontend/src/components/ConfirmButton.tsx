@@ -22,6 +22,9 @@
  *   tone          second-step style: 'danger' (default) or 'primary' for a
  *                 non-destructive but overwriting action
  *   disabled      cannot run now (show the reason next to it)
+ *   ariaLabel     first-step accessible name when "‹label› ‹name›" would repeat
+ *                 itself (e.g. label "Show token…", name "extension token")
+ *   describedBy   id of the line that says why it is disabled
  *
  * Layout: inline on desktop; on phones (.confirm-button, index.css) it takes
  * its own line, right-aligned, with 44 px targets. Hide it entirely in
@@ -40,9 +43,11 @@ type Props = {
   disabled?: boolean
   verb?: string
   tone?: 'danger' | 'primary'
+  ariaLabel?: string
+  describedBy?: string
 }
 
-export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger' }: Props) {
+export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy }: Props) {
   const blocked = !!(busy || disabled)
   const [armed, setArmed] = useState(false)
   // Becoming busy/disabled disarms (state adjusted during render, no effect).
@@ -103,7 +108,8 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
           ref={firstRef}
           type="button"
           disabled={blocked}
-          aria-label={`${label.replace(/…$/, '')} ${name}`}
+          aria-label={ariaLabel ?? `${label.replace(/…$/, '')} ${name}`}
+          aria-describedby={describedBy}
           onClick={() => on('press')}
         >
           {busy ? 'Working…' : label}

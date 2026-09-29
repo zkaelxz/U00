@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { installDependency, upgradeDependency } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -33,11 +33,19 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 }) {
   const [openRef, open] = useDetailsOpen()
   const [outcome, setOutcome] = useState<Outcome | null>(null)
-  useEffect(() => onOpenChange(open), [open, onOpenChange])
+  const reasonId = useId()
+  const runningId = useId()
+  // Install/Upgrade only once /api/meta says this is the main PC.
+  const local = pc === 'local'
+  // Jobs are polled only while this is open and the buttons can be used.
+  const watching = open && local
+  useEffect(() => {
+    onOpenChange(watching)
+    return () => onOpenChange(false)
+  }, [watching, onOpenChange])
 
   const deps = splitDependencies(overview.dependencies)
   const engines = installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies))
-  const local = pc !== 'remote'
   const blocked = installBlockedReason(jobsActive, busy)
   const running = busyLine(busy)
 
@@ -64,6 +72,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         tone="primary"
         confirmLabel={kind === 'install' ? installConfirmLabel(name) : undefined}
         disabled={!!blocked}
+        describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
         onConfirm={() => void run(kind, name)}
       />
@@ -75,9 +84,9 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         <p>
           {deps.installed.length} installed, {deps.missing.length} missing.
         </p>
-        {!local && <p className="muted">Installing is PC only.</p>}
-        {local && blocked && <p className="muted">{blocked}</p>}
-        <p className="muted" aria-live="polite" data-testid="install-running">
+        {pc === 'remote' && <p className="muted">Installing is PC only.</p>}
+        {local && blocked && !running && <p className="muted" id={reasonId}>{blocked}</p>}
+        <p className="muted" aria-live="polite" data-testid="install-running" id={runningId}>
           {running ?? ''}
         </p>
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={onChanged} />}
@@ -144,10 +153,21 @@ function OutcomeBlock({ outcome, onRecheck }: { outcome: Outcome; onRecheck: () 
       </div>
     )
   }
+  return <ResultBlock outcome={outcome} />
+}
+
+function ResultBlock({ outcome }: { outcome: Extract<Outcome, { ok: boolean }> }) {
+  const lineRef = useRef<HTMLParagraphElement>(null)
+  // Focus the result like the reset result, so it is read out and easy to find.
+  // Next frame: the ConfirmButton that ran it returns focus to itself in this commit.
+  useEffect(() => {
+    const f = requestAnimationFrame(() => lineRef.current?.focus())
+    return () => cancelAnimationFrame(f)
+  }, [outcome])
   const text = installResultText(outcome.kind, outcome.name, outcome.ok)
   return (
     <div className="diag-stack" data-testid="install-result">
-      <p className={outcome.ok ? undefined : 'error'} role={outcome.ok ? 'status' : 'alert'}>
+      <p ref={lineRef} tabIndex={-1} className={outcome.ok ? undefined : 'error'} role={outcome.ok ? 'status' : 'alert'}>
         {text}
       </p>
       {/* Keyed by the result so a new one re-applies defaultOpen. */}

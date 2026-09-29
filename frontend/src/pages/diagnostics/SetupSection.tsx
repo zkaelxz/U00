@@ -20,10 +20,16 @@ export function SetupSection({ checks, gpu, engines, checking, onRecheck }: {
             {r.text}
           </li>
         ))}
-        {engines.map((m) => (
-          <li key={m.name}>{engineRow(m)}</li>
-        ))}
       </ul>
+      {engines.length > 0 && (
+        <Section title="Model engines" count={engines.length} storageKey="diagnostics.setupEngines">
+          <ul className="diag-rows" aria-label="Model engines">
+            {engines.map((m) => (
+              <li key={m.name}>{engineRow(m)}</li>
+            ))}
+          </ul>
+        </Section>
+      )}
       <div className="actions">
         <button type="button" disabled={checking} onClick={onRecheck}>
           {checking ? 'Checking…' : 'Check again'}

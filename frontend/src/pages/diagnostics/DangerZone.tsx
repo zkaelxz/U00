@@ -55,7 +55,11 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
   const [done, setDone] = useState(false)
   const [formKey, setFormKey] = useState(0)
   const doneRef = useRef<HTMLParagraphElement>(null)
-  useEffect(() => onOpenChange(open), [open, onOpenChange])
+  // Unmounting (e.g. the tab turns remote) stops the page's job polling too.
+  useEffect(() => {
+    onOpenChange(open)
+    return () => onOpenChange(false)
+  }, [open, onOpenChange])
 
   useEffect(() => {
     if (!open) return

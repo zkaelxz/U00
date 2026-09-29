@@ -102,7 +102,7 @@ export default function DiagnosticsPage() {
 
   const setupProblems = setup ? setupRows(setup, overview?.gpu ?? null).filter((r) => r.problem).length : null
   const deps = overview ? splitDependencies(overview.dependencies) : null
-  const head = headerParts(setupProblems, deps?.installed.length ?? null, overview ? Object.keys(overview.dependencies).length : null, running)
+  const head = headerParts(setupProblems, deps?.installed.length ?? null, overview ? Object.keys(overview.dependencies).length : null, running, adminBusy)
 
   return (
     <section className="panel" aria-label="Diagnostics">
@@ -164,7 +164,7 @@ function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; on
   const urgent = jobs.some((j) => isActive(j.status) || j.status === 'error')
   if (urgent) {
     return (
-      <div className="diag-stack">
+      <div className="diag-stack diag-jobs">
         <h3>Jobs</h3>
         {list}
       </div>
@@ -201,7 +201,7 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
               <td>{formatDuration(j, now)}</td>
               <td>
                 {isActive(j.status) && (
-                  <button type="button" onClick={() => onCancel(j.job_id)}>
+                  <button type="button" aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                     Cancel
                   </button>
                 )}
@@ -224,7 +224,7 @@ function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
           {j.message && <p className="muted">{j.message}</p>}
           {isActive(j.status) && (
             <div className="job-cancel">
-              <button type="button" onClick={() => onCancel(j.job_id)}>
+              <button type="button" aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                 Cancel
               </button>
             </div>
