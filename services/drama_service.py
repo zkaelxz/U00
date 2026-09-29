@@ -17,7 +17,7 @@ source_service), any *_filename, `translation_engine`, and
 
 Deliberately NOT here, by design:
   - Cover-art upload -- multipart needs python-multipart.
-  - Metadata auto-fill -- a paid network call to an AI service.
+  - Metadata auto-fill -- added later as Slice 37 (services/metadata_service.py).
   - Series rename/unassign, presets CRUD, media analysis -- other slices.
 
 Preset handling: only the preset's `translation_engine` has a per-drama
