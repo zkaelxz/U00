@@ -1,7 +1,7 @@
 # Streamlit retirement plan (proposal)
 
-Status: PROPOSED 2026-09-29 by a read-only architecture pass, after the user decided to complete the React migration and remove Streamlit.
-Nothing here is enacted until the user answers the decisions in section 7. Evidence is `file:line` on `baihe-subtitler` at that date; HYP = hypothesis, UNK = unknown.
+Status: DECIDED IN PART 2026-09-29 (see section 8). Written by a read-only architecture pass after the user decided to complete the React migration and remove Streamlit.
+Section 8 records the decisions taken; anything in sections 3-7 not covered there is still a proposal. Evidence is `file:line` on `baihe-subtitler` at that date; HYP = hypothesis, UNK = unknown.
 Streamlit code is about 11,950 lines: tabs 10,876, `ui_theme.py` 468, `ui/` 363, `app.py` 118, `common.py` 113, `.streamlit/config.toml` 15.
 
 ## 0. Load-bearing findings
@@ -106,3 +106,12 @@ Rule: code comments must not cite roadmap steps that live on another branch. Abo
 Risks (ranked): (1) hidden behaviour in the 4,875-line `render_workspace_tab` (889 widget calls) is lost: mitigate with the section 1 gap list and a Class S test per row; (2) Class S tests lost when 31 tab-test files are deleted unread; (3) household and phone access disappears with no auth built; (4) extension bridge and chapter scheduler orphaned; (5) scope blow-out in Scanlate and Sources; (6) real-device unknowns gate deletion; (7) prebuilt dist undecided and no CI gating; (8) no profile concept in API or React (26e); (9) parallel edits on shared files; (10) docs and process drag.
 
 Decisions needed (ranked): 1. Scanlate: port, defer past the removal date, or drop the UI (keep the library and extension pipeline)? 2. Live: drop? 3. LAN/phone gap: accept no household access from removal until auth 133+140, or an interim measure (recommendation: never expose an unauthenticated API)? 4. Prebuilt frontend delivery: release zip, committed dist, or require Node. 5. The end date (proposed 2026-10-30) and who may cut scope to hit it. 6. Approval of the prune list and the default-pass rule for real-device checks. 7. Extension bridge: API-started `page_server` as an interim (recommended) versus breaking the extension until step 135. 8. Profiles (26e): drop, or replace with Google users later. 9. The API process owning the chapter-check scheduler. 10. Remaining Discover/Sources/Live spec questions Q4-Q12. 11. Copy the planning-branch roadmap into `docs/history/` or leave it on the branch.
+
+## 8. Decisions taken (user, 2026-09-29)
+
+- **Goal:** complete the React migration and remove Streamlit. **End date: 2026-10-30** (hard date; the prune list is the scope lever; earliest realistic finish is about 2026-10-23 without Scanlate).
+- **Scanlate:** deferred past removal. The Streamlit Scanlate tab is deleted with the rest; keep `scanlate.py` and the browser-extension pipeline (`page_server.py:268-363`). The React canvas editor is built later from `docs/specs/scanlate-api-spec.md`.
+- **Live capture:** dropped. Delete the Live tab with Streamlit; `docs/specs/discover-sources-live-api-spec.md` keeps the design if it is wanted later.
+- **Frontend delivery:** a prebuilt release zip built locally (users need no Node). Actions minutes are exhausted, so CI cannot build it.
+- **Freeze (in force from 2026-09-29):** no new features, polish or tests in `tabs/`, `ui/`, `ui_theme.py`, `common.py`, `app.py`. Allowed: crash or data-loss fixes that block the migration (state the justification in the PR), deletions, and extraction to services. New logic is service-first.
+- **Still open (need the user):** approval of the prune list in section 3 (items 1-2 and the Live and Scanlate rows are decided above; the media types, export extras, Diagnostics extras, Sources leftovers and Discover D-2 extras are not), the default-pass rule for real-device checks, the LAN/phone gap (recommendation: do not expose an unauthenticated API), the extension-bridge interim (recommended: API-started `page_server`), profiles (26e), who owns the chapter scheduler, and whether the planning-branch roadmap is copied into `docs/history/`.

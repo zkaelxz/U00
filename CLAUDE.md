@@ -32,6 +32,7 @@ merged.
   merged PR worth an independent second review pass.
 - **Planning session:** reviewing/merging PRs as they land, keeping the
   roadmap in sync.
+- **Streamlit freeze (2026-09-29):** Streamlit is being removed by 2026-10-30 (`docs/streamlit-retirement-plan.md`, section 8). Do NOT add features, polish or tests to `tabs/`, `ui/`, `ui_theme.py`, `common.py` or `app.py`; only crash or data-loss fixes that block the migration (say so in the PR), deletions, and moving logic into `services/`. New logic is service-first.
 - **Streamlit-to-React/FastAPI migration:** status, recipe, decisions and queue are in
   `docs/migration-handoff.md` (merge helpers in `scripts/migration/`). Read it first.
   Frontend (React) phase plan: `docs/migration-frontend-plan.md`.
