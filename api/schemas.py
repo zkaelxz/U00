@@ -1078,6 +1078,8 @@ class MediaUploadResult(BaseModel):
     name: str
     size: int
     kind: str
+    # B-09: set for a video -- the background audio-extraction job to poll.
+    job_id: Optional[str] = None
 
 
 class NarrationEngineOption(BaseModel):
@@ -1805,3 +1807,514 @@ class TranslateBulkCancelResult(BaseModel):
     drama_id: int
     bulk_job: TranslateBulkJobEntry
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Route batch 2B (M4): Reader API over services/reader_service.py
+# ---------------------------------------------------------------------------
+
+class ReaderOverview(BaseModel):
+    drama_id: int
+    length_display: str
+    line_count: int
+    percent_complete: float
+    last_page: int
+    last_line_idx: Optional[int] = None
+
+
+class ReaderProgressRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    page: int = Field(ge=1)
+    chapter_size: int = Field(40, ge=10, le=200)
+
+
+class ReaderProgress(BaseModel):
+    drama_id: int
+    last_page: int
+    last_line_idx: int
+    percent_complete: float
+
+
+class ReaderNotesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    notes: str = Field(max_length=100_000)
+
+
+class ReaderNotes(BaseModel):
+    drama_id: int
+    notes: str
+
+
+class ReaderMediaAvailability(BaseModel):
+    """What the Watch / listen panel can show -- booleans and labels only.
+    React plays the files through /api/media and /api/dub."""
+    drama_id: int
+    original: Optional[str] = None   # "video" | "audio" | None
+    dub: bool
+    narration: bool
+    caption_tracks: List[str]
+    captions_overlay: bool
+
+
+class ReaderReadoutLine(BaseModel):
+    line_id: Optional[int] = None
+    idx: int
+    start: float
+    timestamp: str
+    text: str
+
+
+class ReaderReadout(BaseModel):
+    drama_id: int
+    track: str
+    lines: List[ReaderReadoutLine]
+
+
+class ReaderEngineFields(BaseModel):
+    """Shared by every LLM request. An omitted engine means Claude (the
+    Reader tab's default) and counts as paid for the engine check."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=100)
+
+
+class ReaderLookupRequest(ReaderEngineFields):
+    page: int = Field(ge=1)
+    chapter_size: int = Field(40, ge=10, le=200)
+    use_llm: StrictBool = False
+
+
+class ReaderDefinition(BaseModel):
+    reading: Optional[str] = None
+    definitions: List[str] = []
+
+
+class ReaderLookupResult(BaseModel):
+    drama_id: int
+    page: int
+    definitions: Dict[str, ReaderDefinition]
+    saved: int
+
+
+class ReaderVocabWord(BaseModel):
+    word: str
+    reading: Optional[str] = None
+    definitions: List[str] = []
+    language: Optional[str] = None
+    first_seen_line_idx: Optional[int] = None
+    export_rich: bool
+
+
+class ReaderVocabList(BaseModel):
+    drama_id: int
+    count: int
+    words: List[ReaderVocabWord]
+
+
+class ReaderRichExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    words: List[str] = Field(min_length=1, max_length=500)
+    queued: StrictBool = True
+
+
+class ReaderRichExportResult(BaseModel):
+    drama_id: int
+    updated: int
+    queued: bool
+    rich_count: int
+
+
+class ReaderWhoRequest(ReaderEngineFields):
+    name: str = Field(min_length=1, max_length=200)
+    up_to_line_idx: Optional[int] = Field(None, ge=0)
+
+
+class ReaderExplainRequest(ReaderEngineFields):
+    phrase: str = Field(min_length=1, max_length=200)
+    up_to_line_idx: Optional[int] = Field(None, ge=0)
+
+
+class ReaderRecapRequest(ReaderEngineFields):
+    page: int = Field(ge=1)
+    chapter_size: int = Field(40, ge=10, le=200)
+
+
+class ReaderScopedLlmRequest(ReaderEngineFields):
+    """Relationships and wiki update: None = no spoiler limit."""
+    up_to_line_idx: Optional[int] = Field(None, ge=0)
+
+
+class ReaderWikiUpdateRequest(ReaderScopedLlmRequest):
+    """from_line_idx: resume point (the previous call's next_line_idx)."""
+    from_line_idx: int = Field(0, ge=0)
+
+
+class ReaderAnswer(BaseModel):
+    drama_id: int
+    answer: Optional[str] = None
+
+
+class ReaderRecap(BaseModel):
+    drama_id: int
+    summary: Optional[str] = None
+    truncated: bool = False   # only the most recent lines before the page were used
+
+
+class ReaderRelationshipMap(BaseModel):
+    drama_id: int
+    characters: List[Dict[str, Any]]
+    relationships: List[Dict[str, Any]]
+    mermaid: str
+
+
+class ReaderWikiEntry(BaseModel):
+    id: Optional[int] = None
+    entry_type: Optional[str] = None
+    name: Optional[str] = None
+    aliases: Optional[Any] = None
+    description: Optional[str] = None
+    attributes: Dict[str, Any] = {}
+    first_seen_line_idx: Optional[int] = None
+    known_through_line_idx: Optional[int] = None
+
+
+class ReaderWikiList(BaseModel):
+    drama_id: int
+    entry_types: List[str]
+    entries: List[ReaderWikiEntry]
+
+
+class ReaderWikiUpdateResult(BaseModel):
+    """One bounded batch. While `remaining` > 0, call again with
+    from_line_idx = next_line_idx."""
+    drama_id: int
+    updated: int
+    remaining: int = 0
+    next_line_idx: Optional[int] = None
+
+
+class ReaderWikiClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class ReaderWikiClearResult(BaseModel):
+    drama_id: int
+    cleared: bool
+
+
+class ReaderChatTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(max_length=20_000)
+
+
+class ReaderAskRequest(ReaderEngineFields):
+    question: str = Field(min_length=1, max_length=2000)
+    chat_history: List[ReaderChatTurn] = Field(default_factory=list, max_length=40)
+
+
+# ---------------------------------------------------------------------------
+# PC-only delete routes (migration handoff "Next queue" item 2)
+# ---------------------------------------------------------------------------
+
+class DeleteConfirm(BaseModel):
+    """Body of every PC-only delete: the Streamlit buttons are gated by a
+    plain Confirm checkbox, so `confirm: true` (strict) is the whole bar."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class MediaRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    audio_file_removed: bool
+    video_file_removed: bool
+    has_audio: bool
+    has_video: bool
+
+
+class RawNovelRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    has_raw_novel_context: bool
+
+
+class TranslationVersionDeleteResult(BaseModel):
+    drama_id: int
+    version_id: int
+    deleted: bool
+    was_active: bool
+
+
+class SeriesCharacterDeleteResult(BaseModel):
+    series_id: int
+    character_id: int
+    deleted: bool
+
+
+class BugBundleDeleteResult(BaseModel):
+    bundle_id: int
+    deleted: bool
+
+
+class PresetDeleteResult(BaseModel):
+    preset_id: int
+    deleted: bool
+
+
+class VoiceBankDeleteResult(BaseModel):
+    entry_id: int
+    deleted: bool
+
+
+# ---------------------------------------------------------------------------
+# Route batch 2C: auto-tune speech splitting + glossary from novel
+# (imports kept local to this section so parallel slices don't collide on
+# the module's import line)
+# ---------------------------------------------------------------------------
+
+from typing import Annotated  # noqa: E402
+
+from pydantic import StrictInt  # noqa: E402
+
+AutotuneCandidateMs = Annotated[StrictInt, Field(ge=300, le=3000)]
+
+
+class AutotuneRunRequest(BaseModel):
+    """candidates default to core.DEFAULT_AUTOTUNE_CANDIDATES_MS; 1-6
+    distinct values (the service rejects duplicates)."""
+    model_config = ConfigDict(extra="forbid")
+    candidates: Optional[List[AutotuneCandidateMs]] = Field(None, min_length=1, max_length=6)
+    initial_prompt: str = Field("", max_length=1000)
+
+
+class AutotuneRunResult(BaseModel):
+    job_id: str
+    candidates: List[int]
+
+
+class AutotuneCandidateScore(BaseModel):
+    candidate_ms: int
+    long_lines: int
+    total_lines: int
+
+
+class AutotuneStatus(BaseModel):
+    """This drama's auto-tune job as held in this app session. results /
+    best_candidate_ms only once status is "done"."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    results: Optional[List[AutotuneCandidateScore]] = None
+    best_candidate_ms: Optional[int] = None
+
+
+class AutotuneApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_ms: AutotuneCandidateMs
+
+
+class NovelGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    paired: bool
+
+
+class NovelGlossaryProposal(BaseModel):
+    term: str
+    suggested_translation: str
+    category: Optional[str] = None
+    policy: Optional[str] = None
+    reason: str = ""
+    already_in_glossary: bool
+
+
+class NovelGlossaryStatus(BaseModel):
+    """This drama's glossary-from-novel job as held in this app session.
+    proposals only once status is "done". Never carries a key."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    proposals: Optional[List[NovelGlossaryProposal]] = None
+
+
+class NovelGlossaryApplyRequest(BaseModel):
+    """Terms are matched by their text against the finished run's
+    proposals, never by position. overwrite_existing needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    terms: List[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        min_length=1, max_length=1000)
+    overwrite_existing: StrictBool = False
+    confirm: StrictBool = False
+
+
+class NovelGlossaryApplyResult(BaseModel):
+    added: List[str]
+    overwritten: List[str]
+    skipped_existing: List[str]
+    unknown: List[str]
+
+
+# ---------------------------------------------------------------------------
+# Route batch 2A: library admin (bulk status/tags/delete/translate, export,
+# backup, artifacts, restore, storage) over services/library_admin_service.py
+# (imports kept local to this section so parallel slices don't collide on
+# the module's import line)
+# ---------------------------------------------------------------------------
+
+from enum import Enum  # noqa: E402
+from typing import Literal  # noqa: E402
+
+import db as _db  # noqa: E402
+import storage as _storage  # noqa: E402
+from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS  # noqa: E402
+from services.library_admin_service import STATUSES as _LIBRARY_STATUSES  # noqa: E402
+
+LibraryDramaIds = Annotated[List[Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]],
+                            Field(min_length=1, max_length=_MAX_BULK_IDS)]
+LibraryStatus = Literal[_LIBRARY_STATUSES]
+LibraryListTag = Literal[tuple(_db.ORGANIZATIONAL_TAGS)]
+LibraryStoragePreset = Literal[tuple(_storage.STORAGE_QUALITY_PRESETS)]
+
+
+class LibraryArtifactKind(str, Enum):
+    backup = "backup"
+    export = "export"
+    database = "database"
+
+
+class LibraryBulkStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    status: LibraryStatus
+
+
+class LibraryBulkTagRequest(BaseModel):
+    """Adds (present=true) or removes one organizational list tag."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    tag: LibraryListTag
+    present: StrictBool
+
+
+class LibraryBulkDeleteRequest(BaseModel):
+    """Needs confirm=true and confirm_text "DELETE"."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    confirm: StrictBool = False
+    confirm_text: str = Field("", max_length=32)
+
+
+class LibraryBulkTranslateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    default_locale: str = Field("en-US", max_length=5)
+
+
+class LibraryExportRequest(BaseModel):
+    """drama_ids omitted: every translated/dubbed/exported drama."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: Optional[LibraryDramaIds] = None
+
+
+class LibraryBackupRequest(BaseModel):
+    """database_only=true: the database snapshot alone (fast, small)."""
+    model_config = ConfigDict(extra="forbid")
+    database_only: StrictBool = False
+
+
+class LibraryStorageCleanRequest(BaseModel):
+    """Needs confirm=true and confirm_text "CLEAN"."""
+    model_config = ConfigDict(extra="forbid")
+    preset: LibraryStoragePreset
+    confirm: StrictBool = False
+    confirm_text: str = Field("", max_length=32)
+
+
+class LibraryBulkItem(BaseModel):
+    """One requested drama's outcome. error: not_found, job_running,
+    delete_failed or not_translated."""
+    drama_id: int
+    ok: bool
+    error: Optional[str] = None
+    message: Optional[str] = None
+    warning: Optional[str] = None
+    freed_bytes: Optional[int] = None
+
+
+class LibraryBulkResult(BaseModel):
+    results: List[LibraryBulkItem]
+    updated: int
+
+
+class LibraryBulkDeleteResult(BaseModel):
+    results: List[LibraryBulkItem]
+    deleted: int
+
+
+class LibraryBulkTranslateSkip(BaseModel):
+    drama_id: int
+    reason: str
+
+
+class LibraryBulkTranslateStarted(BaseModel):
+    job_id: str
+    queued: List[int]
+    skipped: List[LibraryBulkTranslateSkip]
+
+
+class LibraryExportStarted(BaseModel):
+    job_id: str
+    drama_ids: List[int]
+    results: Optional[List[LibraryBulkItem]] = None
+
+
+class LibraryJobStarted(BaseModel):
+    job_id: str
+
+
+class LibraryArtifactInfo(BaseModel):
+    """The newest finished file of one kind. Never a path."""
+    kind: LibraryArtifactKind
+    name: str
+    size: int
+
+
+class LibraryRestoreDone(BaseModel):
+    restored: bool
+    sessions_revoked: int
+
+
+class LibraryStorageCategory(BaseModel):
+    key: str
+    label: str
+    note: str
+    bytes: int
+    selected: bool
+
+
+class LibraryStorageDrama(BaseModel):
+    drama_id: int
+    total_bytes: int
+    would_free_bytes: int
+    job_running: bool
+
+
+class LibraryStorageScan(BaseModel):
+    """Dry run: nothing is removed."""
+    preset: str
+    categories_to_clean: List[str]
+    total_bytes: int
+    reclaimable_bytes: int
+    would_free_bytes: int
+    categories: List[LibraryStorageCategory]
+    per_drama: List[LibraryStorageDrama]
+
+
+class LibraryStorageCleanResult(BaseModel):
+    preset: str
+    freed_bytes: int
+    results: List[LibraryBulkItem]

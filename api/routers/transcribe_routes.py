@@ -4,16 +4,19 @@ drama (Phase 6's third Workspace stage, Migration Slices 20-21).
 
 One config read/write and one job-starting action -- see
 services/transcribe_service.py's own docstring for the job-does-everything
-scope decision and the deliberately-out-of-scope list (the
-two experimental qwen3 backends, audio upload, auto-tune -- hardsub_ocr
-was added in Slice 21). Job status/cancel is not duplicated here: poll
-the started job through the existing GET /api/jobs/{job_id} (Migration
-Slice 8).
+scope decision and the deliberately-out-of-scope list (audio upload;
+hardsub_ocr was added in Slice 21). Job status/cancel for the transcribe
+run is not duplicated here: poll it through the existing
+GET /api/jobs/{job_id} (Migration Slice 8).
+
+Route batch 2C adds auto-tune (start, status with the candidate scores,
+apply a measured candidate), whose results are only readable here.
 """
 
 from fastapi import APIRouter, Path, Request
 from api.auth import require_paid_engines, require_permission
-from api.schemas import (ErrorResponse, TranscribeConfig, TranscribeConfigUpdate,
+from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
+                         AutotuneStatus, ErrorResponse, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
 from services import transcribe_service
 
@@ -51,3 +54,36 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,
         expected_speakers=payload.expected_speakers,
         initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd)
+
+
+# --- Route batch 2C: auto-tune speech-splitting sensitivity -----------------
+# Local ASR only (transcribe_service.PAID_ENGINE_FUNCTIONS is empty), so no
+# engine gate. Results live in this process's job memory: the GET reads them
+# back and the apply only accepts a value that run measured.
+
+@router.post("/dramas/{drama_id}/autotune", dependencies=[require_permission("jobs.start")], response_model=AutotuneRunResult,
+             summary="Start auto-tuning speech-splitting sensitivity (min_silence_ms) for one drama",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_start_autotune(payload: AutotuneRunRequest, drama_id: int = Path(ge=1)):
+    return transcribe_service.start_autotune_run(
+        drama_id, candidates=payload.candidates, initial_prompt=payload.initial_prompt)
+
+
+@router.get("/dramas/{drama_id}/autotune", dependencies=[require_permission("library.read")], response_model=AutotuneStatus,
+            summary="Status and (when done) per-candidate scores of this drama's auto-tune run",
+            responses={404: {"model": ErrorResponse}})
+def get_autotune(drama_id: int = Path(ge=1)):
+    s = transcribe_service.get_autotune_status(drama_id)
+    result = s.get("result") or {}
+    return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
+            "message": s.get("message") or "", "results": result.get("results"),
+            "best_candidate_ms": result.get("best_candidate_ms")}
+
+
+@router.post("/dramas/{drama_id}/autotune/apply", dependencies=[require_permission("lines.edit")], response_model=TranscribeConfig,
+             summary="Store a measured auto-tune candidate as this drama's min_silence_ms",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1)):
+    return transcribe_service.apply_autotune_candidate(drama_id, payload.candidate_ms)
