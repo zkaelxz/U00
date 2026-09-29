@@ -31,7 +31,8 @@ import threading
 import uuid
 
 import background_jobs
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+                                     NotFoundError)
 from services.sources_import_service import (NOVEL_MEDIA_TYPES, _require_drama, _require_idle,
                                              _url_fail, import_job_id)
 from services.sources_registry_service import _scrub, safe_url
@@ -251,7 +252,7 @@ def _identify_job(job_id: str, url: str, html, local: bool):
                 fail_job(job_id, "media_identify", handoff_error(lr.handoff, url))
             if not lr.ok or not lr.html:
                 fail_job(job_id, "media_identify",
-                         {"status": 503, "code": "dependency_unavailable",
+                         {"status": 503, "code": DependencyUnavailableError.code,
                           "message": _UNREADABLE, "details": {"reason": "UNREACHABLE"}})
             html = lr.html
         if background_jobs.is_cancel_requested(job_id):
