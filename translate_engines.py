@@ -950,13 +950,19 @@ def _detect_soft_refusal_text(text: str):
 # Claude (Anthropic)
 # ---------------------------------------------------------------------------
 
+# Per-request timeout (seconds) for the Anthropic/OpenAI SDK clients --
+# the same bound the cloud REST engines pass to requests (timeout=120), so
+# a hung server can't leave a job stuck at "running".
+SDK_REQUEST_TIMEOUT = 120
+
+
 class ClaudeEngine:
     name = "claude"
     supports_reference = True
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
         import anthropic
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = anthropic.Anthropic(api_key=api_key, timeout=SDK_REQUEST_TIMEOUT)
         self.model = model
         self.last_usage = _empty_usage()
 
@@ -998,7 +1004,8 @@ class DeepSeekEngine:
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
         from openai import OpenAI
-        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com",
+                             timeout=SDK_REQUEST_TIMEOUT)
         self.model = model
         self.last_usage = _empty_usage()
 
