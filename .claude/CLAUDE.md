@@ -9,6 +9,7 @@ These instructions complement the root `CLAUDE.md`; the root file and the active
 - Delegate meaningful, independent research, planning, review, and QA to the matching project subagent. Start independent read-only tasks concurrently in the background when useful. Keep small tasks and tightly coupled work in the lead session.
 - Subagents do not inherit the conversation history. Give each a concise task packet: goal, roadmap step, current branch/state, relevant files, constraints, expected result, and whether it may edit. Require file/line evidence for findings.
 - Read-only agents get no shell access. The lead hands them what they cannot fetch themselves:
+  - `ux-designer`: the assigned screens, the guideline sections in play, and phone (~390×844, touch) plus desktop screenshot paths captured by the lead or `qa-runner`. It cannot run the app; without screenshots its spec must say which viewports were only reasoned about.
   - `code-reviewer`: the diff, its base commit, and the changed-file list — inline for a small patch, or as a saved patch file for a large one — plus the task specification and acceptance criteria, the tests run and their results, and whether the change is committed or only in the working tree (see the review policy, `docs/engineering-standards.md` §3).
   - `roadmap-planner`: the current roadmap text, or an exact path it can read. If neither is available, report that instead of guessing step IDs, status, or decisions.
 
