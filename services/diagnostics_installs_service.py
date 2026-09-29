@@ -1,6 +1,6 @@
 """
-services/diagnostics_installs_service.py -- Diagnostics actions the
-React page runs as background jobs:
+services/diagnostics_installs_service.py -- the two long-running
+Diagnostics actions the React page runs as background jobs:
 
 - Q02 "Install Deno": the JavaScript runtime yt-dlp needs for YouTube (and
   other sites') formats. A system tool, not a pip package. On Windows with
@@ -11,12 +11,15 @@ React page runs as background jobs:
   allowlisted host, with timeout= on every request and a byte cap, checks
   it against the release's own .sha256sum file and unpacks only the deno
   binary into ~/.deno/bin, where Deno's own installer puts it.
+- Q06 "Test first": diagnostics.check_upgrade_candidate for one package's
+  update target (a throwaway environment plus this app's test suite, so
+  minutes, not seconds). The version comes only from the last "Check for
+  updates" (the same cached target the Upgrade route installs).
 
-
-It starts through the install guard of diagnostics_gaps_service
+Both start through the install guard of diagnostics_gaps_service
 (confirm=true; 409 while any job, restore, reset, cleanup or install is in
-progress) and runs as an ordinary background_jobs job, so it shows in the
-running-jobs list and an install can't start under it. Its progress
+progress) and run as ordinary background_jobs jobs, so they show in the
+running-jobs list and an install can't start under them. Their progress
 and final result are read back from GET routes here (nothing is returned
 as a path; every output line goes through diagnostics.redact_for_support).
 """
@@ -39,6 +42,7 @@ from services import diagnostics_gaps_service as gaps
 from services.service_errors import ConflictError
 
 DENO_JOB_ID = "deno_install"
+UPGRADE_CHECK_JOB_ID = "upgrade_check"
 _OUTPUT_TAIL = 40
 
 # Static download table: (OS, CPU) -> the official release asset. Only
@@ -73,6 +77,7 @@ _CPU = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64",
 
 _STATE_LOCK = threading.Lock()
 _DENO_RESULT = {"last": None}
+_UPGRADE_CHECK = {"package": None, "target": None, "tail": [], "last": None}
 
 
 class DenoInstallFailed(Exception):
@@ -356,3 +361,86 @@ def _unpack_binary(zip_path: str):
     os.chmod(tmp, os.stat(tmp).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     os.replace(tmp, dest)
 
+
+# ---------------------------------------------------------------------------
+# Q06: "Test first" for an update
+# ---------------------------------------------------------------------------
+
+def get_upgrade_check() -> dict:
+    with _STATE_LOCK:
+        state = {"package": _UPGRADE_CHECK["package"], "target": _UPGRADE_CHECK["target"],
+                 "output_tail": list(_UPGRADE_CHECK["tail"]),
+                 "result": dict(_UPGRADE_CHECK["last"]) if _UPGRADE_CHECK["last"] else None}
+    return {**state, "job_id": UPGRADE_CHECK_JOB_ID, "job": _job_view(UPGRADE_CHECK_JOB_ID)}
+
+
+def start_upgrade_check(name: str, target: str = None, confirm: bool = False) -> dict:
+    """PC only. `target` must be the last "Check for updates" target for
+    `name` (409 otherwise, as for Upgrade); the job installs exactly that
+    version (with constraints.txt) into a throwaway environment and runs
+    this app's tests against it. Your real install is not touched."""
+    if name in diagnostics.TORCH_FAMILY:
+        gaps._guard(confirm)
+        raise gaps.AdminActionNotPossible(
+            "torch, torchvision and torchaudio are set up together under GPU PyTorch.")
+    gaps._guard(confirm)
+    if name not in gaps.installable_packages():
+        raise gaps.AdminActionUnknownPackage("Unknown or non-installable package.")
+    checked = gaps._cached_update(name)
+    if checked is None or checked.get("status") != "update" or not checked.get("target"):
+        raise gaps.AdminActionStale("Check for updates first; there is no update to test.")
+    if target != checked["target"]:
+        raise gaps.AdminActionStale("The update check has changed since; check for updates again.")
+    dist, version = checked["dist"], checked["target"]
+    with _STATE_LOCK:
+        if _job_active(UPGRADE_CHECK_JOB_ID):
+            raise gaps.AdminActionJobsRunning("Another update test is running.")
+        _UPGRADE_CHECK.update(package=name, target=version, tail=[], last=None)
+    if not background_jobs.start_job(UPGRADE_CHECK_JOB_ID, _upgrade_check_job, name, dist,
+                                     version, description=f"Testing {name} {version}"):
+        raise gaps.AdminActionJobsRunning(
+            "An update test or a library restore is already running; try again when it ends.")
+    return {"job_id": UPGRADE_CHECK_JOB_ID, "started": True}
+
+
+_PHASES = (("Creating a throwaway", 0.05), ("Installing ", 0.15),
+           ("Running this app's test suite", 0.35), ("test(s) failed -- re-running", 0.8))
+_RESULT_KEYS = ("ok", "verdict", "reason", "version", "new_failures",
+                "preexisting_failures", "conflicts")
+
+
+def _upgrade_check_job(name: str, dist: str, version: str):
+    gen = diagnostics.check_upgrade_candidate(dist, version, project_root=gaps._project_root())
+    frac, final = 0.0, None
+    try:
+        for item in gen:
+            if background_jobs.is_cancel_requested(UPGRADE_CHECK_JOB_ID):
+                gen.close()          # kills the running pip/pytest
+                raise background_jobs.JobCancelled()
+            if item.get("done"):
+                final = item
+                continue
+            line = _redact(item.get("line", ""))[:300]
+            for marker, value in _PHASES:
+                if marker in line:
+                    frac = max(frac, value)
+            with _STATE_LOCK:
+                _UPGRADE_CHECK["tail"] = (_UPGRADE_CHECK["tail"] + [line])[-_OUTPUT_TAIL:]
+            if line.strip():
+                background_jobs.update_progress(UPGRADE_CHECK_JOB_ID, frac, line[:200])
+    finally:
+        gen.close()
+    final = final or {"ok": False, "verdict": "incomplete", "reason": "the test run stopped"}
+    result = {}
+    for k in _RESULT_KEYS:
+        v = final.get(k)
+        if isinstance(v, list):
+            v = [_redact(x)[:300] for x in v[:50]]
+        elif isinstance(v, str):
+            v = _redact(v)[:500]
+        result[k] = v
+    result["ok"] = bool(result["ok"])
+    with _STATE_LOCK:
+        _UPGRADE_CHECK["last"] = result
+    background_jobs.set_result(UPGRADE_CHECK_JOB_ID, {"status": result["verdict"],
+                                                      "detail": result["reason"]})

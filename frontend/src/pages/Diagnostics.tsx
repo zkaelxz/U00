@@ -161,6 +161,7 @@ export default function DiagnosticsPage() {
             onBusy={setAdminBusy}
             onChanged={refreshSetup}
             onOpenChange={setPackagesOpen}
+            onJobStarted={() => void refreshJobs()}
           />
         )}
         <PyannoteSection />

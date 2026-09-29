@@ -1,6 +1,6 @@
-"""Deno install (Q02) as a background job, over
-services/diagnostics_installs_service.py. Every download and winget run is
-faked; no network, no install."""
+"""Deno install (Q02) and "Test first" for an update (Q06) as background
+jobs, over services/diagnostics_installs_service.py. Every download, winget
+run and pip/pytest run is faked; no network, no install."""
 import hashlib
 import io
 import time
@@ -95,11 +95,15 @@ def env(isolated_db, monkeypatch, tmp_path):
             return _Resp(404)
         return make()
     monkeypatch.setattr(requests, "get", fake_get)
-    background_jobs.clear_job(svc.DENO_JOB_ID)
+    for jid in (svc.DENO_JOB_ID, svc.UPGRADE_CHECK_JOB_ID):
+        background_jobs.clear_job(jid)
     svc._DENO_RESULT["last"] = None
+    svc._UPGRADE_CHECK.update(package=None, target=None, tail=[], last=None)
     state["dest"] = dest
     yield state
-    background_jobs.clear_job(svc.DENO_JOB_ID)
+    for jid in (svc.DENO_JOB_ID, svc.UPGRADE_CHECK_JOB_ID):
+        background_jobs.clear_job(jid)
+    gaps._UPDATES.update(checked_at=None, packages={})
 
 
 def _serve_release(state, zip_bytes=None, checksum=None):
@@ -234,12 +238,84 @@ def test_deno_winget_on_windows(client, env, monkeypatch):
     assert b.json()["last_result"]["needs_restart"] is True and env["requests"] == []
 
 
+def _cache_update(name="edge_tts", target="2.0.0"):
+    gaps._UPDATES.update(checked_at=time.time(), packages={
+        name: {"name": name, "dist": "edge-tts", "installed_version": "1.0.0",
+               "status": "update", "latest": target, "target": target, "reason": ""}})
+
+
+def test_upgrade_check_runs_the_cached_target(client, env, monkeypatch):
+    calls = []
+
+    def fake_check(pip_name, version=None, project_root=None, **kw):
+        calls.append((pip_name, version))
+        yield {"line": "Creating a throwaway environment -- your real install isn't touched."}
+        yield {"line": f"Installing edge-tts=={version} into it... {SECRET} {ABS_PATH}"}
+        yield {"line": "Running this app's test suite against edge-tts 2.0.0..."}
+        yield {"done": True, "ok": True, "verdict": "safe", "reason": "every test passed",
+               "version": version, "new_failures": [], "preexisting_failures": [],
+               "conflicts": []}
+    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    url = "/api/diagnostics/dependencies/edge_tts/test-upgrade"
+    assert client.post(url, json={"confirm": True, "target": "2.0.0"}).status_code == 409
+    _cache_update()
+    assert client.post(url, json={"confirm": True, "target": "1.5.0"}).status_code == 409
+    for bad in ("--index-url=x", "1.0 --pre", "", "a" * 65):
+        assert client.post(url, json={"confirm": True, "target": bad}).status_code == 422, bad
+    assert client.post(url, json={"target": "2.0.0"}).status_code == 422
+    r = client.post(url, json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 200 and r.json()["job_id"] == "upgrade_check"
+    assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "done"
+    assert calls == [("edge-tts", "2.0.0")]
+    s = client.get("/api/diagnostics/upgrade-check")
+    assert SECRET not in s.text and ABS_PATH not in s.text
+    b = s.json()
+    assert b["package"] == "edge_tts" and b["target"] == "2.0.0"
+    assert b["result"]["verdict"] == "safe" and b["result"]["ok"] is True
+    assert len(b["output_tail"]) == 3
+
+
+def test_upgrade_check_refusals(client, env, monkeypatch):
+    monkeypatch.setattr(diagnostics, "check_upgrade_candidate",
+                        lambda *a, **k: iter(()))
+    _cache_update()
+    assert client.post("/api/diagnostics/dependencies/streamlit/test-upgrade",
+                       json={"confirm": True, "target": "2.0.0"}).status_code == 404
+    assert client.post("/api/diagnostics/dependencies/torch/test-upgrade",
+                       json={"confirm": True, "target": "2.0.0"}).status_code == 422
+    env["running"] = True
+    r = client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+                    json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 409
+    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+
+
+def test_upgrade_check_cancel_stops_the_run(client, env, monkeypatch):
+    closed = []
+
+    def fake_check(*a, **k):
+        try:
+            for i in range(10000):
+                yield {"line": f"test {i}"}
+                time.sleep(0.005)
+        finally:
+            closed.append(True)
+    monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+    _cache_update()
+    client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+                json={"confirm": True, "target": "2.0.0"})
+    background_jobs.request_cancel(svc.UPGRADE_CHECK_JOB_ID)
+    assert _wait(svc.UPGRADE_CHECK_JOB_ID)["status"] == "cancelled"
+    assert closed == [True]
+
+
 def _h(s):
     return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
             api_auth.CSRF_HEADER: s["csrf_token"]}
 
 
 def test_auth_on_reads_admin_writes_pc_only(env):
+    _cache_update()
     app = create_app(ApiSettings(auth_mode="on"))
     remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     u = auth_service.add_user("kid@example.com")
@@ -251,11 +327,13 @@ def test_auth_on_reads_admin_writes_pc_only(env):
                 pass
     kid = auth_service.create_session(u["id"])
     admin = auth_service.create_session(auth_service.grant_admin_local("a@example.com")["id"])
-    for path in ("/api/diagnostics/deno",):
+    for path in ("/api/diagnostics/deno", "/api/diagnostics/upgrade-check"):
         assert remote.get(path).status_code == 401
         assert remote.get(path, headers=_h(kid)).status_code == 403
         assert remote.get(path, headers=_h(admin)).status_code == 200
-    writes = (("/api/diagnostics/deno/install", {"confirm": True}),)
+    writes = (("/api/diagnostics/deno/install", {"confirm": True}),
+              ("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+               {"confirm": True, "target": "2.0.0"}))
     for path, body in writes:
         assert remote.post(path, json=body, headers=_h(admin)).status_code == 403, path
     local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
@@ -264,3 +342,4 @@ def test_auth_on_reads_admin_writes_pc_only(env):
         assert local.post(path, json=body,
                           headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403, path
     assert background_jobs.get_status(svc.DENO_JOB_ID) is None
+    assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None

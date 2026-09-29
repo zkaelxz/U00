@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { DiagnosticsDenoStatus } from '../../types/diagnosticsInstalls'
+import type { DiagnosticsDenoStatus, DiagnosticsUpgradeCheckState } from '../../types/diagnosticsInstalls'
 import { canOfferDeno, denoNote, denoResultLine, showDeno } from './denoInstallText'
 import { jobProgressLine, jobRunning } from './jobPoll'
+import { testDetails, testLine } from './upgradeTestText'
 
 const deno = (o: Partial<DiagnosticsDenoStatus> = {}): DiagnosticsDenoStatus => ({
   runtime_found: false, runtime_name: null, deno_on_path: false, deno_installed: false,
@@ -53,5 +54,38 @@ describe('Deno install block', () => {
     expect(denoResultLine(deno({ last_result: { ...r, ok: false, message: 'Checksum mismatch.' } })))
       .toEqual({ text: 'Checksum mismatch.', tone: 'error' })
     expect(denoResultLine(deno({ last_result: r, job: running }))).toBeNull()
+  })
+})
+
+const check = (o: Partial<DiagnosticsUpgradeCheckState> = {}): DiagnosticsUpgradeCheckState => ({
+  package: 'edge_tts', target: '2.0.0', output_tail: [], result: null, job_id: 'upgrade_check', job: null, ...o,
+})
+const result = { ok: true, verdict: 'safe', reason: 'every test passed', version: '2.0.0',
+  new_failures: [], preexisting_failures: [], conflicts: [] }
+
+describe('Test first', () => {
+  it('only for the same package and target', () => {
+    expect(testLine(check({ job: running }), 'edge_tts', '2.0.0')).toEqual({ text: 'Testing edge_tts 2.0.0…', tone: 'muted' })
+    expect(testLine(check({ job: running }), 'edge_tts', '2.1.0')).toBeNull()
+    expect(testLine(check({ job: running }), 'jieba', '2.0.0')).toBeNull()
+    expect(testLine(null, 'edge_tts', '2.0.0')).toBeNull()
+  })
+
+  it('verdict lines', () => {
+    expect(testLine(check({ job: done, result }), 'edge_tts', '2.0.0'))
+      .toEqual({ text: 'Safe to update: edge_tts 2.0.0: every test passed.', tone: 'ok' })
+    expect(testLine(check({ job: done, result: { ...result, ok: false, verdict: 'broken', reason: '2 new failures' } }), 'edge_tts', '2.0.0')?.tone)
+      .toBe('error')
+    expect(testLine(check({ job: done, result: { ...result, ok: false, verdict: 'conflict' } }), 'edge_tts', '2.0.0')?.tone)
+      .toBe('warn')
+    expect(testLine(check({ job: { ...done, status: 'cancelled' } }), 'edge_tts', '2.0.0')?.text).toMatch(/cancelled/)
+    expect(testLine(check({ job: { ...done, status: 'error' } }), 'edge_tts', '2.0.0')?.tone).toBe('error')
+  })
+
+  it('details keep only the non-empty lists', () => {
+    const d = testDetails(check({
+      result: { ...result, verdict: 'broken', new_failures: ['tests/a.py::t'] }, output_tail: ['last'],
+    }))
+    expect(d.map((x) => x.title)).toEqual(['Fail with the update, pass today', 'Last lines of output'])
   })
 })

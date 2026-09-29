@@ -1,11 +1,12 @@
 """
 api/diagnostics_install_schemas.py -- Pydantic models for
-api/routers/diagnostics_installs_routes.py (Deno install). Kept out of api/schemas.py so this batch doesn't touch it.
+api/routers/diagnostics_installs_routes.py (Deno install, "Test first" for
+an update). Kept out of api/schemas.py so this batch doesn't touch it.
 """
 
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 
 class DiagnosticsJobState(BaseModel):
@@ -44,3 +45,29 @@ class DiagnosticsDenoInstallRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
 
+
+class DiagnosticsUpgradeCheckRequest(BaseModel):
+    """confirm=true and the version the last update check offered."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    target: Optional[StrictStr] = Field(None, max_length=64,
+                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
+
+
+class DiagnosticsUpgradeCheckResult(BaseModel):
+    ok: bool
+    verdict: Optional[str] = None
+    reason: Optional[str] = None
+    version: Optional[str] = None
+    new_failures: Optional[List[str]] = None
+    preexisting_failures: Optional[List[str]] = None
+    conflicts: Optional[List[str]] = None
+
+
+class DiagnosticsUpgradeCheckState(BaseModel):
+    package: Optional[str] = None
+    target: Optional[str] = None
+    output_tail: List[str]
+    result: Optional[DiagnosticsUpgradeCheckResult] = None
+    job_id: str
+    job: Optional[DiagnosticsJobState] = None
