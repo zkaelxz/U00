@@ -117,3 +117,77 @@ def test_extract_background_subtracts_vocals(monkeypatch, tmp_path):
     bg, sr = sf.read(out, always_2d=True)
     assert sr == 8000 and len(bg) == 100
     assert bg[10, 0] == pytest.approx(0.3, abs=1e-3)
+
+
+# ---- B-23: background cache keyed on backend + source size/mtime ----------
+
+@pytest.fixture
+def fake_mix(monkeypatch):
+    """No pydub or real separation: counts extract_background calls."""
+    import sys
+    import types
+
+    class Seg:
+        @classmethod
+        def from_file(cls, path):
+            return cls()
+
+        def __add__(self, gain):
+            return self
+
+        def overlay(self, other):
+            return self
+
+        def export(self, path, format=None):
+            pass
+    monkeypatch.setitem(sys.modules, "pydub", types.SimpleNamespace(AudioSegment=Seg))
+    calls = []
+
+    def fake_extract(src, out, backend="auto", **kw):
+        calls.append(backend)
+        with open(out, "wb") as f:
+            f.write(b"bg")
+        return out
+    monkeypatch.setattr(audio_preprocess, "extract_background", fake_extract)
+    return calls
+
+
+def _source(tmp_path, data=b"source"):
+    src = tmp_path / "a.wav"
+    src.write_bytes(data)
+    return str(src)
+
+
+def test_background_cache_reused_when_nothing_changed(tmp_path, fake_mix):
+    src = _source(tmp_path)
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
+    assert fake_mix == ["demucs"]
+    assert (tmp_path / dub.BACKGROUND_META_FILENAME).exists()
+
+
+def test_background_reseparated_when_backend_changes(tmp_path, fake_mix):
+    src = _source(tmp_path)
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="uvr")
+    assert fake_mix == ["demucs", "uvr"]
+
+
+def test_background_reseparated_when_source_replaced_with_older_mtime(tmp_path, fake_mix):
+    """The old mtime-only check missed a replacement source whose mtime is
+    older than the cached background (e.g. a copied file keeping its date)."""
+    src = _source(tmp_path)
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
+    with open(src, "wb") as f:
+        f.write(b"a different, longer source")
+    os.utime(src, (1_000_000, 1_000_000))
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
+    assert fake_mix == ["demucs", "demucs"]
+
+
+def test_legacy_background_without_sidecar_is_reseparated(tmp_path, fake_mix):
+    src = _source(tmp_path)
+    (tmp_path / dub.BACKGROUND_FILENAME).write_bytes(b"old")
+    os.utime(tmp_path / dub.BACKGROUND_FILENAME, None)
+    dub.mix_original_background("t.wav", src, str(tmp_path), backend="demucs")
+    assert fake_mix == ["demucs"]
