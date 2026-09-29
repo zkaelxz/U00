@@ -1469,7 +1469,8 @@ def untranslated_line_count(drama_id: int) -> int:
 
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
                            glossary_terms, errors, cancelled: bool = False,
-                           summary_engine=None, summary_engine_choice: str = None) -> bool:
+                           summary_engine=None, summary_engine_choice: str = None,
+                           line_scoped: bool = False) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
     so the two can't drift (the CLI used to skip most of it): applies
@@ -1491,6 +1492,11 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     default) skips this entirely, e.g. when no engine could be built for
     it; a missing/unreachable summary engine must never fail the
     translation run itself.
+
+    line_scoped (B-27) marks a run restricted to some lines (e.g. a retry
+    of one content-blocked line on another engine): it must not replace
+    the drama's recorded translation_engine, which describes the whole-
+    drama run.
 
     Returns False, recording nothing, if every line this run translated
     has since been replaced (e.g. a new transcription finished meanwhile)
@@ -1536,8 +1542,9 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                                     model=getattr(engine, "model", ""), make_active=True)
     # Persisted, not just shown once: if the app restarts, the record of
     # what failed (and why some lines are untranslated) must not vanish.
-    fields = dict(translation_engine=engine_choice,
-                  last_translate_errors=json.dumps(errors, ensure_ascii=False) if errors else None)
+    fields = dict(last_translate_errors=json.dumps(errors, ensure_ascii=False) if errors else None)
+    if not line_scoped:
+        fields["translation_engine"] = engine_choice
     if untranslated_line_count(drama_id) == 0:
         fields["status"] = "translated"
     db.update_drama(drama_id, **fields)
