@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { buildEpub } from '../src/pages/translateEpubFixture'
+
 // Reaches the page at `#/translate`, the route the lead wires to TranslatePage.
 test('translates with the offline engine and lists it in history', async ({ page }) => {
   await page.goto('/#/translate')
@@ -114,4 +116,27 @@ test('another device sees why it cannot clear history', async ({ page }) => {
   await expect(page.getByTestId('translate-history')).toContainText('你好')
   await expect(page.getByText('Clearing history is PC only.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Clear history' })).toHaveCount(0)
+})
+
+test('opens an .epub in the browser: chapter text in spine order, nothing in it runs', async ({ page }) => {
+  await page.goto('/#/translate')
+  const book = buildEpub({
+    'OEBPS/one.xhtml': `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Head title</title></head>
+<body><h1>第一章</h1><p>你好，<b>世界</b>。</p>
+<script>window.__epubRan = true</script><img src="x.png" onerror="window.__epubRan = true"/></body></html>`,
+    'OEBPS/two.xhtml': '<html><body><p>第二章</p></body></html>',
+  })
+  const input = page.getByLabel('Open a file…')
+  await input.setInputFiles({ name: 'book.epub', mimeType: 'application/epub+zip', buffer: Buffer.from(book) })
+  await expect(page.getByRole('status').filter({ hasText: 'Loaded book.epub' })).toBeVisible()
+  await expect(page.getByLabel('Text to translate')).toHaveValue('第一章\n你好，世界。\n\n第二章')
+  expect(await page.evaluate(() => (window as unknown as { __epubRan?: boolean }).__epubRan)).toBeUndefined()
+
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Download result \(book\.en\.txt\)/ })).toBeVisible()
+
+  await input.setInputFiles({ name: 'broken.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('PK nope') })
+  await expect(page.getByRole('alert')).toHaveText('"broken.epub" is not a readable EPUB (it could not be unzipped).')
+  await expect(page.getByLabel('Text to translate')).toHaveValue('第一章\n你好，世界。\n\n第二章')
 })
