@@ -402,8 +402,8 @@ class TranscribeRunRequest(BaseModel):
     transcript_mode is "have_transcript" -- per Slice 19, it's never
     persisted server-side. tesseract_cmd is an optional, client-supplied
     path to the tesseract binary (hardsub_ocr with the "tesseract"
-    backend only) -- Streamlit's own equivalent Settings value has no
-    settings_service-backed home yet (Migration Slice 21)."""
+    backend only). The server runs it, so the run route accepts it only from
+    the PC itself (403 otherwise); omitted, the path saved in Settings applies."""
     source_language: Optional[str] = None
     chinese_script: Optional[str] = None
     transcript_text: Optional[str] = None
