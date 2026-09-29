@@ -3,6 +3,8 @@ import { getSettings, TOGGLES, updateSetting } from '../api/settings'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { SettingsKeyForm } from './SettingsKeyForm'
+import { SECRET_ENGINES } from './settingsKeys'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 
 const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
@@ -61,16 +63,35 @@ export default function SettingsPage() {
             summary={`${configured} of ${total} configured${missing.length ? `, missing ${missing.join(', ')}` : ''}`}
           >
             <p className="muted">
-              API-key entry is not available in this UI yet (Slice 24, pending the loopback policy
-              decision). Keys are never shown here, only whether one is configured.
+              Keys are saved to .env on the Baihe PC and never shown again, only whether one is
+              configured. Setting keys works only on that PC with BAIHE_API_ALLOW_KEY_WRITES=1.
             </p>
+            {SECRET_ENGINES.filter(({ engine }) => engine in settings.engine_keys).map(
+              ({ engine, label }) => (
+                <SettingsKeyForm
+                  key={engine}
+                  engine={engine}
+                  label={label}
+                  configured={settings.engine_keys[engine]}
+                  onResult={(r) =>
+                    setSettings((cur) =>
+                      cur
+                        ? { ...cur, engine_keys: { ...cur.engine_keys, [r.engine]: r.configured } }
+                        : cur,
+                    )
+                  }
+                />
+              ),
+            )}
             <dl>
-              {Object.entries(settings.engine_keys).map(([name, set]) => (
-                <div key={name}>
-                  <dt>{name}</dt>
-                  <dd data-testid={`key-${name}`}>{set ? 'Yes' : 'No'}</dd>
-                </div>
-              ))}
+              {Object.entries(settings.engine_keys)
+                .filter(([name]) => !SECRET_ENGINES.some((e) => e.engine === name))
+                .map(([name, set]) => (
+                  <div key={name}>
+                    <dt>{name}</dt>
+                    <dd data-testid={`key-${name}`}>{set ? 'Yes' : 'No'}</dd>
+                  </div>
+                ))}
             </dl>
           </Section>
         </>
