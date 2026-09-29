@@ -8,6 +8,7 @@ export type Route =
   | { name: 'translate' }
   | { name: 'sources' }
   | { name: 'read'; id: number; page: number | null }
+  | { name: 'comic'; id: number; page: number | null }
 
 export const DEFAULT_STAGE = 'source'
 
@@ -21,11 +22,11 @@ export function parseRoute(hash: string): Route {
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
-  if (head === 'read' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
-    // "#/read/3?page=2"; a missing or bad page means "resume where I left off".
+  if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
+    // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
-    return { name: 'read', id: Number(a), page }
+    return { name: head, id: Number(a), page }
   }
   if (head === 'drama' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length <= 3) {
     let stage = DEFAULT_STAGE
@@ -43,7 +44,7 @@ export function parseRoute(hash: string): Route {
 
 export function routeHref(r: Route): string {
   if (r.name === 'drama') return `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
-  if (r.name === 'read') return `#/read/${r.id}${r.page ? `?page=${r.page}` : ''}`
+  if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   return `#/${r.name}`
 }
 
