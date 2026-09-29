@@ -38,7 +38,8 @@ test('cover upload checks the type, then saves and shows the cover', async ({ pa
   await expect(page.getByRole('status').filter({ hasText: 'Cover saved (2×3).' })).toBeVisible()
   const img = page.getByRole('img', { name: 'Cover of Signal' })
   await expect(img).toBeVisible()
-  expect(await img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(2)
+  // The image may still be decoding right after it becomes visible; poll rather than read once.
+  await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(2)
   await expect(page.getByRole('button', { name: 'Replace cover' })).toBeVisible()
 })
 
