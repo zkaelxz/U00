@@ -71,6 +71,10 @@ for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['pho
     await page.getByRole('button', { name: 'New drama' }).first().click()
     const dialog = page.getByRole('dialog')
     await dialog.waitFor()
+    await dialog.locator('summary', { hasText: 'Credits' }).click()
     await dialog.screenshot({ path: `${DIR}/new-drama-${name}.png` })
+    const create = dialog.getByRole('button', { name: 'Create drama' })
+    await create.scrollIntoViewIfNeeded()
+    await dialog.screenshot({ path: `${DIR}/new-drama-end-${name}.png` })
   })
 }
