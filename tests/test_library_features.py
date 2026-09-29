@@ -504,6 +504,30 @@ class TestAnimeInLibraryTypeFilter:
 # Step 9b.3: bulk "translate everything untranslated" across a series.
 # ---------------------------------------------------------------------------
 
+def _fast_poll(module, monkeypatch):
+    """Shorten the coordinator's poll sleep without patching the global
+    `time` module: a process-wide no-op sleep makes background_jobs'
+    job-heartbeat daemon spin and flood job_records with writes."""
+    import types
+    real_time = module.time
+    stub = types.SimpleNamespace(**{n: getattr(real_time, n) for n in dir(real_time)
+                                    if not n.startswith("__")})
+    stub.sleep = lambda s: real_time.sleep(0.001)
+    monkeypatch.setattr(module, "time", stub)
+
+
+def _wait_for_job(job_id, timeout=60):
+    """Wait for the job to finish (not a short deadline, so a slow CI box
+    doesn't read a still-running job as its result)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = (background_jobs.get_status(job_id) or {}).get("status")
+        if status not in ("running", "queued"):
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"job {job_id} still running after {timeout}s")
+
+
 class TestBulkSeriesTranslate:
     def _drama(self, isolated_db, n=2, engine="test_offline", series_id=None, status="aligned"):
         did = isolated_db.create_drama(title_en=f"Drama {n}", media_type="audio_drama",
@@ -514,15 +538,13 @@ class TestBulkSeriesTranslate:
 
     def _run(self, drama_ids, monkeypatch, **kw):
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
-        monkeypatch.setattr(lt.time, "sleep", lambda s: None)
+        _fast_poll(lt, monkeypatch)
         job_id = "test_bulk_series"
         background_jobs.clear_job(job_id)
         started = background_jobs.start_job(
             job_id, lt.run_bulk_series_translate_job, job_id, drama_ids, kw.pop("api_keys", {}), **kw)
         assert started
-        deadline = time.time() + 5
-        while background_jobs.is_running(job_id) and time.time() < deadline:
-            time.sleep(0.02)
+        _wait_for_job(job_id)
         return background_jobs.get_status(job_id)
 
     def test_translates_every_eligible_drama_with_its_own_saved_engine(self, isolated_db, monkeypatch):
@@ -589,7 +611,7 @@ class TestBulkSeriesTranslate:
         d2 = self._drama(isolated_db, n=1)
         job_id = "test_bulk_series_cancel"
         background_jobs.clear_job(job_id)
-        monkeypatch.setattr(lt.time, "sleep", lambda s: None)
+        _fast_poll(lt, monkeypatch)
 
         class SlowEngine:
             name = "test_offline"
@@ -605,9 +627,7 @@ class TestBulkSeriesTranslate:
 
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: SlowEngine())
         assert background_jobs.start_job(job_id, lt.run_bulk_series_translate_job, job_id, [d1, d2], {})
-        deadline = time.time() + 5
-        while background_jobs.is_running(job_id) and time.time() < deadline:
-            time.sleep(0.02)
+        _wait_for_job(job_id)
         result = background_jobs.get_status(job_id)["result"]
         assert d2 not in result["translated"]
         assert d2 not in result.get("skipped_running", [])
@@ -692,7 +712,7 @@ class TestBulkSeriesTranslate:
                 messages.append(message)
             real_update(jid, frac, message)
         monkeypatch.setattr(background_jobs, "update_progress", spy)
-        monkeypatch.setattr(lt.time, "sleep", lambda s: None)
+        _fast_poll(lt, monkeypatch)
         lt.run_bulk_series_translate_job(job_id, [d1], {})
         assert any("Drama 1" in m and "1/1" in m for m in messages)
 
@@ -1317,6 +1337,23 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
                 zf.writestr(name, content)
         return buf.getvalue()
 
+    def _db_bytes(self) -> bytes:
+        """A minimal real SQLite library.db (restore now opens it and
+        requires a dramas table)."""
+        import sqlite3
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE dramas (id INTEGER PRIMARY KEY)")
+            conn.commit()
+            conn.close()
+            with open(path, "rb") as f:
+                return f.read()
+        finally:
+            os.remove(path)
+
     def test_not_a_zip_at_all_leaves_existing_library_intact(self, tmp_path_str):
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
@@ -1357,7 +1394,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             f.write("stale data that should be replaced")
 
         good_zip = self._make_zip_bytes({
-            "library.db": "fake sqlite bytes",
+            "library.db": self._db_bytes(),
             "dramas/new_drama.txt": "restored data",
         })
         lt.restore_library_backup(good_zip, tmp_path_str)
@@ -1370,7 +1407,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         library_dir = os.path.join(tmp_path_str, "brand_new_library")
-        good_zip = self._make_zip_bytes({"library.db": "fake sqlite bytes"})
+        good_zip = self._make_zip_bytes({"library.db": self._db_bytes()})
         lt.restore_library_backup(good_zip, library_dir)
 
         assert os.path.exists(os.path.join(library_dir, "library.db"))
@@ -1418,7 +1455,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBERS", 1)
 
         many_files_zip = self._make_zip_bytes({
-            "library.db": "fake sqlite bytes",
+            "library.db": self._db_bytes(),
             "dramas/extra_file.txt": "one file too many",
         })
         with pytest.raises(ValueError, match="file limit"):
@@ -1430,7 +1467,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         good_zip = self._make_zip_bytes({
-            "library.db": "fake sqlite bytes",
+            "library.db": self._db_bytes(),
             "dramas/new_drama.txt": "restored data",
         })
         lt.restore_library_backup(good_zip, tmp_path_str)
