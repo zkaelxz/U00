@@ -71,7 +71,7 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   await mockPage(page, { setup: setup({ ffmpeg: { found: false, version: null } }) })
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('diagnostics-summary')).toHaveText('1 setup problem · 2 of 4 packages')
-  await expect(page.getByTestId('system-summary')).toBeVisible() // Setup opened by itself
+  await expect(page.getByTestId('system-summary')).toBeVisible() // core checks: always shown at the top
   await expect(page.getByTestId('system-summary')).toContainText('Problem: ffmpeg not found')
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
   await expect(page.getByTestId('job-list')).toHaveCount(0)

@@ -61,6 +61,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/costs': EMPTY,
   '/api/library/series': EMPTY,
   '/api/library/history': EMPTY,
+  '/api/library/continue': EMPTY,
+  '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
   '/api/library/voice-bank': EMPTY,
 }

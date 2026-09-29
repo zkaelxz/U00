@@ -14,6 +14,8 @@ Streamlit button does:
   - delete_bug_bundle (tabs/diagnostics_tab.py "Delete bundle").
   - delete_preset / delete_voice_bank_entry (tabs/library_tab.py); the
     voice-bank clip file is removed by db.delete_voice_bank_entry.
+  - clear_reading_history (tabs/library_tab.py "Clear reading history";
+    that button had no confirm, the API still asks for one).
 
 Every one of those Streamlit buttons is gated by a plain "Confirm"
 checkbox (no typed word), so every function here needs `confirm is True`
@@ -217,3 +219,17 @@ def delete_voice_bank_entry(entry_id, confirm=False) -> dict:
     _require_confirm(confirm, "a voice bank entry")
     db.delete_voice_bank_entry(entry_id)
     return {"entry_id": entry_id, "deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Reading history
+# ---------------------------------------------------------------------------
+
+def clear_reading_history(confirm=False) -> dict:
+    """Clears the default profile's reading history (the Library tab's
+    "Clear reading history"). Reading progress, and so the Continue
+    reading shelf, is kept."""
+    _require_confirm(confirm, "reading history")
+    removed = len(db.list_reading_history(limit=-1))
+    db.clear_reading_history()
+    return {"cleared": True, "removed": removed}

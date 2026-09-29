@@ -2469,11 +2469,16 @@ def get_progress(drama_id: int, profile_id: int = None):
     return d
 
 
-def list_continue_reading(limit: int = 8, profile_id: int = None):
+def list_continue_reading(limit: int = 8, profile_id: int = None, visible_to: int = None):
     """Dramas with partial progress, most recently touched first -- the
     'Continue' shelf. Excludes anything finished (>=99%) or untouched.
     `limit` stays the first positional parameter (profile_id was added
-    later) so `list_continue_reading(8)` keeps meaning "limit=8"."""
+    later) so `list_continue_reading(8)` keeps meaning "limit=8".
+    `visible_to` (auth B2): only dramas that user may see."""
+    visible, vparams = "", []
+    if visible_to is not None:
+        clause, vparams = drama_visible_sql("d", visible_to)
+        visible = " AND " + clause
     with contextlib.closing(get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)
@@ -2481,9 +2486,9 @@ def list_continue_reading(limit: int = 8, profile_id: int = None):
             SELECT d.*, p.last_line_idx, p.audio_position_seconds, p.last_page,
                    p.percent_complete, p.last_accessed_at
             FROM progress p JOIN dramas d ON d.id = p.drama_id
-            WHERE p.profile_id = ? AND p.percent_complete > 0 AND p.percent_complete < 99
+            WHERE p.profile_id = ? AND p.percent_complete > 0 AND p.percent_complete < 99""" + visible + """
             ORDER BY p.last_accessed_at DESC LIMIT ?
-        """, (profile_id, limit)).fetchall()
+        """, [profile_id] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
 
 

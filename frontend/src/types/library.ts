@@ -71,6 +71,30 @@ export interface LibraryHistoryEntry {
   title_zh: string | null
 }
 
+// GET /api/library/continue: partly-read dramas, most recent first.
+export interface LibraryContinueEntry {
+  drama_id: number
+  title_en: string | null
+  title_zh: string | null
+  percent_complete: number | null
+  last_page: number | null
+  last_accessed_at: string | null
+  has_cover_art: boolean
+}
+
+// GET /api/library/filter-options: the "All dramas" filters' data-driven choices.
+export interface LibraryFilterOptions {
+  studios: string[]
+  authors: string[]
+  voice_actors: string[]
+  custom_tags: string[]
+}
+
+export interface ReadingHistoryClearResult {
+  cleared: boolean
+  removed: number
+}
+
 export interface LibraryPreset {
   id: number
   name: string
@@ -148,5 +172,6 @@ export type LibraryRecentResponse = Items<LibraryDramaRef>
 export type LibraryCostResponse = Items<LibraryCostRow>
 export type LibrarySeriesResponse = Items<LibrarySeries>
 export type LibraryHistoryResponse = Items<LibraryHistoryEntry>
+export type LibraryContinueResponse = Items<LibraryContinueEntry>
 export type LibraryPresetsResponse = Items<LibraryPreset>
 export type LibraryVoiceBankResponse = Items<LibraryVoice>

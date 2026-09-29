@@ -76,6 +76,37 @@ export interface JobStarted {
 
 export interface NovelAttachResult {
   char_count: number
+  // EPUB attach only: chapters found and the range used (1-based, inclusive).
+  epub_chapters?: number
+  chapter_from?: number
+  chapter_to?: number
+}
+
+// POST /api/metadata/dramas/{id}/romanize-credits
+export interface RomanizeCreditsResult {
+  drama_id: number
+  romanized: Record<string, string>
+  updated: boolean
+}
+
+// POST /api/dramas/{id}/cover
+export interface CoverArtResult {
+  drama_id: number
+  has_cover_art: boolean
+  format: string
+  width: number
+  height: number
+  size_bytes: number
+}
+
+// GET /api/discover/platforms (known_sites.KNOWN_SITES)
+export interface KnownPlatform {
+  name: string
+  url: string
+  region?: string
+  language?: string
+  content_types?: string[]
+  notes?: string
 }
 
 export type NovelMode = 'replace' | 'append'
