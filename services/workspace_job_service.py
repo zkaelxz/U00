@@ -1040,7 +1040,10 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 with open(novel_path, encoding="utf-8") as f:
                     novel_reference = f.read()
 
-        background_jobs.start_job(
+        # start_job returns False when someone else's translate_<id> run
+        # started since the check above: skip it rather than adopt (and
+        # possibly cancel) that run below.
+        started = background_jobs.start_job(
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
             glossary_terms, style_guidelines, engine_choice, style_preset, 6, None,
@@ -1051,6 +1054,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             # alongside another GPU-touching job.
             gpu_touching=engine_choice == "ollama",
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
+        if not started:
+            results["skipped_running"].append(did)
+            continue
 
         while True:
             # Step 25d item 1: an Ollama drama can now be queued behind
