@@ -121,7 +121,7 @@ class TestEveryRouteDeclared:
         import pathlib
         import re
         routers = pathlib.Path(api_auth.__file__).parent / "routers"
-        decorators = sum(len(re.findall(r"^@router\.(?:get|post|put|patch|delete|api_route)\(",
+        decorators = sum(len(re.findall(r"^@router\.(?:get|post|put|patch|delete|head|api_route)\(",
                                         f.read_text(), re.M))
                          for f in routers.glob("*.py"))
         walked = [r for r, p, _m, _d in api_auth.iter_route_declarations(app)
