@@ -345,7 +345,12 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
     db.save_lines): the whole point of a review queue is coming back to it
     later, potentially after closing the app, not just within this
     session.
+
+    Compare-and-set: a line whose flag/flag_note the user changed while the
+    job ran (differs from what the job started with) keeps the user's value;
+    the job's result for that line is dropped.
     """
+    started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
     translate_engines.flag_uncertain_lines(
         lines, engine,
         progress_cb=lambda frac: background_jobs.update_progress(
@@ -353,6 +358,12 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    current = {r["id"]: (r["flag"] or "", r["flag_note"] or "") for r in db.load_lines(drama_id)}
+    for ln in lines:
+        if ln.id in current and current[ln.id] != started_with[ln.id]:
+            ln.flag, ln.flag_note = current[ln.id][0] or None, current[ln.id][1]
+            if getattr(ln, "orig", None) is not None:
+                ln.orig = {**ln.orig, "flag": ln.flag, "flag_note": ln.flag_note}
     db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
 
