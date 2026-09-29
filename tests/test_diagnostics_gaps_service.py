@@ -186,6 +186,24 @@ def test_support_report_clean(dirty_log, monkeypatch):
     _assert_clean(report)
 
 
+def test_log_tail_and_support_report_strip_ansi(isolated_db, monkeypatch):
+    """yt-dlp colours its errors; neither the Log view nor the support
+    report should show the raw escape codes."""
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, "app.log"), "w", encoding="utf-8") as f:
+        f.write("INFO started\n")
+        f.write("ERROR download failed: \x1b[0;31mERROR:\x1b[0m [youtube] abc123: Sign in\n")
+    tail = svc.get_log_tail(10)
+    assert tail[-1].endswith("download failed: ERROR: [youtube] abc123: Sign in")
+    assert not any("\x1b" in ln for ln in tail)
+    monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {})
+    monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
+    report = svc.build_support_report()
+    assert "ERROR: [youtube] abc123: Sign in" in report
+    assert "\x1b" not in report
+
+
 def _no_jobs(monkeypatch, running=False):
     from services import library_admin_service
     monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: running)
