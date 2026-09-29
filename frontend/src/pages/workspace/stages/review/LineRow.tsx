@@ -15,6 +15,9 @@ export interface NoteDraft {
 
 export interface EditState {
   lineId: number
+  // The line as it was when editing began (or last saved): the compare-and-set
+  // base, kept so a draft can still be saved after its row leaves the view.
+  base: ReviewLine
   draft: LineDraft
   details: boolean
   note: NoteDraft | null
@@ -56,6 +59,8 @@ interface Props {
   isPhone: boolean
   hasMedia: boolean
   jobRunning: boolean
+  // Filtered or search view: merge needs the true next line.
+  limited: boolean
   edit: EditState | null
   ai: AiMode | null
   issue: RowIssue | null
@@ -67,7 +72,7 @@ const INTERACTIVE = 'button, a, input, textarea, select, label, summary, dialog'
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, edit, ai, issue, actions }: Props) {
+function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, issue, actions }: Props) {
   const draft = edit?.draft ?? null
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -204,7 +209,12 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, edi
           <button type="button" disabled={jobRunning} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
             Split…
           </button>
-          <button type="button" disabled={jobRunning} onClick={() => actions.openStructure(line.id, 'merge')} title="Merge with next (M)">
+          <button
+            type="button"
+            disabled={jobRunning || limited}
+            onClick={() => actions.openStructure(line.id, 'merge')}
+            title={limited ? 'Merge works in the All lines view' : 'Merge with next (M)'}
+          >
             Merge ↓
           </button>
           {line.flag && (

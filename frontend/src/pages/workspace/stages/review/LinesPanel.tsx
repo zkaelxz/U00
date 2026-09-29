@@ -56,6 +56,8 @@ type Target = 'first' | 'last' | 'firstFlagged' | 'lastFlagged' | number
 type Pending = { target: Target; edit?: boolean }
 
 const PHONE = '(max-width: 640px)'
+const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
+const DRAFT_NOT_SAVED = 'Your edit to this line could not be saved, so nothing else was changed. Close this and check the line.'
 const SEARCH_DEBOUNCE_MS = 300
 const STATUS_MS = 8000
 
@@ -98,6 +100,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [sheet, setSheet] = useState<SheetState | null>(null)
   const [busy, setBusy] = useState(false)
   const [structError, setStructError] = useState<unknown>(null)
+  const [sheetNote, setSheetNote] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [flagCue, setFlagCue] = useState<1 | -1 | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
@@ -113,6 +116,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
   const pages = data ? pageCount(data.total) : 1
   const searching = term !== ''
+  // Merge and add need the true neighbour, which only the All view shows.
+  const limited = searching || filter !== 'all'
 
   useEffect(() => {
     if (allTotal !== null) onLineCount?.(allTotal)
@@ -139,7 +144,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       if (target) {
         setActiveId(target.id)
         focusActive.current = true
-        if (p?.edit) setEdit({ lineId: target.id, draft: draftFromLine(target), details: false, note: null })
+        if (p?.edit) setEdit({ lineId: target.id, base: target, draft: draftFromLine(target), details: false, note: null })
       } else {
         const first = !loadedOnce.current
         setActiveId((cur) =>
@@ -221,8 +226,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     const saveDraft = async (): Promise<boolean> => {
       const cur = st.current.edit
       if (!cur) return true
-      const line = find(cur.lineId)
-      if (!line) return false
+      // The base, not the listed row: the row may have left the view (a
+      // filter, a dismissed flag) and the draft must still be saved.
+      const line = cur.base
       const patch = buildPatch(line, cur.draft)
       if (typeof patch === 'string') {
         setIssue({ lineId: cur.lineId, problem: patch })
@@ -233,6 +239,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       try {
         const saved = await patchLine(dramaId, line.id, patch)
         replaceLine(saved)
+        // Keep typing that happened during the save: only the base moves on.
+        const now = st.current.edit
+        if (now && now.lineId === saved.id) setEditNow({ ...now, base: saved })
         setIssue(null)
         st.current.onChanged()
         return true
@@ -241,13 +250,18 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         return false
       }
     }
+    const stillDirty = (lineId: number) => {
+      const now = st.current.edit
+      return !!now && now.lineId === lineId && isDirty(now.base, now.draft)
+    }
 
     // Close the editor, saving a dirty draft first; false keeps it open.
     const leaveEdit = async (): Promise<boolean> => {
       const cur = st.current.edit
       if (!cur) return true
-      const line = find(cur.lineId)
-      if (line && isDirty(line, cur.draft) && !(await saveEdit())) return false
+      // Save until nothing is left (text typed during a slow save saves too).
+      for (let i = 0; i < 3 && stillDirty(cur.lineId); i += 1) if (!(await saveEdit())) return false
+      if (stillDirty(cur.lineId)) return false
       setEditNow(null)
       return true
     }
@@ -276,7 +290,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       if (!line) return false
       setActiveId(id)
       setIssue(null)
-      setEditNow({ lineId: id, draft: draftFromLine(line), details, note: null })
+      setEditNow({ lineId: id, base: line, draft: draftFromLine(line), details, note: null })
       return true
     }
 
@@ -310,13 +324,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     const saveAndNext = async () => {
       const cur = st.current.edit
       if (!cur || !(await saveEdit())) return
+      // Typed during the save: save that too before moving on (or stay).
+      if (stillDirty(cur.lineId) && !(await saveEdit())) return
+      if (stillDirty(cur.lineId)) return
       const { shown: lines, page: pg, pages: n, searching: s } = st.current
       const i = lines.findIndex((l) => l.id === cur.lineId)
       const next = lines[i + 1]
       if (next) {
         setActiveId(next.id)
         setIssue(null)
-        setEditNow({ lineId: next.id, draft: draftFromLine(next), details: false, note: null })
+        setEditNow({ lineId: next.id, base: next, draft: draftFromLine(next), details: false, note: null })
       } else if (!s && pg < n) {
         setEditNow(null)
         pending.current = { target: 'first', edit: true }
@@ -358,8 +375,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       toggleDetails: (id) => {
         const cur = st.current.edit
         if (cur && cur.lineId === id && cur.details) {
-          const line = find(id)
-          if (line && isDirty(line, cur.draft)) setEditNow({ ...cur, details: false, note: null })
+          if (isDirty(cur.base, cur.draft)) setEditNow({ ...cur, details: false, note: null })
           else setEditNow(null)
         } else void openEdit(id, true)
       },
@@ -418,7 +434,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           return false
         }
       },
-      dismissFlag: (id) => {
+      dismissFlag: async (id) => {
+        // Save any draft first: under the Flagged filter the line leaves the view.
+        if (!(await leaveEdit())) return
         dismissFlag(dramaId, id).then((saved) => {
           replaceLine(saved)
           setIssue(null)
@@ -434,10 +452,30 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
     }
 
-    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo }
+    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty }
   }, [dramaId])
 
   const { actions } = ctl
+
+  // A dirty draft is never lost silently: leaving the page asks first, and
+  // leaving the stage (unmount) saves it.
+  const dirtyNow = edit !== null && isDirty(edit.base, edit.draft)
+  useEffect(() => {
+    if (!dirtyNow) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirtyNow])
+  useEffect(
+    () => () => {
+      const cur = st.current.edit
+      if (cur && ctl.stillDirty(cur.lineId)) void ctl.saveEdit()
+    },
+    [ctl],
+  )
 
   // ---- structure edits (sheet) ----
   const runStructure = async (
@@ -445,8 +483,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string },
   ) => {
     if (busy) return
-    setBusy(true)
     setStructError(null)
+    setSheetNote(null)
+    // Never drop a draft: save it (or stop) before the lines change shape.
+    if (!(await ctl.leaveEdit())) {
+      setSheetNote(DRAFT_NOT_SAVED)
+      return
+    }
+    setBusy(true)
     try {
       const ids = (await listAllLines(dramaId)).map((l) => l.id)
       if (!pageStillMatches(ids, shown.map((l) => l.id), searching ? 'search' : filter, page)) throw mismatch()
@@ -582,6 +626,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     const inList = target === document.body || !!listRef.current?.contains(target)
     const onRow = target === document.body || target.matches?.('.review-line')
     const isControl = !!target.closest?.('input, select')
+    // Single-key shortcuts only while focus is in the list (or nowhere).
+    if ((combo.length === 1 && combo !== '?' && combo !== '/') || combo === 'shift+delete') {
+      if (!inList) return false
+    }
     switch (combo) {
       case 'arrowdown':
       case 'arrowup':
@@ -632,10 +680,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         player.current?.toggleLoop()
         return true
       case 'm':
-        void ctl.openSheet(active.id, 'merge')
-        return true
       case 'a':
-        void ctl.openSheet(active.id, 'add')
+        if (limited) setStatus(ALL_LINES_ONLY)
+        else void ctl.openSheet(active.id, combo === 'm' ? 'merge' : 'add')
         return true
       case 'shift+delete':
         void ctl.openSheet(active.id, 'menu', { armDelete: true })
@@ -755,6 +802,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             isPhone={isPhone}
             hasMedia={mediaKind !== null}
             jobRunning={jobRunning}
+            limited={limited}
             edit={edit?.lineId === l.id ? edit : null}
             ai={ai?.lineId === l.id ? ai.mode : null}
             issue={issue?.lineId === l.id ? issue : null}
@@ -797,10 +845,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         jobRunning={jobRunning}
         busy={busy}
         error={structError}
-        errorText={structureErrorText(structError)}
+        errorText={sheetNote ?? structureErrorText(structError)}
+        limited={limited}
         onView={(view) => {
           setStructError(null)
-          setSheet((s) => (s ? { ...s, view, armDelete: false } : s))
+          setSheetNote(null)
+          // Split/merge/add work on saved text: save a draft first, stay on the menu if that fails.
+          void (view === 'menu' ? Promise.resolve(true) : ctl.leaveEdit()).then((ok) => {
+            if (ok) setSheet((s) => (s ? { ...s, view, armDelete: false } : s))
+            else setSheetNote(DRAFT_NOT_SAVED)
+          })
         }}
         onClose={() => setSheet(null)}
         onPlay={() => closeSheetThen(() => sheetLine && player.current?.playLine(sheetLine))}

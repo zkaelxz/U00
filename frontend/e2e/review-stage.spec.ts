@@ -155,6 +155,48 @@ test('moving to another line saves a dirty draft first', async ({ page }) => {
   expect(saves).toEqual([{ en: 'Hi', expected: { en: 'Hello there' } }])
 })
 
+test('dismissing the flag under the Flagged filter saves the open draft', async ({ page }) => {
+  const saves: unknown[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(r.url())) saves.push(r.postDataJSON())
+  })
+  await open(page)
+  await page.getByRole('radio', { name: /^Flagged/ }).check()
+  await expect(rows(page)).toHaveCount(1)
+  const row = rows(page).nth(0)
+  await row.getByTestId('line-en').click()
+  await row.getByLabel('Translation').fill('Goodbye, friend')
+  await row.getByRole('button', { name: 'Dismiss flag' }).click()
+  await expect(page.getByText('No flagged lines. Nice.')).toBeVisible()
+  await page.getByRole('radio', { name: /^All lines/ }).check()
+  await expect(page.getByTestId('line-en').filter({ hasText: 'Goodbye, friend' })).toBeVisible()
+  expect(saves).toEqual([{ en: 'Goodbye, friend', expected: { en: '' } }])
+})
+
+test('opening a structure form from the sheet saves the open draft first', async ({ page }) => {
+  await open(page)
+  const row = rows(page).nth(0)
+  await row.getByTestId('line-en').click()
+  await row.getByLabel('Translation').fill('Typed before adding')
+  await row.getByRole('button', { name: 'More actions for line 1' }).click()
+  await page.getByRole('dialog', { name: 'Line #1' }).getByRole('button', { name: 'Add line after…' }).click()
+  const add = page.getByRole('dialog', { name: 'Add a line after #1' })
+  await add.getByLabel('Translation').fill('Added')
+  await add.getByRole('button', { name: 'Add after #1' }).click()
+  await expect(rows(page)).toHaveCount(4)
+  await expect(page.getByTestId('line-en').filter({ hasText: 'Typed before adding' })).toBeVisible()
+})
+
+test('merge and add wait for the All lines view', async ({ page }) => {
+  await open(page)
+  await page.getByLabel('Search lines').fill('谢谢')
+  await expect(rows(page)).toHaveCount(1)
+  const row = await activate(page, 0)
+  await expect(row.getByRole('button', { name: 'Merge ↓' })).toBeDisabled()
+  await row.getByRole('button', { name: /More actions/ }).click()
+  await expect(page.getByRole('button', { name: /Add line after/ })).toBeDisabled()
+})
+
 test('a stale edit shows the changed-elsewhere message and keeps the draft', async ({ page }) => {
   await page.route('**/api/lines/dramas/3/lines/*', (route) =>
     route.fulfill({

@@ -28,6 +28,8 @@ interface Props {
   run: ReviewLine[]
   hasMedia: boolean
   jobRunning: boolean
+  // Filtered or search view: merge and add need the true neighbour.
+  limited: boolean
   busy: boolean
   error: unknown
   errorText: string | null
@@ -150,13 +152,15 @@ export function LineActionsSheet(p: Props) {
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!!blocked} onClick={() => p.onView('merge')}>
+                <button type="button" disabled={!!blocked || p.limited} onClick={() => p.onView('merge')}>
                   Merge with next…
+                  {p.limited && !blocked && <span className="sheet-reason">Only in the All lines view.</span>}
                 </button>
               </li>
               <li>
-                <button type="button" disabled={!!blocked} onClick={() => p.onView('add')}>
+                <button type="button" disabled={!!blocked || p.limited} onClick={() => p.onView('add')}>
                   Add line after…
+                  {p.limited && !blocked && <span className="sheet-reason">Only in the All lines view.</span>}
                 </button>
               </li>
               <li>

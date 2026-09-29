@@ -75,7 +75,10 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
   const play = useCallback(() => {
     const el = media.current
     if (!el) return
-    el.play().catch(() => setFailed(true))
+    el.play().catch((e: unknown) => {
+      // A pause or a new seek interrupts play(); that is not a failure.
+      if ((e as { name?: string } | null)?.name !== 'AbortError') setFailed(true)
+    })
   }, [])
 
   const playLine = useCallback(
