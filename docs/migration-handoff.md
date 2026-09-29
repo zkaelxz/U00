@@ -22,7 +22,7 @@ security-auditor, parity-auditor, bug-investigator, test-author, docs-steward, s
 2. Delete routes that have no API yet (all PC-only, `local_only` plus confirm): remove audio, remove raw novel, delete version, series character, bug bundle, preset, voice bank. Their Streamlit tests stay until these exist.
 3. Workspace shell + Review editor rebuild (spec `docs/specs/ux-workspace-shell-and-review.md`), after the progress endpoint merges; then the React pages for the new routes (react-page-builder).
 4. Act on the security-audit and parity-audit findings; then extract the 36 tab functions (`docs/streamlit-test-triage.md`); then the `pre-streamlit-removal` tag + `legacy/streamlit` branch + the deletion PRs.
-5. Standalone / app packaging: see the user's question in the old session. Not decided and not started.
+5. Step 141 (user approved, 2026-09-29): have migration-architect write a spec for the standalone PC shell and the "This PC" / "Connect to my PC" toggle, after remote access (step 140). See the step 141 row in `docs/baihe-roadmap-master.md`. Spec only; no build yet.
 
 **Test gate:** `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` gives the full suite in about 4 minutes (4686 passed, 86 skipped on #352).
 
