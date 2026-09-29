@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 
 export type Route =
   | { name: 'library' }
-  | { name: 'drama'; id: number; stage: string }
+  // stage null: no stage in the URL; the Workspace opens the drama's current stage.
+  | { name: 'drama'; id: number; stage: string | null }
   | { name: 'settings' }
   | { name: 'diagnostics' }
   | { name: 'translate' }
@@ -29,7 +30,7 @@ export function parseRoute(hash: string): Route {
     return { name: head, id: Number(a), page }
   }
   if (head === 'drama' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length <= 3) {
-    let stage = DEFAULT_STAGE
+    let stage: string | null = null
     if (b) {
       try {
         stage = decodeURIComponent(b)
@@ -43,7 +44,7 @@ export function parseRoute(hash: string): Route {
 }
 
 export function routeHref(r: Route): string {
-  if (r.name === 'drama') return `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
+  if (r.name === 'drama') return r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   return `#/${r.name}`
 }

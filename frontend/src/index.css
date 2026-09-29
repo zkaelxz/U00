@@ -235,6 +235,11 @@ dd { margin: 0; }
 .stage-tabs { display: flex; gap: var(--space-3); margin: var(--space-3) 0; border-bottom: 1px solid var(--border); }
 .stage-tabs a { padding: 6px 4px; text-decoration: none; color: var(--muted); }
 .stage-tabs a[aria-current='page'] { color: var(--text); border-bottom: 2px solid var(--accent); }
+/* P16: progress marks. "current" is the drama's next step, not the open tab. */
+.stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: 600; }
+.stage-tabs a[data-state='blocked'] { opacity: 0.7; }
+.stage-tabs .stage-mark { color: var(--ok); }
+.stage-counts { margin: 0 0 var(--space-3); font-size: var(--font-sm); }
 .stage-source { display: grid; gap: var(--space-3); }
 .form-grid { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
 .form-grid label { display: grid; gap: 2px; }

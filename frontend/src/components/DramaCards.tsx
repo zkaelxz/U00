@@ -24,7 +24,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
         const meta = [d.media_type?.replace(/_/g, ' '), d.source_language].filter(Boolean).join(' · ')
         return (
           <li key={d.id} className={d.id === selectedId ? 'selected' : undefined}>
-            <a className="drama-card-title" href={routeHref({ name: 'drama', id: d.id, stage: 'source' })}>
+            <a className="drama-card-title" href={routeHref({ name: 'drama', id: d.id, stage: null })}>
               {title}
             </a>
             {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}

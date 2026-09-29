@@ -84,7 +84,7 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
             </div>
           ))}
       </dl>
-      <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Open workspace</a>
+      <a href={routeHref({ name: 'drama', id: dramaId, stage: null })}>Open workspace</a>
       {' · '}<a href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id: dramaId, page: null })}>Read</a>
       {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
       {onDeleted && !confirming && (

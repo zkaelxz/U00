@@ -72,8 +72,8 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | P13 | Romanize credits (LLM), shown as bilingual credits | 1442-1479 | `tguide.romanize_metadata`, `format_bilingual_credit` | MISSING | no API | wt TestRomanizeCreditsEnginePassesOllamaUrlAndFreeTier |
 | P14 | Cover art upload and preview | 1481-1491 | file write + `db.update_drama` | MISSING | no API (`has_cover_art` is read-only) | — |
 | P15 | Delete drama: checkbox plus typed DELETE, blocked while a job runs | 1504-1526 | `background_jobs.any_job_running_for_drama`, `db.delete_drama` | `components/DramaDetailPanel.tsx` | `DELETE /api/dramas/{id}?confirm=true&confirm_text=DELETE` | wt TestDestructiveActionsNeedConfirmation, TestDeleteDramaBlockedByRunningJob |
-| P16 | Project header and stage stepper showing real progress | 1528-1542 | `workflow_service.compute_workspace_stage_index`, `ui.project_header` | PARTIAL `pages/workspace/WorkspaceShell.tsx` (stage nav, no progress) | no API (service exists) | wt TestWorkspaceStageIndex, test_ui_components TestProjectHeader |
-| P17 | Stage tabs open on the drama's current stage | 1544-1553 | same | MISSING (`router.ts` defaults to `source`) | no API | wt TestStageTabsOpenOnTheCurrentStage, TestStageTabsReplaceTheExpanderScroll |
+| P16 | Project header and stage stepper showing real progress | 1528-1542 | `workflow_service.compute_workspace_stage_index`, `ui.project_header` | DONE `pages/workspace/WorkspaceShell.tsx` (stepper marks done/next/optional/blocked from the progress API, plus line/untranslated/flagged counts) | `GET /api/workflow/dramas/{id}/progress` | wt TestWorkspaceStageIndex, test_ui_components TestProjectHeader |
+| P17 | Stage tabs open on the drama's current stage | 1544-1553 | same | DONE (`#/drama/{id}` with no stage opens the stage the progress API reports; Library links omit the stage; Source if progress fails) | `GET /api/workflow/dramas/{id}/progress` | wt TestStageTabsOpenOnTheCurrentStage, TestStageTabsReplaceTheExpanderScroll |
 
 ### 2.2 Source tab (1555-1911)
 
