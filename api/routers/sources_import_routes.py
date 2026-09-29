@@ -46,13 +46,15 @@ def post_url_preview(body: SourcesUrlPreviewRequest, request: Request):
              summary="Job: append a pasted URL's novel text to a novel drama",
              responses=_ERRS)
 def post_url_import(body: SourcesUrlImportRequest, request: Request):
-    return svc.start_url_import(body.url, body.drama_id, local=is_local_request(request))
+    return svc.start_url_import(body.url, body.drama_id, local=is_local_request(request),
+                                principal=request.state.principal)
 
 
 @router.post("/{name}/import", dependencies=[require_permission("sources.import")],
              response_model=SourcesJobStarted,
              summary="Job: import chosen chapters (by id) of one series into a drama",
              responses=_ERRS)
-def post_chapter_import(body: SourcesChapterImportRequest,
+def post_chapter_import(body: SourcesChapterImportRequest, request: Request,
                         name: str = Path(min_length=1, max_length=60)):
-    return svc.start_chapter_import(name, body.series_id, body.chapter_ids, body.drama_id)
+    return svc.start_chapter_import(name, body.series_id, body.chapter_ids, body.drama_id,
+                                    principal=request.state.principal)
