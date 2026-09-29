@@ -39,6 +39,13 @@ class Fake:
         return [f"{self.name}:{z}" for z in zh_lines]
 
 
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    slept = []
+    monkeypatch.setattr(translate_engines, "_fallback_sleep", slept.append)
+    return slept
+
+
 def _make(name):
     return type(name.title(), (Fake,), {"name": name, "fail": None, "calls": 0})
 
@@ -90,7 +97,8 @@ def test_falls_back_on_rate_limit_and_stays_on_fallback(isolated_db, engines):
     job = _wait(out["job_id"])
     assert job["status"] == "done"
     assert [r["en"] for r in db.load_lines(did)] == ["deepseek:z0", "deepseek:z1", "deepseek:z2"]
-    assert engines["claude"].calls == 1  # sticky: primary not retried per batch
+    # primary retried with backoff (1 + retries) once, then sticky: not retried per batch
+    assert engines["claude"].calls == 1 + translate_engines.FALLBACK_TRANSIENT_RETRIES
     fb = job["result"]["fallbacks"]
     assert fb[0]["from"] == "claude" and fb[0]["to"] == "deepseek"
 
@@ -168,3 +176,60 @@ def test_api_accepts_fallback_chain_and_rejects_bad_shape(isolated_db, engines):
     r = client.post(url, json={"engine": "claude", "fallback_chain": [{"engine": "deepseek"}]})
     assert r.status_code == 200 and r.json()["fallback_engines"] == ["deepseek"]
     _wait(r.json()["job_id"])
+
+
+class _Flaky:
+    """Fails with `exc` for the first `n_fail` calls, then succeeds."""
+    name = "flaky"
+    last_usage = {}
+
+    def __init__(self, exc, n_fail):
+        self.exc, self.n_fail, self.calls = exc, n_fail, 0
+
+    def translate_batch(self, zh_lines, context):
+        self.calls += 1
+        if self.calls <= self.n_fail:
+            raise self.exc
+        return [f"ok:{z}" for z in zh_lines]
+
+
+class _TimeoutError(Exception):
+    pass
+
+
+def test_transient_error_retries_primary_with_backoff_before_switching(_no_sleep):
+    a, b = _Flaky(RateLimitError("429"), 2), _Flaky(AuthError("x"), 0)
+    fe = translate_engines.FallbackEngine([a, b], ["claude", "deepseek"])
+    assert fe.translate_batch(["z"], {}) == ["ok:z"]
+    assert fe.active == 0 and fe.events == [] and a.calls == 3 and b.calls == 0
+    assert _no_sleep == [1.0, 2.0]
+
+
+def test_transient_error_switches_after_retries_exhausted(_no_sleep):
+    a, b = _Flaky(_TimeoutError("t"), 99), _Flaky(AuthError("x"), 0)
+    fe = translate_engines.FallbackEngine([a, b], ["claude", "deepseek"])
+    assert fe.translate_batch(["z"], {}) == ["ok:z"]
+    assert a.calls == 1 + translate_engines.FALLBACK_TRANSIENT_RETRIES
+    assert fe.active == 1 and len(fe.events) == 1 and len(_no_sleep) == 2
+
+
+def test_auth_error_switches_immediately_without_sleep(_no_sleep):
+    a, b = _Flaky(AuthError("401"), 99), _Flaky(AuthError("x"), 0)
+    fe = translate_engines.FallbackEngine([a, b], ["claude", "deepseek"])
+    fe.translate_batch(["z"], {})
+    assert a.calls == 1 and fe.active == 1 and _no_sleep == []
+
+
+def test_retry_budget_resets_for_next_engine(_no_sleep):
+    a, b = _Flaky(RateLimitError("429"), 99), _Flaky(RateLimitError("429"), 1)
+    fe = translate_engines.FallbackEngine([a, b], ["claude", "deepseek"])
+    assert fe.translate_batch(["z"], {}) == ["ok:z"]
+    assert a.calls == 3 and b.calls == 2 and fe.active == 1
+
+
+def test_backoff_is_capped(monkeypatch, _no_sleep):
+    monkeypatch.setattr(translate_engines, "FALLBACK_TRANSIENT_RETRIES", 6)
+    a = _Flaky(RateLimitError("429"), 6)
+    fe = translate_engines.FallbackEngine([a], ["claude"])
+    fe.translate_batch(["z"], {})
+    assert max(_no_sleep) == translate_engines.FALLBACK_BACKOFF_CAP_SECONDS
