@@ -4,6 +4,7 @@ import { applyFindReplace, previewFindReplace } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
 import { staleLabels } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 interface Props {
   dramaId: number
@@ -73,7 +74,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
           {matches.length === 0 && <li className="muted">No matches.</li>}
           {matches.map((m) => (
             <li key={m.id}>
-              <span className="muted">#{m.idx}</span> <del>{m.old_text}</del> <ins>{m.new_text}</ins>
+              <span className="muted">#{lineNumber(m.idx)}</span> <del>{m.old_text}</del> <ins>{m.new_text}</ins>
             </li>
           ))}
         </ul>

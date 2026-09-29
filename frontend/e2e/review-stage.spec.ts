@@ -20,9 +20,9 @@ test.beforeEach(() => {
 from core import Line
 db.update_drama(3, audio_filename=None)
 db.save_lines(3, [
-    Line(idx=1, start=0.0, end=1.5, zh='你好', en='Hello there'),
-    Line(idx=2, start=1.5, end=3.0, zh='再见朋友', en='', flag='uncertain', flag_note='check'),
-    Line(idx=3, start=3.0, end=4.5, zh='谢谢', en='Thanks, friend'),
+    Line(idx=0, start=0.0, end=1.5, zh='你好', en='Hello there'),
+    Line(idx=1, start=1.5, end=3.0, zh='再见朋友', en='', flag='uncertain', flag_note='check'),
+    Line(idx=2, start=3.0, end=4.5, zh='谢谢', en='Thanks, friend'),
 ])
 `)
 })

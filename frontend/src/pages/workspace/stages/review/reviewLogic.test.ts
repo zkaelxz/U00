@@ -102,8 +102,8 @@ describe('add and merge', () => {
     expect(adjacentRun([1, 2, 3], 3, 2)).toBeNull()
     expect(adjacentRun([1, 2, 3], 9, 2)).toBeNull()
     expect(mergedText([{ zh: '你 ', en: 'Hi ' }, { zh: ' 好', en: ' there' }])).toEqual({ zh: '你好', en: 'Hi there' })
-    expect(lineRange([{ idx: 5 }, { idx: 7 }])).toBe('#5–#7')
-    expect(lineRange([{ idx: 5 }])).toBe('#5')
+    expect(lineRange([{ idx: 4 }, { idx: 6 }])).toBe('#5–#7')
+    expect(lineRange([{ idx: 4 }])).toBe('#5')
   })
 })
 

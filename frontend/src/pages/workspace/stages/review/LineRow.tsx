@@ -5,6 +5,7 @@ import { Field } from '../../../../components/Field'
 import type { ReviewLine } from '../../../../types/review'
 import { LineAi, type AiMode } from './LineAi'
 import { CONFLICT_MESSAGE, formatTime, JOB_RUNNING_MESSAGE, type LineDraft } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 export interface NoteDraft {
   term: string
@@ -105,7 +106,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, edi
       onClick={onRowClick}
     >
       <div className="review-line-meta">
-        <span className="review-idx">#{line.idx}</span>
+        <span className="review-idx">#{lineNumber(line.idx)}</span>
         <span className="review-time">
           {formatTime(line.start)}
           {!isPhone && <>–{formatTime(line.end)}</>}
@@ -125,7 +126,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, edi
         <button
           type="button"
           className="review-more"
-          aria-label={`More actions for line ${line.idx}`}
+          aria-label={`More actions for line ${lineNumber(line.idx)}`}
           aria-haspopup="dialog"
           onClick={() => actions.openSheet(line.id)}
         >
@@ -169,7 +170,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, edi
       </div>
 
       {active && !isPhone && (
-        <div className="review-tools" role="toolbar" aria-label={`Line ${line.idx} actions`}>
+        <div className="review-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
           {hasMedia && (
             <button type="button" onClick={() => actions.playLine(line)} title="Play the line (Space)">
               ▶ Play

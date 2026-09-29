@@ -4,6 +4,7 @@ import { mediaStreamUrl, type MediaKind } from '../../../../api/media'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 export interface PlayerHandle {
   // Seek to the line's start and stop at its end (or repeat it with Loop line).
@@ -149,7 +150,7 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
           {formatTime(time)}
           <span className="review-duration"> / {formatDuration(duration)}</span>
         </span>
-        {segment && <span className="muted">Line #{segment.idx}</span>}
+        {segment && <span className="muted">Line #{lineNumber(segment.idx)}</span>}
         <label className="review-check" title="Repeat the line being played (L)">
           <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> Loop<span className="review-loop-word"> line</span>
         </label>

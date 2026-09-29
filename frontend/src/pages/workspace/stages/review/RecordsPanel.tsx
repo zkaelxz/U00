@@ -14,6 +14,7 @@ import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 import { JOB_RUNNING_MESSAGE, structureErrorText } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 interface Records {
   notes: ReviewNote[]
@@ -113,7 +114,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
           <ul data-testid="notes-list">
             {notes.map((n) => (
               <li key={n.id}>
-                <span className="muted">#{n.line_idx ?? '?'}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
+                <span className="muted">#{n.line_idx === null ? '?' : lineNumber(n.line_idx)}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
                 <button type="button" className="link" onClick={() => act(deleteNote(dramaId, n.id))}>
                   Delete
                 </button>
@@ -128,7 +129,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
           <ul data-testid="tm-list">
             {tm.map((s) => (
               <li key={s.entry_id}>
-                <span className="muted">#{s.line_idx}</span> {s.suggestion}{' '}
+                <span className="muted">#{lineNumber(s.line_idx)}</span> {s.suggestion}{' '}
                 <span className="muted">({Math.round(s.similarity * 100)}%{s.exact ? ', exact' : ''})</span>{' '}
                 {s.line_id !== null && (
                   <button

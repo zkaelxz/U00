@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Field } from '../../../../components/Field'
 import type { ReviewLine } from '../../../../types/review'
 import { gapForNewLine } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 export interface NewLine {
   start: number
@@ -69,7 +70,7 @@ export function AddLineForm({ after, next, busy, blocked, onAdd, onCancel }: Pro
       {blocked && <p className="muted">{blocked}</p>}
       <div className="actions">
         <button type="submit" className="primary" disabled={!!problem || busy || !!blocked}>
-          {busy ? 'Adding…' : after ? `Add after #${after.idx}` : 'Add first line'}
+          {busy ? 'Adding…' : after ? `Add after #${lineNumber(after.idx)}` : 'Add first line'}
         </button>
         {onCancel && <button type="button" className="link" onClick={onCancel}>Back</button>}
       </div>

@@ -7,6 +7,7 @@ import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
 import { JOB_RUNNING_MESSAGE } from './reviewLogic'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
+import { lineNumber } from '../../../../lineNumber'
 
 export type SheetView = 'menu' | 'split' | 'merge' | 'add'
 
@@ -85,12 +86,12 @@ export function LineActionsSheet(p: Props) {
   const title = !line
     ? 'Add first line'
     : view === 'split'
-      ? `Split line #${line.idx}`
+      ? `Split line #${lineNumber(line.idx)}`
       : view === 'merge'
-        ? `Merge #${line.idx} with next`
+        ? `Merge #${lineNumber(line.idx)} with next`
         : view === 'add'
-          ? `Add a line after #${line.idx}`
-          : `Line #${line.idx}`
+          ? `Add a line after #${lineNumber(line.idx)}`
+          : `Line #${lineNumber(line.idx)}`
   const next = line ? p.run[1] ?? null : null
   const back = () => p.onView('menu')
 
@@ -161,7 +162,7 @@ export function LineActionsSheet(p: Props) {
               <li>
                 <DeleteButton
                   key={key}
-                  idx={line.idx}
+                  idx={lineNumber(line.idx)}
                   initialArmed={!!state.armDelete}
                   busy={p.busy}
                   blocked={!!blocked}

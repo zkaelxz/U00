@@ -10,6 +10,7 @@ import type { ResegmentPreview } from '../../../../types/restructure'
 import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
 import { JOB_RUNNING_MESSAGE, resegmentSummary, structureErrorText } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 interface Props {
   dramaId: number
@@ -83,7 +84,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                 <ul className="review-matches">
                   {preview.changed.slice(0, SHOWN_CHANGES).map((c) => (
                     <li key={`${c.line_id ?? 'x'}-${c.idx}`}>
-                      <span className="muted">#{c.idx}</span> <span lang="zh">{c.pieces.join(' | ')}</span>
+                      <span className="muted">#{lineNumber(c.idx)}</span> <span lang="zh">{c.pieces.join(' | ')}</span>
                     </li>
                   ))}
                   {preview.changed.length > SHOWN_CHANGES && (

@@ -2,6 +2,7 @@ import { ApiError } from '../../../../api/client'
 import type { JobRecord } from '../../../../types/jobs'
 import type { ResegmentPreview } from '../../../../types/restructure'
 import type { LineFilter, LinePatch, ReviewLine, ReviewMatch } from '../../../../types/review'
+import { lineNumber } from '../../../../lineNumber'
 
 export interface LineDraft {
   zh: string
@@ -94,7 +95,7 @@ export const CONFLICT_MESSAGE = 'This line changed elsewhere. Reload and try aga
 export function staleLabels(staleIds: number[], matches: ReviewMatch[]): string[] {
   return staleIds.map((id) => {
     const m = matches.find((x) => x.id === id)
-    return m ? `#${m.idx}` : `line id ${id}`
+    return m ? `#${lineNumber(m.idx)}` : `line id ${id}`
   })
 }
 
@@ -243,8 +244,8 @@ export function jobRunsOnDrama(jobs: Pick<JobRecord, 'job_id' | 'status'>[], dra
 
 export function lineRange(lines: Pick<ReviewLine, 'idx'>[]): string {
   if (lines.length === 0) return ''
-  const a = lines[0].idx
-  const b = lines[lines.length - 1].idx
+  const a = lineNumber(lines[0].idx)
+  const b = lineNumber(lines[lines.length - 1].idx)
   return a === b ? `#${a}` : `#${a}–#${b}`
 }
 

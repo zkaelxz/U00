@@ -3,6 +3,7 @@ import { useState, type SyntheticEvent } from 'react'
 import { Field } from '../../../../components/Field'
 import type { ReviewLine } from '../../../../types/review'
 import { charCount, codePointOffset, estimateSplitTime, splitPieces } from './reviewLogic'
+import { lineNumber } from '../../../../lineNumber'
 
 export interface SplitChoice {
   at_char: number
@@ -99,7 +100,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
         </Field>
       )}
       <div className="review-preview" data-testid="split-preview">
-        <div><span className="muted">#{line.idx}</span> {zh1} <span className="muted">·</span> {en1 || <span className="muted">(no translation)</span>}</div>
+        <div><span className="muted">#{lineNumber(line.idx)}</span> {zh1} <span className="muted">·</span> {en1 || <span className="muted">(no translation)</span>}</div>
         <div><span className="muted">new</span> {zh2} <span className="muted">·</span> {en2 || <span className="muted">(no translation)</span>}</div>
       </div>
       {blocked && <p className="muted">{blocked}</p>}

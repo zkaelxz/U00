@@ -40,6 +40,7 @@ import {
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
 import type { SplitChoice } from './SplitDialog'
+import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
 
 interface Props {
   dramaId: number
@@ -481,7 +482,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       (ids) => splitLine(dramaId, line.id, { expected_line_ids: ids, at_char: c.at_char, expected_zh: line.zh, at_time: c.at_time, en_at_char: c.en_at_char }),
       (r) => {
         const [a, b] = r.lines
-        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${a.idx} into #${a.idx}–#${b.idx}.${UNDO}` : `Line split.${UNDO}` }
+        return { id: b?.id ?? a?.id ?? null, message: a && b ? `Split #${lineNumber(a.idx)} into #${lineNumber(a.idx)}–#${lineNumber(b.idx)}.${UNDO}` : `Line split.${UNDO}` }
       },
     )
   }
@@ -495,7 +496,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
       (r) => {
         const head = r.lines[0]
-        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${head.idx}` : ''}.${UNDO}` }
+        return { id: head?.id ?? lineIds[0], message: `Merged ${lineRange(chosen)}${head ? ` into #${lineNumber(head.idx)}` : ''}.${UNDO}` }
       },
     )
   }
@@ -503,7 +504,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     const after = sheetLine
     void runStructure(
       (ids) => addLine(dramaId, { expected_line_ids: ids, after_line_id: after?.id ?? null, ...nl }),
-      (r) => ({ id: r.lines[0]?.id ?? null, message: r.lines[0] ? `Added line #${r.lines[0].idx}.` : 'Line added.' }),
+      (r) => ({ id: r.lines[0]?.id ?? null, message: r.lines[0] ? `Added line #${lineNumber(r.lines[0].idx)}.` : 'Line added.' }),
     )
   }
   const doDelete = () => {
@@ -514,7 +515,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       (r, before) => {
         const pos = before.indexOf(line.id)
         const id = r.line_ids[pos] ?? r.line_ids[pos - 1] ?? null
-        return { id, message: `Deleted #${line.idx}.${UNDO}` }
+        return { id, message: `Deleted #${lineNumber(line.idx)}.${UNDO}` }
       },
     )
   }
@@ -541,7 +542,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const goToNumber = async (n: number) => {
     try {
       const all = await listAllLines(dramaId)
-      const pos = all.findIndex((l) => l.idx === n)
+      const pos = all.findIndex((l) => l.idx === idxFromLineNumber(n))
       if (pos === -1) {
         setStatus(`No line #${n}.`)
         return
@@ -778,7 +779,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           ) : (
             <>
               {mediaKind && (
-                <button type="button" onClick={() => player.current?.toggleLine(active)}>▶ #{active.idx}</button>
+                <button type="button" onClick={() => player.current?.toggleLine(active)}>▶ #{lineNumber(active.idx)}</button>
               )}
               <button type="button" aria-label="Previous line" onClick={() => ctl.move(-1)}>‹ Prev</button>
               <button type="button" aria-label="Next line" onClick={() => ctl.move(1)}>Next ›</button>
