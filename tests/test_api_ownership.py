@@ -304,6 +304,21 @@ class TestLibraryLists:
         assert self._ids(client, "/api/library/search?q=公开", w["b"], key="drama_id") \
             == {w["shared"]}
 
+    def test_continue_and_filter_options(self, seeded):
+        w, client = seeded, _client(_app())
+        hidden = {w["private"], w["in_pseries"]}
+        db.update_drama(w["private"], studio="Secret Studio", custom_tags="secret-tag")
+        db.update_drama(w["shared"], studio="Open Studio")
+        for did in (w["private"], w["shared"], w["in_pseries"]):
+            db.save_progress(did, percent_complete=40.0)
+        b_ids = self._ids(client, "/api/library/continue", w["b"], key="drama_id")
+        assert w["shared"] in b_ids and not b_ids & hidden
+        assert hidden <= self._ids(client, "/api/library/continue", w["admin"], key="drama_id")
+        b_opts = client.get("/api/library/filter-options", headers=w["b"]).json()
+        assert b_opts["studios"] == ["Open Studio"] and "secret-tag" not in b_opts["custom_tags"]
+        a_opts = client.get("/api/library/filter-options", headers=w["a"]).json()
+        assert "Secret Studio" in a_opts["studios"] and "secret-tag" in a_opts["custom_tags"]
+
     def test_stats_count_only_visible(self, seeded):
         w, client = seeded, _client(_app())
         b = client.get("/api/library/stats", headers=w["b"]).json()

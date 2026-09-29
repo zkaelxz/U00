@@ -116,14 +116,14 @@ def get_history(request: Request, limit: int = Query(25, ge=1, le=100)):
 
 @router.get("/continue", dependencies=[require_permission("library.read")], response_model=LibraryContinueResponse,
             responses=_ERR, summary="Continue reading: partly-read dramas, most recent first")
-def get_continue(limit: int = Query(8, ge=1, le=50)):
-    return {"items": library_service.list_continue_reading(limit)}
+def get_continue(request: Request, limit: int = Query(8, ge=1, le=50)):
+    return {"items": library_service.list_continue_reading(limit, principal=request.state.principal)}
 
 
 @router.get("/filter-options", dependencies=[require_permission("library.read")], response_model=LibraryFilterOptions,
             summary="Studios, authors, voice actors and custom tags in use (the list filters' choices)")
-def get_filter_options():
-    return library_service.get_filter_options()
+def get_filter_options(request: Request):
+    return library_service.get_filter_options(principal=request.state.principal)
 
 
 @router.get("/presets", dependencies=[require_permission("library.read")], response_model=LibraryPresetsResponse, summary="Saved presets")
