@@ -798,9 +798,11 @@ class TestPyannoteGatedAccessCheck:
         def __init__(self, gated=()):
             self.gated = set(gated)
             self.calls = []
+            self.timeouts = []
 
-        def model_info(self, model, token=None):
+        def model_info(self, model, token=None, timeout=None):
             self.calls.append((model, token))
+            self.timeouts.append(timeout)
             if model in self.gated:
                 raise RuntimeError(f"Access to model {model} is restricted. You must be "
                                    "authenticated to access it.")
@@ -820,6 +822,16 @@ class TestPyannoteGatedAccessCheck:
         api = self._FakeApi()
         diagnostics.check_pyannote_gated_access(hf_token="hf_faketoken", api=api)
         assert all(token == "hf_faketoken" for _, token in api.calls)
+
+    def test_every_hub_call_has_a_timeout(self):
+        api = self._FakeApi()
+        diagnostics.check_pyannote_gated_access(api=api)
+        assert api.timeouts and all(t == 10 for t in api.timeouts)
+
+    def test_real_hfapi_model_info_accepts_timeout(self):
+        hub = pytest.importorskip("huggingface_hub")
+        import inspect
+        assert "timeout" in inspect.signature(hub.HfApi.model_info).parameters
 
     def test_huggingface_hub_not_installed_returns_empty(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)

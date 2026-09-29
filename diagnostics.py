@@ -489,6 +489,9 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
 # "Re-run speaker detection."
 # ---------------------------------------------------------------------------
 
+PYANNOTE_CHECK_TIMEOUT_S = 10  # a hung Hub must not pin the request thread
+
+
 def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
     """[{"model", "accessible", "error"}, ...] for every entry in
     diarize.DIARIZATION_MODELS. This DOES reach the network (a lightweight
@@ -505,7 +508,7 @@ def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
     results = []
     for model in diarize.DIARIZATION_MODELS:
         try:
-            api.model_info(model, token=hf_token or None)
+            api.model_info(model, token=hf_token or None, timeout=PYANNOTE_CHECK_TIMEOUT_S)
             results.append({"model": model, "accessible": True, "error": None})
         except Exception as e:
             results.append({"model": model, "accessible": False, "error": str(e)})
