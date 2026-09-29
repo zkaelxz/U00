@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 
 import { dubApi, dubTrackUrl } from '../../../api/dub'
+import { Badge } from '../../../components/Badge'
+import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanize, humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { jobSucceeded } from '../../../types/jobs'
 import type { DubConfig, DubPacing } from '../../../types/dub'
@@ -85,7 +89,7 @@ export default function DubStage() {
     <div className="stage-dub">
       <section className="panel" aria-label="Dub">
         <h3>
-          Dub {cfg.gpu_required && <span className="badge">GPU</span>}
+          Dub {cfg.gpu_required && <Badge tone="info">GPU</Badge>}
         </h3>
         <p className="muted" data-testid="dub-summary">
           {cfg.speakable_line_count} speakable lines · {trackReady ? 'Dub track ready' : 'No dub track yet'}
@@ -96,7 +100,7 @@ export default function DubStage() {
               {cfg.tts_engines.map((t) => (
                 <option key={t.key} value={t.key}>
                   {t.label}
-                  {t.requires_internet ? ' (online)' : ''}
+                  {t.requires_internet && !/online/i.test(t.label) ? ' (online)' : ''}
                 </option>
               ))}
             </select>
@@ -106,7 +110,7 @@ export default function DubStage() {
               <select value={form.language} onChange={(e) => set({ language: e.target.value })}>
                 {cfg.narration_language_options.map((l) => (
                   <option key={l} value={l}>
-                    {l}
+                    {humanize('language', l)}
                   </option>
                 ))}
               </select>
@@ -129,7 +133,9 @@ export default function DubStage() {
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {trackReady && (
           <p className="dub-note">
-            <a href={dubTrackUrl(dramaId)} download>Download dub track (WAV)</a>
+            <ButtonLink variant="secondary" href={dubTrackUrl(dramaId)} download>
+              Download dub track (WAV)
+            </ButtonLink>
           </p>
         )}
         <Section storageKey="dub.advanced" title="Advanced" summary={dubAdvancedSummary(cfg, form)}>
@@ -157,23 +163,23 @@ export default function DubStage() {
               </Field>
             </div>
           )}
-          <div className="dub-check">
+          <div className="setting-list">
             <Field
               label="Keep background music"
-              help={
-                cfg.can_keep_background
-                  ? 'Keeps the original background music under the dub. Real audio has not been verified.'
-                  : 'Only available for video dubs that have source audio and the separation tools installed.'
-              }
+              help={cfg.can_keep_background ? 'Keeps the original background music under the dub. Real audio has not been verified.' : undefined}
             >
-              <input
-                type="checkbox"
+              <Toggle
                 disabled={!cfg.can_keep_background}
                 checked={cfg.can_keep_background && form.keepBackground}
-                onChange={(e) => set({ keepBackground: e.target.checked })}
+                onChange={(v) => set({ keepBackground: v })}
               />
             </Field>
           </div>
+          {!cfg.can_keep_background && (
+            <p className="muted" data-testid="dub-bgm-reason">
+              Keeping background music needs a video dub with source audio and the separation tools installed.
+            </p>
+          )}
         </Section>
       </section>
       <VoiceClonePanel cfg={cfg} onChanged={() => setReloads((n) => n + 1)} />
@@ -195,7 +201,7 @@ export default function DubStage() {
                 {pacingRows(pacing.lines).map((l) => (
                   <tr key={l.idx}>
                     <td>{lineNumber(l.idx)}</td>
-                    <td>{l.status}</td>
+                    <td>{humanizeValue(l.status)}</td>
                     <td>{formatFactor(l.factor)}</td>
                     <td>{formatMs(l.clip_ms)}</td>
                     <td>{formatMs(l.window_ms)}</td>

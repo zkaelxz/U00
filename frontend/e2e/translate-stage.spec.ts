@@ -53,7 +53,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByLabel('Cost cap', { exact: true }).fill('2.5')
   await run.getByRole('button', { name: 'Add fallback engine' }).click()
   await run.getByLabel('Fallback engine 1').selectOption(other)
-  await run.getByLabel('Re-translate existing').check()
+  await run.getByRole('switch', { name: 'Re-translate existing' }).click()
   // Re-translate needs its confirmation: the primary is disabled and says so.
   await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeDisabled()
   await expect(run.getByTestId('translate-blocker')).toContainText('confirm replacing the existing English')

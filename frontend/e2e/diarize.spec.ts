@@ -20,6 +20,8 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
 
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  // Speaker counts and "Detect speakers only" live in the Speakers section.
+  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
   const detect = page.getByRole('button', { name: 'Detect speakers only' })
 
   // An inverted range is caught before anything is sent.

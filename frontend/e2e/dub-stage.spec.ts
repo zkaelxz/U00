@@ -53,7 +53,7 @@ test('shows config and null-safe pacing, then starts a dub with the right body a
 
   await page.getByText('Advanced', { exact: true }).click()
   await page.getByRole('spinbutton', { name: 'Max speed-up' }).fill('1.5')
-  await page.getByRole('checkbox', { name: 'Keep background music' }).check()
+  await page.getByRole('switch', { name: 'Keep background music' }).click()
   await page.getByRole('button', { name: 'Generate dub' }).click()
   await expect(page.getByTestId('job-status')).toContainText('running')
   expect(bodies[0]).toEqual({ tts_engine: 'edge_tts', max_speedup: 1.5, max_slowdown: 0.85, keep_background: true })
@@ -68,7 +68,8 @@ test('keep-background is disabled when unavailable, and 503 shows a plain banner
     route.fulfill({ status: 503, json: { error: { code: 'dependency_unavailable', message: 'ffmpeg is not installed.' } } }))
   await page.goto('/#/drama/1/dub')
   await page.getByText('Advanced', { exact: true }).click()
-  await expect(page.getByRole('checkbox', { name: 'Keep background music' })).toBeDisabled()
+  await expect(page.getByRole('switch', { name: 'Keep background music' })).toBeDisabled()
+  await expect(page.getByTestId('dub-bgm-reason')).toContainText('separation tools')
   await page.getByRole('button', { name: 'Generate dub' }).click()
   await expect(page.getByRole('alert')).toContainText('not installed or not reachable')
 })

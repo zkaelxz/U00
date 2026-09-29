@@ -35,7 +35,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
 
   await expect(run.getByLabel('Engine', { exact: true })).toHaveValue('claude')
   await run.getByText('Advanced', { exact: true }).click()
-  await expect(run.getByLabel('Reflect', { exact: true })).toBeChecked()
+  await expect(run.getByRole('switch', { name: 'Reflect', exact: true })).toBeChecked()
   expect(runs).toEqual([])
   await page.screenshot({ path: 'test-results/translate-tier-applied.png', fullPage: true })
 })
@@ -64,7 +64,7 @@ test('save as preset asks for a name and confirms before replacing', async ({ pa
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await run.getByText('Advanced', { exact: true }).click()
-  await run.getByLabel('Default ambiguous pronouns to she/her').check()
+  await run.getByRole('switch', { name: 'Default ambiguous pronouns to she/her' }).click()
   await run.getByRole('button', { name: 'Save as preset…' }).click()
 
   await run.getByRole('button', { name: 'Save preset' }).click()

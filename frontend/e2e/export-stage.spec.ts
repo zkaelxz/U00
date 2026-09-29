@@ -82,6 +82,14 @@ test('flag actions run only on click and report the result', async ({ page }) =>
   expect(posts).toBe(2)
 })
 
+test('the ASS style shows at the top only when ASS is chosen', async ({ page }) => {
+  await page.goto('/#/drama/1/export')
+  await page.getByLabel('Format', { exact: true }).selectOption('srt')
+  await expect(page.getByText('ASS style', { exact: true })).toBeHidden()
+  await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  await expect(page.getByText('ASS style', { exact: true })).toBeVisible()
+})
+
 test('a drama that is not novel narration has no EPUB section', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   await expect(page.getByTestId('readiness')).toBeVisible()
@@ -104,9 +112,10 @@ test('burned-in video sends the style and offers the artifact on done', async ({
     route.fulfill({ json: { name: 'burned_video_1.mp4', size: 3 * 1024 * 1024, kind: 'video' } }),
   )
   await page.goto('/#/drama/1/export')
+  // With SRT chosen, the ASS style sits under More export, beside the burned-in video.
+  await openMore(page)
   await page.getByText('ASS style', { exact: true }).click()
   await page.getByLabel(/^Font size/).fill('48')
-  await openMore(page)
   await page.getByRole('button', { name: 'Start burned-in video export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('running')
   finish()
@@ -152,7 +161,7 @@ test('dubbed video sends the mix choice and offers its own artifact', async ({ p
   await page.goto('/#/drama/1/export')
   await openMore(page)
   const group = page.getByRole('group', { name: 'Video with the dub audio' })
-  await group.getByLabel('Mix the original audio in quietly underneath').check()
+  await group.getByRole('switch', { name: 'Mix the original audio in quietly underneath' }).click()
   await group.getByRole('button', { name: 'Start dubbed video export' }).click()
   await expect(group.getByTestId('job-status')).toBeVisible()
   finish()

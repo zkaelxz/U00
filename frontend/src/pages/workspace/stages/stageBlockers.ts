@@ -23,3 +23,6 @@ export function translateBlocker(
 export function exportBlocked(totalLines: number | null): boolean {
   return totalLines !== null && totalLines <= 0
 }
+
+// The Source stage's media file input, so the Transcribe blocker can focus it.
+export const mediaFileInputId = (dramaId: number) => `source-media-file-${dramaId}`

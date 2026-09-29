@@ -5,6 +5,7 @@ import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
 import { buildAssRequest, exportFilename, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
@@ -13,6 +14,15 @@ import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
 
 export type ExportFormat = 'srt' | 'vtt' | 'ass'
+
+// "no wrap", "wrap 42", or "wrap 42/30" (English/source), for the Advanced summary.
+function wrapSummary(en: string, src: string): string {
+  const e = en.trim()
+  const s = src.trim()
+  if (!e && !s) return 'no wrap'
+  if (e === s) return `wrap ${e}`
+  return `wrap ${e || 'off'}/${s || 'off'}`
+}
 
 const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', ass: 'text/x-ssa' }
 
@@ -115,7 +125,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       )}
       <Section
         title="Advanced"
-        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · wrap ${form.wrapEn || 'off'}/${form.wrapSource || 'off'} · ${exportFilename(form.baseName, dramaId, form.field, fmt)}`}
+        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · ${wrapSummary(form.wrapEn, form.wrapSource)} · ${exportFilename(form.baseName, dramaId, form.field, fmt)}`}
       >
         <div className="export-form">
           <Field label="Wrap English" unit="chars" help="Break English lines longer than this. Blank means no wrapping.">
@@ -132,8 +142,10 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
               onChange={(e) => set('baseName', e.target.value)}
             />
           </Field>
+        </div>
+        <div className="setting-list">
           <Field label="Include notes" help="Add translation notes inline in the exported text.">
-            <input type="checkbox" checked={form.includeNotes} onChange={(e) => set('includeNotes', e.target.checked)} />
+            <Toggle checked={form.includeNotes} onChange={(v) => set('includeNotes', v)} />
           </Field>
         </div>
       </Section>

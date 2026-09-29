@@ -14,6 +14,7 @@ import {
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
@@ -65,7 +66,7 @@ function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cap = e.effective_cap_usd !== null ? ` · cap $${e.effective_cap_usd.toFixed(2)}` : ''
   return (
     <span className="translate-estimate" data-testid="estimate">
-      {e.target_line_count} line(s) with {e.engine}
+      {e.target_line_count} line(s) with {humanize('engine', e.engine)}
       {e.model ? ` (${e.model})` : ''}: {cost}
       {cap}
       {e.monthly_refusal && (
@@ -100,7 +101,7 @@ function appliedText(t: WorkflowTierApplied): string {
   const model = t.engine_model ? ` (${t.engine_model})` : ''
   const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
   const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
-  return `Applied ${t.label}: ${t.translation_engine}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
+  return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
 }
 
 // Parity X02: Streamlit's "Starting tier" + "Apply tier". Saves the tier's
@@ -131,7 +132,7 @@ function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onAppli
           {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </select>
       </Field>
-      <button type="button" disabled={pending || !tier} onClick={apply}>Apply tier</button>
+      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !tier} onClick={apply}>Apply tier</button>
       {applied && <span className="muted" role="status">{appliedText(applied)}</span>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
@@ -181,7 +182,7 @@ function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) =>
           {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
         </select>
       </Field>
-      <button type="button" disabled={pending || !picked} onClick={apply}>Apply preset</button>
+      <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending || !picked} onClick={apply}>Apply preset</button>
       {applied && <span className="muted" role="status">{applied}</span>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
@@ -224,7 +225,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
     <div className="advanced-wide">
       {!open ? (
         <div className="check-row">
-          <button type="button" onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
+          <button type="button" className={buttonClass('secondary')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
           <span className="muted">Saves the engine, model, style, locale and the two guidance toggles for any drama.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
@@ -241,14 +242,14 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
             />
           </Field>
           <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save preset</button>
-          <button type="button" onClick={() => { setOpen(false); setTaken(null); setProblem(null) }}>Cancel</button>
+          <button type="button" className={buttonClass('ghost')} onClick={() => { setOpen(false); setTaken(null); setProblem(null) }}>Cancel</button>
         </div>
       )}
       {open && problem && <p className="error" role="alert">{problem}</p>}
       {open && taken && (
         <p className="error" role="alert">
           A preset named "{taken}" already exists.{' '}
-          <button type="button" disabled={pending} onClick={() => save(true)}>Replace it</button>
+          <button type="button" className={buttonClass('danger', 'sm')} disabled={pending} onClick={() => save(true)}>Replace it</button>
         </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -386,7 +387,7 @@ function RunPanel({
         >
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
         </button>
-        <button type="button" className="link" onClick={runEstimate}>Estimate cost</button>
+        <button type="button" className={buttonClass('ghost')} onClick={runEstimate}>Estimate cost</button>
         {estimate && <EstimateView e={estimate} />}
       </div>
       {blocker && (
@@ -487,48 +488,46 @@ function RunPanel({
                   <option value="">Choose an engine</option>
                   {config.engines.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
                 </select>
-                <button type="button" onClick={() => set('fallbacks', f.fallbacks.filter((_, j) => j !== i))}>
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => set('fallbacks', f.fallbacks.filter((_, j) => j !== i))}>
                   Remove
                 </button>
               </div>
             ))}
             {f.fallbacks.length < MAX_FALLBACKS && (
               <div className="fallback-row">
-                <button type="button" onClick={() => set('fallbacks', [...f.fallbacks, ''])}>Add fallback engine</button>
+                <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => set('fallbacks', [...f.fallbacks, ''])}>Add fallback engine</button>
               </div>
             )}
           </div>
-          <div className="advanced-wide check-row">
+          <div className="advanced-wide setting-list">
             {reflectAvailable(effEngine) && (
-              <Field label="Reflect" help="Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.">
-                <input type="checkbox" checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(e) => set('reflect', e.target.checked)} />
+              <Field
+                label="Reflect"
+                help={`Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.${!canReflect && !f.reflect ? ' Not with Bulk on this engine.' : ''}`}
+              >
+                <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
               </Field>
             )}
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
-              <Field label="Bulk" help="Send the whole drama as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.">
-                <input type="checkbox" checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(e) => set('bulk', e.target.checked)} />
+              <Field
+                label="Bulk"
+                help={`Send the whole drama as one discounted batch (Claude/Gemini batch API or DeepSeek off-peak). Results can take up to 24 hours; needs no line selection or fallbacks.${!canBulk && !f.bulk ? ' Not with Reflect on this engine.' : ''}`}
+              >
+                <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
             )}
-          </div>
-          <div className="advanced-wide check-row">
-            <label className="inline" title="Pronoun clarity, kinship-term nuance, and not softening romantic content.">
-              <input type="checkbox" checked={f.genre_notes} onChange={(e) => set('genre_notes', e.target.checked)} />{' '}
-              Include baihe/GL genre guidance
-            </label>
-            <label className="inline" title="Spoken Mandarin does not distinguish he/she; for a mostly female cast, default an ambiguous pronoun to she/her. A character's own pronouns always win.">
-              <input type="checkbox" checked={f.female_pronouns} onChange={(e) => set('female_pronouns', e.target.checked)} />{' '}
-              Default ambiguous pronouns to she/her
-            </label>
-          </div>
-          <div className="advanced-wide check-row">
-            <label className="inline">
-              <input
-                type="checkbox"
-                checked={f.force}
-                onChange={(e) => setF((s) => ({ ...s, force: e.target.checked, forceConfirmed: false }))}
-              />{' '}
-              Re-translate existing
-            </label>
+            <Field label="Include baihe/GL genre guidance" help="Pronoun clarity, kinship-term nuance, and not softening romantic content.">
+              <Toggle checked={f.genre_notes} onChange={(v) => set('genre_notes', v)} />
+            </Field>
+            <Field
+              label="Default ambiguous pronouns to she/her"
+              help="Spoken Mandarin does not distinguish he/she; for a mostly female cast, default an ambiguous pronoun to she/her. A character's own pronouns always win."
+            >
+              <Toggle checked={f.female_pronouns} onChange={(v) => set('female_pronouns', v)} />
+            </Field>
+            <Field label="Re-translate existing" help="Also replace English that is already there. You confirm it under the Translate button; a snapshot is saved first.">
+              <Toggle checked={f.force} onChange={(v) => setF((s) => ({ ...s, force: v, forceConfirmed: false }))} />
+            </Field>
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
         </div>
@@ -623,9 +622,7 @@ export default function TranslateStage() {
         />
       )}
       {jobId && <JobPanel job={job} pollError={pollError} />}
-      {config && (
-        <BulkBatchesPanel supported={config.bulk_supported_engines.length > 0} reloadKey={reloads} />
-      )}
+      <BulkBatchesPanel reloadKey={reloads} />
       <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
       <GlossaryPanel />
       <CharactersPanel />

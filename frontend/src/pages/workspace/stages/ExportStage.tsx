@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
+import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
@@ -91,6 +92,7 @@ export default function ExportStage() {
     if (r.dense_line_count > 0) review.push(plural(r.dense_line_count, 'dense line'))
   }
   const untranslated = r !== null && r.total_lines > 0 && !r.fully_translated
+  const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   return (
     <div className="stage-export">
       <section className="panel" aria-label="Export">
@@ -98,8 +100,9 @@ export default function ExportStage() {
         <ErrorBanner error={readinessError} />
         {r && (
           <>
-            <p className="export-line" data-testid="readiness">
-              {plural(r.total_lines, 'line')} · {r.en_filled} translated
+            <p className="export-line pill-row" data-testid="readiness">
+              <Badge>{plural(r.total_lines, 'line')}</Badge>{' '}
+              <Badge tone={r.total_lines === 0 ? 'neutral' : r.fully_translated ? 'ok' : 'warn'}>{r.en_filled} translated</Badge>
             </p>
             {(untranslated || review.length > 0 || r.test_mode_output) && (
               <ul className="export-warnings" data-testid="readiness-warnings">
@@ -124,10 +127,12 @@ export default function ExportStage() {
         />
         <MarkExported />
       </section>
-      {options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />}
+      {fmt === 'ass' && assStyle}
       <Section title="More export" summary="flags, EPUB, audiobook, video">
         <ExportFlags onDone={() => setReloads((n) => n + 1)} />
         {drama.content_mode === 'novel_narration' && <ExportEpub />}
+        {/* The burned-in video uses the ASS style too; with ASS chosen it sits above instead. */}
+        {fmt !== 'ass' && assStyle}
         <ExportMediaJobs
           request={() =>
             options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }

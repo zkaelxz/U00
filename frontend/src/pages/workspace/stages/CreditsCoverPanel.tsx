@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { coverUrl, romanizeCredits, uploadCover } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
@@ -30,7 +31,7 @@ export function CreditsCoverPanel() {
   const rows = creditRows(drama)
   const canRomanize = hasCredits(drama)
   const problem = coverFileProblem(file)
-  const engine = drama.translation_engine || 'claude'
+  const engine = humanize('engine', drama.translation_engine || 'claude')
 
   const romanize = () => {
     setRomanizing(true)

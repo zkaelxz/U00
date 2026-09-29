@@ -16,3 +16,10 @@
 .ass-preview-right { justify-content: flex-end; }
 .ass-preview span { paint-order: stroke fill; white-space: nowrap; }
 .stage-export .stage-blocker { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: calc(-1 * var(--space-2)) 0 var(--space-3); color: var(--muted); font-size: var(--text-sm); }
+.stage-export .setting-list { margin: 0; }
+@media (max-width: 640px) {
+  /* Phone: Format and Language share a row, Export takes the next one at full width. */
+  .export-primary .field-item { flex: 1 1 calc(50% - var(--space-3)); min-width: 0; }
+  .export-primary .field-item select { width: 100%; min-width: 0; }
+  .export-primary > button { flex: 1 1 100%; }
+}

@@ -2,7 +2,6 @@
 .stage-dub .dub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .stage-dub .dub-actions { margin: var(--space-3) 0; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .stage-dub .dub-actions .muted, .stage-dub .dub-note { margin: 0; min-width: 0; }
-.stage-dub .dub-check .field-control > :first-child { flex: 0 0 auto; }
 .stage-dub .pacing-table { width: 100%; border-collapse: collapse; }
 .stage-dub .pacing-table th, .stage-dub .pacing-table td { text-align: left; padding: 0.2rem 0.5rem; }
 .stage-dub .pacing-scroll { max-height: 16rem; overflow: auto; }
@@ -23,3 +22,4 @@
 .voice-clone .voice-candidate-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .voice-clone .voice-job { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
 .voice-clone input[type='file'] { max-width: 100%; }
+.stage-dub .dub-check .field-control > :first-child { flex: 0 0 auto; }
