@@ -57,6 +57,31 @@ import raw_transcript
 import adaptive_style
 import emotion
 import dub as dub_module
+import background_jobs
+from services import settings_service, transcribe_service
+from services.translate_run_service import get_translate_config_defaults
+
+
+def _gemini_free_tier(engine_name: str) -> bool:
+    """The saved Settings "Gemini free tier" toggle, for the gemini engine only."""
+    return engine_name == "gemini" and settings_service.get_gemini_free_tier()
+
+
+def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
+    """Full-sync lines with the same safeguards as the service paths
+    (transcribe_service / narration_service): never let an empty result
+    wipe an already-populated drama, cancel line-writing jobs, and save a
+    history snapshot of the existing lines first. Returns False (and
+    leaves the drama untouched) when the result was empty and lines exist."""
+    existing = db.load_line_objects(drama_id)
+    if not lines and existing:
+        print(f"#{drama_id} produced no lines -- kept the existing {len(existing)} line(s).")
+        return False
+    background_jobs.cancel_line_jobs(drama_id)
+    if existing:
+        db.save_line_history_snapshot(drama_id, existing, snapshot_label)
+    db.save_lines(drama_id, lines)
+    return True
 
 
 @contextlib.contextmanager
@@ -114,8 +139,9 @@ def cmd_narrate_prep(args):
     """Chunk + speaker-tag a novel-narration drama's text (no audio)."""
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
     dramas = [d for d in dramas if d.get("content_mode") == "novel_narration"]
+    engine_name = args.engine or "claude"
     engine = translate_engines.get_engine(
-        args.engine, args.api_key, args.model,
+        engine_name, args.api_key, args.model, free_tier=_gemini_free_tier(engine_name),
         base_url=getattr(args, "ollama_url", None)) if args.api_key else None
 
     def step(d):
@@ -141,7 +167,8 @@ def cmd_narrate_prep(args):
             for ln in lines:
                 ln.speaker = "Narrator"
             db.upsert_character(d["id"], "Narrator", character_name="Narrator")
-        db.save_lines(d["id"], lines)
+        if not _replace_drama_lines(d["id"], lines, "before chunk & tag speakers"):
+            return
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} prepared {len(lines)} narration chunks.")
 
@@ -296,16 +323,36 @@ def cmd_align(args):
             with open(raw_novel_path, "r", encoding="utf-8") as f:
                 initial_prompt = combine_initial_prompt(
                     initial_prompt, extract_novel_excerpt_for_prompt(f.read()))
+        # Same saved tuning the service's transcribe job uses
+        # (transcribe_service.get_transcribe_config); --fast still wins.
+        cfg = transcribe_service.get_transcribe_config(d["id"])
+        use_gpu = settings_service.get_use_gpu()
+        language = d.get("source_language") or "zh"
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
         db.heartbeat_gpu_lock(_gpu_holder)
-        segments = transcribe_for_timing(audio_path, whisper_size, language=d.get("source_language") or "zh",
-                                         fast_mode=getattr(args, "fast", False), initial_prompt=initial_prompt)
+        if cfg["separate_vocals_first"]:
+            audio_path = audio_preprocess.separate_vocals(
+                audio_path, os.path.join(os.path.dirname(audio_path), "vocals.wav"),
+                backend=cfg["separation_backend"])
+        segments = transcribe_for_timing(
+            audio_path, whisper_size, language=language, use_gpu=use_gpu,
+            fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
+            initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
+            min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"])
+        if cfg["realign_long_segments"] and segments:
+            import word_align
+            try:
+                segments = word_align.realign_oversized_segments(
+                    segments, audio_path, language,
+                    chinese_script=d.get("chinese_script") or "simplified")
+            except word_align.WordAlignError as exc:
+                print(f"#{d['id']} long-line realignment skipped: {exc}")
         user_lines = split_user_transcript(transcript_text)
         if alignment_method == "qwen3_forced_align":
             try:
                 import forced_align
                 lines = forced_align.align_with_qwen3(
-                    audio_path, user_lines, segments, language=d.get("source_language") or "zh")
+                    audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
             except (ImportError, ModelDownloadError, ValueError) as exc:
                 print(f"#{d['id']} Qwen3 forced alignment unavailable ({exc}) -- using the "
                       "default character-alignment method for this run.")
@@ -313,11 +360,12 @@ def cmd_align(args):
         else:
             lines = align_transcript_to_timing(user_lines, segments)
         release_gpu_models()
-        db.save_lines(d["id"], lines)
+        if not _replace_drama_lines(d["id"], lines, "before re-transcribe"):
+            return
         # Same untouched-output record the Workspace transcription writes.
         raw_transcript.write_raw_transcript(
             ddir, segments, lines, backend="whisper", model=whisper_size,
-            language=d.get("source_language") or "zh", mode="aligned_transcript")
+            language=language, mode="aligned_transcript")
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
 
@@ -325,11 +373,27 @@ def cmd_align(args):
         _run_batch(dramas, step, "align")
 
 
+def _flag_or(args, name, defaults):
+    """An explicit CLI flag wins; unset (None/missing) uses the per-drama default."""
+    value = getattr(args, name, None)
+    return defaults[name] if value is None else value
+
+
 def cmd_translate(args):
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
-    engine = translate_engines.get_engine(
-        args.engine, args.api_key, args.model, base_url=getattr(args, "ollama_url", None))
+    # Same default as the service: an explicit --engine, else the drama's
+    # saved translation_engine, else claude.
+    def _engine_name_for(d):
+        return args.engine or d.get("translation_engine") or "claude"
+    _engines = {}
+
+    def _engine_for(name):
+        if name not in _engines:
+            _engines[name] = translate_engines.get_engine(
+                name, args.api_key, args.model, free_tier=_gemini_free_tier(name),
+                base_url=getattr(args, "ollama_url", None))
+        return _engines[name]
     # Step 74: UI parity -- Workspace's own Translate button builds this
     # same optional summary_engine before starting the job (defaulting to
     # local Ollama); a missing/unreachable one just skips the summary
@@ -348,6 +412,10 @@ def cmd_translate(args):
             print(f"#{d['id']} skipped: no aligned lines yet.")
             return
         lines = lines_from_rows(rows)
+        engine_name = _engine_name_for(d)
+        engine = _engine_for(engine_name)
+        # Same defaults the service/React use (10/6/30 for novel narration).
+        tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
         novel_reference = _load_novel_reference(d)
         # UI parity: without these, a CLI-run translation skipped the
         # series glossary, craft/style guidelines, and locale entirely --
@@ -375,7 +443,7 @@ def cmd_translate(args):
                 _learned, _emotion_block,
                 tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
         character_names = tguide.build_speaker_labels(drama_chars, series_chars)
-        print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"
+        print(f"#{d['id']} translating {len(lines)} lines with {engine_name}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
         # Same caps as the Workspace Translate job: per job (--cost-cap)
@@ -402,9 +470,9 @@ def cmd_translate(args):
             locale=args.locale, glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=args.ollama_num_ctx,
-            context_window=getattr(args, "context_window", 6),
-            context_window_ahead=getattr(args, "context_window_ahead", 3),
-            batch_size=getattr(args, "batch_size", 20),
+            context_window=_flag_or(args, "context_window", tdefaults),
+            context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
+            batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False),
             notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
                 did, notes, id_by_idx=_id_by_idx),
@@ -412,7 +480,7 @@ def cmd_translate(args):
             # Same as the Workspace Translate job: writes `en` only.
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
-                did, args.engine, getattr(engine, "model", args.engine), "translate", inp, out,
+                did, engine_name, getattr(engine, "model", engine_name), "translate", inp, out,
                 translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
                 cache_read_tokens=cache_read),
             cost_cap_usd=cost_cap,
@@ -424,7 +492,7 @@ def cmd_translate(args):
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
         bulk_translate.finish_translation_run(
-            d["id"], lines, engine, args.engine, style_preset, glossary_terms, batch_errors,
+            d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice)
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
@@ -439,7 +507,8 @@ def cmd_translate(args):
     # other translate engine is a remote API call) -- the cross-process
     # lock only needs to guard that case, not every translate run.
     _gpu_ctx = (_gpu_lock(f"CLI translate --engine ollama ({len(dramas)} drama(s))")
-               if args.engine == "ollama" else contextlib.nullcontext(None))
+               if any(_engine_name_for(d) == "ollama" for d in dramas if d)
+               else contextlib.nullcontext(None))
     with _gpu_ctx as _gpu_holder:
         _run_batch(dramas, step, "translate")
 
@@ -598,7 +667,7 @@ def main():
 
     p_narrate = sub.add_parser("narrate-prep", help="Chunk + speaker-tag a novel-narration drama (no audio)")
     p_narrate.add_argument("--id", type=int, default=None)
-    p_narrate.add_argument("--engine", default="claude", choices=list(translate_engines.ENGINES))
+    p_narrate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
     p_narrate.add_argument("--api-key", default=None)
     p_narrate.add_argument("--model", default=None)
     p_narrate.add_argument("--ollama-url", default=None,
@@ -635,7 +704,7 @@ def main():
     p_translate = sub.add_parser("translate")
     p_translate.add_argument("--id", type=int, default=None)
     p_translate.add_argument("--status", default=None)
-    p_translate.add_argument("--engine", default="claude", choices=list(translate_engines.ENGINES))
+    p_translate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
     p_translate.add_argument("--api-key", required=True)
     p_translate.add_argument("--model", default=None)
     p_translate.add_argument("--episode-summary-engine", default="ollama",
@@ -677,19 +746,20 @@ def main():
                            default=float(os.environ.get("BAIHE_MONTHLY_CAP_USD") or 0) or None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to BAIHE_MONTHLY_CAP_USD.")
-    # Step 32: matches the Workspace tab's own three sliders -- this command
-    # used to have no way to set any of them, always using
-    # translate_lines_with_engine's own defaults (context_window=6,
-    # context_window_ahead=3, batch_size=20).
-    p_translate.add_argument("--context-window", type=int, default=6,
+    # Step 32: matches the Workspace tab's own three sliders. Unset means
+    # the service's per-drama defaults (translate_run_service.
+    # get_translate_config_defaults): 6/3/20, or 10/6/30 for novel narration.
+    p_translate.add_argument("--context-window", type=int, default=None,
                            help="Lines of already-translated context shown from before each "
-                                "batch (default 6). 0 turns this off.")
-    p_translate.add_argument("--context-window-ahead", type=int, default=3,
+                                "batch (default 6, 10 for novel narration). 0 turns this off.")
+    p_translate.add_argument("--context-window-ahead", type=int, default=None,
                            help="Lines of source text shown from after each batch, to resolve "
-                                "a reference that's only disambiguated later (default 3). 0 "
+                                "a reference that's only disambiguated later (default 3, 6 for "
+                                "novel narration). 0 "
                                 "turns this off.")
-    p_translate.add_argument("--batch-size", type=int, default=20,
-                           help="Lines translated per request (default 20). More lines per "
+    p_translate.add_argument("--batch-size", type=int, default=None,
+                           help="Lines translated per request (default 20, 30 for novel "
+                                "narration). More lines per "
                                 "request is cheaper/faster overall but a bigger single point "
                                 "of failure.")
     p_translate.set_defaults(func=cmd_translate)
@@ -722,8 +792,8 @@ def main():
 
     p_run = sub.add_parser("run")
     p_run.add_argument("--id", type=int, required=True)
-    p_run.add_argument("--whisper-size", default=DEFAULT_WHISPER_SIZE)
-    p_run.add_argument("--engine", default="claude", choices=list(translate_engines.ENGINES))
+    p_run.add_argument("--whisper-size", default=None)
+    p_run.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
     p_run.add_argument("--api-key", required=True)
     p_run.add_argument("--model", default=None)
     p_run.add_argument("--style-note", default=None)
@@ -739,6 +809,9 @@ def main():
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
     p_run.add_argument("--reflect", action="store_true")
+    p_run.add_argument("--context-window", type=int, default=None)
+    p_run.add_argument("--context-window-ahead", type=int, default=None)
+    p_run.add_argument("--batch-size", type=int, default=None)
     p_run.add_argument("--cost-cap", type=float, default=None,
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
