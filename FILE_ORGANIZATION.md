@@ -409,7 +409,20 @@ baihe-subtitler/
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
-│   │                              reviewLogic.ts (pure, unit-tested)
+│   │                              reviewLogic.ts (pure, unit-tested); AI results and checks: ReviewFindings
+│   │                              (consistency, emotion), ReviewChecks (coverage/pacing, tendencies, version
+│   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
+│   │                              text), FindingList, reviewResults.ts (pure, unit-tested)
+│   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
+│   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
+│   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
+│   │                              ReaderStory (story tools, wiki, Q&A), ReaderEngine, ReaderAction +
+│   │                              useReaderAction (per-action error/429 retry), readerPrefs.ts and
+│   │                              readerErrors.ts (pure, unit-tested), reader.css
+│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
+│   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
+│   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
+│   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

@@ -77,6 +77,41 @@ class TestCmdTranslateParity:
         # was actually computed and passed, not left as the default "".
         assert seen["style_guidelines"]
 
+    @pytest.mark.parametrize("flags,female,genre", [
+        ({}, False, True),
+        ({"female_pronouns": True, "no_genre_notes": True}, True, False),
+    ])
+    def test_pronoun_and_genre_toggles_reach_the_style_guidelines(
+            self, isolated_db, monkeypatch, flags, female, genre):
+        """Parity with the Workspace checkboxes / API TranslateRunStart:
+        she/her off and genre notes on unless a flag says otherwise."""
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        seen = {}
+        real = cli.tguide.build_style_guidelines
+        def spy(*a, **k):
+            seen.update(k)
+            return real(*a, **k)
+        monkeypatch.setattr(cli.tguide, "build_style_guidelines", spy)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, **flags))
+        assert seen["default_female_pronouns"] is female
+        assert seen["include_genre_notes"] is genre
+
+    @pytest.mark.parametrize("command", ["translate", "run"])
+    def test_real_parser_has_the_toggle_flags(self, monkeypatch, command):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(cli, "cmd_run", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(sys, "argv", ["cli.py", command, "--id", "1", "--api-key", "k",
+                                          "--female-pronouns", "--no-genre-notes"])
+        cli.main()
+        assert captured["args"].female_pronouns is True
+        assert captured["args"].no_genre_notes is True
+
     def test_context_window_ahead_and_batch_size_default_to_the_same_values_as_before(
             self, isolated_db, monkeypatch):
         """Step 32: this command used to have no way to set any of these

@@ -84,6 +84,7 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
           ))}
       </dl>
       <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Open workspace</a>
+      {' · '}<a href={routeHref({ name: 'read', id: dramaId, page: null })}>Read</a>
       {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
       {onDeleted && !confirming && (
         <button type="button" className="danger" onClick={() => setConfirming(true)}>
