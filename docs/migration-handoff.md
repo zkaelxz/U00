@@ -34,7 +34,7 @@ Job-apply: job does everything. Tuning knobs: persisted (columns added in init_d
 Uploads/exports: multipart + drama-folder outputs. `use_gpu`: persisted, default off. Process-job results: `on_done` hook (Slice 49).
 
 ## Queue (not yet built)
-24 API-key writes (gated on loopback policy D5); 34 qwen3 backends (gated on a real-model check);
+24 API-key writes (gated on loopback policy D5); 34 qwen3 backends (built with mocks, PR pending; real-model check still owed by the user);
 41 translate bulk/batch + Reflect (needs Opus confirmation: Steps 9/9d); 45 restructure + version restore (needs Opus confirmation: Step 6c);
 Step 95 BGM-preserving dub (held roadmap step; adjacent to Slice 26, now unblocked).
 Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);

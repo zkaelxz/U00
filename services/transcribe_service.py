@@ -27,17 +27,23 @@ subtitles (the OCR cues already carry real per-cue timing, so unlike
 Whisper's own text there's no separate alignment step -- same reasoning
 as run_hardsub_ocr_job's own docstring).
 
+Migration Slice 34 makes the run honour the two experimental Qwen3 choices
+exactly as the Streamlit apply block does: asr_backend_choice ==
+"qwen3_asr" (whisper transcript_mode) re-transcribes Whisper's VAD segments
+with asr_backend.Qwen3ASRBackend, replacing only the text; alignment_method
+== "qwen3_forced_align" (have_transcript mode) aligns the supplied
+transcript with forced_align.align_with_qwen3. Built with mocks only -- the
+real-model check is still owed by the user. Forced alignment needs a known
+transcript, so requesting it in Whisper-text-only mode is an
+InvalidInputError; a missing qwen-asr/torch package is a
+DependencyUnavailableError, both raised at start (not inside the job).
+
 Deliberately out of scope for this slice (each a real, separately
 buildable follow-up, not an oversight):
   - The `chunk_and_tag` novel_narration path -- fully synchronous today
     (no background job at all), a real LLM call over the whole chunked
     text with no natural job boundary; needs its own scope/benchmark
     pass before deciding whether a synchronous API call is a good fit.
-  - asr_backend_choice == "qwen3_asr" and alignment_method ==
-    "qwen3_forced_align" -- both experimental, optional-dependency,
-    unverified-on-real-content paths in the current Streamlit code;
-    left for a follow-up once the plain Whisper-text / character-diff
-    path here is confirmed working end-to-end.
   - Audio/video upload (per Slice 19 -- unchanged: this slice still
     requires audio already on disk, i.e. source_service's
     audio_available == True).
@@ -49,6 +55,7 @@ values out. The one exception to "plain dicts" is start_transcribe_run,
 which starts a real background thread (background_jobs.start_job) --
 same shape as diarization_service.start_diarization_run.
 """
+import importlib.util
 import os
 from typing import Optional
 
@@ -60,6 +67,7 @@ from core import Line, align_transcript_to_timing, split_user_transcript, transc
 from services import diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
+from translate_engines import redact_secrets
 
 # Matches the Streamlit widgets' own hardcoded defaults exactly (see
 # tabs/workspace_tab.py: beam_size slider ~2184, min_silence_ms slider
@@ -204,6 +212,19 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
+def _require_qwen3_packages(feature: str) -> None:
+    """Raises DependencyUnavailableError naming the missing package(s) and the
+    pip line (qwen-asr's own Diagnostics entry: diagnostics.MODEL_ENGINE_REGISTRY)
+    when qwen-asr or torch can't be imported, so a Qwen3 choice never
+    silently degrades to plain Whisper."""
+    missing = [name for name, module in (("qwen-asr", "qwen_asr"), ("torch", "torch"))
+               if importlib.util.find_spec(module) is None]
+    if missing:
+        raise DependencyUnavailableError(
+            f"{feature} needs {' and '.join(missing)}, which isn't installed. "
+            "Install it with: pip install qwen-asr torch")
+
+
 _SOURCE_LANGUAGES = ("zh", "ja", "ko")
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 
@@ -247,7 +268,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     transcript_text supplied, or the drama has no audio pipeline
     (novel_narration); InvalidInputError for an unknown language/script;
     DependencyUnavailableError if use_groq is on with no Groq key
-    configured; ConflictError if a transcription is already running for
+    configured, or a chosen Qwen3 backend's package (qwen-asr/torch) isn't
+    installed; InvalidInputError if alignment_method is
+    "qwen3_forced_align" while transcript_mode is "whisper" (forced
+    alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
@@ -290,6 +314,19 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             raise UnsupportedOperationError(
                 "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
 
+    asr_backend_choice = drama.get("asr_backend_choice") or "whisper"
+    alignment_method = drama.get("alignment_method") or "whisper_diff"
+    if transcript_mode == "whisper":
+        if alignment_method == "qwen3_forced_align":
+            raise InvalidInputError(
+                "Qwen3 forced alignment needs a transcript to align, but this drama is in "
+                "Whisper-text-only mode. Supply a transcript, or set alignment_method back "
+                "to 'whisper_diff'.")
+        if asr_backend_choice == "qwen3_asr":
+            _require_qwen3_packages("Qwen3-ASR")
+    elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
+        _require_qwen3_packages("Qwen3 forced alignment")
+
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
     if drama.get("use_groq") and not groq_api_key:
@@ -311,7 +348,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         initial_prompt or "", video_path,
         drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
         drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
-        settings_service.get_use_gpu(),
+        settings_service.get_use_gpu(), asr_backend_choice, alignment_method,
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -338,7 +375,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    use_groq, groq_api_key, hf_token, expected_speakers,
                                    initial_prompt="", video_path=None, hardsub_ocr_backend=None,
                                    hardsub_interval=1.0, tesseract_cmd=None,
-                                   diarize_audio_path=None, use_gpu=False):
+                                   diarize_audio_path=None, use_gpu=False,
+                                   asr_backend_choice="whisper", alignment_method="whisper_diff"):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -355,6 +393,14 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     use_gpu is the persisted server-side toggle (db.app_settings, read via
     settings_service.get_use_gpu() in start_transcribe_run, default off).
 
+    asr_backend_choice / alignment_method (Slice 34) are the drama's stored
+    choices: "qwen3_asr" only applies in whisper transcript_mode, and
+    "qwen3_forced_align" only in have_transcript mode, same as the
+    Streamlit apply block. Import/download/other Qwen3 failures end the job
+    with a failed_reason ("dependency_missing", "model_download",
+    "qwen3_asr"); a forced-align ValueError (e.g. an oversized line) falls
+    back to the diff alignment and is reported as result["forced_align_error"].
+
     diarize_audio_path is resolved once in start_transcribe_run, from the
     drama's own stored audio_filename, independent of transcript_mode --
     for a hardsub_ocr drama there is no transcribe-time audio_path at all
@@ -366,6 +412,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     no-hf_token case."""
     gpu_fallback_msg = []
     word_align_error = None
+    forced_align_error = None
     device_msg = ""
     device_suffix = ""
 
@@ -460,13 +507,66 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 word_align_error = str(exc)
 
         if transcript_mode == "whisper":
+            raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
+            if asr_backend_choice == "qwen3_asr":
+                if background_jobs.is_cancel_requested(job_id):
+                    background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                    return
+                # Timing stays Whisper's VAD segments; only the text is replaced
+                # (asr_backend.py's module docstring explains why).
+                background_jobs.update_progress(
+                    job_id, 1.0, "Re-transcribing with Qwen3-ASR (timing kept from Whisper)...")
+                try:
+                    import asr_backend
+                    segments = asr_backend.Qwen3ASRBackend().transcribe(
+                        audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu)
+                except ImportError as exc:
+                    background_jobs.set_result(job_id, {
+                        "failed_reason": "dependency_missing",
+                        "detail": "Qwen3-ASR needs qwen-asr and torch: pip install qwen-asr torch "
+                                  f"({redact_secrets(str(exc))})"})
+                    return
+                except core_module.ModelDownloadError as exc:
+                    background_jobs.set_result(
+                        job_id, {"failed_reason": "model_download", "detail": redact_secrets(str(exc))})
+                    return
+                except ValueError as exc:
+                    background_jobs.set_result(
+                        job_id, {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))})
+                    return
+                raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
                      for i, seg in enumerate(segments) if seg["text"].strip()]
-            raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
         else:
             background_jobs.update_progress(job_id, 1.0, "Aligning transcript to audio timing...")
             user_lines = split_user_transcript(transcript_text)
-            lines = align_transcript_to_timing(user_lines, segments)
+            if alignment_method == "qwen3_forced_align":
+                if background_jobs.is_cancel_requested(job_id):
+                    background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                    return
+                background_jobs.update_progress(
+                    job_id, 1.0, "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
+                try:
+                    import forced_align
+                    lines = forced_align.align_with_qwen3(
+                        audio_path, user_lines, segments, language=source_language, use_gpu=use_gpu)
+                except ImportError as exc:
+                    background_jobs.set_result(job_id, {
+                        "failed_reason": "dependency_missing",
+                        "detail": "Qwen3 forced alignment needs qwen-asr and torch: "
+                                  f"pip install qwen-asr torch ({redact_secrets(str(exc))})"})
+                    return
+                except core_module.ModelDownloadError as exc:
+                    background_jobs.set_result(
+                        job_id, {"failed_reason": "model_download", "detail": redact_secrets(str(exc))})
+                    return
+                except ValueError as exc:
+                    # Same as Streamlit: fall back to the diff alignment, but
+                    # say so in the result instead of hiding it.
+                    forced_align_error = redact_secrets(str(exc))
+                    lines = align_transcript_to_timing(user_lines, segments)
+            else:
+                lines = align_transcript_to_timing(user_lines, segments)
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
 
     core_module.release_gpu_models()
@@ -505,5 +605,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         "device": (f"GPU unavailable ({gpu_fallback_msg[0]}); using CPU"
                    if gpu_fallback_msg else device_msg) or None,
         "word_align_error": word_align_error,
+        "asr_backend": raw_backend,
+        "alignment_method": ("qwen3_forced_align" if transcript_mode == "have_transcript"
+                             and alignment_method == "qwen3_forced_align"
+                             and not forced_align_error else "whisper_diff"),
+        "forced_align_error": forced_align_error,
         "diarize_started": diarize_started,
     })

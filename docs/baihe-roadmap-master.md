@@ -61,7 +61,7 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 **Waiting on the user (cannot proceed):**
 - Slice 41 (translate bulk/batch + Reflect; roadmap Steps 9/9d) and Slice 45 (restructure + version restore; Step 6c): **need the user's OK to run on Opus**.
 - Slice 24 (API-key writes): needs the D5 loopback/admin policy decision.
-- Slice 34 (qwen3_asr / qwen3_forced_align): needs a real-model check by the user.
+- Slice 34 (qwen3_asr / qwen3_forced_align): built with mocks (branch `migration-slice34-qwen3`); the real-model check is still owed by the user.
 - Real-run checks only the user can do: real TTS, ffmpeg/libass, Whisper on GPU, paid LLM keys, real OCR and EPUBs, a gated-access HF token for pyannote diarization, mobile/real-device checks for Streamlit retirement.
 
 **Ready / in flight:**
