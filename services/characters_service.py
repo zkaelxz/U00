@@ -43,7 +43,7 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 get_voice_bank_entry, list_characters_with_series_names,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
@@ -409,8 +409,14 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     voice fingerprint (as an accepted suggestion does), so later dramas
     can be offered the match.
 
+    Not repeatable: a speaker already linked to a series character (by an
+    earlier Remember or an accepted voice suggestion) is refused with
+    ConflictError and nothing changes -- no relink, no second blend of the
+    same embedding into the fingerprint.
+
     Raises NotFoundError (unknown drama or speaker), InvalidInputError
-    (the drama has no series, or the speaker has no saved name).
+    (the drama has no series, or the speaker has no saved name),
+    ConflictError (the speaker is already linked to a series character).
     Returns {"character": entry, "series_character": series entry,
     "created": bool}."""
     drama = _require_drama(drama_id)
@@ -420,6 +426,8 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     if not series_id:
         raise InvalidInputError("This drama isn't in a series, so there is no series cast to add to.")
     entry = _get_one(drama_id, speaker_label)
+    if entry["series_character_id"]:
+        raise ConflictError("This speaker is already linked to a character in this series.")
     name = entry["character_name"].strip()
     if not name:
         raise InvalidInputError("Save a name for this speaker first.")

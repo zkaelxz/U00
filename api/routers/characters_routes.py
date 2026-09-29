@@ -100,6 +100,7 @@ def post_voice_suggestion_reject(payload: CharactersVoiceSuggestionRequest, dram
 @router.post("/dramas/{drama_id}/remember-series-character", dependencies=[require_permission("lines.edit")],
              response_model=CharactersRememberResult,
              summary="Add a speaker's saved name to the drama's series cast and link it",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
 def post_remember_series_character(payload: CharactersRememberRequest, drama_id: int = Path(ge=1)):
     return characters_service.remember_series_character(drama_id, payload.speaker_label)

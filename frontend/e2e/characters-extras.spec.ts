@@ -204,3 +204,25 @@ test('fits a 390px phone width', async ({ page }) => {
   await shot(page, 'characters-extras-phone')
   expect(m.unmocked).toEqual([])
 })
+
+test('a refused remember (409, already linked) shows in the row error banner', async ({ page }) => {
+  const m = await mockAll(page)
+  // Registered after mockAll, so it wins: the speaker was linked elsewhere
+  // (another tab, an accepted suggestion) since this page loaded.
+  await page.route('**/api/characters/dramas/1/remember-series-character', (route) =>
+    route.fulfill({
+      status: 409,
+      json: { error: { code: 'conflict', message: 'This speaker is already linked to a character in this series.' } },
+    }))
+  await page.goto('/#/drama/1/translate')
+  await openSection(page, 'Characters')
+  await page.getByRole('button', { name: 'Remember Jiang Cheng in this series' }).click()
+  const row = page.getByRole('row').filter({ has: page.getByLabel('Name for SPEAKER_02') })
+  const banner = row.getByRole('alert')
+  await expect(banner).toContainText('That cannot be done right now')
+  await expect(banner).toContainText('This speaker is already linked to a character in this series.')
+  await expect(page.getByRole('status').filter({ hasText: 'Added Jiang Cheng' })).toHaveCount(0)
+  await banner.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(row.getByRole('alert')).toHaveCount(0)
+  expect(m.unmocked).toEqual([])
+})

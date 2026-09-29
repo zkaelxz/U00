@@ -237,6 +237,42 @@ class TestRemember:
         (sc,) = isolated_db.list_series_characters(sid)
         assert sc["voice_fingerprint_samples"] == 1
 
+    def test_second_remember_refused_without_reblending(self, client, isolated_db):
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Lin")
+        diarize.save_turns(isolated_db.drama_dir(did), [], embeddings={"A": [0.5, 0.5]})
+        first = self._post(client, did, "A")
+        assert first.status_code == 200, first.text
+        linked_id = first.json()["series_character"]["id"]
+        (before,) = isolated_db.list_series_characters(sid)
+        r = self._post(client, did, "A")
+        assert r.status_code == 409
+        assert _error(r)["code"] == "conflict"
+        (after,) = isolated_db.list_series_characters(sid)
+        assert after["voice_fingerprint_samples"] == before["voice_fingerprint_samples"] == 1
+        assert after["voice_fingerprint"] == before["voice_fingerprint"]
+        (row,) = isolated_db.list_characters_with_series_names(did)
+        assert row["series_character_id"] == linked_id
+
+    def test_already_linked_speaker_not_relinked_to_matching_name(self, client, isolated_db):
+        # Speaker linked (e.g. via an accepted suggestion) to "Lin"; the
+        # series also holds "Su" and the speaker's saved name is now "Su".
+        # Remember must refuse rather than relink or blend into "Su".
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_series_character(sid, "Lin")
+        isolated_db.upsert_series_character(sid, "Su")
+        by_name = {sc["character_name"]: sc for sc in isolated_db.list_series_characters(sid)}
+        isolated_db.upsert_character(did, "A", character_name="Su",
+                                     series_character_id=by_name["Lin"]["id"])
+        diarize.save_turns(isolated_db.drama_dir(did), [], embeddings={"A": [0.5, 0.5]})
+        r = self._post(client, did, "A")
+        assert r.status_code == 409
+        after = {sc["character_name"]: sc for sc in isolated_db.list_series_characters(sid)}
+        assert after["Su"]["voice_fingerprint"] is None
+        assert after["Su"]["voice_fingerprint_samples"] in (0, None)
+        (row,) = isolated_db.list_characters_with_series_names(did)
+        assert row["series_character_id"] == by_name["Lin"]["id"]
+
     def test_no_series_refused_clearly(self, client, isolated_db):
         did, _ = self._drama(isolated_db, series=False)
         isolated_db.upsert_character(did, "A", character_name="Lin")

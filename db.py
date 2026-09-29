@@ -1787,7 +1787,9 @@ def update_series_character_voice_fingerprint(series_character_id: int, new_embe
     weighted by how many samples went into the average so far), so later
     dramas compare against an average across every drama where this
     character's voice was confirmed, not just the first one. Only ever
-    called from an explicit Accept -- never automatically."""
+    called from an explicit user action -- accepting a voice suggestion,
+    or "Remember as a known series character" for a speaker not yet
+    linked (services/characters_service.py) -- never automatically."""
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute(
             "SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters WHERE id = ?",
