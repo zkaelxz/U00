@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { setSourcesProxy } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
 import { proxyProblem } from './sourcesFormat'
 
@@ -56,11 +57,11 @@ export function ProxyForm({ settings, onSaved }: Props) {
         />
       </Field>
       <div className="actions">
-        <button type="button" disabled={busy || !value.trim() || !!problem} onClick={() => save(value.trim())}>
+        <button type="button" className={buttonClass('secondary')} disabled={busy || !value.trim() || !!problem} onClick={() => save(value.trim())}>
           {busy ? 'Saving…' : 'Save proxy'}
         </button>
         {settings.proxy_configured && (
-          <button type="button" className="link" disabled={busy} onClick={() => save('')}>
+          <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={() => save('')}>
             Clear proxy
           </button>
         )}

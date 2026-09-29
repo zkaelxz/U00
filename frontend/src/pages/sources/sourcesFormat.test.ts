@@ -11,6 +11,7 @@ import {
   groupChapters,
   healthLine,
   healthText,
+  healthTone,
   limitGroups,
   looksLikeUrl,
   pacingErrors,
@@ -100,8 +101,9 @@ describe('search form', () => {
   })
 
   it('summarises Search in and the results', () => {
-    expect(searchInSummary(4, 4)).toBe('All 4 sources')
-    expect(searchInSummary(2, 4)).toBe('2 of 4 sources')
+    expect(searchInSummary(4, 4)).toBe('All 4 searchable sources')
+    expect(searchInSummary(2, 4)).toBe('2 of 4 searchable sources')
+    expect(searchInSummary(1, 1)).toBe('All 1 searchable source')
     expect(resultsHeader(12, 2)).toBe('12 results · 2 sources had problems')
     expect(resultsHeader(1, 0)).toBe('1 result')
     expect(percent(0.1)).toBe(' 10%')
@@ -163,15 +165,18 @@ describe('describeSourceError', () => {
 describe('header, health and detail', () => {
   it('counts on and paused sources', () => {
     expect(pageSummary([src('a'), src('b', { health: 'red' }), src('c', { enabled: false })])).toEqual({
-      on: '2 on', paused: '1 paused',
+      on: '2 sources on · 2 searchable', paused: 1,
     })
-    expect(pageSummary([src('a')]).paused).toBeNull()
+    expect(pageSummary([src('a'), src('b', { supports: { ...src('b').supports, search: false } })])).toEqual({
+      on: '2 sources on · 1 searchable', paused: 0,
+    })
   })
 
   it('writes health as text', () => {
     expect(healthText('green')).toBe('OK')
     expect(healthText('yellow')).toBe('Failing')
     expect(healthText('red')).toBe('Paused')
+    expect([healthTone('green'), healthTone('yellow'), healthTone('red')]).toEqual(['ok', 'warn', 'bad'])
   })
 
   it('describes access tiers', () => {
@@ -205,7 +210,7 @@ describe('header, health and detail', () => {
 describe('series', () => {
   it('writes the meta line', () => {
     const info = { title: 'T', url: null, cover_url: null, authors: [], description: null, genres: [], status: 'ongoing', content_type: null, language: 'zh' }
-    expect(seriesMeta('Foo', info, 124)).toBe('Foo · 124 chapters · ongoing · zh')
+    expect(seriesMeta('Foo', info, 124)).toBe('Foo · 124 chapters · Ongoing · Chinese')
     expect(seriesMeta('Foo', null, 1)).toBe('Foo · 1 chapter')
   })
 
@@ -223,13 +228,13 @@ describe('series', () => {
 describe('settings', () => {
   it('summarises settings and pacing', () => {
     expect(settingsSummary(SETTINGS, [src('a'), src('b', { enabled: false })])).toBe(
-      '1 of 2 on · 3–8 s gap · cache: Keep originals',
+      '1 of 2 sources on · 3–8 s gap · cache: Keep originals',
     )
-    expect(settingsSummary(null, [src('a')])).toBe('1 of 1 on')
+    expect(settingsSummary(null, [src('a')])).toBe('1 of 1 sources on')
     expect(pacingSummary(SETTINGS)).toBe('3–8 s gap · 1 at a time · 3 retries · breaks every 8–20')
     expect(pacingSummary({ ...SETTINGS, session_break_min_requests: 0 })).toMatch(/breaks off$/)
     expect(cacheLabel('keep_both')).toBe('Keep both')
-    expect(cacheLabel('odd_mode')).toBe('odd_mode')
+    expect(cacheLabel('odd_mode')).toBe('Odd mode')
   })
 
   it('sends only the changed keys', () => {

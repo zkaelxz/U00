@@ -1,13 +1,16 @@
 /*
  * Sources page (#/sources).
  *
- * Search the enabled sources by title (a paced background job), open a
- * series to see its chapter list (another job, per source), tick chapters
- * to import them into a drama or track the series for new chapters
- * (SeriesPanel). Paste a link (UrlBox) to preview it, open its series or
- * import a novel page. New chapters: Check now, the notifications, and the
- * tracked series (stop tracking, which drama auto-import goes to). Cover
- * images are never rendered: loading them would bypass pacing.
+ * One "Search or paste a link" card with a two-way switch
+ * (FindModeSwitch): search the enabled sources by title (a paced
+ * background job) or paste a link (UrlBox: preview it, open its series or
+ * import a novel page); the other mode stays mounted, hidden, so its text
+ * and results survive a switch. Open a series to see its chapter list
+ * (another job, per source), tick chapters to import them into a drama or
+ * track the series for new chapters (SeriesPanel). New chapters: Check
+ * now, the notifications, and the tracked series (stop tracking, which
+ * drama auto-import goes to). Cover images are never rendered: loading
+ * them would bypass pacing.
  *
  * Source settings (PC only): per-source switches, health, details with
  * sign-in (a window on the PC) and per-tier "Test now", pacing and cache,
@@ -21,6 +24,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
+import { Badge } from '../components/Badge'
+import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
@@ -34,6 +39,7 @@ import type {
   SourceSummary,
   TrackedSeries,
 } from '../types/sources'
+import { FindModeSwitch, type FindMode } from './sources/FindModeSwitch'
 import { NewChapters } from './sources/NewChapters'
 import { SearchPanel } from './sources/SearchPanel'
 import { SeriesPanel } from './sources/SeriesPanel'
@@ -64,6 +70,7 @@ export default function SourcesPage() {
   const [untrackBusy, setUntrackBusy] = useState<string | null>(null)
   const [untrackError, setUntrackError] = useState<unknown>(null)
 
+  const [storedMode, setStoredMode] = usePersistedState<FindMode>('sources.find', 'search')
   const [storedSeries, setStoredSeries] = usePersistedState<OpenSeries | null>('sources.lastSeries', null)
   const open = validSeries(storedSeries)
   const [cleared, setCleared] = useState(false)
@@ -181,30 +188,38 @@ export default function SourcesPage() {
   const summary = sources ? pageSummary(sources) : null
   const searchBlocked = remote && !SEARCH_REMOTE_ALLOWED
 
+  const canLink = !(remote && !IMPORT_REMOTE_ALLOWED)
+  const canSearch = !searchBlocked
+  const mode: FindMode = !canSearch ? 'link' : !canLink ? 'search' : storedMode === 'link' ? 'link' : 'search'
+
   return (
     <div className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}>
-      <section className="panel sources-main" aria-label="Sources">
+      <header className="page-head sources-head">
         <h2>Sources</h2>
-        <p className="muted sources-summary" data-testid="sources-summary">
+        <p className="page-meta" data-testid="sources-summary">
           {summary ? (
             <>
-              {summary.on}
-              {summary.paused && <span className="warn"> · {summary.paused}</span>}
+              {summary.on} ·{' '}
+              {summary.paused ? <Badge tone="warn">{summary.paused} paused</Badge> : '0 paused'}
             </>
           ) : loadError ? null : (
             'Loading…'
           )}
         </p>
-        <ErrorBanner error={loadError} />
-        {remote && !IMPORT_REMOTE_ALLOWED ? (
-          <p className="muted">Importing from a link is PC only for now.</p>
-        ) : (
-          <UrlBox display={display} onOpenSeries={openFromUrl} />
+      </header>
+      <ErrorBanner error={loadError} />
+
+      <Card className="sources-main" aria-label="Search or paste a link">
+        {canLink && canSearch && (
+          <FindModeSwitch value={mode} onChange={setStoredMode} />
         )}
-        {searchBlocked ? (
-          <p className="muted">Searching sources is PC only for now.</p>
-        ) : (
-          sources && (
+        {canLink && (
+          <div className="sources-find" hidden={mode !== 'link'}>
+            <UrlBox display={display} onOpenSeries={openFromUrl} />
+          </div>
+        )}
+        {canSearch && sources && (
+          <div className="sources-find" hidden={mode !== 'search'}>
             <SearchPanel
               sources={sources}
               remote={remote}
@@ -212,9 +227,11 @@ export default function SourcesPage() {
               resultsHidden={seriesShown && !wide}
               onOpen={openSeries}
             />
-          )
+          </div>
         )}
-      </section>
+        {!canSearch && <p className="muted">Searching sources is PC only for now.</p>}
+        {!canLink && <p className="muted">Importing from a link is PC only for now.</p>}
+      </Card>
 
       {seriesShown && open && (
         <SeriesPanel
@@ -245,27 +262,25 @@ export default function SourcesPage() {
       )}
 
       {(notifications.length > 0 || tracked.length > 0) && (
-        <section className="panel sources-wide" aria-label="New chapters">
-          <NewChapters
-            notifications={notifications}
-            tracked={tracked}
-            sources={sources}
-            display={display}
-            canAct={!remote || IMPORT_REMOTE_ALLOWED}
-            onOpen={openSeries}
-            onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
-            onUntrack={untrack}
-            onTracked={setTracked}
-            onChecked={loadTracking}
-            untrackBusy={untrackBusy}
-            untrackError={untrackError}
-            clearUntrackError={() => setUntrackError(null)}
-          />
-        </section>
+        <NewChapters
+          notifications={notifications}
+          tracked={tracked}
+          sources={sources}
+          display={display}
+          canAct={!remote || IMPORT_REMOTE_ALLOWED}
+          onOpen={openSeries}
+          onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
+          onUntrack={untrack}
+          onTracked={setTracked}
+          onChecked={loadTracking}
+          untrackBusy={untrackBusy}
+          untrackError={untrackError}
+          clearUntrackError={() => setUntrackError(null)}
+        />
       )}
 
       {sources && (
-        <section className="panel sources-wide" aria-label="Source settings">
+        <section aria-label="Source settings">
           <SourceSettings
             pc={pc}
             phone={phone}

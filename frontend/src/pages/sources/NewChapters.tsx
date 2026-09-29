@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { CHECK_JOB_ID, dismissNotification, setTrackedDrama, startCheckNow } from '../../api/sources'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { Section } from '../../components/Section'
+import { Badge } from '../../components/Badge'
+import { Card } from '../../components/Card'
+import { buttonClass } from '../../components/uiClasses'
 import type { CheckResult, OpenSeries, SourceNotification, SourceSummary, TrackedSeries } from '../../types/sources'
 import { ago, checkSummary, isoTime, percent, trackedDramaChoices } from './sourcesFormat'
 import { dramaLabel } from './urlImportFormat'
@@ -29,9 +31,9 @@ type Props = {
 }
 
 const AUTO_HELP =
-  'Where new chapters are imported when "Auto-import new chapters" is on in Source settings. Otherwise they are only announced here.'
+  'Auto-import into: where a series’ new chapters go when “Auto-import new chapters” is on in Source settings. Otherwise they are only listed here.'
 
-// Only rendered when there are notifications or tracked series.
+// A Card (always open), only rendered when there are notifications or tracked series.
 export function NewChapters({
   notifications, tracked, sources, display, canAct, onOpen, onDismissed, onUntrack, onTracked, onChecked,
   untrackBusy, untrackError, clearUntrackError,
@@ -84,28 +86,39 @@ export function NewChapters({
   const failures = result ? Object.entries(result.errors) : []
 
   return (
-    <Section
-      title="New chapters"
-      count={notifications.length}
-      summary={`${notifications.length} new · ${tracked.length} tracked`}
-      defaultOpen={notifications.length > 0}
-      storageKey="sources.new"
+    <Card
+      className="sources-new"
+      aria-label="New chapters"
+      title={
+        <>
+          New chapters{' '}
+          {notifications.length > 0 && <Badge tone="accent">{notifications.length} new</Badge>}
+        </>
+      }
+      meta={`${tracked.length} tracked series`}
+      actions={
+        canAct && tracked.length > 0 ? (
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={running}
+            onClick={() => check.start(() => startCheckNow())}
+          >
+            {running ? 'Checking…' : 'Check now'}
+          </button>
+        ) : undefined
+      }
     >
       <ErrorBanner error={error ?? untrackError} onDismiss={() => (error ? setError(null) : clearUntrackError())} />
       {canAct && tracked.length > 0 && (
         <div className="sources-check" data-testid="sources-check">
-          <div className="actions">
-            <button type="button" disabled={running} onClick={() => check.start(() => startCheckNow())}>
-              {running ? 'Checking…' : 'Check now'}
-            </button>
-            <span className="muted" aria-live="polite">
-              {running
-                ? `${check.message ?? 'Checking tracked series…'} ${percent(check.progress)}`.trim()
-                : result
-                  ? checkSummary(result)
-                  : 'New chapters are announced here, never downloaded unless auto-import is on.'}
-            </span>
-          </div>
+          <p className="muted" aria-live="polite">
+            {running
+              ? `${check.message ?? 'Checking tracked series…'} ${percent(check.progress)}`.trim()
+              : result
+                ? checkSummary(result)
+                : 'New chapters are announced here, never downloaded unless auto-import is on.'}
+          </p>
           {failures.length > 0 && (
             <details>
               <summary>Why {failures.length === 1 ? 'one' : `${failures.length}`} failed</summary>
@@ -136,12 +149,18 @@ export function NewChapters({
               <span className="actions">
                 <button
                   type="button"
+                  className={buttonClass('secondary', 'sm')}
                   data-opener={`new:${n.id}`}
                   onClick={() => onOpen({ source: n.source, series_id: n.series_id, title: titleOf(n) }, `new:${n.id}`)}
                 >
                   Open
                 </button>
-                <button type="button" className="link" disabled={busy === n.id} onClick={() => dismiss(n.id)}>
+                <button
+                  type="button"
+                  className={buttonClass('ghost', 'sm')}
+                  disabled={busy === n.id}
+                  onClick={() => dismiss(n.id)}
+                >
                   Dismiss
                 </button>
               </span>
@@ -152,6 +171,7 @@ export function NewChapters({
       {tracked.length > 0 && (
         <>
           <h4>Tracked series</h4>
+          {canAct && <p className="muted sources-auto-help">{AUTO_HELP}</p>}
           <ul className="sources-rows sources-tracked">
             {tracked.map((t) => {
               const key = `${t.source}:${t.series_id}`
@@ -172,7 +192,7 @@ export function NewChapters({
                     )}
                   </span>
                   {canAct && (
-                    <label className="sources-autoimport" title={AUTO_HELP}>
+                    <label className="sources-autoimport">
                       <span>Auto-import into</span>
                       <select
                         value={t.drama_id ?? ''}
@@ -202,6 +222,6 @@ export function NewChapters({
           </ul>
         </>
       )}
-    </Section>
+    </Card>
   )
 }

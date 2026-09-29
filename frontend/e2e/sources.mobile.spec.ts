@@ -17,7 +17,7 @@ async function noSideways(page: Page) {
 // Visible buttons, selects, text inputs and checkbox labels on the page are at least 44 px tall.
 async function tallTargets(page: Page) {
   const small = await page.locator('.sources-page').evaluate((root) => {
-    const sel = 'button:not(.link):not(.field-help-btn), select, input[type="search"], input[type="number"], .sources-checks label, .source-card-line label, .sources-back'
+    const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="search"], input[type="number"], .segmented label, .source-on, .setting-list > .field-item, .source-adult .field-item, .sources-back'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
@@ -42,7 +42,7 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await opener.scrollIntoViewIfNeeded()
   await opener.click()
   const panel = page.getByRole('region', { name: 'Series' })
-  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   await expect(page.getByTestId('search-results')).toBeHidden()
   await expect(panel.getByRole('heading', { level: 3 })).toBeFocused()
   await noSideways(page)
@@ -71,7 +71,7 @@ test('phone: source settings render as cards with 44 px toggles', async ({ page 
   await expect(cards).toHaveCount(3)
   await expect(cards.first()).toContainText('OK')
   await expect(cards.nth(1)).toContainText('Sign-in saved')
-  await settings.getByText('Pacing & cache').click()
+  await expect(settings.getByRole('switch', { name: 'On: Alpha Comics' })).toBeChecked()
   await noSideways(page)
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
@@ -99,7 +99,7 @@ test('phone: every main nav link is inside the viewport at 360 and 390 px', asyn
 // checkboxes and the sticky Import bar all fit and have 44 px targets.
 async function tallImportTargets(page: Page) {
   const small = await page.locator('.sources-page').evaluate((root) => {
-    const sel = 'button:not(.link):not(.field-help-btn), select, input[type="url"], input[type="text"], .sources-pick label, .sources-select-all, .sources-preview a, .sources-outcomes a'
+    const sel = 'button:not(.link):not(.field-help-btn):not(.toggle), select, input[type="url"], input[type="text"], .sources-pick label, .sources-select-all, .sources-preview a, .sources-outcomes a'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
@@ -112,6 +112,7 @@ test('phone: paste a chapter link, open the series, import from the sticky bar',
   const s = await mockSources(page)
   await mockImports(page, s)
   await page.goto('/#/sources')
+  await page.getByRole('radio', { name: 'Paste a link' }).check()
   await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://alpha.example/a/c2')
   await page.getByRole('button', { name: 'Preview' }).click()
   const card = page.getByRole('article', { name: 'Link preview' })
@@ -145,6 +146,7 @@ test('phone: novel link preview and import, one column', async ({ page }) => {
   const s = await mockSources(page)
   await mockImports(page, s, { previewBody: NOVEL_PREVIEW })
   await page.goto('/#/sources')
+  await page.getByRole('radio', { name: 'Paste a link' }).check()
   await page.getByRole('textbox', { name: 'Paste a link' }).fill('https://novels.example/book/5')
   await page.getByRole('button', { name: 'Preview' }).click()
   const card = page.getByRole('article', { name: 'Link preview' })

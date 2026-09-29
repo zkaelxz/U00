@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { updateSourcesSettings } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
+import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
 import {
   BOOL_FIELDS,
@@ -96,16 +98,16 @@ export function PacingForm({ settings, onSaved }: Props) {
         </Field>
         {numInput(CHECK_FIELD)}
       </div>
-      <div className="toggle-list">
+      <div className="setting-list">
         {BOOL_FIELDS.map((b) => (
           <Field key={b.key} label={b.label} help={b.help}>
-            <input type="checkbox" checked={draft[b.key]} onChange={(e) => set(b.key, e.target.checked)} />
+            <Toggle checked={draft[b.key]} onChange={(on) => set(b.key, on)} />
           </Field>
         ))}
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
       <div className="actions">
-        <button type="button" className={dirty && !invalid ? 'primary' : ''} disabled={!dirty || invalid || saving} onClick={save}>
+        <button type="button" className={buttonClass(dirty && !invalid ? 'primary' : 'secondary')} disabled={!dirty || invalid || saving} onClick={save}>
           {saving ? 'Saving…' : 'Save settings'}
         </button>
         <span aria-live="polite" className="muted">

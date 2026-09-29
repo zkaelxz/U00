@@ -9,8 +9,16 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   const s = await mockSources(page)
   await page.goto('/#/sources')
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sources' })).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('sources-summary')).toHaveText('3 on · 1 paused')
-  await expect(page.getByTestId('sources-summary').locator('.warn')).toHaveText(' · 1 paused')
+  await expect(page.getByRole('heading', { level: 2, name: 'Sources' })).toBeVisible()
+  await expect(page.getByTestId('sources-summary')).toHaveText('3 sources on · 2 searchable · 1 paused')
+  await expect(page.getByTestId('sources-summary').locator('.pill-warn')).toHaveText('1 paused')
+  // One card, one input at a time: Search by title first, Paste a link one tap away.
+  await expect(page.getByRole('radio', { name: 'Search by title' })).toBeChecked()
+  await expect(page.getByRole('textbox', { name: 'Paste a link' })).toBeHidden()
+  await page.getByRole('radio', { name: 'Paste a link' }).check()
+  await expect(page.getByRole('textbox', { name: 'Paste a link' })).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Title' })).toBeHidden()
+  await page.getByRole('radio', { name: 'Search by title' }).check()
 
   const search = page.getByRole('button', { name: 'Search', exact: true })
   await expect(search).toBeDisabled()
@@ -24,10 +32,12 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   // Search in: untick both searchable sources.
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
   await page.getByText('Search in').click()
-  await page.getByRole('checkbox', { name: 'Alpha Comics' }).uncheck()
-  await page.getByRole('checkbox', { name: 'Beta Novels' }).uncheck()
+  await page.getByRole('switch', { name: 'Alpha Comics' }).click()
+  await page.getByRole('switch', { name: 'Beta Novels' }).click()
+  await expect(page.getByRole('switch', { name: 'Beta Novels' })).not.toBeChecked()
   await expect(page.getByText('Still needed: at least one source.')).toBeVisible()
-  await page.getByRole('checkbox', { name: 'Beta Novels' }).check()
+  await page.getByRole('switch', { name: 'Beta Novels' }).click()
+  await expect(page.getByRole('switch', { name: 'Beta Novels' })).toBeChecked()
   await expect(search).toBeEnabled()
 
   // No New chapters panel with nothing tracked; no Import/Track anywhere.
@@ -59,7 +69,7 @@ test('search: running line, cancel, results, per-source errors, series', async (
   await opener.click()
   const panel = page.getByRole('region', { name: 'Series' })
   await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 1' })).toBeFocused()
-  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   expect(posted(s, '/api/sources/alpha/series')[0].body).toEqual({ series_id: 'a0' })
   await expect(panel.getByText('Tracked', { exact: true })).toBeVisible()
   // 100 shown first; the last group appears with Show all.
@@ -133,7 +143,7 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   const openBtn = box.getByRole('button', { name: 'Open', exact: true })
   await openBtn.click()
   const panel = page.getByRole('region', { name: 'Series' })
-  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   await panel.getByRole('button', { name: 'Close' }).click()
   await expect(panel).toHaveCount(0)
   await expect(openBtn).toBeFocused()
@@ -207,7 +217,7 @@ test('series B on the same source while A is still running never shows A', async
   await panel.getByRole('button', { name: 'Try again' }).click()
   s.seriesHold = false
   s.seriesTitle = 'Heaven Book 2'
-  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   expect(posted(s, '/api/sources/alpha/series').map((c) => c.body)).toEqual([
     { series_id: 'a0' }, { series_id: 'a1' }, { series_id: 'a1' },
   ])
@@ -244,7 +254,7 @@ test('on load, a running job for another series shows as busy, not as loading th
   await panel.getByRole('button', { name: 'Try again' }).click()
   s.seriesHold = false
   s.seriesTitle = 'Heaven Book 2'
-  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   expect(posted(s, '/api/sources/alpha/series').map((c) => c.body)).toEqual([{ series_id: 'a1' }])
   expect(s.unmocked).toEqual([])
 })
@@ -286,7 +296,7 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
 
   await page.goto('/#/sources')
   const settings = page.getByRole('region', { name: 'Source settings' })
-  await expect(settings.getByText('3 of 3 on · 3–8 s gap · cache: Keep originals')).toBeVisible()
+  await expect(settings.getByText('3 of 3 sources on · 3–8 s gap · cache: Keep originals')).toBeVisible()
   await settings.getByText('Source settings').click()
   const table = settings.locator('table.sources-table')
   await expect(table.getByText('OK')).toBeVisible()
@@ -294,15 +304,17 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
   await expect(table.getByText('Paused')).toBeVisible()
 
   // On: optimistic, rolled back on a 500.
-  const on = settings.getByRole('checkbox', { name: 'On: Alpha Comics' })
+  const on = settings.getByRole('switch', { name: 'On: Alpha Comics' })
   await on.click()
   await expect(settings.getByRole('alert')).toBeVisible()
   await expect(on).toBeChecked()
   expect(posted(s, '/api/sources/alpha/enabled')[0].body).toEqual({ enabled: false })
   enabledStatus = 200
 
-  // Pacing & cache.
-  await settings.getByText('Pacing & cache').click()
+  // Pacing & cache: shown in the settings body, no second fold.
+  await expect(settings.getByRole('group', { name: 'Pacing & cache' })).toBeVisible()
+  await expect(settings.getByRole('switch', { name: 'Auto-import new chapters' })).not.toBeChecked()
+  await expect(settings.getByRole('checkbox')).toHaveCount(0)
   const save = settings.getByRole('button', { name: 'Save settings' })
   await expect(save).toBeDisabled()
   await expect(settings.getByText('No changes to save.')).toBeVisible()
@@ -327,9 +339,9 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
   await expect(settings.getByText('Cache: empty')).toBeVisible()
   expect(posted(s, '/api/sources/cache/clear')[0].body).toEqual({ confirm: true })
 
-  // At most one filled primary per panel.
-  for (const panel of await page.locator('.sources-page > .panel').all()) {
-    expect(await panel.locator('button.primary:not(:disabled)').count()).toBeLessThanOrEqual(1)
+  // At most one filled primary per card or region.
+  for (const panel of await page.locator('.sources-page > section').all()) {
+    expect(await panel.locator('.btn-primary:visible:not(:disabled)').count()).toBeLessThanOrEqual(1)
   }
   expect(s.unmocked).toEqual([])
 })

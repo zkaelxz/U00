@@ -16,6 +16,7 @@ import { forgetSignin, openSignin, signinJobId, startTierTest, tierTestJobId } f
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import type { SigninResult, SourceDetail, SourceTier, TierTestResult } from '../../types/sources'
 import { TIER_TESTS, pageUrlProblem, tierLabel, tierTestLine } from './sourcesFormat'
 import { useSourcesJob } from './useSourcesJob'
@@ -114,6 +115,7 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
           <button
             key={t}
             type="button"
+            className={buttonClass('secondary', 'sm')}
             disabled={needPage || testing || signingIn || (t === 'signed_in' && !hasLogin)}
             onClick={() => test(t)}
           >
@@ -145,6 +147,7 @@ export function SourceAccess({ detail, onChanged, onSignin }: Props) {
           <div className="actions">
             <button
               type="button"
+              className={buttonClass('secondary')}
               disabled={signingIn || testing || (!!page && !!problem)}
               onClick={() => signin.start(() => openSignin(name, page))}
             >

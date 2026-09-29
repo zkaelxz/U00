@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useState } from 'react'
 
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import {
@@ -9,10 +9,13 @@ import {
   setAdultEnabled,
   setSourceEnabled,
 } from '../../api/sources'
+import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
+import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY } from '../../hooks/usePcOnly'
 import type { PcMode } from '../../hooks/usePcOnly'
 import type { SourceHealth, SourceProfileDomain, SourcesSettings, SourceSummary } from '../../types/sources'
@@ -20,7 +23,7 @@ import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { PacingForm } from './PacingForm'
 import { ProxyForm } from './ProxyForm'
 import { SourceDetail } from './SourceDetail'
-import { healthText, pacingSummary, profileLine, settingsSummary } from './sourcesFormat'
+import { healthText, healthTone, pacingSummary, profileLine, settingsSummary } from './sourcesFormat'
 
 type Props = {
   pc: PcMode
@@ -47,11 +50,18 @@ export function SourceSettings(props: Props) {
 }
 
 function Health({ light }: { light: string }) {
-  const tone = light === 'green' ? 'ok' : light === 'yellow' ? 'warn' : 'bad'
+  return <Badge tone={healthTone(light)}>{healthText(light)}</Badge>
+}
+
+/** A source's on/off switch; on a phone card it also gets a visible "On" label. */
+function OnToggle({ s, labelled, onChange }: { s: SourceSummary; labelled: boolean; onChange: (on: boolean) => void }) {
+  const id = useId()
+  const toggle = <Toggle id={id} checked={s.enabled} aria-label={`On: ${s.display_name}`} onChange={onChange} />
+  if (!labelled) return toggle
   return (
-    <span className={`source-health ${tone}`}>
-      <span className="dot" aria-hidden="true" />
-      {healthText(light)}
+    <span className="source-on">
+      {toggle}
+      <label htmlFor={id}>On</label>
     </span>
   )
 }
@@ -63,6 +73,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
   const [open, setOpen] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const pacingId = useId()
 
   // Wait for /api/meta so a remote viewer never sends a settings request.
   useEffect(() => {
@@ -118,23 +129,21 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
   }
 
   const detailsButton = (s: SourceSummary) => (
-    <button type="button" aria-expanded={open === s.name} onClick={() => setOpen(open === s.name ? null : s.name)}>
+    <button
+      type="button"
+      className={buttonClass('secondary', 'sm')}
+      aria-expanded={open === s.name}
+      onClick={() => setOpen(open === s.name ? null : s.name)}
+    >
       Details
     </button>
   )
-  const onBox = (s: SourceSummary) => (
-    <input
-      type="checkbox"
-      checked={s.enabled}
-      aria-label={phone ? undefined : `On: ${s.display_name}`}
-      onChange={(e) => toggle(s, 'enabled', e.target.checked)}
-    />
-  )
+  const onBox = (s: SourceSummary) => <OnToggle s={s} labelled={phone} onChange={(on) => toggle(s, 'enabled', on)} />
   const adultBox = (s: SourceSummary) =>
     s.supports_adult_toggle ? (
       <div className="toggle-list source-adult">
         <Field label="Adult works" help={ADULT_HELP}>
-          <input type="checkbox" checked={s.adult_enabled} onChange={(e) => toggle(s, 'adult_enabled', e.target.checked)} />
+          <Toggle checked={s.adult_enabled} onChange={(on) => toggle(s, 'adult_enabled', on)} />
         </Field>
       </div>
     ) : null
@@ -161,10 +170,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                 <Health light={s.health} />
               </div>
               <div className="source-card-line">
-                <label>
-                  {onBox(s)}
-                  On
-                </label>
+                {onBox(s)}
                 {adultBox(s)}
               </div>
               <div className="source-card-line">
@@ -219,9 +225,11 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
 
       {settings && (
         <>
-          <Section title="Pacing & cache" summary={pacingSummary(settings)} storageKey="sources.pacing">
+          <div className="sources-subsection" role="group" aria-labelledby={pacingId}>
+            <h4 id={pacingId}>Pacing & cache</h4>
+            <p className="muted">{pacingSummary(settings)}</p>
             <PacingForm settings={settings} onSaved={setSettings} />
-          </Section>
+          </div>
 
           <ProxyForm settings={settings} onSaved={setSettings} />
 
@@ -251,6 +259,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
                     {v.status !== 'active' && v.version !== null && v.kind && (
                       <button
                         type="button"
+                        className={buttonClass('secondary', 'sm')}
                         disabled={busy !== null}
                         onClick={() => makeActive(p.domain, v.kind as string, v.version as number)}
                       >
