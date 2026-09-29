@@ -495,7 +495,7 @@ class TestAutoBackendSelection:
     never triggers a fresh download just because auto mode is on."""
 
     def test_bubble_ml_weights_cached_true_when_cache_hit(self, monkeypatch, tmp_path):
-        import huggingface_hub
+        huggingface_hub = pytest.importorskip("huggingface_hub")
         cached_file = tmp_path / "model.safetensors"
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
@@ -503,13 +503,13 @@ class TestAutoBackendSelection:
         assert scanlate.bubble_ml_weights_cached() is True
 
     def test_bubble_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
-        import huggingface_hub
+        huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: None)
         assert scanlate.bubble_ml_weights_cached() is False
 
     def test_lama_ml_weights_cached_true_when_cache_hit(self, monkeypatch, tmp_path):
-        import huggingface_hub
+        huggingface_hub = pytest.importorskip("huggingface_hub")
         cached_file = tmp_path / "lama.safetensors"
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
@@ -517,7 +517,7 @@ class TestAutoBackendSelection:
         assert scanlate.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
-        import huggingface_hub
+        huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename: None)
         assert scanlate.lama_ml_weights_cached() is False
