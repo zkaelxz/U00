@@ -327,7 +327,8 @@ def start_novel_glossary_run(drama_id: int) -> dict:
     both exist; either alone is used as the source (the tab's rule).
     Paid-engine spend: yes, unless the engine is in FREE_ENGINES.
 
-    Poll GET /api/jobs/{job_id}; the "done" result is {"proposals": [{term,
+    Poll get_novel_glossary_status(drama_id) (GET /api/glossary/dramas/{id}/
+    from-novel); its "done" result is {"proposals": [{term,
     suggested_translation, category, policy, reason, already_in_glossary}]}.
 
     NotFoundError, UnsupportedOperationError (no series / no novel saved /
@@ -367,6 +368,34 @@ def start_novel_glossary_run(drama_id: int) -> dict:
     if not started:
         raise ConflictError("A glossary extraction is already running for this drama.")
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
+
+
+_PROPOSAL_FIELDS = ("term", "suggested_translation", "category", "policy", "reason",
+                    "already_in_glossary")
+
+
+def get_novel_glossary_status(drama_id: int) -> dict:
+    """{job_id, status, progress, message, result} for this drama's
+    glossary-from-novel job; result is {"proposals": [...]} only when done
+    (else None). The message (or a failed job's error) is redacted; no key
+    is ever in a job result. NotFoundError when the drama doesn't exist or
+    no such job is resident in this process (results live only in
+    background_jobs memory)."""
+    _drama(drama_id)
+    job_id = novel_glossary_job_id(drama_id)
+    job = background_jobs.get_status(job_id)
+    if not job:
+        raise NotFoundError("No glossary extraction for this drama in this app session.")
+    status = job.get("status")
+    result = None
+    if status == "done":
+        result = {"proposals": [{k: p.get(k) for k in _PROPOSAL_FIELDS}
+                                for p in (job.get("result") or {}).get("proposals") or []
+                                if isinstance(p, dict)]}
+    message = job.get("error") if status == "error" else job.get("message")
+    return {"job_id": job_id, "status": status, "progress": job.get("progress"),
+            "message": translate_engines.redact_secrets(str(message)) if message else "",
+            "result": result}
 
 
 def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False) -> dict:
