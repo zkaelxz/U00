@@ -210,6 +210,14 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
   }
 }
 
+// A monthly cap of 0 (or less) means "no cap" (translate_engines.resolve_cost_cap),
+// so it must not read as "$X of $0.00", which looks like the cap was reached.
+export function monthSpendText(spend: number, cap: number): string {
+  return cap > 0
+    ? `Spend this month: $${spend.toFixed(2)} of $${cap.toFixed(2)}.`
+    : `Spent this month: $${spend.toFixed(2)} (no monthly cap).`
+}
+
 // One entry per line; blanks dropped, duplicates removed, order kept.
 export function splitLines(raw: string): string[] {
   return [...new Set(raw.split('\n').map((s) => s.trim()).filter(Boolean))]

@@ -16,6 +16,7 @@ import {
   initialForm,
   loadPresetStart,
   MAX_FALLBACKS,
+  monthSpendText,
   reflectAvailable,
   validateRun, type RunForm,
 } from '../translateForm'
@@ -170,7 +171,7 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
           <Field
             label="Cost cap"
             unit="$"
-            help={`Stop this run at this many dollars; blank means no cap. Spend this month: $${config.month_spend.toFixed(2)} of $${config.monthly_cap_usd.toFixed(2)}.`}
+            help={`Stop this run at this many dollars; blank means no cap. ${monthSpendText(config.month_spend, config.monthly_cap_usd)}`}
           >
             <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
           </Field>
