@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ApiError, artifactUrl, deleteJson, getJson, postJson, postMultipart } from './client'
+import { ApiError, apiUrl, artifactUrl, deleteJson, getJson, postJson, postMultipart } from './client'
 import { cancelJob, getJob, listJobs } from './jobs'
 
 interface Call {
@@ -75,6 +75,10 @@ describe('write helpers', () => {
     const e2 = await fail(deleteJson('/a', boom))
     expect(e2.code).toBe('network_error')
     expect(e2.status).toBe(0)
+  })
+
+  it('apiUrl prefixes the API base without reshaping the path', () => {
+    expect(apiUrl('/api/dub/dramas/7/track')).toBe('/api/dub/dramas/7/track')
   })
 
   it('artifactUrl is a plain download path', () => {

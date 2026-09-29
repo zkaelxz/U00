@@ -90,10 +90,16 @@ export function postMultipart<T>(
   return request<T>(path, { method: 'POST', headers: JSON_ACCEPT, body: form }, fetchImpl)
 }
 
+// The full URL for an API path ("/api/..."), for links and for the few
+// callers that fetch non-JSON bodies themselves.
+export function apiUrl(path: string): string {
+  return `${BASE}${path}`
+}
+
 // A plain link for the browser to download (Content-Disposition: attachment);
 // nothing is fetched or buffered in JS.
 export function artifactUrl(dramaId: number, kind: string): string {
-  return `${BASE}/api/artifacts/dramas/${dramaId}/${encodeURIComponent(kind)}`
+  return apiUrl(`/api/artifacts/dramas/${dramaId}/${encodeURIComponent(kind)}`)
 }
 
 export function buildDramaQuery(filters: DramaFilters = {}): string {

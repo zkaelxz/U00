@@ -203,6 +203,7 @@ dd { margin: 0; }
 
 .muted { color: var(--muted); font-size: 0.9rem; }
 .error { color: var(--bad); }
+.warn { color: var(--warn); }
 
 .badge {
   display: inline-block;

@@ -59,6 +59,13 @@ describe('workspace api', () => {
     expect(JSON.parse(String(calls[2].init?.body))).toEqual({ text: 'hello', mode: 'append' })
   })
 
+  it('carries tesseract_cmd in the run body when a caller sets it', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, { job_id: 'j' }, calls)
+    await startTranscribe(2, { source_language: 'zh', tesseract_cmd: 'tesseract' }, f)
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ source_language: 'zh', tesseract_cmd: 'tesseract' })
+  })
+
   it('passes expected speakers to diarization as a query and omits it when unset', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const f = fakeFetch(200, { job_id: 'j' }, calls)

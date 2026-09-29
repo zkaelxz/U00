@@ -1,4 +1,4 @@
-import type { DramaCreateRequest } from '../types/library'
+import type { DramaCreateRequest, DramaDeleteResult } from '../types/library'
 
 // Caps mirror api/schemas.py DramaCreateRequest.
 export const MAX_NAME_LEN = 300
@@ -57,6 +57,10 @@ export function buildCreateRequest(form: DramaCreateRequest, extras: CreateExtra
 }
 
 export const canConfirmDelete = (typed: string) => typed === 'DELETE'
+
+// The note to keep on screen after a delete: the server's own plain-English
+// warning when the drama is gone but some of its files were left behind.
+export const deleteNotice = (r: DramaDeleteResult): string | null => r.warning?.trim() || null
 
 // A Library "More" section with nothing in it renders nothing (react-ui-guidelines rule 8);
 // an error keeps it visible so a failed load is not silently hidden.

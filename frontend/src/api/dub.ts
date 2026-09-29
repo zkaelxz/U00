@@ -5,7 +5,7 @@ import type {
   NarrationConfig,
   NarrationRunRequest,
 } from '../types/dub'
-import { artifactUrl, getJson, postJson } from './client'
+import { apiUrl, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -16,9 +16,8 @@ export const dubApi = {
     postJson<{ job_id: string }>(`/api/dub/dramas/${dramaId}/run`, body, f),
 }
 
-// Plain link (Content-Disposition: attachment); same base as artifactUrl().
-export const dubTrackUrl = (dramaId: number) =>
-  artifactUrl(dramaId, '').replace(/\/api\/artifacts\/dramas\/\d+\/$/, `/api/dub/dramas/${dramaId}/track`)
+// Plain link (Content-Disposition: attachment).
+export const dubTrackUrl = (dramaId: number) => apiUrl(`/api/dub/dramas/${dramaId}/track`)
 
 export const narrationApi = {
   config: (dramaId: number, f?: Fetch) =>

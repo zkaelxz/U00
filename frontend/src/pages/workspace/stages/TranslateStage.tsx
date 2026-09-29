@@ -14,6 +14,7 @@ import {
   bulkAvailable,
   bulkReflectAvailable,
   initialForm,
+  loadPresetStart,
   MAX_FALLBACKS,
   reflectAvailable,
   validateRun, type RunForm,
@@ -60,7 +61,7 @@ function advancedSummary(f: RunForm, base: RunForm): string {
 
 function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onStarted: (id: string) => void; busy: boolean }) {
   const { dramaId } = useStage()
-  const [base] = useState<RunForm>(() => initialForm(config))
+  const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
   const [f, setF] = useState<RunForm>(base)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
