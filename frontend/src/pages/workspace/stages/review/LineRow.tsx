@@ -135,7 +135,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           aria-haspopup="dialog"
           onClick={() => actions.openSheet(line.id)}
         >
-          ⋯
+          {active && !isPhone ? 'More' : '⋯'}
         </button>
       </div>
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}

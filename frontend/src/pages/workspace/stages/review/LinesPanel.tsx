@@ -99,6 +99,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [ai, setAi] = useState<{ lineId: number; mode: AiMode } | null>(null)
   const [sheet, setSheet] = useState<SheetState | null>(null)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [structError, setStructError] = useState<unknown>(null)
   const [sheetNote, setSheetNote] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -281,8 +282,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       const cur = st.current.edit
       if (!cur) return true
       // Save until nothing is left (text typed during a slow save saves too).
-      for (let i = 0; i < 3 && stillDirty(cur.lineId); i += 1) if (!(await saveEdit())) return false
-      if (stillDirty(cur.lineId)) return false
+      let ok = true
+      for (let i = 0; i < 3 && stillDirty(cur.lineId); i += 1) if (!(await saveEdit())) { ok = false; break }
+      if (!ok || stillDirty(cur.lineId)) {
+        // The row may be out of view (filter, search, reload): say where the draft is.
+        if (!find(cur.lineId)) setStatus(`Save or discard your edit to #${lineNumber(cur.base.idx)} first (see above the list).`)
+        return false
+      }
       setEditNow(null)
       return true
     }
@@ -473,10 +479,38 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
     }
 
-    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty }
+    return { actions, move, moveFlagged, goPage, leaveEdit, openEdit, openSheet, focusTo, saveEdit, stillDirty, setEditNow }
   }, [dramaId])
 
   const { actions } = ctl
+
+  // A draft whose row is not on screen (a reload moved it out of the filter,
+  // a search, another page) gets a banner, so it can always be saved,
+  // discarded or brought back into view.
+  const hiddenEdit = edit && !shown.some((l) => l.id === edit.lineId) ? edit : null
+  const discardHidden = () => {
+    ctl.setEditNow(null)
+    setIssue(null)
+    setStatus(null)
+  }
+  const showHidden = async () => {
+    if (!hiddenEdit) return
+    try {
+      const all = await listAllLines(dramaId)
+      const pos = all.findIndex((l) => l.id === hiddenEdit.lineId)
+      if (pos === -1) {
+        setStatus('That line no longer exists. Discard the edit.')
+        return
+      }
+      pending.current = { target: hiddenEdit.lineId }
+      setFilter('all')
+      setInput('')
+      setTerm('')
+      setPage(pageForPosition(pos))
+    } catch (e) {
+      setError(e)
+    }
+  }
 
   // A dirty draft is never lost silently: leaving the page asks first, and
   // leaving the stage (unmount) saves it.
@@ -503,15 +537,20 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     call: (ids: number[]) => Promise<RestructureResult>,
     after: (r: RestructureResult, ids: number[]) => { id: number | null; message: string },
   ) => {
-    if (busy) return
+    // Claimed synchronously, before any await, so a double click sends one edit.
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
     setStructError(null)
     setSheetNote(null)
     // Never drop a draft: save it (or stop) before the lines change shape.
     if (!(await ctl.leaveEdit())) {
       setSheetNote(DRAFT_NOT_SAVED)
+      busyRef.current = false
+      busyRef.current = false
+      setBusy(false)
       return
     }
-    setBusy(true)
     try {
       const ids = (await listAllLines(dramaId)).map((l) => l.id)
       if (!pageStillMatches(ids, shown.map((l) => l.id), searching ? 'search' : filter, page)) throw mismatch()
@@ -532,6 +571,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     } catch (e) {
       setStructError(e)
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -790,6 +830,19 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {hiddenEdit && (
+        <div className="banner review-hidden-edit" role="alert" data-testid="hidden-edit">
+          <span>
+            Your edit to #{lineNumber(hiddenEdit.base.idx)} is outside this view.
+            {issue?.lineId === hiddenEdit.lineId && issue.conflict && ' It changed elsewhere, so it could not be saved.'}
+          </span>
+          <span className="actions">
+            <button type="button" onClick={() => void ctl.saveEdit().then((ok) => ok && ctl.setEditNow(null))}>Save</button>
+            <button type="button" onClick={discardHidden}>Discard</button>
+            <button type="button" onClick={() => void showHidden()}>Show</button>
+          </span>
+        </div>
+      )}
 
       {loading && (
         <ul className="review-lines" aria-hidden="true">

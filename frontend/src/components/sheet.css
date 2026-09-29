@@ -25,6 +25,8 @@ button.sheet-close { min-width: 44px; min-height: 44px; padding: 0; font-size: 1
   .sheet-menu button:hover:not(:disabled) { background: none; border-color: transparent; }
 }
 .sheet-menu button:focus-visible { border-color: var(--accent); }
+/* Disabled rows read as text with a reason, never as a filled or hovered button. */
+.sheet-menu button:disabled, .sheet-menu button:disabled:hover { background: none; border-color: transparent; border-style: solid; }
 .sheet-menu .sheet-reason { display: block; font-size: var(--font-sm); color: var(--muted); }
 
 @media (max-width: 640px) {

@@ -173,6 +173,61 @@ test('dismissing the flag under the Flagged filter saves the open draft', async 
   expect(saves).toEqual([{ en: 'Goodbye, friend', expected: { en: '' } }])
 })
 
+test('a draft pushed out of view by a reload gets a banner; Discard lets you move', async ({ page }) => {
+  let reloaded = false
+  let done = false
+  await page.route('**/api/review/dramas/3/lines?*', (route) => {
+    const empty = { lines: [], page: 1, page_size: 40, total: 0, flagged_count: 0, untranslated_count: 1 }
+    if (reloaded && route.request().url().includes('only=flagged')) return route.fulfill({ json: empty })
+    return route.continue()
+  })
+  await page.route('**/api/lines/dramas/3/lines/*', (route) =>
+    route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'This line changed since you loaded it.' } } }))
+  await page.route('**/api/review-jobs/dramas/3/flag', (route) => route.fulfill({
+    json: { job_id: 'rj', drama_id: 3, kind: 'flag', engine: 'x', model: null, line_count: 3 },
+  }))
+  await page.route('**/api/jobs/rj', (route) => route.fulfill({ json: job(done ? 'done' : 'running') }))
+  await open(page)
+  await page.getByRole('radio', { name: /^Flagged/ }).check()
+  await expect(rows(page)).toHaveCount(1)
+  await rows(page).nth(0).getByTestId('line-en').click()
+  await rows(page).nth(0).getByLabel('Translation').fill('Kept safe')
+
+  // A finished job reloads the list and the edited line leaves the Flagged view.
+  reloaded = true
+  await page.locator('summary', { hasText: 'AI review' }).click()
+  await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
+  done = true
+  const banner = page.getByTestId('hidden-edit')
+  await expect(banner).toContainText('Your edit to #2 is outside this view.')
+
+  // Moving is refused (the save 409s) and says where the draft is.
+  await page.getByRole('radio', { name: /^All lines/ }).click()
+  await expect(banner).toContainText('It changed elsewhere')
+  await expect(page.getByRole('status').filter({ hasText: 'Save or discard your edit to #2 first' })).toBeVisible()
+  await expect(page.getByRole('radio', { name: /^Flagged/ })).toBeChecked()
+
+  await banner.getByRole('button', { name: 'Discard' }).click()
+  await expect(banner).toHaveCount(0)
+  await page.getByRole('radio', { name: /^All lines/ }).check()
+  await expect(rows(page)).toHaveCount(3)
+})
+
+test('a double click on a structure confirm sends one edit', async ({ page }) => {
+  let merges = 0
+  await page.route('**/api/restructure/dramas/3/merge', async (route) => {
+    merges += 1
+    await new Promise((r) => setTimeout(r, 300))
+    return route.continue()
+  })
+  await open(page)
+  await activate(page, 0)
+  await page.keyboard.press('m')
+  await page.getByRole('button', { name: /^Merge #/ }).dblclick()
+  await expect(rows(page)).toHaveCount(2)
+  expect(merges).toBe(1)
+})
+
 test('opening a structure form from the sheet saves the open draft first', async ({ page }) => {
   await open(page)
   const row = rows(page).nth(0)

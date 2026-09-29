@@ -195,7 +195,13 @@ a.review-primary-link {
 @media (max-width: 640px) {
   /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */
   .review-body { display: block; }
-  .review-body::before { content: ''; float: right; width: calc(var(--touch) - var(--space-2)); height: calc(var(--touch) - 1.5rem); }
   .stage-review button.review-en { display: block; width: 100%; }
   .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: calc(var(--touch) - var(--space-2)); }
+}
+
+.review-hidden-edit { align-items: center; flex-wrap: wrap; border-color: var(--warn); }
+/* Tablets and other touch screens between the phone and desktop layouts. */
+@media (pointer: coarse) {
+  .review-pager button { min-width: var(--touch); }
+  .review-tools button { min-height: var(--touch); }
 }
