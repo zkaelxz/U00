@@ -121,4 +121,24 @@ export interface CharacterUpdate {
   character_name?: string
   pronouns?: string
   tts_voice?: string
+  offline_voice?: string
+  clone_engine?: string
+  voice_design?: string
+  ref_text?: string
+}
+
+export interface CloneEngines {
+  source_language: string
+  default_engine: string
+  engines: { id: string; label: string; is_default: boolean; language_gated: boolean; local_model: boolean }[]
+}
+
+export interface VoiceBankEntry {
+  id: number
+  name: string
+  clone_engine: string
+  voice_design: string
+  language: string
+  notes: string
+  ref_text_present: boolean
 }

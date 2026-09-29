@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import {
+  deleteGlossaryTerms,
   getGlossaryCatalogues,
   getGlossaryTerms,
   getInstructions,
@@ -12,6 +13,7 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateStage'
 import { splitLines } from '../translateForm'
+import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage } from '../StageContext'
 
 interface TermForm {
@@ -143,11 +145,19 @@ export function GlossaryPanel() {
   const [error, setError] = useState<unknown>(null)
   const [saveError, setSaveError] = useState<unknown>(null)
   const [reloads, setReloads] = useState(0)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     getGlossaryTerms(dramaId).then(
-      (t) => !cancelled && setTerms(t),
+      (t) => {
+        if (cancelled) return
+        setTerms(t)
+        setSelected((cur) => pruneSelection(cur, t.map((x) => x.id)))
+      },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
@@ -187,6 +197,22 @@ export function GlossaryPanel() {
       setReloads((n) => n + 1)
     }, setSaveError)
 
+  const ids = terms ? terms.map((t) => t.id) : []
+  const chosen = selectedInOrder(selected, ids)
+  const allOn = ids.length > 0 && chosen.length === ids.length
+
+  const remove = (termIds: number[]) => {
+    setDeleting(true)
+    deleteGlossaryTerms(dramaId, termIds).then(({ failed }) => {
+      setDeleting(false)
+      setConfirming(false)
+      setDeleteError(failed.length ? `${failed.length} of ${termIds.length} term(s) could not be deleted.` : null)
+      setSelected(new Set(failed.map((x) => x.id)))
+      setEditing((cur) => (cur?.id && termIds.includes(cur.id) && !failed.some((x) => x.id === cur.id) ? null : cur))
+      setReloads((n) => n + 1)
+    })
+  }
+
   return (
     <Section
       storageKey="translate.glossary"
@@ -200,11 +226,34 @@ export function GlossaryPanel() {
       {terms && terms.length > 0 && (
         <div className="table-scroll"><table>
           <thead>
-            <tr><th>Original</th><th>Translation</th><th>Aliases</th><th>Banned</th><th>Exact</th><th /></tr>
+            <tr>
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Select all terms"
+                  checked={allOn}
+                  onChange={() => {
+                    setConfirming(false)
+                    setSelected((cur) => toggleAll(cur, ids))
+                  }}
+                />
+              </th>
+              <th>Original</th><th>Translation</th><th>Aliases</th><th>Banned</th><th>Exact</th><th /></tr>
           </thead>
           <tbody>
             {terms.map((t) => (
               <tr key={t.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${t.term_original}`}
+                    checked={selected.has(t.id)}
+                    onChange={() => {
+                      setConfirming(false)
+                      setSelected((cur) => toggleId(cur, t.id))
+                    }}
+                  />
+                </td>
                 <td>{t.term_original}</td>
                 <td>{t.term_translation}</td>
                 <td>{t.aliases.join(', ')}</td>
@@ -215,6 +264,30 @@ export function GlossaryPanel() {
             ))}
           </tbody>
         </table></div>
+      )}
+      {terms && terms.length > 0 && (
+        <div className="glossary-bulk">
+          {!confirming ? (
+            <button
+              type="button"
+              disabled={chosen.length === 0 || deleting}
+              title={chosen.length === 0 ? 'Select terms first.' : undefined}
+              onClick={() => setConfirming(true)}
+            >
+              Delete selected{chosen.length ? ` (${chosen.length})` : ''}
+            </button>
+          ) : (
+            <>
+              <span role="alert">Delete {chosen.length} term{chosen.length === 1 ? '' : 's'} from the series glossary?</span>
+              <button type="button" className="danger" disabled={deleting} onClick={() => remove(chosen)}>
+                {deleting ? 'Deleting…' : 'Yes, delete'}
+              </button>
+              <button type="button" disabled={deleting} onClick={() => setConfirming(false)}>Cancel</button>
+            </>
+          )}
+          {chosen.length === 0 && !confirming && <span className="muted">Select terms to delete.</span>}
+          {deleteError && <p className="error" role="alert">{deleteError}</p>}
+        </div>
       )}
       {editing ? (
         <TermEditor

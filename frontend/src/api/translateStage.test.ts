@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from './client'
 import {
+  applyVoiceBankEntry,
   buildEstimateQuery,
+  deleteGlossaryTerms,
   getTranslateEstimate,
   saveCharacter,
   saveGlossaryTerm,
@@ -66,5 +68,30 @@ describe('translate stage api', () => {
     const err = await startTranslateRun(1, runBody, f).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(409)
+  })
+
+  it('bulk-deletes terms one by one with confirm=true and reports failures', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init })
+      const ok = !String(input).includes('/terms/2?')
+      return new Response(JSON.stringify(ok ? { deleted: true } : { detail: 'gone' }), { status: ok ? 200 : 404 })
+    }) as typeof fetch
+    const r = await deleteGlossaryTerms(7, [1, 2, 3], f)
+    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
+      ['DELETE', '/api/glossary/dramas/7/terms/1?confirm=true'],
+      ['DELETE', '/api/glossary/dramas/7/terms/2?confirm=true'],
+      ['DELETE', '/api/glossary/dramas/7/terms/3?confirm=true'],
+    ])
+    expect(r.deleted).toEqual([1, 3])
+    expect(r.failed.map((x) => x.id)).toEqual([2])
+    expect(r.failed[0].error).toBeInstanceOf(ApiError)
+  })
+
+  it('posts a voice bank apply body', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await applyVoiceBankEntry(7, 'SPEAKER 1', 5, fakeFetch(200, {}, calls))
+    expect(calls[0].url).toBe('/api/characters/dramas/7/voice-bank/apply')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ speaker_label: 'SPEAKER 1', voice_bank_id: 5 })
   })
 })

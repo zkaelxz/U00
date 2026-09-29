@@ -1,6 +1,7 @@
 import type {
   BulkResumeResult,
   CharacterEntry,
+  CloneEngines,
   CharacterUpdate,
   EstimateParams,
   GlossaryCatalogues,
@@ -11,8 +12,9 @@ import type {
   TranslateRunEstimate,
   TranslateRunStartBody,
   TranslateRunStarted,
+  VoiceBankEntry,
 } from '../types/translateStage'
-import { getJson, postJson } from './client'
+import { deleteJson, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -41,6 +43,27 @@ export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)
 export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch) =>
   postJson<GlossaryTerm>(`/api/glossary/dramas/${id}/terms`, term, f)
+export const deleteGlossaryTerm = (id: number, termId: number, f?: Fetch) =>
+  deleteJson<{ deleted: boolean }>(`/api/glossary/dramas/${id}/terms/${termId}?confirm=true`, f)
+
+/** Deletes terms one by one (there is no bulk endpoint); reports which failed. */
+export async function deleteGlossaryTerms(
+  id: number,
+  termIds: number[],
+  f?: Fetch,
+): Promise<{ deleted: number[]; failed: { id: number; error: unknown }[] }> {
+  const deleted: number[] = []
+  const failed: { id: number; error: unknown }[] = []
+  for (const termId of termIds) {
+    try {
+      await deleteGlossaryTerm(id, termId, f)
+      deleted.push(termId)
+    } catch (error) {
+      failed.push({ id: termId, error })
+    }
+  }
+  return { deleted, failed }
+}
 export const getGlossaryCatalogues = (f?: Fetch) =>
   getJson<GlossaryCatalogues>('/api/glossary/catalogues', f)
 export const getInstructions = (id: number, f?: Fetch) =>
@@ -52,3 +75,12 @@ export const getCharacters = (id: number, f?: Fetch) =>
   getJson<CharacterEntry[]>(`/api/characters/dramas/${id}`, f)
 export const saveCharacter = (id: number, update: CharacterUpdate, f?: Fetch) =>
   postJson<CharacterEntry>(`/api/characters/dramas/${id}/character`, update, f)
+export const getCloneEngines = (id: number, f?: Fetch) =>
+  getJson<CloneEngines>(`/api/characters/dramas/${id}/clone-engines`, f)
+export const getVoiceBank = (f?: Fetch) => getJson<VoiceBankEntry[]>('/api/characters/voice-bank', f)
+export const applyVoiceBankEntry = (id: number, speakerLabel: string, voiceBankId: number, f?: Fetch) =>
+  postJson<CharacterEntry>(
+    `/api/characters/dramas/${id}/voice-bank/apply`,
+    { speaker_label: speakerLabel, voice_bank_id: voiceBankId },
+    f,
+  )
