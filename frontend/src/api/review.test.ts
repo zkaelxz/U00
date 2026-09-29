@@ -35,7 +35,7 @@ describe('review logic', () => {
     expect(pageCount(81)).toBe(3)
   })
   it('labels stale ids by line number', () => {
-    const m = { id: 7, idx: 3, old_text: 'a', new_text: 'b' }
+    const m = { id: 7, idx: 2, old_text: 'a', new_text: 'b' } // idx is 0-based: line #3
     expect(staleLabels([7, 9], [m])).toEqual(['#3', 'line id 9'])
   })
 })
