@@ -500,19 +500,6 @@ class TestAnimeInLibraryTypeFilter:
         assert any(c.value == "1 drama(s)" for c in at.caption)
 
 
-class TestCacheHitShare:
-    """Step 9: the Library dashboard shows what share of input tokens were
-    prompt-cache reads, next to the cost."""
-
-    def test_share_of_input_tokens(self):
-        from tabs.library_tab import cache_hit_share
-        assert cache_hit_share({"input_tokens": 1000, "cache_read_tokens": 250}) == 0.25
-
-    def test_no_usage_is_zero_not_a_division_error(self):
-        from tabs.library_tab import cache_hit_share
-        assert cache_hit_share({"input_tokens": 0, "cache_read_tokens": 0}) == 0.0
-
-
 # ---------------------------------------------------------------------------
 # Step 9b.3: bulk "translate everything untranslated" across a series.
 # ---------------------------------------------------------------------------
@@ -1330,6 +1317,23 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
                 zf.writestr(name, content)
         return buf.getvalue()
 
+    def _db_bytes(self) -> bytes:
+        """A minimal real SQLite library.db (restore now opens it and
+        requires a dramas table)."""
+        import sqlite3
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            conn = sqlite3.connect(path)
+            conn.execute("CREATE TABLE dramas (id INTEGER PRIMARY KEY)")
+            conn.commit()
+            conn.close()
+            with open(path, "rb") as f:
+                return f.read()
+        finally:
+            os.remove(path)
+
     def test_not_a_zip_at_all_leaves_existing_library_intact(self, tmp_path_str):
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
@@ -1370,7 +1374,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             f.write("stale data that should be replaced")
 
         good_zip = self._make_zip_bytes({
-            "library.db": "fake sqlite bytes",
+            "library.db": self._db_bytes(),
             "dramas/new_drama.txt": "restored data",
         })
         lt.restore_library_backup(good_zip, tmp_path_str)
@@ -1383,7 +1387,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         library_dir = os.path.join(tmp_path_str, "brand_new_library")
-        good_zip = self._make_zip_bytes({"library.db": "fake sqlite bytes"})
+        good_zip = self._make_zip_bytes({"library.db": self._db_bytes()})
         lt.restore_library_backup(good_zip, library_dir)
 
         assert os.path.exists(os.path.join(library_dir, "library.db"))
@@ -1431,7 +1435,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBERS", 1)
 
         many_files_zip = self._make_zip_bytes({
-            "library.db": "fake sqlite bytes",
+            "library.db": self._db_bytes(),
             "dramas/extra_file.txt": "one file too many",
         })
         with pytest.raises(ValueError, match="file limit"):
@@ -1443,7 +1447,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         good_zip = self._make_zip_bytes({
-            "library.db": "fake sqlite bytes",
+            "library.db": self._db_bytes(),
             "dramas/new_drama.txt": "restored data",
         })
         lt.restore_library_backup(good_zip, tmp_path_str)

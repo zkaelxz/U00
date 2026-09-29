@@ -3,6 +3,7 @@ tabs/scanlate.py -- Scanlate tab UI, extracted from the former monolithic app.py
 """
 from common import *
 import ocr
+from services.scanlate_service import add_uploaded_pages
 
 
 def render_scanlate_tab():
@@ -593,47 +594,3 @@ def render_scanlate_tab():
                 st.success(f"Applied {len(_fr_matches)} change(s). Re-render affected pages to see "
                            f"them in the typeset output.")
                 st.rerun()
-
-
-def add_uploaded_pages(drama_id: int, pages_dir: str, uploads, slice_strips: bool = False):
-    """Saves uploaded images/PDFs as the drama's next pages. Returns
-    (pages added, PDF pages skipped for having no embedded image)."""
-    import shutil
-    import tempfile
-    import scanlate
-    from PIL import Image as PILImage
-    next_idx = len(db.list_pages(drama_id))
-    added = 0
-    pdf_skipped_total = 0
-
-    def add_copy(src_path, ext):
-        nonlocal added
-        fname = f"page_{next_idx + added:04d}{ext}"
-        fpath = os.path.join(pages_dir, fname)
-        shutil.copy(src_path, fpath)
-        with PILImage.open(fpath) as im:
-            w, h = im.size
-        db.create_page(drama_id, next_idx + added, os.path.join("pages", fname), w, h)
-        added += 1
-
-    for f in uploads:
-        ext = os.path.splitext(f.name)[1].lower()
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # A fixed temp name: OpenCV can't open non-ASCII paths on Windows.
-            tmp_path = os.path.join(tmp_dir, "upload" + ext)
-            with open(tmp_path, "wb") as out:
-                out.write(f.getbuffer())
-            if ext == ".pdf":
-                extracted, skipped = scanlate.pdf_to_page_images(tmp_path, tmp_dir)
-                for p in extracted:
-                    add_copy(p, ".png")
-                pdf_skipped_total += len(skipped)
-                continue
-            with PILImage.open(tmp_path) as im:
-                size = im.size
-            if slice_strips and scanlate.is_webtoon_strip(*size):
-                for p in scanlate.slice_webtoon_to_files(tmp_path, tmp_dir):
-                    add_copy(p, ".png")
-            else:
-                add_copy(tmp_path, ext)
-    return added, pdf_skipped_total
