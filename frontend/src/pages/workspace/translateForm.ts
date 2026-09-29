@@ -112,16 +112,18 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
   const style = preset.style_preset && c.style_presets.some((p) => p.key === preset.style_preset)
     ? preset.style_preset
     : c.default_style_preset
+  // Then the Settings default English variant, then en-US.
+  const fallbackLocale = c.default_locale && c.locales.includes(c.default_locale) ? c.default_locale : 'en-US'
   const locale = preset.locale && c.locales.includes(preset.locale)
     ? preset.locale
-    : c.locales.includes('en-US') ? 'en-US' : (c.locales[0] ?? 'en-US')
+    : c.locales.includes(fallbackLocale) ? fallbackLocale : (c.locales[0] ?? 'en-US')
   const defaultModels = c.engines?.find((e) => e.name === c.translation_engine)?.models ?? []
   const model = preset.engine_model && defaultModels.includes(preset.engine_model) ? preset.engine_model : ''
   return {
     engine: '',
     model,
     style_preset: style,
-    style_note: '',
+    style_note: c.default_style_note ?? '',
     locale,
     batch_size: String(c.defaults.batch_size),
     context_window: String(c.defaults.context_window),

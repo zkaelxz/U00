@@ -14,6 +14,9 @@ export interface TranslateRunConfig {
   locales: string[]
   workflow_tiers: WorkflowTier[]
   defaults: { context_window: number; context_window_ahead: number; batch_size: number }
+  // Settings > Defaults for new dramas (optional: older servers omit them).
+  default_locale?: string
+  default_style_note?: string
   project_instructions: string | null
   series_instructions: string | null
   line_count: number
