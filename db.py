@@ -3274,6 +3274,12 @@ def update_bulk_job(bulk_job_id: int, **fields):
         conn.commit()
 
 
+def count_bulk_job_lines(bulk_job_id: int) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM bulk_job_lines WHERE bulk_job_id = ?",
+                            (bulk_job_id,)).fetchone()[0]
+
+
 def list_bulk_job_lines(bulk_job_id: int) -> list:
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM bulk_job_lines WHERE bulk_job_id = ? ORDER BY line_id",

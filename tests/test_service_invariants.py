@@ -318,6 +318,26 @@ class TestCreateDramaInvariants:
 
 
 # ---------------------------------------------------------------------------
+# From TestFourMoreDestructiveActionsNeedConfirmation (glossary term delete)
+# ---------------------------------------------------------------------------
+
+class TestGlossaryTermDeleteInvariants:
+    def test_delete_refused_without_confirmation_then_succeeds_with_it(self):
+        from services import glossary_service
+        sid = db.get_or_create_series("S")
+        did = db.create_drama(title_en="G", source_language="zh", series_id=sid)
+        db.upsert_glossary_term(sid, "师父", "Master")
+        [term] = db.list_glossary_terms(sid)
+        with pytest.raises(InvalidInputError):
+            glossary_service.delete_glossary_term(did, term["id"])
+        with pytest.raises(InvalidInputError):
+            glossary_service.delete_glossary_term(did, term["id"], confirm="yes")
+        assert [t["id"] for t in db.list_glossary_terms(sid)] == [term["id"]]
+        glossary_service.delete_glossary_term(did, term["id"], confirm=True)
+        assert db.list_glossary_terms(sid) == []
+
+
+# ---------------------------------------------------------------------------
 # B-27: a line-scoped run on another engine keeps the drama's engine
 # ---------------------------------------------------------------------------
 
@@ -364,3 +384,21 @@ class TestRetryOnDifferentEngineInvariants:
         job = _wait(out["job_id"])
         assert job["status"] == "done", job
         assert db.get_drama(did)["translation_engine"] == "ollama"
+
+
+# ---------------------------------------------------------------------------
+# From TestBulkExportClampsOverlappingCues (no bulk export in services; the
+# per-drama export is the only service export path, and it must clamp)
+# ---------------------------------------------------------------------------
+
+class TestExportClampsOverlapsInvariants:
+    def test_overlapping_cue_is_clamped_to_the_next_start(self):
+        from services import export_service
+        did = db.create_drama(title_en="O", status="translated", source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="a", en="Hello"),
+                            Line(idx=1, start=1.5, end=3.0, zh="b", en="World")])
+        srt = export_service.generate_subtitle_text(did, "srt", "en")
+        assert "00:00:00,000 --> 00:00:01,500" in srt
+        assert "00:00:02,000" not in srt
+        # read-only: exporting does not change the stored timing
+        assert db.load_line_objects(did)[0].end == 2.0

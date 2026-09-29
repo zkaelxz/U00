@@ -3,6 +3,35 @@
 Durable status for the next session. Repo docs and code are the source of truth; this file is the index.
 Last updated 2026-09-29. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
 
+## Session handoff (2026-09-29, late): read this first
+The previous lead session handed over to a new session so that the new project agents can load
+(`.claude/agents/`: merge-integrator, api-slice-builder, react-page-builder, security-reviewer,
+security-auditor, parity-auditor, bug-investigator, test-author, docs-steward, source-vetter; skill `/merge-slice`).
+
+**Merged today (newest first):** #354 agents 2 + FILE_ORGANIZATION hook + xdist in cloud setup; #353 invariant tests 2 (logs B-27);
+#352 slices 51+52 (bulk batch list/cancel, media playback with Range, `media.stream`); #351 agents + `/merge-slice`;
+#350 B-04/B-05 job cancel; #349 service invariant tests; #348 React Source details/modes; #347 B-26; #339 step 133 auth.
+
+**The OLD session is STOPPED (user request, 2026-09-29 ~07:15). Nothing is running there any more, so the new session owns everything below:**
+- Merged by the old session after this note was first written: #356 library admin service and #357 step 141 note.
+- Pushed but NOT merged. Land them with `/merge-slice`, in this order:
+  1. `reader-service`
+  2. `transcribe-autotune-glossary-service`
+  3. `fix-b27-retry-engine`. This one conflicts in `tests/test_service_invariants.py`: keep the fix branch's `TestRetryOnDifferentEngineInvariants` (no xfail, module-level `_OllamaResp`, 2 tests) and drop the `xfail(strict)` copy that came from #353. Then mark B-27 fixed in `docs/baihe-roadmap-master.md`.
+
+  Their reports and doubts are in the old session's transcript: reader permission contract, auto-tune value saved to the drama, glossary overwrite guard.
+- `api-routes-batch-1`: 4 finished commits (startup hook; workflow progress; Live L-1; Discover D-2), plus one WIP commit (Sources S-3 search routes; untested, not reviewed). Diagnostics gaps routes were not started. Finish S-3 and Diagnostics, run the full suite, have security-reviewer look at it, then merge.
+- The security audit and the parity audit were stopped before reporting. Rerun both with the security-auditor and parity-auditor agents.
+
+**Next queue for the new session:**
+1. Once the old session's items are merged: route batch 2 over the new services: library admin (bulk delete, restore and storage clean are `local_only`; downloads of backups and exports are `local_only`), Reader (the permission contract is in the reader-service merge PR), auto-tune and glossary-from-novel (`jobs.start`, plus `engines.paid` when the engine is paid).
+2. Delete routes that have no API yet (all PC-only, `local_only` plus confirm): remove audio, remove raw novel, delete version, series character, bug bundle, preset, voice bank. Their Streamlit tests stay until these exist.
+3. Workspace shell + Review editor rebuild (spec `docs/specs/ux-workspace-shell-and-review.md`), after the progress endpoint merges; then the React pages for the new routes (react-page-builder).
+4. Act on the security-audit and parity-audit findings; then extract the 36 tab functions (`docs/streamlit-test-triage.md`); then the `pre-streamlit-removal` tag + `legacy/streamlit` branch + the deletion PRs.
+5. Step 141 (user approved, 2026-09-29): have migration-architect write a spec for the standalone PC shell and the "This PC" / "Connect to my PC" toggle, after remote access (step 140). See the step 141 row in `docs/baihe-roadmap-master.md`. Spec only; no build yet.
+
+**Test gate:** `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` gives the full suite in about 4 minutes (4686 passed, 86 skipped on #352).
+
 ## Verified status
 - Merged slices: 19-23, 25-33, 35-49 (+ earlier 1-18), plus E0 (Library remainder), Step 95 (BGM-preserving dub) and Step 97b (translate fallback chain, API level). Slices 41 and 45 were built on Opus at the user's request (#266, #267).
 - Frontend (React): every planned slice is merged (F, A, B, C, I, D, E, G, H, F2; PRs #254-#271), see `docs/migration-frontend-plan.md`.

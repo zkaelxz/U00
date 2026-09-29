@@ -26,7 +26,7 @@ fi
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet --disable-pip-version-check \
   "${CONSTRAINTS[@]}" \
   -r requirements-core.txt \
-  pytest jieba pypinyin opencc-python-reimplemented \
+  pytest pytest-xdist jieba pypinyin opencc-python-reimplemented \
   opencv-python-headless pytesseract numpy pillow
 
 # The app's modules are imported from the repo root in tests.
