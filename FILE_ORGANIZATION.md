@@ -465,9 +465,11 @@ baihe-subtitler/
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│       │                         support-report|bug-bundles (GET, admin.diagnostics); dependencies/{pkg}/
-│       │                         install|upgrade, reset-library, model-cache/hf|piper/{name}/delete (POST,
-│       │                         local_only + confirm; API batch 1, react-misc-parity)
+│       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,
+│       │                         package-updates/check (POST, on click), all admin.diagnostics;
+│       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
+│       │                         model-cache/hf|piper/{name}/delete (POST, local_only + confirm; API batch 1,
+│       │                         react-misc-parity)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -514,11 +516,15 @@ baihe-subtitler/
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
-│   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
+│   │                              Install…/Update to X…, synchronous; installed versions, "Check for
+│   │                              updates" + packageUpdates.ts; "Install by task" presets, approx.
+│   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
+│   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
 │   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
-│   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
+│   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
+│   │                              helpers, unit-tested), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.

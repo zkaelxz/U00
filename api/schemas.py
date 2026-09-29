@@ -12,7 +12,7 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
@@ -2354,10 +2354,143 @@ class DiagnosticsAdminConfirm(BaseModel):
     confirm: StrictBool = False
 
 
+class DiagnosticsUpgradeRequest(BaseModel):
+    """confirm=true, and the version the user confirmed (the last update
+    check's target); 409 when that check no longer says so."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    target: Optional[StrictStr] = Field(None, max_length=64,
+                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
+
+
 class DiagnosticsInstallResult(BaseModel):
     package: str
     ok: bool
     output_tail: List[str]
+    # A plain-English next step for a known failure (pip's cache unwritable).
+    hint: Optional[str] = None
+
+
+class DiagnosticsPackageInfo(BaseModel):
+    name: str
+    dist: str
+    installed: bool
+    # From installed metadata (the real dist, or a known alternate like
+    # opencv-python-headless); None when not installed or unreadable.
+    installed_version: Optional[str] = None
+    min_version: Optional[str] = None     # the app's minimum (requirements files' >=)
+    below_min: bool = False
+    installable: bool
+    powers: str
+    approx_mb: Optional[int] = None
+    pulls_torch: bool
+    source_url: Optional[str] = None
+    not_offered_reason: Optional[str] = None
+    warning: Optional[str] = None
+
+
+class DiagnosticsInstallTask(BaseModel):
+    id: str
+    group: str
+    label: str
+    help: str
+    packages: List[str]
+    # package -> "required" | "recommended" | "optional" for this task
+    roles: Dict[str, str] = {}
+    installed_count: int
+    required_missing: List[str] = []
+    to_install: List[str]           # missing required + recommended (Install for this task)
+    optional_missing: List[str] = []
+    approx_mb: int
+
+
+class DiagnosticsInstallPresets(BaseModel):
+    """Install presets by task, plus per-package pip name, approx. size,
+    PyPI link and install caveats (GET /api/diagnostics/install-presets)."""
+    tasks: List[DiagnosticsInstallTask]
+    packages: Dict[str, DiagnosticsPackageInfo]
+
+
+class DiagnosticsPackageUpdate(BaseModel):
+    name: str
+    dist: str
+    installed_version: Optional[str] = None
+    # update | up_to_date | held_back | managed | unknown
+    status: str
+    latest: Optional[str] = None
+    target: Optional[str] = None      # the version Upgrade installs (status "update")
+    reason: Optional[str] = None      # what holds a newer release back
+
+
+class DiagnosticsPackageUpdates(BaseModel):
+    """POST /api/diagnostics/package-updates/check: asks PyPI (fixed URL per
+    static dist name) only when called; cached in the server process."""
+    checked_at: float
+    packages: Dict[str, DiagnosticsPackageUpdate]
+
+
+class DiagnosticsGpuTorchNvidia(BaseModel):
+    found: bool
+    gpu_name: Optional[str] = None
+    driver_version: Optional[str] = None
+    # ok | old (works, below CUDA 12.8's own requirement) | too_old | unknown
+    status: str
+    recommended: Optional[str] = None
+    minimum: Optional[str] = None
+
+
+class DiagnosticsTorchPackage(BaseModel):
+    name: str
+    version: Optional[str] = None
+    build: Optional[str] = None      # "cuda", "cpu", or None (no build tag / not installed)
+
+
+class DiagnosticsTorchVariant(BaseModel):
+    variant: str
+    label: str
+    index_url: str
+    versions: Dict[str, str]
+    needs_nvidia: bool
+
+
+class DiagnosticsTorchVerify(BaseModel):
+    torch: Optional[str] = None
+    torchvision: Optional[str] = None
+    torchaudio: Optional[str] = None
+    cuda_build: Optional[str] = None
+    cuda_available: Optional[bool] = None
+    device: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DiagnosticsGpuTorchStatus(BaseModel):
+    """GET /api/diagnostics/gpu-torch: NVIDIA GPU/driver, the installed
+    torch family, mismatches and the recommended matched triple. `probe`
+    only from POST /api/diagnostics/gpu-torch/check (imports torch in a
+    fresh Python)."""
+    nvidia: DiagnosticsGpuTorchNvidia
+    installed: List[DiagnosticsTorchPackage]
+    problems: List[str]
+    # missing | mismatched | cpu_on_gpu | recommended | different
+    state: str
+    python_supported: bool
+    recommended: DiagnosticsTorchVariant
+    variants: List[DiagnosticsTorchVariant]
+    probe: Optional[DiagnosticsTorchVerify] = None
+
+
+class DiagnosticsGpuTorchSetupRequest(BaseModel):
+    """confirm=true; variant is one of the server's fixed variants (omitted:
+    CUDA when an NVIDIA GPU answers, else CPU). No version or index is
+    accepted from the client."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    variant: Optional[Literal["cu128", "cpu"]] = None
+
+
+class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
+    variant: str
+    verify: Optional[DiagnosticsTorchVerify] = None
 
 
 class DiagnosticsResetRequest(BaseModel):

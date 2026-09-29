@@ -116,7 +116,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   const runningId = await page.getByTestId('install-running').getAttribute('id')
   await expect(page.getByRole('button', { name: 'Install torch' })).toHaveAttribute('aria-describedby', runningId!)
   await expect(page.getByRole('button', { name: 'Install torch' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Upgrade jieba' })).toHaveCount(0) // installed list is closed
+  await expect(page.getByRole('button', { name: /Update jieba/ })).toHaveCount(0) // no Update before a check
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
   await expect(page.locator('.danger-zone')).toContainText('Wait for the install to finish.')

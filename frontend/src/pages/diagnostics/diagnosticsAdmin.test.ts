@@ -126,16 +126,16 @@ describe('packages', () => {
   it('announces a running install or upgrade, never a reset', () => {
     expect(busyLine({ kind: 'install', name: 'jieba' })).toBe(
       'Installing jieba… this can take several minutes. Keep this tab open.')
-    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Upgrading jieba…/)
+    expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toMatch(/^Updating jieba…/)
     expect(busyLine({ kind: 'reset', name: 'library' })).toBeNull()
     expect(busyLine(null)).toBeNull()
   })
 
   it('words results', () => {
     expect(installResultText('install', 'x', true)).toBe('Installed x.')
-    expect(installResultText('upgrade', 'x', true)).toBe('Upgraded x. Restart Baihe to load the new version.')
+    expect(installResultText('upgrade', 'x', true)).toBe('Updated x. Restart Baihe to load the new version.')
     expect(installResultText('install', 'x', false)).toBe('Install failed for x.')
-    expect(installResultText('upgrade', 'x', false)).toBe('Upgrade failed for x.')
+    expect(installResultText('upgrade', 'x', false)).toBe('Update failed for x.')
   })
 
   it('maps admin errors to one sentence', () => {
