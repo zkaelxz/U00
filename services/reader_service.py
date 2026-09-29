@@ -30,12 +30,29 @@ Conventions shared by all of them:
   - plain dicts/lists/str/bytes out, never a filesystem path or key
     (media_file_path is the one server-internal exception, documented);
   - keys are resolved server-side, never accepted or returned, and an
-    engine failure is passed through translate_engines.redact_secrets;
+    engine failure is passed through diagnostics.redact_for_support (keys
+    and absolute paths removed), a local OSError becomes a fixed message;
   - AI results are matched back by id or name, never by list position;
   - writes are scoped to their own table/fields (vocab_lookups,
     wiki_entries, progress, personal_notes), never a line rewrite.
 Reader data is per library, not per profile (retirement plan section
 10): progress and notes use db's default profile (profile_id=None).
+
+Spoiler boundary: every `up_to_line_idx=None` below means NO spoiler
+limit (the whole drama). The Streamlit tab defaults spoiler-free on,
+scoped to the current page's last line; a route or React caller that
+wants spoiler-free must pass that boundary explicitly.
+
+Permission contract for routes (user decision, 2026-09-29):
+  - reads (page, overview, notes, vocab list, wiki list, glossary,
+    media availability): `library.read`;
+  - caption tracks/readout, media streaming and every export
+    (CSV, .apkg, wiki Markdown): `lines.read`;
+  - reader-data writes (progress, notes, rich-export queue, clear wiki):
+    `lines.edit`;
+  - LLM tools (who-is, explain, recap, relationships, wiki update, Q&A,
+    and lookup_page_definitions with use_llm=True): `jobs.start` plus
+    `require_engines_allowed`, where an omitted engine counts as paid.
 """
 
 import os
@@ -51,7 +68,8 @@ import subtitle_formats
 import translate_engines
 import universe_wiki
 import vocab_export
-from services import settings_service, translate_service
+from services import drama_service, settings_service, translate_service
+from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, ServiceError,
                                       UnsupportedOperationError)
@@ -82,7 +100,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     InvalidInputError for a bad drama id/page/chapter_size and
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
-    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or drama_id < 1:
+    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
         raise InvalidInputError("A drama id is a positive whole number.")
     if not isinstance(chapter_size, int) or isinstance(chapter_size, bool) or not (10 <= chapter_size <= 200):
         raise InvalidInputError("chapter_size must be a whole number from 10 to 200.")
@@ -121,6 +139,9 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
 MAX_NOTES_CHARS = 100_000
 MAX_QUESTION_CHARS = 2000
 MAX_CHAT_TURNS = 40
+MAX_CHAT_TURN_CHARS = 20_000
+MAX_CHAT_TOTAL_CHARS = 100_000
+MAX_MODEL_CHARS = 100
 MAX_LOOKUP_TEXT_CHARS = 200
 MAX_VOCAB_WORDS_PER_CALL = 500
 MEDIA_KINDS = ("original", "dub", "narration")
@@ -131,7 +152,7 @@ _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 def _require_drama(drama_id) -> dict:
     """The ownership check every function below starts with: a bad id is
     InvalidInputError, an unknown drama NotFoundError."""
-    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or drama_id < 1:
+    if not isinstance(drama_id, int) or isinstance(drama_id, bool) or not (1 <= drama_id <= drama_service.MAX_ID):
         raise InvalidInputError("A drama id is a positive whole number.")
     drama = db.get_drama(drama_id)
     if drama is None:
@@ -169,8 +190,9 @@ def _check_line_idx(up_to_line_idx):
 
 
 def _scope(lines: list, up_to_line_idx) -> tuple:
-    """(scoped_lines, limit_idx): the spoiler boundary. None means the
-    whole drama (spoiler-free mode off); otherwise it's clamped into the
+    """(scoped_lines, limit_idx): the spoiler boundary. None means NO
+    spoiler limit -- the whole drama; callers wanting spoiler-free must
+    pass the boundary; otherwise it's clamped into the
     drama's own index range, same as the tab's `spoiler_idx`."""
     _check_line_idx(up_to_line_idx)
     last = lines[-1].idx if lines else -1
@@ -184,10 +206,13 @@ def _title(drama: dict, fallback: str) -> str:
     return drama.get("title_en") or drama.get("title_zh") or fallback
 
 
-def _safe_filename(stem: str, ext: str) -> str:
-    """A download name built from a drama title: path separators and
-    control/reserved characters removed so it can't name a path."""
-    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", stem or "").strip(" ._") or "vocab"
+def _safe_filename(stem: str, ext: str, fallback: str = "vocab") -> str:
+    """An ASCII-only download name built from a drama title: anything
+    outside [A-Za-z0-9 ._-] becomes "_", so it can't name a path and a
+    route can put it in a latin-1 Content-Disposition header."""
+    cleaned = re.sub(r"[^A-Za-z0-9 ._-]+", "_", stem or "").strip(" ._")
+    if not re.search(r"[A-Za-z0-9]", cleaned):
+        cleaned = fallback
     return f"{cleaned[:120]}.{ext}"
 
 
@@ -195,6 +220,11 @@ def _llm_engine(engine_name=None, model=None):
     """A reference-capable LLM engine with its key resolved server-side.
     The Reader tab always used Claude; that stays the default."""
     engine_name = engine_name or "claude"
+    if model is not None and (not isinstance(model, str) or not model
+                              or len(model) > MAX_MODEL_CHARS
+                              or re.search(r"[\s\x00-\x1f\x7f]", model)):
+        raise InvalidInputError(
+            f"model must be at most {MAX_MODEL_CHARS} characters with no spaces or control characters.")
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -219,9 +249,12 @@ def _run_engine(fn):
         return fn()
     except ServiceError:
         raise
-    except Exception as e:  # engine/network failure: never leak a key
+    except OSError:  # local work (e.g. the CEDICT download/cache): no path out
+        raise ServiceError("A local dictionary or file step failed; see the app log.") from None
+    except Exception as e:  # engine/network failure: never leak a key or path
+        import diagnostics
         raise ServiceError("The engine call failed: "
-                           + translate_engines.redact_secrets(str(e))[:300]) from None
+                           + diagnostics.redact_for_support(str(e))[:300]) from None
 
 
 def _text_arg(value, field: str, max_len: int) -> str:
@@ -287,21 +320,41 @@ def get_caption_readout(drama_id: int, track: str = "Source") -> dict:
             "lines": caption_readout(_lines(drama_id), track)}
 
 
+def _confined_file(base: str, name, allowed: tuple):
+    """The absolute path of `name` inside the drama folder `base`, or None.
+    Same confinement as media_playback_service.resolve_media (realpath +
+    commonpath, regular file, whitelisted extension), and a symlink is
+    refused outright rather than followed."""
+    if not name or not isinstance(name, str) or os.path.splitext(name)[1].lower() not in allowed:
+        return None
+    joined = os.path.join(base, name)
+    if os.path.islink(joined):
+        return None
+    path = os.path.realpath(joined)
+    try:
+        inside = os.path.commonpath([base, path]) == base
+    except ValueError:   # different Windows drives, or mixed absolute/relative
+        inside = False
+    if not inside or path == base or not os.path.isfile(path):
+        return None
+    return path
+
+
 def _media_paths(drama_id: int, drama: dict) -> dict:
-    """{kind: (media_type, absolute path)} for files that exist, video
-    preferred over audio for the original as the tab does. Server-internal."""
-    ddir = db.drama_dir(drama_id)
+    """{kind: (media_type, absolute path)} for files that pass
+    _confined_file, video preferred over audio for the original as the
+    tab does. Server-internal."""
+    base = os.path.realpath(db.drama_dir(drama_id))
     out = {}
-    for field, media_type in (("source_video_filename", "video"), ("audio_filename", "audio")):
-        name = drama.get(field)
-        if name:
-            p = os.path.join(ddir, os.path.basename(name))
-            if os.path.exists(p):
-                out["original"] = (media_type, p)
-                break
+    for field, media_type, allowed in (("source_video_filename", "video", VIDEO_EXTENSIONS),
+                                       ("audio_filename", "audio", AUDIO_EXTENSIONS)):
+        p = _confined_file(base, drama.get(field), allowed)
+        if p:
+            out["original"] = (media_type, p)
+            break
     for kind, name in (("dub", "dub_track.wav"), ("narration", "narration_track.wav")):
-        p = os.path.join(ddir, name)
-        if os.path.exists(p):
+        p = _confined_file(base, name, (".wav",))
+        if p:
             out[kind] = ("audio", p)
     return out
 
@@ -637,7 +690,8 @@ def _wiki_row(e: dict) -> dict:
 
 def list_wiki(drama_id: int, up_to_line_idx: int = None, entry_type: str = None) -> dict:
     """{drama_id, entry_types, entries} -- entries first introduced after
-    up_to_line_idx are hidden (spoiler-free); None shows everything."""
+    up_to_line_idx are hidden (spoiler-free); None means no spoiler
+    limit and shows everything -- pass the boundary for spoiler-free."""
     _require_drama(drama_id)
     if entry_type is not None and entry_type not in universe_wiki.ENTRY_TYPES:
         raise InvalidInputError("entry_type must be one of: " + ", ".join(universe_wiki.ENTRY_TYPES))
@@ -667,8 +721,12 @@ def update_wiki(drama_id: int, up_to_line_idx: int = None,
     return {"drama_id": drama_id, "updated": len(found)}
 
 
-def clear_wiki(drama_id: int) -> dict:
+def clear_wiki(drama_id: int, confirm: bool = False) -> dict:
+    """Deletes every wiki entry for the drama; destructive, so the caller
+    must pass confirm=True (InvalidInput otherwise)."""
     _require_drama(drama_id)
+    if confirm is not True:
+        raise InvalidInputError("Clearing the wiki deletes every entry; pass confirm=True.")
     db.clear_wiki(drama_id)
     return {"drama_id": drama_id, "cleared": True}
 
@@ -701,8 +759,11 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list = None,
         raise InvalidInputError(f"chat_history must be a list of at most {MAX_CHAT_TURNS} turns.")
     for m in history:
         if (not isinstance(m, dict) or m.get("role") not in ("user", "assistant")
-                or not isinstance(m.get("content"), str) or len(m["content"]) > MAX_NOTES_CHARS):
-            raise InvalidInputError("Each chat_history turn is {role: user|assistant, content: text}.")
+                or not isinstance(m.get("content"), str) or len(m["content"]) > MAX_CHAT_TURN_CHARS):
+            raise InvalidInputError("Each chat_history turn is {role: user|assistant, content: text}"
+                                    f" of at most {MAX_CHAT_TURN_CHARS} characters.")
+    if sum(len(m["content"]) for m in history) > MAX_CHAT_TOTAL_CHARS:
+        raise InvalidInputError(f"chat_history is longer than {MAX_CHAT_TOTAL_CHARS} characters in total.")
     history = [{"role": m["role"], "content": m["content"]} for m in history]
     lines = _require_lines(drama_id)
     engine = _llm_engine(engine_name, model)

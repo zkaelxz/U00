@@ -279,7 +279,7 @@ class TestOwnership:
         isolated_db.upsert_wiki_entry(b, "character", "B-only")
         assert reader_service.list_vocab(a)["words"] == []
         assert reader_service.list_wiki(a)["entries"] == []
-        reader_service.clear_wiki(a)
+        reader_service.clear_wiki(a, confirm=True)
         assert len(isolated_db.list_wiki_entries(b)) == 1
 
 
@@ -551,7 +551,7 @@ class TestStoryWikiQa:
         assert "Built from lines 1–4." in md["content"]
         with pytest.raises(InvalidInputError):
             reader_service.list_wiki(did, entry_type="spaceship")
-        reader_service.clear_wiki(did)
+        reader_service.clear_wiki(did, confirm=True)
         assert reader_service.list_wiki(did)["entries"] == []
 
     def test_qa_passes_history_and_validates(self, isolated_db, monkeypatch):
@@ -578,3 +578,97 @@ class TestStoryWikiQa:
         from services.service_errors import UnsupportedOperationError
         with pytest.raises(UnsupportedOperationError):
             reader_service.ask_about_drama(did, "Q?", engine_name=name)
+
+
+class TestReviewFixes:
+    """One test per review finding on the M4 reader service."""
+
+    def _file(self, db, did, name, data=b"\x00" * 16):
+        d = db.drama_dir(did)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(data)
+        return os.path.join(d, name)
+
+    def test_media_confined_to_drama_folder(self, isolated_db, tmp_path):
+        did = _drama(isolated_db, audio_filename="..", source_video_filename="../x.mp4")
+        os.makedirs(isolated_db.drama_dir(did), exist_ok=True)
+        outside = tmp_path / "secret.wav"
+        outside.write_bytes(b"\x00" * 16)
+        os.symlink(str(outside), os.path.join(isolated_db.drama_dir(did), "dub_track.wav"))
+        os.makedirs(os.path.join(isolated_db.drama_dir(did), "narration_track.wav"))
+        for kind in ("original", "dub", "narration"):
+            with pytest.raises(NotFoundError):
+                reader_service.media_file_path(did, kind)
+        info = reader_service.get_media_availability(did)
+        assert info["original"] is None and not info["dub"] and not info["narration"]
+
+    def test_media_extension_whitelist_and_no_symlinked_original(self, isolated_db):
+        did = _drama(isolated_db, audio_filename="a.txt")
+        self._file(isolated_db, did, "a.txt")
+        with pytest.raises(NotFoundError):
+            reader_service.media_file_path(did, "original")
+        did2 = _drama(isolated_db, audio_filename="a.wav")
+        real = self._file(isolated_db, did2, "real.wav")
+        os.symlink(real, os.path.join(isolated_db.drama_dir(did2), "a.wav"))
+        with pytest.raises(NotFoundError):
+            reader_service.media_file_path(did2, "original")
+
+    def test_clear_wiki_requires_confirm(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.upsert_wiki_entry(did, "character", "A")
+        with pytest.raises(InvalidInputError):
+            reader_service.clear_wiki(did)
+        with pytest.raises(InvalidInputError):
+            reader_service.clear_wiki(did, confirm="yes")
+        assert len(isolated_db.list_wiki_entries(did)) == 1
+        reader_service.clear_wiki(did, confirm=True)
+        assert isolated_db.list_wiki_entries(did) == []
+
+    def test_oversized_id_is_invalid(self, isolated_db):
+        with pytest.raises(InvalidInputError):
+            reader_service.get_notes(2**63)
+        with pytest.raises(InvalidInputError):
+            reader_service.get_reader_page(2**63)
+
+    def test_local_oserror_is_fixed_message(self):
+        from services.service_errors import ServiceError
+
+        def boom():
+            raise OSError("/home/someone/.cache/cedict.txt: permission denied")
+        with pytest.raises(ServiceError) as ei:
+            reader_service._run_engine(boom)
+        assert "/home" not in str(ei.value) and "cedict.txt" not in str(ei.value)
+
+        def boom2():
+            raise RuntimeError("failed at /home/someone/secret/dir/file.py")
+        with pytest.raises(ServiceError) as ei:
+            reader_service._run_engine(boom2)
+        assert "/home/someone" not in str(ei.value)
+
+    def test_chat_history_and_model_caps(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, _lines(3))
+        _fake_engine(monkeypatch)
+        too_long_turn = [{"role": "user", "content": "x" * 20_001}]
+        too_much_total = [{"role": "user", "content": "x" * 19_000}] * 6
+        for hist in (too_long_turn, too_much_total, [{"role": "user", "content": "x"}] * 41):
+            with pytest.raises(InvalidInputError):
+                reader_service.ask_about_drama(did, "Q?", hist)
+        for model in ("m" * 101, "bad model", "bad\x00", ""):
+            with pytest.raises(InvalidInputError):
+                reader_service.ask_about_drama(did, "Q?", model=model)
+
+    def test_spoiler_none_means_whole_drama(self):
+        scoped, limit = reader_service._scope(_lines(5), None)
+        assert len(scoped) == 5 and limit == 4
+        assert "None means NO" in reader_service._scope.__doc__
+        assert "must pass that boundary" in reader_service.__doc__
+
+    def test_filename_is_ascii(self, isolated_db):
+        for title, want in (("我的剧", "vocab.csv"), ("Café 猫/Drama", "Caf_ _Drama.csv")):
+            did = _drama(isolated_db, title_en=title)
+            isolated_db.save_vocab_lookup(did, "猫", "māo", ["cat"], "zh", 0)
+            name = reader_service.export_vocab_csv(did)["filename"]
+            name.encode("latin-1")
+            assert name.isascii() and name == want
