@@ -61,6 +61,8 @@ export interface TranslateRunStartBody {
   fallback_chain?: FallbackEngine[]
   reflect?: boolean
   bulk?: boolean
+  default_female_pronouns?: boolean // omitted: false
+  include_genre_notes?: boolean // omitted: true
 }
 
 export interface BulkResumeResult {

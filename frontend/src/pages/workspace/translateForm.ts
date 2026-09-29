@@ -25,6 +25,8 @@ export interface RunForm {
   forceConfirmed: boolean
   reflect: boolean
   bulk: boolean
+  female_pronouns: boolean // she/her default for ambiguous pronouns
+  genre_notes: boolean // baihe/GL genre guidance in the prompt
 }
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
@@ -44,27 +46,38 @@ export function bulkReflectAvailable(engine: string, supported: string[]): boole
 }
 
 // A drama's preset values (POST /api/dramas preset_defaults) that the
-// Translate form starts from. The preset's female-pronoun default and genre
-// notes have no field in TranslateRunStart, so they are not carried.
+// Translate form starts from. engine_model belongs to the drama's saved
+// engine (the preset's), so it only applies while that engine is used.
 export interface PresetStart {
   style_preset?: string
   locale?: string
+  default_female_pronouns?: boolean
+  include_genre_notes?: boolean
+  engine_model?: string
+}
+
+interface PresetDefaultsIn {
+  style_preset?: string | null
+  locale?: string | null
+  default_female_pronouns?: boolean | null
+  include_genre_notes?: boolean | null
+  engine_model?: string | null
 }
 
 const presetKey = (dramaId: number) => `baihe.translatePreset.${dramaId}`
 
 // Kept per drama in localStorage (the API only saves the preset's engine on
 // the drama), so the Translate stage starts from them in any later visit.
-export function savePresetStart(
-  dramaId: number,
-  d: { style_preset?: string | null; locale?: string | null } | null | undefined,
-): void {
+export function savePresetStart(dramaId: number, d: PresetDefaultsIn | null | undefined): void {
   const out: PresetStart = {}
   if (d?.style_preset) out.style_preset = d.style_preset
   if (d?.locale) out.locale = d.locale
+  if (typeof d?.default_female_pronouns === 'boolean') out.default_female_pronouns = d.default_female_pronouns
+  if (typeof d?.include_genre_notes === 'boolean') out.include_genre_notes = d.include_genre_notes
+  if (d?.engine_model) out.engine_model = d.engine_model
   try {
     // No preset values: clear any stale entry (a reused drama id).
-    if (out.style_preset || out.locale) localStorage.setItem(presetKey(dramaId), JSON.stringify(out))
+    if (Object.keys(out).length) localStorage.setItem(presetKey(dramaId), JSON.stringify(out))
     else localStorage.removeItem(presetKey(dramaId))
   } catch {
     // storage unavailable: the form just starts from the global defaults
@@ -80,13 +93,18 @@ export function loadPresetStart(dramaId: number): PresetStart {
     const out: PresetStart = {}
     if (typeof o.style_preset === 'string') out.style_preset = o.style_preset
     if (typeof o.locale === 'string') out.locale = o.locale
+    if (typeof o.default_female_pronouns === 'boolean') out.default_female_pronouns = o.default_female_pronouns
+    if (typeof o.include_genre_notes === 'boolean') out.include_genre_notes = o.include_genre_notes
+    if (typeof o.engine_model === 'string') out.engine_model = o.engine_model
     return out
   } catch {
     return {}
   }
 }
 
-// A preset value only applies when this server still offers it.
+// A preset value only applies when this server still offers it. Without a
+// preset the toggles start as the Workspace checkboxes did: she/her off,
+// genre notes on (also the API's default when they are omitted).
 export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): RunForm {
   const style = preset.style_preset && c.style_presets.some((p) => p.key === preset.style_preset)
     ? preset.style_preset
@@ -94,9 +112,11 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
   const locale = preset.locale && c.locales.includes(preset.locale)
     ? preset.locale
     : c.locales.includes('en-US') ? 'en-US' : (c.locales[0] ?? 'en-US')
+  const defaultModels = c.engines?.find((e) => e.name === c.translation_engine)?.models ?? []
+  const model = preset.engine_model && defaultModels.includes(preset.engine_model) ? preset.engine_model : ''
   return {
     engine: '',
-    model: '',
+    model,
     style_preset: style,
     style_note: '',
     locale,
@@ -109,6 +129,8 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
+    female_pronouns: preset.default_female_pronouns ?? false,
+    genre_notes: preset.include_genre_notes ?? true,
   }
 }
 
@@ -169,6 +191,8 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     ...(chain.length ? { fallback_chain: chain } : {}),
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
+    default_female_pronouns: f.female_pronouns,
+    include_genre_notes: f.genre_notes,
   }
 }
 
