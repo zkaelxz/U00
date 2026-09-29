@@ -183,40 +183,6 @@ class TestOverlapClamp:
         assert lines[0].end == 3.4  # the saved line itself isn't silently changed
         assert "00:00:03,000" in lines_to_srt(export_lines).split("\n\n")[0]
 
-    def test_export_panel_warns_but_does_not_silently_flag_on_render(self, isolated_db):
-        """Step 6d: detecting an overlap on every render is fine (read-only),
-        but writing the flag used to happen unconditionally too -- straight
-        from whatever st.session_state.lines held, with no user action. That's
-        exactly how a stale-lines bug elsewhere could reach the database as a
-        bogus flag before anyone noticed. Merely opening the page must not
-        write anything."""
-        from streamlit.testing.v1 import AppTest
-        did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
-                                       content_mode="audio_drama", status="translated")
-        lines = _lines()
-        lines[0].end = 3.4
-        isolated_db.save_lines(did, lines)
-
-        def _render():
-            import tabs.workspace_tab as wt
-            wt.render_workspace_tab()
-        at = AppTest.from_function(_render)
-        at.session_state["active_drama_id"] = did
-        at.session_state["lines"] = None
-        at.run(timeout=30)
-        at.run(timeout=30)
-
-        row = isolated_db.load_lines(did)[0]
-        assert row["flag"] is None  # not written just from rendering the page
-        assert row["end"] == 3.4
-        assert any("overlap the next one" in w.value for w in at.warning)
-
-        [b for b in at.button if b.key == f"flag_overlaps_{did}"][0].click()
-        at.run(timeout=30)
-        row = isolated_db.load_lines(did)[0]
-        assert row["flag"] == sf.OVERLAP_FLAG and "3.00s" in row["flag_note"]
-        assert row["end"] == 3.4
-
 
 class TestReadingSpeed:
     def test_too_dense_is_flagged_normal_is_not(self):

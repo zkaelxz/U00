@@ -261,17 +261,6 @@ class TestFillMissingVoices:
         result = dub.fill_missing_voices({"A": "v1"}, {"A", "B"}, voice_pool=["v1"])
         assert result == {"A": "v1", "B": "v1"}
 
-    def test_workspace_dub_button_uses_it_for_both_engines(self):
-        import inspect
-        from tabs import workspace_tab
-        src = inspect.getsource(workspace_tab)
-        # Step 26c: the pool is now the drama's source-language pool in
-        # original-narration mode, English otherwise -- no longer a bare
-        # call with the implicit (always-English) default pool.
-        assert "fill_missing_voices(voice_map, speakers, _default_voice_pool)" in src
-        assert "fill_missing_voices(\n                    offline_voice_map, speakers, " \
-               "dub_module.DEFAULT_OFFLINE_VOICE_POOL)" in src
-
 
 class TestBuildDubTrackClonePriority:
     """The core routing logic in both build_dub_track and
@@ -1221,9 +1210,3 @@ class TestDubWorkerArgumentBinding:
         assert call.arguments["narrate_original"] is True
         assert call.arguments["source_language"] == "ja"
 
-    def test_workspace_tab_binds_them_by_keyword(self):
-        import re
-        src = open(os.path.join(os.path.dirname(__file__), "..", "tabs", "workspace_tab.py"),
-                   encoding="utf-8").read()
-        assert re.search(r"functools\.partial\(dub_module\.build_track_subprocess_worker,\s*"
-                         r"narrate_original=_narrate_original,\s*source_language=_source_lang\)", src)

@@ -32,6 +32,24 @@ Written 2026-09-29, for the Streamlit deletion (`docs/streamlit-retirement-plan.
 | `tests/test_speaker_rerun.py` | The `no_asr` fixture no longer patches `tabs.workspace_tab.transcribe_for_timing`. That patch was dead: the tab never calls the bare name, and the `core`, `cli` and `workspace_job_service` patches stay |
 | `tests/test_settings_tab.py` | Three `TestSaveKeyToEnv` file-content tests call `settings_service.set_engine_key`, which writes the same canonical line in place |
 
+### Branch `streamlit-removal-prep` (2026-09-29, base `7da3ba3`)
+
+Every file that imports `tabs` is now UI-only, so the deletion PR deletes whole test files (list and checklist: `docs/streamlit-retirement-plan.md` section 9). Tests were moved, not changed, except where noted.
+
+| Change | Files |
+|---|---|
+| UI/DROP/COVERED tests split out of mixed files into `tests/<name>_streamlit.py` (delete with the tabs) | adaptive_extraction, auto_qc, benchmark, bulk_translate, db, diagnostics_and_export, dub, emotion_manhua_ui, export_formats, install_buttons, library_features, media_preview, project_instructions, raw_transcript, sources_auth_browser, sources_preflight, speaker_rerun, transcription_quality, translation_memory, workspace_job_service |
+| The 60 logic tests (job targets, stage index, spending cap, sliders' job wiring, free-engine labels, music media type) moved from `test_workspace_tab.py` to `tests/test_workspace_jobs.py` | `test_workspace_tab.py` is now UI-only |
+| The 8 REWRITE and 3 REPOINTED `.env` tests rewritten against `settings_service.resolve_key`/`set_engine_key` in `tests/test_settings_env_file.py` (same cases; assertions on return values instead of `st.session_state`; real env vars cleared by a fixture) | `test_settings_tab.py` is now UI-only (the COVERED loader cases stay there) |
+| `TestAppIcon::test_app_icon_file_exists` moved to `tests/test_app_icon.py` | `test_app.py` is now UI-only |
+| `test_reader_service.py::TestCaptionTracks::test_tab_uses_the_service_function` (re-export identity check) moved to `test_reader_tab.py` | |
+
+Corrections to the per-test tables below:
+
+- `test_workspace_tab.py::TestRestoreAndActivateKeepSpeakerCorrections` (3 tests) is **UI**, not LOGIC KEEP: it borrows `TestMergeAndRestoreStaleIdSetSafety`'s AppTest `_run`/`_click` helpers. It stays in `test_workspace_tab.py`. The invariant (a Restore/Activate keeps `speaker_manual`) should be restated as a service test when the React history restore is built.
+- `test_dark_mode_step68.py::TestReaderFollowsAppDarkMode::test_resolve_reader_theme` (NEEDS EXTRACTION): the React Reader already has the same rule ("auto" follows the system dark setting, explicit themes win) in `frontend/src/pages/reader/readerPrefsStore.ts` with vitest coverage, so it is deleted with `ui_theme.py` rather than extracted.
+- The other NEEDS EXTRACTION items in the notes below are already done: `caption_tracks` (`services/reader_service.py`), `parse_timestamp`, `burn_preview_ass`, `line_audio_clip` (`services/media_playback_service.py`), `adjacent_flagged_idx` and `unsaved_line_count` (`services/review_lines_service.py`), `diarization_estimate_caption` (`services/diarization_service.py`).
+
 ### Notes for the deletion PR
 
 - **Files that break at import when the UI modules go**, even though they hold LOGIC tests: `test_app.py` (`streamlit.testing`), `test_app_help.py` (`from common import *`), `test_media_preview.py` and `test_review_workspace.py` (`tabs.workspace_tab`), `test_step20_ux_polish.py` (`tabs.workspace_tab`), `test_settings_tab.py` (`streamlit`, `tabs.settings_tab`), `test_ui_components.py` (`ui`), `test_dark_mode_step68.py` (`ui_theme`), `test_common.py`. Move the KEEP/REPOINTED tests out, or remove the import, before deleting the modules.
