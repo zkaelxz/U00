@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { artifactUrl } from '../../../api/client'
 import { getArtifactInfo, getEpub, startAudiobook, startBurnedVideo } from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { useJob } from '../../../hooks/useJob'
+import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { ArtifactInfo, AssExportRequest, MediaExportStarted, MediaKind } from '../../../types/export'
 import { formatBytes } from '../exportForm'
 import { useStage } from '../StageContext'
@@ -52,12 +52,13 @@ interface JobProps {
 
 function MediaJobSection({ title, label, kind, start, note }: JobProps) {
   const { dramaId } = useStage()
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
   const [error, setError] = useState<unknown>(null)
   const [artifact, setArtifact] = useState<ArtifactInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
 
   const { job, done, error: pollError } = useJob(jobId, {
+    runKey,
     onDone: (j) => {
       if (j.status !== 'done') return
       getArtifactInfo(dramaId, kind).then(setArtifact, setError)
