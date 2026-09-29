@@ -69,6 +69,9 @@ export interface DramaListResponse {
 
 export interface DramaFilters {
   search?: string
+  studio?: string
+  author?: string
+  voice_actor?: string
   status?: string
   source_language?: string
   media_type?: string

@@ -1,7 +1,10 @@
 // Diagnostics: the read-only overview plus the API batch 1 gaps
-// (api/routers/diagnostics_gaps_routes.py). Install, upgrade and reset are
-// PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
+// (api/routers/diagnostics_gaps_routes.py). Install, upgrade, reset and the
+// model-cache and bug-bundle deletes are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
 import type {
+  BugBundleDeleteResult,
+  DiagnosticsBugBundle,
+  DiagnosticsCacheDeleteResult,
   DiagnosticsGpuTorchSetupResult,
   DiagnosticsGpuTorchStatus,
   DiagnosticsInstallPresets,
@@ -85,3 +88,20 @@ export const resetLibrary = (f?: Fetch) =>
   postJson<DiagnosticsResetResult>(
     `${BASE}/reset-library`, { confirm: true, confirm_text: RESET_WORD }, pcOnlyFetch(f),
   )
+
+// Model cache (Q14): only names the cache listing returned are accepted.
+export const deleteHfRevision = (revision: string, f?: Fetch) =>
+  postJson<DiagnosticsCacheDeleteResult>(
+    `${BASE}/model-cache/hf/${encodeURIComponent(revision)}/delete`, { confirm: true }, pcOnlyFetch(f),
+  )
+
+export const deletePiperVoice = (voice: string, f?: Fetch) =>
+  postJson<DiagnosticsCacheDeleteResult>(
+    `${BASE}/model-cache/piper/${encodeURIComponent(voice)}/delete`, { confirm: true }, pcOnlyFetch(f),
+  )
+
+// Saved bug-reproduction bundles (a line's "What happened here?" snapshot).
+export const getBugBundles = (f?: Fetch) => getJson<DiagnosticsBugBundle[]>(`${BASE}/bug-bundles`, f)
+
+export const deleteBugBundle = (id: number, f?: Fetch) =>
+  postJson<BugBundleDeleteResult>(`${BASE}/bug-bundles/${id}/delete`, { confirm: true }, pcOnlyFetch(f))

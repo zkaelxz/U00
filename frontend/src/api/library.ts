@@ -4,8 +4,10 @@ import type {
   DramaCreateResult,
   DramaDeleteResult,
   DramaMetadataUpdate,
+  LibraryContinueResponse,
   LibraryCostResponse,
   LibraryDashboard,
+  LibraryFilterOptions,
   LibraryHistoryResponse,
   LibraryPreset,
   LibraryPresetsResponse,
@@ -14,6 +16,7 @@ import type {
   LibrarySeriesResponse,
   LibraryVoice,
   LibraryVoiceBankResponse,
+  ReadingHistoryClearResult,
 } from '../types/library'
 import { deleteJson, getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -25,6 +28,13 @@ export const getRecent = (f?: Fetch) => getJson<LibraryRecentResponse>('/api/lib
 export const getCosts = (f?: Fetch) => getJson<LibraryCostResponse>('/api/library/costs', f)
 export const getSeries = (f?: Fetch) => getJson<LibrarySeriesResponse>('/api/library/series', f)
 export const getHistory = (f?: Fetch) => getJson<LibraryHistoryResponse>('/api/library/history', f)
+export const getContinueReading = (f?: Fetch) =>
+  getJson<LibraryContinueResponse>('/api/library/continue', f)
+export const getFilterOptions = (f?: Fetch) =>
+  getJson<LibraryFilterOptions>('/api/library/filter-options', f)
+// PC only; reading progress (the Continue strip) is kept.
+export const clearReadingHistory = (f?: Fetch) =>
+  postJson<ReadingHistoryClearResult>('/api/library/history/clear', { confirm: true }, pcOnlyFetch(f))
 export const getPresets = (f?: Fetch) => getJson<LibraryPresetsResponse>('/api/library/presets', f)
 export const getVoiceBank = (f?: Fetch) =>
   getJson<LibraryVoiceBankResponse>('/api/library/voice-bank', f)
