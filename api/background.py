@@ -25,7 +25,52 @@ endpoint runs with no engine and returns OCR text marked untranslated until
 a config route exists.
 """
 
+import threading
+
 _started = None
+
+# GPU-queue nudge: background_jobs never re-checks its GPU queue on its own
+# (a job queued behind GPU load Baihe didn't start is re-checked only when
+# another GPU job finishes). The Streamlit Diagnostics tab's auto-refresh
+# called background_jobs.recheck_gpu_queue on every tick; with the tab gone
+# the API does it on a timer, only while background services are on, and
+# stops it at shutdown. The call is a cheap no-op when nothing is queued.
+GPU_QUEUE_POLL_SECONDS = 20.0
+_gpu_poller = None          # (thread, stop_event) while running
+_gpu_lock = threading.Lock()
+
+
+def start_gpu_queue_poller(interval: float = None) -> bool:
+    """Starts the periodic GPU-queue re-check; returns False if one is
+    already running in this process."""
+    global _gpu_poller
+    interval = GPU_QUEUE_POLL_SECONDS if interval is None else float(interval)
+    with _gpu_lock:
+        if _gpu_poller is not None and _gpu_poller[0].is_alive():
+            return False
+        stop = threading.Event()
+
+        def loop():
+            while not stop.wait(interval):
+                try:
+                    import background_jobs
+                    background_jobs.recheck_gpu_queue()
+                except Exception as exc:
+                    _log("GPU queue re-check failed: %s", exc)
+
+        thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
+        _gpu_poller = (thread, stop)
+        thread.start()
+        return True
+
+
+def stop_gpu_queue_poller(timeout: float = 5.0) -> None:
+    global _gpu_poller
+    with _gpu_lock:
+        poller, _gpu_poller = _gpu_poller, None
+    if poller is not None:
+        poller[1].set()
+        poller[0].join(timeout)
 
 
 def start_background_services() -> dict:

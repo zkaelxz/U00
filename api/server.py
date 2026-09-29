@@ -73,12 +73,20 @@ from api.static_frontend import install_frontend
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Starts the background pieces Streamlit used to start (chapter-check
-    scheduler, extension endpoint when enabled), only when
-    `settings.background_services` is on -- never in tests. Idempotent."""
-    if getattr(app.state.settings, "background_services", False):
-        from api.background import start_background_services
-        start_background_services()
-    yield
+    scheduler, extension endpoint when enabled, the GPU-queue re-check),
+    only when `settings.background_services` is on -- never in tests.
+    Idempotent. The GPU-queue re-check is stopped at shutdown."""
+    if not getattr(app.state.settings, "background_services", False):
+        yield
+        return
+    from api.background import (start_background_services, start_gpu_queue_poller,
+                                stop_gpu_queue_poller)
+    start_background_services()
+    start_gpu_queue_poller()
+    try:
+        yield
+    finally:
+        stop_gpu_queue_poller()
 
 
 def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:

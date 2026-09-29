@@ -80,3 +80,38 @@ def test_failure_does_not_stop_startup(fakes, monkeypatch):
     with TestClient(create_app(ApiSettings(background_services=True))) as c:
         assert c.get("/api/health").status_code == 200
     assert background._started == {"chapter_scheduler": False, "page_server": False}
+
+
+def _until(cond, timeout=5.0):
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.01)
+    return cond()
+
+
+def test_gpu_queue_poller_only_with_background_services_and_stops(fakes, monkeypatch):
+    import time
+
+    import background_jobs
+    calls = []
+
+    def recheck():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("one failure must not stop the loop")
+    monkeypatch.setattr(background_jobs, "recheck_gpu_queue", recheck)
+    monkeypatch.setattr(background, "GPU_QUEUE_POLL_SECONDS", 0.01)
+    with TestClient(create_app(ApiSettings())):
+        time.sleep(0.1)
+    assert calls == [] and background._gpu_poller is None
+    with TestClient(create_app(ApiSettings(background_services=True))):
+        assert _until(lambda: len(calls) >= 3)
+        thread = background._gpu_poller[0]
+        assert background.start_gpu_queue_poller() is False      # one per process
+    assert background._gpu_poller is None and not thread.is_alive()
+    n = len(calls)
+    time.sleep(0.1)
+    assert len(calls) == n
