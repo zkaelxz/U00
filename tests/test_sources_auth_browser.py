@@ -75,6 +75,13 @@ class FakePage:
         return self.ctx.launcher.site(self.url, self.ctx.signed_in())
 
 
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    # B-28: an unresolvable start URL drops the browser tiers; these fake
+    # `.invalid` hosts stand for public sites, so resolve them.
+    monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+
+
 class FakeContext:
     def __init__(self, launcher, profile_dir, headless):
         self.launcher, self.profile_dir, self.headless = launcher, profile_dir, headless
@@ -83,6 +90,9 @@ class FakeContext:
 
     def signed_in(self) -> bool:
         return os.path.exists(os.path.join(self.profile_dir, SIGNED_IN_FILE))
+
+    def route(self, pattern, handler):
+        self.routes = getattr(self, "routes", []) + [(pattern, handler)]   # B-28 request guard
 
     def new_page(self):
         p = FakePage(self)
