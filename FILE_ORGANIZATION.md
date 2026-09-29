@@ -48,6 +48,7 @@ baihe-subtitler/
 │
 ├── .github/
 │   ├── pull_request_template.md
+│   ├── ISSUE_TEMPLATE/bug.yml    bug issue form (label `bug`); the app's "Report a problem" pre-fills it
 │   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check)
 │
 ├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
@@ -201,6 +202,10 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── bug_report_service.py     "Report a problem" reports stored as files in <library>/bug_reports/
+│   │                             <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
+│   │                             (secrets, tokens, user names, paths), image metadata stripped
+│   │                             (router: bug_report_routes.py)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -400,6 +405,9 @@ baihe-subtitler/
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
+│       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report +
+│       │                         screenshot), GET list and GET {id} (admin.diagnostics), POST {id}/delete
+│       │                         (local_only + confirm)
 │       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
 │
@@ -413,6 +421,11 @@ baihe-subtitler/
 │   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
 │   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code)
+│   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
+│   │                              errors, failed API calls (method/path/status/code only) and route history;
+│   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),
+│   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
+│   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
@@ -422,6 +435,7 @@ baihe-subtitler/
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
 │   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
+│   │                              BugReportsSection (saved problem reports: Copy, PC-only Delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts

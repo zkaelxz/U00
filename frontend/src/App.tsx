@@ -9,6 +9,7 @@ import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
+import { ReportProblemButton } from './report/ReportProblem'
 import { routeHref, useRoute } from './router'
 import type { Route } from './router'
 
@@ -56,6 +57,7 @@ export default function App() {
             </a>
           ))}
         </nav>
+        <ReportProblemButton />
         <ApiStatus />
       </header>
       {route.name === 'library' && <LibraryPage />}

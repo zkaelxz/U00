@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in Baihe Studio broke or behaved wrongly.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The quickest way: use **Report a problem** at the top of the app, then **Open GitHub issue**.
+        It fills in most of this form. If the text was cut, press **Copy report** in the app and paste
+        it into "Report from the app" below.
+        Don't paste API keys, cookies or private file paths. The app removes these from its own report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      placeholder: The Review page went blank after I pressed Save.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a drama
+        2. Go to Review
+        3. ...
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: Report from the app
+      description: Pasted from "Report a problem" (Copy report). Pre-filled when you open the issue from the app.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Page / area
+      options:
+        - Library
+        - Workspace/Source
+        - Transcribe
+        - Translate
+        - Review
+        - Export
+        - Dub
+        - Reader
+        - Sources
+        - Settings
+        - Diagnostics
+        - Comic
+        - Sign-in
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - blocks me
+        - annoying
+        - cosmetic
+    validations:
+      required: true

@@ -51,3 +51,6 @@
 @media (pointer: coarse), (max-width: 640px) {
   .hf-terms { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-1); }
 }
+
+/* Bug reports (BugReportsSection) */
+.bug-report-list .bug-report-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
