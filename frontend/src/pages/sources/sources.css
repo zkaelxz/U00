@@ -162,6 +162,9 @@ ul.source-cards > li {
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
+/* .panel scrolls sideways (overflow-x: auto), which would make the series
+   panel the sticky bar's scroll box; on a phone the page scrolls instead. */
+.sources-page:not(.wide) .sources-series { overflow: clip visible; }
 .sources-import-bar.phone { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
 .sources-import-bar.phone button { flex: 1 1 100%; }
 .sources-outcomes { display: grid; gap: var(--space-1); }

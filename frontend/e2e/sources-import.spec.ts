@@ -61,7 +61,9 @@ test('chapter link: preview, open series with the chapter ticked, new drama, imp
   // Cancel, then a second run that finishes with per-chapter outcomes.
   await panel.getByTestId('import-bar').getByRole('button', { name: 'Cancel' }).click()
   await expect.poll(() => posted(s, '/api/jobs/sourceimport_21/cancel').length).toBe(1)
-  await expect(panel.getByText('Stopped.')).toBeVisible()
+  // The server finishes the run with what it got through, marked stopped.
+  await expect(panel.getByTestId('import-outcomes').getByText('Stopped. 1 imported')).toBeVisible()
+  await expect(panel.getByRole('checkbox', { name: 'Chapter 1', exact: true })).toBeEnabled()
   m.importHold = false
   await panel.getByRole('button', { name: 'Import 3 chapters' }).click()
   const outcomes = panel.getByTestId('import-outcomes')
@@ -77,6 +79,11 @@ test('chapter link: preview, open series with the chapter ticked, new drama, imp
   await expect.poll(() => posted(s, '/api/sources/tracked')[0]?.body).toEqual({ source: 'alpha', series_id: 'a0', tracked: true, drama_id: 21 })
   await expect(panel.getByText('Tracked', { exact: true })).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Track for new chapters' })).toHaveCount(0)
+
+  // Another drama's stored run (the job id is per drama) is not shown as this one's.
+  await into.selectOption({ label: 'Alpha Comic' })
+  await expect.poll(() => s.calls.some((c) => c.path === '/api/sources/jobs/sourceimport_12/result')).toBe(true)
+  await expect(panel.getByTestId('import-outcomes')).toHaveCount(0)
   await expect(page.locator('img')).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })

@@ -51,14 +51,27 @@ export function chapterImportResult(over: Record<string, unknown> = {}) {
   }
 }
 
+// What the server stores when a chapter import is cancelled after chapter 1.
+export const CANCELLED_IMPORT = chapterImportResult({
+  chapters: [{ chapter_id: 'c1', title: 'Chapter 1', outcome: 'imported', pages: 20 }],
+  imported_count: 1, skipped_count: 0, failed_count: 0, cancelled: true,
+})
+
 export interface ImportMockState {
   preview: 'none' | 'running' | 'done' | 'handoff'
   previewBody: unknown
   // Keep a running preview running until the test flips it.
   previewHold: boolean
-  // The sourceimport_<drama> job (one at a time is enough here).
+  // The sourceimport_<drama> job (one at a time is enough here). Like the
+  // server, a cancelled chapter import finishes as done with cancelled:true
+  // and the chapters it got through; a cancelled URL import is 'cancelled'.
   importJob: 'none' | 'running' | 'done' | 'cancelled'
+  importKind: 'chapter' | 'url'
+  importCancelRequested: boolean
+  // R3 result, R3 result after a cancel, R2 result.
   importBody: unknown
+  cancelledBody: unknown
+  urlImportBody: unknown
   importHold: boolean
   dramas: unknown[]
   hasAudio: boolean
@@ -74,8 +87,9 @@ const notFound = (route: Route) => json(route, { error: { code: 'not_found', mes
 
 export async function mockImports(page: Page, s: MockState, over: Partial<ImportMockState> = {}): Promise<ImportMockState> {
   const m: ImportMockState = {
-    preview: 'none', previewBody: urlPreview(), previewHold: false, importJob: 'none', importBody: chapterImportResult(),
-    importHold: false, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false, ...over,
+    preview: 'none', previewBody: urlPreview(), previewHold: false, importJob: 'none', importKind: 'chapter',
+    importCancelRequested: false, importBody: chapterImportResult(), cancelledBody: CANCELLED_IMPORT,
+    urlImportBody: { kind: 'url_import', needs_review: false, char_count: 5120 }, importHold: false, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false, ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -147,7 +161,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   })
 
   // R2 / R3 start the per-drama import job.
-  const startImport = (route: Route) => {
+  const startImport = (kind: ImportMockState['importKind']) => (route: Route) => {
     record(route)
     const body = route.request().postDataJSON() as { drama_id: number }
     if (m.importJob === 'running') {
@@ -156,25 +170,32 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
       }, 409)
     }
     m.importJob = 'running'
+    m.importKind = kind
+    m.importCancelRequested = false
     return json(route, { job_id: `sourceimport_${body.drama_id}` })
   }
-  await page.route(/\/api\/sources\/url\/import$/, startImport)
-  await page.route(/\/api\/sources\/(alpha|beta)\/import$/, startImport)
+  await page.route(/\/api\/sources\/url\/import$/, startImport('url'))
+  await page.route(/\/api\/sources\/(alpha|beta)\/import$/, startImport('chapter'))
   await page.route(/\/api\/sources\/jobs\/sourceimport_\d+\/result$/, (route) => {
     const url = record(route)
     const id = url.pathname.split('/')[4]
     if (m.importJob === 'none') return notFound(route)
-    if (m.importJob === 'running' && !m.importHold) m.importJob = 'done'
+    if (m.importJob === 'running' && m.importCancelRequested) {
+      // The job notices the cancel at its next check.
+      m.importJob = m.importKind === 'chapter' ? 'done' : 'cancelled'
+    } else if (m.importJob === 'running' && !m.importHold) {
+      m.importJob = 'done'
+    }
     if (m.importJob === 'running') {
       return json(route, { job_id: id, status: 'running', progress: 0.5, message: 'Chapter 2 of 3…', result: null })
     }
     if (m.importJob === 'cancelled') return json(route, { job_id: id, status: 'cancelled', progress: 0.5, message: null, result: null })
-    return json(route, { job_id: id, status: 'done', progress: 1, message: null, result: m.importBody })
+    const result = m.importKind === 'url' ? m.urlImportBody : m.importCancelRequested ? m.cancelledBody : m.importBody
+    return json(route, { job_id: id, status: 'done', progress: 1, message: null, result })
   })
   await page.route(/\/api\/jobs\/sourceimport_\d+\/cancel$/, (route) => {
     const url = record(route)
-    m.importJob = 'cancelled'
-    m.importHold = false
+    if (m.importJob === 'running') m.importCancelRequested = true
     return json(route, { job_id: url.pathname.split('/')[3], cancel_requested: true })
   })
 
