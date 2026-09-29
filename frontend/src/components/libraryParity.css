@@ -1,5 +1,4 @@
-/* Library parity: More filters (LibraryList), Continue reading strip and the
-   Reading history Clear (pages/Library.tsx). */
+/* Library parity: More filters (LibraryList). */
 .more-filters { margin-bottom: var(--space-2); }
 .more-filters > summary { cursor: pointer; color: var(--muted); font-size: var(--font-sm); min-height: 32px; display: flex; align-items: center; }
 .more-filters[open] > summary { margin-bottom: var(--space-2); }
@@ -7,14 +6,6 @@
 .tag-filter legend { font-size: var(--font-sm); color: var(--muted); padding: 0; margin-bottom: var(--space-1); }
 .tag-filter .check { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 32px; }
 .tag-filter .check input { width: auto; margin: 0; }
-
-.continue-strip ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
-.continue-strip li { display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
-.continue-strip .continue-title { font-weight: 600; overflow-wrap: anywhere; }
-.continue-strip progress { width: 100%; height: 6px; }
-.continue-strip .continue-cover { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: var(--radius-sm); }
-.continue-strip .continue-resume { justify-self: start; }
 @media (max-width: 640px) {
-  .continue-strip ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .more-filters > summary, .tag-filter .check { min-height: 44px; }
 }

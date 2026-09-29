@@ -110,8 +110,10 @@ test('an empty drama says so and links to Source', async ({ page }) => {
 
 test('the library detail panel links to the reader', async ({ page }) => {
   await page.goto('/#/library')
-  await page.getByRole('button', { name: "Heaven Official's Blessing" }).click()
-  await page.getByRole('link', { name: 'Read', exact: true }).click()
+  // Scoped to the Library's drama list and the details sheet, so the
+  // Continue shelf and Library tools can't match.
+  await page.getByRole('region', { name: 'Dramas' }).getByRole('button', { name: "Details: Heaven Official's Blessing" }).click()
+  await page.getByRole('dialog', { name: "Heaven Official's Blessing" }).getByRole('link', { name: 'Read', exact: true }).click()
   await expect(page).toHaveURL(/#\/read\/2/)
   await expect(label(page)).toHaveText('Page 1 of 3')
 })
@@ -119,8 +121,9 @@ test('the library detail panel links to the reader', async ({ page }) => {
 test('a Reading history name resumes reading', async ({ page }) => {
   python('db.save_progress(2, last_line_idx=45, last_page=2, percent_complete=51.1)')
   await page.goto('/#/library')
-  await page.locator('summary', { hasText: 'Reading history' }).click()
-  const link = page.getByRole('link', { name: "Heaven Official's Blessing" }).first()
+  const tools = page.getByRole('region', { name: 'Library tools' })
+  await tools.locator('summary', { hasText: 'Reading history' }).click()
+  const link = tools.getByRole('region', { name: 'Reading history' }).getByRole('link', { name: "Heaven Official's Blessing", exact: true })
   await expect(link).toHaveAttribute('href', '#/read/2')
   await link.click()
   await expect(page).toHaveURL(/#\/read\/2\?page=2$/)
@@ -260,13 +263,16 @@ test.describe('phone', () => {
   test('library cards have a 44px Read link, hidden in select mode', async ({ page }) => {
     await page.goto('/')
     await expect(page.getByTestId('drama-count')).toBeVisible()
-    const read = page.getByRole('link', { name: "Read Heaven Official's Blessing" })
+    // Scoped to the Library's drama list (the Continue shelf has its own links).
+    const list = page.getByRole('region', { name: 'Dramas' })
+    await expect(list.locator('.drama-card-read')).toHaveCount(3)
+    const read = list.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true })
     const box = await read.boundingBox()
     expect(box!.height).toBeGreaterThanOrEqual(44)
-    await page.getByRole('button', { name: 'Select', exact: true }).tap()
-    await expect(page.locator('.drama-card-read')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Done' }).tap()
-    await page.getByRole('link', { name: "Read Heaven Official's Blessing" }).tap()
+    await list.getByRole('button', { name: 'Select', exact: true }).tap()
+    await expect(list.locator('.drama-card-read')).toHaveCount(0)
+    await page.getByRole('region', { name: 'Selection' }).getByRole('button', { name: 'Done', exact: true }).tap()
+    await list.getByRole('link', { name: "Read Heaven Official's Blessing", exact: true }).tap()
     await expect(page).toHaveURL(/#\/read\/2\?page=1$/)
   })
 

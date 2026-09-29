@@ -72,7 +72,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
 test('library rename form on a phone', async ({ page }) => {
   await page.route('**/api/library/presets', (r) => r.fulfill({ json: PRESETS }))
   await page.goto('/')
-  await page.getByText(/^Presets \(1\)/).click()
+  await page.locator('summary', { hasText: 'Presets' }).click()
   await expectTall(page.getByRole('button', { name: /^Rename / }))
   await page.getByRole('button', { name: /^Rename / }).click()
   await expectTall(page.getByRole('button', { name: 'Save name' }))

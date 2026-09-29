@@ -5,6 +5,9 @@ import { expect, test, type Page } from '@playwright/test'
 // (the seeded three stay untouched); page.route mocks for job states,
 // restore errors, remote mode and presets.
 
+// A Library tools fold's summary ("Presets" plus its count badge).
+const presetsSummary = (page: Page) => page.locator('summary', { hasText: 'Presets' })
+
 async function createDrama(page: Page, title: string): Promise<number> {
   const r = await page.request.post('/api/dramas', { data: { source_language: 'zh', title_en: title } })
   expect(r.ok()).toBeTruthy()
@@ -22,14 +25,18 @@ test.describe('selection bar (real API)', () => {
     ids.push(await createDrama(page, 'Admin E2E One'), await createDrama(page, 'Admin E2E Two'))
     await page.goto('/')
     await page.getByLabel('Search title or summary').fill('Admin E2E')
-    await expect(page.getByTestId('drama-count')).toHaveText('2 drama(s)')
+    await expect(page.getByTestId('drama-count')).toHaveText('2 dramas')
+    // List view: Select shows the checkbox column (select mode works in both views).
+    await page.getByRole('radio', { name: 'List' }).check()
+    await expect(page.getByRole('checkbox', { name: 'Select Admin E2E One' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Select', exact: true }).click()
 
     await page.getByRole('checkbox', { name: 'Select Admin E2E One' }).check()
     await page.getByRole('checkbox', { name: 'Select Admin E2E Two' }).check()
     const bar = page.getByRole('region', { name: 'Selection' })
     await expect(bar.getByTestId('selected-count')).toHaveText('2 selected')
-    // Clicking a checkbox does not open the row's detail panel.
-    await expect(page.getByRole('region', { name: 'Admin E2E One' })).toHaveCount(0)
+    // Clicking a checkbox does not open the drama's details.
+    await expect(page.getByRole('dialog', { name: 'Admin E2E One' })).toHaveCount(0)
 
     await bar.getByLabel('New status').selectOption('translated')
     await bar.getByRole('button', { name: 'Set status' }).click()
@@ -46,7 +53,7 @@ test.describe('selection bar (real API)', () => {
     await expect(confirm).toBeDisabled()
     await bar.getByLabel(/Type DELETE to confirm/).fill('DELETE')
     await confirm.click()
-    await expect(page.getByTestId('drama-count')).toHaveText('0 drama(s)')
+    await expect(page.getByTestId('drama-count')).toHaveText('0 dramas')
     await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
     // The result outlives the bar.
     await expect(page.getByTestId('bulk-result')).toContainText('Deleted 2.')
@@ -155,15 +162,19 @@ test.describe('Backup & storage (mocked)', () => {
     await openSection(page)
     await expect(page.getByText('Run this on the main PC.')).toBeVisible()
     await expect(page.getByRole('button', { name: /Back up library|Scan|Export all/ })).toHaveCount(0)
+    // Grid view: Select turns the cards into checkboxes.
+    await page.getByRole('button', { name: 'Select', exact: true }).click()
     await page.getByRole('checkbox', { name: 'Select Signal' }).check()
     const bar = page.getByRole('region', { name: 'Selection' })
     await expect(bar.getByTestId('selected-count')).toHaveText('1 selected')
     await expect(bar.getByRole('button', { name: 'Delete…' })).toHaveCount(0)
     await expect(bar.getByRole('button', { name: /Export \.zip/ })).toHaveCount(0)
     await expect(bar).toContainText('Delete and export are PC only.')
-    // The detail panel shows the note where its delete button would be.
-    await page.getByRole('button', { name: 'Signal', exact: true }).click()
-    const detail = page.getByRole('region', { name: 'Signal' })
+    // The details sheet shows the note where its delete button would be.
+    await page.getByRole('button', { name: 'Done selecting' }).click()
+    await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Details: Signal' }).click()
+    const detail = page.getByRole('dialog', { name: 'Signal' })
     await expect(detail).toContainText('Deleting is PC only.')
     await expect(detail.getByRole('button', { name: 'Delete drama…' })).toHaveCount(0)
   })
@@ -182,7 +193,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
     return r.fulfill({ json: { preset_id: 7, deleted: true } })
   })
   await page.goto('/')
-  await page.getByText(/^Presets \(1\)/).click()
+  await presetsSummary(page).click()
   await expect(page.getByText('Dramas that used it keep their settings.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete Wuxia preset' }).click()
@@ -195,7 +206,7 @@ test('preset delete is two-step: first press makes no call, second sends confirm
   await page.getByRole('button', { name: 'Delete Wuxia preset' }).click()
   await page.getByRole('button', { name: 'Confirm delete Wuxia preset' }).click()
   await expect.poll(() => calls).toEqual([{ confirm: true }])
-  await expect(page.getByText(/^Presets \(/)).toHaveCount(0)
+  await expect(presetsSummary(page)).toHaveCount(0)
 })
 
 test('an armed delete reverts after 5 s', async ({ page }) => {
@@ -203,7 +214,7 @@ test('an armed delete reverts after 5 s', async ({ page }) => {
     items: [{ id: 3, name: 'Narrator', language: 'en', clone_engine: null, source_drama: null, clip_available: false }],
   } }))
   await page.goto('/')
-  await page.getByText(/^Voice bank \(1\)/).click()
+  await page.locator('summary', { hasText: 'Voice bank' }).click()
   await page.getByRole('button', { name: 'Delete Narrator' }).click()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: 7000 })
@@ -222,7 +233,7 @@ test('a failed delete re-enables the first step with focus; one press then only 
     return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is running.' } } })
   })
   await page.goto('/')
-  await page.getByText(/^Presets \(1\)/).click()
+  await presetsSummary(page).click()
   await page.getByRole('button', { name: 'Delete Slow preset' }).click()
   await page.getByRole('button', { name: 'Confirm delete Slow preset' }).click()
   const first = page.getByRole('button', { name: 'Delete Slow preset' })

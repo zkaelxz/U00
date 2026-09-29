@@ -19,11 +19,11 @@ async function heights(page: Page, selector: string) {
 
 test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('drama-count')).toHaveText('3 drama(s)')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
   await page.getByRole('button', { name: 'Select', exact: true }).click()
 
   // Tapping a card toggles it; titles are not links in select mode.
-  await page.locator('.drama-cards li', { hasText: 'Signal' }).click()
+  await page.locator('.drama-grid li', { hasText: 'Signal' }).click()
   await page.getByRole('checkbox', { name: 'Select Heaven Official\'s Blessing' }).check()
   const bar = page.getByRole('region', { name: 'Selection' })
   await expect(bar.getByTestId('selected-count')).toHaveText('2 selected')
@@ -35,7 +35,7 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
 
   // The bar is in the flow after the list (sticky only while the list scrolls
   // under it), so scrolling on always uncovers the last card.
-  const last = page.locator('.drama-cards li').last()
+  const last = page.locator('.drama-grid li').last()
   await last.evaluate((e) => e.scrollIntoView({ block: 'center' }))
   const lastBox = await last.boundingBox()
   const barBox = await bar.boundingBox()
@@ -48,7 +48,7 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
   }
   await expect(bar.getByRole('button', { name: 'Translate 1' })).toBeVisible()
   await noSideways(page)
-  const filled = await page.locator('button.primary').evaluateAll((els) =>
+  const filled = await page.locator('button.primary, .btn-primary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).length)
   expect(filled).toBeLessThanOrEqual(1)
 
@@ -83,9 +83,9 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
 
 test('Escape right after opening still closes the phone Actions menu', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('drama-count')).toHaveText('3 drama(s)')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
   await page.getByRole('button', { name: 'Select', exact: true }).click()
-  await page.locator('.drama-cards li', { hasText: 'Signal' }).click()
+  await page.locator('.drama-grid li', { hasText: 'Signal' }).click()
   // Open and press Escape in one task, before the details' toggle event runs
   // (the CI race: menuOpen was still false, so Escape did nothing).
   await page.evaluate(() => {

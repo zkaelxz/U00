@@ -3,11 +3,12 @@ import type { FormEvent, ReactNode } from 'react'
 
 import {
   clearReadingHistory, createDrama, getContinueReading, getCosts, getHistory, getPresets, getRecent,
-  getSeries, getStats, getVoiceBank, renamePreset, renameVoiceBankEntry, searchLines,
+  getSeries, getStats, getVoiceBank, renamePreset, renameVoiceBankEntry,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
 import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
+import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { ConfirmButton } from '../components/ConfirmButton'
@@ -15,35 +16,35 @@ import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
+import { Section } from '../components/Section'
+import { Sheet } from '../components/Sheet'
+import {
+  continueItems, countDramas, dramaName, parseTime, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
+} from '../components/libraryView'
+import { buttonClass } from '../components/uiClasses'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { routeHref } from '../router'
+import { usePersistedState } from '../hooks/usePersistedState'
 import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { engineLabel, languageLabel, mediaTypeLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { AdminSection } from './libraryAdmin/AdminSection'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
-import type {
-  DramaCreateRequest, LibraryContinueEntry, LibraryDashboard, LibrarySearchHit,
-} from '../types/library'
+import type { DramaCreateRequest, LibraryDashboard } from '../types/library'
 import {
   MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
 import { savePresetStart } from './workspace/translateForm'
-import { lineNumber } from '../lineNumber'
-import '../components/libraryParity.css'
 
-const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
-  d.title_en || d.title_zh || `#${d.id ?? ''}`
+const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
 
-// The API stores naive UTC timestamps (datetime.utcnow().isoformat()).
-const readTime = (iso: string) =>
-  new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`).toLocaleString()
+type Loaded<T> = { data: T | null; error: unknown }
 
-// Loads once; a failed panel shows its own banner instead of blanking the page.
-function useLoad<T>(load: () => Promise<T>, reloadKey: number) {
-  const [state, setState] = useState<{ data: T | null; error: unknown }>({ data: null, error: null })
+// Loads once per reloadKey; a failed panel shows its own banner instead of blanking the page.
+function useLoad<T>(load: () => Promise<T>, reloadKey: number): Loaded<T> {
+  const [state, setState] = useState<Loaded<T>>({ data: null, error: null })
   useEffect(() => {
     let cancelled = false
     load().then(
@@ -58,36 +59,24 @@ function useLoad<T>(load: () => Promise<T>, reloadKey: number) {
   return state
 }
 
-// A collapsed-by-default section; the summary carries the count, so nothing is an empty box.
-function Fold({ title, count, error, children }: {
-  title: string; count?: number; error: unknown; children: ReactNode
+// A "Library tools" fold: rare lists stay collapsed (spec rule 16); one with
+// nothing in it renders nothing, but a failed load stays visible.
+function ToolSection({ title, count, summary, error, children }: {
+  title: string; count?: number; summary?: string; error: unknown; children: ReactNode
 }) {
   if (!showFold(count, error)) return null
   return (
-    <details className="panel fold">
-      <summary>{title}{count !== undefined && ` (${count})`}</summary>
-      <section aria-label={title}>
+    <Section title={title} count={count} summary={summary}>
+      <section aria-label={title} className="tool-body">
         <ErrorBanner error={error} />
         {children}
       </section>
-    </details>
+    </Section>
   )
 }
 
-function StatsStrip({ stats }: { stats: { data: LibraryDashboard | null; error: unknown } }) {
-  const s = stats.data
-  return (
-    <section className="wide stats-strip" aria-label="Stats">
-      <ErrorBanner error={stats.error} />
-      {s && (
-        <p data-testid="stats">
-          {s.total_dramas} drama(s) · {s.translated_lines}/{s.total_lines} lines translated · $
-          {s.usage.estimated_cost_usd.toFixed(2)} spent
-        </p>
-      )}
-    </section>
-  )
-}
+const statsLine = (s: LibraryDashboard) =>
+  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent`
 
 // Parity L18/L19: an inline rename for one row of a Library list.
 function RenameForm({ current, onSave, onCancel }: {
@@ -121,8 +110,10 @@ function RenameForm({ current, onSave, onCancel }: {
       <Field label={`New name for ${current}`}>
         <input value={value} maxLength={RENAME_MAX} onChange={(e) => setValue(e.target.value)} autoFocus />
       </Field>
-      <button type="submit" className="primary" disabled={pending}>Save name</button>
-      <button type="button" disabled={pending} onClick={onCancel}>Cancel</button>
+      <div className="actions">
+        <button type="submit" className={buttonClass('secondary', 'sm')} disabled={pending}>Save name</button>
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={onCancel}>Cancel</button>
+      </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
     </form>
@@ -164,7 +155,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
               <>
                 <span>{x.name} <span className="muted">{x.meta}</span></span>
                 <span className="row-actions">
-                  <button type="button" aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
                   {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
                 </span>
               </>
@@ -178,40 +169,8 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
   )
 }
 
-// "Continue reading": partly-read dramas; Resume opens the Reader, which picks
-// up at the saved page (#388). Hidden when nothing is in progress.
-function ContinueStrip({ items }: { items: LibraryContinueEntry[] | null }) {
-  if (!items?.length) return null
-  return (
-    <Card title="Continue reading" className="wide continue-strip" aria-label="Continue reading">
-      <ul>
-        {items.map((d) => {
-          const pct = Math.round(d.percent_complete ?? 0)
-          const title = name({ ...d, id: d.drama_id })
-          return (
-            <li key={d.drama_id}>
-              {d.has_cover_art && <img className="continue-cover" src={coverUrl(d.drama_id)} alt="" loading="lazy" />}
-              <span className="continue-title">{title}</span>
-              <progress max={100} value={pct} aria-label={`${title}: ${pct}% read`} />
-              <span className="muted">{d.last_page ? `Page ${d.last_page} · ` : ''}{pct}%</span>
-              <ButtonLink
-                size="sm"
-                className="continue-resume"
-                href={routeHref({ name: 'read', id: d.drama_id, page: null })}
-                aria-label={`Resume ${title}`}
-              >
-                Resume
-              </ButtonLink>
-            </li>
-          )
-        })}
-      </ul>
-    </Card>
-  )
-}
-
 // Clear the reading history (PC only). Reading progress, and so the Continue
-// strip, is kept.
+// shelf, is kept.
 function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -242,139 +201,190 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
   )
 }
 
-function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcMode; onChanged: () => void }) {
-  const recent = useLoad(getRecent, reloadKey)
-  const series = useLoad(getSeries, reloadKey)
-  const costs = useLoad(getCosts, reloadKey)
-  const history = useLoad(getHistory, reloadKey)
-  const presets = useLoad(getPresets, reloadKey)
-  const voices = useLoad(getVoiceBank, reloadKey)
-  const grouped = history.data ? groupHistory(history.data.items) : undefined
+// "Continue": reading and workspace activity, one Resume tap each. Rendered
+// only when there is something to resume.
+function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
+  continuing: Loaded<{ items: Parameters<typeof continueItems>[0] }>
+  recent: Loaded<{ items: Parameters<typeof continueItems>[1] }>
+  mediaTypes: Map<number, string | null>
+  phone: boolean
+}) {
+  const [all, setAll] = useState(false)
+  const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
+  if (!items.length) return <ErrorBanner error={recent.error} />
+  const limit = phone ? 2 : 4
+  const shown = all ? items : items.slice(0, limit)
+  const href = (x: ContinueItem) =>
+    x.kind === 'read'
+      ? readHref({ id: x.dramaId, media_type: mediaTypes.get(x.dramaId) ?? null })
+      : workspaceHref(x.dramaId)
   return (
-    <div className="more-grid wide">
-      <Fold title="Recently active" count={recent.data?.items.length} error={recent.error}>
-        <ul>
-          {recent.data?.items.map((d) => (
-            <li key={d.id}>{name(d)} <span className="muted">{d.status}</span></li>
-          ))}
-        </ul>
-      </Fold>
-      <Fold title="Series" count={series.data?.items.length} error={series.error}>
-        <ul>
-          {series.data?.items.map((x) => (
-            <li key={x.id}>{x.name} <span className="muted">{x.dramas.length} dramas</span></li>
-          ))}
-        </ul>
-      </Fold>
-      <Fold title="Cost by drama" count={costs.data?.items.length} error={costs.error}>
-        <ul>
-          {costs.data?.items.map((c) => (
-            <li key={c.id}>{name(c)} <span className="muted">${c.estimated_cost_usd.toFixed(2)}</span></li>
-          ))}
-        </ul>
-      </Fold>
-      <Fold title="Reading history" count={grouped?.length} error={history.error}>
-        <ul>
-          {grouped?.map(({ entry: h, count }) => (
-            <li key={`${h.drama_id}-${h.accessed_at}`}>
-              <a className="history-read" href={routeHref({ name: 'read', id: h.drama_id, page: null })}>{name({ ...h, id: h.drama_id })}</a>
-              {count > 1 && <span className="badge"> ×{count}</span>}
-              <span className="muted">
-                {h.percent_complete != null && ` ${Math.round(h.percent_complete)}%`}
-                {h.accessed_at && ` · last read ${readTime(h.accessed_at)}`}
+    <Card title="Continue" className="continue-card" aria-label="Continue">
+      <ErrorBanner error={recent.error} />
+      <ul className="continue-list">
+        {shown.map((x) => (
+          <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
+            <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
+              {x.kind === 'read' && x.cover
+                ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
+                : tileText({ title_en: x.title, title_zh: x.titleZh })}
+            </span>
+            <div className="continue-text">
+              <span className="continue-title">{x.title}</span>
+              <span className="continue-meta">
+                {x.kind === 'read'
+                  ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
+                  : <>{x.status && <Badge kind="status" value={x.status} />}<span>Workspace</span></>}
               </span>
-            </li>
-          ))}
-        </ul>
-        <ClearHistory pc={pc} onCleared={onChanged} />
-      </Fold>
-      <Fold title="Presets" count={presets.data?.items.length} error={presets.error}>
-        <DeletableList
-          pc={pc}
-          help="Dramas that used it keep their settings."
-          items={presets.data?.items.map((p) => ({ id: p.id, name: p.name, meta: p.translation_engine }))}
-          remove={deletePreset}
-          rename={renamePreset}
-          onDeleted={onChanged}
-        />
-      </Fold>
-      <Fold title="Voice bank" count={voices.data?.items.length} error={voices.error}>
-        <DeletableList
-          pc={pc}
-          help="Characters that used it keep their own copy."
-          items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language }))}
-          remove={deleteVoiceBankEntry}
-          rename={renameVoiceBankEntry}
-          onDeleted={onChanged}
-        />
-      </Fold>
-    </div>
-  )
-}
-
-function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
-  const [q, setQ] = useState('')
-  const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
-  const [error, setError] = useState<unknown>(null)
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault()
-    const term = q.trim()
-    if (!term) return
-    searchLines(term).then(
-      (r) => { setHits(r.items); setError(null) },
-      (err: unknown) => setError(err),
-    )
-  }
-
-  return (
-    <details className="panel fold wide">
-      <summary>Search all lines</summary>
-      <section aria-label="Search lines">
-      <form onSubmit={submit} className="stack">
-        <input
-          type="search"
-          aria-label="Search all lines"
-          maxLength={200}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <div className="actions">
-          <button type="submit">Search</button>
-        </div>
-      </form>
-      <ErrorBanner error={error} />
-      {hits && <p className="muted" data-testid="search-count">{hits.length} match(es)</p>}
-      <ul>
-        {hits?.map((h) => (
-          <li key={`${h.drama_id}-${h.idx}`}>
-            <button type="button" className="link" onClick={() => onSelect(h.drama_id)}>
-              {name({ ...h, id: h.drama_id })} #{lineNumber(h.idx)}
-            </button>{' '}
-            {h.zh} {h.en && <span className="muted">{h.en}</span>}
+            </div>
+            <ButtonLink
+              size="sm"
+              href={href(x)}
+              aria-label={`Resume ${x.kind === 'read' ? 'reading' : 'work on'} ${x.title}`}
+            >
+              Resume
+            </ButtonLink>
           </li>
         ))}
       </ul>
-      </section>
-    </details>
+      {items.length > limit && (
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={all} onClick={() => setAll((v) => !v)}>
+            {all ? 'Show less' : `Show more (${items.length - limit})`}
+          </button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// Rare lists and admin tools, all folded (spec §3.1 item 6).
+function LibraryTools({ loads, pc, onChanged, admin }: {
+  loads: {
+    series: Loaded<Awaited<ReturnType<typeof getSeries>>>
+    costs: Loaded<Awaited<ReturnType<typeof getCosts>>>
+    history: Loaded<Awaited<ReturnType<typeof getHistory>>>
+    presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
+    voices: Loaded<Awaited<ReturnType<typeof getVoiceBank>>>
+  }
+  pc: PcMode
+  onChanged: () => void
+  admin: ReactNode
+}) {
+  const { series, costs, history, presets, voices } = loads
+  const grouped = history.data ? groupHistory(history.data.items) : undefined
+  const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
+  return (
+    <section className="library-tools" aria-labelledby="library-tools-heading">
+      <h3 id="library-tools-heading" className="tools-heading">Library tools</h3>
+      <div className="tools-grid">
+        <ToolSection title="Series" count={series.data?.items.length} error={series.error}>
+          <ul className="tool-list">
+            {series.data?.items.map((x) => (
+              <li key={x.id}>
+                <span className="tool-row"><strong>{x.name}</strong> <span className="muted">{countDramas(x.dramas.length)}</span></span>
+                {x.dramas.length > 0 && (
+                  <span className="series-dramas">
+                    {x.dramas.map((d) => <a key={d.id} href={workspaceHref(d.id)}>{dramaName(d)}</a>)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </ToolSection>
+        <ToolSection
+          title="Cost by drama"
+          count={costs.data?.items.length}
+          summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
+          error={costs.error}
+        >
+          <ul className="tool-list">
+            {costs.data?.items.map((c) => (
+              <li key={c.id} className="tool-row">
+                <a href={workspaceHref(c.id)}>{dramaName(c)}</a>
+                <span className="muted num">${c.estimated_cost_usd.toFixed(2)}</span>
+              </li>
+            ))}
+          </ul>
+        </ToolSection>
+        <ToolSection title="Reading history" count={grouped?.length} error={history.error}>
+          <ul className="tool-list">
+            {grouped?.map(({ entry: h, count }) => (
+              <li key={`${h.drama_id}-${h.accessed_at}`}>
+                <span className="tool-row">
+                  <a className="history-read" href={readHref({ id: h.drama_id, media_type: null })}>
+                    {dramaName({ ...h, id: h.drama_id })}
+                  </a>
+                  {count > 1 && <Badge>×{count}</Badge>}
+                </span>
+                <span className="muted">
+                  {h.percent_complete != null && `${Math.round(h.percent_complete)}%`}
+                  {h.percent_complete != null && h.accessed_at && ' · '}
+                  {h.accessed_at && `last read ${readTime(h.accessed_at)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <ClearHistory pc={pc} onCleared={onChanged} />
+        </ToolSection>
+        <ToolSection title="Presets" count={presets.data?.items.length} error={presets.error}>
+          <DeletableList
+            pc={pc}
+            help="Dramas that used it keep their settings."
+            items={presets.data?.items.map((p) => ({
+              id: p.id, name: p.name, meta: p.translation_engine ? engineLabel(p.translation_engine) : null,
+            }))}
+            remove={deletePreset}
+            rename={renamePreset}
+            onDeleted={onChanged}
+          />
+        </ToolSection>
+        <ToolSection title="Voice bank" count={voices.data?.items.length} error={voices.error}>
+          <DeletableList
+            pc={pc}
+            help="Characters that used it keep their own copy."
+            items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language ? languageLabel(v.language) : null }))}
+            remove={deleteVoiceBankEntry}
+            rename={renameVoiceBankEntry}
+            onDeleted={onChanged}
+          />
+        </ToolSection>
+        {admin}
+      </div>
+    </section>
   )
 }
 
 const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
 
-function CreateForm({ onCreated, reloadKey }: { onCreated: (id: number) => void; reloadKey: number }) {
-  const [form, setForm] = useState<DramaCreateRequest>({
-    source_language: 'zh', media_type: 'audio_drama', title_en: '', title_zh: '',
-    author: '', studio: '', director: '', voice_actors: '',
-  })
-  const [extras, setExtras] = useState<CreateExtras>(NO_EXTRAS)
-  const series = useLoad(getSeries, reloadKey)
-  const presets = useLoad(getPresets, reloadKey)
+// What has been typed into "New drama". The page keeps it, so closing the
+// Sheet (Esc, backdrop, ×) and reopening it doesn't lose the input; only a
+// successful create or Cancel clears it.
+type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
+
+// The "New drama" Sheet body. Language and type remember the last choice.
+function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
+  draft: CreateDraft | null
+  onDraft: (next: CreateDraft) => void
+  onCreated: (id: number, title: string) => void
+  onCancel: () => void
+  series: Loaded<Awaited<ReturnType<typeof getSeries>>>
+  presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
+}) {
+  const [lastLanguage, setLastLanguage] = usePersistedState('library.newDrama.language', 'zh')
+  const [lastType, setLastType] = usePersistedState('library.newDrama.mediaType', 'audio_drama')
+  const form: DramaCreateRequest = draft?.form ?? {
+    source_language: SOURCE_LANGUAGES.includes(lastLanguage) ? lastLanguage : 'zh',
+    media_type: MEDIA_TYPES.includes(lastType) ? lastType : 'audio_drama',
+    title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '',
+  }
+  const extras = draft?.extras ?? NO_EXTRAS
+  const setForm = (next: DramaCreateRequest) => onDraft({ form: next, extras })
   const setExtra = (k: keyof CreateExtras) => (e: { target: { value: string } }) =>
-    setExtras({ ...extras, [k]: e.target.value })
+    onDraft({ form, extras: { ...extras, [k]: e.target.value } })
   const [error, setError] = useState<unknown>(null)
   const [invalid, setInvalid] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
 
@@ -384,98 +394,95 @@ function CreateForm({ onCreated, reloadKey }: { onCreated: (id: number) => void;
     const problem = validateCreate(body)
     setInvalid(problem)
     if (problem) return
+    setBusy(true)
     createDrama(body).then(
       (d) => {
-        setError(null)
-        setForm({ ...form, title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '' })
-        setExtras(NO_EXTRAS)
-        setOpen(false)
+        setBusy(false)
+        setLastLanguage(form.source_language)
+        if (form.media_type) setLastType(form.media_type)
         savePresetStart(d.id, d.preset_defaults)
-        onCreated(d.id)
+        onCreated(d.id, dramaName(d))
       },
-      (err: unknown) => setError(err),
+      (err: unknown) => { setBusy(false); setError(err) },
     )
   }
 
   return (
-    <details className="panel fold new-drama" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>New drama</summary>
-      <section aria-label="New drama">
-      <form onSubmit={submit} className="stack">
-        <Field label="English title">
-          <input value={form.title_en} onChange={set('title_en')} />
+    <form onSubmit={submit} className="stack create-form" aria-label="New drama">
+      <Field label="English title">
+        {/* The attribute (not React's autoFocus) so the dialog's own focusing picks it. */}
+        <input value={form.title_en} onChange={set('title_en')} ref={(el) => el?.setAttribute('autofocus', '')} />
+      </Field>
+      <Field label="Original title">
+        <input value={form.title_zh} onChange={set('title_zh')} />
+      </Field>
+      <div className="field-row">
+        <Field label="Source language">
+          <select value={form.source_language} onChange={set('source_language')}>
+            {SOURCE_LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+          </select>
         </Field>
-        <Field label="Original title">
-          <input value={form.title_zh} onChange={set('title_zh')} />
+        <Field label="Media type">
+          <select value={form.media_type} onChange={set('media_type')}>
+            {MEDIA_TYPES.map((m) => <option key={m} value={m}>{mediaTypeLabel(m)}</option>)}
+          </select>
         </Field>
+      </div>
+      <Section title="Credits, series and preset" summary="Author, studio, director, voice actors, series, preset">
         <div className="field-row">
-          <Field label="Source language">
-            <select value={form.source_language} onChange={set('source_language')}>
-              {SOURCE_LANGUAGES.map((l) => <option key={l}>{l}</option>)}
-            </select>
+          <Field label="Author">
+            <input value={form.author} onChange={set('author')} />
           </Field>
-          <Field label="Media type">
-            <select value={form.media_type} onChange={set('media_type')}>
-              {MEDIA_TYPES.map((m) => <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>)}
-            </select>
+          <Field label="Studio">
+            <input value={form.studio} onChange={set('studio')} />
           </Field>
         </div>
-        <details className="fold">
-          <summary>Credits, series and preset</summary>
-          <div className="stack">
-            <div className="field-row">
-              <Field label="Author">
-                <input value={form.author} onChange={set('author')} />
-              </Field>
-              <Field label="Studio">
-                <input value={form.studio} onChange={set('studio')} />
-              </Field>
-            </div>
-            <div className="field-row">
-              <Field label="Director">
-                <input value={form.director} onChange={set('director')} />
-              </Field>
-              <Field label="Voice actors" help="Comma-separated.">
-                <input value={form.voice_actors} onChange={set('voice_actors')} />
-              </Field>
-            </div>
-            <div className="field-row">
-              <Field label="Series" help="Dramas in one series share characters and glossary.">
-                <select value={extras.series} onChange={setExtra('series')}>
-                  <option value="">No series</option>
-                  {series.data?.items.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
-                  <option value={NEW_SERIES}>New series…</option>
-                </select>
-              </Field>
-              {extras.series === NEW_SERIES && (
-                <Field label="New series name">
-                  <input value={extras.newSeriesName} onChange={setExtra('newSeriesName')} />
-                </Field>
-              )}
-              {!!presets.data?.items.length && (
-                <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and locale.">
-                  <select value={extras.preset} onChange={setExtra('preset')}>
-                    <option value="">No preset</option>
-                    {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-                  </select>
-                </Field>
-              )}
-            </div>
-          </div>
-        </details>
-        <div className="actions">
-          <button type="submit" className="primary">Create drama</button>
+        <div className="field-row">
+          <Field label="Director">
+            <input value={form.director} onChange={set('director')} />
+          </Field>
+          <Field label="Voice actors" help="Comma-separated.">
+            <input value={form.voice_actors} onChange={set('voice_actors')} />
+          </Field>
         </div>
-      </form>
+        <div className="field-row">
+          <Field label="Series" help="Dramas in one series share characters and glossary.">
+            <select value={extras.series} onChange={setExtra('series')}>
+              <option value="">No series</option>
+              {series.data?.items.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+              <option value={NEW_SERIES}>New series…</option>
+            </select>
+          </Field>
+          {extras.series === NEW_SERIES && (
+            <Field label="New series name">
+              <input value={extras.newSeriesName} onChange={setExtra('newSeriesName')} />
+            </Field>
+          )}
+          {!!presets.data?.items.length && (
+            <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and locale.">
+              <select value={extras.preset} onChange={setExtra('preset')}>
+                <option value="">No preset</option>
+                {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+              </select>
+            </Field>
+          )}
+        </div>
+      </Section>
       {invalid && <p className="error" role="alert">{invalid}</p>}
       <ErrorBanner error={error} />
-      </section>
-    </details>
+      <div className="actions sheet-actions">
+        <button type="submit" className={buttonClass('primary')} disabled={busy}>Create drama</button>
+        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   )
 }
 
 export default function LibraryPage() {
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selected, setSelected] = useState<{ id: number; title: string } | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [draft, setDraft] = useState<CreateDraft | null>(null)
+  const [created, setCreated] = useState<{ id: number; title: string } | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [items, setItems] = useState<DramaSummary[]>([])
@@ -484,22 +491,36 @@ export default function LibraryPage() {
   const pc = usePcOnly()
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
+  const recent = useLoad(getRecent, reloadKey)
+  const history = useLoad(getHistory, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
+  const series = useLoad(getSeries, reloadKey)
+  const costs = useLoad(getCosts, reloadKey)
+  const presets = useLoad(getPresets, reloadKey)
+  const voices = useLoad(getVoiceBank, reloadKey)
   // One export job for the page: the selection bar and Backup & storage share it.
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
   // The last bulk result stays after the bar closes (like `notice`).
   const [bulkResult, setBulkResult] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
 
-  // Prune the selection on every reload so it only holds dramas still listed.
+  // Prune the selection on every reload so it only holds dramas still listed;
+  // with nothing listed there is nothing to select.
   const onItems = useCallback((next: DramaSummary[]) => {
     setItems(next)
     setChecked((c) => pruneSelection(c, next))
+    if (next.length === 0) setSelectMode(false)
   }, [])
+
+  const openDetails = (id: number) => {
+    const d = items.find((x) => x.id === id)
+    setSelected({ id, title: d ? dramaName(d) : 'Drama details' })
+  }
+  const mediaTypes = new Map(items.map((d) => [d.id, d.media_type]))
 
   const picked = selectedItems(items, checked)
   const clear = () => setChecked(new Set())
-  const showBar = phone ? selectMode : picked.length > 0
+  const showBar = selectMode || (!phone && picked.length > 0)
   const bar = showBar && (
     <SelectionBar
       selected={picked}
@@ -513,58 +534,103 @@ export default function LibraryPage() {
       onDone={() => { setSelectMode(false); clear() }}
       onChanged={reload}
       onDeleted={(ids) => {
-        if (selectedId !== null && ids.includes(selectedId)) setSelectedId(null)
+        if (selected && ids.includes(selected.id)) setSelected(null)
+        setCreated((c) => (c && ids.includes(c.id) ? null : c))
         setChecked((c) => new Set([...c].filter((id) => !ids.includes(id))))
       }}
     />
   )
 
+  const dismiss = (onClick: () => void) => (
+    <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClick}>Dismiss</button>
+  )
   const resultLine = bulkResult && (
-    <p className="panel wide" role="status" data-testid="bulk-result">
-      {bulkResult}{' '}
-      <button type="button" className="link" onClick={() => setBulkResult(null)}>Dismiss</button>
+    <p className="status-line" role="status" data-testid="bulk-result">
+      <span>{bulkResult}</span>
+      {dismiss(() => setBulkResult(null))}
     </p>
   )
 
   return (
-    <main className="library-grid">
-      <StatsStrip stats={stats} />
-      <ContinueStrip items={continuing.data?.items ?? null} />
-      <div className="wide new-drama-slot">
-        <CreateForm reloadKey={reloadKey} onCreated={(id) => { setSelectedId(id); reload() }} />
-      </div>
+    <main className="library-page">
+      <header className="page-head">
+        <div className="page-head-text">
+          <h2 className="page-title">Library</h2>
+          <ErrorBanner error={stats.error} />
+          {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
+        </div>
+        <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
+      </header>
+
+      {created && (
+        <p className="status-line" role="status" data-testid="created-notice">
+          <span>Created “{created.title}”.</span>
+          <ButtonLink size="sm" href={workspaceHref(created.id)}>Open workspace</ButtonLink>
+          {dismiss(() => setCreated(null))}
+        </p>
+      )}
+      {notice && (
+        <p className="status-line warn" role="status" data-testid="delete-notice">
+          <span>{notice}</span>
+          {dismiss(() => setNotice(null))}
+        </p>
+      )}
+
+      <ContinueShelf continuing={continuing} recent={recent} mediaTypes={mediaTypes} phone={phone} />
+
       {!phone && bar}
       {!(phone && bar) && resultLine}
       <LibraryList
-        selectedId={selectedId}
-        onSelect={setSelectedId}
+        selectedId={selected?.id ?? null}
+        onSelect={openDetails}
         reloadKey={reloadKey}
         checked={checked}
         onCheckedChange={setChecked}
         selectMode={selectMode}
         onSelectModeChange={setSelectMode}
         onItems={onItems}
+        onCreate={() => setCreating(true)}
       />
       {phone && bar}
-      {selectedId !== null && (
-        <DramaDetailPanel
-          key={selectedId}
-          dramaId={selectedId}
-          onDeleted={pc === 'remote' ? undefined : (r) => { setNotice(deleteNotice(r)); setSelectedId(null); reload() }}
-          deleteNote={pc === 'remote' ? PC_ONLY_DELETE_NOTE : undefined}
+
+      <LibraryTools
+        loads={{ series, costs, history, presets, voices }}
+        pc={pc}
+        onChanged={reload}
+        admin={<AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />}
+      />
+
+      <Sheet open={creating} title="New drama" onClose={() => setCreating(false)}>
+        <CreateForm
+          series={series}
+          presets={presets}
+          draft={draft}
+          onDraft={setDraft}
+          onCancel={() => { setDraft(null); setCreating(false) }}
+          onCreated={(id, title) => {
+            setDraft(null)
+            setCreating(false)
+            setCreated({ id, title })
+            setSelected({ id, title })
+            reload()
+          }}
         />
-      )}
-      {notice && (
-        <p className="panel wide warn" role="status" data-testid="delete-notice">
-          {notice}{' '}
-          <button type="button" className="link" onClick={() => setNotice(null)}>Dismiss</button>
-        </p>
-      )}
-      <MoreSections reloadKey={reloadKey} pc={pc} onChanged={reload} />
-      <LineSearch onSelect={setSelectedId} />
-      <div className="wide">
-        <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />
-      </div>
+      </Sheet>
+      <Sheet open={selected !== null} title={selected?.title ?? ''} onClose={() => setSelected(null)}>
+        {selected && (
+          <DramaDetailPanel
+            key={selected.id}
+            dramaId={selected.id}
+            onDeleted={pc === 'remote' ? undefined : (r) => {
+              setNotice(deleteNotice(r))
+              setSelected(null)
+              setCreated((c) => (c?.id === selected.id ? null : c))
+              reload()
+            }}
+            deleteNote={pc === 'remote' ? PC_ONLY_DELETE_NOTE : undefined}
+          />
+        )}
+      </Sheet>
     </main>
   )
 }
