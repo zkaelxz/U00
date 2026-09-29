@@ -172,7 +172,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         raise NotFoundError(f"No drama with id {drama_id}.")
 
     source = source_service.get_source_config(drama_id)
-    whisper_size = drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"]
+    whisper_size = stored_whisper_size(drama)
 
     return {
         "drama_id": drama_id,
@@ -389,7 +389,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     started = background_jobs.start_job(
         job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
         transcript_text, source_language, chinese_script,
-        drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+        stored_whisper_size(drama),
         drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -457,6 +457,24 @@ def _allowed_whisper_sizes() -> frozenset:
     (core.WHISPER_MODELS, plus tiny/base in the React picker) and the known
     download sizes above. Anything else is refused by update_transcribe_config."""
     return frozenset(core_module.WHISPER_MODELS) | frozenset(_MODEL_DOWNLOAD_SIZES)
+
+
+def stored_whisper_size(drama: dict) -> str:
+    """The drama's saved whisper_size, or the default when it is empty or
+    not one of _allowed_whisper_sizes() (e.g. a value planted in the DB by
+    hand): an arbitrary string must never reach WhisperModel, where it
+    would be read as a Hugging Face repo id or a local path. Logs a warning
+    (without the value) when it falls back."""
+    size = drama.get("whisper_size")
+    if not size:
+        return _DEFAULT_TUNING["whisper_size"]
+    if size not in _allowed_whisper_sizes():
+        import applog
+        applog.get_logger().warning(
+            f"drama {drama.get('id')}: stored whisper_size is not a known model size; "
+            f"using the default {_DEFAULT_TUNING['whisper_size']}")
+        return _DEFAULT_TUNING["whisper_size"]
+    return size
 
 
 def _model_loading_message(whisper_size: str, cached: bool) -> str:
@@ -788,7 +806,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     job_id = autotune_job_id(drama_id)
     started = background_jobs.start_process_job(
         job_id, _autotune_all_worker,
-        args=(audio_path, drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+        args=(audio_path, stored_whisper_size(drama),
               drama.get("source_language") or "zh", settings_service.get_use_gpu(),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
@@ -921,7 +939,7 @@ def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "
         job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
         float(line.start), float(line.end), line.zh,
         drama.get("source_language") or "zh",
-        drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+        stored_whisper_size(drama),
         drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -946,7 +964,7 @@ def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end
     ffmpeg timeout), nothing was heard ("empty"), the job was cancelled, or
     the line no longer exists ("line_gone")."""
     # Which line this run is for, visible to pollers before it finishes.
-    background_jobs.set_result(job_id, {"line_id": line_id})
+    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
     slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
     gpu_fallback = []
     try:

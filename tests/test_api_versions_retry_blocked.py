@@ -288,6 +288,19 @@ class TestRetryService:
         row = next(r for r in db.load_lines(did) if r["id"] == ids[1])
         assert row["en"] == "typed by user" and row["flag"] == "content_blocked"
 
+    def test_note_edit_during_call_is_409_nothing_written(self, isolated_db, monkeypatch):
+        did, ids = _blocked()
+
+        def edit_note_meanwhile(zh, ctx):
+            db.update_line_fields_if(did, ids[1], {"flag_note": "my own note"}, {})
+            return ["Engine text"]
+        _use_engine(monkeypatch, FakeEngine(edit_note_meanwhile))
+        with pytest.raises(ConflictError):
+            blocked_retry_service.retry_blocked_line(did, ids[1], "claude")
+        row = next(r for r in db.load_lines(did) if r["id"] == ids[1])
+        assert row["flag_note"] == "my own note" and row["en"] == ""
+        assert row["flag"] == "content_blocked"
+
     def test_offline_engine_end_to_end(self, isolated_db):
         did, ids = _blocked()
         out = blocked_retry_service.retry_blocked_line(did, ids[1], "test_offline")

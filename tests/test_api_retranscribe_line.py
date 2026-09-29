@@ -104,7 +104,7 @@ def _run_with_result(seen):
     """Runs the captured job body synchronously and returns its result."""
     results = {}
     orig = background_jobs.set_result
-    background_jobs.set_result = lambda jid, r: results.__setitem__(jid, r)
+    background_jobs.set_result = lambda jid, r, **kw: results.__setitem__(jid, r)
     try:
         seen["target"](**seen["args"])
     finally:
@@ -127,6 +127,24 @@ class TestStart:
         assert a["source_language"] == "zh"
         # _resolve_initial_prompt: automatic prompt plus extra names (#393)
         assert a["initial_prompt"] == "苏杉、沈清疑。"
+
+    def test_planted_whisper_size_falls_back_to_default(self, isolated_db, captured):
+        import applog
+        planted = "someone/evil-repo"
+        did, ids = _drama(isolated_db)
+        isolated_db.update_drama(did, whisper_size=planted)
+        transcribe_service.start_retranscribe_line(did, ids[1])
+        assert captured["args"]["whisper_size"] == core.DEFAULT_WHISPER_SIZE
+        logged = "\n".join(applog.tail(20))
+        assert "whisper_size" in logged and planted not in logged
+
+    @pytest.mark.parametrize("stored,expected", [
+        (None, core.DEFAULT_WHISPER_SIZE), ("", core.DEFAULT_WHISPER_SIZE),
+        ("small", "small"), ("../models/x", core.DEFAULT_WHISPER_SIZE),
+        ("org/model", core.DEFAULT_WHISPER_SIZE)])
+    def test_stored_whisper_size(self, isolated_db, stored, expected):
+        assert transcribe_service.stored_whisper_size(
+            {"id": 1, "whisper_size": stored}) == expected
 
     def test_explicit_prompt_overrides(self, isolated_db, captured):
         did, ids = _drama(isolated_db)
@@ -271,6 +289,27 @@ class TestJobBody:
         assert isolated_db.drama_dir(did) not in str(rec)
         assert fake_asr["transcribe"] == []
         assert fake_asr["released"] == 1
+
+    def test_line_id_is_visible_while_running(self, isolated_db, fake_asr, monkeypatch):
+        import threading
+        started, release = threading.Event(), threading.Event()
+
+        def held_slice(audio_path, start, end, out_path, timeout=None):
+            started.set()
+            assert release.wait(5)
+            with open(out_path, "wb") as f:
+                f.write(b"slice")
+        monkeypatch.setattr(core, "extract_audio_slice", held_slice)
+        did, ids = _drama(isolated_db)
+        out = transcribe_service.start_retranscribe_line(did, ids[1])
+        try:
+            assert started.wait(5)
+            rec = jobs_service.get_job(out["job_id"])
+            assert rec["status"] == "running"
+            assert rec["result"] == {"line_id": ids[1]}
+        finally:
+            release.set()
+        _finish(out)
 
     def test_real_thread_projection(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
