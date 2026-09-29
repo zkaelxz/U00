@@ -2880,6 +2880,54 @@ class NotificationTestResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Sources S-4 chapter import (services/sources_import_service.py). Results
+# are read with GET /api/sources/jobs/{job_id}/result (SourcesJobResult).
+# ---------------------------------------------------------------------------
+
+from pydantic import StrictStr  # noqa: E402
+
+class SourcesChapterImportRequest(BaseModel):
+    """Chapter ids only: never chapter objects or URLs (the job re-fetches
+    the series' chapter list and keeps these ids). The drama must exist."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(min_length=1, max_length=200)
+    chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
+    drama_id: int = Field(ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Sources S-5 paste-a-URL preview and novel import
+# (services/sources_url_service.py, services/sources_import_service.py).
+# Results are read with GET /api/sources/jobs/{job_id}/result.
+# ---------------------------------------------------------------------------
+
+class SourcesUrlPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+
+
+class SourcesUrlImportRequest(BaseModel):
+    """Novel text only (thin slice). The drama must be a novel drama."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    drama_id: int = Field(ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Workspace video-URL download (services/url_media_service.py); PC-only.
+# The job is read with GET /api/jobs/{job_id}.
+# ---------------------------------------------------------------------------
+
+class MediaUrlDownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    audio_only: StrictBool
+    confirm_replace_audio: StrictBool = False
+
+
+class MediaUrlDownloadStarted(BaseModel):
+    job_id: str
+
 # Voice-clone setup (parity audit blocker #7; inventory C01, C03, C09, C13):
 # services/voice_clone_service.py. No path, filename or URL anywhere.
 # ---------------------------------------------------------------------------

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import detect, store
-from .http import REDIRECT_REFUSED, UnsafeRedirect, _ascii_url
+from .http import REDIRECT_REFUSED, ResponseRefused, UnsafeRedirect, _ascii_url
 from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
                      ENVIRONMENT_BLOCK_REASONS, FailureReason, LADDER_ORDER, PROTECTION_REASONS,
@@ -106,6 +106,10 @@ def static_tier(client):
         except ChallengeDetected as e:
             return TierOutcome(False, reasons=[e.reason], detail=str(e),
                                evidence=_ev(e.attempt))
+        except ResponseRefused:
+            # Over the size cap or past the deadline: stop the whole fetch
+            # (no browser retry of the same page), fixed message.
+            raise
         except UnsafeRedirect as e:
             return TierOutcome(False, reasons=[FailureReason.ACCESS_DENIED], detail=str(e),
                                evidence=_ev(e.attempt), stop=True)
