@@ -687,9 +687,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
                 with open(novel_path, encoding="utf-8") as f:
                     novel_reference = f.read()
 
-        import tabs.workspace_tab as workspace_tab
         background_jobs.start_job(
-            per_job_id, workspace_tab.run_translate_job,
+            per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
             glossary_terms, style_guidelines, engine_choice, style_preset, 6, None,
             cost_cap_usd=cost_cap,

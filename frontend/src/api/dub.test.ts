@@ -11,7 +11,7 @@ import {
 } from '../pages/workspace/stages/dubForm'
 import type { DubConfig } from '../types/dub'
 import { ApiError } from './client'
-import { dubApi, narrationApi } from './dub'
+import { dubApi, dubTrackUrl, narrationApi } from './dub'
 
 const cfg = (over: Partial<DubConfig> = {}): DubConfig => ({
   drama_id: 1,
@@ -87,5 +87,11 @@ describe('dub api', () => {
       expect(err).toBeInstanceOf(ApiError)
       expect((err as ApiError).status).toBe(status)
     }
+  })
+})
+
+describe('dubTrackUrl', () => {
+  it('points at the dub track route', () => {
+    expect(dubTrackUrl(7)).toMatch(/\/api\/dub\/dramas\/7\/track$/)
   })
 })

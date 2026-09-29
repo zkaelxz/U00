@@ -64,4 +64,4 @@ Bullets marked **(proposed)** are new wording added by the 2026-09-29 instructio
 
 - The lead owns user communication, scope, integration and final verification; it delegates research, review and QA to the matching project agent (`.claude/CLAUDE.md`).
 - One writer per file. Read-only agents get what they cannot fetch (diff, base commit, changed files, roadmap text, task spec).
-- Agents default to Sonnet. A step the roadmap's model table (§4) lists for Opus needs the user's confirmation first; the lead then sets the model when it spawns the agent.
+- Agents default to Opus (user decision, 2026-09-29; the project agents set `model: opus`). The lead passes the model explicitly when it spawns an agent, and uses a different model only when the user asks.
