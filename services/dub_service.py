@@ -115,6 +115,21 @@ def get_dub_config(drama_id: int) -> dict:
     }
 
 
+def get_dub_track(drama_id: int) -> dict:
+    """Server-side file lookup for the finished dub/narration track:
+    {path (never returned to clients), name}. Raises NotFoundError for an
+    unknown drama or when no track exists (symlinks/escapes count as missing)."""
+    drama = _get_drama(drama_id)
+    name = "narration_track.wav" if drama.get("content_mode") == "novel_narration" else "dub_track.wav"
+    root = _drama_path(drama_id)
+    path = os.path.join(root, name)
+    real_root = os.path.realpath(root)
+    if (os.path.islink(path) or not os.path.isfile(path)
+            or os.path.commonpath([real_root, os.path.realpath(path)]) != real_root):
+        raise NotFoundError("No dub track available.")
+    return {"path": path, "name": name}
+
+
 def get_dub_pacing(drama_id: int) -> dict:
     """Per-line fit against original timing from the last dub run, as
     `_render_dub_pacing` shows it. status is one of "fit" / "stretched" /
