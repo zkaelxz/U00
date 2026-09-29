@@ -55,6 +55,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 
 import os
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8600
@@ -75,10 +76,17 @@ class ApiSettings:
     auth_mode: str = "off"        # "off" | "on"
     cookie_secure: bool = True
     background_services: bool = False   # load_settings: on unless BAIHE_API_BACKGROUND=0
+    google_client_id: str = field(default="", repr=False)
+    google_client_secret: str = field(default="", repr=False)
+    public_url: str = ""
 
     @property
     def auth_enabled(self) -> bool:
         return self.auth_mode == "on"
+
+    @property
+    def sign_in_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret and self.public_url)
 
     @property
     def is_development(self) -> bool:
@@ -128,10 +136,60 @@ def load_settings(environ=None) -> ApiSettings:
     if background_text not in ("1", "0", "true", "false", "yes", "no", "on", "off"):
         raise ValueError(f"BAIHE_API_BACKGROUND must be 1 or 0, got {background_text!r}")
     background_services = background_text in ("1", "true", "yes", "on")
+    sign_in = _sign_in_values(env, from_env_file=environ is None)
+    public_url = normalize_public_url(sign_in["BAIHE_PUBLIC_URL"])
     return ApiSettings(host=host, port=port, environment=environment,
                        cors_origins=cors_origins, allow_key_writes=allow_key_writes,
                        serve_frontend=serve_frontend, auth_mode=auth_mode,
-                       cookie_secure=cookie_secure, background_services=background_services)
+                       cookie_secure=cookie_secure, background_services=background_services,
+                       google_client_id=sign_in["BAIHE_GOOGLE_CLIENT_ID"],
+                       google_client_secret=sign_in["BAIHE_GOOGLE_CLIENT_SECRET"],
+                       public_url=public_url)
+
+
+SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL")
+
+
+def _sign_in_values(env, from_env_file: bool) -> dict:
+    """The three sign-in settings. At real startup (`environ` not given) the
+    project's `.env` is read too -- the same file and parser the engine keys
+    use (`settings_service._read_env_file`), with `.env` taking priority over
+    the process environment, like `settings_service.resolve_key`."""
+    file_env = {}
+    if from_env_file:
+        from services.settings_service import _read_env_file
+        file_env = _read_env_file()
+    return {name: (file_env.get(name) or env.get(name) or "").strip()
+            for name in SIGN_IN_ENV_NAMES}
+
+
+_DEV_HTTP_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def normalize_public_url(value: str) -> str:
+    """'' stays ''. Otherwise returns `scheme://host[:port]` with no trailing
+    slash, or raises ValueError: the scheme must be https (http only for a
+    loopback host, dev), and there may be no path, query, fragment or
+    credentials. The message never echoes the value (it's config, but keep
+    the startup error free of anything pasted by mistake)."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    try:
+        parts = urlsplit(value)
+        hostname = parts.hostname
+        parts.port   # raises ValueError on a bad port
+    except ValueError:
+        raise ValueError("BAIHE_PUBLIC_URL is not a valid URL.")
+    if parts.scheme not in ("https", "http") or not hostname:
+        raise ValueError("BAIHE_PUBLIC_URL must look like https://your-domain.")
+    if "@" in parts.netloc or parts.path.strip("/") or parts.query or parts.fragment:
+        raise ValueError("BAIHE_PUBLIC_URL must be just https://your-domain "
+                         "(no path, query or user name).")
+    if parts.scheme == "http" and hostname.lower() not in _DEV_HTTP_HOSTS:
+        raise ValueError("BAIHE_PUBLIC_URL must use https:// (plain http:// is only "
+                         "allowed for localhost during development).")
+    return f"{parts.scheme}://{parts.netloc}"
 
 
 def is_loopback_host(host: str) -> bool:
@@ -149,3 +207,7 @@ def check_bind_safety(settings: ApiSettings):
             f"Refusing to listen on {settings.host}: it is reachable from other machines and "
             "BAIHE_API_AUTH is not 'on'. Set BAIHE_API_AUTH=on (and allowlist users with "
             "`python -m api grant-admin <email>`), or use the default 127.0.0.1.")
+    # ApiSettings built directly (tests, embedding) skip load_settings, so the
+    # public URL rule is enforced here too; normalize_public_url is idempotent.
+    if settings.public_url and normalize_public_url(settings.public_url) != settings.public_url:
+        raise ValueError("BAIHE_PUBLIC_URL must be just https://your-domain.")
