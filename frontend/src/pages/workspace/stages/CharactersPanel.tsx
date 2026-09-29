@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { getCharacters, saveCharacter } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Section } from '../../../components/Section'
 import type { CharacterEntry, CharacterUpdate } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 
@@ -71,12 +72,17 @@ export function CharactersPanel() {
   }, [dramaId])
 
   return (
-    <section className="panel" aria-label="Characters">
-      <h3>Characters and voices</h3>
+    <Section
+      storageKey="translate.characters"
+      title="Characters"
+      count={entries?.length}
+      summary={entries ? (entries.length ? 'names, pronouns and voices' : 'no speakers yet') : undefined}
+    >
+      <div role="region" aria-label="Characters">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription or diarization.</p>}
+      {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
       {entries && entries.length > 0 && (
-        <table>
+        <div className="table-scroll"><table>
           <thead>
             <tr><th>Speaker</th><th>Name</th><th>Gender</th><th>Voice</th><th>Lines</th><th>Reference</th><th /></tr>
           </thead>
@@ -89,8 +95,9 @@ export function CharactersPanel() {
               />
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
-    </section>
+      </div>
+    </Section>
   )
 }

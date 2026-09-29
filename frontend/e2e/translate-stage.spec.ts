@@ -29,29 +29,34 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await expect(run.getByTestId('translate-counts')).toContainText('lines have no English yet')
-  await expect(run.getByLabel('Engine', { exact: true })).toContainText('key configured')
+  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeVisible()
+  await expect(run.getByLabel('Engine', { exact: true })).toBeVisible()
+  // Options live in a collapsed Advanced section with a summary of non-default values.
+  await expect(run.getByText('defaults', { exact: true })).toBeVisible()
+  await expect(run.getByLabel('Batch size', { exact: true })).toBeHidden()
 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
 
+  await run.getByText('Advanced', { exact: true }).click()
+
   // Out-of-range values are caught before any request.
-  await run.getByLabel('Batch size (1-200)').fill('500')
-  await run.getByRole('button', { name: 'Start translation' }).click()
+  await run.getByLabel('Batch size', { exact: true }).fill('500')
+  await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect(run.getByRole('alert')).toContainText('Batch size')
   expect(bodies).toEqual([])
 
-  await run.getByLabel('Batch size (1-200)').fill('10')
-  await run.getByLabel(/Cost cap/).fill('2.5')
+  await run.getByLabel('Batch size', { exact: true }).fill('10')
+  await run.getByLabel('Cost cap', { exact: true }).fill('2.5')
   await run.getByRole('button', { name: 'Add fallback engine' }).click()
   await run.getByLabel('Fallback engine 1').selectOption(other)
-  await run.getByLabel('Re-translate lines that already have English').check()
-  await run.getByRole('button', { name: 'Start translation' }).click()
+  await run.getByLabel('Re-translate existing').check()
+  await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect(run.getByRole('alert')).toContainText('Tick the confirmation')
   expect(bodies).toEqual([])
 
   await run.getByLabel(/I understand this replaces/).check()
-  await run.getByRole('button', { name: 'Start translation' }).click()
+  await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect(page.getByTestId('job-status')).toContainText('running')
   expect(bodies[0]).toMatchObject({
     batch_size: 10,
@@ -69,12 +74,15 @@ test('a 409 on start says a translate job is already running', async ({ page }) 
   await page.route('**/api/translate-run/dramas/1/run', (route) =>
     route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'busy' } } }))
   await page.goto('/#/drama/1/translate')
-  await page.getByRole('button', { name: 'Start translation' }).click()
+  await page.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect(page.getByText('A translate job is already running for this drama.')).toBeVisible()
 })
 
 test('glossary and characters panels load; a term for a drama without a series shows a banner', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
+  // Both panels are collapsed Sections with a count badge; open them to reach the body.
+  await page.locator('details.section', { hasText: 'Glossary' }).locator('summary').click()
+  await page.locator('details.section', { hasText: 'Characters' }).locator('summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByLabel('Project instructions')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()

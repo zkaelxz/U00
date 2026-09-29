@@ -8,6 +8,8 @@ import {
   saveInstructions,
 } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateStage'
 import { splitLines } from '../translateForm'
 import { useStage } from '../StageContext'
@@ -58,31 +60,33 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
     onSave(f)
   }
   return (
-    <fieldset className="form-grid">
+    <fieldset className="term-form">
       <legend>{f.id ? 'Edit term' : 'Add term'}</legend>
-      <label>Original<input value={f.term_original} onChange={(e) => set('term_original', e.target.value)} /></label>
-      <label>Translation<input value={f.term_translation} onChange={(e) => set('term_translation', e.target.value)} /></label>
-      <label>Notes<input value={f.notes} onChange={(e) => set('notes', e.target.value)} /></label>
+      <Field label="Original"><input value={f.term_original} onChange={(e) => set('term_original', e.target.value)} /></Field>
+      <Field label="Translation"><input value={f.term_translation} onChange={(e) => set('term_translation', e.target.value)} /></Field>
+      <Field label="Notes"><input value={f.notes} onChange={(e) => set('notes', e.target.value)} /></Field>
       {catalogues && (
         <>
-          <label>
-            Category
+          <Field label="Category">
             <select value={f.category} onChange={(e) => set('category', e.target.value)}>
               <option value="">None</option>
               {catalogues.term_categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
-          </label>
-          <label>
-            Policy
+          </Field>
+          <Field label="Policy">
             <select value={f.policy} onChange={(e) => set('policy', e.target.value)}>
               <option value="">None</option>
               {catalogues.term_policies.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
             </select>
-          </label>
+          </Field>
         </>
       )}
-      <label>Aliases (one per line)<textarea rows={2} value={f.aliases} onChange={(e) => set('aliases', e.target.value)} /></label>
-      <label>Banned translations (one per line)<textarea rows={2} value={f.banned} onChange={(e) => set('banned', e.target.value)} /></label>
+      <Field label="Aliases" help="One per line.">
+        <textarea rows={2} value={f.aliases} onChange={(e) => set('aliases', e.target.value)} />
+      </Field>
+      <Field label="Banned" help="Banned translations, one per line.">
+        <textarea rows={2} value={f.banned} onChange={(e) => set('banned', e.target.value)} />
+      </Field>
       <label className="inline">
         <input type="checkbox" checked={f.enforce_exact} onChange={(e) => set('enforce_exact', e.target.checked)} /> Enforce exact
       </label>
@@ -103,8 +107,7 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
   const label = scope === 'project' ? 'Project instructions' : 'Series instructions'
   return (
     <div>
-      <label>
-        {label}
+      <Field label={label}>
         <textarea
           rows={3}
           value={text}
@@ -113,7 +116,7 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
             setText(e.target.value)
           }}
         />
-      </label>
+      </Field>
       <button
         type="button"
         onClick={() =>
@@ -185,12 +188,17 @@ export function GlossaryPanel() {
     }, setSaveError)
 
   return (
-    <section className="panel" aria-label="Glossary">
-      <h3>Glossary</h3>
+    <Section
+      storageKey="translate.glossary"
+      title="Glossary"
+      count={terms?.length}
+      summary={terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
+    >
+      <div role="region" aria-label="Glossary">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {terms && terms.length === 0 && <p className="muted">No glossary terms yet. Terms belong to the drama's series.</p>}
+      {terms && terms.length === 0 && <p className="muted">No terms yet. They belong to the drama's series.</p>}
       {terms && terms.length > 0 && (
-        <table>
+        <div className="table-scroll"><table>
           <thead>
             <tr><th>Original</th><th>Translation</th><th>Aliases</th><th>Banned</th><th>Exact</th><th /></tr>
           </thead>
@@ -206,7 +214,7 @@ export function GlossaryPanel() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       {editing ? (
         <TermEditor
@@ -226,6 +234,7 @@ export function GlossaryPanel() {
           <InstructionsEditor scope="series" initial={instructions.series} />
         </>
       )}
-    </section>
+      </div>
+    </Section>
   )
 }
