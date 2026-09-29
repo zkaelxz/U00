@@ -28,6 +28,7 @@ the novel text are never returned -- booleans only.
 import inspect
 import json
 import os
+import re
 import sqlite3
 from types import SimpleNamespace
 from typing import Optional
@@ -142,6 +143,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
         raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
     if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(f"{engine_name} can't run Reflect mode.")
+    _require_offered_model(engine_name, model)
     if (gemini_free_tier and engine_name == "gemini"
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError(f"{model} isn't available on Gemini's free tier.")
@@ -214,14 +216,30 @@ def _summary_engine():
         return None, None
 
 
+_OLLAMA_MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
+
+
+def _is_safe_ollama_model(model) -> bool:
+    """Ollama model names are only sent to the local Ollama server (never a
+    download), and users pull their own, so any name of this shape is
+    accepted: no whitespace, no "..", no leading slash."""
+    return (isinstance(model, str) and _OLLAMA_MODEL_RE.fullmatch(model) is not None
+            and ".." not in model)
+
+
 def _require_offered_model(engine_name: str, model) -> None:
     """InvalidInputError unless `model` is None or one this engine offers
     (translate_service.list_engines, the same list preset saving checks);
-    for an engine without a model list only its own default is allowed. A
-    free-form model string would otherwise reach the engine as is (nllb
-    hands it to transformers.pipeline as a Hugging Face repo id)."""
+    ollama takes any safe-shaped name (_is_safe_ollama_model); an engine
+    without a model list allows only its own default. A free-form model
+    string would otherwise reach the engine as is (nllb hands it to
+    transformers.pipeline as a Hugging Face repo id)."""
     if model is None:
         return
+    if engine_name == "ollama":
+        if _is_safe_ollama_model(model):
+            return
+        raise InvalidInputError("That model isn't offered for this engine.")
     models = next((e["models"] for e in translate_service.list_engines()
                    if e["name"] == engine_name), None)
     allowed = models if models is not None else [_default_model(engine_name)]
@@ -630,7 +648,9 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
         raise InvalidInputError("Unknown translation engine.")
     models = next((e["models"] for e in translate_service.list_engines()
                    if e["name"] == translation_engine), None)
-    if engine_model is not None and (models is None or engine_model not in models):
+    if engine_model is not None and not (
+            _is_safe_ollama_model(engine_model) if translation_engine == "ollama"
+            else models is not None and engine_model in models):
         raise InvalidInputError("That model isn't offered for this engine.")
     if style_preset is not None and style_preset not in translation_guide.STYLE_PRESETS:
         raise InvalidInputError("Unknown style preset.")

@@ -198,3 +198,24 @@ def test_offered_or_default_models_pass_the_check():
     svc._require_offered_model("deepseek", svc._default_model("deepseek"))
     with pytest.raises(InvalidInputError):
         svc._require_offered_model("deepseek", "other-model")
+
+
+@pytest.mark.parametrize("model,ok", [
+    ("qwen3:14b", True), ("my-own/llama3.1:8b-instruct-q4_K_M", True),
+    ("../x", False), ("/abs/path", False), ("has space", False), ("a/../b", False),
+    ("x" * 101, False), ("", False)])
+def test_ollama_takes_any_safe_model_name(model, ok):
+    from services import translate_run_service as svc
+    from services.service_errors import InvalidInputError
+    if ok:
+        svc._require_offered_model("ollama", model)
+    else:
+        with pytest.raises(InvalidInputError):
+            svc._require_offered_model("ollama", model)
+
+
+def test_estimate_refuses_model_not_offered(client):
+    r = client.get(f"{BASE}/{_seed()}/estimate",
+                   params={"engine": "nllb", "model": "someone/evil-repo"})
+    assert r.status_code == 422
+    assert "evil-repo" not in r.text
