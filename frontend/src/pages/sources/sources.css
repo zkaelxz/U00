@@ -238,3 +238,4 @@ ul.source-cards > li {
   .sources-autoimport select { flex: 1 1 auto; max-width: none; }
   .source-access .actions > button, .source-signin .actions > button { flex: 1 1 100%; }
 }
+.sources-find details.section { margin-bottom: 0; }

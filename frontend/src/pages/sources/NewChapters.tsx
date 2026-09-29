@@ -95,7 +95,7 @@ export function NewChapters({
           {notifications.length > 0 && <Badge tone="accent">{notifications.length} new</Badge>}
         </>
       }
-      meta={`${notifications.length} new · ${tracked.length} tracked`}
+      meta={`${tracked.length} tracked series`}
       actions={
         canAct && tracked.length > 0 ? (
           <button
