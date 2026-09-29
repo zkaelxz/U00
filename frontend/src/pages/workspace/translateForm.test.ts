@@ -36,6 +36,14 @@ describe('translate form', () => {
     expect(validateRun(f, 'ollama')).toBeNull()
   })
 
+  it('starts from the Settings default locale and style note when given', () => {
+    const f = initialForm({ ...config, default_locale: 'en-GB', default_style_note: 'Terse.' })
+    expect(f).toMatchObject({ locale: 'en-GB', style_note: 'Terse.' })
+    // An unknown default locale falls back to en-US; a preset's locale still wins.
+    expect(initialForm({ ...config, default_locale: 'fr-FR' }).locale).toBe('en-US')
+    expect(initialForm({ ...config, default_locale: 'en-GB' }, { locale: 'en-US' }).locale).toBe('en-US')
+  })
+
   it('validates ranges, cap, chain and the force confirmation', () => {
     const base = initialForm(config)
     expect(validateRun({ ...base, batch_size: '0' }, 'x')).toMatch(/Batch size/)

@@ -38,12 +38,13 @@ MAX_ISSUE_CHARS = 500
 
 def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
     """The engine an LLM tool on this drama will use: the named one, else
-    the drama's translation_engine (default claude). For the router's
+    the drama's translation_engine, else the saved default engine. For the router's
     engines.paid gate, which passes this name on, so the call can't switch
     to an engine the gate didn't see."""
     if engine_name:
         return engine_name
-    return translate_run_service._require_drama(drama_id).get("translation_engine") or "claude"
+    return (translate_run_service._require_drama(drama_id).get("translation_engine")
+            or settings_service.get_default_engine())
 
 
 def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None:
@@ -65,7 +66,7 @@ def _engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: bo
     here, never accepted from the caller. `check_cap` refuses a paid engine
     once the monthly spending cap is used up."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine_name or drama.get("translation_engine") or "claude"
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
