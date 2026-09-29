@@ -434,6 +434,23 @@ class TestJobs:
         off = _local(_app("off")).get("/api/jobs").json()["items"]
         assert {j["job_id"] for j in off} >= set(jobs.values())
 
+    def test_starter_loses_a_drama_job_when_the_drama_goes_private(self, world):
+        # Review L-1: B started a run on A's shared drama; A then made it private.
+        from services import ownership_service
+        job_id = f"translate_{world['shared']}"
+        db.save_job_record(job_id, "running", started_at=1.0, owner_user_id=world["b_id"])
+        db.save_job_record("sources_search", "running", started_at=1.0,
+                           owner_user_id=world["b_id"])
+        client = _client(_app())
+        assert client.get(f"/api/jobs/{job_id}", headers=world["b"]).status_code == 200
+        a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
+        ownership_service.set_private(a, "drama", world["shared"], True)
+        assert client.get(f"/api/jobs/{job_id}", headers=world["b"]).status_code == 404
+        assert client.post(f"/api/jobs/{job_id}/cancel", headers=world["b"]).status_code == 404
+        seen = {j["job_id"] for j in client.get("/api/jobs", headers=world["b"]).json()["items"]}
+        assert seen == {"sources_search"}          # a non-drama job stays the starter's
+        assert client.get(f"/api/jobs/{job_id}", headers=world["a"]).status_code == 200
+
     def test_shared_fixed_id_results_are_per_starter(self, world, monkeypatch):
         import background_jobs
         from services import live_service

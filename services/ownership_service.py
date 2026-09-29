@@ -281,17 +281,19 @@ def drama_id_of_job(job_id):
 
 
 def can_see_job(principal, job_id, owner_user_id) -> bool:
-    """Admins, the local owner and auth off see every job. Otherwise a job
-    is visible to the user who started it, and a drama's job to anyone
-    who can see that drama. Anything else (another user's or the PC's
-    Discover/Sources/Live/library job) is hidden."""
+    """Admins, the local owner and auth off see every job. A drama's job
+    (`<prefix><drama_id>`) is visible to whoever can see that drama --
+    its starter included, so a drama that went private stops showing its
+    jobs to them (review L-1). Any other job is visible only to the user
+    who started it: another user's or the PC's Discover/Sources/Live/
+    library job is hidden."""
     if _sees_everything(principal):
         return True
-    uid = _user_id(principal)
-    if uid is not None and owner_user_id == uid:
-        return True
     drama_id = drama_id_of_job(job_id)
-    return drama_id is not None and can_see_drama(principal, drama_id)
+    if drama_id is not None:
+        return can_see_drama(principal, drama_id)
+    uid = _user_id(principal)
+    return uid is not None and owner_user_id == uid
 
 
 def require_job_visible(principal, job_id, owner_user_id) -> None:
