@@ -28,7 +28,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from . import detect, health, store
 from .cache import RawCache
@@ -130,7 +130,59 @@ def decode_html(content: bytes, headers: dict = None) -> str:
         return content.decode("utf-8", errors="replace")
 
 
+MAX_REDIRECTS = 5
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
+REDIRECT_REFUSED = "Refused: the address is not a public web address."
+TOO_MANY_REDIRECTS = "Refused: too many redirects."
+
+
+class UnsafeRedirect(FetchFailed):
+    """A request (or one of its redirect hops) targeted a non-public or
+    non-http(s) address, or the redirect chain was too long. The message is
+    fixed: no URL or IP is echoed. Never retried, and the access ladder
+    stops on it rather than trying a browser tier (B-25 review M3)."""
+
+    def __init__(self, message: str = "", reason: FailureReason = FailureReason.ACCESS_DENIED,
+                 attempt=None):
+        super().__init__(message, reason, attempt)
+
+
+def _ascii_url(url: str) -> str:
+    """The URL with its host in the exact ASCII form requests will connect
+    to (UTS46 IDNA, lowercased), so the name that is validated, pinned and
+    sent is one and the same (B-25 review H1: getaddrinfo's IDNA2003 maps
+    'ß' to 'ss', requests' UTS46 keeps it -- two different hosts)."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        raise UnsafeRedirect(REDIRECT_REFUSED) from None
+    if not host or parts.username or parts.password:
+        raise UnsafeRedirect(REDIRECT_REFUSED)
+    if host.isascii():
+        ascii_host = host.lower()
+    else:
+        try:
+            import idna
+            ascii_host = idna.encode(host, uts46=True).decode("ascii").lower()
+        except Exception:
+            raise UnsafeRedirect(REDIRECT_REFUSED) from None
+    if ":" in ascii_host:
+        ascii_host = f"[{ascii_host}]"
+    netloc = ascii_host + (f":{port}" if port is not None else "")
+    return parts._replace(netloc=netloc).geturl()
+
+
 def _requests_transport(method, url, headers, data, timeout):
+    """One request, following redirects by hand (B-25): every hop -- the
+    first included -- must be http(s) with a host whose every resolved
+    address is global (services.url_guard). Without a proxy the connection
+    is pinned to the validated address (Host header, SNI and certificate
+    checks keep the real name); with one, the target host is validated by
+    name and the proxy does the connecting."""
+    from services import url_guard
+
     session = _thread_session()
     # Step 98: route through a configured proxy, if one is set. Applied
     # here rather than baked into the session (session.proxies would
@@ -138,8 +190,40 @@ def _requests_transport(method, url, headers, data, timeout):
     # lifetime) so a change takes effect on the very next request.
     proxy_url = store.get_setting("http_proxy_url")
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
-    r = session.request(method, url, headers=headers, data=data, timeout=timeout,
-                        allow_redirects=True, proxies=proxies)
+    hops = []
+    current, cur_method, cur_data, cur_headers = url, method, data, dict(headers or {})
+    for _ in range(MAX_REDIRECTS + 1):
+        current = _ascii_url(current)
+        try:
+            ip = url_guard.resolve_public(current)
+        except url_guard.UnsafeURLError:
+            raise UnsafeRedirect(REDIRECT_REFUSED) from None
+        except url_guard.URLResolveError as e:
+            raise _resolve_error(e) from None
+        host = (urlsplit(current).hostname or "").lower()
+        # The adapter decides from the proxies requests actually uses
+        # whether to pin (B-25 review M1); it refuses on any host mismatch.
+        _tls.pin = (host, ip)
+        try:
+            r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
+                                timeout=timeout, allow_redirects=False, proxies=proxies)
+        finally:
+            _tls.pin = None
+        hops.append(r)
+        location = (r.headers or {}).get("Location") or (r.headers or {}).get("location")
+        if r.status_code not in _REDIRECT_CODES or not location:
+            break
+        nxt = urljoin(current, location)
+        if _should_strip_auth(current, nxt):
+            cur_headers = {k: v for k, v in cur_headers.items()
+                           if k.lower() not in ("authorization", "cookie")}
+        if r.status_code == 303 or (r.status_code in (301, 302) and cur_method == "POST"):
+            if cur_method != "HEAD":
+                cur_method = "GET"
+            cur_data = None
+        current = nxt
+    else:
+        raise UnsafeRedirect(TOO_MANY_REDIRECTS)
     # `r.cookies` alone only carries the *final* hop's own Set-Cookie headers
     # (requests' HTTPAdapter.build_response extracts each response's cookies
     # onto that same response object, not onto the ones before it) -- a
@@ -160,12 +244,79 @@ def _requests_transport(method, url, headers, data, timeout):
     # instead of returning it -- a real bug in `requests` itself, hit live
     # by kuaikan's real site, which sets exactly such an empty-value cookie
     # (`referer_name=""`) on every visit.
+    # With redirects followed by hand, each hop is its own response; a
+    # response's own `history` is still honoured in case a transport hands
+    # one back.
     cookies = {}
-    for hop in list(r.history) + [r]:
-        for cookie in hop.cookies:
-            cookies[cookie.name] = cookie.value
+    for resp in hops:
+        for hop in list(getattr(resp, "history", None) or []) + [resp]:
+            for cookie in hop.cookies:
+                cookies[cookie.name] = cookie.value
     return Response(status_code=r.status_code, headers=dict(r.headers), content=r.content,
                     url=r.url, cookies=cookies)
+
+
+def _should_strip_auth(old_url, new_url) -> bool:
+    """requests' own rule (host, scheme or non-default port change)."""
+    try:
+        from requests.sessions import SessionRedirectMixin
+        return SessionRedirectMixin.should_strip_auth(None, old_url, new_url)
+    except Exception:
+        return True
+
+
+def _resolve_error(exc):
+    """DNS failure stays an ordinary (retryable) connection error."""
+    try:
+        import requests
+        return requests.exceptions.ConnectionError(str(exc))
+    except ImportError:
+        return ConnectionError(str(exc))
+
+
+def _pinning_adapter():
+    """An HTTPAdapter that, while `_tls.pin` names this request's host,
+    connects to the validated IP instead of re-resolving the name (the
+    request URL is restored before the session extracts cookies, so the
+    cookie jar and Response.url still see the real host)."""
+    from requests.adapters import HTTPAdapter
+
+    class _PinningAdapter(HTTPAdapter):
+        def build_connection_pool_key_attributes(self, request, verify, cert=None):
+            host_params, pool_kwargs = super().build_connection_pool_key_attributes(
+                request, verify, cert)
+            name = getattr(request, "_baihe_pinned_name", None)
+            if name and host_params.get("scheme") == "https":
+                pool_kwargs["server_hostname"] = name
+                pool_kwargs["assert_hostname"] = name
+            return host_params, pool_kwargs
+
+        def send(self, request, **kw):
+            pin = getattr(_tls, "pin", None)
+            if not pin:
+                return super().send(request, **kw)
+            from requests.utils import select_proxy
+            parts = urlsplit(request.url)
+            name, ip = pin
+            if (parts.hostname or "").lower() != name:
+                # Fail closed: never send unpinned to a name we didn't check.
+                raise UnsafeRedirect(REDIRECT_REFUSED)
+            if select_proxy(request.url, kw.get("proxies") or {}):
+                # A proxy connects for us: the target was validated by name.
+                return super().send(request, **kw)
+            original = request.url
+            ip_host = f"[{ip}]" if ":" in ip else ip
+            request.url = parts._replace(netloc=ip_host + (f":{parts.port}" if parts.port else "")).geturl()
+            request.headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
+            request._baihe_pinned_name = name
+            try:
+                resp = super().send(request, **kw)
+            finally:
+                request.url = original
+            resp.url = original
+            return resp
+
+    return _PinningAdapter()
 
 
 _tls = threading.local()
@@ -175,6 +326,8 @@ def _thread_session():
     import requests
     if not hasattr(_tls, "session"):
         _tls.session = requests.Session()
+        _tls.session.mount("http://", _pinning_adapter())
+        _tls.session.mount("https://", _pinning_adapter())
     return _tls.session
 
 
@@ -349,6 +502,13 @@ class SourceClient:
                     resp, exc = None, e
                 latency = self.clock() - started
 
+            if isinstance(exc, UnsafeRedirect):
+                self.attempts.append(AttemptRecord(
+                    tier=AccessTier.STATIC_HTTP.value, ok=False,
+                    reason=FailureReason.ACCESS_DENIED.value, detail=str(exc),
+                    final_url=url, at=time.time()))
+                self._status("Idle", 0.0)
+                raise exc
             if exc is not None:
                 reason = FailureReason.TIMEOUT if _is_timeout(exc) else FailureReason.HTTP_ERROR
                 attempt = AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=False,

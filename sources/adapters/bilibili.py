@@ -183,6 +183,11 @@ class BilibiliSource(SourceAdapter):
         url = (url or "").strip()
         if host_url_search([r"b23\.tv/"], url):
             url = self._url_resolver(url)
+            # B-25: the short link may redirect anywhere; only a real
+            # bilibili video/bangumi URL may reach yt-dlp.
+            if not host_url_search(_URL_PATTERNS[:2], url or ""):
+                raise BilibiliDownloadError(
+                    "This short link does not lead to a Bilibili video page.")
         parts = urlsplit(url)
         kept = [(k, v) for k, v in parse_qsl(parts.query) if k == "p"]
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept), ""))

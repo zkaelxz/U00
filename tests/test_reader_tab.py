@@ -47,26 +47,9 @@ def _run(did):
 class TestCaptionTracks:
     """Step 12 item 7: the Watch / listen video offers CC tracks built from
     the drama's current lines -- but only for languages that actually have
-    text, and never for an audio-only drama (st.audio has no subtitles)."""
-
-    def test_both_sides_filled_gives_three_tracks(self):
-        import tabs.reader_tab as rt
-        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")]
-        tracks = rt.caption_tracks(lines)
-        assert list(tracks) == ["Source", "English", "Bilingual"]
-        assert "你好" in tracks["Source"] and "Hello" not in tracks["Source"]
-        assert "Hello" in tracks["English"]
-        assert "Hello\n你好" in tracks["Bilingual"]
-
-    def test_untranslated_drama_gets_source_only(self):
-        import tabs.reader_tab as rt
-        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en=""),
-                 Line(idx=1, start=1.0, end=2.0, zh="再见", en="   ")]
-        assert list(rt.caption_tracks(lines)) == ["Source"]
-
-    def test_no_text_at_all_gives_no_tracks(self):
-        import tabs.reader_tab as rt
-        assert rt.caption_tracks([Line(idx=0, start=0.0, end=1.0, zh=" ", en="")]) == {}
+    text, and never for an audio-only drama (st.audio has no subtitles).
+    The pure caption_tracks unit tests moved to tests/test_reader_service.py
+    with the function (services.reader_service.caption_tracks)."""
 
     def _media_drama(self, isolated_db, kind, en=True):
         field = "source_video_filename" if kind == "video" else "audio_filename"
