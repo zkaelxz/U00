@@ -47,7 +47,10 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
   })
   await page.route('**/api/meta', (route) =>
     json(route, { app: 'baihe', api_version: '1', environment: 'development', local: !opts.remote }))
-  await page.route('**/api/auth/me', (route) => json(route, { auth: 'off', user: null }))
+  await page.route('**/api/auth/me', (route) => json(route, {
+    auth_enabled: false, signed_in: true, sign_in_configured: false, zone: 'pc',
+    user: { id: null, email: null, display_name: 'This PC', is_admin: true, is_local_owner: true }, permissions: [],
+  }))
   await page.route('**/api/translate/engines', (route) => json(route, { items: ENGINES }))
   await page.route('**/api/live/sessions', (route) => {
     const r = route.request()
