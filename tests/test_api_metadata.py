@@ -83,7 +83,7 @@ def _fake_extract(monkeypatch, result, seen=None):
         return result
     monkeypatch.setattr(metadata_service.metadata_lookup, "extract_metadata_llm", fake)
     monkeypatch.setattr(metadata_service.translate_engines, "get_engine",
-                        lambda name, key: object())
+                        lambda name, key, **kw: object())
 
 
 def test_autofill_text_returns_without_writing(client, drama, monkeypatch):
