@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react'
 import { getSettings, TOGGLES, updateSetting } from '../api/settings'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { Field } from '../components/Field'
 import { Section } from '../components/Section'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
+
+const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
+  gpu_limit_enabled: 'Runs GPU-heavy jobs one at a time so they do not run out of memory.',
+  notify_on_completion: 'Shows a notification when a background job finishes.',
+  use_gpu: 'Transcribe on the graphics card when one is available (faster).',
+  gemini_free_tier: 'Slows Gemini requests to stay inside the free tier rate limits.',
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
@@ -25,28 +33,37 @@ export default function SettingsPage() {
     }
   }
 
+  const keyNames = settings ? Object.keys(settings.engine_keys) : []
+  const missing = settings ? keyNames.filter((n) => !settings.engine_keys[n]) : []
+  const configured = keyNames.length - missing.length
+  const total = keyNames.length
+
   return (
     <section className="panel" aria-label="Settings">
       <h2>Settings</h2>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {settings && (
         <>
-          <h3>Job options</h3>
-          {TOGGLES.map(({ key, label }) => (
-            <label key={key} style={{ display: 'block' }}>
-              <input
-                type="checkbox"
-                checked={settings[key]}
-                onChange={(e) => toggle(key, e.target.checked)}
-              />{' '}
-              {label}
-            </label>
-          ))}
+          <div className="toggle-list">
+            {TOGGLES.map(({ key, label }) => (
+              <Field key={key} label={label} help={TOGGLE_HELP[key]}>
+                <input
+                  type="checkbox"
+                  checked={settings[key]}
+                  onChange={(e) => toggle(key, e.target.checked)}
+                />
+              </Field>
+            ))}
+          </div>
           <Section
             storageKey="settings.api-keys"
             title="API keys configured"
-            summary={`${Object.values(settings.engine_keys).filter(Boolean).length} of ${Object.keys(settings.engine_keys).length} configured`}
+            summary={`${configured} of ${total} configured${missing.length ? `, missing ${missing.join(', ')}` : ''}`}
           >
+            <p className="muted">
+              API-key entry is not available in this UI yet (Slice 24, pending the loopback policy
+              decision). Keys are never shown here, only whether one is configured.
+            </p>
             <dl>
               {Object.entries(settings.engine_keys).map(([name, set]) => (
                 <div key={name}>
@@ -56,10 +73,6 @@ export default function SettingsPage() {
               ))}
             </dl>
           </Section>
-          <p className="muted">
-            API-key entry is not available in this UI yet (Slice 24, pending the loopback policy
-            decision). Keys are never shown here, only whether one is configured.
-          </p>
         </>
       )}
     </section>

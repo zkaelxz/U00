@@ -4,6 +4,7 @@ import type { ApiError } from '../api/client'
 import { getDiagnostics } from '../api/diagnostics'
 import { cancelJob, listJobs } from '../api/jobs'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { Section } from '../components/Section'
 import type { DiagnosticsOverview } from '../types/diagnostics'
 import type { JobRecord } from '../types/jobs'
 import {
@@ -77,40 +78,58 @@ export default function DiagnosticsPage() {
             {deps.installed.length} installed, {deps.missing.length} missing.
           </p>
           {deps.missing.length > 0 && (
-            <ul aria-label="Missing packages">
-              {deps.missing.map((d) => (
-                <li key={d.name}>
-                  <strong>{d.name}</strong> is not installed, so this is unavailable: {d.powers}
-                </li>
-              ))}
-            </ul>
+            <Section
+              storageKey="diagnostics.missing"
+              title="Missing packages"
+              count={deps.missing.length}
+            >
+              <ul aria-label="Missing packages">
+                {deps.missing.map((d) => (
+                  <li key={d.name}>
+                    <strong>{d.name}</strong> is not installed, so this is unavailable: {d.powers}
+                  </li>
+                ))}
+              </ul>
+            </Section>
           )}
           {deps.installed.length > 0 && (
-            <ul aria-label="Installed packages">
-              {deps.installed.map((d) => (
-                <li key={d.name}>
-                  <strong>{d.name}</strong> is installed: {d.powers}
-                </li>
-              ))}
-            </ul>
+            <Section
+              storageKey="diagnostics.installed"
+              title="Installed packages"
+              count={deps.installed.length}
+            >
+              <ul aria-label="Installed packages">
+                {deps.installed.map((d) => (
+                  <li key={d.name}>
+                    <strong>{d.name}</strong> is installed: {d.powers}
+                  </li>
+                ))}
+              </ul>
+            </Section>
           )}
         </div>
       )}
 
-      <h3>System</h3>
       {overview && (
-        <ul data-testid="system-summary">
-          <li>
-            Library folder: {overview.library_writable ? 'can be written to' : 'cannot be written to'}
-          </li>
-          <li>Graphics card: {describeGpu(overview.gpu)}</li>
-          <li>App files: {missingFiles === 0 ? 'all present' : `${missingFiles} missing`}</li>
-          {overview.model_engine_versions.map((m) => (
-            <li key={m.name}>
-              {m.name}: {m.installed ? (m.version ?? 'installed') : 'not installed'}
+        <Section
+          storageKey="diagnostics.system"
+          title="System"
+          defaultOpen={missingFiles > 0 || !overview.library_writable}
+          summary={`${describeGpu(overview.gpu)} · app files ${missingFiles === 0 ? 'all present' : `${missingFiles} missing`}`}
+        >
+          <ul data-testid="system-summary">
+            <li>
+              Library folder: {overview.library_writable ? 'can be written to' : 'cannot be written to'}
             </li>
-          ))}
-        </ul>
+            <li>Graphics card: {describeGpu(overview.gpu)}</li>
+            <li>App files: {missingFiles === 0 ? 'all present' : `${missingFiles} missing`}</li>
+            {overview.model_engine_versions.map((m) => (
+              <li key={m.name}>
+                {m.name}: {m.installed ? (m.version ?? 'installed') : 'not installed'}
+              </li>
+            ))}
+          </ul>
+        </Section>
       )}
 
       <h3>Jobs</h3>
@@ -119,36 +138,38 @@ export default function DiagnosticsPage() {
       ) : jobs.length === 0 ? (
         <p className="muted">No jobs yet.</p>
       ) : (
-        <table data-testid="job-list">
-          <thead>
-            <tr>
-              <th>Job</th>
-              <th>Status</th>
-              <th>Time</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((j) => (
-              <tr key={j.job_id}>
-                <td>{j.description || j.job_id}</td>
-                <td>
-                  {statusLabel(j.status)}
-                  {j.progress != null && isActive(j.status) && ` ${Math.round(j.progress * 100)}%`}
-                  {j.message && <div className="muted">{j.message}</div>}
-                </td>
-                <td>{formatDuration(j, now)}</td>
-                <td>
-                  {isActive(j.status) && (
-                    <button type="button" onClick={() => void cancel(j.job_id)}>
-                      Cancel
-                    </button>
-                  )}
-                </td>
+        <div className="table-scroll">
+          <table data-testid="job-list">
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Status</th>
+                <th>Time</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {jobs.map((j) => (
+                <tr key={j.job_id}>
+                  <td>{j.description || j.job_id}</td>
+                  <td>
+                    {statusLabel(j.status)}
+                    {j.progress != null && isActive(j.status) && ` ${Math.round(j.progress * 100)}%`}
+                    {j.message && <div className="muted">{j.message}</div>}
+                  </td>
+                  <td>{formatDuration(j, now)}</td>
+                  <td>
+                    {isActive(j.status) && (
+                      <button type="button" onClick={() => void cancel(j.job_id)}>
+                        Cancel
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   )
