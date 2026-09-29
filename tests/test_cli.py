@@ -1206,6 +1206,21 @@ class TestCliServiceParity:
         engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model="m")
         assert engines == [("claude", "sk-ant", "m")]
 
+    def test_translate_without_api_key_uses_the_saved_claude_key(self, isolated_db, monkeypatch):
+        engines, seen = self._translate(isolated_db, monkeypatch, {}, api_key=None, model=None)
+        assert engines == [("claude", "saved-claude", None)]
+        assert seen
+
+    def test_monthly_cap_is_dropped_for_gemini_free_tier(self, isolated_db, monkeypatch):
+        # A used-up monthly cap would refuse a paid run; Gemini's free tier
+        # isn't billed, so --monthly-cap doesn't apply and the run goes ahead.
+        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        isolated_db.log_usage(None, "claude", "m", "translate", 1, 1, 50.0)
+        engines, seen = self._translate(isolated_db, monkeypatch, {}, engine="gemini",
+                                        api_key=None, model=None, monthly_cap=20.0)
+        assert engines == [("gemini", "saved-gemini", None)]
+        assert seen and seen.get("cost_cap_usd") is None
+
     def test_translate_explicit_engine_flag_still_wins(self, isolated_db, monkeypatch):
         engines, _ = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
                                      engine="gemini", api_key="g-key", model="gm")

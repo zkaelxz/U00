@@ -154,6 +154,17 @@ def test_second_start_while_one_runs_is_conflict(live):
     assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
 
 
+def test_refused_second_start_builds_no_engine(live, monkeypatch):
+    from services.service_errors import ConflictError
+    _start()
+    assert _wait(lambda: "out_dir" in live)
+    built = []
+    monkeypatch.setattr(live_service, "_build_engine", lambda *a: built.append(a))
+    with pytest.raises(ConflictError):
+        _start()
+    assert built == []
+
+
 def test_dir_removed_on_error_and_message_clean(live, monkeypatch):
     dirs = []
 
