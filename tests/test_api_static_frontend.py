@@ -198,3 +198,17 @@ class TestConfig:
         assert s.host == "127.0.0.1" and s.cors_origins == ()
         r = _client(dist).get("/", headers={"Origin": "http://evil.example"})
         assert "access-control-allow-origin" not in r.headers
+
+
+def test_frontend_catch_all_is_registered_after_every_router():
+    """install_frontend's GET /{path} catch-all must come last: a router
+    included after it is shadowed (its GETs answer index.html, other
+    methods 405). CI has no frontend/dist, so the catch-all is never
+    installed there and a live-route test can't see this; check the source."""
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "api" / "server.py").read_text(encoding="utf-8")
+    body = src[src.index("def create_app"):]
+    frontend_at = body.index("install_frontend(")
+    last_router_at = max(m.start() for m in re.finditer(r"app\.include_router\(", body))
+    assert last_router_at < frontend_at, "an include_router() comes after install_frontend()"

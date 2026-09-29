@@ -57,7 +57,7 @@ class TestConfig:
         assert {s["speaker_label"] for s in body["speakers"]} == {"S1", "S2"}
         for s in body["speakers"]:
             assert set(s) == {"speaker_label", "character_name", "edge_voice",
-                              "offline_voice", "engine", "has_clone_ref"}
+                              "offline_voice", "engine", "has_clone_ref", "clone_warning"}
         for e in body["tts_engines"]:
             assert set(e) == {"key", "label", "requires_internet"}
 

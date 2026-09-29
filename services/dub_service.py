@@ -89,6 +89,7 @@ def get_dub_config(drama_id: int) -> dict:
             "offline_voice": offline_voice_map.get(label),
             "engine": clone["engine"] if clone else "edge",
             "has_clone_ref": bool(clone and clone.get("ref_audio") and os.path.exists(clone["ref_audio"])),
+            "clone_warning": clone_setup_warning(by_label.get(label), clone),
         })
 
     text_field = "zh" if narrate_original else "en"
@@ -113,6 +114,31 @@ def get_dub_config(drama_id: int) -> dict:
                                 and _missing_separation_dependency(
                                     drama.get("separation_backend") or "auto") is None),
     }
+
+
+NO_CLONE_SOURCE_WARNING = ("{engine} is chosen, but this speaker has no reference clip or voice "
+                           "description, so it will use the plain TTS voice. Upload or extract a "
+                           "clip, apply one from the voice bank, or describe a voice.")
+MISSING_CLIP_WARNING = ("This speaker's reference clip is missing from the drama folder, so "
+                        "cloning it will fail. Upload or extract a new clip.")
+
+
+def clone_setup_warning(character, clone):
+    """Fixed-text reason a speaker won't be cloned as set up, or None
+    (voice-clone setup, parity C09): a clone engine is chosen but
+    dub.clone_map_from_characters found no clip or voice design (it
+    silently falls back to plain TTS), or the stored clip file is gone.
+    Chatterbox with no clip is a real voice, not a fallback. Never
+    names a path or filename."""
+    engine = (character or {}).get("clone_engine") or ""
+    if clone is None:
+        if engine and engine in dub.CLONE_ENGINES:
+            return NO_CLONE_SOURCE_WARNING.format(engine=dub.CLONE_ENGINES[engine])
+        return None
+    ref = clone.get("ref_audio")
+    if ref and not os.path.isfile(ref):
+        return MISSING_CLIP_WARNING
+    return None
 
 
 def get_dub_track(drama_id: int) -> dict:

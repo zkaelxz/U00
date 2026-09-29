@@ -23,9 +23,9 @@ Results never contain filesystem paths, URLs, or the reference-audio
 filename -- only `has_ref_audio` / `ref_text_present` booleans.
 
 Deliberately NOT here:
-  - Reference-audio upload / auto-extract (multipart / ffmpeg, a
-    different risk tier).
-  - Character deletion and series-character create/rename/delete/link
+  - Reference-audio upload / auto-extract, saving to the voice bank and
+    the series-character link: services/voice_clone_service.py.
+  - Character deletion and series-character create/rename/delete
     (only listing is covered).
   - Dub generation itself.
 
@@ -73,6 +73,7 @@ def _character_dict(row: dict, line_count: int) -> dict:
     return {
         "speaker_label": row["speaker_label"],
         "character_name": row.get("character_name") or "",
+        "voice_actor": row.get("voice_actor") or "",
         "pronouns": row.get("pronouns") or "",
         "tts_voice": row.get("tts_voice") or "",
         "offline_voice": row.get("offline_voice") or "",
@@ -126,8 +127,8 @@ def _check_len(name: str, value: str, cap: int):
 
 
 def update_character(drama_id: int, speaker_label: str, *, character_name: str = None,
-                     pronouns: str = None, tts_voice: str = None, offline_voice: str = None,
-                     clone_engine: str = None, voice_design: str = None,
+                     voice_actor: str = None, pronouns: str = None, tts_voice: str = None,
+                     offline_voice: str = None, clone_engine: str = None, voice_design: str = None,
                      ref_text: str = None) -> dict:
     """Field-scoped partial update of one speaker's character row. None
     = leave alone; "" = clear (except character_name, which must be
@@ -150,7 +151,8 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
     if pronouns is not None:
         _check_len("pronouns", pronouns, MAX_PRONOUNS_LEN)
         fields["pronouns"] = pronouns.strip()
-    for key, value, cap in (("tts_voice", tts_voice, MAX_VOICE_LEN),
+    for key, value, cap in (("voice_actor", voice_actor, MAX_NAME_LEN),
+                            ("tts_voice", tts_voice, MAX_VOICE_LEN),
                             ("offline_voice", offline_voice, MAX_VOICE_LEN),
                             ("voice_design", voice_design, MAX_VOICE_DESIGN_LEN),
                             ("ref_text", ref_text, MAX_REF_TEXT_LEN)):

@@ -50,7 +50,11 @@ def fix_server():
     out = base[: m.start()] + block + base[m.end():]
     inc = f"    app.include_router({router}.router)\n"
     if inc not in out:
-        out = out.replace("    return app\n", inc + "    return app\n")
+        # Before the frontend catch-all, which must stay last (a route added
+        # after it is shadowed: its paths answer 405/index.html).
+        anchor = "    if settings.serve_frontend:\n"
+        out = out.replace(anchor if anchor in out else "    return app\n",
+                          inc + (anchor if anchor in out else "    return app\n"), 1)
     open("api/server.py", "w", encoding="utf-8").write(out)
     print("api/server.py rebuilt from base +", router)
 

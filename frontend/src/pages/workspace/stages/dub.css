@@ -6,3 +6,20 @@
 .stage-dub .pacing-table { width: 100%; border-collapse: collapse; }
 .stage-dub .pacing-table th, .stage-dub .pacing-table td { text-align: left; padding: 0.2rem 0.5rem; }
 .stage-dub .pacing-scroll { max-height: 16rem; overflow: auto; }
+/* Voices and cloning (VoiceClonePanel): one card per speaker, stacked. */
+.stage-dub .voice-warning { margin: 0; color: var(--warn); }
+.voice-clone .voice-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.voice-clone .voice-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
+.voice-clone .voice-card h4 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.voice-clone .voice-card h5 { margin: 0; font-size: var(--font-sm); }
+.voice-clone .voice-card p { margin: 0; }
+.voice-clone .voice-block { display: grid; gap: var(--space-2); border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.voice-clone .voice-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2); align-items: end; }
+.voice-clone .voice-row > button { justify-self: start; }
+.voice-clone .voice-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.voice-clone .voice-candidates { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.voice-clone .voice-candidates li { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.voice-clone .voice-candidates audio { max-width: 100%; height: 2.5rem; }
+.voice-clone .voice-candidate-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
+.voice-clone .voice-job { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+.voice-clone input[type='file'] { max-width: 100%; }
