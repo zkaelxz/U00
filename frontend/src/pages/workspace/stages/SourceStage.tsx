@@ -115,7 +115,7 @@ export default function SourceStage() {
   return (
     <div className="stage-source">
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
-      <NovelPanel />
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
       <AutofillPanel />
       <AnalyzePanel hasMedia={!!media && (media.has_audio || media.has_source_video)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}

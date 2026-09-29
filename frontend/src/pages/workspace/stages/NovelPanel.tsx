@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { attachNovelEpub, attachNovelText, getNovelStatus } from '../../../api/workspace'
+import { attachNovelEpub, attachNovelText, getNovelStatus, startNovelOcr } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { NovelMode, NovelStatus } from '../../../types/workspace'
+import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 
-export function NovelPanel() {
-  const { dramaId, refetchDrama } = useStage()
+interface Props {
+  busy?: boolean
+  onOcrStarted?: (jobId: string) => void
+  // Bumped by the parent when a job finishes, so the status line reloads.
+  reloadKey?: number
+}
+
+export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props) {
+  const { dramaId, drama, refetchDrama } = useStage()
   const [status, setStatus] = useState<NovelStatus | null>(null)
   const [mode, setMode] = useState<NovelMode>('replace')
   const [text, setText] = useState('')
@@ -16,6 +24,12 @@ export function NovelPanel() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [reloads, setReloads] = useState(0)
+  const backends = ocrBackendOptions(drama.source_language)
+  const [images, setImages] = useState<File[]>([])
+  const [backend, setBackend] = useState('')
+  const [tessCmd, setTessCmd] = useState('')
+  const imageProblem = checkOcrImages(images.map((f) => f.name))
+  const ocrBackend = backends.includes(backend) ? backend : backends[0]
 
   useEffect(() => {
     let cancelled = false
@@ -26,7 +40,7 @@ export function NovelPanel() {
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId, reloads, reloadKey])
 
   const attached = useCallback(
     (chars: number) => {
@@ -42,9 +56,10 @@ export function NovelPanel() {
     setError(e)
   }
 
-  const summary = status?.has_novel_text
+  const base = status?.has_novel_text
     ? `${status.char_count.toLocaleString()} chars · ${status.chapters} chapters`
     : 'none attached'
+  const summary = busy || status?.ocr_running ? `${base} · OCR running` : base
 
   return (
     <section className="panel" aria-label="Novel text">
@@ -85,6 +100,46 @@ export function NovelPanel() {
         >
           Attach EPUB
         </button>
+        <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrBackend}` : ocrBackend}>
+          <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
+            <input
+              type="file"
+              accept=".png,.jpg,.jpeg"
+              multiple
+              onChange={(e) => setImages(Array.from(e.target.files ?? []))}
+            />
+          </Field>
+          {imageProblem && <p className="error" role="alert">{imageProblem}</p>}
+          <Field label="OCR engine" help="manga_ocr suits Japanese speech-bubble crops; paddle is heavier but more accurate for Chinese.">
+            <select value={ocrBackend} onChange={(e) => setBackend(e.target.value)}>
+              {backends.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </Field>
+          {ocrBackend === 'tesseract' && (
+            <Field label="Tesseract path" help="Only needed if Tesseract is installed but not on PATH. Leave blank otherwise.">
+              <input type="text" value={tessCmd} onChange={(e) => setTessCmd(e.target.value)} />
+            </Field>
+          )}
+          <button
+            type="button"
+            disabled={!images.length || !!imageProblem || busy || !!status?.ocr_running}
+            onClick={() =>
+              startNovelOcr(dramaId, images, ocrBackend, mode, ocrBackend === 'tesseract' ? tessCmd : undefined).then(
+                (r) => {
+                  setError(null)
+                  setNotice(null)
+                  setImages([])
+                  onOcrStarted?.(r.job_id)
+                },
+                fail,
+              )
+            }
+          >
+            Extract text from images
+          </button>
+        </Section>
         {notice && <p role="status">{notice}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       </Section>
