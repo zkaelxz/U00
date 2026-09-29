@@ -21,6 +21,7 @@ import {
 } from './dubForm'
 import { JobPanel } from './JobPanel'
 import { NarrationPanel } from './NarrationPanel'
+import { lineNumber } from '../../../lineNumber'
 import './dub.css'
 
 export default function DubStage() {
@@ -183,7 +184,7 @@ export default function DubStage() {
               <tbody>
                 {pacingRows(pacing.lines).map((l) => (
                   <tr key={l.idx}>
-                    <td>{l.idx}</td>
+                    <td>{lineNumber(l.idx)}</td>
                     <td>{l.status}</td>
                     <td>{formatFactor(l.factor)}</td>
                     <td>{formatMs(l.clip_ms)}</td>
