@@ -45,31 +45,32 @@ async function mockNotifications(page: Page, status: Status, o: { saveStatus?: n
 
 async function open(page: Page) {
   await page.goto('/#/settings')
-  const section = page.locator('details.section', { hasText: 'Notifications' })
-  await section.locator('summary').click()
-  await expect(section).toHaveAttribute('open', '')
+  const section = page.getByRole('region', { name: 'Notifications' })
+  await expect(section).toBeVisible()
   return section
 }
-
-test.afterEach(async ({ page }) => {
-  await page.evaluate(() => localStorage.removeItem('baihe.section.settings.notifications'))
-})
 
 test('set a Discord webhook, send a test, then clear it; the address is never shown back', async ({ page }) => {
   const unmocked = await guard(page)
   const bodies = await mockNotifications(page, { discord_configured: false, ntfy_configured: false, ntfy_allow_local: false })
   const section = await open(page)
 
-  await expect(section.getByTestId('notify-discord')).toHaveText('Configured: no')
+  await expect(section.locator('.card-meta')).toHaveText('Off')
+  await expect(section.getByTestId('notify-discord')).toHaveText('Missing')
   await expect(section.getByRole('button', { name: 'Send test' })).toBeDisabled()
+  await expect(section.getByText('Set up Discord or ntfy first to send a test.')).toBeVisible()
   await expect(section.getByTestId('ntfy-local-note')).toContainText('BAIHE_NTFY_ALLOW_LOCAL=1')
+
+  await expect(section.getByRole('textbox')).toHaveCount(0) // forms open one row at a time
+  await section.getByRole('button', { name: 'Set up Discord' }).click()
 
   const input = section.getByRole('textbox', { name: 'Discord webhook address' })
   await expect(input).toHaveAttribute('type', 'password')
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save Discord address' }).click()
   await section.getByRole('button', { name: 'Confirm save Discord address' }).click()
-  await expect(section.getByTestId('notify-discord')).toHaveText('Configured: yes')
+  await expect(section.getByTestId('notify-discord')).toHaveText('Set')
+  await expect(section.locator('.card-meta')).toHaveText('On: Discord')
   await expect(input).toHaveValue('')
   await expect(section.getByText('Saved.')).toBeVisible()
   expect(bodies[0]).toEqual({ url: '/api/settings/notifications/discord', body: { value: SECRET, confirm: true } })
@@ -80,7 +81,7 @@ test('set a Discord webhook, send a test, then clear it; the address is never sh
 
   await section.getByRole('button', { name: 'Clear Discord address' }).click()
   await section.getByRole('button', { name: 'Confirm clear Discord address' }).click()
-  await expect(section.getByTestId('notify-discord')).toHaveText('Configured: no')
+  await expect(section.getByTestId('notify-discord')).toHaveText('Missing')
   expect(bodies.map((b) => b.url)).toEqual([
     '/api/settings/notifications/discord',
     '/api/settings/notifications/test',
@@ -93,8 +94,9 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   const unmocked = await guard(page)
   await mockNotifications(page, { discord_configured: false, ntfy_configured: true, ntfy_allow_local: true }, { saveStatus: 403 })
   const section = await open(page)
-  await expect(section.getByTestId('notify-ntfy')).toHaveText('Configured: yes')
+  await expect(section.getByTestId('notify-ntfy')).toHaveText('Set')
   await expect(section.getByTestId('ntfy-local-note')).toContainText('is allowed')
+  await section.getByRole('button', { name: 'Replace ntfy' }).click()
   const input = section.getByRole('textbox', { name: 'ntfy topic address' })
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
@@ -118,9 +120,8 @@ test('away from the PC the section says PC only and makes no notification calls'
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
-  const section = page.locator('details.section', { hasText: 'Notifications' })
-  await expect(section.locator('.section-summary')).toHaveText('PC only')
-  await section.locator('summary').click()
+  const section = page.getByRole('region', { name: 'Notifications' })
+  await expect(section.locator('.card-meta')).toHaveText('PC only')
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()
   await expect(section.getByRole('textbox', { name: 'Discord webhook address' })).toHaveCount(0)
   expect(calls).toEqual([])

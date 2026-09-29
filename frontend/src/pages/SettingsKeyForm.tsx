@@ -1,6 +1,7 @@
 import { useReducer } from 'react'
 import { clearEngineKey, setEngineKey } from '../api/settings'
 import { Field } from '../components/Field'
+import { buttonClass } from '../components/uiClasses'
 import type { EngineKeyResult } from '../types/settings'
 import { initialKeyForm, keyFormReducer } from './settingsKeys'
 
@@ -11,11 +12,9 @@ type Props = {
   onResult: (r: EngineKeyResult) => void
 }
 
-const rowStyle = { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' } as const
-
 // One secret engine: a password input that is never pre-filled, an explicit
-// Save with a confirm step, and a two-step Clear. Shows only configured
-// yes/no; the stored key is never read back.
+// Save with a confirm step, and a two-step Clear. The row around it shows
+// only set/missing; the stored key is never read back.
 export function SettingsKeyForm({ engine, label, configured, onResult }: Props) {
   const [s, dispatch] = useReducer(keyFormReducer, initialKeyForm)
 
@@ -46,7 +45,7 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
   }
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
+    <div className="status-form">
       <Field
         label={`${label} key`}
         help="Saved to .env on the Baihe PC. The saved key is never shown again."
@@ -57,30 +56,28 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
           autoComplete="off"
           spellCheck={false}
           value={s.draft}
-          placeholder={configured ? 'Configured (type a new key to replace it)' : 'Not configured'}
+          placeholder={configured ? 'Type a new key to replace the saved one' : 'Paste the key'}
           disabled={s.busy}
+          autoFocus
           onChange={(e) => dispatch({ type: 'edit', value: e.target.value })}
         />
       </Field>
-      <div style={rowStyle}>
-        <span className="muted" data-testid={`key-${engine}`}>
-          {configured ? 'Configured: yes' : 'Configured: no'}
-        </span>
+      <div className="settings-actions">
         {s.confirm === 'save' ? (
           <>
-            <button type="button" className="primary" disabled={s.busy} onClick={save}>
+            <button type="button" className={buttonClass('primary')} disabled={s.busy} onClick={save}>
               Confirm: save {label} key
             </button>
-            <button type="button" onClick={() => dispatch({ type: 'cancel' })}>
+            <button type="button" className={buttonClass('ghost')} onClick={() => dispatch({ type: 'cancel' })}>
               Cancel
             </button>
           </>
         ) : s.confirm === 'clear' ? (
           <>
-            <button type="button" className="danger" disabled={s.busy} onClick={clear}>
+            <button type="button" className={buttonClass('danger')} disabled={s.busy} onClick={clear}>
               Confirm: remove {label} key
             </button>
-            <button type="button" onClick={() => dispatch({ type: 'cancel' })}>
+            <button type="button" className={buttonClass('ghost')} onClick={() => dispatch({ type: 'cancel' })}>
               Cancel
             </button>
           </>
@@ -88,6 +85,7 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
           <>
             <button
               type="button"
+              className={buttonClass('primary')}
               disabled={s.busy || !s.draft.trim()}
               onClick={() => dispatch({ type: 'askSave' })}
             >
@@ -95,6 +93,7 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
             </button>
             <button
               type="button"
+              className={buttonClass('ghost')}
               disabled={s.busy || !configured}
               onClick={() => dispatch({ type: 'askClear' })}
             >

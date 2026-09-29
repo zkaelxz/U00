@@ -4,7 +4,9 @@ import { expect, test } from '@playwright/test'
 // scroll, and the buttons are at least 44px tall. Reads come from the real
 // seeded API; any write is aborted and recorded.
 
-const TITLES = ['Appearance', 'Defaults for new dramas', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']
+// Cards are always open; the Advanced Card's Sections are opened here.
+const CARDS = ['Appearance', 'Defaults for new dramas', 'Spending']
+const SECTIONS = ['OCR', 'Offline and performance', 'Downloads', 'Server addresses']
 
 test.afterEach(async ({ page }) => {
   await page.evaluate(() => {
@@ -21,10 +23,14 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
     return route.abort()
   })
   await page.goto('/#/settings')
-  for (const title of TITLES) {
-    const s = page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
-    await s.locator('summary').click()
-    await expect(s).toHaveAttribute('open', '')
+  for (const title of [...CARDS, ...SECTIONS]) {
+    let s = page.getByRole('region', { name: title, exact: true })
+    if (SECTIONS.includes(title)) {
+      s = page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+      await s.locator('summary').click()
+      await expect(s).toHaveAttribute('open', '')
+    }
+    await expect(s).toBeVisible()
     for (const b of await s.getByRole('button', { name: /^(Save|Clear)$/ }).all()) {
       const box = await b.boundingBox()
       expect(box && box.height).toBeGreaterThanOrEqual(44)

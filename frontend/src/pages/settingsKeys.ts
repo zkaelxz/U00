@@ -2,6 +2,8 @@
 // React so it is unit-testable; the key text lives only in `draft` and is
 // dropped the moment a request is sent (success or failure).
 import { ApiError } from '../api/client'
+import { humanize } from '../components/labels'
+import { ENDPOINTS } from './settings/preferences'
 
 // The engines the write endpoint accepts (services/settings_service.KEY_WRITE_ENGINES).
 // URL settings (ollama_url etc.) are not secrets and have no write endpoint.
@@ -14,6 +16,17 @@ export const SECRET_ENGINES: { engine: string; label: string }[] = [
   { engine: 'groq', label: 'Groq' },
   { engine: 'hf_token', label: 'Hugging Face' },
 ]
+
+export type KeyRow = { engine: string; label: string; writable: boolean }
+
+/** The rows to show: write-only secrets first, then any other key the API reports (not the server addresses, which have their own block). */
+export function keyRows(engineKeys: Record<string, boolean>): KeyRow[] {
+  const secrets = SECRET_ENGINES.filter(({ engine }) => engine in engineKeys).map((e) => ({ ...e, writable: true }))
+  const others = Object.keys(engineKeys)
+    .filter((name) => !SECRET_ENGINES.some((e) => e.engine === name) && !ENDPOINTS.some((e) => e.name === name))
+    .map((name) => ({ engine: name, label: humanize('engine', name), writable: false }))
+  return [...secrets, ...others]
+}
 
 export const KEY_WRITES_REFUSED =
   'Keys can only be set on the Baihe PC itself. start.bat turns key writes on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'

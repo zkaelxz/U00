@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { ApiError } from '../../api/client'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
+import { humanize } from '../../components/labels'
 import type {
   DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
@@ -224,8 +225,9 @@ export function extensionToggleNote(r: ExtensionEnabledResult): string | null {
 /** The line under the engine picker: what the extension will do with a page. */
 export function extensionEngineNote(s: ExtensionEngineSettings): string {
   if (!s.engine) return 'No engine: pages come back with their original text only.'
-  if (!s.ready) return `No ${s.engine} key is saved on this PC, so pages come back untranslated.`
-  return `Pages are translated with ${s.engine}. The key stays on this PC.`
+  const name = s.engines.find((e) => e.name === s.engine)?.label || humanize('engine', s.engine)
+  if (!s.ready) return `No ${name} key is saved on this PC, so pages come back untranslated.`
+  return `Pages are translated with ${name}. The key stays on this PC.`
 }
 
 export const TOKEN_VISIBLE_MS = 120_000

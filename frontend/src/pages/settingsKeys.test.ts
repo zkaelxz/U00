@@ -6,6 +6,7 @@ import {
   initialKeyForm,
   keyErrorMessage,
   keyFormReducer,
+  keyRows,
   type KeyFormAction,
   type KeyFormState,
 } from './settingsKeys'
@@ -82,5 +83,16 @@ describe('key api calls', () => {
     const [url, init] = (fx as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(url).toBe('/api/settings/keys/gemini/clear')
     expect(JSON.parse(init.body)).toEqual({ confirm: true })
+  })
+})
+
+describe('keyRows', () => {
+  it('lists write-only secrets first, then other keys, never the server addresses', () => {
+    const rows = keyRows({ ollama_url: true, groq: false, claude: true, openai: false, gpt_sovits_url: false })
+    expect(rows).toEqual([
+      { engine: 'claude', label: 'Claude', writable: true },
+      { engine: 'groq', label: 'Groq', writable: true },
+      { engine: 'openai', label: 'OpenAI', writable: false },
+    ])
   })
 })

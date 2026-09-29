@@ -4,6 +4,10 @@
  * addresses are secrets: the inputs are never pre-filled and the page only
  * ever learns "configured: yes/no". A typed address lives in this
  * component's state until it is sent, then is dropped.
+ *
+ * Layout (UI refresh §3.12): an always-open Card with one row per channel
+ * (name, Set/Missing badge, "Set up"/"Replace" opening its form in place).
+ * There is no separate on/off: a channel is on once its address is saved.
  */
 import { useEffect, useState } from 'react'
 
@@ -14,10 +18,12 @@ import {
   setNotificationChannel,
 } from '../../api/notifications'
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
+import { Badge } from '../../components/Badge'
+import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
-import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { NotificationChannel, NotificationStatus } from '../../types/notifications'
 import {
@@ -28,17 +34,15 @@ import {
   testResultText,
 } from './notifications'
 
-const STORAGE_KEY = 'settings.notifications'
 const TITLE = 'Notifications'
-const rowStyle = { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' } as const
 
 export function NotificationsSection() {
   const pc = usePcOnly()
   if (pc === 'remote') {
     return (
-      <Section title={TITLE} summary={PC_ONLY_SUMMARY} storageKey={STORAGE_KEY}>
+      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
         <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
+      </Card>
     )
   }
   return <NotificationControls />
@@ -49,6 +53,7 @@ function NotificationControls() {
   const [error, setError] = useState<unknown>(null)
   const [testing, setTesting] = useState(false)
   const [testNote, setTestNote] = useState<string | null>(null)
+  const [open, setOpen] = useState<NotificationChannel | null>(null)
 
   // Wait for /api/meta first, so a viewer away from the PC makes no calls here.
   useEffect(() => {
@@ -83,54 +88,78 @@ function NotificationControls() {
   }
 
   return (
-    <Section
+    <Card
       title={TITLE}
-      storageKey={STORAGE_KEY}
-      summary={status ? notificationSummary(status) : undefined}
+      meta={status ? notificationSummary(status) : undefined}
+      aria-label={TITLE}
+      actions={
+        status && (
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={testing || !anyConfigured} onClick={sendTest}>
+            {testing ? 'Sending…' : 'Send test'}
+          </button>
+        )
+      }
     >
-      <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
-        <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
-        <p className="muted">
-          Sends a short message (job type, drama title, finished or failed) when a background job
-          ends. Addresses are saved to .env on the Baihe PC and never shown again. Setting them works
-          only on that PC with BAIHE_API_ALLOW_KEY_WRITES=1.
-        </p>
-        {!status ? (
-          !error && <p className="muted">Loading…</p>
-        ) : (
-          <>
-            {CHANNELS.map((c) => (
-              <ChannelForm
-                key={c.channel}
-                channel={c.channel}
-                configured={isConfigured(status, c.channel)}
-                onResult={(channel, configured) =>
-                  setStatus((cur) =>
-                    cur
-                      ? { ...cur, [channel === 'discord' ? 'discord_configured' : 'ntfy_configured']: configured }
-                      : cur,
-                  )
-                }
-              />
-            ))}
-            <p className="muted" data-testid="ntfy-local-note">
-              {status.ntfy_allow_local
-                ? 'A local ntfy server (on this PC or your home network) is allowed.'
-                : 'A local ntfy server needs BAIHE_NTFY_ALLOW_LOCAL=1 in .env on the Baihe PC.'}
-            </p>
-            <div style={rowStyle}>
-              <button type="button" disabled={testing || !anyConfigured} onClick={sendTest}>
-                {testing ? 'Sending…' : 'Send test'}
-              </button>
-              {!anyConfigured && <span className="muted">Set up Discord or ntfy first.</span>}
-            </div>
-            <p className="muted" role="status" data-testid="notify-test-result">
-              {testNote ?? ''}
-            </p>
-          </>
-        )}
-      </div>
-    </Section>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
+      <p className="settings-note">
+        A short message (job type, drama title, finished or failed) when a background job ends.
+      </p>
+      {!status ? (
+        !error && <p className="muted">Loading…</p>
+      ) : (
+        <>
+          <ul className="status-list" aria-label="Notification channels">
+            {CHANNELS.map((c) => {
+              const configured = isConfigured(status, c.channel)
+              const expanded = open === c.channel
+              return (
+                <li key={c.channel}>
+                  <div className="status-row">
+                    <span className="status-row-name">{c.label}</span>
+                    <span data-testid={`notify-${c.channel}`}>
+                      <Badge tone={configured ? 'ok' : 'neutral'}>{configured ? 'Set' : 'Missing'}</Badge>
+                    </span>
+                    <button
+                      type="button"
+                      className={buttonClass(expanded ? 'ghost' : 'secondary', 'sm')}
+                      aria-expanded={expanded}
+                      aria-label={expanded ? `Close ${c.label}` : `${configured ? 'Replace' : 'Set up'} ${c.label}`}
+                      onClick={() => setOpen(expanded ? null : c.channel)}
+                    >
+                      {expanded ? 'Close' : configured ? 'Replace' : 'Set up'}
+                    </button>
+                  </div>
+                  {expanded && (
+                    <ChannelForm
+                      channel={c.channel}
+                      configured={configured}
+                      onResult={(channel, ok) =>
+                        setStatus((cur) =>
+                          cur ? { ...cur, [channel === 'discord' ? 'discord_configured' : 'ntfy_configured']: ok } : cur,
+                        )
+                      }
+                    />
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {!anyConfigured && <p className="settings-note">Set up Discord or ntfy first to send a test.</p>}
+          <p className="muted" role="status" data-testid="notify-test-result">
+            {testNote ?? ''}
+          </p>
+          <p className="settings-note" data-testid="ntfy-local-note">
+            {status.ntfy_allow_local
+              ? 'A local ntfy server (on this PC or your home network) is allowed.'
+              : 'A local ntfy server needs BAIHE_NTFY_ALLOW_LOCAL=1 in .env on the Baihe PC.'}
+          </p>
+          <p className="settings-note">
+            Addresses are saved to .env on the Baihe PC and never shown again. Setting them works only
+            on that PC with BAIHE_API_ALLOW_KEY_WRITES=1.
+          </p>
+        </>
+      )}
+    </Card>
   )
 }
 
@@ -181,15 +210,16 @@ function ChannelForm({ channel, configured, onResult }: FormProps) {
     )
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-1)' }}>
+    <div className="status-form">
       <Field label={meta.field} help={meta.help} error={fieldError}>
         <input
           type="password"
           autoComplete="off"
           spellCheck={false}
           value={draft}
-          placeholder={configured ? 'Configured (type a new address to replace it)' : meta.placeholder}
+          placeholder={configured ? 'Type a new address to replace the saved one' : meta.placeholder}
           disabled={busy}
+          autoFocus
           onChange={(e) => {
             setDraft(e.target.value)
             setNotice(null)
@@ -197,10 +227,7 @@ function ChannelForm({ channel, configured, onResult }: FormProps) {
           }}
         />
       </Field>
-      <div style={rowStyle}>
-        <span className="muted" data-testid={`notify-${channel}`}>
-          {configured ? 'Configured: yes' : 'Configured: no'}
-        </span>
+      <div className="settings-actions">
         <ConfirmButton
           label="Save…"
           ariaLabel={`Save ${meta.label} address`}

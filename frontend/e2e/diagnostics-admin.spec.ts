@@ -232,9 +232,8 @@ test('away from the PC: no install, reset or extension controls and no extension
   await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
 
   await page.goto('/#/settings')
-  const ext = page.locator('details.section', { hasText: 'Browser extension' })
-  await expect(ext.locator('.section-summary')).toHaveText('PC only')
-  await ext.locator('summary').click()
+  const ext = page.getByRole('region', { name: 'Browser extension' })
+  await expect(ext.locator('.card-meta')).toHaveText('PC only')
   await expect(ext).toContainText('Run this on the main PC.')
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
@@ -286,8 +285,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
 
   await page.goto('/#/settings')
-  const ext = page.locator('details.section', { hasText: 'Browser extension' })
-  await ext.locator('summary').click()
+  const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
@@ -366,15 +364,16 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
     return r.fulfill({ json: { enabled: true, running: true, restart_needed: false } })
   })
   await page.goto('/#/settings')
-  const ext = page.locator('details.section', { hasText: 'Browser extension' })
-  await expect(ext.locator('.section-summary')).toHaveText('Off · still running until Baihe restarts')
-  await ext.locator('summary').click()
-  // The summary hides while open; the status stays visible in the body.
+  const ext = page.getByRole('region', { name: 'Browser extension' })
+  await expect(ext.locator('.card-meta')).toHaveText('Off · still running until Baihe restarts')
+  // The status is the Card's meta line, next to the switch.
   await expect(ext.getByTestId('extension-note')).toHaveText('Off · still running until Baihe restarts')
   await expect(ext.getByTestId('extension-note')).toBeVisible()
 
-  await ext.getByRole('checkbox', { name: 'Extension bridge' }).check()
-  await expect(ext.getByRole('checkbox', { name: 'Extension bridge' })).toBeChecked()
+  // Off: only the switch and the note; the engine picker and token appear once on.
+  await expect(ext.getByRole('button', { name: 'Show extension token' })).toHaveCount(0)
+  await ext.getByRole('switch', { name: 'Extension bridge' }).click()
+  await expect(ext.getByRole('switch', { name: 'Extension bridge' })).toBeChecked()
   expect(toggles).toEqual([{ enabled: true }])
 
   await ext.getByRole('button', { name: 'Show extension token' }).click()
@@ -412,23 +411,22 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     return r.fulfill({ json: current })
   })
   await page.goto('/#/settings')
-  const ext = page.locator('details.section', { hasText: 'Browser extension' })
-  await ext.locator('summary').click()
+  const ext = page.getByRole('region', { name: 'Browser extension' })
   const picker = ext.getByRole('combobox', { name: 'Translate pages with' })
   await expect(picker).toHaveValue('')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
     'No engine: pages come back with their original text only.')
-  await expect(picker.locator('option', { hasText: 'claude (no key)' })).toHaveCount(1)
+  await expect(picker.locator('option', { hasText: 'Claude (no key)' })).toHaveCount(1)
 
   await picker.selectOption('claude')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
-    'No claude key is saved on this PC, so pages come back untranslated.')
+    'No Claude key is saved on this PC, so pages come back untranslated.')
   await ext.getByRole('combobox', { name: 'Model' }).selectOption('claude-opus-4-8')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-opus-4-8')
 
   await picker.selectOption('deepl')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
-    'Pages are translated with deepl. The key stays on this PC.')
+    'Pages are translated with DeepL. The key stays on this PC.')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveCount(0)
   expect(saves).toEqual([
     { engine: 'claude', model: null },
