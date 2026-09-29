@@ -80,8 +80,15 @@ export default function SourceStage() {
     uploadMedia(dramaId, file).then(
       (r) => {
         setError(null)
-        setUploaded(`Uploaded ${r.kind} (${(r.size / (1024 * 1024)).toFixed(1)} MB).`)
+        const mb = (r.size / (1024 * 1024)).toFixed(1)
         setFile(null)
+        if (r.job_id) {
+          // Video: audio extraction runs as a job; the panel reloads when it finishes.
+          setUploaded(`Uploaded video (${mb} MB). Extracting audio...`)
+          setJobId(r.job_id)
+          return
+        }
+        setUploaded(`Uploaded ${r.kind} (${mb} MB).`)
         setReloads((n) => n + 1)
         onJobDone()
       },

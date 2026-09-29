@@ -1,7 +1,8 @@
 """
 api/routers/media_routes.py -- audio/video upload (Slice 31) and Range playback (Slice 52) for one drama (Migration
 Slice 31). Multipart body; see services/media_upload_service.py for the
-filename/size/atomic-write rules. Returns name, size and kind only.
+filename/size/atomic-write rules. Returns name, size, kind and, for a
+video, the job_id of the background audio extraction (B-09).
 """
 
 import os
@@ -38,9 +39,12 @@ def get_media_status(drama_id: int = Path(ge=1)):
 
 @router.post("/dramas/{drama_id}/upload-and-transcribe", dependencies=[local_only()], response_model=UploadAndTranscribeResult,
              summary="Upload a file, then start the transcribe run",
-             description="Options are the same as POST /api/transcribe/dramas/{id}/run. If the run "
-                         "fails to start after a successful upload, the service error is returned "
-                         "and the uploaded file is kept (re-run via the transcribe run endpoint).",
+             description="Options are the same as POST /api/transcribe/dramas/{id}/run and are "
+                         "checked before the file is stored (422/400/503 on a bad option). An audio "
+                         "file starts the run at once and returns its job_id; if the run still "
+                         "fails to start, the error is returned and the upload is kept. A video "
+                         "returns the audio-extraction job_id: that job extracts the audio, then "
+                         "starts and follows the run, so a later failure shows as a job error.",
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
                         503: {"model": ErrorResponse}})
@@ -58,9 +62,13 @@ def post_upload_and_transcribe(
             tesseract_cmd=tesseract_cmd)
     except ValidationError:
         raise InvalidInputError("Invalid transcribe options.")
-    upload = media_upload_service.upload_media(drama_id, file.filename, file.file)
-    run = transcribe_service.start_transcribe_run(drama_id, **opts.model_dump())
-    return {"upload": upload, "job_id": run["job_id"]}
+    transcribe_service.validate_transcribe_options(drama_id, **opts.model_dump())
+    upload = media_upload_service.upload_media(drama_id, file.filename, file.file,
+                                               transcribe_options=opts.model_dump())
+    if upload["job_id"]:  # video: the extraction job starts and follows the run
+        return {"upload": upload, "job_id": upload["job_id"]}
+    run_job_id = upload.pop("transcribe_job_id")  # audio: started under the upload claim
+    return {"upload": upload, "job_id": run_job_id}
 
 
 def _play(drama_id: int, kind: str) -> FileResponse:

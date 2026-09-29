@@ -16,7 +16,13 @@ import bulk_translate
 import translation_memory
 from ui import project_header, project_state
 from ui import status as ui_status
+from services.transcribe_service import score_autotune_segments
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
+from services.media_playback_service import (line_audio_clip as _line_audio_clip, parse_timestamp,
+                                             burn_preview_ass as _burn_preview_ass)
+from services.review_lines_service import (adjacent_flagged_idx as _adjacent_flagged_idx,
+                                           unsaved_line_count as _unsaved_line_count)
+from services.diarization_service import diarization_estimate_caption as _diarization_estimate_caption
 from services.workspace_job_service import (
     run_translate_job, run_transcribe_job, run_hardsub_ocr_job, run_emotion_job,
     run_sensevoice_job, run_flag_job, run_consistency_job, run_translation_notes_job,
@@ -286,17 +292,6 @@ def _jump_to_line_button(picked_id, line_idx, all_lines, key):
     if st.button(f"↳ Jump to line {line_idx + 1} in Review & edit", key=key):
         _jump_to_review_page(picked_id, line_idx, all_lines)
         st.rerun()
-
-
-def _adjacent_flagged_idx(all_lines, ref_idx, forward):
-    """The nearest flagged line's idx strictly after (forward=True) or
-    before (forward=False) ref_idx, or None if there isn't one. Step 20's
-    next/previous-flagged navigation -- there was previously no way to
-    step through flagged lines one at a time, only the "Show flagged
-    lines only" filter."""
-    if forward:
-        return next((ln.idx for ln in all_lines if ln.flag and ln.idx > ref_idx), None)
-    return next((ln.idx for ln in reversed(all_lines) if ln.flag and ln.idx < ref_idx), None)
 
 
 def _search_transcript(all_lines, term):
@@ -680,27 +675,6 @@ def _render_queued_job_panel(job, job_id, key_suffix):
         st.rerun()
 
 
-def _diarization_estimate_caption(audio_duration_seconds):
-    """pyannote's pipeline makes one call and only returns a result at the
-    end -- no incremental progress callback exists in its public API, so
-    unlike Whisper's segment-by-segment real progress bar, this is the best
-    honest estimate available: diarization runtime scales roughly linearly
-    with audio length, so a range scaled off the audio's own length (rather
-    than a fixed number that ignores it) is truthful without pretending to
-    more precision than a single st.spinner can back up."""
-    if not audio_duration_seconds or audio_duration_seconds <= 0:
-        return "Usually takes anywhere from under a minute to a few minutes, depending on audio length and hardware."
-
-    def _mmss(seconds):
-        m, s = divmod(int(round(seconds)), 60)
-        return f"{m}:{s:02d}"
-
-    return (f"For audio this long (~{_mmss(audio_duration_seconds)}), usually takes roughly "
-            f"{_mmss(audio_duration_seconds)}–{_mmss(audio_duration_seconds * 2)}, depending on "
-            f"your hardware -- there's no incremental progress to show here (pyannote's pipeline "
-            f"doesn't expose one), just this spinner until it finishes.")
-
-
 def _autotune_estimate_caption(audio_duration_seconds, num_candidates):
     """Step 6h: each candidate is its own full re-transcription (VAD
     segmentation happens inside faster-whisper's own decode pass, not a
@@ -786,40 +760,6 @@ def _run_auto_qc(drama_id, drama, lines) -> dict:
     return result
 
 
-def _line_audio_clip(audio_path, start, end, work_dir):
-    """Step 21: one line's [start, end) audio as WAV bytes, for Review &
-    edit's per-line player. Called only when that line's play button is
-    clicked -- never for every visible row on page load -- and the temp
-    slice is removed right after reading, same as re-transcribe's."""
-    slice_path = os.path.join(work_dir, "_play_slice.wav")
-    try:
-        core_module.extract_audio_slice(audio_path, start, end, slice_path)
-        with open(slice_path, "rb") as f:
-            return f.read()
-    finally:
-        if os.path.exists(slice_path):
-            os.remove(slice_path)
-
-
-def parse_timestamp(text):
-    """Step 12c's jump box: "mm:ss", "h:mm:ss" or raw seconds ("83",
-    "83.5") -> seconds as a float. None for anything else -- blank text,
-    a negative number, or an out-of-range field like "1:75"."""
-    parts = (text or "").strip().split(":")
-    if not parts[0] or len(parts) > 3:
-        return None
-    try:
-        nums = [float(p) for p in parts]
-    except ValueError:
-        return None
-    if any(n < 0 for n in nums) or any(n >= 60 for n in nums[1:]):
-        return None
-    seconds = 0.0
-    for n in nums:
-        seconds = seconds * 60 + n
-    return seconds
-
-
 def _review_media(drama, ddir):
     """Step 12c: ("video"|"audio", path) for Review & edit's player -- the
     same original media the Reader tab's "Watch / listen" plays: the
@@ -872,26 +812,6 @@ def _jump_to_typed_time(drama_id):
     st.session_state.pop(f"rv_jump_error_{drama_id}", None)
     ln = _line_at(st.session_state.lines, seconds)
     _seek_player(drama_id, seconds, line_idx=ln.idx if ln else None)
-
-
-def _burn_preview_ass(lines, line, style_state, pad=2.0):
-    """Step 12c: (start, end, ass_text) for a short burned-subtitle preview
-    around `line` -- `pad` seconds either side -- styled with the Export
-    subtitles section's current settings (`style_state`, stashed there on
-    each render) and timed to the clip the same way the vertical export
-    is. Falls back to the "Clean" preset if that section hasn't rendered
-    yet this session."""
-    style_state = style_state or {}
-    start, end = max(line.start - pad, 0.0), line.end + pad
-    field = "en" if line.en.strip() else "zh"
-    clip_lines = subtitle_formats.lines_for_clip(
-        subtitle_formats.clamp_overlaps(lines)[0], start, end)
-    ass = subtitle_formats.lines_to_ass(
-        clip_lines, style_state.get("style") or subtitle_formats.ASS_PRESETS["Clean"], field,
-        speaker_colors=style_state.get("speaker_colors"),
-        speaker_names=style_state.get("speaker_names"),
-        wrap_chars=style_state.get("wrap_chars"))
-    return start, end, ass
 
 
 def _player_times(start, end):
@@ -985,33 +905,6 @@ def _render_review_player(picked_id, ddir, media, lines):
                    + (" -- the style has changed since; click Preview again to see it."
                       if _burn["style"] != _now_style else "."))
         st.video(_burn["video"])
-
-
-def _unsaved_line_count(drama_id, lines):
-    """Step 21: how many of Review & edit's lines differ from what's
-    actually in the database -- not from st.session_state.lines, which the
-    page's splice-back updates on every rerun whether or not Save was
-    clicked. Timing is compared at the 2 decimals the start/end boxes
-    show, so a stored 1.2345 doesn't read as an edit of the box's 1.23.
-    A line with no id yet, or a saved line missing from `lines`, counts
-    as unsaved too."""
-    saved = {r["id"]: r for r in db.load_lines(drama_id)}
-    n = 0
-    seen = set()
-    for ln in lines:
-        row = saved.get(ln.id)
-        if row is None:
-            n += 1
-            continue
-        seen.add(ln.id)
-        if (round(ln.start, 2) != round(row["start"], 2)
-                or round(ln.end, 2) != round(row["end"], 2)
-                or (ln.zh or "") != (row["zh"] or "")
-                or (ln.en or "") != (row["en"] or "")
-                or (ln.speaker or "") != (row["speaker"] or "")
-                or bool(ln.sfx) != bool(row.get("sfx"))):
-            n += 1
-    return n + len(saved.keys() - seen)
 
 
 def _apply_speaker_turns(drama_id, turns, overwrite_manual):
@@ -2244,15 +2137,8 @@ def render_workspace_tab():
                                 _autotune = {"candidates": _candidates, "results": [], "cancelled": False}
                                 st.session_state[_autotune_key] = _autotune
                             _result = _autotune_job.get("result") or {}
-                            _segments = _result.get("segments") or []
-                            _cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
-                                          for i, s in enumerate(_segments) if s["text"].strip()]
-                            _coverage = core_module.diagnose_line_coverage(_cand_lines)
-                            _autotune["results"].append({
-                                "candidate_ms": _result.get("candidate_ms"),
-                                "long_lines": len(_coverage["long_lines"]),
-                                "total_lines": len(_cand_lines),
-                            })
+                            _autotune["results"].append(score_autotune_segments(
+                                _result.get("candidate_ms"), _result.get("segments")))
                             background_jobs.clear_job(_autotune_job_id)
                             _tested = {r["candidate_ms"] for r in _autotune["results"]}
                             _remaining = [c for c in _autotune["candidates"] if c not in _tested]

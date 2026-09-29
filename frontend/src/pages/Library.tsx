@@ -15,6 +15,7 @@ import {
   validateCreate, type CreateExtras,
 } from './libraryForm'
 import { savePresetStart } from './workspace/translateForm'
+import { lineNumber } from '../lineNumber'
 
 const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
   d.title_en || d.title_zh || `#${d.id ?? ''}`
@@ -172,7 +173,7 @@ function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
         {hits?.map((h) => (
           <li key={`${h.drama_id}-${h.idx}`}>
             <button type="button" className="link" onClick={() => onSelect(h.drama_id)}>
-              {name({ ...h, id: h.drama_id })} #{h.idx}
+              {name({ ...h, id: h.drama_id })} #{lineNumber(h.idx)}
             </button>{' '}
             {h.zh} {h.en && <span className="muted">{h.en}</span>}
           </li>

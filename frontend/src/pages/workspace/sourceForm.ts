@@ -129,6 +129,7 @@ export const sourceJobIds = (dramaId: number) => [
   `transcribe_${dramaId}`,
   `diarize_${dramaId}`,
   `ocrchapter_${dramaId}`,
+  `extract_audio_${dramaId}`,
 ]
 
 // Chapter OCR (services/novel_attach_service.py _BACKENDS, MAX_IMAGES, _IMAGE_EXTENSIONS).
