@@ -89,10 +89,12 @@ interface JobState<R> {
   message: string | null
   result: R | null
   error: ApiError | null
+  // Series jobs: which series the run is for, as the server reports it.
+  runningFor: { source: string; series_id: string } | null
 }
 
 const idle = <R>(id: string): JobState<R> => ({
-  id, status: 'idle', progress: null, message: null, result: null, error: null,
+  id, status: 'idle', progress: null, message: null, result: null, error: null, runningFor: null,
 })
 
 /**
@@ -142,6 +144,7 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
           progress: r.progress,
           message: r.message,
           result: r.status === 'done' ? r.result : null,
+          runningFor: r.source && r.series_id ? { source: r.source, series_id: r.series_id } : null,
           error:
             r.status === 'cancelled'
               ? new ApiError(409, { code: 'conflict', message: 'Cancelled.', details: { reason: 'CANCELLED' } })
@@ -216,6 +219,7 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
     message: cur?.message ?? null,
     result: cur?.result ?? null,
     error: cur?.error ?? null,
+    runningFor: cur?.runningFor ?? null,
     startedHere: isStartedHere(startedId, jobId),
     startError,
     clearStartError: () => setStartError(null),

@@ -246,7 +246,7 @@ class TestDiarizeSubprocessWorker:
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"segments": direct_segments, "model": direct_model,
-                                  "embeddings": direct_embeddings})
+                                  "embeddings": direct_embeddings, "device": "cpu"})
 
     def test_reports_an_exception_instead_of_raising(self):
         pytest.importorskip("torch")

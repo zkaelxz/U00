@@ -5,6 +5,7 @@ import {
   checkUploadFile,
   loadSourceForm,
   parseExpectedSpeakers,
+  parseSpeakerHints,
   saveSourceForm,
   sourceJobIds,
   validateConfig,
@@ -59,6 +60,16 @@ describe('config validation', () => {
     expect(parseExpectedSpeakers('20')).toBe(20)
     expect(parseExpectedSpeakers('21')).toBeNull()
     expect(parseExpectedSpeakers('1.5')).toBeNull()
+  })
+  it('parses a speaker range and rejects bad combinations', () => {
+    expect(parseSpeakerHints('', '', '')).toEqual({ expected: undefined, min: undefined, max: undefined })
+    expect(parseSpeakerHints('3', '', '')).toEqual({ expected: 3, min: undefined, max: undefined })
+    expect(parseSpeakerHints('', '2', '4')).toEqual({ expected: undefined, min: 2, max: 4 })
+    expect(parseSpeakerHints('0', '2', '')).toEqual({ expected: 0, min: 2, max: undefined })
+    expect(parseSpeakerHints('', '4', '2')).toMatch(/more than max/)
+    expect(parseSpeakerHints('', '0', '')).toMatch(/1 to 20/)
+    expect(parseSpeakerHints('3', '2', '4')).toMatch(/not both/)
+    expect(parseSpeakerHints('x', '', '')).toMatch(/0 to 20/)
   })
 })
 

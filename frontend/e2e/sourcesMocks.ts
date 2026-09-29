@@ -206,10 +206,14 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     if (s.series === 'none') return notFound(route)
     if (s.series === 'running') {
       if (!s.seriesHold) s.series = 'done' // the next poll finishes
-      return json(route, { job_id: 'sources_series_alpha', status: 'running', progress: 0.2, message: 'Loading the series...', result: null })
+      return json(route, {
+        job_id: 'sources_series_alpha', status: 'running', progress: 0.2, message: 'Loading the series...', result: null,
+        source: 'alpha', series_id: s.seriesId,
+      })
     }
     return json(route, {
       job_id: 'sources_series_alpha', status: 'done', progress: 1, message: null,
+      source: 'alpha', series_id: s.seriesId,
       result: seriesResult(124, s.seriesId, s.seriesTitle),
     })
   })

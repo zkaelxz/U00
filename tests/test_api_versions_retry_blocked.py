@@ -82,7 +82,7 @@ class TestActivateService:
         db.update_line_fields_if(did, ids[0], {"speaker": "B"}, {})
         out = tvs.activate_version(did, vid, confirm=True)
         assert out == {"drama_id": did, "version_id": vid, "label": "v-old", "activated": True,
-                       "lines_changed": 2}
+                       "lines_changed": 2, "conflicts": []}
         rows = {r["id"]: r for r in db.load_lines(did)}
         assert [rows[i]["en"] for i in ids] == ["Hi there", "Goodbye"]
         # untouched: speaker set after the version, flag, timing, ids
@@ -93,7 +93,32 @@ class TestActivateService:
         assert active[vid] == 1 and active[newer] == 0
         assert any(h["label"] == tvs.SNAPSHOT_LABEL for h in db.list_line_history(did))
 
-    def test_uses_field_scoped_save_only(self, isolated_db, monkeypatch):
+    def test_concurrent_edit_is_not_overwritten_and_is_reported(self, isolated_db, monkeypatch):
+        did, ids = _seed()
+        vid = _version_over_current(did, ["Hi there", "Goodbye"])
+        real_snap = db.save_line_history_snapshot
+
+        def snap_then_user_edits(d, lines, label):
+            real_snap(d, lines, label)
+            # a line edit lands between the service's read and its write
+            db.update_line_fields_if(d, ids[0], {"en": "User's fix"}, {})
+
+        monkeypatch.setattr(db, "save_line_history_snapshot", snap_then_user_edits)
+        out = tvs.activate_version(did, vid, confirm=True)
+        assert out["conflicts"] == [ids[0]] and out["lines_changed"] == 1
+        rows = {r["id"]: r["en"] for r in db.load_lines(did)}
+        assert rows[ids[0]] == "User's fix" and rows[ids[1]] == "Goodbye"
+
+    def test_conflicts_reach_the_api(self, client, monkeypatch):
+        did, ids = _seed()
+        vid = _version_over_current(did, ["Hi there", "Goodbye"])
+        real_snap = db.save_line_history_snapshot
+        monkeypatch.setattr(db, "save_line_history_snapshot", lambda d, lines, label: (
+            real_snap(d, lines, label), db.update_line_fields_if(d, ids[1], {"en": "Mine"}, {})))
+        r = client.post(_act(did, vid), json={"confirm": True})
+        assert r.status_code == 200 and r.json()["conflicts"] == [ids[1]]
+
+    def test_writes_by_batch_compare_and_set_never_a_line_sync(self, isolated_db, monkeypatch):
         did, _ids = _seed()
         vid = _version_over_current(did, ["X", "Y"])
         calls = []
@@ -102,7 +127,7 @@ class TestActivateService:
                             lambda d, lines, fields=None: (calls.append(fields),
                                                            real(d, lines, fields=fields)))
         tvs.activate_version(did, vid, confirm=True)
-        assert calls == [("en",)]
+        assert calls == []  # per-line compare-and-set, never a line sync
 
     def test_needs_confirm(self, isolated_db):
         did, _ = _seed()
@@ -487,3 +512,52 @@ class TestPermissions:
         r = remote.post(_retry(did, ids[1]), json={"engine": "claude"}, headers=_h(paid))
         assert r.status_code == 200
         _no_leak(r)
+
+
+class TestBatchCompareAndSet:
+    """db.update_lines_fields_if_many: one transaction for activate-version."""
+
+    def test_conflict_is_reported_and_the_other_lines_are_written(self, isolated_db):
+        did, ids = _seed()
+        missed = db.update_lines_fields_if_many(did, [
+            (ids[0], {"en": "A"}, {"en": "not what is stored"}),
+            (ids[1], {"en": "B"}, {"en": ""}),
+            (999999, {"en": "C"}, {"en": ""}),
+        ])
+        assert missed == [ids[0], 999999]
+        rows = {r["id"]: r["en"] for r in db.load_lines(did)}
+        assert rows == {ids[0]: "Hello", ids[1]: "B"}
+
+    def test_an_error_mid_batch_writes_nothing(self, isolated_db):
+        did, ids = _seed()
+        with pytest.raises(Exception):
+            db.update_lines_fields_if_many(did, [
+                (ids[0], {"en": "A"}, {"en": "Hello"}),
+                (ids[1], {"en": ["not", "bindable"]}, {"en": ""}),  # fails at execute time
+            ])
+        rows = {r["id"]: r["en"] for r in db.load_lines(did)}
+        assert rows == {ids[0]: "Hello", ids[1]: ""}
+
+    def test_unknown_column_is_refused_before_writing(self, isolated_db):
+        did, ids = _seed()
+        with pytest.raises(ValueError):
+            db.update_lines_fields_if_many(did, [(ids[0], {"en": "A"}, {}),
+                                                 (ids[1], {"drama_id": 2}, {})])
+        assert db.load_lines(did)[0]["en"] == "Hello"
+
+    def test_activate_is_all_or_nothing(self, isolated_db, monkeypatch):
+        did, ids = _seed()
+        vid = _version_over_current(did, ["Hi there", "Goodbye"])
+        real = db._line_cas_sql
+        calls = []
+
+        def second_fails(d, lid, values, expected):
+            calls.append(lid)
+            sql, params = real(d, lid, values, expected)
+            return (sql, params) if len(calls) == 1 else ("UPDATE no_such_table SET x = 1", [])
+
+        monkeypatch.setattr(db, "_line_cas_sql", second_fails)
+        with pytest.raises(Exception):
+            tvs.activate_version(did, vid, confirm=True)
+        assert [r["en"] for r in db.load_lines(did)] == ["Hello", ""]
+        assert not any(v["is_active"] for v in db.list_translation_versions(did) if v["id"] == vid)
