@@ -20,7 +20,7 @@ from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulk
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply)
-from services import translate_run_service
+from services import ownership_service, translate_run_service
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -102,7 +102,9 @@ def cancel_bulk_translation(drama_id: int = Path(ge=1), bulk_job_id: int = Path(
              response_model=TranslateErrorsDismissed,
              summary="Dismiss the last run's failed-batch notice (clears only that record)",
              responses={404: {"model": ErrorResponse}})
-def dismiss_translate_errors(drama_id: int = Path(ge=1, le=2**31 - 1)):
+def dismiss_translate_errors(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    # A drama the caller can't see is a 404, the same as a missing one.
+    ownership_service.require_visible(request.state.principal, "drama", drama_id)
     return translate_run_service.dismiss_translate_errors(drama_id)
 
 

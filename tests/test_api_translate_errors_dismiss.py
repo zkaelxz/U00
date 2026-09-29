@@ -84,3 +84,18 @@ def test_api_dismiss_needs_lines_edit(isolated_db):
     auth_service.grant_permission(u["id"], "lines.edit")
     assert c.post(URL.format(did), headers=h).status_code == 200
     assert db.get_drama(did)["last_translate_errors"] is None
+
+
+def test_api_dismiss_hides_another_users_private_drama(isolated_db):
+    app = create_app(ApiSettings(auth_mode="on"))
+    c = TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
+    owner = auth_service.add_user("owner@example.com")
+    other = auth_service.add_user("other@example.com")   # household defaults include lines.edit
+    did = _drama_with_errors()
+    db.update_drama(did, owner_user_id=owner["id"])
+    db.set_item_private("drama", did, True)
+    s = auth_service.create_session(other["id"], "pytest", "203.0.113.9")
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+    r = c.post(URL.format(did), headers=h)
+    assert r.status_code == 404
+    assert db.get_drama(did)["last_translate_errors"] is not None
