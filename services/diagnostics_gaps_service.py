@@ -122,11 +122,23 @@ def get_model_cache(hf_cache_dir: str = None, piper_voices_dir: str = None) -> d
     }
 
 
+def _hf_hub_importable() -> bool:
+    """True when huggingface_hub can be imported. Without it the access
+    check can't run, so models stays None (the UI's "can't check" case)
+    instead of an empty list."""
+    try:
+        import huggingface_hub  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def get_pyannote_readiness(check_access: bool = False, api=None) -> dict:
     """Booleans only: is pyannote.audio installed, is an HF token
     configured, and (only when check_access=True -- this reaches the
-    network) can that token open each gated model. The token and any
-    raw error text are never returned."""
+    network) can that token open each gated model. models stays None when
+    the check wasn't asked for or huggingface_hub isn't installed. The
+    token and any raw error text are never returned."""
     from services import settings_service
     token = settings_service.resolve_key("hf_token")
     out = {
@@ -134,7 +146,7 @@ def get_pyannote_readiness(check_access: bool = False, api=None) -> dict:
         "hf_token_configured": bool(token),
         "models": None,
     }
-    if check_access:
+    if check_access and (api is not None or _hf_hub_importable()):
         results = diagnostics.check_pyannote_gated_access(token, api=api)
         out["models"] = [{"model": r["model"], "accessible": bool(r["accessible"])}
                          for r in results]

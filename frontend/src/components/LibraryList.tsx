@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client'
 import { getFilterOptions } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { languageLabel, mediaTypeLabel, statusLabel } from '../labels'
 import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
 import type { LibraryFilterOptions } from '../types/library'
@@ -189,9 +190,9 @@ export function LibraryList({
                       </button>
                       {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
                     </td>
-                    <td>{d.media_type?.replace(/_/g, ' ')}</td>
-                    <td>{d.source_language}</td>
-                    <td>{d.status}</td>
+                    <td>{mediaTypeLabel(d.media_type)}</td>
+                    <td>{languageLabel(d.source_language)}</td>
+                    <td>{statusLabel(d.status)}</td>
                     <td>{d.custom_tags.join(', ')}</td>
                   </tr>
                 ))}
