@@ -526,7 +526,7 @@ class TestBulkSeriesTranslate:
         return did
 
     def _run(self, drama_ids, monkeypatch, **kw):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         monkeypatch.setattr(lt.time, "sleep", lambda s: None)
         job_id = "test_bulk_series"
         background_jobs.clear_job(job_id)
@@ -589,7 +589,7 @@ class TestBulkSeriesTranslate:
                 return ["Su Xian appears." for _ in zh_lines]
 
         recording = RecordingEngine()
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: recording)
         status = self._run([d1], monkeypatch)
         assert recording.seen_glossary and recording.seen_glossary[0]["term_original"] == "苏杉"
@@ -597,7 +597,7 @@ class TestBulkSeriesTranslate:
         assert isolated_db.load_lines(d1)[0]["en"] == "Su Shan appears."
 
     def test_cancelling_stops_the_current_drama_and_skips_the_rest(self, isolated_db, monkeypatch):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         d1 = self._drama(isolated_db, n=1)
         d2 = self._drama(isolated_db, n=1)
         job_id = "test_bulk_series_cancel"
@@ -693,7 +693,7 @@ class TestBulkSeriesTranslate:
         background_jobs.clear_job(f"translate_{d1}")
 
     def test_combined_progress_message_names_the_current_drama(self, isolated_db, monkeypatch):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         d1 = self._drama(isolated_db, n=1)
         job_id = "test_bulk_series_progress"
         background_jobs.clear_job(job_id)
@@ -1331,7 +1331,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         return buf.getvalue()
 
     def test_not_a_zip_at_all_leaves_existing_library_intact(self, tmp_path_str):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -1346,7 +1346,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             assert f.read() == "original data"
 
     def test_valid_zip_missing_library_db_leaves_existing_library_intact(self, tmp_path_str):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -1362,7 +1362,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
             assert f.read() == "original data"
 
     def test_valid_backup_zip_still_restores_correctly(self, tmp_path_str):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         marker = os.path.join(tmp_path_str, "dramas", "old_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -1380,7 +1380,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         assert not os.path.exists(marker)
 
     def test_restoring_into_a_library_dir_that_does_not_exist_yet_works(self, tmp_path_str):
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         library_dir = os.path.join(tmp_path_str, "brand_new_library")
         good_zip = self._make_zip_bytes({"library.db": "fake sqlite bytes"})
@@ -1392,7 +1392,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         """Step 52: a zip whose members would expand past the total-size
         limit must be rejected before extractall() ever runs, not partway
         through with a full disk -- and the existing library survives."""
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         from services import workspace_job_service
 
         monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_TOTAL_BYTES", 10)
@@ -1413,7 +1413,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
     def test_backup_with_oversized_single_member_is_rejected(self, tmp_path_str, monkeypatch):
         """Step 52: the per-file limit catches one huge member even if the
         total-size limit wouldn't (e.g. it's the only file in the zip)."""
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         from services import workspace_job_service
 
         monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBER_BYTES", 10)
@@ -1425,7 +1425,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
     def test_backup_over_member_count_limit_is_rejected(self, tmp_path_str, monkeypatch):
         """Step 52: a zip with too many members is rejected up front,
         without ever calling extractall()."""
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
         from services import workspace_job_service
 
         monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBERS", 1)
@@ -1440,7 +1440,7 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
     def test_backup_within_limits_still_restores_normally(self, tmp_path_str):
         """Step 52's new checks shouldn't reject an ordinary, legitimate
         backup -- the limits are generous by design."""
-        import tabs.library_tab as lt
+        import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)
 
         good_zip = self._make_zip_bytes({
             "library.db": "fake sqlite bytes",

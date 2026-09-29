@@ -18,6 +18,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tabs.settings_tab import _load_env_defaults, save_key_to_env
+from services import settings_service
 
 
 @pytest.fixture(autouse=True)
@@ -313,7 +314,9 @@ class TestSaveKeyToEnv:
 
     def test_appends_a_new_line_when_the_file_exists_but_lacks_that_key(self, tmp_path):
         env_path = _write_env(tmp_path / ".env", "BAIHE_CLAUDE_KEY=sk-ant-x\n")
-        save_key_to_env("hf_token", "hf_new_value", env_path)
+        # Repointed from tabs.settings_tab.save_key_to_env (Streamlit retirement):
+        # settings_service.set_engine_key writes the same canonical line.
+        settings_service.set_engine_key("hf_token", "hf_new_value", env_path)
         with open(env_path, encoding="utf-8") as f:
             lines = f.readlines()
         assert lines == ["BAIHE_CLAUDE_KEY=sk-ant-x\n", "BAIHE_HF_TOKEN=hf_new_value\n"]
@@ -322,7 +325,7 @@ class TestSaveKeyToEnv:
         env_path = _write_env(
             tmp_path / ".env",
             "BAIHE_CLAUDE_KEY=sk-ant-old\nBAIHE_HF_TOKEN=hf_old\n")
-        save_key_to_env("claude", "sk-ant-new", env_path)
+        settings_service.set_engine_key("claude", "sk-ant-new", env_path)  # was save_key_to_env
         with open(env_path, encoding="utf-8") as f:
             lines = f.readlines()
         assert lines == ["BAIHE_CLAUDE_KEY=sk-ant-new\n", "BAIHE_HF_TOKEN=hf_old\n"]
@@ -332,7 +335,7 @@ class TestSaveKeyToEnv:
         env_path = _write_env(
             tmp_path / ".env",
             "# a comment\nBAIHE_CLAUDE_KEY=sk-ant-old\n\nBAIHE_HF_TOKEN=hf_old\n")
-        save_key_to_env("claude", "sk-ant-new", env_path)
+        settings_service.set_engine_key("claude", "sk-ant-new", env_path)  # was save_key_to_env
         with open(env_path, encoding="utf-8") as f:
             lines = f.readlines()
         assert lines == [

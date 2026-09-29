@@ -208,15 +208,17 @@ def test_rerun_clears_its_own_flag_once_fixed():
 
 
 def test_run_auto_qc_workspace_helper_saves_flags_and_uses_series_names(isolated_db):
-    import tabs.workspace_tab as wt
+    # Repointed from tabs.workspace_tab._run_auto_qc (Streamlit retirement):
+    # export_service.run_auto_qc_flagging is the same check, loading the
+    # drama's lines itself.
+    from services import export_service
     sid = isolated_db.get_or_create_series("S")
     isolated_db.upsert_glossary_term(sid, "林晚晚", "Lin Wanwan", category="person_name")
     did = isolated_db.create_drama(title_en="D", series_id=sid)
     isolated_db.save_lines(did, [_ln(0, "林晚晚来了。", "She's here."),
                                  _ln(1, "他欠我三百块钱。", "He owes me 300 yuan."),
                                  _ln(2, "我等了十年。", "I waited 10 years and 5 months.")])
-    lines = isolated_db.load_line_objects(did)
-    result = wt._run_auto_qc(did, isolated_db.get_drama(did), lines)
+    result = export_service.run_auto_qc_flagging(did)
     assert result["flagged"] == 2
 
     rows = isolated_db.load_lines(did)
@@ -239,9 +241,9 @@ def test_flagged_line_restores_from_version_history_like_any_other(isolated_db):
     lines[0].en = "He owes me money."
     isolated_db.save_lines(did, lines)
 
-    import tabs.workspace_tab as wt
+    from services import export_service
     lines = isolated_db.load_line_objects(did)
-    wt._run_auto_qc(did, isolated_db.get_drama(did), lines)
+    export_service.run_auto_qc_flagging(did)
     assert isolated_db.load_lines(did)[0]["flag"] == auto_qc.AUTO_QC_FLAG
 
     snap_id = isolated_db.list_line_history(did)[0]["id"]
@@ -252,8 +254,7 @@ def test_flagged_line_restores_from_version_history_like_any_other(isolated_db):
     assert row["en"] == "He owes me 300 yuan." and row["id"] == lines[0].id
 
     # Re-running Auto QC on the restored line clears the now-stale flag.
-    restored = isolated_db.load_line_objects(did)
-    assert wt._run_auto_qc(did, isolated_db.get_drama(did), restored)["cleared"] == 1
+    assert export_service.run_auto_qc_flagging(did)["cleared"] == 1
     assert isolated_db.load_lines(did)[0]["flag"] is None
 
 
