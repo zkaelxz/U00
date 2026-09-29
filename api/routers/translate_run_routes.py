@@ -71,7 +71,8 @@ def resume_bulk_translations(drama_id: int = Path(ge=1)):
     return translate_run_service.resume_bulk_translations(drama_id)
 
 
-@router.get("/dramas/{drama_id}/bulk", response_model=TranslateBulkList,
+@router.get("/dramas/{drama_id}/bulk", dependencies=[require_permission("library.read")],
+            response_model=TranslateBulkList,
             summary="List this drama's bulk batches with their last recorded state",
             responses={404: {"model": ErrorResponse}})
 def list_bulk_translations(drama_id: int = Path(ge=1)):
@@ -79,6 +80,7 @@ def list_bulk_translations(drama_id: int = Path(ge=1)):
 
 
 @router.post("/dramas/{drama_id}/bulk/{bulk_job_id}/cancel",
+             dependencies=[require_permission("jobs.cancel")],
              response_model=TranslateBulkCancelResult,
              summary="Cancel one pending bulk batch (at the provider when possible)",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})

@@ -518,7 +518,7 @@ def _bulk_entry(job: dict) -> dict:
         "pipeline_id": job.get("pipeline_id"), "status": job["status"],
         "pending": job["status"] in db.BULK_PENDING_STATUSES + ("submitting", "running"),
         "cancellable": job["status"] in _BULK_CANCELLABLE,
-        "line_count": len(db.list_bulk_job_lines(job["id"])),
+        "line_count": db.count_bulk_job_lines(job["id"]),
         "scheduled_for": job.get("scheduled_for"),
         "result_summary": summary if isinstance(summary, dict) else None,
         "last_error": translate_engines.redact_secrets(err) if err else None,
@@ -545,7 +545,7 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
         raise NotFoundError(f"Bulk job {bulk_job_id} not found for drama {drama_id}.")
     if job["status"] not in _BULK_CANCELLABLE:
         raise ConflictError(f"Bulk job {bulk_job_id} is {job['status']} and cannot be cancelled.")
-    key = translate_service._resolve_api_key(job["engine"])
+    key = translate_service.resolve_api_key(job["engine"])
     engine = translate_engines.get_engine(job["engine"], key, job.get("model") or None) if key else None
     provider = bulk_translate.make_provider(job["engine"], engine) if engine else None
     note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
