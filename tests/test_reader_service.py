@@ -9,14 +9,14 @@ live/paid dictionary lookup call, and NEVER write to the database --
 both confirmed-real side effects of the Streamlit tab's own page-load
 path that an HTTP GET must not silently inherit.
 
-`reader.build_reader_html`'s own rendering always calls
-`segment.segment_and_annotate` for every non-empty line, which needs
-jieba/sudachipy/kiwipiepy (optional, not installed in a core-only
-env) -- so most tests here mock `reader.build_reader_html` itself (the
-same pattern `tests/test_dark_mode_step68.py` already uses) to test
-this service's own pagination/caching/error logic without needing any
-of those installed. One test does a real end-to-end render and
-`importorskip`s jieba, per this project's own optional-dependency rule.
+`reader.build_reader_html` splits each line into words with
+`segment.segment_and_annotate`, which needs jieba/sudachipy/kiwipiepy
+(optional, not installed in a core-only env); without them it shows each
+line unsplit with a note. Most tests here mock `reader.build_reader_html`
+itself (the same pattern `tests/test_dark_mode_step68.py` already uses)
+to test this service's own pagination/caching/error logic. One test does
+a real end-to-end render and `importorskip`s jieba, per this project's
+own optional-dependency rule; another renders with the splitter missing.
 """
 
 import pytest
@@ -185,10 +185,13 @@ class TestGetReaderPageRealRender:
             raise ImportError("No module named 'jieba'", name="jieba")
         monkeypatch.setattr(segment, "segment_and_annotate", missing)
         did = _drama(isolated_db, title_en="D")
-        isolated_db.save_lines(did, _lines(3))
+        lines = _lines(3)
+        lines[0].zh = "<b>x</b>"
+        isolated_db.save_lines(did, lines)
         html_str = reader_service.get_reader_page(did, page=1)["html"]
         assert html_str.count('class="line-row"') == 3
         assert "Hello 0" in html_str
+        assert "&lt;b&gt;x&lt;/b&gt;" in html_str and "<b>x</b>" not in html_str
         assert 'class="segmenter-note"' in html_str and "jieba" in html_str
         assert 'class="word"' not in html_str
 
