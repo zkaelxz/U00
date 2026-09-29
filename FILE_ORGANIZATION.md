@@ -253,6 +253,7 @@ baihe-subtitler/
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
@@ -330,6 +331,7 @@ baihe-subtitler/
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
+│       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       └── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │                                 lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
 │
