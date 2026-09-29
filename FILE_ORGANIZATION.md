@@ -517,6 +517,9 @@ baihe-subtitler/
 │   │                              readerErrors.ts (pure, unit-tested), reader.css
 │   ├── src/pages/Sources.tsx      Sources page (#/sources): search the enabled sources and open a series (paced
 │   │                              jobs), New chapters, PC-only Source settings; api/sources.ts, types/sources.ts
+│   ├── src/pages/Live.tsx         Live page (#/live): paste a stream link, start a live capture session, poll
+│   │                              its transcript + translation, stop; api/live.ts (client + pure helpers,
+│   │                              unit-tested), types/live.ts, pages/live.css; e2e/live*.spec.ts + liveMocks.ts
 │   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters, SourceSettings, SourceDetail,
 │   │                              PacingForm, useSourcesJob (job-result polling + reattach), sourcesFormat.ts
 │   │                              (pure, unit-tested), sources.css

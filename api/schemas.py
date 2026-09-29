@@ -2272,6 +2272,22 @@ class ExtensionToken(BaseModel):
     token: str
 
 
+class ExtensionEngineSettings(BaseModel):
+    """The extension's saved translation engine (inventory G16). `ready`:
+    an engine is chosen and its key is configured. Never a key value."""
+    engine: Optional[str] = None
+    model: Optional[str] = None
+    ready: bool
+    engines: List[TranslateEngine]
+
+
+class ExtensionEngineRequest(BaseModel):
+    """engine null = OCR only (no translation)."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[StrictStr] = None
+    model: Optional[StrictStr] = None
+
+
 # ---------------------------------------------------------------------------
 # Route batch 2B (M4): Reader API over services/reader_service.py
 # ---------------------------------------------------------------------------
