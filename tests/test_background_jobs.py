@@ -236,13 +236,19 @@ class TestCleanup:
         assert bg.get_status("t15") is None
 
     def test_list_running_jobs_only_includes_active_ones(self):
-        bg.start_job("t16", lambda: time.sleep(0.05))
-        bg.start_job("t17", lambda: None)
-        _wait("t17")
-        running = bg.list_running_jobs()
-        assert "t16" in running
-        assert "t17" not in running
-        _wait("t16")
+        # t16 holds until released: a fixed sleep(0.05) raced the start of
+        # t17 plus _wait's polling, and lost on a loaded machine.
+        release = threading.Event()
+        bg.start_job("t16", lambda: release.wait(10))
+        try:
+            bg.start_job("t17", lambda: None)
+            _wait("t17")
+            running = bg.list_running_jobs()
+            assert "t16" in running
+            assert "t17" not in running
+        finally:
+            release.set()
+            _wait("t16")
         bg.clear_all_jobs()
 
 
