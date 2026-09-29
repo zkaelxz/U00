@@ -319,7 +319,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G13 | Ollama context window override | 373-381 | — | MISSING | no API | — |
 | G14 | Monthly spending cap | 383-395 | — | MISSING (read from `BAIHE_MONTHLY_CAP_USD` server side, UNK) | no API | wt TestSpendingCapUI |
 | G15 | yt-dlp cookies from a browser or a cookies.txt | 397-413 | `video_download.COOKIE_BROWSERS` | MISSING | no API | test_settings_tab TestCookieBasedLoginSettings; test_live_tab |
-| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | PARTIAL `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s; PC only). Engine for extension pages MISSING (no API) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372) | test_page_server_settings |
+| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | DONE `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s, engine and model for extension pages saved as an app setting and hooked into page_server at API startup; PC only) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372); `GET /api/extension/engine` (admin.settings), `POST /api/extension/engine` (local_only) | test_page_server_settings |
 
 ## 5. Diagnostics (`tabs/diagnostics_tab.py`, 987 lines)
 
@@ -425,18 +425,18 @@ The whole page is MISSING in React. The API covers the catalog (D-0/D-1) and the
 
 ## 10. Live (`tabs/live_tab.py`, 149 lines)
 
-Kept and to be ported (plan section 8, M6). The whole page is MISSING; the L-1 API (polling) is merged (#372).
+Kept and ported (plan section 8, M6). React page `#/live` (`frontend/src/pages/Live.tsx`, branch `react-live-page`) over the L-1 API (polling, #372). Deleting `tabs/live_tab.py` still waits on the user's real-stream check (plan section 8).
 
-| ID | Feature | Source | Calls | Tests |
-|---|---|---|---|---|
-| LV01 | Stream URL, language, Whisper size, chunk length and overlap | 41-66 | — | test_live_tab TestOverlapSettingReachesTheStartButton |
-| LV02 | Engine and API key | 68-85 | `translate_engines.get_engine` | — |
-| LV03 | Start the live capture job (cookies from Settings) | 87-107 | `live_translate.run_live_job` | test_live_tab TestCookieSettingsReachTheStartButton |
-| LV04 | Queued: cancel, falling back to a real stop | 108-116 | `background_jobs.cancel_queued`, `live_translate.bump_generation` | test_live_tab TestQueuedJobCancelButton |
-| LV05 | Stop (discards chunks still in flight) | 117-127 | same | — |
-| LV06 | Feed of the latest 50 cues, refresh, error details | 129-149 | — | — |
+| ID | Feature | Source | Calls | Tests | React |
+|---|---|---|---|---|---|
+| LV01 | Stream URL, language, Whisper size, chunk length and overlap | 41-66 | — | test_live_tab TestOverlapSettingReachesTheStartButton | DONE: link, Language; Whisper, Chunk (s), Overlap (s) under Advanced (remembered per browser). e2e live.spec.ts |
+| LV02 | Engine and API key | 68-85 | `translate_engines.get_engine` | — | DONE: Engine picker lists engines with a key; keys are resolved server-side (no key field; add keys in Settings) |
+| LV03 | Start the live capture job (cookies from Settings) | 87-107 | `live_translate.run_live_job` | test_live_tab TestCookieSettingsReachTheStartButton | DONE: Start (POST /api/live/sessions, `media.import_url`), plus Stop after (min) and Use GPU. Cookies do not travel over the API (decision); a signed-in-only stream won't resolve |
+| LV04 | Queued: cancel, falling back to a real stop | 108-116 | `background_jobs.cancel_queued`, `live_translate.bump_generation` | test_live_tab TestQueuedJobCancelButton | DONE: Cancel while queued (the stop route does cancel_queued or a real stop) |
+| LV05 | Stop (discards chunks still in flight) | 117-127 | same | — | DONE: Stop (POST .../stop, `jobs.cancel`) |
+| LV06 | Feed of the latest 50 cues, refresh, error details | 129-149 | — | — | DONE: newest 50 lines, polled every 2 s (no Refresh button); error text is the service's cleaned message (no traceback over the API). Reopening the page shows the running or latest session |
 
-Known port fixes are recorded in plan section 8: `use_gpu`, a per-session temp dir, `max_minutes`, URL expiry, cookies over the API.
+Port fixes from plan section 8 are in `services/live_service.py` (`use_gpu`, a per-session temp dir, `max_minutes`); URL expiry still needs a restart to re-resolve.
 
 ## 11. Scanlate (`tabs/scanlate_tab.py`, 639 lines): DEFERRED
 
@@ -606,4 +606,4 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 **Reader** (L; needs the Range endpoint): RD01-RD14.
 **Sources** (L; S-3..S-7): SO01-SO19, including the scheduler move in M0-b.
 **Discover** (M/L; D-2): DI01, DI04-DI09.
-**Live** (L; L-1): LV01-LV06.
+**Live** (L; L-1): LV01-LV06 built (React `#/live`, branch `react-live-page`); tab deletion waits on the real-stream check.
