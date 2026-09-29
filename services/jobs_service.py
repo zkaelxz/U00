@@ -15,6 +15,8 @@ No Streamlit import, no HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
 """
 
+import json
+import re
 import time
 
 import db
@@ -29,13 +31,183 @@ from services.service_errors import ConflictError, NotFoundError
 STALE_JOB_SECONDS = 15 * 60
 
 
+# Result projection: only these keys of a job's set_result dict are ever
+# stored in job_records.result_json or returned over HTTP. Scalars and lists
+# of scalars only; strings go through redact_for_support (secrets stripped,
+# absolute paths collapsed to ".../name") and URLs are replaced.
+RESULT_ALLOWED_KEYS = (
+    "failed_reason", "detail", "errors", "lines_replaced", "cap_reached",
+    "fixed_count", "total_flagged", "existing_line_count", "line_count",
+    "gpu_fallback", "device", "word_align_error", "forced_align_error",
+    "asr_backend", "alignment_method", "diarize_started", "flagged_count",
+    "tagged", "note_count", "partial", "char_count", "image_count",
+    "status", "stage", "last_error",
+)
+_MAX_STR = 500
+_MAX_LIST = 20
+_MAX_JSON = 8000
+_URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def _safe_scalar(value):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if value == value and abs(value) != float("inf") else None
+    if isinstance(value, str):
+        return _redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
+    return None
+
+
+def _redact_text(text: str) -> str:
+    """redact_for_support, but never raising: getpass.getuser() inside it
+    can fail in some containers, so fall back to secret + path redaction."""
+    try:
+        return diagnostics.redact_for_support(text)
+    except Exception:
+        import translate_engines
+        text = translate_engines.redact_secrets(text or "")
+        return diagnostics._PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+
+
+def _error_item_text(item) -> str:
+    """A translate batch error ({"batch_index", "lines": [idx...], "error"})
+    as "lines 3-4: <message>" (1-based), instead of str(dict)."""
+    if not isinstance(item, dict):
+        return str(item)
+    message = item.get("error") or item.get("message") or "failed"
+    lines = [i for i in (item.get("lines") or []) if isinstance(i, int) and not isinstance(i, bool)]
+    if not lines:
+        return str(message)
+    lo, hi = min(lines) + 1, max(lines) + 1
+    where = f"line {lo}" if lo == hi else f"lines {lo}-{hi}"
+    return f"{where}: {message}"
+
+
+def project_result(result):
+    """A JSON-safe, redacted, size-capped view of a job's result dict, or
+    None when there is nothing to show (no result, or a non-dict result
+    such as live-translate's cue list)."""
+    if not isinstance(result, dict):
+        return None
+    out = {}
+    for key in RESULT_ALLOWED_KEYS:
+        if key not in result:
+            continue
+        value = result[key]
+        if isinstance(value, (list, tuple)):
+            items = (_safe_scalar(v if isinstance(v, (str, int, float, bool)) else _error_item_text(v))
+                     for v in list(value)[:_MAX_LIST])
+            out[key] = [v for v in items if v is not None]
+        else:
+            safe = _safe_scalar(value)
+            if safe is not None or value is None:
+                out[key] = safe
+    while out and len(json.dumps(out)) > _MAX_JSON:
+        biggest = max(out, key=lambda k: len(json.dumps(out[k])))
+        if isinstance(out[biggest], list) and len(out[biggest]) > 1:
+            out[biggest] = out[biggest][: len(out[biggest]) // 2]
+        else:
+            del out[biggest]
+    return out
+
+
+def project_result_json(result):
+    """project_result, JSON-encoded for db.job_records.result_json."""
+    projected = project_result(result)
+    return json.dumps(projected) if projected is not None else None
+
+
+_FAILED_REASON_MESSAGES = {
+    "model_download": "The speech model could not be downloaded.",
+    "empty": "Nothing was produced: no speech or text was found.",
+    "dependency_missing": "A required component is not installed.",
+    "qwen3_asr": "Qwen3-ASR failed on this audio.",
+    "groq": "The Groq transcription request failed.",
+    "vocal_separation": "Separating the vocals failed.",
+}
+
+
+def derive_outcome(status, error, result):
+    """(outcome, outcome_message) for a finished job, normalised from its
+    status and projected result so a client never has to know each job's
+    own result shape; (None, None) while queued/running. outcome is one of
+    ok, failed, cancelled, partial, kept_existing. Transcribe warnings
+    (gpu_fallback, word_align_error, forced_align_error) map to partial."""
+    if status == "error":
+        return "failed", (error or "The job failed.")
+    if status == "cancelled":
+        return "cancelled", "The job was cancelled."
+    if status != "done":
+        return None, None
+    result = result if isinstance(result, dict) else {}
+    reason = result.get("failed_reason")
+    detail = result.get("detail")
+    if reason == "cancelled":
+        return "cancelled", "The job was cancelled before it finished."
+    if reason == "empty_kept_existing":
+        count = result.get("existing_line_count")
+        return "kept_existing", (f"Nothing new was produced, so the existing {count} line(s) were kept."
+                                 if count is not None else
+                                 "Nothing new was produced, so the existing lines were kept.")
+    if reason:
+        msg = _FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
+        return "failed", (f"{msg} {detail}" if detail else msg)
+    if result.get("status") in ("failed", "auth_error"):
+        return "failed", (result.get("last_error") or "The job failed.")
+    if result.get("status") == "cancelled":
+        return "cancelled", "The bulk translation was cancelled."
+    errors = result.get("errors") or []
+    cap = result.get("cap_reached")
+    parts = []
+    if "fixed_count" in result:
+        parts.append(f"Fixed {result.get('fixed_count') or 0} of "
+                     f"{result.get('total_flagged') or 0} flagged line(s).")
+    if isinstance(cap, (int, float)) and not isinstance(cap, bool):
+        parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
+    if errors:
+        parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
+    if result.get("partial"):
+        parts.append("Only part of the work finished.")
+    # Transcribe warnings (Streamlit warned on these): the job worked, but
+    # not the way the user asked, so it is reported as partial, not ok.
+    warned = False
+    if result.get("gpu_fallback"):
+        parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
+        warned = True
+    if result.get("word_align_error"):
+        parts.append("Splitting long lines by word timing failed; the original timings were kept "
+                     f"({result['word_align_error']}).")
+        warned = True
+    if result.get("forced_align_error"):
+        parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
+                     f"({result['forced_align_error']}).")
+        warned = True
+    if cap is not None or errors or result.get("partial") or warned:
+        return "partial", " ".join(parts)
+    return "ok", (" ".join(parts) or "Finished.")
+
+
 def _redact(record: dict) -> dict:
     """Same redaction diagnostics_service._job_summary already applies --
     a stored error/message could echo an API error verbatim."""
     out = dict(record)
-    out["message"] = diagnostics.redact_for_support(record.get("message") or "")
-    out["error"] = diagnostics.redact_for_support(record.get("error") or "") or None
+    raw = out.pop("result_json", None)
+    try:
+        stored = json.loads(raw) if raw else None
+    except ValueError:
+        stored = None
+    # Re-projected on read too, so an older row can never leak a dropped key.
+    out["result"] = project_result(stored)
+    out["message"] = _redact_text(record.get("message") or "")
+    out["error"] = _redact_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
+    outcome, message = derive_outcome(out.get("status"), out["error"], out["result"])
+    out["outcome"] = outcome
+    out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
+                              if message else None)
     return out
 
 

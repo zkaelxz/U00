@@ -43,13 +43,63 @@ export function bulkReflectAvailable(engine: string, supported: string[]): boole
   return bulkAvailable(engine, supported) && engine !== 'deepseek'
 }
 
-export function initialForm(c: TranslateRunConfig): RunForm {
+// A drama's preset values (POST /api/dramas preset_defaults) that the
+// Translate form starts from. The preset's female-pronoun default and genre
+// notes have no field in TranslateRunStart, so they are not carried.
+export interface PresetStart {
+  style_preset?: string
+  locale?: string
+}
+
+const presetKey = (dramaId: number) => `baihe.translatePreset.${dramaId}`
+
+// Kept per drama in localStorage (the API only saves the preset's engine on
+// the drama), so the Translate stage starts from them in any later visit.
+export function savePresetStart(
+  dramaId: number,
+  d: { style_preset?: string | null; locale?: string | null } | null | undefined,
+): void {
+  const out: PresetStart = {}
+  if (d?.style_preset) out.style_preset = d.style_preset
+  if (d?.locale) out.locale = d.locale
+  try {
+    // No preset values: clear any stale entry (a reused drama id).
+    if (out.style_preset || out.locale) localStorage.setItem(presetKey(dramaId), JSON.stringify(out))
+    else localStorage.removeItem(presetKey(dramaId))
+  } catch {
+    // storage unavailable: the form just starts from the global defaults
+  }
+}
+
+export function loadPresetStart(dramaId: number): PresetStart {
+  try {
+    const raw = localStorage.getItem(presetKey(dramaId))
+    const v: unknown = raw ? JSON.parse(raw) : null
+    if (!v || typeof v !== 'object') return {}
+    const o = v as Record<string, unknown>
+    const out: PresetStart = {}
+    if (typeof o.style_preset === 'string') out.style_preset = o.style_preset
+    if (typeof o.locale === 'string') out.locale = o.locale
+    return out
+  } catch {
+    return {}
+  }
+}
+
+// A preset value only applies when this server still offers it.
+export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): RunForm {
+  const style = preset.style_preset && c.style_presets.some((p) => p.key === preset.style_preset)
+    ? preset.style_preset
+    : c.default_style_preset
+  const locale = preset.locale && c.locales.includes(preset.locale)
+    ? preset.locale
+    : c.locales.includes('en-US') ? 'en-US' : (c.locales[0] ?? 'en-US')
   return {
     engine: '',
     model: '',
-    style_preset: c.default_style_preset,
+    style_preset: style,
     style_note: '',
-    locale: c.locales.includes('en-US') ? 'en-US' : (c.locales[0] ?? 'en-US'),
+    locale,
     batch_size: String(c.defaults.batch_size),
     context_window: String(c.defaults.context_window),
     context_window_ahead: String(c.defaults.context_window_ahead),

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranslateRunConfig } from '../../types/translateStage'
 import {
@@ -7,14 +7,17 @@ import {
   bulkAvailable,
   bulkReflectAvailable,
   initialForm,
+  loadPresetStart,
   parseCap,
   reflectAvailable,
+  savePresetStart,
   splitLines,
   validateRun,
 } from './translateForm'
 
 const config = {
   default_style_preset: 'natural',
+  style_presets: [{ key: 'natural', label: 'Natural' }, { key: 'wuxia', label: 'Wuxia' }],
   locales: ['en-GB', 'en-US'],
   defaults: { context_window: 5, context_window_ahead: 2, batch_size: 20 },
 } as TranslateRunConfig
@@ -87,5 +90,50 @@ describe('translate form', () => {
     expect(buildRunBody(ok)).toMatchObject({ bulk: true, reflect: true })
     expect(buildEstimateParams(ok)).toMatchObject({ bulk: true, reflect: true })
     expect(buildRunBody(base)).not.toHaveProperty('bulk')
+  })
+})
+
+function memory(): Storage {
+  const m = new Map<string, string>()
+  return {
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: (k: string, v: string) => void m.set(k, v),
+    removeItem: (k: string) => void m.delete(k),
+  } as Storage
+}
+
+describe('preset start values', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('starts the form from the preset style and locale when the server offers them', () => {
+    const f = initialForm(config, { style_preset: 'wuxia', locale: 'en-GB' })
+    expect(f).toMatchObject({ style_preset: 'wuxia', locale: 'en-GB' })
+  })
+
+  it('falls back to the defaults for values the server does not offer', () => {
+    const f = initialForm(config, { style_preset: 'gone', locale: 'fr-FR' })
+    expect(f).toMatchObject({ style_preset: 'natural', locale: 'en-US' })
+  })
+
+  it('remembers per drama, keeps only style and locale, and clears on an empty preset', () => {
+    vi.stubGlobal('localStorage', memory())
+    savePresetStart(3, { style_preset: 'wuxia', locale: 'en-GB' })
+    expect(loadPresetStart(3)).toEqual({ style_preset: 'wuxia', locale: 'en-GB' })
+    expect(loadPresetStart(4)).toEqual({})
+    savePresetStart(5, { style_preset: null, locale: 'en-GB' })
+    expect(loadPresetStart(5)).toEqual({ locale: 'en-GB' })
+    savePresetStart(3, null)
+    expect(loadPresetStart(3)).toEqual({})
+  })
+
+  it('ignores corrupt data and survives throwing storage', () => {
+    vi.stubGlobal('localStorage', { getItem: () => '{"style_preset":5,"locale":"en-GB"}' })
+    expect(loadPresetStart(1)).toEqual({ locale: 'en-GB' })
+    const boom = () => {
+      throw new Error('blocked')
+    }
+    vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom })
+    expect(loadPresetStart(1)).toEqual({})
+    expect(() => savePresetStart(1, { locale: 'en-GB' })).not.toThrow()
   })
 })
