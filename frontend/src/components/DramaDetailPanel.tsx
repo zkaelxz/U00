@@ -47,8 +47,8 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
     }
   }, [dramaId])
 
-  if (error) return <section className="panel"><p className="error" role="alert">{error}</p></section>
-  if (!drama) return <section className="panel"><p className="muted">Loading…</p></section>
+  if (error) return <section className="panel wide"><p className="error" role="alert">{error}</p></section>
+  if (!drama) return <section className="panel wide"><p className="muted">Loading…</p></section>
 
   const rows: [string, string | number | null][] = [
     ['Original title', drama.title_zh],
@@ -65,7 +65,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   ]
 
   return (
-    <section className="panel" aria-labelledby="detail-heading">
+    <section className="panel wide" aria-labelledby="detail-heading">
       <h2 id="detail-heading">{drama.title_en || drama.title_zh || `Drama #${drama.id}`}</h2>
       {drama.summary && <p>{drama.summary}</p>}
       <dl>
@@ -80,7 +80,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
       </dl>
       <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Open workspace</a>
       {onDeleted && !confirming && (
-        <button type="button" onClick={() => setConfirming(true)}>
+        <button type="button" className="danger" onClick={() => setConfirming(true)}>
           Delete drama…
         </button>
       )}
@@ -92,7 +92,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
           />
-          <button type="button" disabled={!canConfirmDelete(typed)} onClick={remove}>
+          <button type="button" className="danger" disabled={!canConfirmDelete(typed)} onClick={remove}>
             Delete permanently
           </button>
           <button type="button" className="link" onClick={() => { setConfirming(false); setTyped(''); setDeleteError(null) }}>
