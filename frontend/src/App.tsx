@@ -8,6 +8,7 @@ import SettingsPage from './pages/Settings'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import { routeHref, useRoute } from './router'
+import type { Route } from './router'
 
 function ApiStatus() {
   const [meta, setMeta] = useState<MetaResponse | null>(null)
@@ -26,18 +27,31 @@ function ApiStatus() {
   )
 }
 
+// [label, target, route names that count as being on this page]
+const NAV: [string, Route, Route['name'][]][] = [
+  ['Library', { name: 'library' }, ['library', 'drama']],
+  ['Translate', { name: 'translate' }, ['translate']],
+  ['Settings', { name: 'settings' }, ['settings']],
+  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
+]
+
 export default function App() {
   const route = useRoute()
 
   return (
     <>
-      <header>
+      <header className="app-header">
         <h1>Baihe Studio</h1>
-        <nav>
-          <a href={routeHref({ name: 'library' })}>Library</a>
-          <a href={routeHref({ name: 'translate' })}>Translate</a>
-          <a href={routeHref({ name: 'settings' })}>Settings</a>
-          <a href={routeHref({ name: 'diagnostics' })}>Diagnostics</a>
+        <nav aria-label="Main">
+          {NAV.map(([label, target, active]) => (
+            <a
+              key={label}
+              href={routeHref(target)}
+              aria-current={active.includes(route.name) ? 'page' : undefined}
+            >
+              {label}
+            </a>
+          ))}
         </nav>
         <ApiStatus />
       </header>

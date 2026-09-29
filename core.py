@@ -261,6 +261,7 @@ def release_gpu_models():
     import gc
     import sys
     _whisper_model_cache.clear()
+    _whisper_device_info.clear()
     for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
                                     ("forced_align", "_aligner_model_cache")):
         module = sys.modules.get(module_name)
@@ -364,6 +365,60 @@ def is_whisper_model_cached(model_size: str) -> bool:
         return False
 
 
+_whisper_device_info = {}   # cache_key -> {"device", "compute_type", "gpu_error"}
+
+
+def _short_reason(exc, limit: int = 200) -> str:
+    """One-line, secret-redacted description of an exception, for
+    surfacing why the GPU couldn't be used."""
+    from translate_engines import redact_secrets
+    raw = exc if isinstance(exc, str) else f"{type(exc).__name__}: {exc}"
+    text = " ".join(redact_secrets(raw).split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def get_whisper_device_info(model_size: str, use_gpu: bool = False,
+                            local_model_path: str = None) -> dict:
+    """What load_whisper_model actually did for these arguments:
+    {"device": "cuda"|"cpu", "compute_type", "gpu_error": <short reason or
+    None>}. Empty dict if that model hasn't been loaded in this process."""
+    key = f"{local_model_path or model_size}_{'gpu' if use_gpu else 'cpu'}"
+    return dict(_whisper_device_info.get(key, {}))
+
+
+def describe_whisper_device(info: dict) -> str:
+    """Plain-words one-liner for get_whisper_device_info()'s dict."""
+    if not info:
+        return ""
+    if info.get("gpu_error"):
+        return f"GPU unavailable ({info['gpu_error']}); using CPU"
+    if info.get("device") == "cuda":
+        return f"Using GPU ({info.get('compute_type')})"
+    return f"Using CPU ({info.get('compute_type')})"
+
+
+def gpu_status() -> dict:
+    """Whether ctranslate2 (faster-whisper) sees a CUDA device and whether
+    torch.cuda is available. Never raises; each half is None when its
+    library isn't installed, plus short redacted errors if a probe failed."""
+    status = {"ctranslate2_cuda_devices": None, "torch_cuda_available": None, "errors": []}
+    try:
+        import ctranslate2
+        status["ctranslate2_cuda_devices"] = int(ctranslate2.get_cuda_device_count())
+    except ImportError:
+        pass
+    except Exception as exc:
+        status["errors"].append("ctranslate2: " + _short_reason(exc))
+    try:
+        import torch
+        status["torch_cuda_available"] = bool(torch.cuda.is_available())
+    except ImportError:
+        pass
+    except Exception as exc:
+        status["errors"].append("torch: " + _short_reason(exc))
+    return status
+
+
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str = None,
                         hf_token: str = None):
     """Loads (and on first use, downloads) a Whisper model.
@@ -393,14 +448,19 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     def _build(device, compute_type):
         return WhisperModel(target, device=device, compute_type=compute_type)
 
+    device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
         if use_gpu:
             try:
                 model = _build("cuda", "float16")
+                device_info = {"device": "cuda", "compute_type": "float16", "gpu_error": None}
             except Exception as gpu_exc:
                 if _is_network_error(gpu_exc):
                     raise
-                model = _build("cpu", "int8")   # no GPU: degrade, don't fail
+                # No usable GPU: degrade, don't fail -- but remember why, so
+                # callers can say the GPU was NOT used.
+                device_info["gpu_error"] = _short_reason(gpu_exc)
+                model = _build("cpu", "int8")
         else:
             model = _build("cpu", "int8")
     except Exception as exc:
@@ -431,6 +491,7 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
         raise
 
     _whisper_model_cache[cache_key] = model
+    _whisper_device_info[cache_key] = device_info
     return model
 
 
