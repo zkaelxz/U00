@@ -975,3 +975,84 @@ def test_round_trip_keeps_rows(isolated_db):
 ])
 def test_schema_sql_allowlist(sql, ok):
     assert wjs._schema_sql_allowed(sql) is ok
+
+
+# ---- round 3: data migrations run on the uploaded rows (R3-1, R3-2) --------
+
+def _q(sql, args=()):
+    conn = sqlite3.connect(db.DB_PATH)
+    try:
+        return conn.execute(sql, args).fetchall()
+    finally:
+        conn.close()
+
+
+def test_pre_26e_backup_migrates_progress_and_notes(isolated_db):
+    did = _new("Old")
+    data = _backup_bytes()
+
+    def age(conn):
+        conn.execute("DELETE FROM profiles")
+        conn.execute("DELETE FROM personal_notes")
+        conn.execute("DROP TABLE progress")
+        conn.execute("CREATE TABLE progress (drama_id INTEGER PRIMARY KEY, "
+                     "last_line_idx INTEGER DEFAULT 0, audio_position_seconds REAL DEFAULT 0, "
+                     "last_page INTEGER DEFAULT 1, percent_complete REAL DEFAULT 0, "
+                     "last_accessed_at TEXT)")
+        conn.execute("INSERT INTO progress (drama_id, last_line_idx, percent_complete) "
+                     "VALUES (?, 7, 0.5)", (did,))
+        conn.execute("UPDATE dramas SET personal_notes = 'my note' WHERE id = ?", (did,))
+    _restore(_raw_tampered(data, age))
+    profiles = _q("SELECT id, name FROM profiles")
+    assert len(profiles) == 1
+    pid = profiles[0][0]
+    assert _q("SELECT drama_id, profile_id, last_line_idx FROM progress") == [(did, pid, 7)]
+    assert _q("SELECT profile_id, drama_id, notes FROM personal_notes") == [
+        (pid, did, "my note")]
+
+
+def test_pre_step2_backup_maps_line_ids(isolated_db):
+    from core import Line
+    did = _new("Old")
+    db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(3)])
+    data = _backup_bytes()
+
+    def age(conn):
+        for t, cols in (("translation_notes", "term TEXT, note_type TEXT, note TEXT"),
+                        ("line_emotions", "emotion TEXT, intensity REAL, note TEXT")):
+            conn.execute(f"DROP TABLE {t}")
+            conn.execute(f"CREATE TABLE {t} (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                         f"drama_id INTEGER NOT NULL, line_idx INTEGER, {cols}, "
+                         "created_at TEXT)")
+        conn.execute("INSERT INTO translation_notes (drama_id, line_idx, term, note) "
+                     "VALUES (?, 2, 'x', 'n')", (did,))
+        conn.execute("INSERT INTO line_emotions (drama_id, line_idx, emotion) "
+                     "VALUES (?, 1, 'sad')", (did,))
+    _restore(_raw_tampered(data, age))
+    ids = dict(_q("SELECT idx, id FROM lines WHERE drama_id = ?", (did,)))
+    assert _q("SELECT line_id FROM translation_notes") == [(ids[2],)]
+    assert _q("SELECT line_id FROM line_emotions") == [(ids[1],)]
+
+
+@pytest.mark.parametrize("sql", [
+    "CREATE TABLE x (a INTEGER, b INTEGER GENERATED ALWAYS AS (a * 2))",
+    "CREATE TABLE x (a INTEGER, b INTEGER AS (a * 2) VIRTUAL)",
+])
+def test_generated_columns_refused(sql):
+    assert wjs._schema_sql_allowed(sql) is False
+
+
+def test_generated_column_backup_refused(isolated_db):
+    _new("A")
+    data = _raw_tampered(_backup_bytes(), lambda c: c.execute(
+        "CREATE TABLE extra (a INTEGER, b INTEGER GENERATED ALWAYS AS (a + 1))"))
+    with pytest.raises(InvalidInputError):
+        _restore(data)
+
+
+def test_sqlite_stat_tables_dropped(isolated_db):
+    _new("A")
+    data = _raw_tampered(_backup_bytes(), lambda c: c.execute("ANALYZE"))
+    _restore(data)
+    assert not _q("SELECT name FROM sqlite_master WHERE name LIKE 'sqlite_stat%'")
+    assert db.list_dramas()

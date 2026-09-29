@@ -614,7 +614,10 @@ def _schema_sql_allowed(sql: str) -> bool:
     import re
     text = re.sub(r"--[^\n]*|/\*.*?(\*/|$)", " ", sql, flags=re.S)
     text = " ".join(text.split()).upper()
-    return bool(re.match(r"CREATE (TABLE|(UNIQUE )?INDEX)[ \"'`\[(]", text + " "))
+    if not re.match(r"CREATE (TABLE|(UNIQUE )?INDEX)[ \"'`\[(]", text + " "):
+        return False
+    # Generated columns: quick_check and the row copy would evaluate them.
+    return "GENERATED" not in text and not re.search(r"\bAS ?\(", text)
 
 
 def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> None:
@@ -637,6 +640,7 @@ def _check_uploaded_db(db_path: str, message: str, need_table: str = None) -> No
     try:
         conn = sqlite3.connect(_ro_uri(db_path) + "&immutable=1", uri=True)
         conn.execute("PRAGMA trusted_schema = OFF")
+        conn.execute("PRAGMA ignore_check_constraints = ON")
         rows = conn.execute("SELECT type, name, sql FROM sqlite_master").fetchall()
         for _type, name, sql in rows:
             if sql is None:
@@ -694,6 +698,26 @@ def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
         raise ValueError(message) from None
 
 
+def _prepare_scratch(path: str):
+    """Drops sqlite_stat* tables (query-planner statistics the app never
+    writes) from the scratch copy before anything is run on it."""
+    conn = _open_carry_conn(path)
+    try:
+        for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                    "AND name LIKE 'sqlite_stat%'").fetchall():
+            conn.execute(f'DROP TABLE "{name}"')
+    finally:
+        conn.close()
+
+
+def _checkpoint(path: str):
+    conn = _open_carry_conn(path)
+    try:
+        conn.execute("PRAGMA journal_mode = DELETE")
+    finally:
+        conn.close()
+
+
 def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
@@ -704,17 +728,29 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     (a backup can only hold stale ones). The uploaded files never become
     a live schema: they are only ATTACHed read-only after
     _check_uploaded_db."""
+    import shutil
     import sqlite3
     from sources import store as src_store
     staged = os.path.join(staging_dir, "library.db")
     upload = os.path.join(staging_dir, ".uploaded_library.db")
     os.replace(staged, upload)
+    # The app's data migrations (line refs -> line ids, Step 26e profiles)
+    # run on a scratch COPY of the validated upload -- safe because the
+    # allowlist leaves only plain tables/indexes; its DDL is discarded, only
+    # its rows are copied into the fresh file below.
+    scratch = os.path.join(staging_dir, ".migrated_upload.db")
     try:
+        shutil.copyfile(upload, scratch)
         try:
+            _prepare_scratch(scratch)
+            db.migrate_database_file(scratch)
+            _checkpoint(scratch)
             db.migrate_database_file(staged)
-        except sqlite3.Error:
+        except Exception:
+            logging.getLogger(__name__).warning("Restore: staged database migration failed",
+                                                exc_info=True)
             raise ValueError(_BAD_LIBRARY_DB) from None
-        _rebuild_from_upload(staged, upload, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
+        _rebuild_from_upload(staged, scratch, skip_tables=_RESTORE_KEPT_AUTH_TABLES,
                              live_path=os.path.join(library_dir, "library.db"),
                              live_tables=("users", "user_permissions", "audit_log"),
                              message=_BAD_LIBRARY_DB)
@@ -731,7 +767,9 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
         except sqlite3.Error:
             raise ValueError(_BAD_LIBRARY_DB) from None
     finally:
-        os.remove(upload)
+        for path in (upload, scratch, scratch + "-wal", scratch + "-shm"):
+            if os.path.lexists(path):
+                os.remove(path)
 
     staged_src = os.path.join(staging_dir, "sources.db")
     if not os.path.lexists(staged_src):

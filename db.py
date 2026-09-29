@@ -142,6 +142,10 @@ def get_conn():
     conn = sqlite3.connect(path, factory=_TrackedConnection, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    if path != DB_PATH:
+        # migrate_database_file on a staged restore copy: no schema-defined
+        # function calls (the restore allows only plain tables/indexes).
+        conn.execute("PRAGMA trusted_schema = OFF")
     conn.execute("PRAGMA journal_mode = WAL")
     _open_connections[threading.get_ident()] = conn
     return conn
