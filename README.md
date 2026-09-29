@@ -47,11 +47,10 @@ URL you have the right to download from, only.
 - **Streamlit app (being retired).** `app.py` plus `tabs/*.py`. It is no
   longer launched by `start.bat`, but much of this README still describes
   its screens.
-- **FastAPI + React app (experimental, runs alongside).** A gradual
-  migration to an HTTP API (`api/`) and a React frontend (`frontend/`)
-  over the *same* library, database and background jobs. Nothing about
-  the Streamlit app changes because of it, and **no Streamlit screen has
-  been retired yet.** What works in React today: Library, Diagnostics,
+- **FastAPI + React app (the app going forward).** An HTTP API (`api/`)
+  and a React frontend (`frontend/`) over the *same* library, database and
+  background jobs. The Streamlit UI is frozen and is being removed
+  (`docs/streamlit-retirement-plan.md`). What works in React today: Library, Diagnostics,
   Settings, the standalone Translate page, and the per-drama Workspace
   stages Source, Translate, Review, Export and Dub. Everything else
   (for example Reader, Discover, Live, Scanlate and Sources) is
@@ -338,8 +337,8 @@ adding dramas without ever opening the GUI).
 
 ### Running the API and the React frontend
 
-Experimental; runs *alongside* the Streamlit app over the same library
-(see [Project status and architecture](#project-status-and-architecture)
+This is the developer setup (for normal use, `start.bat` does all of it);
+it uses the same library as before (see [Project status and architecture](#project-status-and-architecture)
 for what works). FastAPI/uvicorn come with `requirements-core.txt`; the
 frontend needs Node.js (22 is what CI uses). Two terminals, from the
 repo root:
