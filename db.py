@@ -1312,6 +1312,21 @@ def get_drama(drama_id: int):
     return dict(row) if row else None
 
 
+def drama_visible_sql(alias: str, visible_to: int):
+    """(sql, params): a WHERE fragment true when the drama row `alias` is
+    visible to user `visible_to` (auth slice B1/B2). Same rule as
+    ownership_service._visible: the series owner sees every drama in their
+    series; a private series hides its dramas from everyone else (drama
+    ownership doesn't override it); otherwise the drama's owner, or anyone
+    when it isn't private. `alias` is a trusted literal, never user input."""
+    return ((f"(EXISTS (SELECT 1 FROM series s WHERE s.id = {alias}.series_id"
+             " AND s.owner_user_id = ?)"
+             f" OR (NOT EXISTS (SELECT 1 FROM series s WHERE s.id = {alias}.series_id"
+             " AND COALESCE(s.is_private, 0) = 1)"
+             f" AND ({alias}.owner_user_id = ? OR COALESCE({alias}.is_private, 0) = 0)))"),
+            [visible_to, visible_to])
+
+
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = "", visible_to: int = None):
@@ -1324,15 +1339,9 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
         query = f"{_DRAMA_SELECT} WHERE 1=1"
         params = []
         if visible_to is not None:
-            # Same rule as ownership_service._visible: the series owner sees
-            # every drama in their series; a private series hides its dramas
-            # from everyone else (drama ownership doesn't override it).
-            query += (" AND (EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id"
-                      " AND s.owner_user_id = ?)"
-                      " OR (NOT EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id"
-                      " AND COALESCE(s.is_private, 0) = 1)"
-                      " AND (dramas.owner_user_id = ? OR COALESCE(dramas.is_private, 0) = 0)))")
-            params.extend([visible_to, visible_to])
+            clause, extra = drama_visible_sql("dramas", visible_to)
+            query += " AND " + clause
+            params.extend(extra)
         if search:
             query += " AND (title_zh LIKE ? OR title_en LIKE ? OR summary LIKE ?)"
             like = f"%{search}%"
@@ -2394,7 +2403,14 @@ def list_continue_reading(limit: int = 8, profile_id: int = None):
     return [dict(r) for r in rows]
 
 
-def list_reading_history(drama_id: int = None, limit: int = 50, profile_id: int = None):
+def list_reading_history(drama_id: int = None, limit: int = 50, profile_id: int = None,
+                         visible_to: int = None):
+    """`visible_to` (auth B2, all-dramas listing only): only dramas that
+    user may see."""
+    visible, vparams = "", []
+    if visible_to is not None:
+        clause, vparams = drama_visible_sql("d", visible_to)
+        visible = " AND " + clause
     with contextlib.closing(get_conn()) as conn:
         if profile_id is None:
             profile_id = _default_profile_id(conn)
@@ -2410,9 +2426,9 @@ def list_reading_history(drama_id: int = None, limit: int = 50, profile_id: int 
                 "SELECT h.id, h.drama_id, h.line_id, COALESCE(l.idx, h.line_idx) AS line_idx, "
                 "h.percent_complete, h.accessed_at, d.title_en, d.title_zh FROM reading_history h "
                 "JOIN dramas d ON d.id = h.drama_id LEFT JOIN lines l ON l.id = h.line_id "
-                "WHERE h.profile_id = ? "
+                "WHERE h.profile_id = ?" + visible + " "
                 "ORDER BY h.accessed_at DESC LIMIT ?",
-                (profile_id, limit)).fetchall()
+                [profile_id] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -3137,6 +3153,11 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                     WHEN excluded.status IN ('queued', 'running')
                          AND job_records.status NOT IN ('queued', 'running')
                     THEN excluded.owner_user_id
+                    -- A new run (auth B2): a stale "running" row left by a
+                    -- crashed process must not keep its old owner.
+                    WHEN excluded.status IN ('queued', 'running')
+                         AND excluded.started_at IS NOT job_records.started_at
+                    THEN excluded.owner_user_id
                     ELSE COALESCE(job_records.owner_user_id, excluded.owner_user_id) END,
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
@@ -3225,11 +3246,23 @@ def clear_all_job_records():
         conn.commit()
 
 
-def get_usage_summary(drama_id: int = None):
+def get_usage_summary(drama_id: int = None, visible_to: int = None):
     """Returns {"input_tokens", "output_tokens", "estimated_cost_usd", "call_count"} --
-    totals for one drama, or the whole library if drama_id is None."""
+    totals for one drama, or the whole library if drama_id is None.
+    `visible_to` (auth B2, library totals only): only calls logged against
+    a drama that user may see (calls with no drama are left out)."""
     with contextlib.closing(get_conn()) as conn:
-        if drama_id:
+        if not drama_id and visible_to is not None:
+            clause, params = drama_visible_sql("d", visible_to)
+            row = conn.execute(f"""
+                SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
+                       COALESCE(SUM(output_tokens),0) as output_tokens,
+                       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
+                       COALESCE(SUM(estimated_cost_usd),0) as estimated_cost_usd,
+                       COUNT(*) as call_count
+                FROM usage_log u JOIN dramas d ON d.id = u.drama_id WHERE {clause}
+            """, params).fetchone()
+        elif drama_id:
             row = conn.execute("""
                 SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
                        COALESCE(SUM(output_tokens),0) as output_tokens,
@@ -3250,12 +3283,17 @@ def get_usage_summary(drama_id: int = None):
     return dict(row)
 
 
-def get_usage_by_drama():
+def get_usage_by_drama(visible_to: int = None):
     """Per-drama cost breakdown, joined with drama titles, for the dashboard.
     Includes translation_engine so the dashboard can show "$0.00 (free)"
-    for a free engine instead of a bare, ambiguous-looking $0.00."""
+    for a free engine instead of a bare, ambiguous-looking $0.00.
+    `visible_to` (auth B2): only dramas that user may see."""
+    where, params = "", []
+    if visible_to is not None:
+        clause, params = drama_visible_sql("d", visible_to)
+        where = "WHERE " + clause
     with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT d.id, d.title_en, d.title_zh, d.translation_engine,
                    COALESCE(SUM(u.input_tokens),0) as input_tokens,
                    COALESCE(SUM(u.output_tokens),0) as output_tokens,
@@ -3263,8 +3301,9 @@ def get_usage_by_drama():
                    COALESCE(SUM(u.estimated_cost_usd),0) as estimated_cost_usd,
                    COUNT(u.id) as call_count
             FROM dramas d LEFT JOIN usage_log u ON u.drama_id = d.id
+            {where}
             GROUP BY d.id ORDER BY estimated_cost_usd DESC
-        """).fetchall()
+        """, params).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -3286,12 +3325,19 @@ def save_translate_history(source_language: str, target_language: str, engine: s
     return new_id
 
 
-def list_translate_history(limit: int = 50) -> List[dict]:
-    """Most recent first."""
+def list_translate_history(limit: int = 50, visible_to: int = None) -> List[dict]:
+    """Most recent first. `visible_to` (auth B2): only that user's own rows
+    (rows with no user -- the PC, the extension -- are for admins and the
+    local owner, who pass None)."""
     with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT * FROM translate_history ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if visible_to is None:
+            rows = conn.execute(
+                "SELECT * FROM translate_history ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM translate_history WHERE user_id = ? "
+                "ORDER BY created_at DESC LIMIT ?", (visible_to, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -3516,13 +3562,26 @@ def set_bulk_job_line_result_texts(bulk_job_id: int, result_by_line_id: dict):
 # Library-wide dashboard stats & global search
 # ---------------------------------------------------------------------------
 
-def get_library_stats():
+def get_library_stats(visible_to: int = None):
+    """`visible_to` (auth B2): count only the dramas (and their lines) that
+    user may see; None = the whole library."""
+    where, params = "", []
+    if visible_to is not None:
+        clause, params = drama_visible_sql("d", visible_to)
+        where = " WHERE " + clause
+    lines_from = ("FROM lines JOIN dramas d ON d.id = lines.drama_id" + where) if where \
+        else "FROM lines"
+    lines_where = " AND " if where else " WHERE "
     with contextlib.closing(get_conn()) as conn:
-        total_dramas = conn.execute("SELECT COUNT(*) FROM dramas").fetchone()[0]
-        by_status = conn.execute("SELECT status, COUNT(*) as n FROM dramas GROUP BY status").fetchall()
-        by_media_type = conn.execute("SELECT media_type, COUNT(*) as n FROM dramas GROUP BY media_type").fetchall()
-        total_lines = conn.execute("SELECT COUNT(*) FROM lines").fetchone()[0]
-        translated_lines = conn.execute("SELECT COUNT(*) FROM lines WHERE en IS NOT NULL AND en != ''").fetchone()[0]
+        total_dramas = conn.execute(f"SELECT COUNT(*) FROM dramas d{where}", params).fetchone()[0]
+        by_status = conn.execute(f"SELECT status, COUNT(*) as n FROM dramas d{where} GROUP BY status",
+                                 params).fetchall()
+        by_media_type = conn.execute(f"SELECT media_type, COUNT(*) as n FROM dramas d{where} "
+                                     "GROUP BY media_type", params).fetchall()
+        total_lines = conn.execute(f"SELECT COUNT(*) {lines_from}", params).fetchone()[0]
+        translated_lines = conn.execute(
+            f"SELECT COUNT(*) {lines_from}{lines_where}lines.en IS NOT NULL AND lines.en != ''",
+            params).fetchone()[0]
     return {
         "total_dramas": total_dramas,
         "by_status": {r["status"]: r["n"] for r in by_status},
@@ -3532,24 +3591,34 @@ def get_library_stats():
     }
 
 
-def list_dramas_recently_active(n: int = 10):
+def list_dramas_recently_active(n: int = 10, visible_to: int = None):
+    where, params = "", []
+    if visible_to is not None:
+        clause, params = drama_visible_sql("dramas", visible_to)
+        where = " WHERE " + clause
     with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM dramas ORDER BY updated_at DESC LIMIT ?", (n,)).fetchall()
+        rows = conn.execute(f"SELECT * FROM dramas{where} ORDER BY updated_at DESC LIMIT ?",
+                            params + [n]).fetchall()
     return [dict(r) for r in rows]
 
 
-def search_lines_globally(query: str, limit: int = 100):
+def search_lines_globally(query: str, limit: int = 100, visible_to: int = None):
     """Searches zh/en text across every drama's lines, returns results
     with the parent drama's title attached, for the Library tab's
-    global search -- not scoped to one drama like the Reader tab is."""
+    global search -- not scoped to one drama like the Reader tab is.
+    `visible_to` (auth B2): only dramas that user may see."""
+    visible, vparams = "", []
+    if visible_to is not None:
+        clause, vparams = drama_visible_sql("d", visible_to)
+        visible = " AND " + clause
     with contextlib.closing(get_conn()) as conn:
         like = f"%{query}%"
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT l.drama_id, l.idx, l.zh, l.en, d.title_en, d.title_zh
             FROM lines l JOIN dramas d ON d.id = l.drama_id
-            WHERE l.zh LIKE ? OR l.en LIKE ?
+            WHERE (l.zh LIKE ? OR l.en LIKE ?){visible}
             LIMIT ?
-        """, (like, like, limit)).fetchall()
+        """, [like, like] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
 
 

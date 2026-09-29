@@ -24,6 +24,7 @@ another process, `get_job_result` answers 404.
 import threading
 
 import background_jobs
+from services import ownership_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
                                      UnsupportedOperationError)
@@ -297,7 +298,7 @@ def _is_ours(job_id: str, local: bool = False) -> bool:
             and job_id[len(IMPORT_JOB_PREFIX):].isdigit())
 
 
-def get_job_result(job_id, local: bool = False) -> dict:
+def get_job_result(job_id, local: bool = False, principal=None) -> dict:
     """{job_id, status, progress, message, result}. 404 when the job is not
     resident in this process (or is a PC-only sign-in/tier-test job and the
     request is not `local`); a failed job raises its mapped error (503
@@ -306,7 +307,10 @@ def get_job_result(job_id, local: bool = False) -> dict:
     with _IDENTITY_LOCK:
         status = background_jobs.get_status(job_id) if _is_ours(job_id, local) else None
         started_for = _SERIES_IDENTITY.get(job_id)
-    if not status:
+    if not status or not ownership_service.can_see_job(principal, job_id,
+                                                       status.get("owner_user_id")):
+        # Another user's search/preview/series run, or an import into a
+        # drama the caller can't see (auth B2), looks like no job at all.
         raise NotFoundError("No such Sources job in this app session.")
     result = status.get("result")
     if status.get("status") == "error":
