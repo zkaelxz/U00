@@ -1,4 +1,87 @@
-# Phase 1 — Architecture & Model Research
+# Phase 1 — Architecture & Model Research (updated 2026-09-29)
+
+> **Read this first.** This document began as the Phase 1 proposal for a
+> from-scratch multilingual VOD transcription pipeline (CLI, SQLAlchemy,
+> FastAPI + React). The project did not follow that plan. It became the
+> **Baihe Subtitler**: a Python/Streamlit app that grew feature by feature,
+> and is now being migrated to a FastAPI service layer plus a React
+> frontend. The real code lives on the **`baihe-subtitler`** branch, not on
+> `main`. This page keeps the original proposal below as a historical
+> record and adds a status section that says what changed. Every "built"
+> claim was checked against the code on `baihe-subtitler` on 2026-09-29
+> (file names given); anything not checked is marked **unverified**.
+>
+> Where to look now: `docs/README.md` on `baihe-subtitler` (index),
+> `docs/migration-react-fastapi.md` (migration phases 0-10 plus the React
+> frontend), `docs/baihe-roadmap-master.md` (bug tracker, to-do, deferred
+> steps), and the roadmap on branch `claude/baihe-subtitle-planning-95qyvq`
+> (`docs/baihe-roadmap.md`).
+
+## 0. What changed since this proposal
+
+### 0.1 Stack and shape
+
+| Proposed here | What exists now |
+|---|---|
+| New `backend/vod_pipeline/` package, CLI-first, one milestone at a time (M1-M7) | A flat Python app at the repo root (`core.py`, `db.py`, `asr_backend.py`, `diarize.py`, `translate_engines.py`, ...) with a Streamlit UI (`app.py`, `tabs/`) and a CLI (`cli.py`) |
+| SQLAlchemy models, `Artifact` rows per stage, migrations folder | Plain `sqlite3` in `db.py`, no ORM; schema changes are `ALTER TABLE ... ADD COLUMN` in `init_db`. Tables include `dramas`, `lines`, `characters`, `glossary_terms`, `translation_memory`, `line_history`, `translation_versions`, `bulk_jobs` |
+| SQLite-backed job queue with per-segment checkpointing | `background_jobs.py` (threads and subprocesses); a SQLite job-records table for the API; a resumable bulk-translate job (`bulk_jobs`, `bulk_job_lines`). Not per-segment checkpointing for every stage |
+| FastAPI + React after M7 | FastAPI service layer (`services/`, `api/`, run with `python -m api`) and a React 19 + Vite frontend (`frontend/`). All planned React stages are merged: Library, Diagnostics, Settings, standalone Translate, and Workspace stages Source, Translate, Review, Dub and Export. Streamlit is still the complete UI until retirement criteria are met |
+| Windows double-click launcher (Phase 8) | `start.bat` exists; a native installer is designed (`docs/windows-installer-design.md`) but not built |
+
+### 0.2 Pipeline components: proposed vs built
+
+| Stage | Proposed | Built (verified) |
+|---|---|---|
+| Audio extraction | ffmpeg to 16 kHz mono WAV | Yes: `core.py`, `audio_preprocess.py` (also background extraction for the dub mix) |
+| VAD | Standalone Silero VAD artifact | **Not built as a standalone stage.** Whisper's own `vad_filter` provides segment boundaries (`asr_backend.py` docstring). Deferred as roadmap item R4 |
+| ASR | Qwen3-ASR primary, Whisper baseline | **Whisper (faster-whisper) is the default**. `Qwen3ASRBackend` exists in `asr_backend.py` but re-transcribes Whisper's segments and replaces only the text. Whether Qwen3-ASR beats Whisper on Japanese is **unverified**. The API backends for it (Slice 34) wait on a real-model check |
+| Forced alignment | Qwen3-ForcedAligner per VAD segment | Exists as an alternative aligner: `forced_align.py` (Qwen3-ForcedAligner-0.6B) and `word_align.py`. It needs a known transcript, so it is not used in Whisper-text-only mode |
+| Diarization | pyannote community-1, windowed for 20 h+ | pyannote `community-1` with `3.1` as the fallback (`diarize.py`, `DIARIZATION_MODELS`). **Windowed/stitched diarization is not built** (deferred as R2) |
+| Decoupling diarization from ASR | Independent branches, merge by timestamp overlap | **Built, as proposed:** `diarize.merge_speakers(lines, turns, overwrite_manual=False)` re-applies saved turns (`save_turns`/`load_turns`) to existing lines without re-transcribing; manual speaker edits are protected unless overwrite is asked for |
+| Raw vs edited transcript | Immutable `raw_transcript` artifact | **Built:** `raw_transcript.py` writes `raw_transcript.json`, later runs write timestamped files, nothing overwrites. Edited lines live in the `lines` table with `line_history` and `translation_versions`, not as an artifact chain |
+| Voiceprints | Suggestions only, human-confirmed | **Built as proposed and still experimental:** `voice_id.py` ranks cosine similarity against series-character fingerprints; it never labels automatically |
+| Translation | Local instruct LLM (Qwen 7B-14B) with sliding window, glossary, JSON keyed by id | Broader than proposed: `translate_engines.py` has Claude, DeepSeek, Gemini, DeepL, Google, NLLB, LibreTranslate, Ollama (local) and offline test engines, plus `FallbackEngine`. Prompts carry drama metadata, glossary, style notes, characters and story context; results are matched back **by explicit line id**, never by position. Reflect and bulk modes exist. Which engine is best on real content is **unverified** |
+| Subtitle export | SRT (ASS/VTT later) | Built: SRT, VTT and ASS (`subtitle_formats.py`), hard-sub video (`video_export.py`), EPUB, audiobook |
+| Benchmark harness | M7 gate before UI | Partial: `benchmark.py`, `asr_benchmark.py` and `benchmark_*` tables exist. The proposed full-pipeline benchmark (R7) is deferred |
+| GPU model manager | One resident model at a time | Not built as a manager. Heavy work runs in subprocesses; a single-slot manager is deferred as R3-full |
+
+### 0.3 Scope that grew well beyond this proposal
+
+None of the following was in the Phase 1 plan; all of it exists in the code:
+dubbing with TTS engines and background-music preservation, novel/EPUB
+narration, OCR of hard-coded subtitles and manga pages (scanlation),
+source adapters for many sites (`sources/adapters/`), a reader with
+vocabulary lookups, translation memory, consistency and QA checks, a
+browser-extension page translator (`page_server.py`), and Tailscale-based
+remote-access design.
+
+### 0.4 Which of this document's decisions still stand
+
+- **Still true and followed:** diarization decoupled from transcription;
+  raw transcript never overwritten; translation as context-aware LLM
+  prompting rather than a line-by-line MT model; voiceprints as
+  suggestions only; pyannote community-1 as the default diarizer.
+- **Superseded:** the CLI-first package layout, SQLAlchemy artifact model,
+  milestone order M1-M7, and "no UI until the benchmark gate".
+- **Answers to §10's open questions (from the code, not a fresh decision
+  by the user):** Q3 was decided in favour of SQLite + FastAPI + React
+  (React now underway). Q1 (default local model size) and Q2 (SenseVoice):
+  SenseVoice is an optional dependency (`funasr` in
+  `diagnostics.OPTIONAL_DEPENDENCIES`) and Ollama is the local translator;
+  a default model size is **not fixed** in the code I checked.
+
+### 0.5 Not verified in this update
+
+- Accuracy claims in §3 (WER figures, DER figures, VRAM numbers) come from
+  the original research and were not re-checked.
+- Whether the Qwen3 backends work on real audio/GPU (needs the user's
+  hardware).
+- Phase 1's stated RTX 3070 Ti / 8 GB target has not been re-measured.
+
+---
+
+# Original Phase 1 proposal (historical, unchanged below)
 
 Status: proposal for review. No application code has been written yet, per the
 project brief ("do not start by writing the full application"). This document
