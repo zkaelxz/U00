@@ -249,16 +249,7 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover, tbody tr.selected { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .library-grid tbody tr { cursor: pointer; }
 
-/* ---- details / engine list ---- */
-.engine-details { margin: 0 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
-.engine-details summary { cursor: pointer; color: var(--muted); font-size: var(--font-sm); font-weight: 600; }
-.engine-details ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-2); }
-.engine-head { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-.engine-details .muted { font-size: var(--font-sm); }
-
 .result { white-space: pre-wrap; margin: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); font: inherit; }
-.history-list { list-style: none; padding: 0 !important; display: grid; gap: var(--space-2); }
-.history-list li { padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 
 dl { margin: 0; }
 dl > div { display: grid; grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr); gap: var(--space-2); padding: var(--space-1) 0; }
@@ -425,6 +416,10 @@ ul.drama-cards.selecting > li { cursor: pointer; }
 .card-check .drama-card-title { min-height: 0; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
+.rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
+.rename-form .error { flex-basis: 100%; margin: 0; }
 .confirm-button { display: inline-flex; align-items: center; gap: var(--space-2); }
 .admin-block { display: grid; gap: var(--space-2); }
 .admin-block h3 { margin: 0; }

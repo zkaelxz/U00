@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { MediaKind } from '../../../api/media'
 import { getMediaStatus } from '../../../api/workspace'
 import { useStage } from '../StageContext'
+import { AiExtras } from './review/AiExtras'
 import { LinesPanel } from './review/LinesPanel'
 import { RecordsPanel } from './review/RecordsPanel'
 import { ReviewChecks } from './review/ReviewChecks'
@@ -56,8 +57,9 @@ export default function ReviewStage() {
       />
       <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount} />
       {!!lineCount && <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
-      {!!lineCount && <ReviewChecks dramaId={dramaId} reloads={reloads} onGoTo={goToLine} />}
-      <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} />
+      {!!lineCount && <ReviewChecks dramaId={dramaId} reloads={reloads} onGoTo={goToLine} onChanged={changed} jobRunning={jobRunning} />}
+      {!!lineCount && <AiExtras dramaId={dramaId} reloads={reloads} jobRunning={jobRunning} onChanged={changed} />}
+      <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} onGoTo={goToLine} />
     </div>
   )
 }

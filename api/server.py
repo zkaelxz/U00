@@ -27,8 +27,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import ApiSettings, check_bind_safety, load_settings
-from api.auth import (EarlyAuthGate, LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
-                      public_api_paths)
+from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSiteGate,
+                      LoopbackOnlyGate, local_only_matchers, public_api_paths)
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
@@ -62,6 +62,7 @@ from api.routers import (
     novel_routes,
     reader_routes,
     restructure_routes,
+    review_extras_routes,
     review_jobs_routes,
     review_lines_routes,
     review_records_routes,
@@ -127,6 +128,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     # visible here, which is why LoopbackOnlyGate refuses remote requests too.
     check_bind_safety(settings)
     if settings.auth_enabled:
+        # Innermost: gives each request a holder for "who started this job"
+        # (auth B2, api.auth.ActingPrincipalMiddleware).
+        app.add_middleware(ActingPrincipalMiddleware)
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
                            local_only_fn=lambda: local_only_matchers(app))
@@ -171,6 +175,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(metadata_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
+    app.include_router(review_extras_routes.router)
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)

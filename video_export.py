@@ -101,22 +101,43 @@ def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
     return out_path
 
 
-def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float):
+PREVIEW_CLIP_TIMEOUT_SECONDS = 120.0
+# ffmpeg stops writing the preview clip at this size (-fs), so a
+# pathological source can't fill the disk within the timeout.
+PREVIEW_CLIP_MAX_BYTES = 200 * 1024 * 1024
+
+
+def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float,
+                        timeout: float = PREVIEW_CLIP_TIMEOUT_SECONDS):
     """Step 12c: a short [start, end) cut of the source with `ass_text`
     burned in -- for checking the current subtitle style over real video
     before a full export. `ass_text` must already be timed to the clip
     (subtitle_formats.lines_for_clip), the same contract as
     render_vertical_clip, just without the 9:16 crop. Re-encoded at a fast
-    preset since it's thrown away after viewing."""
+    preset since it's thrown away after viewing. ffmpeg is killed after
+    `timeout` seconds and TimeoutError (fixed text, no paths) is raised, so
+    a hung ffmpeg can't keep a preview job running forever. The input is
+    read with the file protocol only, and the output stops at
+    PREVIEW_CLIP_MAX_BYTES."""
     fd, ass_path = tempfile.mkstemp(suffix=".ass")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(ass_text)
     try:
-        cmd = ["ffmpeg", "-y", "-ss", str(max(start, 0.0)), "-i", video_path,
+        # -protocol_whitelist file: the input is only ever read as a local
+        # file (never a playlist/concat reaching out over http or another
+        # protocol); -fs bounds the output size.
+        cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file",
+               "-ss", str(max(start, 0.0)), "-i", video_path,
                "-t", str(max(end - start, 0.1)),
                "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
-               "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out_path]
-        subprocess.run(cmd, check=True, capture_output=True)
+               "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
+               "-fs", str(PREVIEW_CLIP_MAX_BYTES), out_path]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # subprocess.run has already killed ffmpeg; fixed text (no paths).
+            raise TimeoutError("ffmpeg took too long rendering the preview clip and was "
+                               "stopped.") from None
     finally:
         os.unlink(ass_path)
     return out_path
@@ -184,24 +205,53 @@ def burn_ass(video_path: str, ass_text: str, out_path: str):
     return out_path
 
 
+# An input option, so it goes before each -i: a file named .mp4 could really
+# be an HLS playlist naming network URLs; ffmpeg may only open local files.
+_FILE_ONLY = ("-protocol_whitelist", "file")
+
+
+def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
+                           language: str = "eng") -> list:
+    """The ffmpeg argument list mux_soft_subtitles runs (also used by the
+    API's softsub export job, which runs it cancellably with a timeout)."""
+    ext = os.path.splitext(out_path)[1].lower()
+    sub_codec = "mov_text" if ext == ".mp4" else "srt"
+    return [
+        "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", srt_path,
+        "-map", "0:v", "-map", "0:a", "-map", "1:s",
+        "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,
+        "-metadata:s:s:0", f"language={language}",
+        out_path,
+    ]
+
+
 def mux_soft_subtitles(video_path: str, srt_text: str, out_path: str, language: str = "eng"):
     """Softsub: subtitles added as a selectable/toggleable track.
     Output must be .mp4 (mov_text codec) or .mkv (srt codec passthrough)."""
     srt_path = _write_srt_tempfile(srt_text)
     try:
-        ext = os.path.splitext(out_path)[1].lower()
-        sub_codec = "mov_text" if ext == ".mp4" else "srt"
-        cmd = [
-            "ffmpeg", "-y", "-i", video_path, "-i", srt_path,
-            "-map", "0:v", "-map", "0:a", "-map", "1:s",
-            "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,
-            "-metadata:s:s:0", f"language={language}",
-            out_path,
-        ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(mux_soft_subtitles_cmd(video_path, srt_path, out_path, language),
+                       check=True, capture_output=True)
     finally:
         os.unlink(srt_path)
     return out_path
+
+
+def replace_audio_with_dub_cmd(video_path: str, dub_audio_path: str, out_path: str,
+                               keep_original_at_db: float = None) -> list:
+    """The ffmpeg argument list replace_audio_with_dub runs (also used by
+    the API's dubbed-video export job)."""
+    if keep_original_at_db is not None:
+        return [
+            "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", dub_audio_path,
+            "-filter_complex",
+            f"[0:a]volume={float(keep_original_at_db)}dB[orig];[orig][1:a]amix=inputs=2:duration=first[aout]",
+            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", out_path,
+        ]
+    return [
+        "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", dub_audio_path,
+        "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-shortest", out_path,
+    ]
 
 
 def replace_audio_with_dub(video_path: str, dub_audio_path: str, out_path: str,
@@ -209,19 +259,9 @@ def replace_audio_with_dub(video_path: str, dub_audio_path: str, out_path: str,
     """Swaps the video's audio track for the generated dub track. If
     keep_original_at_db is set (e.g. -20), mixes the original audio in
     quietly underneath instead of fully replacing it."""
-    if keep_original_at_db is not None:
-        cmd = [
-            "ffmpeg", "-y", "-i", video_path, "-i", dub_audio_path,
-            "-filter_complex",
-            f"[0:a]volume={keep_original_at_db}dB[orig];[orig][1:a]amix=inputs=2:duration=first[aout]",
-            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", out_path,
-        ]
-    else:
-        cmd = [
-            "ffmpeg", "-y", "-i", video_path, "-i", dub_audio_path,
-            "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-shortest", out_path,
-        ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    subprocess.run(replace_audio_with_dub_cmd(video_path, dub_audio_path, out_path,
+                                              keep_original_at_db),
+                   check=True, capture_output=True)
     return out_path
 
 

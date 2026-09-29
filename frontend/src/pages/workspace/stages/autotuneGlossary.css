@@ -17,6 +17,14 @@
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 .novel-glossary-check { display: inline-flex; align-items: center; }
+/* Editable proposals (glossaryExtract.ts): translation plus category/policy. */
+.novel-glossary td input[type='text'] { min-width: 10rem; width: 100%; }
+.glossary-proposal-edit { display: grid; gap: var(--space-2); margin-top: var(--space-2); min-width: 0; }
+.glossary-proposal-edit input, .glossary-proposal-edit select { width: 100%; min-width: 0; }
+.glossary-proposal-selects { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); min-width: 0; }
+/* Review glossary before translating (GlossaryReview.tsx, in the Translate run panel). */
+.glossary-review { margin-top: var(--space-3); }
+.glossary-review > h4 { margin: 0 0 var(--space-2); }
 /* Phone: keep the apply row (Overwrite, confirm, primary) in reach at the bottom. */
 @media (max-width: 640px) {
   .novel-glossary-apply {

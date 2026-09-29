@@ -4,11 +4,12 @@ import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
-import type { ReviewLine } from '../../../../types/review'
+import type { ReviewLine, TmSuggestion } from '../../../../types/review'
 import type { TranslateEngine } from '../../../../types/translate'
-import { LineAi, type AiMode } from './LineAi'
+import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
-import { buildPatch, CONFLICT_MESSAGE, formatTime, JOB_RUNNING_MESSAGE, type LineDraft } from './reviewLogic'
+import { LineTools } from './LineTools'
+import { buildPatch, CONFLICT_MESSAGE, formatTime, isToolMode, JOB_RUNNING_MESSAGE, type LineDraft, type PanelMode } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
 export interface NoteDraft {
@@ -48,11 +49,13 @@ export interface RowActions {
   openSheet: (id: number) => void
   openStructure: (id: number, view: 'split' | 'merge') => void
   splitAtCursor: (id: number, field: 'zh' | 'en', utf16Offset: number) => void
-  setAi: (id: number, mode: AiMode | null) => void
+  setAi: (id: number, mode: PanelMode | null) => void
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
+  acceptTm: (id: number, entryId: number, expectedEn: string) => void
+  dismissTm: (s: TmSuggestion) => void
   clearIssue: () => void
   reload: () => void
 }
@@ -67,7 +70,9 @@ interface Props {
   // Filtered or search view: merge needs the true next line.
   limited: boolean
   edit: EditState | null
-  ai: AiMode | null
+  ai: PanelMode | null
+  // A translation-memory suggestion for this line (R11), if any.
+  tm: TmSuggestion | null
   issue: RowIssue | null
   actions: RowActions
 }
@@ -77,7 +82,7 @@ const INTERACTIVE = 'button, a, input, textarea, select, label, summary, dialog'
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, issue, actions }: Props) {
+function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, issue, actions }: Props) {
   const draft = edit?.draft ?? null
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -186,6 +191,19 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
         )}
       </div>
 
+      {tm && (
+        <div className="review-tm" data-testid="line-tm">
+          <span>
+            <span className="muted">Memory ({tm.exact ? 'exact' : `${Math.round(tm.similarity * 100)}% similar`}):</span>{' '}
+            {tm.suggestion}
+          </span>
+          <span className="review-actions">
+            <button type="button" onClick={() => actions.acceptTm(line.id, tm.entry_id, line.en ?? '')}>Use</button>
+            <button type="button" onClick={() => actions.dismissTm(tm)}>Dismiss</button>
+          </span>
+        </div>
+      )}
+
       {active && !isPhone && (
         <div className="review-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
           {hasMedia && (
@@ -291,6 +309,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             onChanged={(applied) =>
               actions.applyLine({ ...line, zh: applied.zh }, buildPatch(edit.base, draft) === null)
             }
+            onRestored={(saved) => actions.applyLine(saved, buildPatch(edit.base, draft) === null)}
           />
         </div>
       )}
@@ -314,7 +333,16 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           </div>
         </div>
       )}
-      {ai && (
+      {ai && (isToolMode(ai) ? (
+        <LineTools
+          key={`${line.id}-${ai}`}
+          dramaId={dramaId}
+          line={line}
+          mode={ai}
+          onClose={() => actions.setAi(line.id, null)}
+          onUse={(text) => actions.useSuggestion(line.id, text)}
+        />
+      ) : (
         <LineAi
           key={`${line.id}-${ai}`}
           dramaId={dramaId}
@@ -323,7 +351,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           onClose={() => actions.setAi(line.id, null)}
           onUse={(text) => actions.useSuggestion(line.id, text)}
         />
-      )}
+      ))}
       {issue?.conflict && (
         <div className="banner error-banner" role="alert" data-testid="line-conflict">
           <span>{CONFLICT_MESSAGE}</span>

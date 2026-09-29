@@ -260,7 +260,9 @@ baihe-subtitler/
 │   │                             list/apply; no paths returned; ref-audio upload stays out of scope
 │   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
 │   │                             CRUD, confirm-gated delete), project/series instructions, and
-│   │                             read-only option catalogues; LLM term extraction stays out
+│   │                             read-only option catalogues; glossary proposals from the novel
+│   │                             or (parity X10) the source lines, as jobs; apply by term text
+│   │                             with optional per-term edits
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
@@ -310,7 +312,11 @@ baihe-subtitler/
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
 │   ├── line_ai_service.py        Migration Slice 50 -- per-line Improve translation / Why this?
-│   │                             (synchronous, read-only suggestions; id-addressed)
+│   │                             (synchronous, read-only suggestions; id-addressed); also
+│   │                             Alternatives / Grammar (review parity R17/R18)
+│   ├── line_tools_service.py     Review parity R19/R28 -- Pronounce (bounded edge-tts MP3 of a line's
+│   │                             source) and auto-shorten overlong lines (snapshot, then `en`-only
+│   │                             compare-and-set per line)
 │   ├── translation_version_service.py  Review parity R39 -- make a saved translation version the current
 │   │                             English (snapshot, then `en`-only write by line id; refuses restructured lines)
 │   ├── blocked_retry_service.py  Review parity R10 -- retry one content-blocked line with another engine
@@ -322,6 +328,10 @@ baihe-subtitler/
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
 │   │                             preview + apply job, version-history restore (snapshot first,
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── review_extras_service.py  Review AI extras (R46/R37/R35/R03) -- auto-merge short lines (read-only
+│   │                             preview; apply re-checks ids + groups, snapshot first), learn my style +
+│   │                             apply toggle/reset, SenseVoice tag job + side-by-side rows, burned
+│   │                             preview clip job (capped, fixed file name in the drama folder)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
 │   ├── oidc_service.py           Step 134 (A1) -- Google sign-in: PKCE/state/nonce single-use login
@@ -403,7 +413,8 @@ baihe-subtitler/
 │       │                         (Migration Slice 42)
 │       ├── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
 │       │                         ?confirm=true), .../instructions[/project|/series], /catalogues
-│       │                         (Migration Slice 46)
+│       │                         (Migration Slice 46); .../from-novel[/apply] (batch 2C) and
+│       │                         .../from-lines[/apply] (parity X10)
 │       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
 │       │                         preview (writes nothing), .../coverage, .../pacing-flags,
 │       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
@@ -433,6 +444,9 @@ baihe-subtitler/
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       ├── review_extras_routes.py /api/review-extras/dramas/{id}/merge-short/preview|apply, style(/learn|
+│       │                         /apply|/reset), sensevoice (POST job, GET rows), burn-preview (POST job,
+│       │                         /info, /clip Range); tests/test_api_review_extras.py
 │       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │       ├── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
 │       ├── live_routes.py        /api/live/sessions (POST start, GET list), /{id} (GET poll), /{id}/stop (spec L-1; API batch 1)
@@ -445,8 +459,10 @@ baihe-subtitler/
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
-│       │                         reset-library (POST, local_only + confirm; API batch 1)
+│       │                         support-report|install-presets|gpu-torch (GET) and gpu-torch/check, package-updates/
+│       │                         check (POST, on click), all admin.diagnostics;
+│       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library
+│       │                         (POST, local_only + confirm; API batch 1)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -493,10 +509,14 @@ baihe-subtitler/
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
-│   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
+│   │                              Install…/Update to X…, synchronous; installed versions, "Check for
+│   │                              updates" + packageUpdates.ts; "Install by task" presets, approx.
+│   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
+│   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
-│   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
+│   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
+│   │                              helpers, unit-tested), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.
@@ -514,7 +534,12 @@ baihe-subtitler/
 │   │                              (consistency, emotion), ReviewChecks (coverage/pacing, tendencies, version
 │   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
 │   │                              text) with RetranscribeLine (one-line re-transcribe job,
-│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested)
+│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested);
+│   │                              AiExtras (+ AiExtrasMerge, AiExtrasStyle, AiExtrasSenseVoice,
+│   │                              AiExtrasBurnPreview, aiExtrasLogic.ts pure): auto-merge short lines, learn my
+│   │                              style, SenseVoice tags, burned preview clip; API in src/api/reviewExtras.ts;
+│   │                              LineTools (alternatives, grammar, pronounce), ShortenOverlong (pacing
+│   │                              auto-shorten), tmDismiss.ts (per-session TM dismissals)
 │   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
@@ -538,8 +563,12 @@ baihe-subtitler/
 │   │                              AddTitle, BulkImport, ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
-│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
-│   │                              novel), SeriesCast (Characters > Series cast: list, add, inline edit of
+│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
+│   │                              Glossary > From novel / From lines, and the novel one on Source),
+│   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
+│   │                              (Translate: review glossary before translating), useGlossaryRun
+│   │                              (shared run state across mounts), glossaryExtract.ts (pure,
+│   │                              unit-tested; types in src/types/glossaryHelpers.ts), SeriesCast (Characters > Series cast: list, add, inline edit of
 │   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
 │   │                              unit-tested), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
@@ -552,6 +581,10 @@ baihe-subtitler/
 │   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
 │   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
 │   │                              types/novelFiles.ts
+│   │                              VoiceSuggestions (Characters > "sounds like X": accept/reject) + characters.css;
+│   │                              CharactersPanel's sample lines, custom pronouns and "Remember in this series"
+│   │                              use characterForm.ts (pure, unit-tested); API in src/api/characters.ts,
+│   │                              types in src/types/characters.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
