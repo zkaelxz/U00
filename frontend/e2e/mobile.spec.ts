@@ -42,7 +42,7 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   await page.getByRole('region', { name: 'Dramas' }).getByRole('link', { name: 'Signal', exact: true }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source for the seeded drama, which has no lines).
-  await expect(page).toHaveURL(/#\/drama\/\d+(\/[a-z]+)?$/)
+  await expect(page).toHaveURL(/#\/drama\/\d+$/)
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 

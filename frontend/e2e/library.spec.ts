@@ -58,7 +58,7 @@ test('grid and list views; the choice is remembered', async ({ page }) => {
   await page.getByRole('radio', { name: 'List' }).check()
   await expect(dramas(page).getByRole('row')).toHaveCount(4) // header + 3 dramas
   const row = dramas(page).getByRole('row').filter({ hasText: 'Signal' })
-  await expect(row.getByRole('link', { name: 'Signal', exact: true })).toHaveAttribute('href', /#\/drama\/\d+(\/[a-z]+)?$/)
+  await expect(row.getByRole('link', { name: 'Signal', exact: true })).toHaveAttribute('href', /#\/drama\/\d+$/)
   await expect(row).toContainText('Korean')
   await row.getByRole('button', { name: 'Details: Signal' }).click()
   await expect(page.getByRole('dialog', { name: 'Signal' })).toBeVisible()
@@ -71,7 +71,7 @@ test('grid and list views; the choice is remembered', async ({ page }) => {
 test('the card title opens the workspace in one click', async ({ page }) => {
   await page.goto('/')
   await dramas(page).getByRole('link', { name: 'Signal', exact: true }).click()
-  await expect(page).toHaveURL(/#\/drama\/\d+(\/[a-z]+)?$/)
+  await expect(page).toHaveURL(/#\/drama\/\d+$/)
   // The seeded drama has no lines, so its current stage is Source (#433).
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
 })

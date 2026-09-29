@@ -11,7 +11,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   await expect(shelf.getByRole('listitem')).toHaveCount(3)
   const resume = shelf.getByRole('link', { name: 'Resume work on Signal' })
   // The drama's current stage: no stage in the link (the workspace picks it, #433) or an explicit one.
-  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+(\/[a-z]+)?$/)
+  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+$/)
   await expect(resume).toHaveClass(/btn/)
 
   await page.getByRole('radio', { name: 'Lines' }).check()

@@ -211,7 +211,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
 }) {
   const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
-  if (!items.length) return null
+  if (!items.length) return <ErrorBanner error={recent.error} />
   const limit = phone ? 2 : 4
   const shown = all ? items : items.slice(0, limit)
   const href = (x: ContinueItem) =>
@@ -220,6 +220,7 @@ function ContinueShelf({ continuing, recent, mediaTypes, phone }: {
       : workspaceHref(x.dramaId)
   return (
     <Card title="Continue" className="continue-card" aria-label="Continue">
+      <ErrorBanner error={recent.error} />
       <ul className="continue-list">
         {shown.map((x) => (
           <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
@@ -534,6 +535,7 @@ export default function LibraryPage() {
       onChanged={reload}
       onDeleted={(ids) => {
         if (selected && ids.includes(selected.id)) setSelected(null)
+        setCreated((c) => (c && ids.includes(c.id) ? null : c))
         setChecked((c) => new Set([...c].filter((id) => !ids.includes(id))))
       }}
     />
