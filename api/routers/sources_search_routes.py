@@ -9,13 +9,15 @@ GET /jobs/{job_id}/result, cancel with POST /api/jobs/{job_id}/cancel.
 
 All three are `library.read` (the remote-access decision's "read and
 search allowed"): nothing here writes the library, files or settings.
-Importing chapters (spec S-4) needs `sources.import` and is not built:
-the service has no import action yet.
+Importing chapters (spec S-4) is `sources.import`, in
+sources_import_routes.py. The result route also serves the check-now job
+and, only to a request from this PC, the sign-in and tier-test jobs
+(sources_local_routes.py).
 """
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import require_permission
+from api.auth import is_local_request, require_permission
 from api.schemas import (ErrorResponse, SourcesJobResult, SourcesJobStarted,
                          SourcesSearchRequest, SourcesSeriesRequest)
 from services import sources_search_service as svc
@@ -46,4 +48,6 @@ def post_series(body: SourcesSeriesRequest, name: str = Path(min_length=1, max_l
             summary="A Sources job's status and result (this process only; 404 otherwise)",
             responses=_ERRS)
 def get_job_result(request: Request, job_id: str = Path(min_length=1, max_length=100)):
-    return svc.get_job_result(job_id, principal=request.state.principal)
+    # Sign-in and tier-test jobs (PC-only) answer 404 to other devices.
+    return svc.get_job_result(job_id, local=is_local_request(request),
+                              principal=request.state.principal)
