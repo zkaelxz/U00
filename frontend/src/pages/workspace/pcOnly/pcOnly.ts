@@ -52,7 +52,7 @@ export function usePcOnly(): boolean | null {
         if (cached === null) publish(v)
         else setValue(cached)
       })
-    } else setValue(cached)
+    }
     return () => {
       listeners.delete(setValue)
     }

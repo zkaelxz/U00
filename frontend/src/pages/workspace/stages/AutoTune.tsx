@@ -89,7 +89,7 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
       ? `best ${best} ms`
       : 'finds the value with the fewest long lines'
 
-  const useButton = (r: AutotuneCandidateScore) => (
+  const applyButton = (r: AutotuneCandidateScore) => (
     <button type="button" onClick={() => use(r.candidate_ms)}>
       Use {r.candidate_ms} ms
     </button>
@@ -131,7 +131,7 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
                   <div className="muted">
                     {r.long_lines} long lines · {r.total_lines} lines
                   </div>
-                  <div className="autotune-card-action">{useButton(r)}</div>
+                  <div className="autotune-card-action">{applyButton(r)}</div>
                 </li>
               ))}
             </ul>
@@ -155,7 +155,7 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
                       </td>
                       <td>{r.long_lines}</td>
                       <td>{r.total_lines}</td>
-                      <td>{useButton(r)}</td>
+                      <td>{applyButton(r)}</td>
                     </tr>
                   ))}
                 </tbody>

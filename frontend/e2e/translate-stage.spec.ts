@@ -81,8 +81,8 @@ test('a 409 on start says a translate job is already running', async ({ page }) 
 test('glossary and characters panels load; a term for a drama without a series shows a banner', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   // Both panels are collapsed Sections with a count badge; open them to reach the body.
-  await page.locator('details.section', { hasText: 'Glossary' }).locator('summary').click()
-  await page.locator('details.section', { hasText: 'Characters' }).locator('summary').click()
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  await page.locator('details.section', { hasText: 'Characters' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByLabel('Project instructions')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
