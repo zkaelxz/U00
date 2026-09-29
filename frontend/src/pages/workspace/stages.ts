@@ -50,3 +50,15 @@ export function stageStates(stages: { key: string; state: string }[] | undefined
   for (const s of stages ?? []) if (isStageId(s.key) && s.state in STAGE_STATE_WORDS) out[s.key] = s.state
   return out
 }
+
+// §3.3: the count a stepper tab shows next to its label, where one exists
+// ("Translate · 32 left", "Review · 12 flagged"); null for none.
+export function stageCount(
+  stage: StageId,
+  progress: { line_count: number; untranslated_count: number; flagged_count: number } | null,
+): string | null {
+  if (!progress || progress.line_count <= 0) return null
+  if (stage === 'translate' && progress.untranslated_count > 0) return `${progress.untranslated_count} left`
+  if (stage === 'review' && progress.flagged_count > 0) return `${progress.flagged_count} flagged`
+  return null
+}

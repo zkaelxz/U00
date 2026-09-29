@@ -12,6 +12,7 @@ import {
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
+import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { Coverage, Pacing, ShortenResult, Tendencies, VersionCompare, VersionItem } from '../../../../types/review'
 import { FindingList } from './FindingList'
@@ -117,13 +118,15 @@ function CoverageSection({ coverage, pacing, onGoTo, keep, children }: {
     <Section storageKey="review.coverage" title="Coverage and pacing" count={total} summary={summary.join(' · ')}>
       {groups.map((g) => (
         <div key={g.title}>
-          <h4 title={g.hint}>{g.title}</h4>
+          <h4>{g.title}</h4>
+          <p className="muted review-hint-text">{g.hint}</p>
           <FindingList items={g.items} onGoTo={onGoTo} />
         </div>
       ))}
       {pace.length > 0 && (
         <div>
-          <h4 title="The translation is a poor fit for the line's time slot.">Pacing</h4>
+          <h4>Pacing</h4>
+          <p className="muted review-hint-text">The translation is a poor fit for the line's time slot.</p>
           <FindingList items={pace} onGoTo={onGoTo} testId="pacing-list" />
         </div>
       )}
@@ -215,7 +218,7 @@ function CompareSection({ dramaId, versions }: { dramaId: number; versions: Vers
         </Field>
       </div>
       <div className="review-actions">
-        <button type="button" disabled={busy || left === right} onClick={run}>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || left === right} onClick={run}>
           {busy ? 'Comparing…' : 'Show differences'}
         </button>
         {left === right && <span className="muted">Pick two different versions.</span>}
