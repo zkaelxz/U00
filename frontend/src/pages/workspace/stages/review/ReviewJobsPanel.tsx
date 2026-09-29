@@ -7,11 +7,23 @@ import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
+import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
 import { ReviewFindings } from './ReviewFindings'
-import { EMPTY_FIX_FORM, fixFlaggedBody, fixFormSummary, spendText, type FixForm, type GoToLine } from './reviewResults'
+import {
+  EMPTY_CHECK_FORM,
+  EMPTY_FIX_FORM,
+  checkFormSummary,
+  checkJobBody,
+  fixFlaggedBody,
+  fixFormSummary,
+  spendText,
+  type CheckForm,
+  type FixForm,
+  type GoToLine,
+} from './reviewResults'
 
 const KINDS: { kind: ReviewJobKind; label: string }[] = [
   { kind: 'consistency', label: 'Check consistency' },
@@ -19,6 +31,60 @@ const KINDS: { kind: ReviewJobKind; label: string }[] = [
   { kind: 'notes', label: 'Generate notes' },
   { kind: 'flag', label: 'Flag lines for a second look' },
 ]
+
+// Engine and model pickers shared by the check jobs and fix-flagged. Paid
+// engines stay behind the server's engines.paid check; this only chooses.
+function EngineModelFields({
+  engines,
+  defaultEngine,
+  engine,
+  model,
+  help,
+  onChange,
+}: {
+  engines: TranslateEngine[]
+  defaultEngine: string
+  engine: string
+  model: string
+  help: string
+  onChange: (next: { engine: string; model: string }) => void
+}) {
+  const models = engines.find((e) => e.name === (engine || defaultEngine))?.models ?? null
+  const engineLabel = (name: string) => {
+    const e = engines.find((x) => x.name === name)
+    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
+  }
+  return (
+    <>
+      <Field label="Engine" help={help}>
+        <select value={engine} onChange={(e) => onChange({ engine: e.target.value, model: '' })}>
+          <option value="">Default{defaultEngine ? ` (${defaultEngine})` : ''}</option>
+          {engines.map((e) => (
+            <option key={e.name} value={e.name}>
+              {engineLabel(e.name)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {models && models.length > 0 ? (
+        <Field label="Model">
+          <select value={model} onChange={(e) => onChange({ engine, model: e.target.value })}>
+            <option value="">Engine default</option>
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <Field label="Model" help="Blank uses the engine's default model.">
+          <input value={model} maxLength={200} onChange={(e) => onChange({ engine, model: e.target.value })} />
+        </Field>
+      )}
+    </>
+  )
+}
 
 interface Props {
   dramaId: number
@@ -33,14 +99,15 @@ interface Props {
 // stage's lines, records and stored results are refetched, so translated
 // text, flags and findings never stay stale until a hard refresh.
 export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount }: Props) {
-  const { onJobDone } = useStage()
+  const { onJobDone, drama } = useStage()
   const [jobId, setJobId, runKey] = useJobRun()
   const [error, setError] = useState<unknown>(null)
   const [fix, setFix] = useState<FixForm>(EMPTY_FIX_FORM)
+  const [checks, setChecks] = useState<CheckForm>(EMPTY_CHECK_FORM)
   const [problem, setProblem] = useState<string | null>(null)
   // Bumped when a job finishes; only jobs change the stored findings.
   const [jobsDone, setJobsDone] = useState(0)
-  // Engine and model choices for fix-flagged; without them only the defaults are offered.
+  // Engine and model choices for every AI job; without them only the defaults are offered.
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
@@ -82,11 +149,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
 
   const defaultEngine = config?.translation_engine ?? ''
   const engines = config?.engines ?? []
-  const models = engines.find((e) => e.name === (fix.engine || defaultEngine))?.models ?? null
-  const engineLabel = (name: string) => {
-    const e = engines.find((x) => x.name === name)
-    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
-  }
+  const cuesOn = checks.audioCues ?? drama.has_audio
   const capHelp =
     'Stops the fix at this many dollars; blank means no per-job cap.' +
     (config ? ` ${spendText(config.month_spend, config.monthly_cap_usd)}` : '')
@@ -100,11 +163,31 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
       <Section storageKey="review.ai" title="AI review" summary="consistency, emotion, notes, flag, fix flagged">
         <div className="review-actions review-ai-actions">
           {KINDS.map(({ kind, label }) => (
-            <button key={kind} type="button" disabled={busy} onClick={() => void start(kind)}>
+            <button key={kind} type="button" disabled={busy} onClick={() => void start(kind, checkJobBody(kind, checks))}>
               {label}
             </button>
           ))}
         </div>
+        <Section storageKey="review.ai.options" title="Check options" summary={checkFormSummary(checks, defaultEngine, drama.has_audio)}>
+          <div className="review-edit-row">
+            <EngineModelFields
+              engines={engines}
+              defaultEngine={defaultEngine}
+              engine={checks.engine}
+              model={checks.model}
+              help="Which service runs these checks. The default is the drama's engine; engines marked (no key) cannot run, and translation-only engines cannot run these checks."
+              onChange={(n) => setChecks((c) => ({ ...c, ...n }))}
+            />
+            <label className="review-ai-cues">
+              <input
+                type="checkbox"
+                checked={cuesOn}
+                onChange={(e) => setChecks((c) => ({ ...c, audioCues: e.target.checked }))}
+              />
+              Tag emotion: use audio delivery cues
+            </label>
+          </div>
+        </Section>
         {busy && <p className="muted review-ai-busy">A review job is running.</p>}
         <fieldset className="review-fix" aria-label="Fix flagged lines">
           <legend>Fix flagged lines</legend>
@@ -122,32 +205,14 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
           )}
           <Section storageKey="review.fix.options" title="Options" summary={fixFormSummary(fix, defaultEngine)}>
             <div className="review-edit-row">
-              <Field label="Engine" help="Which service re-translates. The default comes from Settings; engines marked (no key) cannot run.">
-                <select value={fix.engine} onChange={(e) => setFix((f) => ({ ...f, engine: e.target.value, model: '' }))}>
-                  <option value="">Default{defaultEngine ? ` (${defaultEngine})` : ''}</option>
-                  {engines.map((e) => (
-                    <option key={e.name} value={e.name}>
-                      {engineLabel(e.name)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {models && models.length > 0 ? (
-                <Field label="Model">
-                  <select value={fix.model} onChange={(e) => setFix((f) => ({ ...f, model: e.target.value }))}>
-                    <option value="">Engine default</option>
-                    {models.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ) : (
-                <Field label="Model" help="Blank uses the engine's default model.">
-                  <input value={fix.model} maxLength={200} onChange={(e) => setFix((f) => ({ ...f, model: e.target.value }))} />
-                </Field>
-              )}
+              <EngineModelFields
+                engines={engines}
+                defaultEngine={defaultEngine}
+                engine={fix.engine}
+                model={fix.model}
+                help="Which service re-translates. The default comes from Settings; engines marked (no key) cannot run."
+                onChange={(n) => setFix((f) => ({ ...f, ...n }))}
+              />
               {/* Text, not type=number: a browser turns a value it cannot parse ("5$", "1,5", "-")
                   into "", which would start a paid job with no cap. fixFlaggedBody checks every value. */}
               <Field label="Cost cap" unit="$" help={capHelp}>

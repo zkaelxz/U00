@@ -1,5 +1,5 @@
 // Pure helpers for the Review stage's results and checks (ReviewFindings,
-// ReviewChecks, LineOrigin) and the fix-flagged start options. Lines are
+// ReviewChecks, LineOrigin) and the AI jobs' start options. Lines are
 // linked by permanent id; idx is shown only as lineNumber(idx).
 import { lineNumber } from '../../../../lineNumber'
 import type {
@@ -8,6 +8,7 @@ import type {
   EmotionSummary,
   PacingFlag,
   ReviewJobBody,
+  ReviewJobKind,
   ReviewLine,
 } from '../../../../types/review'
 
@@ -35,6 +36,34 @@ export function fixFlaggedBody(f: FixForm): ReviewJobBody | string {
     body.job_cost_cap_usd = n
   }
   return body
+}
+
+// R50/R33: engine and model for the other AI checks (consistency, emotion,
+// notes, flag), plus emotion's audio-cues toggle. Unset fields are left out
+// so the server's defaults apply (the drama's engine; cues on with audio).
+export interface CheckForm {
+  engine: string // '' = the drama's engine
+  model: string // '' = the engine's default model
+  audioCues: boolean | null // null = the server default
+}
+
+export const EMPTY_CHECK_FORM: CheckForm = { engine: '', model: '', audioCues: null }
+
+export function checkJobBody(kind: ReviewJobKind, f: CheckForm): ReviewJobBody {
+  const body: ReviewJobBody = {}
+  const engine = f.engine.trim()
+  const model = f.model.trim()
+  if (engine) body.engine = engine
+  if (model) body.model = model
+  if (kind === 'emotion' && f.audioCues !== null) body.use_audio_cues = f.audioCues
+  return body
+}
+
+export function checkFormSummary(f: CheckForm, defaultEngine: string, hasAudio: boolean): string {
+  const parts = [f.engine || `${defaultEngine || 'default'} engine`]
+  if (f.model) parts.push(f.model)
+  if (f.audioCues ?? hasAudio) parts.push('audio cues')
+  return parts.join(' · ')
 }
 
 // A monthly cap of 0 (or less) means there is none.
