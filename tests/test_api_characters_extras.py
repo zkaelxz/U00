@@ -101,6 +101,28 @@ class TestVoiceSuggestions:
         assert sc["aliases"] == "Shanshan" and sc["notes"] == "calm"
         assert isolated_db.list_dismissed_voice_suggestions(did) == set()
 
+    def test_concurrent_accept_links_and_blends_once(self, client, isolated_db, monkeypatch):
+        """A second accept that passed the "still offered" check before the
+        first one wrote is a 404, not a second link or blend."""
+        did, sid, sc_id = _series_drama(isolated_db)
+        real = characters_service._current_suggestions
+        raced = []
+
+        def racing(drama_id, drama):
+            out = real(drama_id, drama)
+            if not raced:   # the other request wins between our check and write
+                raced.append(1)
+                characters_service.accept_voice_suggestion(did, "SPEAKER_00", sc_id)
+            return out
+        monkeypatch.setattr(characters_service, "_current_suggestions", racing)
+        r = client.post(f"/api/characters/dramas/{did}/voice-suggestions/accept",
+                        json={"speaker_label": "SPEAKER_00", "series_character_id": sc_id})
+        assert r.status_code == 404, r.text
+        sc = isolated_db.list_series_characters(sid)[0]
+        assert sc["voice_fingerprint_samples"] == 2   # 1 seeded + exactly one blend
+        (row,) = isolated_db.list_characters_with_series_names(did)
+        assert row["series_character_id"] == sc_id
+
     def test_accept_of_pair_not_offered_is_404_and_writes_nothing(self, client, isolated_db):
         did, sid, sc_id = _series_drama(isolated_db, embedding=(0.0, 1.0))
         r = client.post(f"/api/characters/dramas/{did}/voice-suggestions/accept",
@@ -272,6 +294,44 @@ class TestRemember:
         assert after["Su"]["voice_fingerprint_samples"] in (0, None)
         (row,) = isolated_db.list_characters_with_series_names(did)
         assert row["series_character_id"] == by_name["Lin"]["id"]
+
+    def test_concurrent_remember_links_and_blends_once(self, client, isolated_db, monkeypatch):
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Lin")
+        diarize.save_turns(isolated_db.drama_dir(did), [], embeddings={"A": [0.5, 0.5]})
+        real = characters_service._load_voice_embeddings
+        raced = []
+
+        def racing(drama_id):
+            if not raced:   # the other request wins after our checks passed
+                raced.append(1)
+                characters_service.remember_series_character(did, "A")
+            return real(drama_id)
+        monkeypatch.setattr(characters_service, "_load_voice_embeddings", racing)
+        r = self._post(client, did, "A")
+        assert r.status_code == 409, r.text
+        (sc,) = isolated_db.list_series_characters(sid)
+        assert sc["voice_fingerprint_samples"] == 1
+
+    def test_remember_is_insert_only_into_the_series_cast(self, client, isolated_db,
+                                                          monkeypatch):
+        """Never the upsert (whose ON CONFLICT rewrites aliases/notes): a
+        character added meanwhile under the same name keeps its details."""
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Lin")
+        real = characters_service._load_voice_embeddings
+        add = isolated_db.upsert_series_character
+
+        def racing(drama_id):   # someone adds "Lin" with details meanwhile
+            add(sid, "Lin", aliases="L", notes="n")
+            return real(drama_id)
+        monkeypatch.setattr(characters_service, "_load_voice_embeddings", racing)
+        monkeypatch.setattr(isolated_db, "upsert_series_character",
+                            lambda *a, **k: pytest.fail("remember must not upsert"))
+        r = self._post(client, did, "A")
+        assert r.status_code == 200 and r.json()["created"] is False
+        (sc,) = isolated_db.list_series_characters(sid)
+        assert (sc["aliases"], sc["notes"]) == ("L", "n")
 
     def test_no_series_refused_clearly(self, client, isolated_db):
         did, _ = self._drama(isolated_db, series=False)

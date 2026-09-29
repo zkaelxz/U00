@@ -370,9 +370,11 @@ def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_
                   and s["series_character_id"] == series_character_id), None)
     if match is None:
         raise NotFoundError("That voice suggestion isn't offered any more.")
-    upsert_character(drama_id, speaker_label, character_name=match["character_name"],
-                     series_character_id=series_character_id)
-    db.update_series_character_voice_fingerprint(series_character_id, embeddings[speaker_label])
+    # One conditional transaction: a concurrent accept (or a name saved
+    # meanwhile) makes this a no-op, never a second link or blend.
+    if not db.accept_voice_link(drama_id, speaker_label, series_character_id,
+                                match["character_name"], embeddings[speaker_label]):
+        raise NotFoundError("That voice suggestion isn't offered any more.")
     return {"character": _get_one(drama_id, speaker_label),
             "suggestions": _current_suggestions(drama_id, drama)[0]}
 
@@ -431,18 +433,16 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     name = entry["character_name"].strip()
     if not name:
         raise InvalidInputError("Save a name for this speaker first.")
-    existing = next((sc for sc in db.list_series_characters(series_id)
-                     if sc["character_name"] == name), None)
-    created = existing is None
-    if created:
-        db.upsert_series_character(series_id, name,
-                                   gender=tguide.normalize_pronouns(entry["pronouns"]) or None)
-        existing = next(sc for sc in db.list_series_characters(series_id)
-                        if sc["character_name"] == name)
-    upsert_character(drama_id, speaker_label, series_character_id=existing["id"])
     embedding = _load_voice_embeddings(drama_id).get(speaker_label)
-    if isinstance(embedding, list) and embedding:
-        db.update_series_character_voice_fingerprint(existing["id"], embedding)
-    series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == existing["id"])
+    # One conditional transaction (link only while still unlinked and still
+    # so named; insert-only into the series cast).
+    linked = db.remember_speaker_as_series_character(
+        drama_id, speaker_label, series_id, name,
+        gender=tguide.normalize_pronouns(entry["pronouns"]) or None,
+        embedding=embedding if isinstance(embedding, list) and embedding else None)
+    if linked is None:
+        raise ConflictError("This speaker was linked or renamed meanwhile; reload and try again.")
+    sc_id, created = linked
+    series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
     return {"character": _get_one(drama_id, speaker_label), "series_character": series_entry,
             "created": created}

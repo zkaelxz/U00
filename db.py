@@ -1786,6 +1786,26 @@ def delete_series_character(series_character_id: int):
         conn.commit()
 
 
+def _blend_voice_fingerprint(conn, series_character_id: int, new_embedding: list):
+    row = conn.execute(
+        "SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters WHERE id = ?",
+        (series_character_id,)).fetchone()
+    if row is None:
+        return
+    existing = json.loads(row["voice_fingerprint"]) if row["voice_fingerprint"] else None
+    n = row["voice_fingerprint_samples"] or 0
+    if existing and len(existing) == len(new_embedding):
+        blended = [(e * n + v) / (n + 1) for e, v in zip(existing, new_embedding)]
+    else:
+        # No prior fingerprint, or a dimension mismatch (a different
+        # embedding model produced it) -- start over from this sample
+        # rather than averaging incompatible vectors.
+        blended, n = list(new_embedding), 0
+    conn.execute(
+        "UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? WHERE id = ?",
+        (json.dumps(blended), n + 1, series_character_id))
+
+
 def update_series_character_voice_fingerprint(series_character_id: int, new_embedding: list):
     """Step 8: blends a newly-confirmed voice embedding into this
     character's running-average fingerprint (simple incremental mean,
@@ -1796,25 +1816,82 @@ def update_series_character_voice_fingerprint(series_character_id: int, new_embe
     or "Remember as a known series character" for a speaker not yet
     linked (services/characters_service.py) -- never automatically."""
     with contextlib.closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters WHERE id = ?",
-            (series_character_id,)).fetchone()
-        if row is None:
-            conn.close()
-            return
-        existing = json.loads(row["voice_fingerprint"]) if row["voice_fingerprint"] else None
-        n = row["voice_fingerprint_samples"] or 0
-        if existing and len(existing) == len(new_embedding):
-            blended = [(e * n + v) / (n + 1) for e, v in zip(existing, new_embedding)]
-        else:
-            # No prior fingerprint, or a dimension mismatch (a different
-            # embedding model produced it) -- start over from this sample
-            # rather than averaging incompatible vectors.
-            blended, n = list(new_embedding), 0
-        conn.execute(
-            "UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? WHERE id = ?",
-            (json.dumps(blended), n + 1, series_character_id))
+        _blend_voice_fingerprint(conn, series_character_id, new_embedding)
         conn.commit()
+
+
+def accept_voice_link(drama_id: int, speaker_label: str, series_character_id: int,
+                      character_name: str, embedding: list = None) -> bool:
+    """An accepted voice suggestion, in one transaction: names the speaker
+    and links it to the series character ONLY while the speaker is still
+    unnamed and unlinked, then blends `embedding` into that character's
+    fingerprint. False (nothing written) when the speaker was named or
+    linked meanwhile -- so two concurrent accepts can't both link it or
+    blend the same embedding twice."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("INSERT OR IGNORE INTO characters (drama_id, speaker_label) VALUES (?, ?)",
+                     (drama_id, speaker_label))
+        cur = conn.execute(
+            "UPDATE characters SET character_name = ?, series_character_id = ? "
+            "WHERE drama_id = ? AND speaker_label = ? AND series_character_id IS NULL "
+            "AND COALESCE(TRIM(character_name), '') = ''",
+            (character_name, series_character_id, drama_id, speaker_label))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False
+        if embedding:
+            _blend_voice_fingerprint(conn, series_character_id, embedding)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def remember_speaker_as_series_character(drama_id: int, speaker_label: str, series_id: int,
+                                         name: str, gender: str = None,
+                                         embedding: list = None):
+    """"Remember as a known series character", in one transaction: only
+    while the speaker is still unlinked and its saved name (trimmed) is
+    still `name`, adds `name` to the series if it isn't there (insert-only:
+    an existing character's aliases, notes and pronouns are never
+    touched), links the speaker to it and blends `embedding` into its
+    fingerprint. Returns (series_character_id, created), or None (nothing
+    written) when the speaker was linked or renamed meanwhile."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT 1 FROM characters WHERE drama_id = ? AND speaker_label = ? "
+            "AND series_character_id IS NULL AND TRIM(character_name) = ?",
+            (drama_id, speaker_label, name)).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        created = conn.execute("""
+            INSERT INTO series_characters (series_id, character_name, aliases, notes, gender, created_at)
+            VALUES (?, ?, '', '', ?, ?)
+            ON CONFLICT(series_id, character_name) DO NOTHING
+        """, (series_id, name, gender, datetime.datetime.utcnow().isoformat())).rowcount == 1
+        sc_id = conn.execute(
+            "SELECT id FROM series_characters WHERE series_id = ? AND character_name = ?",
+            (series_id, name)).fetchone()["id"]
+        conn.execute("UPDATE characters SET series_character_id = ? "
+                     "WHERE drama_id = ? AND speaker_label = ? AND series_character_id IS NULL",
+                     (sc_id, drama_id, speaker_label))
+        if embedding:
+            _blend_voice_fingerprint(conn, sc_id, embedding)
+        conn.commit()
+        return sc_id, created
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def dismiss_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int):
