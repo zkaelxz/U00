@@ -76,3 +76,45 @@ describe('PC-only mode', () => {
     expect(getPcMode()).toBe('remote')
   })
 })
+
+describe('pcOnlyFetch and CSRF', () => {
+  const reply = (status: number, code: string) =>
+    (async () => new Response(JSON.stringify({ error: { code, message: 'x' } }), { status })) as typeof fetch
+
+  it('a csrf_failed 403 does not flip PC mode to remote', async () => {
+    await loadPcMode(() => Promise.resolve(meta(true)))
+    const resp = await pcOnlyFetch(reply(403, 'csrf_failed'))('/api/x', { method: 'POST' })
+    expect(getPcMode()).toBe('local')
+    // The caller can still read the body.
+    expect(((await resp.json()) as { error: { code: string } }).error.code).toBe('csrf_failed')
+  })
+
+  it('any other 403 still flips to remote', async () => {
+    await loadPcMode(() => Promise.resolve(meta(true)))
+    await pcOnlyFetch(reply(403, 'local_only'))('/api/x', { method: 'POST' })
+    expect(getPcMode()).toBe('remote')
+  })
+
+  it('a 403 with a non-JSON body flips to remote', async () => {
+    await pcOnlyFetch((async () => new Response('<html>', { status: 403 })) as typeof fetch)('/api/x', { method: 'POST' })
+    expect(getPcMode()).toBe('remote')
+  })
+
+  it('adds X-CSRF-Token on mutations when the cookie is set, not on GET', async () => {
+    vi.stubGlobal('document', { cookie: 'baihe_csrf=tok' })
+    try {
+      const seen: Headers[] = []
+      const f = (async (_i: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(new Headers(init?.headers))
+        return new Response('{}', { status: 200 })
+      }) as typeof fetch
+      await pcOnlyFetch(f)('/api/x', { method: 'DELETE' })
+      await pcOnlyFetch(f)('/api/x')
+      expect(seen[0].get('X-CSRF-Token')).toBe('tok')
+      expect(seen[0].get('X-Baihe-Local')).toBe('1')
+      expect(seen[1].get('X-CSRF-Token')).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

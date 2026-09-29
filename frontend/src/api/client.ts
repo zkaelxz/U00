@@ -32,10 +32,68 @@ export class ApiError extends Error {
 
 type Fetch = typeof fetch
 
+// ---- CSRF (auth on) ----
+// With sign-in on, the server sets a readable CSRF cookie next to the
+// HttpOnly session cookie: `__Host-baihe_csrf` over https, `baihe_csrf` in
+// plain-http dev. Every mutating request echoes it back as X-CSRF-Token
+// (double submit; the server also checks it against the session). With
+// auth off there is no cookie and no header.
+const CSRF_COOKIES = ['__Host-baihe_csrf', 'baihe_csrf']
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+export function readCsrfToken(
+  cookies: string = typeof document === 'undefined' ? '' : (document.cookie ?? ''),
+): string | null {
+  const jar = new Map<string, string>()
+  for (const part of cookies.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq < 0) continue
+    const name = part.slice(0, eq).trim()
+    if (!jar.has(name)) jar.set(name, part.slice(eq + 1).trim())
+  }
+  for (const name of CSRF_COOKIES) {
+    const raw = jar.get(name)
+    if (!raw) continue
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  }
+  return null
+}
+
+/** `{ 'X-CSRF-Token': token }` when a CSRF cookie is present, else `{}`. */
+export function csrfHeader(): Record<string, string> {
+  const token = readCsrfToken()
+  return token ? { 'X-CSRF-Token': token } : {}
+}
+
+export function isMutating(method: string | undefined): boolean {
+  return MUTATING.has((method ?? 'GET').toUpperCase())
+}
+
+// ---- 401: signed out ----
+// Any 401 means the session is gone (expired, revoked, or signed out in
+// another tab). hooks/useSession.ts subscribes and swaps in the Login page.
+const unauthorizedListeners = new Set<() => void>()
+
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener)
+  return () => unauthorizedListeners.delete(listener)
+}
+
+function withCsrf(init: RequestInit): RequestInit {
+  if (!isMutating(init.method)) return init
+  const extra = csrfHeader()
+  if (!extra['X-CSRF-Token']) return init
+  return { ...init, headers: { ...(init.headers as Record<string, string> | undefined), ...extra } }
+}
+
 async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Promise<T> {
   let resp: Response
   try {
-    resp = await fetchImpl(`${BASE}${path}`, init)
+    resp = await fetchImpl(`${BASE}${path}`, withCsrf(init))
   } catch {
     throw new ApiError(0, {
       code: 'network_error',
@@ -48,6 +106,7 @@ async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Pr
   } catch {
     // Non-JSON body (e.g. a proxy's own error page) -- handled below.
   }
+  if (resp.status === 401) unauthorizedListeners.forEach((l) => l())
   if (!resp.ok) {
     const info = (body as { error?: ErrorInfo } | null)?.error
     throw new ApiError(
@@ -83,7 +142,8 @@ export function deleteJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T
   return request<T>(path, { method: 'DELETE', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER } }, fetchImpl)
 }
 
-// Sent on every mutating request. With auth off the server refuses a
+// Sent on every mutating request (plus X-CSRF-Token when signed in, see
+// withCsrf above). With auth off the server refuses a
 // POST/PUT/PATCH that is neither JSON nor carries this header (bodyless
 // POSTs and multipart are CORS "simple" requests); the custom header forces
 // a preflight, which stops a page on another local port from posting.

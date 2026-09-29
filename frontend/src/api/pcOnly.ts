@@ -16,11 +16,12 @@
  *   postMultipart('/api/.../restore', form, pcOnlyFetch(f))
  *
  * It adds `X-Baihe-Local: 1` (client.ts LOCAL_HEADER; the server requires
- * JSON or this header on local_only POST/PUT/PATCH) and flips the mode to
- * 'remote' on a 403.
+ * JSON or this header on local_only POST/PUT/PATCH), adds X-CSRF-Token when
+ * signed in, and flips the mode to 'remote' on a 403 -- except a 403 with
+ * code `csrf_failed`, which is a stale sign-in token, not "not the PC".
  * This is only a UI hint: the routes enforce PC-only themselves.
  */
-import { LOCAL_HEADER, api } from './client'
+import { LOCAL_HEADER, api, csrfHeader, isMutating } from './client'
 import type { MetaResponse } from './types'
 
 export type PcMode = 'local' | 'remote' | 'unknown'
@@ -102,13 +103,30 @@ export function loadPcMode(meta: () => Promise<MetaResponse> = () => api.meta())
   return metaLoad
 }
 
-/** A fetch for PC-only mutating calls: adds X-Baihe-Local: 1, and a 403 marks the tab remote. */
+/** The error code of a JSON error body, read from a clone so the caller can still read it. */
+async function errorCode(resp: Response): Promise<string | null> {
+  try {
+    const body = (await resp.clone().json()) as { error?: { code?: unknown } } | null
+    return typeof body?.error?.code === 'string' ? body.error.code : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A fetch for PC-only mutating calls: adds X-Baihe-Local: 1 (and the CSRF
+ * header when signed in), and a 403 marks the tab remote unless it is a
+ * CSRF failure.
+ */
 export function pcOnlyFetch(f: Fetch = fetch): Fetch {
   return async (input, init) => {
     const headers = new Headers(init?.headers)
     for (const [k, v] of Object.entries(LOCAL_HEADER)) headers.set(k, v)
+    if (isMutating(init?.method)) {
+      for (const [k, v] of Object.entries(csrfHeader())) headers.set(k, v)
+    }
     const resp = await f(input, { ...init, headers })
-    if (resp.status === 403) markRemote()
+    if (resp.status === 403 && (await errorCode(resp)) !== 'csrf_failed') markRemote()
     return resp
   }
 }
