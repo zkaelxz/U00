@@ -83,7 +83,7 @@ test('phone: every main nav link is inside the viewport at 360 and 390 px', asyn
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/sources')
     const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
-    await expect(links).toHaveCount(5)
+    await expect(links).toHaveCount(6)
     for (const link of await links.all()) {
       const box = (await link.boundingBox())!
       expect(box.x, `${await link.textContent()} at ${width}`).toBeGreaterThanOrEqual(0)

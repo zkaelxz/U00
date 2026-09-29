@@ -16,6 +16,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/translate/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/sources')).toEqual({ name: 'sources' })
     expect(parseRoute('#/sources/extra')).toEqual({ name: 'library' })
+    expect(parseRoute('#/live')).toEqual({ name: 'live' })
+    expect(parseRoute('#/live/extra')).toEqual({ name: 'library' })
   })
 
   it('parses drama id and stage; no stage means null (the drama\'s current stage)', () => {
