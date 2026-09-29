@@ -1079,6 +1079,8 @@ class MediaUploadResult(BaseModel):
     name: str
     size: int
     kind: str
+    # B-09: set for a video -- the background audio-extraction job to poll.
+    job_id: Optional[str] = None
 
 
 class NarrationEngineOption(BaseModel):
