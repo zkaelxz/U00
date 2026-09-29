@@ -48,7 +48,7 @@ describe('upload pre-check', () => {
 describe('config validation', () => {
   it('mirrors the server ranges', () => {
     expect(validateConfig({ beam_size: 5, min_silence_ms: 300, vad_threshold: 0.9 })).toBeNull()
-    expect(validateConfig({ beam_size: 0 })).toMatch(/beam size/)
+    expect(validateConfig({ beam_size: 0 })).toMatch(/Beam size/)
     expect(validateConfig({ beam_size: 2.5 })).toMatch(/whole number/)
     expect(validateConfig({ min_silence_ms: 3001 })).toMatch(/300 and 3000/)
     expect(validateConfig({ vad_threshold: 0.05 })).toMatch(/0.1 and 0.9/)
