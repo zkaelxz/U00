@@ -1,5 +1,6 @@
 """
-api/routers/media_routes.py -- audio/video upload (Slice 31) and Range playback (Slice 52) for one drama (Migration
+api/routers/media_routes.py -- audio/video upload (Slice 31), Range playback (Slice 52) and
+the PC-only URL download (yt-dlp; services/url_media_service.py) for one drama (Migration
 Slice 31). Multipart body; see services/media_upload_service.py for the
 filename/size/atomic-write rules. Returns name, size, kind and, for a
 video, the job_id of the background audio extraction (B-09).
@@ -14,9 +15,10 @@ from fastapi.responses import FileResponse
 from api.auth import local_only, require_permission
 from pydantic import ValidationError
 
-from api.schemas import (ErrorResponse, MediaStatus, MediaUploadResult, TranscribeRunRequest,
-                         UploadAndTranscribeResult)
-from services import media_playback_service, media_upload_service, transcribe_service
+from api.schemas import (ErrorResponse, MediaStatus, MediaUploadResult, MediaUrlDownloadRequest,
+                         MediaUrlDownloadStarted, TranscribeRunRequest, UploadAndTranscribeResult)
+from services import (media_playback_service, media_upload_service, transcribe_service,
+                      url_media_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -70,6 +72,20 @@ def post_upload_and_transcribe(
         return {"upload": upload, "job_id": upload["job_id"]}
     run_job_id = upload.pop("transcribe_job_id")  # audio: started under the upload claim
     return {"upload": upload, "job_id": run_job_id}
+
+
+@router.post("/dramas/{drama_id}/download-url", dependencies=[local_only()],
+             response_model=MediaUrlDownloadStarted,
+             summary="Job: download a drama's audio/video from a URL with yt-dlp (PC only)",
+             description="The URL must be a public http(s) address (checked before anything "
+                         "starts). Replacing existing audio needs confirm_replace_audio=true "
+                         "(422 with details.reason \"confirm_replace_audio\" otherwise). Poll "
+                         "GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel.",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1)):
+    return url_media_service.start_url_download(drama_id, body.url, body.audio_only,
+                                                body.confirm_replace_audio)
 
 
 def _play(drama_id: int, kind: str) -> FileResponse:
