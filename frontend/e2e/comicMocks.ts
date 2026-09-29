@@ -2,6 +2,8 @@ import { deflateSync } from 'node:zlib'
 
 import type { Page, Route } from '@playwright/test'
 
+import { ME } from './authMocks'
+
 // Shared page.route mocks for the comic viewer specs (routes C1-C5 under
 // /api/scanlate/dramas/{id}, built against the spec while the backend lands).
 // A catch-all aborts (and records) every /api call nothing here mocks, so no
@@ -188,6 +190,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   const { id } = opts
   const root = `/api/scanlate/dramas/${id}`
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: true }))
+  // Sign-in off, on the PC (the app asks before rendering any page).
+  await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   await page.route(new RegExp(`/api/library/dramas/${id}$`), (route) => {
     record(route)
     return json(route, {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../../../../api/client'
+import { ApiError, withSignal } from '../../../../api/client'
 import { explainLine, improveLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import type { LineExplanation, LineImprovement, ReviewLine } from '../../../../types/review'
@@ -58,7 +58,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     setError(null)
     const ctl = new AbortController()
     abortRef.current = ctl
-    const withSignal: typeof fetch = (input, init) => fetch(input, { ...init, signal: ctl.signal })
+    const aborting = withSignal(ctl.signal)
     const live = <T,>(f: (v: T) => void) => (v: T) => {
       if (!ctl.signal.aborted) f(v)
     }
@@ -70,8 +70,8 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
       setBusy(false)
     }
     if (m === 'improve') {
-      improveLine(dramaId, line.id, issue, withSignal).then(live(setImprovement), live(fail)).finally(done)
-    } else explainLine(dramaId, line.id, withSignal).then(live(setExplanation), live(fail)).finally(done)
+      improveLine(dramaId, line.id, issue, aborting).then(live(setImprovement), live(fail)).finally(done)
+    } else explainLine(dramaId, line.id, aborting).then(live(setExplanation), live(fail)).finally(done)
   }
 
   // Ask once on open for an explanation (the panel is keyed by line and mode).

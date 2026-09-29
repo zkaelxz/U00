@@ -25,8 +25,7 @@ import type {
   ReaderWikiUpdateResult,
   RichDeckDownload,
 } from '../types/reader'
-import { ApiError, apiUrl, getJson, postJson } from './client'
-import type { ErrorInfo } from './types'
+import { apiUrl, fetchBody, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -73,24 +72,13 @@ function headerFilename(resp: Response, fallback: string): string {
 
 // The sentence-card deck is fetched rather than linked so the page can read
 // X-Audio-Omitted (no media.stream: text-only deck) and X-Cards-Capped.
-export async function downloadRichDeck(id: number, fetchImpl: Fetch = fetch): Promise<RichDeckDownload> {
-  let resp: Response
-  try {
-    resp = await fetchImpl(apiUrl(`${root(id)}/vocab/export.apkg?rich=true`), {
-      headers: { Accept: 'application/octet-stream, application/json' },
-    })
-  } catch {
-    throw new ApiError(0, { code: 'network_error', message: 'Could not reach the Baihe API. Is it running?' })
-  }
-  if (!resp.ok) {
-    let info: ErrorInfo | undefined
-    try {
-      info = ((await resp.json()) as { error?: ErrorInfo } | null)?.error
-    } catch {
-      // not JSON
-    }
-    throw new ApiError(resp.status, info ?? { code: 'internal_error', message: `Request failed (${resp.status}).` })
-  }
+export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<RichDeckDownload> {
+  const resp = await fetchBody(
+    `${root(id)}/vocab/export.apkg?rich=true`,
+    { headers: { Accept: 'application/octet-stream, application/json' } },
+    async (r) => r,
+    fetchImpl,
+  )
   const capped = resp.headers.get('X-Cards-Capped')
   return {
     blob: await resp.blob(),
