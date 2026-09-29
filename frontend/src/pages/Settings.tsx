@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getSettings, TOGGLES, updateSetting } from '../api/settings'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
+import { humanize } from '../components/labels'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { SettingsKeyForm } from './SettingsKeyForm'
@@ -59,7 +60,7 @@ export default function SettingsPage() {
           <Section
             storageKey="settings.api-keys"
             title="API keys configured"
-            summary={`${configured} of ${total} configured${missing.length ? `, missing ${missing.join(', ')}` : ''}`}
+            summary={`${configured} of ${total} configured${missing.length ? `, missing ${missing.map((n) => humanize('engine', n)).join(', ')}` : ''}`}
           >
             <p className="muted">
               Keys are saved to .env on the Baihe PC and never shown again, only whether one is
