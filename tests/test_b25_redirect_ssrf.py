@@ -21,6 +21,9 @@ from sources.http import PacingPolicy, SourceClient, reset_pacing_state  # noqa:
 PUBLIC_IP = "93.184.216.34"
 PUBLIC_HOSTS = {"b23.tv", "www.bilibili.com", "example.org"}
 PRIVATE_HOSTS = {"169.254.169.254", "127.0.0.1", "10.0.0.5"}
+# Every URL the fake adapter was actually asked to connect to (a pinned
+# request carries the validated IP here, an unpinned one the name).
+SENT_URLS = []
 
 
 def _no_pace_client(source: str) -> SourceClient:
@@ -36,11 +39,13 @@ def fake_net(monkeypatch, isolated_db):
     reset_pacing_state()
     contacted = []
     routes = {}
+    SENT_URLS.clear()
 
     def fake_send(self, request, **kwargs):
         host = request.headers.get("Host") or urlsplit(request.url).netloc
         host = host.split(":")[0].strip("[]").lower()
         contacted.append(host)
+        SENT_URLS.append(request.url)
         status, headers, body = routes.get(host, (404, {}, b""))
         resp = requests.Response()
         resp.status_code = status
@@ -67,6 +72,8 @@ def fake_net(monkeypatch, isolated_db):
     monkeypatch.delenv("HTTP_PROXY", raising=False)
     monkeypatch.delenv("https_proxy", raising=False)
     monkeypatch.delenv("http_proxy", raising=False)
+    for var in ("NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
     yield routes, contacted
     reset_pacing_state()
 
@@ -168,3 +175,102 @@ class TestB25TransportStillWorks:
         with pytest.raises(UnsafeRedirect):
             _requests_transport("GET", "https://example.org/loop", {}, None, 5)
         assert len(contacted) == MAX_REDIRECTS + 1
+
+
+class TestB25ReviewFixes:
+    def test_request_is_pinned_to_the_validated_ip(self, fake_net):
+        routes, _ = fake_net
+        routes["example.org"] = (200, {"Content-Type": "text/plain"}, b"ok")
+        _no_pace_client("generic").request("GET", "https://example.org/p")
+        assert [urlsplit(u).hostname for u in SENT_URLS] == [PUBLIC_IP]
+
+    def test_unicode_host_is_validated_in_the_form_requests_connects_to(self, fake_net, monkeypatch):
+        """IDNA2003 (getaddrinfo) maps 'ß' to 'ss'; requests' UTS46 keeps it.
+        The name validated must be the punycode requests will really use."""
+        from sources.http import UnsafeRedirect, _requests_transport
+        real = socket.getaddrinfo
+
+        def gai(host, port, *a, **k):
+            if host in ("strasse.example", "straße.example"):
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC_IP, port))]
+            if host == "xn--strae-oqa.example":
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", port))]
+            return real(host, port, *a, **k)
+        monkeypatch.setattr(socket, "getaddrinfo", gai)
+        with pytest.raises(UnsafeRedirect):
+            _requests_transport("GET", "http://straße.example/", {}, None, 5)
+        assert SENT_URLS == []
+
+    def test_pin_host_mismatch_fails_closed(self, fake_net, monkeypatch):
+        from sources import http
+        monkeypatch.setattr(http, "_ascii_url", lambda u: u)   # skip normalisation
+        real = socket.getaddrinfo
+        monkeypatch.setattr(socket, "getaddrinfo", lambda h, p, *a, **k: (
+            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC_IP, p))]
+            if "stra" in h else real(h, p, *a, **k)))
+        with pytest.raises(http.UnsafeRedirect):
+            http._requests_transport("GET", "http://straße.example/", {}, None, 5)
+        assert SENT_URLS == []
+
+    def test_no_proxy_alone_keeps_pinning(self, fake_net, monkeypatch):
+        routes, _ = fake_net
+        monkeypatch.setenv("NO_PROXY", "internal.example")
+        routes["example.org"] = (200, {}, b"ok")
+        _no_pace_client("generic").request("GET", "https://example.org/p")
+        assert urlsplit(SENT_URLS[0]).hostname == PUBLIC_IP
+
+    def test_http_proxy_only_keeps_pinning_for_https(self, fake_net, monkeypatch):
+        routes, _ = fake_net
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:3128")
+        routes["example.org"] = (200, {}, b"ok")
+        _no_pace_client("generic").request("GET", "https://example.org/p")
+        assert urlsplit(SENT_URLS[0]).hostname == PUBLIC_IP
+
+    def test_configured_proxy_sends_by_name(self, fake_net):
+        from sources import store
+        routes, _ = fake_net
+        store.set_setting("http_proxy_url", "http://127.0.0.1:8080")
+        routes["example.org"] = (200, {}, b"ok")
+        _no_pace_client("generic").request("GET", "https://example.org/p")
+        assert urlsplit(SENT_URLS[0]).hostname == "example.org"
+
+    def test_cross_host_hop_drops_cookie_and_authorization(self, fake_net):
+        from sources.http import _requests_transport
+        routes, _ = fake_net
+        seen = []
+        routes["example.org"] = (302, {"Location": "https://www.bilibili.com/x"}, b"")
+        routes["www.bilibili.com"] = (200, {}, b"ok")
+        orig = requests.adapters.HTTPAdapter.send
+
+        def spy(self, request, **kw):
+            seen.append({k.lower() for k in request.headers})
+            return orig(self, request, **kw)
+        import unittest.mock as um
+        with um.patch.object(requests.adapters.HTTPAdapter, "send", spy):
+            _requests_transport("GET", "https://example.org/", {"Cookie": "a=b",
+                                "Authorization": "Bearer t"}, None, 5)
+        assert "cookie" in seen[0] and "authorization" in seen[0]
+        assert "cookie" not in seen[1] and "authorization" not in seen[1]
+
+    def test_refused_hop_never_falls_through_to_the_browser(self, fake_net, monkeypatch):
+        import page_fetch
+        from sources import front_door
+        routes, contacted = fake_net
+        rendered = []
+        monkeypatch.setattr(page_fetch, "fetch_rendered",
+                            lambda url, *a, **k: rendered.append(url) or "<html></html>")
+        routes["example.org"] = (302, {"Location": "http://10.0.0.5/admin"}, b"")
+        try:
+            front_door.preview("https://example.org/story", client=_no_pace_client("generic"))
+        except Exception:
+            pass
+        assert rendered == []
+        assert not (set(contacted) & PRIVATE_HOSTS)
+
+    def test_private_url_never_reaches_any_ladder_tier(self, fake_net):
+        from sources import ladder
+        from sources.models import AccessTier
+        called = []
+        tiers = {AccessTier.RENDERED_BROWSER: lambda u: called.append(u)}
+        result = ladder.run_ladder("http://169.254.169.254/latest/", tiers, log=False)
+        assert called == [] and not result.ok

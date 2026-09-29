@@ -136,26 +136,42 @@ REDIRECT_REFUSED = "Refused: the address is not a public web address."
 TOO_MANY_REDIRECTS = "Refused: too many redirects."
 
 
-class UnsafeRedirect(Exception):
+class UnsafeRedirect(FetchFailed):
     """A request (or one of its redirect hops) targeted a non-public or
     non-http(s) address, or the redirect chain was too long. The message is
-    fixed: no URL or IP is echoed."""
+    fixed: no URL or IP is echoed. Never retried, and the access ladder
+    stops on it rather than trying a browser tier (B-25 review M3)."""
+
+    def __init__(self, message: str = "", reason: FailureReason = FailureReason.ACCESS_DENIED,
+                 attempt=None):
+        super().__init__(message, reason, attempt)
 
 
-def _proxy_in_use(session, url, proxy_url) -> bool:
-    """True when this request will go through a proxy (the app's own
-    setting, or an environment proxy requests would pick up). The proxy
-    connects on our behalf, so the connection can't be pinned; the target
-    host is still validated by name."""
-    if proxy_url:
-        return True
-    if not getattr(session, "trust_env", False):
-        return False
+def _ascii_url(url: str) -> str:
+    """The URL with its host in the exact ASCII form requests will connect
+    to (UTS46 IDNA, lowercased), so the name that is validated, pinned and
+    sent is one and the same (B-25 review H1: getaddrinfo's IDNA2003 maps
+    'ß' to 'ss', requests' UTS46 keeps it -- two different hosts)."""
     try:
-        from requests.utils import get_environ_proxies
-        return bool(get_environ_proxies(url))
-    except Exception:
-        return False
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        raise UnsafeRedirect(REDIRECT_REFUSED) from None
+    if not host or parts.username or parts.password:
+        raise UnsafeRedirect(REDIRECT_REFUSED)
+    if host.isascii():
+        ascii_host = host.lower()
+    else:
+        try:
+            import idna
+            ascii_host = idna.encode(host, uts46=True).decode("ascii").lower()
+        except Exception:
+            raise UnsafeRedirect(REDIRECT_REFUSED) from None
+    if ":" in ascii_host:
+        ascii_host = f"[{ascii_host}]"
+    netloc = ascii_host + (f":{port}" if port is not None else "")
+    return parts._replace(netloc=netloc).geturl()
 
 
 def _requests_transport(method, url, headers, data, timeout):
@@ -177,6 +193,7 @@ def _requests_transport(method, url, headers, data, timeout):
     hops = []
     current, cur_method, cur_data, cur_headers = url, method, data, dict(headers or {})
     for _ in range(MAX_REDIRECTS + 1):
+        current = _ascii_url(current)
         try:
             ip = url_guard.resolve_public(current)
         except url_guard.UnsafeURLError:
@@ -184,7 +201,9 @@ def _requests_transport(method, url, headers, data, timeout):
         except url_guard.URLResolveError as e:
             raise _resolve_error(e) from None
         host = (urlsplit(current).hostname or "").lower()
-        _tls.pin = None if _proxy_in_use(session, current, proxy_url) else (host, ip)
+        # The adapter decides from the proxies requests actually uses
+        # whether to pin (B-25 review M1); it refuses on any host mismatch.
+        _tls.pin = (host, ip)
         try:
             r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
                                 timeout=timeout, allow_redirects=False, proxies=proxies)
@@ -195,8 +214,9 @@ def _requests_transport(method, url, headers, data, timeout):
         if r.status_code not in _REDIRECT_CODES or not location:
             break
         nxt = urljoin(current, location)
-        if (urlsplit(nxt).hostname or "").lower() != host:
-            cur_headers = {k: v for k, v in cur_headers.items() if k.lower() != "authorization"}
+        if _should_strip_auth(current, nxt):
+            cur_headers = {k: v for k, v in cur_headers.items()
+                           if k.lower() not in ("authorization", "cookie")}
         if r.status_code == 303 or (r.status_code in (301, 302) and cur_method == "POST"):
             if cur_method != "HEAD":
                 cur_method = "GET"
@@ -236,6 +256,15 @@ def _requests_transport(method, url, headers, data, timeout):
                     url=r.url, cookies=cookies)
 
 
+def _should_strip_auth(old_url, new_url) -> bool:
+    """requests' own rule (host, scheme or non-default port change)."""
+    try:
+        from requests.sessions import SessionRedirectMixin
+        return SessionRedirectMixin.should_strip_auth(None, old_url, new_url)
+    except Exception:
+        return True
+
+
 def _resolve_error(exc):
     """DNS failure stays an ordinary (retryable) connection error."""
     try:
@@ -264,10 +293,17 @@ def _pinning_adapter():
 
         def send(self, request, **kw):
             pin = getattr(_tls, "pin", None)
-            parts = urlsplit(request.url)
-            if not pin or (parts.hostname or "").lower() != pin[0]:
+            if not pin:
                 return super().send(request, **kw)
+            from requests.utils import select_proxy
+            parts = urlsplit(request.url)
             name, ip = pin
+            if (parts.hostname or "").lower() != name:
+                # Fail closed: never send unpinned to a name we didn't check.
+                raise UnsafeRedirect(REDIRECT_REFUSED)
+            if select_proxy(request.url, kw.get("proxies") or {}):
+                # A proxy connects for us: the target was validated by name.
+                return super().send(request, **kw)
             original = request.url
             ip_host = f"[{ip}]" if ":" in ip else ip
             request.url = parts._replace(netloc=ip_host + (f":{parts.port}" if parts.port else "")).geturl()
@@ -466,6 +502,13 @@ class SourceClient:
                     resp, exc = None, e
                 latency = self.clock() - started
 
+            if isinstance(exc, UnsafeRedirect):
+                self.attempts.append(AttemptRecord(
+                    tier=AccessTier.STATIC_HTTP.value, ok=False,
+                    reason=FailureReason.ACCESS_DENIED.value, detail=str(exc),
+                    final_url=url, at=time.time()))
+                self._status("Idle", 0.0)
+                raise exc
             if exc is not None:
                 reason = FailureReason.TIMEOUT if _is_timeout(exc) else FailureReason.HTTP_ERROR
                 attempt = AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=False,
