@@ -14,8 +14,10 @@ and fails if one lacks exactly one, so a new route can't ship undeclared.
 
 Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
 - `off` (default): every request is the local owner with every permission,
-  no session, no CSRF -- today's behaviour. The server refuses to bind a
-  non-loopback address in this mode (`api_config.check_bind_safety`).
+  no session, no CSRF -- today's behaviour. So `LoopbackOnlyGate` refuses
+  (403) every request that isn't a direct loopback one (proxy headers,
+  non-loopback peer/Host/Origin), and a non-loopback BAIHE_API_HOST is
+  refused at startup (`api_config.check_bind_safety`).
 - `on`: `require_permission` needs a valid session cookie (`baihe_session`),
   the permission, and, for POST/PUT/PATCH/DELETE, a matching `X-CSRF-Token`
   header. 401 = no/invalid session, 403 = lacking the permission or CSRF.
@@ -151,12 +153,23 @@ def require_engines_allowed(request: Request, *engine_names):
     """Raises 403 unless the caller holds `engines.paid` or every named
     engine is in `translate_engines.FREE_ENGINES`. A missing name (None:
     "use the configured default") counts as possibly paid."""
-    principal = getattr(request.state, "principal", None) or {}
-    if "engines.paid" in principal.get("permissions", ()):
+    if _holds(request, "engines.paid"):
         return
     from translate_engines import FREE_ENGINES
     if any(not name or name not in FREE_ENGINES for name in engine_names):
         raise ForbiddenError(_GENERIC_403)
+
+
+def require_paid_engines(request: Request):
+    """Raises 403 unless the caller holds `engines.paid` (for a cloud
+    service that isn't a translate engine, e.g. Groq transcription)."""
+    if not _holds(request, "engines.paid"):
+        raise ForbiddenError(_GENERIC_403)
+
+
+def _holds(request: Request, permission: str) -> bool:
+    principal = getattr(request.state, "principal", None) or {}
+    return permission in principal.get("permissions", ())
 
 
 def session_cookie_secure(request: Request) -> bool:
@@ -229,22 +242,40 @@ def public_api_paths(app) -> frozenset:
                      if path.startswith("/api") and decls == [("public", None)])
 
 
+def local_only_matchers(app) -> list:
+    """(compiled path regex, methods) for every local_only() route, so the
+    early gate can refuse a remote request before its body is read."""
+    from starlette.routing import compile_path
+    return [(compile_path(path)[0], methods)
+            for _r, path, methods, decls in iter_route_declarations(app)
+            if decls == [("local_only", None)]]
+
+
+def _json_refusal(status: int, code: str, message: str):
+    from fastapi.responses import JSONResponse
+    from api.error_handlers import error_body
+    return JSONResponse(status_code=status, content=error_body(code, message))
+
+
 class EarlyAuthGate:
     """Pure-ASGI middleware, installed only with auth on. For any /api path
-    that isn't a public route it refuses, before the body is read:
-    - a request with no valid session that isn't a direct loopback request
-      (401), and
-    - an unsafe-method request that has a session but no matching CSRF
-      token and isn't direct loopback (403).
-    The per-route dependency stays the authority (permission checks,
-    local_only); this only moves the cheapest refusals ahead of body
-    parsing (large multipart uploads) and of FastAPI's own 422/405 replies,
-    so an anonymous client learns nothing beyond "log in"."""
+    that isn't a public route it refuses, before the body is read, any
+    request that isn't a direct loopback one and
+    - targets a local_only() route (403), or
+    - has no valid session (401), or
+    - is an unsafe method without the session's CSRF token (403).
+    The per-route dependency stays the authority (permission checks); this
+    moves the cheap refusals ahead of body parsing (multipart uploads are
+    spooled to disk with no size limit) and ahead of FastAPI's own
+    422/404/405 replies, so an anonymous client learns nothing beyond
+    "log in"."""
 
-    def __init__(self, app, public_paths_fn):
+    def __init__(self, app, public_paths_fn, local_only_fn=lambda: []):
         self.app = app
         self._public_paths_fn = public_paths_fn
+        self._local_only_fn = local_only_fn
         self._public = None
+        self._local_only = None
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not self._needs_check(scope):
@@ -253,16 +284,20 @@ class EarlyAuthGate:
         client = scope.get("client")
         if _is_local_scope(client[0] if client else None, request.headers):
             return await self.app(scope, receive, send)
+        if self._is_local_only(scope):
+            return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         try:
             _authenticate(request)
         except (UnauthenticatedError, ForbiddenError) as exc:
-            from api.error_handlers import error_body
-            from fastapi.responses import JSONResponse
             status = 401 if isinstance(exc, UnauthenticatedError) else 403
-            response = JSONResponse(status_code=status,
-                                    content=error_body(exc.code, exc.message))
-            return await response(scope, receive, send)
+            return await _json_refusal(status, exc.code, exc.message)(scope, receive, send)
         return await self.app(scope, receive, send)
+
+    def _is_local_only(self, scope) -> bool:
+        if self._local_only is None:
+            self._local_only = self._local_only_fn()
+        path, method = scope.get("path", ""), scope.get("method", "")
+        return any(rx.match(path) and method in methods for rx, methods in self._local_only)
 
     def _needs_check(self, scope) -> bool:
         path = scope.get("path", "")
@@ -273,3 +308,27 @@ class EarlyAuthGate:
         if self._public is None:
             self._public = self._public_paths_fn()
         return path not in self._public
+
+
+class LoopbackOnlyGate:
+    """Pure-ASGI middleware, installed only with auth OFF. Off mode hands
+    every request full owner rights, so it must only ever serve the owner at
+    the PC: any request that isn't a direct loopback one (non-loopback peer,
+    non-loopback Host, any proxy/forwarding header, non-loopback Origin) is
+    refused with a generic 403 -- every path, /api/health and the frontend
+    included. This is what stops a reverse proxy on the same PC (Caddy
+    connects from 127.0.0.1 but adds X-Forwarded-For and keeps the public
+    Host) from exposing the unauthenticated API, and it also blocks DNS
+    rebinding (the Host header is the attacker's name)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            client = scope.get("client")
+            if not _is_local_scope(client[0] if client else None, Request(scope).headers):
+                if scope["type"] == "websocket":
+                    return await send({"type": "websocket.close", "code": 1008})
+                return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
+        return await self.app(scope, receive, send)

@@ -74,6 +74,13 @@ def _user(*extra, admin=False):
     return u, s
 
 
+def _user_named(email, *extra):
+    u = auth_service.add_user(email)
+    for p in extra:
+        auth_service.grant_permission(u["id"], p)
+    return u, auth_service.create_session(u["id"])
+
+
 def _h(session, csrf=True, **extra):
     h = {"Cookie": f"{api_auth.COOKIE_NAME}={session['session_token']}"}
     if csrf:
@@ -164,6 +171,45 @@ class TestAuthOff:
         # POST with no session and no CSRF reaches the handler (404: no drama).
         assert c.post("/api/export/dramas/999/flag-overlaps").status_code == 404
         assert c.get("/api/docs").status_code == 200
+
+    @pytest.mark.parametrize("headers", [
+        {"X-Forwarded-For": "203.0.113.9"},                 # Caddy on the same PC
+        {"X-Forwarded-Proto": "https"},
+        {"Forwarded": "for=203.0.113.9"},
+        {"Via": "1.1 caddy"},
+        {"X-Real-IP": "203.0.113.9"},
+        {"Host": "baihe.example.com"},                      # public name / DNS rebinding
+        {"Origin": "https://evil.example"},
+    ])
+    @pytest.mark.parametrize("path", ["/api/library/dramas", "/api/health", "/api/docs", "/"])
+    def test_off_mode_refuses_anything_not_direct_loopback(self, isolated_db, dist, headers,
+                                                         path):
+        c = TestClient(_app("off", dist), base_url="http://127.0.0.1:8600",
+                       client=("127.0.0.1", 5000), raise_server_exceptions=False)
+        r = c.get(path, headers=headers)
+        assert r.status_code == 403
+        assert r.json() == {"error": {"code": "forbidden", "message": "Not allowed."}}
+
+    def test_off_mode_refuses_remote_peer_and_default_testclient(self, isolated_db):
+        app = _app("off")
+        assert _remote(app).get("/api/health").status_code == 403
+        c = TestClient(app, base_url="http://127.0.0.1:8600", client=("192.168.1.9", 1),
+                       raise_server_exceptions=False)
+        assert c.get("/api/library/dramas").status_code == 403
+
+    @pytest.mark.parametrize("base", ["http://127.0.0.1:8600", "http://localhost:8600",
+                                      "http://[::1]:8600"])
+    def test_off_mode_direct_loopback_still_works(self, isolated_db, base):
+        c = TestClient(_app("off"), base_url=base, client=("127.0.0.1", 5000),
+                       raise_server_exceptions=False)
+        assert c.get("/api/health").status_code == 200
+        assert c.get("/api/library/dramas",
+                     headers={"Origin": "http://localhost:5173"}).status_code == 200
+
+    def test_create_app_enforces_bind_safety(self):
+        with pytest.raises(ValueError):
+            create_app(ApiSettings(host="0.0.0.0"))
+        create_app(ApiSettings(host="0.0.0.0", auth_mode="on"))
 
     def test_unbuilt_settings_fail_closed(self, isolated_db):
         app = FastAPI()
@@ -306,13 +352,14 @@ class TestCsrf:
             return await orig(self)
         monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
         files = {"file": ("a.mp4", b"0" * 4096, "video/mp4")}
-        assert c.post("/api/media/dramas/1/upload", files=files).status_code == 401
+        assert c.post("/api/media/dramas/1/upload", files=files).status_code == 403
         assert c.post("/api/media/dramas/1/upload", files=files,
                       headers=_h(s, csrf=False)).status_code == 403
-        assert read == []
-        # Even with a valid session + CSRF the upload is PC-only (local_only).
+        # Even with a valid admin session + CSRF the upload is PC-only
+        # (local_only), and it is refused before the body is spooled.
         assert c.post("/api/media/dramas/1/upload", files=files,
                       headers=_h(s)).status_code == 403
+        assert read == []
 
 
 class TestLocalOnly:
@@ -328,20 +375,20 @@ class TestLocalOnly:
     @pytest.mark.parametrize("header", ["X-Forwarded-For", "Forwarded", "X-Real-IP", "Via"])
     def test_loopback_peer_behind_proxy_is_not_local(self, isolated_db, header):
         c = _local(_app())
-        assert c.delete("/api/dramas/999", headers={header: "127.0.0.1"}).status_code == 401
+        assert c.delete("/api/dramas/999", headers={header: "127.0.0.1"}).status_code == 403
 
     def test_remote_host_header_or_origin_not_local(self, isolated_db):
         c = _local(_app())
         assert c.delete("/api/dramas/999", headers={"Host": "baihe.example.com"}
-                        ).status_code == 401
+                        ).status_code == 403
         assert c.delete("/api/dramas/999", headers={"Origin": "https://evil.example"}
-                        ).status_code == 401
+                        ).status_code == 403
 
     def test_spoofed_forwarded_for_from_remote_peer(self, isolated_db):
         c = _remote(_app())
         r = c.delete("/api/dramas/999", headers={"X-Forwarded-For": "127.0.0.1",
                                                   "Host": "127.0.0.1"})
-        assert r.status_code == 401
+        assert r.status_code == 403
 
 
 class TestBypassAttempts:
@@ -399,6 +446,30 @@ class TestPaidEngines:
         assert c.post(url, json={"engine": "ollama"}, headers=_h(s)).status_code not in (401, 403)
         assert c.post("/api/review-jobs/dramas/999/flag", json={"engine": "gemini"},
                       headers=_h(s)).status_code == 403
+
+    def test_resegment_llm_is_gated(self, isolated_db):
+        c = _remote(_app())
+        _u, s = _user()
+        url = "/api/restructure/dramas/999/resegment"
+        base = {"expected_line_ids": [1], "confirm": True}
+        for body in ({**base, "use_llm": True}, {**base, "use_llm": True, "engine": "claude"}):
+            assert c.post(url, json=body, headers=_h(s)).status_code == 403
+        for body in (base, {**base, "use_llm": True, "engine": "ollama"}):
+            assert c.post(url, json=body, headers=_h(s)).status_code not in (401, 403)
+
+    def test_groq_transcription_needs_engines_paid(self, isolated_db):
+        drama_id = db.create_drama(title_en="T", source_language="zh")
+        c = _remote(_app())
+        _u, s = _user()
+        cfg = f"/api/transcribe/dramas/{drama_id}/config"
+        assert c.post(cfg, json={"use_groq": True}, headers=_h(s)).status_code == 403
+        assert c.post(cfg, json={"use_groq": False}, headers=_h(s)).status_code == 200
+        db.update_drama(drama_id, use_groq=1)            # set by the owner at the PC
+        run = f"/api/transcribe/dramas/{drama_id}/run"
+        assert c.post(run, json={}, headers=_h(s)).status_code == 403
+        _u2, paid = _user_named("paid@example.com", "engines.paid")
+        assert c.post(cfg, json={"use_groq": True}, headers=_h(paid)).status_code == 200
+        assert c.post(run, json={}, headers=_h(paid)).status_code not in (401, 403)
 
     def test_engines_paid_unlocks(self, isolated_db):
         c = _remote(_app())

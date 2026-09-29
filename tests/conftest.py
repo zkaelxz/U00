@@ -132,3 +132,22 @@ def sample_lines():
 @pytest.fixture
 def sample_drama_meta():
     return {"title_en": "Test Drama", "title_zh": "测试剧", "author": "Test Author"}
+
+
+@pytest.fixture(autouse=True)
+def _testclient_defaults_to_loopback(monkeypatch):
+    """Step 133: with BAIHE_API_AUTH off the API refuses every request that
+    isn't a direct loopback one (api.auth.LoopbackOnlyGate). Starlette's
+    TestClient defaults to peer "testclient" / Host "testserver", which
+    looks remote, so make an unspecified TestClient look like the owner's
+    own browser on 127.0.0.1. Tests that pass base_url/client explicitly
+    (remote-request tests) are unaffected."""
+    try:
+        from starlette.testclient import TestClient
+    except Exception:
+        return
+    original = TestClient.__init__
+
+    def init(self, app, base_url="http://127.0.0.1", *args, client=("127.0.0.1", 50000), **kw):
+        original(self, app, base_url, *args, client=client, **kw)
+    monkeypatch.setattr(TestClient, "__init__", init)

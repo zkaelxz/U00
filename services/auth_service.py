@@ -23,9 +23,10 @@ import hashlib
 import hmac
 import re
 import secrets
+import sqlite3
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 
 import db
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -98,7 +99,10 @@ def add_user(email: str, display_name: str = "", actor_id=None) -> dict:
     email = _norm_email(email)
     if db.auth_get_user_by_email(email):
         raise ConflictError("That user already exists.")
-    uid = db.auth_create_user(email, display_name)
+    try:
+        uid = db.auth_create_user(email, display_name)
+    except sqlite3.IntegrityError:   # a concurrent add won the race
+        raise ConflictError("That user already exists.")
     for p in HOUSEHOLD_DEFAULT_PERMISSIONS:
         db.auth_grant_permission(uid, p)
     write_audit(actor_id, "user.add", f"user {uid}")
@@ -132,13 +136,16 @@ def activate_user(user_id: int, actor_id=None) -> dict:
 
 
 def grant_admin_local(email: str) -> dict:
-    """CLI recovery path: creates or activates the user as admin with every
-    permission. Callers must be local (the CLI touches the DB directly)."""
+    """CLI recovery path: creates or activates the user as admin. Admin
+    rights come from the is_admin flag alone (effective_permissions), so
+    only the household-default rows are stored: a later demotion
+    (is_admin=0) leaves no opt-in or admin rights behind. Callers must be
+    local (the CLI touches the DB directly)."""
     email = _norm_email(email)
     row = db.auth_get_user_by_email(email)
     uid = row["id"] if row else db.auth_create_user(email)
     db.auth_update_user(uid, is_admin=1, is_active=1)
-    for p in PERMISSIONS:
+    for p in HOUSEHOLD_DEFAULT_PERMISSIONS:
         db.auth_grant_permission(uid, p)
     write_audit(None, "user.grant_admin_local", f"user {uid}")
     return get_user(uid)
@@ -291,23 +298,28 @@ class SlidingWindowRateLimiter:
     """In-memory sliding window: at most `max_events` per `window_seconds`
     per key. `hit(key)` records an attempt and raises RateLimitedError (429)
     once the limit is reached. Process-local by design (one API process).
-    For login-type routes (step 134)."""
+    For login-type routes (step 134). Memory is bounded: at most `max_keys`
+    keys are tracked, least recently hit evicted first, O(1) per hit."""
 
-    def __init__(self, max_events: int, window_seconds: float, clock=time.monotonic):
+    def __init__(self, max_events: int, window_seconds: float, clock=time.monotonic,
+                 max_keys: int = 10000):
         self.max_events, self.window, self._clock = max_events, window_seconds, clock
-        self._events = {}
+        self.max_keys = max_keys
+        self._events = OrderedDict()
         self._lock = threading.Lock()
 
     def hit(self, key: str):
         now = self._clock()
         with self._lock:
-            q = self._events.setdefault(key, deque())
+            q = self._events.get(key)
+            if q is None:
+                q = self._events[key] = deque()
+                while len(self._events) > self.max_keys:
+                    self._events.popitem(last=False)
+            else:
+                self._events.move_to_end(key)
             while q and now - q[0] >= self.window:
                 q.popleft()
             if len(q) >= self.max_events:
                 raise RateLimitedError("Too many attempts. Try again later.")
             q.append(now)
-            if len(self._events) > 10000:   # bound memory: drop idle keys
-                for k in [k for k, v in self._events.items()
-                          if not v or now - v[-1] >= self.window]:
-                    del self._events[k]

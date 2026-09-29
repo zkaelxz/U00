@@ -12,7 +12,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 
 - `BAIHE_API_HOST` (default `127.0.0.1`) -- loopback only by default.
   A non-loopback host is refused at startup unless `BAIHE_API_AUTH=on`
-  (Step 133, see below); the API has no authentication otherwise.
+  (Step 133, see below).
 - `BAIHE_API_PORT` (default `8600`) -- not adjacent to Streamlit's 8501
   or the extension bridge's 8756 (`page_server.DEFAULT_PORT`).
 - `BAIHE_API_ENV` (`development` or `production`, default
@@ -35,9 +35,13 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   Unrelated to CORS and to the host binding.
 - `BAIHE_API_AUTH` (`off` default, or `on`) -- Step 133. `off` keeps
   today's behaviour: every request is the local owner with every
-  permission. `on` enforces sessions, permissions and CSRF (see
-  `api/auth.py`). A non-loopback `BAIHE_API_HOST` is refused unless this
-  is `on` (`check_bind_safety`, called by `python -m api`).
+  permission, so it also refuses (403) every request that isn't a direct
+  loopback one: proxy/forwarding headers, non-loopback Host, peer or
+  Origin (`api.auth.LoopbackOnlyGate`); a same-PC reverse proxy can't
+  expose it. `on` enforces sessions, permissions and CSRF (see
+  `api/auth.py`). A non-loopback `BAIHE_API_HOST` is refused at startup
+  unless this is `on` (`check_bind_safety`, run by `python -m api` and
+  `create_app`).
 - `BAIHE_API_COOKIE_SECURE` (`1` default) -- the session cookie is always
   `Secure` unless this is `0` AND the request is plain-http loopback (dev).
 """
@@ -123,9 +127,11 @@ def is_loopback_host(host: str) -> bool:
 
 
 def check_bind_safety(settings: ApiSettings):
-    """Refuses (ValueError) to listen on a non-loopback address while
-    authentication is off, so an unauthenticated API can't be exposed by
-    a single env var."""
+    """Refuses (ValueError) a non-loopback BAIHE_API_HOST while auth is off.
+    Called by `python -m api` and by `create_app`. It only sees the env
+    setting: a reverse proxy on the same PC, or `uvicorn --host`, gets past
+    it, which is why off mode also refuses every non-direct-loopback request
+    at request time (`api.auth.LoopbackOnlyGate`)."""
     if not is_loopback_host(settings.host) and not settings.auth_enabled:
         raise ValueError(
             f"Refusing to listen on {settings.host}: it is reachable from other machines and "

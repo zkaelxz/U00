@@ -163,3 +163,36 @@ def test_rate_limiter_sliding_window():
     lim.hit("other")            # keys are independent
     now[0] = 61.0               # window slid past the old hits
     lim.hit("ip")
+
+
+def test_demoted_admin_keeps_no_opt_in_or_admin_rights(adb):
+    u = auth.grant_admin_local("boss@example.com")
+    assert set(u["permissions"]) == set(auth.PERMISSIONS)
+    db.auth_update_user(u["id"], is_admin=0)
+    left = set(auth.effective_permissions(u["id"]))
+    assert left == set(auth.HOUSEHOLD_DEFAULT_PERMISSIONS)
+    assert not left & (set(auth.OPT_IN_PERMISSIONS) | set(auth.ADMIN_PERMISSIONS))
+
+
+def test_add_user_insert_race_is_a_conflict(adb, monkeypatch):
+    auth.add_user("race@example.com")
+    monkeypatch.setattr(db, "auth_get_user_by_email", lambda email: None)  # lost the race
+    with pytest.raises(ConflictError):
+        auth.add_user("race@example.com")
+
+
+def test_rate_limiter_memory_is_bounded_and_evicts_oldest():
+    lim = auth.SlidingWindowRateLimiter(1, 60, clock=lambda: 0.0, max_keys=3)
+    for k in ("a", "b", "c"):
+        lim.hit(k)
+    lim.hit("d")                      # evicts "a", the least recently hit
+    assert len(lim._events) == 3 and "a" not in lim._events
+    with pytest.raises(RateLimitedError):
+        lim.hit("d")                  # "d" is tracked and limited
+    with pytest.raises(RateLimitedError):
+        lim.hit("b")                  # refreshes "b"'s recency
+    lim.hit("e")                      # evicts "c", not the just-hit "b"
+    assert set(lim._events) == {"b", "d", "e"}
+    for i in range(1000):
+        lim.hit(f"k{i}")
+    assert len(lim._events) == 3

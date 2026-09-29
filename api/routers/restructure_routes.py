@@ -11,8 +11,8 @@ translated/flagged/noted lines could be split.
 """
 from typing import List
 
-from fastapi import APIRouter, Path
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Request
+from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, ResegmentPreview, ResegmentStart, ResegmentStarted,
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
@@ -63,7 +63,9 @@ def get_resegment_preview(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/resegment", dependencies=[require_permission("lines.edit")], response_model=ResegmentStarted,
              summary="Start a job that re-segments and saves (poll /api/jobs/{job_id})",
              responses={**_R, 400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-def post_resegment(body: ResegmentStart, drama_id: int = Path(ge=1)):
+def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(ge=1)):
+    if body.use_llm:
+        require_engines_allowed(request, body.engine)
     return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
                                     use_llm=body.use_llm, engine=body.engine, model=body.model)
 
