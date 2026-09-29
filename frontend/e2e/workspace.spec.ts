@@ -129,12 +129,12 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Beam size', { exact: true }).fill('11')
   await page.getByRole('button', { name: 'Save options' }).click()
-  await expect(page.getByRole('alert')).toContainText('beam size')
+  await expect(page.getByRole('alert')).toContainText('Beam size')
   // Running with the bad value is caught too, and nothing is sent.
   const draft = page.getByLabel('Transcript text', { exact: true })
   if (await draft.count()) await draft.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('beam size')
+  await expect(page.getByRole('alert')).toContainText('Beam size')
   await page.getByLabel('Beam size', { exact: true }).fill('5')
 
   const transcript = page.getByLabel('Transcript text', { exact: true })
