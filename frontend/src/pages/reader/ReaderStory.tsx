@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { readerApi, wikiMarkdownUrl } from '../../api/reader'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -155,8 +156,6 @@ function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omi
   )
 }
 
-const CLEAR_TIMEOUT_MS = 5000
-
 function WikiSection({ dramaId, boundary, engines, engine, paid }: {
   dramaId: number
   boundary: number | undefined
@@ -168,7 +167,6 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
   const [loadError, setLoadError] = useState<unknown>(null)
   const [type, setType] = useState('')
   const [progress, setProgress] = useState<string | null>(null)
-  const [armed, setArmed] = useState(false)
   const stop = useRef(false)
   // Leaving the page stops the update loop after its current batch.
   useEffect(() => () => {
@@ -194,19 +192,6 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
       live = false
     }
   }, [dramaId, key, reloadTick])
-
-  useEffect(() => {
-    if (!armed) return
-    const t = setTimeout(() => setArmed(false), CLEAR_TIMEOUT_MS)
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setArmed(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => {
-      clearTimeout(t)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [armed])
 
   // Resumable: each call does one bounded batch; call again from
   // next_line_idx while lines remain. resumeAt holds where to continue
@@ -239,7 +224,6 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
   })
   const clear = useAction(async () => {
     await readerApi.clearWiki(dramaId)
-    setArmed(false)
     setProgress(null)
     setReloadTick((n) => n + 1)
   })
@@ -295,17 +279,14 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
       {entries.length > 0 && (
         <div className="actions">
           <a href={wikiMarkdownUrl(dramaId, params)} download>Export .md</a>
-          {armed ? (
-            <>
-              <button type="button" className="danger" disabled={clear.busy || update.busy} onClick={() => void clear.run()} autoFocus>
-                {clear.busy ? 'Clearing…' : 'Confirm clear wiki'}
-              </button>
-              <button type="button" className="link" onClick={() => setArmed(false)}>Cancel</button>
-              <span className="muted" aria-live="polite">Press again to delete every wiki entry for this drama.</span>
-            </>
-          ) : (
-            <button type="button" className="danger" disabled={update.busy} onClick={() => setArmed(true)}>Clear wiki…</button>
-          )}
+          <ConfirmButton
+            name="wiki"
+            label="Clear…"
+            confirmLabel="Confirm clear wiki"
+            busy={clear.busy}
+            disabled={update.busy}
+            onConfirm={() => void clear.run()}
+          />
         </div>
       )}
       <ActionError action={clear} />

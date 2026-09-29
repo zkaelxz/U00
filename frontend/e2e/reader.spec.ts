@@ -116,6 +116,45 @@ test('the library detail panel links to the reader', async ({ page }) => {
   await expect(label(page)).toHaveText('Page 1 of 3')
 })
 
+test('a Reading history name resumes reading', async ({ page }) => {
+  python('db.save_progress(2, last_line_idx=45, last_page=2, percent_complete=51.1)')
+  await page.goto('/#/library')
+  await page.locator('summary', { hasText: 'Reading history' }).click()
+  const link = page.getByRole('link', { name: "Heaven Official's Blessing" }).first()
+  await expect(link).toHaveAttribute('href', '#/read/2')
+  await link.click()
+  await expect(page).toHaveURL(/#\/read\/2\?page=2$/)
+  await expect(page.getByText('Resumed at page 2.')).toBeVisible()
+})
+
+test('Clear wiki uses the two-step confirm', async ({ page }) => {
+  await page.route('**/api/translate/engines', engines([{ name: 'ollama', free: true }]))
+  await page.route((url) => url.pathname.endsWith('/api/reader/dramas/2/wiki'), (route) =>
+    route.fulfill({
+      json: {
+        drama_id: 2,
+        entry_types: ['character'],
+        entries: [{ id: 1, entry_type: 'character', name: 'Xie Lian', aliases: null, description: 'A god.', attributes: {}, first_seen_line_idx: 0, known_through_line_idx: 10 }],
+      },
+    }),
+  )
+  const cleared: unknown[] = []
+  await page.route('**/api/reader/dramas/2/wiki/clear', (route) => {
+    cleared.push(route.request().postDataJSON())
+    return route.fulfill({ json: { drama_id: 2, cleared: true } })
+  })
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.locator('summary', { hasText: 'Universe wiki' }).click()
+  await page.getByRole('button', { name: 'Clear wiki' }).click()
+  expect(cleared).toEqual([])
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Confirm clear wiki' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Clear wiki' }).click()
+  await page.getByRole('button', { name: 'Confirm clear wiki' }).click()
+  await expect.poll(() => cleared).toEqual([{ confirm: true }])
+})
+
 test('a busy AI shows the 429 copy and Try again repeats the request', async ({ page }) => {
   await page.route('**/api/translate/engines', engines([{ name: 'ollama', free: true }]))
   const bodies: unknown[] = []
@@ -217,6 +256,19 @@ test('sentence cards without media permission say audio was left out', async ({ 
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+  test('library cards have a 44px Read link, hidden in select mode', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByTestId('drama-count')).toBeVisible()
+    const read = page.getByRole('link', { name: "Read Heaven Official's Blessing" })
+    const box = await read.boundingBox()
+    expect(box!.height).toBeGreaterThanOrEqual(44)
+    await page.getByRole('button', { name: 'Select', exact: true }).tap()
+    await expect(page.locator('.drama-card-read')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Done' }).tap()
+    await page.getByRole('link', { name: "Read Heaven Official's Blessing" }).tap()
+    await expect(page).toHaveURL(/#\/read\/2\?page=1$/)
+  })
 
   test('fits the width, keeps 44px targets and puts Go to in the Aa sheet', async ({ page }) => {
     await page.goto('/#/read/2?page=1')
