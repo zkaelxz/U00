@@ -1315,3 +1315,75 @@ class TestGpuLimitAndNotifySettingsPersist:
             raise sqlite3.OperationalError("simulated failure")
         monkeypatch.setattr(db, "get_app_setting", boom)
         assert bg.get_notify_on_completion() is False  # fails closed -- no notification
+
+
+class TestProcessJobProgressTuples:
+    """Process workers may send ("progress", frac, message) tuples before
+    their final ("ok"/"error", ...) tuple."""
+
+    def test_progress_tuples_update_job_state_then_final_result(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        seen = []
+
+        def worker(q):
+            bg.report_progress(q, 0.25, "Loading model")
+            bg.report_progress(q, 0.5, "Transcribing key sk-abcdefghijklmnopqrstuvwx")
+            q.put(("ok", {"v": 1}))
+
+        real_update = bg.update_progress
+        monkeypatch.setattr(bg, "update_progress",
+                            lambda j, f, m="": (seen.append((f, m)), real_update(j, f, m)))
+        job_id = "test_progress_tuples"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, worker, args=(), on_done=lambda j, r: seen.append("hook"))
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done"
+        assert status["result"] == {"v": 1}
+        assert seen[0] == (0.25, "Loading model")
+        assert seen[1][0] == 0.5 and "sk-abcdefghijklmnopqrstuvwx" not in seen[1][1]
+        assert seen.count("hook") == 1          # on_done fired exactly once
+        bg.clear_job(job_id)
+
+    def test_last_progress_message_is_kept_on_the_finished_job(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def worker(q):
+            bg.report_progress(q, 0.4, "Aligning...")
+            q.put(("ok", {}))
+
+        job_id = "test_progress_message_kept"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, worker, args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done"
+        assert status["message"] == "Aligning..."
+        bg.clear_job(job_id)
+
+    def test_error_after_progress_still_reported(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def worker(q):
+            bg.report_progress(q, 0.1, "Loading")
+            q.put(("error", "RuntimeError", "boom"))
+
+        job_id = "test_progress_then_error"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, worker, args=(), on_done=lambda j, r: pytest.fail("no hook"))
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error" and "boom" in status["error"]
+        bg.clear_job(job_id)
+
+    def test_cancel_still_terminates_a_running_process_job(self, monkeypatch):
+        procs = _install_fake_process(monkeypatch, alive_forever=True)
+        job_id = "test_progress_cancel"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=())
+        bg.request_cancel(job_id)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "cancelled"
+        assert procs[0].terminated is True
+        bg.clear_job(job_id)
+
+    def test_malformed_progress_tuple_is_ignored(self):
+        assert bg._apply_progress_item("nope", ("progress", "x")) is True
+        assert bg._apply_progress_item("nope", ("ok", {})) is False

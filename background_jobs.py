@@ -412,7 +412,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     to `args` itself when starting the process. target should put
     exactly one plain-Python-only (no torch/pyannote objects) result
     tuple onto that queue before returning: ("ok", <result...>) or
-    ("error", <exception type name>, <message>).
+    ("error", <exception type name>, <message>). It may also send any
+    number of intermediate ("progress", <fraction 0-1>, <message>) tuples
+    first (see report_progress()); the watcher applies them to the job's
+    progress/message and they are never mistaken for the final result.
 
     Same job_id/queued/gpu_touching semantics as start_job(); returns
     False if job_id is already running or queued.
@@ -472,6 +475,33 @@ def _register_process_job(job_id, target, args, gpu_touching, description):
     return proc, result_queue
 
 
+def report_progress(result_queue, frac: float, message: str = ""):
+    """For a process-job worker (start_process_job's `target`): sends an
+    intermediate ("progress", fraction, message) tuple to the parent's
+    watcher, which applies it to the job like update_progress(). Best
+    effort -- never raises into the worker. The final ("ok"/"error", ...)
+    tuple protocol is unchanged."""
+    try:
+        result_queue.put(("progress", frac, message))
+    except Exception:
+        pass
+
+
+def _apply_progress_item(job_id, item) -> bool:
+    """True if `item` was a ("progress", frac, message) tuple (applied to
+    the job, with the message secret-redacted); False for anything else,
+    which is the worker's final result tuple."""
+    if not (isinstance(item, tuple) and item and item[0] == "progress"):
+        return False
+    try:
+        _, frac, message = item
+        from translate_engines import redact_secrets
+        update_progress(job_id, float(frac), redact_secrets(str(message or "")))
+    except Exception:
+        pass   # malformed progress must never kill the watcher
+    return True
+
+
 def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
                      on_done=None):
     """Runs in this (the main) process, not the child -- a
@@ -520,14 +550,18 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             # timeout keeps the same cancel-latency and CPU-use profile the
             # previous plain time.sleep(poll_interval) had.
             try:
-                outcome = result_queue.get(timeout=poll_interval)
-                break
+                item = result_queue.get(timeout=poll_interval)
             except queue.Empty:
-                pass
+                item = None
+            else:
+                if _apply_progress_item(job_id, item):
+                    continue
+                outcome = item
+                break
             if not proc.is_alive():
                 break
 
-        if outcome is None:
+        while outcome is None:
             try:
                 # Not get_nowait(): multiprocessing.Queue.put() hands the
                 # pickled item to an internal feeder thread rather than
@@ -537,9 +571,11 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # that item is actually readable from this end -- a real,
                 # documented race, not just a test timing quirk. A short
                 # blocking get gives it time to land.
-                outcome = result_queue.get(timeout=1)
+                item = result_queue.get(timeout=1)
             except queue.Empty:
-                outcome = None
+                break
+            if not _apply_progress_item(job_id, item):
+                outcome = item
         hook_error = None
         if outcome and outcome[0] == "ok" and on_done is not None:
             with _lock:
