@@ -92,6 +92,6 @@ describe('dub api', () => {
 
 describe('dubTrackUrl', () => {
   it('points at the dub track route', () => {
-    expect(dubTrackUrl(7)).toMatch(/\/api\/dub\/dramas\/7\/track$/)
+    expect(dubTrackUrl(7)).toBe('/api/dub/dramas/7/track')
   })
 })

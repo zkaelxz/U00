@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { MEDIA_TYPES, NEW_SERIES, buildCreateRequest, canConfirmDelete, groupHistory, validateCreate } from './libraryForm'
+import {
+  MEDIA_TYPES, NEW_SERIES, buildCreateRequest, canConfirmDelete, deleteNotice, groupHistory, validateCreate,
+} from './libraryForm'
 
 describe('buildCreateRequest', () => {
   const form = { source_language: 'zh', media_type: 'anime', title_en: ' A ', title_zh: '', author: '', director: 'D' }
@@ -71,5 +73,14 @@ describe('MEDIA_TYPES', () => {
     expect(MEDIA_TYPES).not.toContain('music')
     expect(MEDIA_TYPES).not.toContain('other')
     expect(MEDIA_TYPES).toContain('audio_drama')
+  })
+})
+
+describe('deleteNotice', () => {
+  it('shows the server warning only when one was sent', () => {
+    expect(deleteNotice({ deleted: true, drama_id: 1 })).toBeNull()
+    expect(deleteNotice({ deleted: true, drama_id: 1, warning: null })).toBeNull()
+    expect(deleteNotice({ deleted: true, drama_id: 1, warning: '  ' })).toBeNull()
+    expect(deleteNotice({ deleted: true, drama_id: 1, warning: 'Files left behind.' })).toBe('Files left behind.')
   })
 })
