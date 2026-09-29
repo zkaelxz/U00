@@ -10,6 +10,7 @@ import type {
   GlossaryInstructions,
   GlossaryTerm,
   GlossaryTermUpsert,
+  TranslateErrorsDismissed,
   TranslatePresetBody,
   TranslatePresetSaved,
   TranslateRunConfig,
@@ -43,6 +44,9 @@ export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: F
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
+// X01: clears only the last run's failed-batch record; lines are untouched.
+export const dismissTranslateErrors = (id: number, f?: Fetch) =>
+  postJson<TranslateErrorsDismissed>(`/api/translate-run/dramas/${id}/errors/dismiss`, {}, f)
 export const saveTranslatePreset = (body: TranslatePresetBody, f?: Fetch) =>
   postJson<TranslatePresetSaved>('/api/translate-run/presets', body, f)
 export const resumeBulkTranslations = (id: number, f?: Fetch) =>

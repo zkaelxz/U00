@@ -11,7 +11,7 @@ import {
   validateConfig,
   whisperModelWarning,
 } from './sourceForm'
-import { STAGE_IDS, isStageId, parseStage } from './stages'
+import { STAGE_IDS, isStageId, parseStage, stageStates, startStage } from './stages'
 import { pickForId } from './useDrama'
 
 describe('stage parsing', () => {
@@ -20,6 +20,34 @@ describe('stage parsing', () => {
     expect(parseStage('nope')).toBe('source')
     expect(parseStage('')).toBe('source')
     expect(isStageId('Source')).toBe(false)
+  })
+})
+
+describe('start stage (P17)', () => {
+  it('keeps a stage named in the URL', () => {
+    expect(startStage('review', { stage: 'export' }, false)).toBe('review')
+    expect(startStage('bogus', null, false)).toBe('source')
+  })
+  it('opens the reported stage when the URL names none', () => {
+    expect(startStage(null, null, false)).toBeNull()
+    expect(startStage(null, { stage: 'translate' }, false)).toBe('translate')
+    expect(startStage(null, { stage: 'weird' }, false)).toBe('source')
+    expect(startStage(null, null, true)).toBe('source')
+  })
+})
+
+describe('stage states (P16)', () => {
+  it('keeps known stages and states only', () => {
+    expect(
+      stageStates([
+        { key: 'source', state: 'done' },
+        { key: 'translate', state: 'current' },
+        { key: 'dub', state: 'optional' },
+        { key: 'other', state: 'done' },
+        { key: 'export', state: 'weird' },
+      ]),
+    ).toEqual({ source: 'done', translate: 'current', dub: 'optional' })
+    expect(stageStates(undefined)).toEqual({})
   })
 })
 

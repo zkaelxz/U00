@@ -180,6 +180,38 @@ test('fix flagged lines: the cap is checked as typed and only set options are se
   expect(bodies).toEqual([{ job_cost_cap_usd: 0.5 }])
 })
 
+test('AI checks send the chosen engine and model; emotion sends the audio-cues choice (R50/R33)', async ({ page }) => {
+  const config = await (await page.request.get('/api/translate-run/dramas/3/config')).json()
+  const eng = config.engines.find((e: { name: string; models: string[] | null }) => e.models && e.models.length > 0)
+  const bodies: Record<string, unknown> = {}
+  await page.route(/\/api\/review-jobs\/dramas\/3\/(consistency|emotion|notes|flag)$/, async (route) => {
+    const kind = route.request().url().split('/').pop() as string
+    bodies[kind] = route.request().postDataJSON()
+    await route.fulfill({ json: { job_id: `k-${kind}`, drama_id: 3, kind, engine: eng.name, model: null, line_count: 4 } })
+  })
+  await page.route('**/api/jobs/k-*', (route) => route.fulfill({ json: job(route.request().url().split('/').pop() as string, 'done') }))
+  await page.goto('/#/drama/3/review')
+  const ai = await open(page, 'AI review')
+
+  // Nothing chosen: every field is left to the server's defaults.
+  await ai.getByRole('button', { name: 'Check consistency' }).click()
+  await expect.poll(() => bodies.consistency).toEqual({})
+
+  const opts = await open(page, 'Check options')
+  await opts.getByRole('combobox', { name: 'Engine' }).selectOption(eng.name)
+  await opts.getByRole('combobox', { name: 'Model' }).selectOption(eng.models[0])
+  const cues = opts.getByRole('checkbox', { name: /audio delivery cues/ })
+  const wasOn = await cues.isChecked()
+  await cues.setChecked(!wasOn)
+
+  await ai.getByRole('button', { name: 'Tag emotion' }).click()
+  await expect.poll(() => bodies.emotion).toEqual({ engine: eng.name, model: eng.models[0], use_audio_cues: !wasOn })
+  await ai.getByRole('button', { name: 'Generate notes' }).click()
+  await expect.poll(() => bodies.notes).toEqual({ engine: eng.name, model: eng.models[0] })
+  await ai.getByRole('button', { name: 'Flag lines for a second look' }).click()
+  await expect.poll(() => bodies.flag).toEqual({ engine: eng.name, model: eng.models[0] })
+})
+
 test('fix flagged lines needs a flagged line', async ({ page }) => {
   await page.route('**/api/review/dramas/3/lines?*', async (route) => {
     const r = await route.fetch()

@@ -40,7 +40,10 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   await expect(page.locator('.drama-cards')).toBeVisible()
   await checkScreen(page, ['.drama-card-title', '.drama-cards button'])
   await page.getByRole('link', { name: 'Signal', exact: true }).click()
-  await expect(page).toHaveURL(/#\/drama\/\d+\/source$/)
+  // No stage in the link: the workspace opens the drama's current stage
+  // (Source for the seeded drama, which has no lines).
+  await expect(page).toHaveURL(/#\/drama\/\d+$/)
+  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {

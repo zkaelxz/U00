@@ -21,6 +21,20 @@ export interface TranslateRunConfig {
   month_spend: number
   cap_applies_by_engine: Record<string, boolean>
   bulk_supported_engines: string[]
+  // X01: the last full run's failed batches (null when none or dismissed).
+  // `lines` are 0-based line positions; `error` is already redacted.
+  last_translate_errors?: TranslateBatchError[] | null
+}
+
+export interface TranslateBatchError {
+  batch_index?: number
+  lines?: number[]
+  error?: string
+}
+
+export interface TranslateErrorsDismissed {
+  drama_id: number
+  dismissed: boolean
 }
 
 export interface TranslateRunEstimate {
