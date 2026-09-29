@@ -251,7 +251,7 @@ def test_compressed_body_decoded_bytes_are_capped(net):
 
 
 @pytest.mark.parametrize("encoding,body", [
-    ("gzip", gzip.compress(b"<html>hi</html>")),
+    ("gzip", gzip.compress(b"<html>hi</html>", mtime=0)),   # fixed mtime: ids must match across xdist workers
     ("deflate", zlib.compress(b"<html>hi</html>")),
     ("deflate", zlib.compress(b"<html>hi</html>")[2:-4]),   # raw deflate, as some servers send
     ("identity", b"<html>hi</html>"),
