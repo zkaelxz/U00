@@ -665,6 +665,10 @@ class CharactersEntry(BaseModel):
     series_character_id: Optional[int] = None
     series_character_name: str
     line_count: int
+    # C07/C04: the linked series character's pronouns (the default when
+    # this drama sets none) and up to two short sample source lines.
+    series_pronouns: str = ""
+    sample_lines: List[str] = Field(default_factory=list)
 
 
 class CharactersUpdateRequest(BaseModel):
@@ -2748,6 +2752,8 @@ class NovelGlossaryStatus(BaseModel):
     progress: Optional[float] = None
     message: str = ""
     proposals: Optional[List[NovelGlossaryProposal]] = None
+    # Names this run; the apply sends it back (409 if the run was replaced).
+    run_id: Optional[str] = None
 
 
 class NovelGlossaryApplyRequest(BaseModel):
@@ -3472,6 +3478,229 @@ class CoverArtResult(BaseModel):
     width: int
     height: int
     size_bytes: int
+
+
+# ---------------------------------------------------------------------------
+# Characters extras (inventory C02, C08): recurring-voice suggestions and
+# "remember as a known series character" (services/characters_service.py).
+# ---------------------------------------------------------------------------
+
+class CharactersVoiceSuggestion(BaseModel):
+    speaker_label: str
+    series_character_id: int
+    character_name: str
+    similarity: float
+
+
+class CharactersVoiceSuggestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=100)
+    series_character_id: int = Field(ge=1, le=2147483647)
+
+
+class CharactersVoiceSuggestionResult(BaseModel):
+    """character: the updated speaker after an accept (null after a
+    reject); suggestions: what is still offered."""
+    character: Optional[CharactersEntry] = None
+    suggestions: List[CharactersVoiceSuggestion]
+
+
+class CharactersRememberRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+
+
+class CharactersRememberResult(BaseModel):
+    character: CharactersEntry
+    series_character: CharactersSeriesEntry
+    created: bool
+
+# Glossary helpers (parity X10/X28): glossary from the drama's source lines,
+# and per-term edits on applying either extraction's proposals.
+# ---------------------------------------------------------------------------
+
+class LinesGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    line_count: int
+
+
+class GlossaryProposalEdit(BaseModel):
+    """The user's edit of one proposal in review. A field left out keeps
+    the proposal's value; category/policy null means "none"."""
+    model_config = ConfigDict(extra="forbid")
+    translation: Optional[Annotated[str, Field(min_length=1, max_length=200)]] = None
+    category: Optional[Annotated[str, Field(max_length=50)]] = None
+    policy: Optional[Annotated[str, Field(max_length=50)]] = None
+
+
+class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
+    """NovelGlossaryApplyRequest plus optional edits keyed by term text
+    (never by position); edits for terms not in `terms` are ignored.
+    run_id: the status's run_id the user reviewed; a different held run is
+    refused with 409 (optional here for older from-novel callers)."""
+    overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
+        default_factory=dict, max_length=1000)
+    run_id: Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
+
+
+class LinesGlossaryApplyRequest(GlossaryProposalsApplyRequest):
+    """GlossaryProposalsApplyRequest with run_id required (from-lines)."""
+    run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class GlossaryRunCancelRequest(BaseModel):
+    """The run_id from the extraction's status: only that run is cancelled."""
+    model_config = ConfigDict(extra="forbid")
+    run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+# Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
+# learn my style, SenseVoice audio tags, burned-subtitle preview clip.
+# services/review_extras_service.py; no key, URL or path is accepted or returned.
+# ---------------------------------------------------------------------------
+
+class MergeShortOptions(BaseModel):
+    min_duration: float
+    max_gap: float
+    max_chars: int
+
+
+class MergeShortGroup(BaseModel):
+    line_id: int
+    idx: int
+    merged_line_ids: List[int]
+    start: float
+    end: float
+    zh: str
+    en: str
+
+
+class MergeShortPreview(BaseModel):
+    drama_id: int
+    options: MergeShortOptions
+    source_line_ids: List[int]
+    line_count_before: int
+    line_count_after: int
+    groups: List[List[int]]
+    merges: List[MergeShortGroup]
+
+
+class MergeShortApply(_RestructureBase):
+    expected_groups: List[List[int]] = Field(
+        max_length=50_000,
+        description="The preview's `groups`; 409 if a fresh merge would differ.")
+    min_duration: Optional[float] = Field(None, ge=0.1, le=10)
+    max_gap: Optional[float] = Field(None, ge=0, le=5)
+    max_chars: Optional[int] = Field(None, ge=10, le=500)
+
+
+class MergeShortResult(RestructureResult):
+    merged_groups: int
+
+
+class StyleProfileView(BaseModel):
+    summary: str
+    confidence: Optional[str] = None
+    preferences: List[str]
+    sample_count: int
+    updated_at: Optional[str] = None
+    applied: bool
+
+
+class StyleHistoryEntry(BaseModel):
+    summary: str
+    preference_count: int
+    updated_at: Optional[str] = None
+
+
+class StyleState(BaseModel):
+    drama_id: int
+    scope: str
+    edit_count: int
+    drama_edit_count: int
+    min_samples: int
+    profile: Optional[StyleProfileView] = None
+    history: List[StyleHistoryEntry] = []
+    message: Optional[str] = None
+
+
+class StyleLearnRequest(ReviewJobStart):
+    pass
+
+
+class StyleApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    apply: StrictBool
+
+
+class StyleResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class StyleRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: StrictInt = Field(0, ge=0, le=20)
+
+
+class SenseVoiceStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    line_count: int
+
+
+class SenseVoiceRow(BaseModel):
+    line_id: Optional[int] = None
+    idx: int
+    text: str
+    text_emotion: str
+    audio_emotion: str
+    audio_events: str
+    disagree: bool
+
+
+class SenseVoiceTags(BaseModel):
+    drama_id: int
+    installed: bool
+    has_audio: bool
+    license_note: str
+    tagged: int
+    disagree: int
+    rows: List[SenseVoiceRow]
+
+
+class BurnPreviewStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: int = Field(ge=1)
+    pad_seconds: Optional[float] = Field(None, ge=0, le=5)
+    preset: Optional[str] = Field(None, max_length=40)
+
+
+class BurnPreviewStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    line_id: int
+    start: float
+    end: float
+
+
+class BurnPreviewClip(BaseModel):
+    line_id: Optional[int] = None
+    idx: Optional[int] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    preset: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BurnPreviewInfo(BaseModel):
+    drama_id: int
+    has_video: bool
+    ffmpeg_available: bool
+    presets: List[str]
+    max_clip_seconds: float
+    max_pad_seconds: float
+    clip: Optional[BurnPreviewClip] = None
 
 
 # ---------------------------------------------------------------------------

@@ -180,14 +180,14 @@ test.describe('Glossary from novel', () => {
       }
       if (state === 'none') return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
       if (state === 'running') {
-        return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null } })
+        return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null, run_id: 'run-1' } })
       }
       const prop = (term: string, en: string, already = false) => ({
         term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already,
       })
       return route.fulfill({
         json: {
-          job_id: 'novelglossary_1', status: 'done', progress: 1, message: '',
+          job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-1',
           proposals: [prop('魏婴', 'Wei Ying'), prop('蓝湛', 'Lan Zhan'), prop('云深不知处', 'Cloud Recesses'), prop('江澄', 'Jiang Cheng', true)],
         },
       })
@@ -217,7 +217,8 @@ test.describe('Glossary from novel', () => {
     await page.emulateMedia({ colorScheme: 'light' })
     await page.getByRole('button', { name: 'Add 2 terms to series glossary' }).click()
     await expect(page.getByTestId('novel-glossary')).toContainText('Added 2.')
-    expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴', '云深不知处'] })
+    // The apply names the run whose proposals were shown.
+    expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴', '云深不知处'], run_id: 'run-1' })
     await expect(page.getByTestId('novel-glossary').locator('button.primary')).toHaveCount(1)
   })
 
@@ -232,7 +233,7 @@ test.describe('Glossary from novel', () => {
     await page.route('**/api/glossary/dramas/1/from-novel', (route) =>
       route.fulfill({
         json: {
-          job_id: 'novelglossary_1', status: 'done', progress: 1, message: '',
+          job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-7',
           proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true }],
         },
       }),
@@ -253,7 +254,7 @@ test.describe('Glossary from novel', () => {
     expect(applyBody).toBe('')
     await page.getByRole('button', { name: 'Yes, overwrite' }).click()
     await expect(page.getByTestId('novel-glossary')).toContainText('Overwrote 1.')
-    expect(JSON.parse(applyBody)).toEqual({ terms: ['江澄'], overwrite_existing: true, confirm: true })
+    expect(JSON.parse(applyBody)).toEqual({ terms: ['江澄'], overwrite_existing: true, confirm: true, run_id: 'run-7' })
   })
 
   test('a lost extraction (400 on apply) asks to run again', async ({ page }) => {
