@@ -25,7 +25,6 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | B-07 | ~~M~~ | metadata autofill (Slice 37) | ~~Per-engine LLM call timeouts were not verified (project rule: every request has `timeout=`)~~ **FIXED (#278)** | Audit engines used by `supports_reference`; extend `tests/test_static_analysis.py` to `services/` HTTP calls | done (F-16) |
 | B-08 | L | metadata autofill (Slice 37) | SSRF check has a small DNS-rebinding gap between resolve and connect (documented) | Pin the resolved IP for the connection | 125 |
 | B-09 | L | media upload (Slice 31/32) | Accepts uploads for any drama type (Streamlit offers it only in the audio flow); video audio extraction (ffmpeg) runs synchronously in the request **Part 1 (type check) fixed in #286; part 2 (async extraction) still open.** | Type check; move extraction into a job | 126 |
-| B-10 | L (latent) | `cli.cmd_narrate_prep` | Zips speakers back to lines by position (violates the "match by id" rule); safe today because the list is built locally | Convert to the id-keyed pattern | 126 |
 | B-11 | L | export API vs Streamlit | API exports read saved DB lines; unsaved Streamlit session edits differ | Document; resolved when the tab retires | 132 |
 | B-12 | ~~L~~ | Slice 43 line edit | ~~`expected` compare and write are two steps, not one atomic statement~~ **FIXED (#291)** | Single conditional UPDATE in `db` | done (F-17) |
 | B-13 | L | Slice 49 | API diarization always merges with `overwrite_manual=False` (no confirm step); manual speakers never overwritten | Optional explicit `overwrite_manual` field later | 132 |
@@ -65,6 +64,7 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | F-19 | B-15, #291 | single quotes are escaped in the ffmpeg subtitles filter path |
 | F-20 | B-16, #286 | engine list labels now reflect the `gemini_free_tier` setting |
 | F-21 | B-18, #279 | `useJob` retries network errors and 5xx with capped backoff, surfaces after 5 consecutive failures; 4xx still stops |
+| F-22 | B-10, this PR | `cmd_narrate_prep`, the Workspace tab and `narration_service` paired speaker labels by list position; now `translate_engines.tag_speakers_by_id` returns `{chunk idx: label}` and callers look up by idx (missing -> Narrator, unknown ids ignored) |
 
 ## 4. To-do queue (in order)
 **Waiting on the user (cannot proceed):**

@@ -2383,34 +2383,44 @@ class SequentialClaudeShapedEngine:
 
 
 class TestTagSpeakersLlm:
-    """tag_speakers_llm used to request a plain positional JSON array and
+    """tag_speakers_by_id (was tag_speakers_llm) used to request a plain positional JSON array and
     zip/extend it onto zh_chunks by position -- the same misassignment
     bug class as translation itself. Now id-keyed, same mechanism as
     translate_batch's own fix."""
 
     def test_well_formed_object_response_assigns_labels_by_id(self):
         engine = SequentialClaudeShapedEngine(['{"1": "Xiaoling", "2": "Narrator"}'])
-        labels = te.tag_speakers_llm(["你好", "那天下着雨。"], engine)
-        assert labels == ["Xiaoling", "Narrator"]
+        labels = te.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
+        assert labels == {1: "Xiaoling", 2: "Narrator"}
 
     def test_a_response_missing_one_id_is_retried_and_lands_on_the_right_chunk(self):
         engine = SequentialClaudeShapedEngine([
             '{"1": "Xiaoling"}',  # id 2 missing from the first response
             '{"2": "Yun"}',       # retry supplies it
         ])
-        labels = te.tag_speakers_llm(["你好", "你也好"], engine)
-        assert labels == ["Xiaoling", "Yun"]
+        labels = te.tag_speakers_by_id({1: "你好", 2: "你也好"}, engine)
+        assert labels == {1: "Xiaoling", 2: "Yun"}
 
     def test_still_missing_after_retry_defaults_to_narrator_not_blank(self):
         engine = SequentialClaudeShapedEngine(['{"1": "Xiaoling"}', '{}'])
-        labels = te.tag_speakers_llm(["你好", "你也好"], engine)
-        assert labels == ["Xiaoling", "Narrator"]
+        labels = te.tag_speakers_by_id({1: "你好", 2: "你也好"}, engine)
+        assert labels == {1: "Xiaoling", 2: "Narrator"}
+
+    def test_reordered_and_extra_ids_land_on_their_own_chunks(self):
+        engine = SequentialClaudeShapedEngine(['{"3": "Cara", "99": "Ghost", "1": "Ann", "2": "Narrator"}'])
+        labels = te.tag_speakers_by_id({1: "a", 2: "b", 3: "c"}, engine)
+        assert labels == {1: "Ann", 2: "Narrator", 3: "Cara"}
+
+    def test_non_contiguous_ids_are_keyed_not_positional(self):
+        engine = SequentialClaudeShapedEngine(['{"7": "Ann"}', '{"4": "Bob"}'])
+        labels = te.tag_speakers_by_id({4: "a", 7: "b"}, engine)
+        assert labels == {4: "Bob", 7: "Ann"}
 
     def test_pure_mt_engine_returns_all_narrator(self):
         class PureMT:
             supports_reference = False
-        labels = te.tag_speakers_llm(["a", "b"], PureMT())
-        assert labels == ["Narrator", "Narrator"]
+        labels = te.tag_speakers_by_id({1: "a", 2: "b"}, PureMT())
+        assert labels == {1: "Narrator", 2: "Narrator"}
 
     def test_ollama_engine_gets_real_labels_not_a_silent_all_narrator(self, monkeypatch):
         """Step 1d exit condition: with a fake Ollama server, every
@@ -2426,8 +2436,8 @@ class TestTagSpeakersLlm:
 
         monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
         engine = te.OllamaEngine()
-        labels = te.tag_speakers_llm(["你好", "那天下着雨。"], engine)
-        assert labels == ["Xiaoling", "Narrator"]
+        labels = te.tag_speakers_by_id({1: "你好", 2: "那天下着雨。"}, engine)
+        assert labels == {1: "Xiaoling", 2: "Narrator"}
 
 
 class TestRewriteForPacingLlm:

@@ -84,7 +84,7 @@ class TestJob:
     def _run(self, db, did, monkeypatch, speakers):
         import translate_engines
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
-        monkeypatch.setattr(translate_engines, "tag_speakers_llm",
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id",
                             lambda chunks, engine, known, **k: speakers(chunks))
         job_id = f"narration_{did}"
         narration_service._run_narration_job(job_id, did, NOVEL, "claude", "k", None)
@@ -94,7 +94,7 @@ class TestJob:
         did = _drama(isolated_db)
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="旧", en="old")])
         self._run(isolated_db, did, monkeypatch,
-                  lambda ch: ["Ann" if "说" in c else "Narrator" for c in ch])
+                  lambda ch: {i: ("Ann" if "说" in c else "Narrator") for i, c in ch.items()})
         lines = isolated_db.load_line_objects(did)
         assert [ln.zh for ln in lines] and all(ln.id for ln in lines)
         assert {ln.speaker for ln in lines} == {"Ann", "Narrator"}
@@ -103,11 +103,13 @@ class TestJob:
         labels = {c["speaker_label"] for c in isolated_db.list_characters(did)}
         assert {"Ann", "Narrator"} <= labels
 
-    def test_short_speaker_list_falls_back_to_narrator(self, isolated_db, monkeypatch):
+    def test_labels_attach_by_idx_missing_and_extra_ids_are_safe(self, isolated_db, monkeypatch):
         did = _drama(isolated_db)
-        self._run(isolated_db, did, monkeypatch, lambda ch: ["Ann"])
+        self._run(isolated_db, did, monkeypatch, lambda ch: {1: "Ann", 999: "Ghost"})
         lines = isolated_db.load_line_objects(did)
-        assert len(lines) > 1 and {ln.speaker for ln in lines} == {"Narrator"}
+        assert len(lines) > 1
+        assert [ln.speaker for ln in lines] == ["Ann" if i == 1 else "Narrator" for i in range(len(lines))]
+        assert "Ghost" not in {c["speaker_label"] for c in isolated_db.list_characters(did)}
 
     def test_failure_redacts_secret_in_job_error(self, isolated_db, monkeypatch, key):
         did = _drama(isolated_db)
@@ -116,7 +118,7 @@ class TestJob:
 
         def boom(*a, **k):
             raise RuntimeError("bad key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789")
-        monkeypatch.setattr(translate_engines, "tag_speakers_llm", boom)
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", boom)
         job_id = f"narration_{did}"
         assert background_jobs.start_job(
             job_id, narration_service._run_narration_job, job_id, did, NOVEL, "claude", "k", None)

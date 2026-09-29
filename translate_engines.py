@@ -1331,23 +1331,28 @@ class NLLBEngine:
         return [r["translation_text"] for r in results]
 
 
-def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int = 15, usage_cb=None):
+def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size: int = 15, usage_cb=None):
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
     a character name, or 'Narrator' for descriptive prose. Works with
     any LLM-capable engine (Claude, DeepSeek); pure-MT engines (DeepL,
     Google) can't do this and will return 'Narrator' for everything.
 
-    Returns a list of speaker labels, same length/order as zh_chunks.
+    id_to_zh maps each chunk's own id (its line idx) to its text. Returns
+    {id: label} with an entry for EVERY id given: a label the model
+    didn't return for an id (after one retry) is "Narrator", and ids the
+    model invented are ignored -- a label can only ever land on the chunk
+    it was keyed to, never by list position.
     This is a best-effort heuristic -- always let the user correct
     labels in the review table afterwards."""
     if not getattr(engine, "supports_reference", False):
-        return ["Narrator"] * len(zh_chunks)
+        return {i: "Narrator" for i in id_to_zh}
 
     known = ", ".join(known_characters) if known_characters else "(none known yet)"
-    labels = []
-    for start in range(0, len(zh_chunks), batch_size):
-        batch = zh_chunks[start:start + batch_size]
+    labels = {}
+    all_ids = list(id_to_zh)
+    for start in range(0, len(all_ids), batch_size):
+        batch_ids = all_ids[start:start + batch_size]
 
         def call_model(numbered, known=known):
             prompt = (
@@ -1370,9 +1375,13 @@ def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int =
         # reordered. Missing ids retry once, then default to "Narrator"
         # (the safe fallback for novel narration) rather than staying
         # blank.
-        batch_labels = _request_translations_with_retry(batch, None, call_model)
-        labels.extend(lbl if lbl.strip() else "Narrator" for lbl in batch_labels)
-    return labels[:len(zh_chunks)]
+        result_map = _id_keyed_batch_request(
+            batch_ids,
+            lambda ids: _build_numbered_lines(ids, [id_to_zh[i] for i in ids]),
+            call_model)
+        for i in batch_ids:
+            labels[i] = (result_map.get(str(i)) or "").strip() or "Narrator"
+    return labels
 
 
 def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2):
