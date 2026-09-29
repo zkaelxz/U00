@@ -346,7 +346,9 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
             job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+        cancel_check=lambda: _raise_if_cancelled(job_id))
+    _raise_if_cancelled(job_id)
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
     background_jobs.set_result(job_id, {"emotions": emap})
 

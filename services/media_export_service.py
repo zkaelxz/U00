@@ -162,10 +162,7 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
         cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path,
                "-vf", "subtitles=subs.ass",
                "-c:a", "copy", out_name]
-        try:
-            background_jobs.run_cancellable(job_id, cmd, cwd=tmp)
-        except (subprocess.CalledProcessError, OSError):
-            raise RuntimeError("ffmpeg failed to produce the export.") from None
+        _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "video", f"burned_video_{drama_id}{ext}")
         shutil.move(os.path.join(tmp, out_name), final)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")

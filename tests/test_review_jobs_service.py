@@ -296,3 +296,19 @@ def test_notes_cancel_skips_save(monkeypatch):
                         _cancel_then_check(f"notes_{did}"))
     job = _wait(svc.start_translation_notes(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled" and saved == []
+
+
+def test_emotion_cancel_stops_between_batches_and_skips_save(monkeypatch):
+    """B-05 leftover: the emotion job checks cancel before every LLM batch."""
+    did = _seed(rows=tuple((f"行{i}", "", None) for i in range(45)))  # 2 batches of 40
+    calls, saved = [], []
+
+    def fake_llm(engine, prompt, **kw):
+        calls.append(prompt)
+        background_jobs.request_cancel(f"emotion_{did}")
+        return "[]"
+    monkeypatch.setattr(emotion, "call_llm_json", fake_llm)
+    monkeypatch.setattr(db, "save_emotions", lambda *a, **k: saved.append(a))
+    job = _wait(svc.start_emotion_tagging(did, engine_name="claude")["job_id"])
+    assert job["status"] == "cancelled"
+    assert len(calls) == 1 and saved == []
