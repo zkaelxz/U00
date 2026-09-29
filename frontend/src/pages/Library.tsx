@@ -18,6 +18,7 @@ import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
 import { Sheet } from '../components/Sheet'
+import { VoiceBankPlayButton } from '../components/VoiceBankPlayButton'
 import {
   continueItems, countDramas, dramaName, parseTime, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
 } from '../components/libraryView'
@@ -121,13 +122,15 @@ function RenameForm({ current, onSave, onCancel }: {
 }
 
 // A Library list whose rows have a rename and a PC-only two-step delete (presets, voice bank).
-function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
+function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
   pc: PcMode
   help: string
   items: { id: number; name: string; meta: string | null }[] | undefined
   remove: (id: number) => Promise<unknown>
   rename: (id: number, name: string) => Promise<unknown>
   onDeleted: () => void
+  // Row controls before Rename (the voice bank's Play).
+  extra?: (id: number, name: string) => ReactNode
 }) {
   const [busyId, setBusyId] = useState<number | null>(null)
   const [renamingId, setRenamingId] = useState<number | null>(null)
@@ -155,6 +158,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
               <>
                 <span>{x.name} <span className="muted">{x.meta}</span></span>
                 <span className="row-actions">
+                  {extra?.(x.id, x.name)}
                   <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
                   {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
                 </span>
@@ -347,6 +351,8 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
             remove={deleteVoiceBankEntry}
             rename={renameVoiceBankEntry}
             onDeleted={onChanged}
+            extra={(id, name) => voices.data?.items.find((v) => v.id === id)?.clip_available
+              ? <VoiceBankPlayButton entryId={id} name={name} /> : null}
           />
         </ToolSection>
         {admin}
