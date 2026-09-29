@@ -11,7 +11,7 @@ params, like translate history's confirm gate. Cover upload, series rename/unass
 scope -- see services/drama_service.py.
 """
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 from api.auth import local_only, require_permission
 from api.routers.library_routes import _to_detail
 from api.schemas import (DramaCreateRequest, DramaCreateResult, DramaDeleteResult,
@@ -23,19 +23,24 @@ router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
 @router.post("", dependencies=[require_permission("admin.library")], response_model=DramaCreateResult, status_code=201,
              summary="Create a drama (optionally with a series and/or preset)",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
-def post_drama(payload: DramaCreateRequest):
-    result = drama_service.create_drama(**payload.model_dump())
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_drama(payload: DramaCreateRequest, request: Request):
+    result = drama_service.create_drama(**payload.model_dump(),
+                                        principal=request.state.principal)
     return DramaCreateResult(**_to_detail(result).model_dump(),
                              preset_defaults=result.get("preset_defaults"))
 
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,
              summary="Update a drama's metadata (partial update)",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
-def post_drama_metadata(payload: DramaMetadataUpdate, drama_id: int = Path(ge=1)):
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
+                        drama_id: int = Path(ge=1)):
     return _to_detail(drama_service.update_drama_metadata(
-        drama_id, **payload.model_dump(exclude_unset=True)))
+        drama_id, principal=request.state.principal,
+        **payload.model_dump(exclude_unset=True)))
 
 
 @router.delete("/{drama_id}", dependencies=[local_only()], response_model=DramaDeleteResult, response_model_exclude_none=True,

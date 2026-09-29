@@ -114,8 +114,10 @@ def test_set_private_refused_for_drama_in_series(people):
     a = people["a"]
     sid = db.get_or_create_series("S", owner_user_id=people["a_id"])
     did = db.create_drama(title_zh="e", series_id=sid, owner_user_id=people["a_id"])
-    with pytest.raises(InvalidInputError, match="Make the series private instead"):
+    with pytest.raises(ConflictError, match="Make the whole series private instead"):
         own.set_private(a, "drama", did, True)
+    assert db.get_item_ownership("drama", did)["is_private"] == 0
+    own.set_private(a, "drama", did, False)      # clearing it is always allowed
     own.set_private(a, "series", sid, True)
     assert not own.can_see_drama(people["b"], did)
 
@@ -190,8 +192,10 @@ def test_mixed_owner_series_python_and_sql_agree(people):
     a, b = people["a"], people["b"]
     sid = db.get_or_create_series("A's", owner_user_id=people["a_id"])
     a_ep = db.create_drama(title_zh="a1", series_id=sid, owner_user_id=people["a_id"])
+    # A drama in a series can't carry its own private flag (decision 4).
     b_ep = db.create_drama(title_zh="b1", series_id=sid, owner_user_id=people["b_id"],
                            is_private=1)
+    assert db.get_item_ownership("drama", b_ep)["is_private"] == 0
     b_solo = db.create_drama(title_zh="b2", owner_user_id=people["b_id"], is_private=1)
     ids = [a_ep, b_ep, b_solo]
     # The series owner sees every drama in their series, even another user's.
@@ -213,8 +217,9 @@ def test_mixed_owner_series_python_and_sql_agree(people):
 
 
 def test_drama_ownership_does_not_override_a_private_series(people):
-    """If B's drama ends up in A's private series anyway (e.g. moved in
-    later), B loses it too -- the series' privacy wins, in both paths."""
+    """If B's drama ends up in A's private series anyway (a raw db write;
+    the services refuse it), B loses it too -- the series' privacy wins,
+    in both paths."""
     sid = db.get_or_create_series("Hidden", owner_user_id=people["a_id"], is_private=True)
     b_ep = db.create_drama(title_zh="b", series_id=sid, owner_user_id=people["b_id"])
     assert not own.can_see_drama(people["b"], b_ep)
@@ -248,3 +253,84 @@ def test_malformed_ids_are_not_found(people, bad):
         own.set_private(people["admin"], "series", bad, True)
     with pytest.raises(NotFoundError):
         own.filter_visible_drama_ids(people["b"], [bad])
+
+
+# --- LOW-1: series assignment guard, LOW-2: no private flag inside a series ---
+
+def test_series_assignment_guard(people):
+    a, b, admin = people["a"], people["b"], people["admin"]
+    secret = db.get_or_create_series("A secret", owner_user_id=people["a_id"], is_private=True)
+    shared = db.get_or_create_series("A shared", owner_user_id=people["a_id"])
+    # Invisible series: 404 for B, whatever the drama.
+    with pytest.raises(NotFoundError):
+        own.check_series_assignment(b, secret, people["b_id"])
+    with pytest.raises(NotFoundError):
+        own.check_series_assignment(b, 10**6, None)
+    with pytest.raises(NotFoundError):
+        own.check_series_assignment(b, "x", None)
+    # Visible private series: only its owner's or PC-owned (NULL) dramas.
+    assert own.check_series_assignment(a, secret, people["a_id"]) == secret
+    assert own.check_series_assignment(a, secret, None) == secret
+    for who in (a, admin, LOCAL, None):
+        with pytest.raises(ConflictError, match="only its owner's dramas"):
+            own.check_series_assignment(who, secret, people["b_id"])
+    assert own.check_series_assignment(b, shared, people["b_id"]) == shared
+
+
+def test_move_into_private_series_refused_service_and_sql_agree(people):
+    """The LOW-1 attack: A moves B's shared drama into A's private series."""
+    a, b = people["a"], people["b"]
+    secret = db.get_or_create_series("A secret", owner_user_id=people["a_id"], is_private=True)
+    b_drama = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    with pytest.raises(ConflictError):
+        own.assign_drama_series(a, b_drama, secret)
+    assert not db.assign_drama_series(b_drama, secret)          # the SQL guard alone
+    assert db.get_drama(b_drama)["series_id"] is None
+    assert own.can_see_drama(b, b_drama) and b_drama in _visible_sql(people["b_id"])
+    # A's own and PC-owned dramas may go in.
+    a_drama = db.create_drama(title_zh="a", owner_user_id=people["a_id"])
+    pc_drama = db.create_drama(title_zh="pc")
+    own.assign_drama_series(a, a_drama, secret)
+    assert db.assign_drama_series(pc_drama, secret)
+    with pytest.raises(NotFoundError):
+        own.assign_drama_series(a, 10**6, secret)
+
+
+def test_empty_series_made_private_then_move_refused(people):
+    a = people["a"]
+    sid = own.get_or_create_series_for(a, "Mine")
+    own.set_private(a, "series", sid, True)
+    b_drama = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    with pytest.raises(ConflictError):
+        own.assign_drama_series(a, b_drama, sid)
+
+
+def test_private_switch_is_one_conditional_write(people):
+    """db.set_item_private itself refuses (0 rows) what the service refuses."""
+    sid = db.get_or_create_series("S", owner_user_id=people["a_id"])
+    b_ep = db.create_drama(title_zh="b", series_id=sid, owner_user_id=people["b_id"])
+    assert not db.set_item_private("series", sid, True)
+    assert not db.set_item_private("drama", b_ep, True)
+    assert db.get_item_ownership("series", sid)["is_private"] == 0
+    db.update_drama(b_ep, owner_user_id=None)                # PC-owned: no longer blocks
+    assert db.set_item_private("series", sid, True)
+    assert db.set_item_private("series", sid, False)
+    solo = db.create_drama(title_zh="solo", owner_user_id=people["b_id"])
+    assert db.set_item_private("drama", solo, True)
+    assert not db.set_item_private("drama", 10**6, False)
+
+
+def test_drama_private_flag_cleared_when_it_gets_a_series(people):
+    b = people["b"]
+    sid = db.get_or_create_series("Open", owner_user_id=people["b_id"])
+    solo = db.create_drama(title_zh="x", owner_user_id=people["b_id"])
+    own.set_private(b, "drama", solo, True)
+    own.assign_drama_series(b, solo, sid)
+    assert db.get_item_ownership("drama", solo)["is_private"] == 0
+    other = db.create_drama(title_zh="y", owner_user_id=people["b_id"], is_private=1)
+    db.update_drama(other, series_id=sid)                     # raw path too
+    assert db.get_item_ownership("drama", other)["is_private"] == 0
+    db.update_drama(other, series_id=None, is_private=1)      # no series: allowed
+    assert db.get_item_ownership("drama", other)["is_private"] == 1
+    assert own.can_see_drama(b, other) and not own.can_see_drama(people["a"], other)
+    assert other not in _visible_sql(people["a_id"])

@@ -1243,6 +1243,10 @@ def drama_dir(drama_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def create_drama(**fields) -> int:
+    if fields.get("series_id") is not None:
+        # Auth slice B1 (user decision 4): only a whole series, or a drama
+        # with no series, can be private.
+        fields["is_private"] = 0
     with contextlib.closing(get_conn()) as conn:
         fields.setdefault("status", "not started")
         now = datetime.datetime.utcnow().isoformat()
@@ -1260,6 +1264,8 @@ def create_drama(**fields) -> int:
 def update_drama(drama_id: int, **fields):
     if not fields:
         return
+    if fields.get("series_id") is not None:
+        fields["is_private"] = 0    # auth slice B1, as in create_drama
     fields["updated_at"] = datetime.datetime.utcnow().isoformat()
     with contextlib.closing(get_conn()) as conn:
         set_clause = ", ".join(f"{k} = ?" for k in fields)
@@ -3689,26 +3695,45 @@ def get_item_ownership(kind: str, item_id: int):
     return dict(row) if row else None
 
 
-def series_has_dramas_owned_by_others(series_id: int) -> bool:
-    """Auth slice B1: True when the series holds a drama whose owner is a
-    user other than the series owner (NULL-owned dramas belong to the PC
-    owner, who sees everything anyway)."""
+# A drama "owned by someone else" than series `s`: NULL-owned dramas belong
+# to the PC owner, who sees everything anyway, so they never count.
+_OTHERS_DRAMA_SQL = ("d.owner_user_id IS NOT NULL AND d.owner_user_id IS NOT s.owner_user_id")
+
+
+def assign_drama_series(drama_id: int, series_id: int) -> bool:
+    """Auth slice B1: moves a drama into a series in one conditional write,
+    so it can't race the series being made private. Refused (False) when
+    the series is private and the drama belongs to someone other than the
+    series owner. Also clears the drama's own private flag (user decision
+    4). False also for an unknown drama."""
     with contextlib.closing(get_conn()) as conn:
-        row = conn.execute(
-            "SELECT 1 FROM dramas d JOIN series s ON s.id = d.series_id WHERE s.id = ? "
-            "AND d.owner_user_id IS NOT NULL AND d.owner_user_id IS NOT s.owner_user_id "
-            "LIMIT 1", (series_id,)).fetchone()
-    return row is not None
+        cur = conn.execute(
+            "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? WHERE id = ? "
+            "AND NOT EXISTS (SELECT 1 FROM series s, dramas d WHERE s.id = ? AND d.id = ? "
+            f"AND COALESCE(s.is_private, 0) = 1 AND {_OTHERS_DRAMA_SQL})",
+            (series_id, datetime.datetime.utcnow().isoformat(), drama_id, series_id, drama_id))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def set_item_private(kind: str, item_id: int, private: bool) -> bool:
-    """Auth slice B1: field-scoped write of is_private only."""
-    table = {"drama": "dramas", "series": "series"}.get(kind)
-    if table is None:
+    """Auth slice B1: field-scoped write of is_private only. Making private
+    is one conditional write, so it can't race a drama being moved: a
+    series is refused while it holds another user's drama, a drama while
+    it is in a series. False when refused or the item doesn't exist."""
+    if kind == "series":
+        guard = ("NOT EXISTS (SELECT 1 FROM dramas d, series s WHERE s.id = series.id "
+                 f"AND d.series_id = s.id AND {_OTHERS_DRAMA_SQL})")
+        table = "series"
+    elif kind == "drama":
+        guard, table = "series_id IS NULL", "dramas"
+    else:
         raise ValueError(f"unknown ownership kind: {kind!r}")
+    sql = f"UPDATE {table} SET is_private = ? WHERE id = ?"
+    if private:
+        sql += f" AND {guard}"
     with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute(f"UPDATE {table} SET is_private = ? WHERE id = ?",
-                           (int(bool(private)), item_id))
+        cur = conn.execute(sql, (int(bool(private)), item_id))
         conn.commit()
         return cur.rowcount > 0
 

@@ -27,7 +27,10 @@ User decisions applied (2026-09-29):
   ConflictError when the name belongs to a series the caller can't see
   (this reveals that the name exists -- accepted).
 - The private flag applies to whole series, and to dramas with no series
-  only (avoids leaks via series glossary/TM/previous_episode_summary).
+  only (avoids leaks via series glossary/TM/previous_episode_summary): a
+  drama's own flag is cleared whenever it gets a series (db layer), and
+  `check_series_assignment`/`assign_drama_series` keep other users'
+  dramas out of a private series.
 """
 
 import sqlite3
@@ -37,6 +40,8 @@ from services.service_errors import (ConflictError, ForbiddenError, InvalidInput
                                      NotFoundError)
 
 HOUSEHOLD_SHARE_KEY = "household.share_by_default"
+_DRAMA_IN_SERIES_MESSAGE = "Make the whole series private instead"
+_PRIVATE_SERIES_MESSAGE = "That series is private, so only its owner's dramas can go in it."
 _KINDS = ("drama", "series")
 
 
@@ -169,14 +174,42 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
         raise NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
     if not (_sees_everything(principal) or _is_owner(principal, row)):
         raise ForbiddenError("Only the owner or an admin can change this.")
-    if kind == "drama" and private and row.get("series_id"):
-        # User decision 3: only whole series, or dramas with no series.
-        raise InvalidInputError("Make the series private instead.")
-    if kind == "series" and private and db.series_has_dramas_owned_by_others(item_id):
-        # Otherwise those dramas would vanish for the people who own them.
-        raise ConflictError("Move other people's dramas out of this series first.")
-    db.set_item_private(kind, item_id, private)
-    return {"kind": kind, "id": item_id, "is_private": bool(private)}
+    if db.set_item_private(kind, item_id, private):
+        return {"kind": kind, "id": item_id, "is_private": bool(private)}
+    if kind == "drama":
+        # User decision 4: only whole series, or dramas with no series.
+        raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)
+    # Otherwise those dramas would vanish for the people who own them.
+    raise ConflictError("Move other people's dramas out of this series first.")
+
+
+def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
+    """Guard for putting a drama into a series (create or move). A series
+    the principal can't see is a 404. A private series only takes dramas
+    owned by its owner or by no one (the PC owner) -- otherwise a user
+    could hide someone else's drama by moving it into their own private
+    series: 409. The write itself must still use db.assign_drama_series,
+    which re-checks the second rule atomically. Returns the series id."""
+    series_id = _item_id(series_id)
+    row = db.get_item_ownership("series", series_id)
+    if not row or not _visible(principal, "series", row):
+        raise NotFoundError("Series not found.")
+    if row["is_private"] and drama_owner_user_id is not None \
+            and drama_owner_user_id != row.get("owner_user_id"):
+        raise ConflictError(_PRIVATE_SERIES_MESSAGE)
+    return series_id
+
+
+def assign_drama_series(principal, drama_id, series_id) -> None:
+    """Moves an existing drama into a series under `check_series_assignment`,
+    with the private-series rule re-checked in the same write. Clears the
+    drama's own private flag (user decision 4)."""
+    drama = db.get_item_ownership("drama", _item_id(drama_id))
+    if not drama:
+        raise NotFoundError("Drama not found.")
+    series_id = check_series_assignment(principal, series_id, drama.get("owner_user_id"))
+    if not db.assign_drama_series(drama["id"], series_id):
+        raise ConflictError(_PRIVATE_SERIES_MESSAGE)   # the series went private meanwhile
 
 
 def get_or_create_series_for(principal, name: str) -> int:
