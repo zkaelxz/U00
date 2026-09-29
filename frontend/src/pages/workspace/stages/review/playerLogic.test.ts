@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampTime, lineAt, parseJumpTime, subtitleSrc } from './playerLogic'
+import { clampTime, lineAt, parseJumpTime, SUBTITLE_OPTIONS, subtitleSrc } from './playerLogic'
 
 describe('parseJumpTime', () => {
   it('reads seconds, mm:ss and h:mm:ss', () => {
@@ -30,6 +30,10 @@ describe('subtitleSrc', () => {
     expect(subtitleSrc(3, 'English', 4)).toBe('/api/reader/dramas/3/captions/English?v=4')
     expect(subtitleSrc(3, 'Source', 0)).toBe('/api/reader/dramas/3/captions/Source?v=0')
     expect(subtitleSrc(3, 'off', 1)).toBeNull()
+  })
+  it('offers "Both" as the bilingual track', () => {
+    expect(SUBTITLE_OPTIONS.find((o) => o.label === 'Both')?.value).toBe('Bilingual')
+    expect(subtitleSrc(3, 'Bilingual', 2)).toBe('/api/reader/dramas/3/captions/Bilingual?v=2')
   })
 })
 

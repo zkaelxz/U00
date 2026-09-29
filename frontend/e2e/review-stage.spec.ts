@@ -643,6 +643,12 @@ test('subtitles follow the playhead, switch language, and pick up an edit', asyn
 
   await player.getByLabel('Subtitles').selectOption({ label: 'Original' })
   await expect(caption).toHaveText('谢谢')
+  // Both: the translation over the original, one cue per line.
+  await player.getByLabel('Subtitles').selectOption({ label: 'Both' })
+  await expect.poll(() => caption.evaluate((p) => p.textContent)).toBe('Thanks, friend\n谢谢')
+  await seekTo(0.5)
+  await expect.poll(() => caption.evaluate((p) => p.textContent)).toBe('Hello there\n你好')
+  await seekTo(3.5)
   await player.getByLabel('Subtitles').selectOption({ label: 'English' })
   await expect(caption).toHaveText('Thanks, friend')
 
