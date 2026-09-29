@@ -16,6 +16,7 @@ any `/{id}` path in the same prefix.
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Path, Query, Response
+from api.auth import require_permission
 from pydantic import Field
 
 from api.schemas import (ErrorResponse, ReviewRecordsCompare, ReviewRecordsConsistencyIssue,
@@ -30,28 +31,28 @@ _NF = {404: {"model": ErrorResponse}}
 _NF_422 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 
 
-@router.get("/dramas/{drama_id}/history", response_model=List[ReviewRecordsHistoryItem],
+@router.get("/dramas/{drama_id}/history", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsHistoryItem],
             summary="Line-history snapshots (metadata only), newest first",
             responses=_NF)
 def get_history(drama_id: int = Path(ge=1)):
     return review_records_service.list_line_history(drama_id)
 
 
-@router.get("/dramas/{drama_id}/history/{history_id}", response_model=ReviewRecordsSnapshot,
+@router.get("/dramas/{drama_id}/history/{history_id}", dependencies=[require_permission("review.use")], response_model=ReviewRecordsSnapshot,
             summary="One history snapshot's lines (404 if it belongs to another drama)",
             responses=_NF_422)
 def get_history_snapshot(drama_id: int = Path(ge=1), history_id: int = Path(ge=1)):
     return review_records_service.get_line_history_snapshot(drama_id, history_id)
 
 
-@router.get("/dramas/{drama_id}/versions", response_model=List[ReviewRecordsVersionItem],
+@router.get("/dramas/{drama_id}/versions", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsVersionItem],
             summary="Translation versions (metadata only), newest first",
             responses=_NF)
 def get_versions(drama_id: int = Path(ge=1)):
     return review_records_service.list_translation_versions(drama_id)
 
 
-@router.get("/dramas/{drama_id}/versions/compare", response_model=ReviewRecordsCompare,
+@router.get("/dramas/{drama_id}/versions/compare", dependencies=[require_permission("review.use")], response_model=ReviewRecordsCompare,
             summary="Differences between two of this drama's translation versions",
             responses=_NF_422)
 def get_versions_compare(drama_id: int = Path(ge=1),
@@ -60,14 +61,14 @@ def get_versions_compare(drama_id: int = Path(ge=1),
     return review_records_service.compare_versions(drama_id, left_id, right_id)
 
 
-@router.get("/dramas/{drama_id}/notes", response_model=List[ReviewRecordsNote],
+@router.get("/dramas/{drama_id}/notes", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsNote],
             summary="Translation notes, in line order",
             responses=_NF)
 def get_notes(drama_id: int = Path(ge=1)):
     return review_records_service.list_translation_notes(drama_id)
 
 
-@router.get("/dramas/{drama_id}/notes/markdown",
+@router.get("/dramas/{drama_id}/notes/markdown", dependencies=[require_permission("review.use")],
             summary="Translation notes as Markdown text (served inline, not as a download)",
             responses=_NF)
 def get_notes_markdown(drama_id: int = Path(ge=1)):
@@ -77,28 +78,28 @@ def get_notes_markdown(drama_id: int = Path(ge=1)):
     return Response(content=text, media_type="text/markdown; charset=utf-8")
 
 
-@router.get("/dramas/{drama_id}/consistency", response_model=List[ReviewRecordsConsistencyIssue],
+@router.get("/dramas/{drama_id}/consistency", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsConsistencyIssue],
             summary="Stored results of the last consistency check (not re-run)",
             responses=_NF)
 def get_consistency(drama_id: int = Path(ge=1)):
     return review_records_service.get_consistency_issues(drama_id)
 
 
-@router.get("/dramas/{drama_id}/emotions", response_model=ReviewRecordsEmotionSummary,
+@router.get("/dramas/{drama_id}/emotions", dependencies=[require_permission("review.use")], response_model=ReviewRecordsEmotionSummary,
             summary="Stored emotion tags with local counts",
             responses=_NF)
 def get_emotions(drama_id: int = Path(ge=1)):
     return review_records_service.get_emotion_summary(drama_id)
 
 
-@router.get("/dramas/{drama_id}/tendencies", response_model=ReviewRecordsTendencies,
+@router.get("/dramas/{drama_id}/tendencies", dependencies=[require_permission("review.use")], response_model=ReviewRecordsTendencies,
             summary="Recorded edit statistics plus the stored learned style profile (or null)",
             responses=_NF)
 def get_tendencies(drama_id: int = Path(ge=1)):
     return review_records_service.get_edit_tendencies(drama_id)
 
 
-@router.get("/dramas/{drama_id}/tm-suggestions", response_model=List[ReviewRecordsTmSuggestion],
+@router.get("/dramas/{drama_id}/tm-suggestions", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsTmSuggestion],
             summary="Translation-memory suggestions (nothing is applied)",
             responses=_NF_422)
 def get_tm_suggestions(drama_id: int = Path(ge=1),

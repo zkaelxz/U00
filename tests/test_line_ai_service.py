@@ -27,7 +27,7 @@ class FakeEngine:
 
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
 
 
@@ -78,7 +78,7 @@ def test_explain(client, monkeypatch):
 
 def test_missing_key_is_503(client, monkeypatch):
     did, ids = _seed()
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda name, env_path=None: None)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
     for verb in ("improve", "explain"):
         r = client.post(f"/api/line-ai/dramas/{did}/lines/{ids[0]}/{verb}", json={})
         assert r.status_code == 503

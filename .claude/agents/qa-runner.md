@@ -2,7 +2,7 @@
 name: qa-runner
 description: Identifies and runs focused Baihe checks for an assigned change, then diagnoses failures without editing source or tests.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 effort: low
 ---
 

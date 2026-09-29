@@ -13,8 +13,10 @@ drama (Migration Slice 37), the API counterpart of the New-drama form's
 
 Safety: a client-supplied URL must be http(s) with a public host -- every
 address the host resolves to (and every redirect hop, followed manually) must
-be global (not loopback/private/link-local/reserved). Residual risk: DNS
-rebinding between the check and requests' own lookup. All fetches carry
+be global (not loopback/private/link-local/reserved). The connection is then
+pinned to the validated IP (Host header, TLS SNI and certificate verification
+keep the original hostname), so a second DNS answer cannot redirect it. All
+fetches carry
 timeout=, keys are resolved server-side and never sent by clients, and
 exception text is never echoed (fixed messages only), so no secret can reach
 an error.
@@ -80,7 +82,7 @@ def analyze_media(drama_id: int) -> dict:
     if path is None:
         raise InvalidInputError("This drama has no media file yet.")
     try:
-        probe = media_inspect._run_ffprobe(path)
+        probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:
         raise DependencyUnavailableError(
             "Media analysis is unavailable: ffprobe is missing or cannot read this file.") from e
@@ -108,8 +110,11 @@ def analyze_media(drama_id: int) -> dict:
             "sample_rate": sample_rate}
 
 
-def _check_public_url(url: str):
-    """http(s) only, with a host whose every resolved address is public."""
+def _check_public_url(url: str) -> str:
+    """http(s) only, with a host whose every resolved address is public.
+
+    Returns the first validated address, which the caller must connect to.
+    """
     if not isinstance(url, str) or len(url) > drama_service.MAX_URL_LEN:
         raise InvalidInputError(_BAD_URL)
     try:
@@ -127,17 +132,52 @@ def _check_public_url(url: str):
         raise DependencyUnavailableError(_FETCH_FAILED) from None
     if not infos:
         raise DependencyUnavailableError(_FETCH_FAILED)
+    pinned = None
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
+        raw_ip = info[4][0].split("%")[0]
+        ip = ipaddress.ip_address(raw_ip)
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
         if not ip.is_global:
             raise InvalidInputError("url must point to a public web address.")
+        if pinned is None:
+            pinned = raw_ip
+    return pinned
+
+
+def _pinned_get(url: str, ip: str, headers: dict):
+    """GET url connecting to the validated ip, not a fresh DNS lookup."""
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    parts = urlsplit(url)
+    host = parts.hostname
+
+    class _PinnedAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            if parts.scheme == "https":  # SNI + cert check against the real name
+                kwargs["server_hostname"] = host
+                kwargs["assert_hostname"] = host
+            super().init_poolmanager(*args, **kwargs)
+
+        def send(self, request, **kw):
+            p = urlsplit(request.url)
+            ip_host = f"[{ip}]" if ":" in ip else ip
+            netloc = ip_host + (f":{p.port}" if p.port else "")
+            request.url = p._replace(netloc=netloc).geturl()
+            request.headers["Host"] = p.netloc
+            return super().send(request, **kw)
+
+    session = requests.Session()
+    session.trust_env = False  # a proxy would re-resolve the hostname itself
+    session.mount(f"{parts.scheme}://", _PinnedAdapter())
+    return session.get(url, headers=headers, timeout=FETCH_TIMEOUT,
+                       allow_redirects=False, stream=True)
 
 
 def _fetch_page_text(url: str) -> str:
     try:
-        import requests
+        import requests  # noqa: F401  (availability check; used by _pinned_get)
         from bs4 import BeautifulSoup
     except ImportError as e:
         raise DependencyUnavailableError("Fetching pages needs requests and beautifulsoup4 "
@@ -146,9 +186,8 @@ def _fetch_page_text(url: str) -> str:
     current = url
     try:
         for _ in range(MAX_REDIRECTS + 1):
-            _check_public_url(current)
-            resp = requests.get(current, headers=headers, timeout=FETCH_TIMEOUT,
-                                allow_redirects=False, stream=True)
+            ip = _check_public_url(current)
+            resp = _pinned_get(current, ip, headers)
             try:
                 if resp.status_code in (301, 302, 303, 307, 308):
                     location = resp.headers.get("Location")

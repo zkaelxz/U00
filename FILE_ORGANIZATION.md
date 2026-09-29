@@ -180,10 +180,15 @@ baihe-subtitler/
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
+│   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
+│   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
 │   │                             versions, running jobs, log tail); no admin action, no network call
+│   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
+│   │                             pyannote readiness, job history, support report, log tail; confirm-gated
+│   │                             install/upgrade/reset wrappers. No router yet.
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -199,7 +204,7 @@ baihe-subtitler/
 │   │                             writes, flag/flag_note only), generate_epub (Slice 18:
 │   │                             novel-narration dramas only, needs optional `ebooklib`),
 │   │                             generate_ass_text/get_ass_style_options (Slice 27: ASS text,
-│   │                             per-request style); audiobook/burned-in-video export stay out of scope
+│   │                             per-request style); audiobook/burned-in-video export live in media_export_service (Slices 29-30)
 │   ├── diarization_service.py    Migration Slice 16 -- get_diarization_config (read-only:
 │   │                             hf_token_configured bool, expected_speakers, audio_available)
 │   │                             plus start_diarization_run (a real GPU-touching background job);
@@ -216,14 +221,14 @@ baihe-subtitler/
 │   │                             start), unlike Streamlit's render-loop apply step. Slice 21 adds
 │   │                             hardsub_ocr transcript_mode (burned-in video captions, via
 │   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
-│   │                             step, same as Whisper's own text). chunk_and_tag and qwen3
-│   │                             backends still stay out of scope
+│   │                             step, same as Whisper's own text). chunk_and_tag lives in narration_service
+│   │                             (Slice 33); qwen3 backends still stay out of scope
 │   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │   │                             engines, per-speaker voices, pacing of the last run; no paths)
 │   ├── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
 │   │                             update_drama_metadata (whitelisted partial update); Slice 36
 │   │                             delete_drama (typed-confirm, refused while a job runs);
-│   │                             cover upload and metadata auto-fill stay out of scope
+│   │                             cover upload stays out of scope (auto-fill is metadata_service, Slice 37)
 │   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
 │   │                             estimate / cap gating); start-translate job is a later slice
@@ -254,6 +259,15 @@ baihe-subtitler/
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
+│   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
+│   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
+│   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
+│   │                             temp dir, use_gpu, max_minutes stop, redacted cues); no router yet
+│   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
+│   │                             results, known-chapter helper (no router yet)
+│   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
+│   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
@@ -262,17 +276,26 @@ baihe-subtitler/
 │   │                             (synchronous, read-only suggestions; id-addressed)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
-│   └── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
-│                                 preview + apply job, version-history restore (snapshot first,
-│                                 expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
+│   │                             preview + apply job, version-history restore (snapshot first,
+│   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
+│   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
+│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│                                 attempts, settings, profiles, tracked, notifications) and config
+│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
-│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
+│   │                             `grant-admin <email>` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
+│   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
+│   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
+│   │                             LoopbackOnlyGate (auth off: direct loopback requests only)
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/
@@ -298,7 +321,7 @@ baihe-subtitler/
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
-│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
+│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only), .../track (Slice 53, WAV download)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
 │       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
@@ -329,8 +352,10 @@ baihe-subtitler/
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
-│       └── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
-│                                 lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
+│       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
+│       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       └── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

@@ -152,6 +152,8 @@ class TestErrorShape:
     @pytest.mark.parametrize("exc_name, status, code", [
         ("UnsupportedOperationError", 400, "unsupported_operation"),
         ("DependencyUnavailableError", 503, "dependency_unavailable"),
+        ("ForbiddenError", 403, "forbidden"),
+        ("RateLimitedError", 429, "rate_limited"),
         ("ServiceError", 500, "application_error"),
     ])
     def test_service_errors_map_to_status_and_code(self, client, monkeypatch,

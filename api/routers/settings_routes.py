@@ -16,7 +16,7 @@ the separate admin listener (D5), not built yet.
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-
+from api.auth import local_only, require_permission
 from api.schemas import (EngineKeyClearRequest, EngineKeyResult, EngineKeySetRequest,
                          SettingsOverview, SettingsUpdateRequest)
 from services import settings_service
@@ -25,13 +25,13 @@ from services.service_errors import InvalidInputError
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-@router.get("", response_model=SettingsOverview,
+@router.get("", dependencies=[require_permission("admin.settings")], response_model=SettingsOverview,
             summary="Read-only settings overview (engine key presence, job toggles)")
 def get_overview():
     return settings_service.get_settings_overview()
 
 
-@router.post("", response_model=SettingsOverview,
+@router.post("", dependencies=[local_only()], response_model=SettingsOverview,
              summary="Update non-secret boolean settings (never keys/URLs/paths)")
 def update_settings(body: SettingsUpdateRequest):
     return settings_service.set_settings(body.model_dump(exclude_unset=True))
@@ -105,7 +105,7 @@ async def _read_body(request: Request, model):
         raise InvalidInputError("The request is invalid.")
 
 
-@router.post("/keys/{engine}", response_model=EngineKeyResult,
+@router.post("/keys/{engine}", dependencies=[local_only()], response_model=EngineKeyResult,
              summary="Set an engine API key (write-only; disabled by default, local PC only)")
 async def set_engine_key(engine: str, request: Request):
     _require_local_admin(request)
@@ -114,7 +114,7 @@ async def set_engine_key(engine: str, request: Request):
     return settings_service.set_engine_key(engine, body.value)
 
 
-@router.post("/keys/{engine}/clear", response_model=EngineKeyResult,
+@router.post("/keys/{engine}/clear", dependencies=[local_only()], response_model=EngineKeyResult,
              summary="Remove an engine API key from .env (disabled by default, local PC only)")
 async def clear_engine_key(engine: str, request: Request):
     _require_local_admin(request)

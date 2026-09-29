@@ -5,8 +5,16 @@
 # friction. Use this if you'd rather run it from a PowerShell prompt you
 # already have open, or already allow local scripts to run.
 #
+# Same flow as start.bat: venv, dependencies, check_setup.py, then the
+# app server (`python -m api`, loopback 127.0.0.1:8600 only -- no login
+# yet, see docs/remote-access-decision.md) and its own window once
+# /api/health answers. Needs the prebuilt frontend in frontend\dist
+# (docs/RELEASE.md). Streamlit is no longer launched from here.
+#
 #   .\start.ps1              # normal launch
 #   .\start.ps1 -Portable    # also turns on portable mode for this run
+#   .\start.ps1 -BuildFrontend  # developers: build frontend\dist with npm
+#                            if it's missing (needs Node.js)
 #   .\start.ps1 -PythonVersion 3.12  # Step 79: pin the Python version
 #                            used to create the venv, via the `py`
 #                            launcher, for an optional dependency that
@@ -17,6 +25,7 @@
 
 param(
     [switch]$Portable,
+    [switch]$BuildFrontend,
     [string]$PythonVersion
 )
 
@@ -32,12 +41,16 @@ if (-not $PythonVersion) {
     }
 }
 
-$Port = 8501
+# Loopback only until the API has authentication -- never 0.0.0.0.
+$env:BAIHE_API_HOST = "127.0.0.1"
+if (-not $env:BAIHE_API_PORT) { $env:BAIHE_API_PORT = "8600" }
+$Port = [int]$env:BAIHE_API_PORT
+$AppUrl = "http://127.0.0.1:$Port/"
 $VenvDir = Join-Path $PSScriptRoot "venv"
 $Py = Join-Path $VenvDir "Scripts\python.exe"
 
 Write-Host "============================================"
-Write-Host "  Baihe Subtitler"
+Write-Host "  Baihe Studio"
 Write-Host "============================================"
 Write-Host ""
 
@@ -49,6 +62,15 @@ function Test-PortOpen {
         $ok = $result.AsyncWaitHandle.WaitOne(500)
         $client.Close()
         return $ok
+    } catch {
+        return $false
+    }
+}
+
+function Test-ApiHealth {
+    try {
+        $r = Invoke-WebRequest -Uri "${AppUrl}api/health" -UseBasicParsing -TimeoutSec 2
+        return ($r.StatusCode -eq 200)
     } catch {
         return $false
     }
@@ -110,12 +132,12 @@ if (-not (Test-Path $Py)) {
 }
 
 # Checks every package requirements-core.txt actually installs, not
-# just streamlit -- a stale or partially-installed venv where
-# streamlit still imports fine but something else is missing used to
+# just one of them -- a stale or partially-installed venv where one
+# package still imports fine but something else is missing used to
 # make this skip the install step entirely and fail later with a much
 # less clear error (Step 53, applied here in Step 63). Keep this import
 # list in sync with requirements-core.txt's own packages.
-& $Py -c "import streamlit, pandas, requests, bs4, anthropic" 2>$null
+& $Py -c "import streamlit, pandas, requests, bs4, anthropic, fastapi, multipart, uvicorn" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing dependencies -- this can take a few minutes the first time..."
     $constraints = if (Test-Path "constraints.lock.txt") { "constraints.lock.txt" } else { "constraints.txt" }
@@ -133,36 +155,77 @@ if ($LASTEXITCODE -ne 0) {
 & $Py check_setup.py
 Write-Host ""
 
-if (Test-PortOpen -PortNumber $Port) {
-    Write-Host "Baihe Subtitler is already running on port $Port -- opening a window on it."
+# The frontend ships prebuilt (docs/RELEASE.md); npm only runs with -BuildFrontend.
+if (-not (Test-Path "frontend\dist\index.html")) {
+    if ($BuildFrontend) {
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+            Write-Host "-BuildFrontend needs Node.js and npm, and they weren't found on PATH."
+            Write-Host "Install Node.js 22 from https://nodejs.org/ or use the prebuilt release zip (docs\RELEASE.md)."
+            Read-Host "Press Enter to close"
+            exit 1
+        }
+        Write-Host "Building the React app (npm ci, npm run build) -- a few minutes the first time..."
+        Push-Location frontend
+        & npm ci
+        if ($LASTEXITCODE -eq 0) { & npm run build }
+        $buildExit = $LASTEXITCODE
+        Pop-Location
+        if ($buildExit -ne 0 -or -not (Test-Path "frontend\dist\index.html")) {
+            Write-Host ""
+            Write-Host "Building the React app failed -- see the npm error above."
+            Read-Host "Press Enter to close"
+            exit 1
+        }
+    } else {
+        Write-Host "The app's screens (frontend\dist) aren't installed yet."
+        Write-Host ""
+        Write-Host "Either:"
+        Write-Host "  1. Download baihe-frontend-<version>.zip from the project's GitHub"
+        Write-Host "     Releases page and unzip it into this folder, so that this file exists:"
+        Write-Host "       $PSScriptRoot\frontend\dist\index.html"
+        Write-Host "  or"
+        Write-Host "  2. (developers, needs Node.js 22) build it here:  .\start.ps1 -BuildFrontend"
+        Write-Host ""
+        Write-Host "Then run this again. See docs\RELEASE.md for details."
+        Read-Host "Press Enter to close"
+        exit 1
+    }
+}
+
+if (Test-ApiHealth) {
+    Write-Host "Baihe Studio is already running at $AppUrl -- opening a window on it."
+} elseif (Test-PortOpen -PortNumber $Port) {
+    Write-Host "Something else is already using port $Port, and it isn't Baihe Studio"
+    Write-Host "(${AppUrl}api/health doesn't answer). Close that program, or choose"
+    Write-Host "another port first, e.g.:  `$env:BAIHE_API_PORT = 8601"
+    Read-Host "Press Enter to close"
+    exit 1
 } else {
-    Write-Host "Starting Baihe Subtitler on port $Port ..."
-    Start-Process -FilePath $Py `
-        -ArgumentList "-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "$Port" `
-        -WindowStyle Minimized
+    Write-Host "Starting Baihe Studio at $AppUrl ..."
+    Start-Process -FilePath $Py -ArgumentList "-m", "api" -WindowStyle Minimized
 
     $tries = 0
-    while (-not (Test-PortOpen -PortNumber $Port)) {
+    while (-not (Test-ApiHealth)) {
         Start-Sleep -Seconds 1
         $tries++
         if ($tries -ge 60) {
             Write-Host ""
-            Write-Host "The server didn't answer after 30 seconds -- something may have gone wrong."
+            Write-Host "The server didn't answer at ${AppUrl}api/health after about a minute --"
+            Write-Host "something went wrong while starting it. Check the minimized server window."
             Read-Host "Press Enter to close"
             exit 1
         }
     }
 }
 
-$AppUrl = "http://localhost:$Port"
 $EdgeCandidates = @(
-    "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
     "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
     "$env:LocalAppData\Microsoft\Edge\Application\msedge.exe"
 )
 $ChromeCandidates = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-    "$env:ProgramFiles(x86)\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
     "$env:LocalAppData\Google\Chrome\Application\chrome.exe"
 )
 

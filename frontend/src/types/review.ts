@@ -119,3 +119,19 @@ export interface ReviewJobStarted {
   model: string | null
   line_count: number
 }
+
+export interface LineImprovement {
+  line_id: number
+  current_en: string
+  suggestion: string
+  changed: boolean
+  engine: string
+  model: string | null
+}
+
+export interface LineExplanation {
+  line_id: number
+  explanation: string
+  engine: string
+  model: string | null
+}

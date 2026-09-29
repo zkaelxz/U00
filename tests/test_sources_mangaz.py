@@ -127,6 +127,18 @@ class TestPageDecryptionUnit:
     network flow -- a real keypair, a real RSA/PKCS1v1.5-encrypted AES
     key, and a real AES-CBC/PKCS7-encrypted manifest."""
 
+    @pytest.fixture(autouse=True)
+    def _require_working_crypto(self):
+        # `import cryptography` can succeed while its Rust/cffi backend is
+        # broken (e.g. a distro package without cffi): the first real use
+        # then raises pyo3's PanicException, a BaseException, not an
+        # ImportError, so importorskip alone does not skip. Probe once.
+        pytest.importorskip("cryptography")
+        try:
+            from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: F401
+        except BaseException:  # noqa: BLE001 - PanicException is a BaseException
+            pytest.skip("cryptography is installed but its Rust/cffi backend is broken")
+
     def _encrypt_manifest(self, private_key, manifest: dict) -> dict:
         cryptography = pytest.importorskip("cryptography")
         from cryptography.hazmat.primitives.asymmetric import padding

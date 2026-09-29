@@ -8,6 +8,8 @@ from typing import Optional
 
 from fastapi import APIRouter, File, Form, Path, UploadFile
 from fastapi.responses import FileResponse
+
+from api.auth import local_only, require_permission
 from pydantic import ValidationError
 
 from api.schemas import (ErrorResponse, MediaStatus, MediaUploadResult, TranscribeRunRequest,
@@ -18,7 +20,7 @@ from services.service_errors import InvalidInputError
 router = APIRouter(prefix="/api/media", tags=["media"])
 
 
-@router.post("/dramas/{drama_id}/upload", response_model=MediaUploadResult,
+@router.post("/dramas/{drama_id}/upload", dependencies=[local_only()], response_model=MediaUploadResult,
              summary="Upload an audio/video file into one drama's folder",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
@@ -26,14 +28,14 @@ def post_upload_media(drama_id: int = Path(ge=1), file: UploadFile = File(...)):
     return media_upload_service.upload_media(drama_id, file.filename, file.file)
 
 
-@router.get("/dramas/{drama_id}/status", response_model=MediaStatus,
+@router.get("/dramas/{drama_id}/status", dependencies=[require_permission("library.read")], response_model=MediaStatus,
             summary="Whether a drama has audio / a source video, and the upload size cap",
             responses={404: {"model": ErrorResponse}})
 def get_media_status(drama_id: int = Path(ge=1)):
     return media_upload_service.get_media_status(drama_id)
 
 
-@router.post("/dramas/{drama_id}/upload-and-transcribe", response_model=UploadAndTranscribeResult,
+@router.post("/dramas/{drama_id}/upload-and-transcribe", dependencies=[local_only()], response_model=UploadAndTranscribeResult,
              summary="Upload a file, then start the transcribe run",
              description="Options are the same as POST /api/transcribe/dramas/{id}/run. If the run "
                          "fails to start after a successful upload, the service error is returned "

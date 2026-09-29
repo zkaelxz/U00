@@ -1519,3 +1519,255 @@ class LineExplanation(BaseModel):
     explanation: str
     engine: str
     model: Optional[str] = None
+
+
+# --- Discover catalog (Migration Slice 55) ---------------------------------
+
+class KnownTitle(BaseModel):
+    id: int
+    title_original: Optional[str] = None
+    title_en: Optional[str] = None
+    author: Optional[str] = None
+    tags: Optional[str] = None
+    summary_en: Optional[str] = None
+    summary_original: Optional[str] = None
+    source_name: Optional[str] = None
+    source_url: Optional[str] = None
+    language: Optional[str] = None
+    media_type: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class KnownTitleList(BaseModel):
+    titles: List[KnownTitle]
+    total: int
+
+
+class KnownTitleCreate(BaseModel):
+    """Whitelisted manual-add fields; unknown fields are 422."""
+    model_config = ConfigDict(extra="forbid")
+    title_original: str = Field(max_length=300)
+    title_en: str = Field("", max_length=300)
+    author: str = Field("", max_length=300)
+    tags: str = Field("", max_length=500)
+    summary_en: str = Field("", max_length=5000)
+    summary_original: str = Field("", max_length=5000)
+    source_name: str = Field("", max_length=100)
+    source_url: str = Field("", max_length=2000)
+    language: str = Field(max_length=10)
+    media_type: str = Field(max_length=40)
+
+
+class KnownTitleDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: bool = False
+
+
+class KnownTitleDeleted(BaseModel):
+    deleted: bool
+    id: int
+
+
+class KnownTitleSeedResult(BaseModel):
+    added: int
+    total: int
+
+
+class DiscoverPlatforms(BaseModel):
+    platforms: List[Dict[str, Any]]
+
+
+class DiscoverSearchLinks(BaseModel):
+    links: List[Dict[str, Any]]
+
+
+# ---------------------------------------------------------------------------
+# Sources registry and status (Migration Slice 56, S-1). Read-only; S-2 adds
+# the write request models below. No proxy URL, path or query string is ever
+# part of these shapes.
+# ---------------------------------------------------------------------------
+
+class SourceSupports(BaseModel):
+    search: bool
+    get_series: bool
+    get_chapters: bool
+    get_pages: bool
+    download_page: bool
+    get_chapter_text: bool
+    get_audio_url: bool
+    login: bool
+
+
+class SourceSummary(BaseModel):
+    name: str
+    display_name: str
+    content_types: List[str]
+    languages: List[str]
+    supports: SourceSupports
+    import_supported: bool
+    auth_supported: bool
+    supports_adult_toggle: bool
+    enabled: bool
+    adult_enabled: bool
+    health: str = Field(description="green, yellow or red.")
+    has_saved_signin: bool
+
+
+class SourceHealth(BaseModel):
+    light: str
+    consecutive_failures: int
+    last_success: Optional[float] = None
+    last_failure: Optional[float] = None
+    last_error_type: Optional[str] = None
+    last_error: Optional[str] = None
+    last_latency: Optional[float] = None
+    unavailable_until: Optional[float] = None
+    retry_after: Optional[float] = None
+
+
+class SourceTierResult(BaseModel):
+    tested: bool
+    ok: bool
+    reason: Optional[str] = None
+    detail: Optional[str] = None
+    at: Optional[float] = None
+
+
+class SourceDetail(SourceSummary):
+    status: str
+    technical_status: str
+    access_method: Optional[str] = None
+    content_access_status: str
+    authentication_required: str
+    purchase_required: str
+    technical_protection: str
+    automation_permission: str
+    ai_ml_use: str
+    tiers: Dict[str, SourceTierResult]
+    technical: Dict[str, Any]
+    terms: Dict[str, Any] = Field(description="Recorded findings, information only. "
+                                  "Enforcement is off: never read this as permitted.")
+    terms_enforced: bool
+    health_detail: SourceHealth
+
+
+class SourceAttempt(BaseModel):
+    url: str = Field(description="scheme+host+path only.")
+    created_at: Optional[float] = None
+    tier: Optional[str] = None
+    test_now: bool = False
+    ok: Optional[bool] = None
+    technical_status: Optional[str] = None
+    capability_status: Optional[str] = None
+    reasons: List[str] = []
+    lines: List[str] = []
+    handoff: Optional[Dict[str, Any]] = None
+
+
+class SourceCacheStats(BaseModel):
+    entries: int
+    bytes: int
+
+
+class SourcesSettings(BaseModel):
+    pace_min_delay: float
+    pace_max_delay: float
+    max_concurrent: int
+    max_retries: int
+    session_break_min_requests: int
+    session_break_max_requests: int
+    session_break_min_delay: float
+    session_break_max_delay: float
+    cache_mode: str
+    check_interval_hours: int
+    auto_queue_new_chapters: bool
+    demo_source_enabled: bool
+    extraction_diagnostics: bool
+    proxy_configured: bool = Field(description="Whether a proxy is set. The URL is never returned.")
+    cache_modes: List[str]
+    cache: SourceCacheStats
+
+
+class SourceProfileVersion(BaseModel):
+    version: Optional[int] = None
+    kind: Optional[str] = None
+    status: Optional[str] = None
+    origin: Optional[str] = None
+    created_at: Optional[float] = None
+    approved: bool = False
+    failures: int = 0
+    last_failure_reason: Optional[str] = None
+    last_used: Optional[float] = None
+
+
+class SourceProfileDomain(BaseModel):
+    domain: str
+    versions: List[SourceProfileVersion]
+
+
+class TrackedSeries(BaseModel):
+    source: str
+    series_id: str
+    title: str
+    url: str
+    drama_id: Optional[int] = None
+    last_checked: Optional[float] = None
+    last_check_error: Optional[str] = None
+
+
+class SourceNotification(BaseModel):
+    id: int
+    source: str
+    series_id: str
+    chapter_id: str
+    title: Optional[str] = None
+    created_at: float
+    dismissed: bool
+
+
+# Sources config writes (Migration Slice 56, S-2).
+
+class SourceToggle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+
+
+class SourcesSettingsUpdate(BaseModel):
+    """Partial update. `extra=forbid`: http_proxy_url, page_server_enabled and
+    any unknown key are rejected (422). Ranges match the Streamlit form;
+    pace_min_delay also has a floor at the built-in default (service check)."""
+    model_config = ConfigDict(extra="forbid")
+    pace_min_delay: Optional[float] = None
+    pace_max_delay: Optional[float] = None
+    max_concurrent: Optional[int] = None
+    max_retries: Optional[int] = None
+    session_break_min_requests: Optional[int] = None
+    session_break_max_requests: Optional[int] = None
+    session_break_min_delay: Optional[float] = None
+    session_break_max_delay: Optional[float] = None
+    cache_mode: Optional[str] = Field(None, max_length=40)
+    check_interval_hours: Optional[int] = None
+    auto_queue_new_chapters: Optional[StrictBool] = None
+    demo_source_enabled: Optional[StrictBool] = None
+    extraction_diagnostics: Optional[StrictBool] = None
+
+
+class SourceCacheClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class SourceProfileRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+
+
+class SourceTrackRequest(BaseModel):
+    """Track (`tracked=true`) or untrack one series. Fetches nothing."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    tracked: StrictBool = True
+    title: str = Field("", max_length=300)
+    url: str = Field("", max_length=1000)
+    drama_id: Optional[int] = Field(None, ge=1)
