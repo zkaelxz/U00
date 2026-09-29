@@ -531,7 +531,7 @@ button.primary {
   transition: background var(--ease), border-color var(--ease), color var(--ease);
 }
 button.primary:hover:not(:disabled) { border-color: var(--accent); color: var(--on-accent); }
-button.primary:disabled { opacity: 0.6; border-style: solid; }
+button.primary:disabled { background: var(--accent); border-color: var(--accent); color: var(--on-accent); opacity: 0.6; border-style: solid; }
 .badge {
   display: inline-flex;
   align-items: center;
