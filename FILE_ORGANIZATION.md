@@ -312,9 +312,13 @@ baihe-subtitler/
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
-│   └── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
-│                                 clip upload/remove (ffprobe-checked), extract candidates per speaker
-│                                 (job voiceref_<id>, files only), choose, save to voice bank, series link
+│   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
+│   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
+│   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
+│   └── bug_report_service.py     "Report a problem" reports stored as files in <library>/bug_reports/
+│                                 <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
+│                                 (secrets, tokens, user names, paths), image metadata stripped
+│                                 (router: bug_report_routes.py)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -413,9 +417,12 @@ baihe-subtitler/
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
-│       └── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
-│                                 .../reference-clips/extract|candidates[/{cid}/audio|/choose],
-│                                 .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
+│       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
+│       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
+│       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
+│       └── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
+│                                 screenshot PC only), GET list and GET {id} (admin.diagnostics),
+│                                 POST {id}/delete (local_only + confirm + folder stamp)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
@@ -430,6 +437,11 @@ baihe-subtitler/
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note)
+│   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
+│   │                              errors, failed API calls (method/path/status/code only) and route history;
+│   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),
+│   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
+│   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),

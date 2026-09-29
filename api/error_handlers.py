@@ -18,6 +18,7 @@ so the React client (and later the browser extension) can branch on
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
 | 409  | conflict                | `ConflictError`                             |
+| 413  | too_large               | an over-cap request body (HTTPException)    |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |
 | 500  | application_error       | any other `ServiceError`                    |
 | 500  | internal_error          | anything unexpected (a bug)                 |
@@ -52,7 +53,7 @@ _STATUS_BY_ERROR = (
     (ServiceError, 500),
 )
 
-_CODE_BY_HTTP_STATUS = {404: "not_found", 405: "unsupported_operation"}
+_CODE_BY_HTTP_STATUS = {404: "not_found", 405: "unsupported_operation", 413: "too_large"}
 
 
 def _redact(text: str) -> str:

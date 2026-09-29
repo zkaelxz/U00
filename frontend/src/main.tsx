@@ -4,10 +4,13 @@ import './index.css'
 import App from './App.tsx'
 import { installBootFallback, renderBootFallback } from './bootFallback'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import { installCapture } from './report/capture'
 
 const rootEl = document.getElementById('root')!
 // Installed before the first render so a crash in it still shows a message.
 installBootFallback(rootEl)
+// Also before the first render, so early errors are kept for "Report a problem".
+installCapture()
 
 try {
   // React replaces index.html's static "didn't load" note on first render.
