@@ -38,15 +38,14 @@ export function WordsSection({ dramaId, page, chapterSize, engines, engine, onEn
     onLookedUp()
   })
   return (
-    <Section title="Words" storageKey="reader.words" summary="Look up this page's words">
-      <p className="muted">Tap a word on the page to see its meaning. Words need looking up once per page.</p>
+    <Section title="Words" storageKey="reader.words" summary="Look up this page's words once, then tap a word to see it">
       <label className="reader-check">
         <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
         Use AI for words the dictionary doesn't have
       </label>
       {useLlm && <EnginePicker engines={engines} engine={engine} onChange={onEngine} />}
       <div className="actions">
-        <button type="button" onClick={() => void lookup.run()} disabled={lookup.busy || (useLlm && !engine)}>
+        <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || (useLlm && !engine)}>
           {lookup.busy ? 'Looking up…' : 'Look up words on this page'}
         </button>
         {result && <span className="muted" role="status">{result}</span>}
@@ -128,6 +127,7 @@ export function VocabSection({ dramaId, vocab, onChanged }: {
             <button type="button" disabled={picked.size === 0 || queue.busy} onClick={() => void queue.run([...picked], true)}>
               Queue {picked.size} for sentence cards
             </button>
+            {picked.size === 0 && <span className="muted">Pick words above.</span>}
           </div>
         </fieldset>
       )}

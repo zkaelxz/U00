@@ -5,6 +5,7 @@ import { BUSY_TEXT, FORBIDDEN_TEXT, PAID_TEXT, readerErrorText } from './readerE
 import {
   DEFAULT_PREFS,
   PREFS_KEY,
+  formatLength,
   keepPlace,
   loadPrefs,
   metricsLine,
@@ -105,7 +106,7 @@ describe('paging', () => {
   })
 
   it('formats the metrics line', () => {
-    expect(metricsLine({ percent_complete: 37.6, length_display: '2h 10m', line_count: 480 })).toBe('38% · about 2h 10m · 480 lines')
+    expect(metricsLine({ percent_complete: 37.6, length_display: '2h 10m', line_count: 480 })).toBe('38% · about 2 h 10 min · 480 lines')
     expect(metricsLine({ percent_complete: 0, length_display: 'under a minute', line_count: 3 })).toBe('0% · under a minute · 3 lines')
   })
 
@@ -115,6 +116,21 @@ describe('paging', () => {
     expect(trimmed).toHaveLength(40)
     expect(trimmed[0].content).toBe('4')
     expect(trimHistory(turns.slice(0, 3))).toHaveLength(3)
+  })
+
+  it('drops the oldest turns to stay under the character caps', () => {
+    const big = (c: string) => ({ role: 'user' as const, content: c.repeat(30_000) })
+    const trimmed = trimHistory([big('a'), big('b'), big('c'), big('d'), big('e'), big('f')])
+    expect(trimmed.every((t) => t.content.length === 20_000)).toBe(true)
+    expect(trimmed.map((t) => t.content[0])).toEqual(['b', 'c', 'd', 'e', 'f'])
+    expect(trimmed.reduce((n, t) => n + t.content.length, 0)).toBeLessThanOrEqual(100_000)
+  })
+
+  it('spells out lengths', () => {
+    expect(formatLength('3m')).toBe('3 min')
+    expect(formatLength('2h 10m')).toBe('2 h 10 min')
+    expect(formatLength('2h')).toBe('2 h')
+    expect(formatLength('under a minute')).toBe('under a minute')
   })
 })
 
@@ -130,10 +146,10 @@ describe('reader error copy', () => {
     expect(readerErrorText(e, { paidEngine: false }).title).toBe(FORBIDDEN_TEXT)
   })
 
-  it('shows safe invalid-input text and hides paths', () => {
-    const ok = new ApiError(400, { code: 'invalid_input', message: 'No deepseek key is configured. Set one in Settings first.' })
+  it('shows safe validation text and hides paths', () => {
+    const ok = new ApiError(400, { code: 'validation_error', message: 'No deepseek key is configured. Set one in Settings first.' })
     expect(readerErrorText(ok).detail).toBe('No deepseek key is configured. Set one in Settings first.')
-    const leak = new ApiError(400, { code: 'invalid_input', message: 'bad file /home/kae/library/x.db' })
+    const leak = new ApiError(400, { code: 'validation_error', message: 'bad file /home/kae/library/x.db' })
     expect(readerErrorText(leak).detail).toBeNull()
     expect(readerErrorText(leak).retry).toBe(false)
   })

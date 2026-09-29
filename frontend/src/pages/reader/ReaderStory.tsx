@@ -36,7 +36,11 @@ const scope = (boundary: number | undefined) => (boundary === undefined ? {} : {
 
 function Answer({ text }: { text: string | null | undefined }) {
   if (text === undefined) return null
-  return <p className="result reader-answer">{text || 'No answer came back. Try rewording it.'}</p>
+  return (
+    <p className="result reader-answer" role="status">
+      {text || 'No answer came back. Try rewording it.'}
+    </p>
+  )
 }
 
 function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boundary: number | undefined; engine: string; paid: boolean }) {
@@ -160,6 +164,10 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
   const [progress, setProgress] = useState<string | null>(null)
   const [armed, setArmed] = useState(false)
   const stop = useRef(false)
+  // Leaving the page stops the update loop after its current batch.
+  useEffect(() => () => {
+    stop.current = true
+  }, [])
 
   const params = { ...scope(boundary), ...(type ? { entry_type: type } : {}) }
   const key = JSON.stringify(params)
@@ -184,7 +192,14 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
   useEffect(() => {
     if (!armed) return
     const t = setTimeout(() => setArmed(false), CLEAR_TIMEOUT_MS)
-    return () => clearTimeout(t)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setArmed(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [armed])
 
   // Resumable: each call does one bounded batch; call again from
@@ -225,7 +240,12 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
 
   const entries = wiki?.entries ?? []
   return (
-    <Section title="Universe wiki" storageKey="reader.wiki" count={wiki ? entries.length : undefined} summary="People, places and things so far">
+    <Section
+      title="Universe wiki"
+      storageKey="reader.wiki"
+      count={entries.length > 0 ? entries.length : undefined}
+      summary="People, places and things so far"
+    >
       <ErrorBanner error={loadError} />
       <div className="actions">
         <button type="button" disabled={!engine || update.busy} onClick={() => void update.run(0)}>
@@ -243,8 +263,9 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
         )}
       </div>
       {progress && <p className="muted" role="status">{progress}</p>}
-      <ActionError action={update} paidEngine={paid} />
-      {wiki && wiki.entry_types.length > 1 && (
+      {/* After a 429 part-way through, "Try again" continues from where it stopped. */}
+      <ActionError action={{ ...update, retry: () => void update.run(resumeAt ?? 0) }} paidEngine={paid} />
+      {wiki && wiki.entry_types.length > 1 && (entries.length > 0 || type !== '') && (
         <Field label="Show">
           <select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="">Everything</option>
@@ -269,14 +290,14 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
           <a href={wikiMarkdownUrl(dramaId, params)} download>Export .md</a>
           {armed ? (
             <>
-              <button type="button" className="danger" disabled={clear.busy} onClick={() => void clear.run()} autoFocus>
+              <button type="button" className="danger" disabled={clear.busy || update.busy} onClick={() => void clear.run()} autoFocus>
                 {clear.busy ? 'Clearing…' : 'Confirm clear wiki'}
               </button>
               <button type="button" className="link" onClick={() => setArmed(false)}>Cancel</button>
               <span className="muted" aria-live="polite">Press again to delete every wiki entry for this drama.</span>
             </>
           ) : (
-            <button type="button" className="danger" onClick={() => setArmed(true)}>Clear wiki…</button>
+            <button type="button" className="danger" disabled={update.busy} onClick={() => setArmed(true)}>Clear wiki…</button>
           )}
         </div>
       )}
@@ -293,8 +314,10 @@ function AskSection({ dramaId, engine, paid }: { dramaId: number; engine: string
     setHistory((h) => trimHistory([...h, { role: 'user', content: q }, { role: 'assistant', content: r.answer ?? '' }]))
     setQuestion('')
   })
+  const latest = [...history].reverse().find((t) => t.role === 'assistant')
   return (
     <Section title="Ask about the story" storageKey="reader.ask" summary="Questions answered from the drama's own lines">
+      <p className="muted">Q&amp;A uses the whole drama, including later lines.</p>
       {history.length > 0 && (
         <ol className="reader-chat" aria-label="Conversation">
           {history.map((t, i) => (
@@ -305,6 +328,7 @@ function AskSection({ dramaId, engine, paid }: { dramaId: number; engine: string
           ))}
         </ol>
       )}
+      <p className="sr-only" aria-live="polite">{latest ? latest.content || 'No answer came back.' : ''}</p>
       <form
         className="stack"
         onSubmit={(e) => {
@@ -332,24 +356,24 @@ function AskSection({ dramaId, engine, paid }: { dramaId: number; engine: string
 export function StorySection(p: Common & { spoilerFree: boolean }) {
   const paid = !p.engines.find((e) => e.name === p.engine)?.free
   return (
-    <Section title="Story tools" storageKey="reader.story" summary={p.spoilerFree ? 'Spoiler-free' : 'Whole drama'}>
-      <EnginePicker engines={p.engines} engine={p.engine} onChange={p.onEngine} />
-      <p className="muted">
-        {p.spoilerFree
-          ? 'Spoiler-free: answers only use lines up to the end of this page.'
-          : 'Spoiler-free is off: answers may use the whole drama.'}
-      </p>
-      <WhoExplain dramaId={p.dramaId} boundary={p.boundary} engine={p.engine} paid={paid} />
-      <RecapAndMap
-        dramaId={p.dramaId}
-        page={p.page}
-        chapterSize={p.chapterSize}
-        boundary={p.boundary}
-        engine={p.engine}
-        paid={paid}
-      />
+    <>
+      <Section title="Story tools" storageKey="reader.story" summary={p.spoilerFree ? 'Spoiler-free' : 'Spoiler-free off'}>
+        <EnginePicker engines={p.engines} engine={p.engine} onChange={p.onEngine} />
+        {!p.spoilerFree && (
+          <p className="muted">Spoiler-free is off: Who is, Explain, relationships and the wiki may use later lines.</p>
+        )}
+        <WhoExplain dramaId={p.dramaId} boundary={p.boundary} engine={p.engine} paid={paid} />
+        <RecapAndMap
+          dramaId={p.dramaId}
+          page={p.page}
+          chapterSize={p.chapterSize}
+          boundary={p.boundary}
+          engine={p.engine}
+          paid={paid}
+        />
+      </Section>
       <WikiSection dramaId={p.dramaId} boundary={p.boundary} engine={p.engine} paid={paid} />
       <AskSection dramaId={p.dramaId} engine={p.engine} paid={paid} />
-    </Section>
+    </>
   )
 }

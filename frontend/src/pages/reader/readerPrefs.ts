@@ -169,15 +169,37 @@ export function spoilerBoundary(
 /** "38% · about 2h 10m · 480 lines" */
 export function metricsLine(ov: Pick<ReaderOverview, 'percent_complete' | 'length_display' | 'line_count'>): string {
   const pct = `${Math.round(ov.percent_complete)}%`
-  const length = !ov.length_display ? '' : /^under\b/.test(ov.length_display) ? ov.length_display : `about ${ov.length_display}`
+  const length = !ov.length_display ? '' : /^under\b/.test(ov.length_display) ? ov.length_display : `about ${formatLength(ov.length_display)}`
   return [pct, length, `${ov.line_count} lines`]
     .filter(Boolean)
     .join(' · ')
 }
 
 export const MAX_CHAT_TURNS = 40
+// Server caps (api/schemas.py ReaderChatTurn/ReaderAskRequest): 20,000
+// characters per turn, and about 100,000 across the history.
+export const MAX_TURN_CHARS = 20_000
+export const MAX_HISTORY_CHARS = 100_000
 
-/** Q&A history as the API accepts it: the most recent 40 turns. */
-export function trimHistory(turns: ReaderChatTurn[], max = MAX_CHAT_TURNS): ReaderChatTurn[] {
-  return turns.length > max ? turns.slice(turns.length - max) : turns
+/**
+ * Q&A history as the API accepts it: each turn cut to 20,000 characters,
+ * then the oldest turns dropped until at most 40 turns and 100,000
+ * characters remain.
+ */
+export function trimHistory(
+  turns: ReaderChatTurn[],
+  max = MAX_CHAT_TURNS,
+  maxChars = MAX_HISTORY_CHARS,
+): ReaderChatTurn[] {
+  const out = turns.map((t) => (t.content.length > MAX_TURN_CHARS ? { ...t, content: t.content.slice(0, MAX_TURN_CHARS) } : t))
+  let total = out.reduce((n, t) => n + t.content.length, 0)
+  let start = Math.max(0, out.length - max)
+  for (let i = 0; i < start; i++) total -= out[i].content.length
+  while (start < out.length && total > maxChars) total -= out[start++].content.length
+  return out.slice(start)
+}
+
+/** "3m" -> "3 min", "2h 10m" -> "2 h 10 min"; other text unchanged. */
+export function formatLength(display: string): string {
+  return display.replace(/(\d+)h\b/g, '$1 h').replace(/(\d+)m\b/g, '$1 min')
 }

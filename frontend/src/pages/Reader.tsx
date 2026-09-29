@@ -61,14 +61,20 @@ function goToPage(id: number, page: number, replace = false) {
   else window.location.hash = href
 }
 
-function Pager({ page, count, onGo, goTo }: { page: number; count: number; onGo: (n: number) => void; goTo: boolean }) {
+function Pager({ page, count, loading, onGo, goTo }: {
+  page: number
+  count: number
+  loading: boolean
+  onGo: (n: number) => void
+  goTo: boolean
+}) {
   return (
     <nav className="reader-pager" aria-label="Pages">
       <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => onGo(page - 1)}>
         ‹
       </button>
-      <span className="reader-page-label" data-testid="reader-page-label">
-        Page {page} of {count}
+      <span className="reader-page-label" data-testid="reader-page-label" aria-live="polite">
+        {loading ? `Loading page ${page}…` : `Page ${page} of ${count}`}
       </span>
       <button type="button" aria-label="Next page" disabled={page >= count} onClick={() => onGo(page + 1)}>
         ›
@@ -78,7 +84,7 @@ function Pager({ page, count, onGo, goTo }: { page: number; count: number; onGo:
   )
 }
 
-function GoTo({ count, onGo }: { count: number; onGo: (n: number) => void }) {
+function GoTo({ count, onGo, withLabel = false }: { count: number; onGo: (n: number) => void; withLabel?: boolean }) {
   const [value, setValue] = useState('')
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -86,17 +92,23 @@ function GoTo({ count, onGo }: { count: number; onGo: (n: number) => void }) {
     if (Number.isFinite(n) && n >= 1) onGo(clampPage(n, count))
     setValue('')
   }
+  const input = (
+    <input
+      type="number"
+      min={1}
+      max={count}
+      inputMode="numeric"
+      enterKeyHint="go"
+      autoComplete="off"
+      aria-label={withLabel ? undefined : 'Go to page'}
+      placeholder="Page"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+    />
+  )
   return (
     <form className="reader-goto" onSubmit={submit}>
-      <input
-        type="number"
-        min={1}
-        max={count}
-        aria-label="Go to page"
-        placeholder="Page"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-      />
+      {withLabel ? <Field label="Go to page">{input}</Field> : input}
       <button type="submit" disabled={!value}>Go</button>
     </form>
   )
@@ -153,7 +165,7 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   return (
     <Section title="My notes" storageKey="reader.notes" summary={saved ? 'Has notes' : 'Empty'}>
       <ErrorBanner error={loadError} />
-      <Field label="Notes" help="Private notes for this drama. Only saved when you press Save.">
+      <Field label="Notes" help="Notes for this drama. Anyone with access to this library can see them. Saved when you press Save.">
         <textarea
           rows={5}
           maxLength={100_000}
@@ -300,6 +312,9 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     ? undefined
     : spoilerBoundary(prefs.spoilerFree, known, page, prefs.chapterSize, overview.line_count)
 
+  // The label and frame show the move to another page until its HTML arrives.
+  const pageLoading = page !== null && !error && data?.page !== page
+
   const onGo = (n: number) => {
     setResumed(null)
     goToPage(id, clampPage(n, count))
@@ -312,7 +327,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       {phone && page !== null && !empty && (
         <>
           {metrics && <p className="muted" data-testid="reader-metrics">{metrics}</p>}
-          <GoTo count={count} onGo={onGo} />
+          <GoTo count={count} onGo={onGo} withLabel />
         </>
       )}
     </ReaderPrefsControl>
@@ -355,18 +370,18 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           {hasMedia && media && <WatchSection dramaId={id} media={media} sourceLanguage={sourceLanguage} />}
           {!phone && page !== null && (
             <div className="reader-bar">
-              <Pager page={page} count={count} onGo={onGo} goTo />
+              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo />
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
           )}
           {data && (
             <iframe
-              className="reader-frame"
+              className={pageLoading ? 'reader-frame reader-frame-loading' : 'reader-frame'}
               title={`Page ${data.page} text`}
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
               srcDoc={data.html}
-              aria-busy={data.page !== page}
+              aria-busy={pageLoading}
             />
           )}
           {!data && !error && <p className="muted">Loading…</p>}
@@ -404,7 +419,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
           )}
           {phone && page !== null && (
             <div className="reader-bottom">
-              <Pager page={page} count={count} onGo={onGo} goTo={false} />
+              <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo={false} />
             </div>
           )}
         </>

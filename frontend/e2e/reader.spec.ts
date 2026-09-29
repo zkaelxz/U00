@@ -83,6 +83,7 @@ test('text size and lines per page persist across a reload', async ({ page }) =>
   expect(stored).toMatchObject({ fontSize: 23, chapterSize: 20 })
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Reading settings' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reading settings' })).toBeFocused()
 })
 
 test('resumes at the saved page and saves progress', async ({ page }) => {
@@ -134,6 +135,28 @@ test('a busy AI shows the 429 copy and Try again repeats the request', async ({ 
   await expect(page.getByText('A wandering god.')).toBeVisible()
   // Spoiler-free (default on): scoped to the last line of page 2.
   expect(bodies[1]).toEqual({ name: 'Xie Lian', engine: 'ollama', up_to_line_idx: 79 })
+})
+
+test('a 429 part-way through a wiki update resumes where it stopped', async ({ page }) => {
+  await page.route('**/api/translate/engines', engines([{ name: 'ollama', free: true }]))
+  const froms: number[] = []
+  await page.route('**/api/reader/dramas/2/wiki/update', (route) => {
+    froms.push(route.request().postDataJSON().from_line_idx)
+    if (froms.length === 1) return route.fulfill({ json: { drama_id: 2, updated: 3, remaining: 50, next_line_idx: 40 } })
+    if (froms.length === 2) return route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'busy' } } })
+    return route.fulfill({ json: { drama_id: 2, updated: 2, remaining: 0, next_line_idx: null } })
+  })
+  await page.goto('/#/read/2?page=1')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.locator('summary', { hasText: 'Universe wiki' }).click()
+  await page.getByRole('button', { name: 'Update wiki' }).click()
+  await expect(page.getByText('The AI is busy with another request. Try again in a moment.')).toBeVisible()
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByText('Done. Updated 2 entries.')).toBeVisible()
+  expect(froms).toEqual([0, 40, 40])
+
+  await page.locator('summary', { hasText: 'Ask about the story' }).click()
+  await expect(page.getByText('Q&A uses the whole drama, including later lines.')).toBeVisible()
 })
 
 test('a paid engine refused with 403 shows the paid copy', async ({ page }) => {

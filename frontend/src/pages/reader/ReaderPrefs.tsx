@@ -98,10 +98,14 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
           }}
         />
       </Field>
-      <label className="reader-check">
-        <input type="checkbox" checked={prefs.spoilerFree} onChange={(e) => set('spoilerFree', e.target.checked)} />
-        Spoiler-free (AI tools only use lines up to this page)
-      </label>
+      <div className="toggle-list">
+        <Field
+          label="Spoiler-free"
+          help="Who is, Explain, relationships and the wiki only use lines up to the end of this page. Recap covers the lines before it. Q&A always uses the whole drama."
+        >
+          <input type="checkbox" checked={prefs.spoilerFree} onChange={(e) => set('spoilerFree', e.target.checked)} />
+        </Field>
+      </div>
     </div>
   )
 }
@@ -109,24 +113,35 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
 export function ReaderPrefsControl({ prefs, onChange, phone, children }: Props) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
 
-  // Desktop popover: Esc or a click outside closes it.
+  // Desktop popover: Esc (focus back to Aa), a pointer outside, or the window
+  // losing focus closes it. A click into the page iframe never reaches this
+  // document, but it does blur the window.
   useEffect(() => {
     if (!open || phone) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    const onDown = (e: MouseEvent) => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      buttonRef.current?.focus()
+    }
+    const onDown = (e: PointerEvent) => {
       if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
     }
+    const onBlur = () => setOpen(false)
     document.addEventListener('keydown', onKey)
-    document.addEventListener('mousedown', onDown)
+    document.addEventListener('pointerdown', onDown)
+    window.addEventListener('blur', onBlur)
     return () => {
       document.removeEventListener('keydown', onKey)
-      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('blur', onBlur)
     }
   }, [open, phone])
 
   const button = (
     <button
+      ref={buttonRef}
       type="button"
       className="reader-aa"
       aria-label="Reading settings"
