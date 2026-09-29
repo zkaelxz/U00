@@ -131,10 +131,14 @@ export function pageCount(totalLines: number, chapterSize: number): number {
 
 export const clampPage = (page: number, count: number) => Math.min(Math.max(1, Math.floor(page)), count)
 
-/** Where to resume: the page holding the last line read, else the saved page. */
+/**
+ * Where to resume: the page holding the last line read (so a changed
+ * "Lines per page" still lands right), else the saved page. The server
+ * reports a missing line as 0, so 0 falls back to the saved page.
+ */
 export function resumePage(ov: Pick<ReaderOverview, 'line_count' | 'last_page' | 'last_line_idx'>, chapterSize: number): number {
   const count = pageCount(ov.line_count, chapterSize)
-  const page = ov.last_line_idx !== null && ov.last_line_idx >= 0
+  const page = ov.last_line_idx !== null && ov.last_line_idx > 0
     ? Math.floor(ov.last_line_idx / chapterSize) + 1
     : ov.last_page
   return clampPage(page || 1, count)
@@ -165,7 +169,8 @@ export function spoilerBoundary(
 /** "38% · about 2h 10m · 480 lines" */
 export function metricsLine(ov: Pick<ReaderOverview, 'percent_complete' | 'length_display' | 'line_count'>): string {
   const pct = `${Math.round(ov.percent_complete)}%`
-  return [pct, ov.length_display ? `about ${ov.length_display}` : '', `${ov.line_count} lines`]
+  const length = !ov.length_display ? '' : /^under\b/.test(ov.length_display) ? ov.length_display : `about ${ov.length_display}`
+  return [pct, length, `${ov.line_count} lines`]
     .filter(Boolean)
     .join(' · ')
 }

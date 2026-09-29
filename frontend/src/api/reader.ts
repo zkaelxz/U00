@@ -25,13 +25,10 @@ import type {
   ReaderWikiUpdateResult,
   RichDeckDownload,
 } from '../types/reader'
-import { ApiError, getJson, postJson } from './client'
+import { ApiError, apiUrl, getJson, postJson } from './client'
 import type { ErrorInfo } from './types'
 
 type Fetch = typeof fetch
-
-// Same base as api/client.ts (relative by default; the Vite proxy forwards /api).
-const BASE = (import.meta.env?.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
 const root = (id: number) => `/api/reader/dramas/${id}`
 
@@ -53,13 +50,13 @@ export interface WikiScope {
 
 // Plain links: the browser downloads these (Content-Disposition: attachment).
 export const captionUrl = (id: number, track: CaptionTrack | string) =>
-  `${BASE}${root(id)}/captions/${encodeURIComponent(track)}`
-export const vocabCsvUrl = (id: number) => `${BASE}${root(id)}/vocab/export.csv`
-export const vocabApkgUrl = (id: number) => `${BASE}${root(id)}/vocab/export.apkg`
+  apiUrl(`${root(id)}/captions/${encodeURIComponent(track)}`)
+export const vocabCsvUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.csv`)
+export const vocabApkgUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.apkg`)
 export const wikiMarkdownUrl = (id: number, scope: WikiScope = {}) =>
-  `${BASE}${root(id)}/wiki/export.md${query({ ...scope })}`
+  apiUrl(`${root(id)}/wiki/export.md${query({ ...scope })}`)
 // The finished dub or narration track (media.stream).
-export const dubTrackUrl = (id: number) => `${BASE}/api/dub/dramas/${id}/track`
+export const dubTrackUrl = (id: number) => apiUrl(`/api/dub/dramas/${id}/track`)
 
 // The engine ids the server's own _llm_engine rejects (translation-only).
 const TRANSLATION_ONLY = new Set(['deepl', 'google', 'nllb', 'libretranslate'])
@@ -79,7 +76,7 @@ function headerFilename(resp: Response, fallback: string): string {
 export async function downloadRichDeck(id: number, fetchImpl: Fetch = fetch): Promise<RichDeckDownload> {
   let resp: Response
   try {
-    resp = await fetchImpl(`${BASE}${root(id)}/vocab/export.apkg?rich=true`, {
+    resp = await fetchImpl(apiUrl(`${root(id)}/vocab/export.apkg?rich=true`), {
       headers: { Accept: 'application/octet-stream, application/json' },
     })
   } catch {

@@ -386,6 +386,12 @@ baihe-subtitler/
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
 │   │                              reviewLogic.ts (pure, unit-tested)
+│   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
+│   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
+│   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
+│   │                              ReaderStory (story tools, wiki, Q&A), ReaderEngine, ReaderAction +
+│   │                              useReaderAction (per-action error/429 retry), readerPrefs.ts and
+│   │                              readerErrors.ts (pure, unit-tested), reader.css
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
