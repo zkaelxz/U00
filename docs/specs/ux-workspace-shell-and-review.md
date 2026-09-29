@@ -3,7 +3,7 @@
 Status: proposal from a read-only `ux-designer` pass, 2026-09-29. Direction from the user: "a pro editor app that is still minimal and stylistic". Both specs are **structural redesigns** under the root `CLAUDE.md` screenshot rule (before/after screenshots required).
 Seen as images: `scratchpad/shots/phone/workspace-review-phone-light.png`, `shots2/desktop/workspace-review-top-desktop-light.png` (40 lines), `shots2/desktop/workspace-review-flagged-desktop-dark.png`, `shots2/desktop/workspace-translate-desktop-light.png`, `shots2/phone/workspace-review-{top,edit}-phone-light.png` (structure only), `shots2/metrics.json`. Only reasoned about: phone dark shell, 360px, tablet, reduced motion, running-job/playback/restructure states.
 
-**Open decisions for the user:** (1) move the API version badge into Diagnostics (shown in the header only when the API is down); (2) single-line delete: two-step confirm (proposed) or typed word; (3) ship an interim stage/count mapping from `drama.status` before the progress endpoint exists.
+**Decisions (user, 2026-09-29):** (1) the API version badge moves into Diagnostics and the header shows it only when the API is down: yes. (2) single-line delete uses the two-step "Confirm delete" button (re-segment and restore keep the typed word). (3) stage progress and counts wait for the progress endpoint: no interim mapping from `drama.status`; build `GET /api/workflow/dramas/{id}/progress` first, then the stage bar.
 
 ## Evidence (code, 2026-09-29)
 
