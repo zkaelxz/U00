@@ -411,7 +411,7 @@ def acquire_exclusive(label: str) -> bool:
     so no new job can start until release_exclusive()."""
     global _exclusive_label
     with _lock:
-        if _exclusive_label is not None or any(
+        if _exclusive_label is not None or _maintenance_count or any(
                 j.get("status") in ("running", "queued") for j in _jobs.values()):
             return False
         _exclusive_label = label
@@ -422,6 +422,28 @@ def release_exclusive():
     global _exclusive_label
     with _lock:
         _exclusive_label = None
+
+
+_maintenance_count = 0
+
+
+def enter_maintenance() -> bool:
+    """A short non-job library operation (bulk delete, storage cleanup)
+    that a restore must not swap under: False if an exclusive hold is
+    active, otherwise counted until exit_maintenance(); acquire_exclusive
+    refuses while the count is above zero."""
+    global _maintenance_count
+    with _lock:
+        if _exclusive_label is not None:
+            return False
+        _maintenance_count += 1
+        return True
+
+
+def exit_maintenance():
+    global _maintenance_count
+    with _lock:
+        _maintenance_count = max(0, _maintenance_count - 1)
 
 
 def exclusive_active() -> bool:

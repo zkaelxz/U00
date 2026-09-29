@@ -30,6 +30,7 @@ Service half only; no router yet. Rules this module keeps:
 No Streamlit or FastAPI import.
 """
 
+import contextlib
 import datetime
 import io
 import logging
@@ -136,15 +137,21 @@ def _job_id_running(job_id: str) -> bool:
                 and (rec.get("updated_at") or 0) >= cutoff)
 
 
-def _refuse_while_archiving(action: str):
-    """Delete/cleanup must not remove files a running backup or export is
-    reading, nor run while a restore swaps the library folder."""
-    if background_jobs.exclusive_active():
+@contextlib.contextmanager
+def _maintenance(action: str):
+    """Held around bulk delete / storage cleanup: refuses (Conflict) while a
+    restore holds the library, or a backup/export is reading it, and keeps
+    a restore from starting until the operation ends."""
+    if not background_jobs.enter_maintenance():
         raise ConflictError(f"A restore is in progress; {action} is not possible right now.")
-    for job_id, label in ((BACKUP_JOB_ID, "backup"), (EXPORT_JOB_ID, "library export")):
-        if _job_id_running(job_id):
-            raise ConflictError(f"A {label} is running -- wait for it to finish before "
-                                f"{action}.")
+    try:
+        for job_id, label in ((BACKUP_JOB_ID, "backup"), (EXPORT_JOB_ID, "library export")):
+            if _job_id_running(job_id):
+                raise ConflictError(f"A {label} is running -- wait for it to finish before "
+                                    f"{action}.")
+        yield
+    finally:
+        background_jobs.exit_maintenance()
 
 
 def _refuse_duplicate(job_id: str, label: str):
@@ -226,34 +233,34 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     with a running/queued job is skipped with error "job_running"."""
     ids = _check_ids(drama_ids)
     _require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
-    _refuse_while_archiving("deleting dramas")
-    results = []
-    for did in ids:
-        if db.get_drama(did) is None:
-            results.append({"drama_id": did, "ok": False, "error": "not_found"})
-            continue
-        if drama_service.job_running_for_drama(did):
-            results.append({"drama_id": did, "ok": False, "error": "job_running"})
-            continue
-        try:
-            leftover = drama_service._hard_delete_drama(did)
-        except ServiceError as e:
-            results.append({"drama_id": did, "ok": False, "error": "delete_failed",
-                            "message": str(e)})
-            continue
-        entry = {"drama_id": did, "ok": True}
-        if leftover:
-            entry["warning"] = drama_service._LEFTOVER_FILES_MESSAGE
-        results.append(entry)
-    return {"results": results, "deleted": sum(r["ok"] for r in results)}
+    with _maintenance("deleting dramas"):
+        results = []
+        for did in ids:
+            if db.get_drama(did) is None:
+                results.append({"drama_id": did, "ok": False, "error": "not_found"})
+                continue
+            if drama_service.job_running_for_drama(did):
+                results.append({"drama_id": did, "ok": False, "error": "job_running"})
+                continue
+            try:
+                leftover = drama_service._hard_delete_drama(did)
+            except ServiceError as e:
+                results.append({"drama_id": did, "ok": False, "error": "delete_failed",
+                                "message": str(e)})
+                continue
+            entry = {"drama_id": did, "ok": True}
+            if leftover:
+                entry["warning"] = drama_service._LEFTOVER_FILES_MESSAGE
+            results.append(entry)
+        return {"results": results, "deleted": sum(r["ok"] for r in results)}
 
 
 def _bulk_translate_plan(ids):
-    """(queued ids, skipped [{drama_id, reason}], engines) for already
+    """(queued ids, skipped [{drama_id, reason}], {id: engine}) for already
     checked ids. A drama with any running or queued job (e.g. a translate
     waiting for the GPU) is skipped, so the bulk job never adopts or
     cancels a job the user started."""
-    queued, skipped, engines = [], [], set()
+    queued, skipped, engines = [], [], {}
     for did in ids:
         drama = db.get_drama(did)
         if drama is None:
@@ -264,31 +271,61 @@ def _bulk_translate_plan(ids):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines.add(drama.get("translation_engine") or "claude")
+            engines[did] = drama.get("translation_engine") or "claude"
     return queued, skipped, engines
 
 
-def bulk_translate_engines(drama_ids) -> list:
-    """The engines start_bulk_translate(drama_ids) would use: each queued
-    drama's saved translation_engine (default "claude"), sorted. For the
-    route layer's per-engine permission check."""
-    return sorted(_bulk_translate_plan(_check_ids(drama_ids))[2])
+def bulk_translate_engines(drama_ids) -> dict:
+    """The engines start_bulk_translate(drama_ids) would use:
+    {engines: sorted set, by_drama: {drama_id: engine}} from each queued
+    drama's saved translation_engine (default "claude"). For the route
+    layer's per-engine permission check; pass by_drama back as
+    start_bulk_translate(expected_engines=...)."""
+    by_drama = _bulk_translate_plan(_check_ids(drama_ids))[2]
+    return {"engines": sorted(set(by_drama.values())), "by_drama": by_drama}
 
 
-def start_bulk_translate(drama_ids, default_locale: str = "en-US") -> dict:
+def _check_expected_engines(expected) -> dict:
+    if not isinstance(expected, dict) or len(expected) > MAX_BULK_IDS:
+        raise InvalidInputError("expected_engines maps drama ids to engine names.")
+    out = {}
+    for k, v in expected.items():
+        try:
+            did = int(k)
+        except (TypeError, ValueError):
+            raise InvalidInputError("expected_engines maps drama ids to engine names.") from None
+        if not isinstance(v, str):
+            raise InvalidInputError("expected_engines maps drama ids to engine names.")
+        out[did] = v
+    return out
+
+
+def start_bulk_translate(drama_ids, default_locale: str = "en-US",
+                        expected_engines=None) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" (the same filter the tab applies) and
     that have no running or queued job.
     Keys, Ollama URL, monthly cap and Gemini free tier come from Settings
-    server-side. Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
+    server-side. expected_engines ({drama_id: engine}, from
+    bulk_translate_engines): a drama whose engine differs now, or later
+    when the job reaches it, is skipped ("engine_changed"), so the engines
+    a caller was authorized for are the only ones used.
+    Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     from services import settings_service
     ids = _check_ids(drama_ids)
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
     _refuse_duplicate(BULK_TRANSLATE_JOB_ID, "bulk translation")
-    queued, skipped, _ = _bulk_translate_plan(ids)
+    queued, skipped, engine_by_id = _bulk_translate_plan(ids)
+    if expected_engines is not None:
+        expected = _check_expected_engines(expected_engines)
+        for did in list(queued):
+            if expected.get(did) != engine_by_id[did]:
+                queued.remove(did)
+                skipped.append({"drama_id": did, "reason": "engine_changed"})
+        expected_engines = {did: expected[did] for did in queued}
     if not queued:
         raise InvalidInputError("None of the picked dramas are untranslated (status 'aligned').")
     api_keys = {}
@@ -307,7 +344,7 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US") -> dict:
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
         gemini_free_tier=settings_service.get_gemini_free_tier(),
-        models={}, monthly_cap=cap)
+        models={}, monthly_cap=cap, expected_engines=expected_engines)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     return {"job_id": BULK_TRANSLATE_JOB_ID, "queued": queued, "skipped": skipped}
@@ -509,7 +546,11 @@ def _unsafe_member(info: zipfile.ZipInfo) -> bool:
     norm = name.replace("\\", "/")
     if not norm or "\x00" in norm or norm.startswith("/") or re.match(r"^[A-Za-z]:", norm):
         return True
-    if ".." in norm.split("/"):
+    parts = (norm[:-1] if info.is_dir() else norm).split("/")
+    # "." / empty parts are dropped by zipfile (./backups -> backups), and a
+    # part ending in a dot or space names the same file as without it on
+    # Windows -- either could slip a member past the kept-name filter.
+    if any(p in ("", ".", "..") or p.endswith((".", " ")) for p in parts):
         return True
     return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
 
@@ -586,18 +627,20 @@ def _count_sessions() -> int:
     return sum(len(db.auth_list_sessions(u["id"])) for u in db.auth_list_users())
 
 
-def restore_backup(zip_bytes, confirm=False, confirm_text="") -> dict:
+def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> dict:
     """Replaces the whole library with an uploaded backup. Order: confirm
     (confirm=True, confirm_text "RESTORE") -> take background_jobs'
     exclusive hold (refused if any job runs here; no job can start until
     the restore ends) -> refuse if another process has a fresh running
     job -> full validation -> workspace_job_service.restore_library_backup
-    (staging extract, SQLite check of library.db, current auth tables and
-    sources settings kept, job re-check right before the rename,
+    (staging extract, SQLite checks, schema migration of the staged
+    library.db, current auth tables and sources settings kept, job and
+    auth/settings-change re-check right before the rename,
     rename-aside, rename-in, roll back on failure; backups/ and the other
     kept entries carried across). Nothing is touched unless every check
     passes. Afterwards every sign-in session is revoked and an audit entry
-    is written. Returns {restored, sessions_revoked}."""
+    is written (attributed to actor_id, the signed-in user, if given).
+    Returns {restored, sessions_revoked}."""
     from services import auth_service
     _require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
     if not background_jobs.acquire_exclusive("Library restore"):
@@ -617,14 +660,13 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="") -> dict:
         except ServiceError:
             raise
         except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
-            msg = str(e) if str(e) == wjs._BAD_LIBRARY_DB else _BAD_ZIP
+            msg = str(e) if str(e) in (wjs._BAD_LIBRARY_DB, wjs._BAD_SOURCES_DB) else _BAD_ZIP
             raise InvalidInputError(msg) from None
         except OSError as e:
             log.exception("Library restore failed")
             raise ServiceError("The restore could not be completed; the current library was "
                                "left in place.") from e
-        db.init_db()  # an older backup may predate newer tables/columns
-        auth_service.write_audit(None, "library.restore",
+        auth_service.write_audit(actor_id, "library.restore",
                                  f"library restored from backup; sessions revoked: {revoked}")
     finally:
         background_jobs.release_exclusive()
@@ -670,14 +712,14 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
     skipped. Returns per-drama freed bytes and the total."""
     cats = _check_preset(preset)
     _require_confirm(confirm, confirm_text, CLEAN_CONFIRM_TEXT, "Cleaning storage")
-    _refuse_while_archiving("cleaning storage")
-    results, freed = [], 0
-    for d in db.list_dramas():
-        did = d["id"]
-        if drama_service.job_running_for_drama(did):
-            results.append({"drama_id": did, "ok": False, "error": "job_running"})
-            continue
-        r = storage.clean_drama_storage(os.path.join(db.DRAMAS_DIR, str(did)), cats)
-        freed += r["freed_bytes"]
-        results.append({"drama_id": did, "ok": True, "freed_bytes": r["freed_bytes"]})
-    return {"preset": preset, "freed_bytes": freed, "results": results}
+    with _maintenance("cleaning storage"):
+        results, freed = [], 0
+        for d in db.list_dramas():
+            did = d["id"]
+            if drama_service.job_running_for_drama(did):
+                results.append({"drama_id": did, "ok": False, "error": "job_running"})
+                continue
+            r = storage.clean_drama_storage(os.path.join(db.DRAMAS_DIR, str(did)), cats)
+            freed += r["freed_bytes"]
+            results.append({"drama_id": did, "ok": True, "freed_bytes": r["freed_bytes"]})
+        return {"preset": preset, "freed_bytes": freed, "results": results}

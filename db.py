@@ -138,12 +138,29 @@ def get_conn():
     # check_same_thread=False: needed for case (b) above -- closing a
     # connection whose owning thread has died, which sqlite3 forbids by
     # default even though it's safe (a dead thread can never race with us).
-    conn = sqlite3.connect(DB_PATH, factory=_TrackedConnection, check_same_thread=False)
+    path = getattr(_path_override, "path", None) or DB_PATH
+    conn = sqlite3.connect(path, factory=_TrackedConnection, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     _open_connections[threading.get_ident()] = conn
     return conn
+
+
+# Per-thread redirect of get_conn(), used only by migrate_database_file.
+_path_override = threading.local()
+
+
+def migrate_database_file(path: str):
+    """Runs init_db()'s schema creation and migrations against another
+    database file (a staged library restore), in this thread only; every
+    other thread keeps using DB_PATH."""
+    _ensure_ready()
+    _path_override.path = path
+    try:
+        init_db()
+    finally:
+        _path_override.path = None
 
 
 def snapshot_database(dest_path: str):

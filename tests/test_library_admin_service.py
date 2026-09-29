@@ -661,10 +661,197 @@ def test_bulk_translate_engines_and_skip_running(isolated_db, monkeypatch):
     b = _new("B")
     c = _new("C", status="translated")
     db.update_drama(b, translation_engine="deepseek")
-    assert las.bulk_translate_engines([a, b, c]) == ["claude", "deepseek"]
+    assert las.bulk_translate_engines([a, b, c]) == {"engines": ["claude", "deepseek"],
+                                                     "by_drama": {a: "claude", b: "deepseek"}}
     _fake_running(monkeypatch, b)
-    assert las.bulk_translate_engines([a, b, c]) == ["claude"]
+    assert las.bulk_translate_engines([a, b, c])["engines"] == ["claude"]
     monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
     r = las.start_bulk_translate([a, b])
     assert r["queued"] == [a]
     assert {"drama_id": b, "reason": "job_running"} in r["skipped"]
+
+
+# ---- security re-review follow-ups ----------------------------------------
+
+def _tampered(data, sql_statements, name="library.db"):
+    """data with its `name` database changed by sql_statements."""
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        raw = zf.read(name)
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.write(fd, raw)
+    os.close(fd)
+    try:
+        conn = sqlite3.connect(path)
+        for sql in sql_statements:
+            conn.execute(sql)
+        conn.commit()
+        conn.execute("PRAGMA journal_mode = DELETE")
+        conn.close()
+        with open(path, "rb") as f:
+            return _rewrite(data, replace={name: f.read()})
+    finally:
+        os.remove(path)
+
+
+def _refused_unchanged(data):
+    a_count = len(db.list_dramas())
+    users = {u["email"] for u in db.auth_list_users()}
+    with pytest.raises(InvalidInputError) as ei:
+        _restore(data)
+    assert db.LIBRARY_DIR not in str(ei.value)
+    assert len(db.list_dramas()) == a_count
+    assert {u["email"] for u in db.auth_list_users()} == users
+    assert not _leftovers()
+
+
+def test_trigger_in_library_db_refused(isolated_db):
+    _new("A")
+    data = _tampered(_backup_bytes(), [
+        "CREATE TRIGGER t AFTER UPDATE ON job_records BEGIN "
+        "INSERT INTO users (email, is_admin, is_active) VALUES ('evil@x', 1, 1); END"])
+    _new("B")
+    _refused_unchanged(data)
+    assert db.auth_get_user_by_email("evil@x") is None
+
+
+def test_view_named_lines_refused(isolated_db):
+    _new("A")
+    data = _tampered(_backup_bytes(), ["DROP TABLE lines",
+                                       "CREATE VIEW lines AS SELECT 1 AS id"])
+    _refused_unchanged(data)
+
+
+def test_trigger_in_sources_db_refused(isolated_db):
+    _new("A")
+    src_store.set_setting("http_proxy_url", "")
+    data = _tampered(_backup_bytes(), [
+        "CREATE TRIGGER t AFTER INSERT ON access_attempts BEGIN "
+        "UPDATE settings SET value = '\"http://evil:1\"' WHERE key = 'http_proxy_url'; END"],
+        name="sources.db")
+    _refused_unchanged(data)
+    assert src_store.get_setting("http_proxy_url") == ""
+
+
+@pytest.mark.parametrize("member", ["./backups/exports/planted.zip",
+                                    "extension_token.txt.", "backups/ /x", "a//b"])
+def test_kept_name_variants_rejected_by_validation(isolated_db, member):
+    with pytest.raises(InvalidInputError):
+        las.validate_backup_zip(_zip({"library.db": b"x", member: b"x"}))
+
+
+def test_kept_name_variants_removed_from_staging(isolated_db, tmp_path):
+    """Direct wjs call (the tab's path, no service validation): anything
+    the filesystem resolves to a kept name is removed from staging."""
+    _new("A")
+    _write(page_server.TOKEN_FILENAME, b"current-token")
+    data = _rewrite(_backup_bytes(), extra={
+        "./backups/exports/planted.zip": _zip({"x": b"x"}),
+        "BACKUPS/planted.zip": b"x",
+    })
+    wjs.restore_library_backup(data, db.LIBRARY_DIR)
+    with pytest.raises(NotFoundError):
+        las.admin_artifact_path("export")
+    with open(os.path.join(db.LIBRARY_DIR, page_server.TOKEN_FILENAME), "rb") as f:
+        assert f.read() == b"current-token"
+    # Canonical removal: a planted plain FILE named "backups" is removed too.
+    lib2 = str(tmp_path / "lib2")
+    os.makedirs(os.path.join(lib2, "backups"))
+    with open(os.path.join(lib2, "backups", "keep.zip"), "wb") as f:
+        f.write(b"k")
+    wjs.restore_library_backup(_rewrite(data, extra={"backups": b"a file"}), lib2)
+    assert os.path.isfile(os.path.join(lib2, "backups", "keep.zip"))
+
+
+def test_sidecar_members_not_extracted(isolated_db):
+    _new("A")
+    data = _rewrite(_backup_bytes(), extra={"library.db-wal": b"junk", "sources.db-shm": b"j",
+                                            "library.db-journal": b"j"})
+    wjs.restore_library_backup(data, db.LIBRARY_DIR)
+    for n in ("library.db-journal",):
+        assert not os.path.exists(os.path.join(db.LIBRARY_DIR, n))
+    assert db.list_dramas()
+
+
+def test_old_schema_backup_restores(isolated_db):
+    """A backup from before job_records.cancel_requested (Slice 22) and the
+    auth tables existed still restores; the staged copy is migrated."""
+    _new("Old")
+    data = _tampered(_backup_bytes(), [
+        "DROP TABLE users", "DROP TABLE user_permissions", "DROP TABLE auth_sessions",
+        "DROP TABLE audit_log",
+        "CREATE TABLE jr_old AS SELECT job_id, status, progress, message, error, description, "
+        "started_at, finished_at, updated_at FROM job_records",
+        "DROP TABLE job_records", "ALTER TABLE jr_old RENAME TO job_records"])
+    auth_service.add_user("current@example.com")
+    _restore(data)
+    assert [d["title_en"] for d in db.list_dramas()] == ["Old"]
+    assert {u["email"] for u in db.auth_list_users()} == {"current@example.com"}
+    assert db.get_job_record(las.BACKUP_JOB_ID)["status"] == "cancelled"
+
+
+def test_restore_aborts_if_auth_changed_meanwhile(isolated_db, monkeypatch):
+    a = _new("A")
+    data = _backup_bytes()
+    b = _new("B")
+    orig = las._any_job_running
+    calls = []
+
+    def running():
+        calls.append(1)
+        if len(calls) == 2:   # the before_swap re-check: a sign-in happens now
+            auth_service.add_user("new@example.com")
+        return orig()
+    monkeypatch.setattr(las, "_any_job_running", running)
+    with pytest.raises(ConflictError):
+        _restore(data)
+    assert db.get_drama(a) and db.get_drama(b)
+    assert db.auth_get_user_by_email("new@example.com")
+    assert not _leftovers()
+
+
+def test_maintenance_blocks_restore(isolated_db):
+    assert background_jobs.enter_maintenance()
+    try:
+        with pytest.raises(ConflictError):
+            _restore(_zip({"library.db": b"x"}))
+    finally:
+        background_jobs.exit_maintenance()
+    assert background_jobs.acquire_exclusive("t")
+    background_jobs.release_exclusive()
+
+
+def test_restore_audit_actor(isolated_db):
+    _new("A")
+    uid = auth_service.add_user("admin@example.com")["id"]
+    las.restore_backup(_backup_bytes(), confirm=True, confirm_text="RESTORE", actor_id=uid)
+    entry = [e for e in auth_service.list_audit() if e["action"] == "library.restore"][0]
+    assert entry["user_id"] == uid
+
+
+def test_bulk_translate_expected_engines(isolated_db, monkeypatch):
+    a, b = _new("A"), _new("B")
+    expected = las.bulk_translate_engines([a, b])["by_drama"]
+    db.update_drama(b, translation_engine="deepseek")
+    captured = {}
+    monkeypatch.setattr(background_jobs, "start_job",
+                        lambda *args, **kw: captured.update(kw) or True)
+    r = las.start_bulk_translate([a, b], expected_engines={str(k): v
+                                                            for k, v in expected.items()})
+    assert r["queued"] == [a]
+    assert {"drama_id": b, "reason": "engine_changed"} in r["skipped"]
+    assert captured["expected_engines"] == {a: "claude"}
+    with pytest.raises(InvalidInputError):
+        las.start_bulk_translate([a], expected_engines=["claude"])
+
+
+def test_bulk_job_skips_engine_changed_later(isolated_db, monkeypatch):
+    from core import Line
+    a = _new("A")
+    db.save_lines(a, [Line(idx=0, start=0, end=1, zh="句")])
+    db.update_drama(a, translation_engine="deepseek")
+    got = {}
+    monkeypatch.setattr(background_jobs, "set_result", lambda jid, res: got.update(res))
+    wjs.run_bulk_series_translate_job("bulk_t", [a], {"deepseek": "k"},
+                                      expected_engines={a: "claude"})
+    assert got["skipped_engine_changed"] == [a]
+    assert got["translated"] == []
