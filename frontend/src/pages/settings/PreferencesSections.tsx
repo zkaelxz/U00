@@ -5,12 +5,18 @@
  * .env) and are used by the server's translate, transcribe, OCR and
  * download jobs and by the CLI. Changing them is PC only; away from the PC
  * each block shows "PC only".
+ *
+ * Layout (UI refresh §3.12): Appearance, Defaults and Spending are Cards;
+ * OCR, offline, downloads and server addresses are rare, so they are
+ * Sections inside one "Advanced" Card.
  */
 import { useState, type ReactNode } from 'react'
 
 import { clearEndpointUrl, setEndpointUrl, updatePreferences } from '../../api/settings'
+import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { humanize, humanizeValue } from '../../components/labels'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
@@ -32,37 +38,40 @@ import {
 } from './preferences'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
-const row = { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' } as const
 
 type Props = { settings: SettingsOverview; onSettings: (s: SettingsOverview) => void }
 
-export function PreferencesSections({ settings, onSettings }: Props) {
+function useCommon({ settings, onSettings }: Props) {
   const remote = usePcOnly() === 'remote'
-  const p = settings.preferences
-  const c = settings.choices
-  const common = { prefs: p, remote, onSaved: onSettings }
+  return { prefs: settings.preferences, remote, onSaved: onSettings }
+}
+
+export function DefaultsCard(props: Props) {
+  const common = useCommon(props)
+  const p = props.settings.preferences
+  const c = props.settings.choices
   return (
-    <>
-      <AppearanceSection />
-      <PrefsSection
-        {...common}
-        title="Defaults for new dramas"
-        storageKey="settings.defaults"
-        summary={`${p.default_engine} · ${p.default_locale}${p.default_style_note ? ' · style note' : ''}`}
-        fromPrefs={(x) => ({
-          default_engine: x.default_engine,
-          default_locale: x.default_locale,
-          default_style_note: x.default_style_note,
-          episode_summary_engine: x.episode_summary_engine,
-        })}
-        toPatch={(d) => ({ ok: true, value: d as Partial<SettingsPreferences> })}
-      >
-        {(d, set) => (
-          <>
+    <PrefsSection
+      {...common}
+      as="card"
+      title="Defaults for new dramas"
+      storageKey="settings.defaults"
+      summary={`${humanize('engine', p.default_engine)} · ${LOCALE_LABELS[p.default_locale] ?? p.default_locale}${p.default_style_note ? ' · style note' : ''}`}
+      fromPrefs={(x) => ({
+        default_engine: x.default_engine,
+        default_locale: x.default_locale,
+        default_style_note: x.default_style_note,
+        episode_summary_engine: x.episode_summary_engine,
+      })}
+      toPatch={(d) => ({ ok: true, value: d as Partial<SettingsPreferences> })}
+    >
+      {(d, set) => (
+        <>
+          <div className="field-row">
             <Field label="Translation engine" help="Saved on each new drama, and used for a drama that has no engine saved.">
               <select value={String(d.default_engine)} onChange={(e) => set('default_engine', e.target.value)}>
                 {c.engines.map((e) => (
-                  <option key={e} value={e}>{e}</option>
+                  <option key={e} value={e}>{humanize('engine', e)}</option>
                 ))}
               </select>
             </Field>
@@ -73,52 +82,72 @@ export function PreferencesSections({ settings, onSettings }: Props) {
                 ))}
               </select>
             </Field>
-            <Field label="Style note" help="The Translate form's style note starts with this text.">
-              <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
-            </Field>
-            <Field label="Episode summary engine" help="After an episode is translated, one extra call writes a short summary that is passed to the next episode of the series. Local Ollama costs nothing; a cloud engine needs its key.">
-              <select value={String(d.episode_summary_engine)} onChange={(e) => set('episode_summary_engine', e.target.value)}>
-                {c.summary_engines.map((e) => (
-                  <option key={e} value={e}>{e}</option>
-                ))}
-              </select>
-            </Field>
-          </>
-        )}
-      </PrefsSection>
-      <PrefsSection
-        {...common}
-        title="Spending"
-        storageKey="settings.spending"
-        summary={capSummary(p.monthly_cap_usd, settings.monthly_cap_env_usd)}
-        fromPrefs={(x) => ({ monthly_cap_usd: x.monthly_cap_usd === null ? '' : String(x.monthly_cap_usd) })}
-        toPatch={(d) => {
-          const cap = parseCap(String(d.monthly_cap_usd))
-          return cap.ok ? { ok: true, value: { monthly_cap_usd: cap.value } } : cap
-        }}
-      >
-        {(d, set) => (
-          <>
-            <Field
-              label="Monthly cap"
-              unit="USD"
-              help="Checked against the estimated spend logged this calendar month (UTC). A translation won't start once it is used up, and a running one stops cleanly, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
-            >
-              <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'none'} />
-            </Field>
-            <p className="muted" data-testid="cap-effective">
-              {settings.effective_monthly_cap_usd > 0
-                ? `Cap in effect: $${settings.effective_monthly_cap_usd.toFixed(2)} a month.`
-                : 'No monthly cap in effect.'}
-            </p>
-          </>
-        )}
-      </PrefsSection>
+          </div>
+          <Field label="Style note" help="The Translate form's style note starts with this text.">
+            <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
+          </Field>
+          <Field label="Episode summary engine" help="After an episode is translated, one extra call writes a short summary that is passed to the next episode of the series. Local Ollama costs nothing; a cloud engine needs its key.">
+            <select value={String(d.episode_summary_engine)} onChange={(e) => set('episode_summary_engine', e.target.value)}>
+              {c.summary_engines.map((e) => (
+                <option key={e} value={e}>{humanize('engine', e)}</option>
+              ))}
+            </select>
+          </Field>
+        </>
+      )}
+    </PrefsSection>
+  )
+}
+
+export function SpendingCard(props: Props) {
+  const common = useCommon(props)
+  const { settings } = props
+  const p = settings.preferences
+  return (
+    <PrefsSection
+      {...common}
+      as="card"
+      title="Spending"
+      storageKey="settings.spending"
+      summary={capSummary(p.monthly_cap_usd, settings.monthly_cap_env_usd)}
+      fromPrefs={(x) => ({ monthly_cap_usd: x.monthly_cap_usd === null ? '' : String(x.monthly_cap_usd) })}
+      toPatch={(d) => {
+        const cap = parseCap(String(d.monthly_cap_usd))
+        return cap.ok ? { ok: true, value: { monthly_cap_usd: cap.value } } : cap
+      }}
+    >
+      {(d, set) => (
+        <>
+          <Field
+            label="Monthly cap"
+            unit="USD"
+            help="Checked against the estimated spend logged this calendar month (UTC). A translation won't start once it is used up, and a running one stops cleanly, keeping finished lines. 0 means no cap; blank uses BAIHE_MONTHLY_CAP_USD from .env."
+          >
+            <input type="text" inputMode="decimal" value={String(d.monthly_cap_usd)} onChange={(e) => set('monthly_cap_usd', e.target.value)} placeholder={settings.monthly_cap_env_usd ? String(settings.monthly_cap_env_usd) : 'none'} />
+          </Field>
+          <p className="muted" data-testid="cap-effective">
+            {settings.effective_monthly_cap_usd > 0
+              ? `Cap in effect: $${settings.effective_monthly_cap_usd.toFixed(2)} a month.`
+              : 'No monthly cap in effect.'}
+          </p>
+        </>
+      )}
+    </PrefsSection>
+  )
+}
+
+export function AdvancedCard(props: Props) {
+  const common = useCommon(props)
+  const { settings, onSettings } = props
+  const p = settings.preferences
+  const c = settings.choices
+  return (
+    <Card title="Advanced" meta="OCR, offline models, downloads and server addresses" aria-label="Advanced">
       <PrefsSection
         {...common}
         title="OCR"
         storageKey="settings.ocr"
-        summary={OCR_LABELS[p.ocr_backend] ?? p.ocr_backend}
+        summary={OCR_LABELS[p.ocr_backend] ?? humanizeValue(p.ocr_backend)}
         fromPrefs={(x) => ({
           ocr_backend: x.ocr_backend,
           ocr_prefer_paddle_vl_manga: x.ocr_prefer_paddle_vl_manga,
@@ -131,13 +160,15 @@ export function PreferencesSections({ settings, onSettings }: Props) {
             <Field label="Default backend" help="Used where OCR runs without a per-page choice. Auto picks manga_ocr for Japanese, PaddleOCR for Chinese and Korean, Tesseract otherwise.">
               <select value={String(d.ocr_backend)} onChange={(e) => set('ocr_backend', e.target.value)}>
                 {c.ocr_backends.map((b) => (
-                  <option key={b} value={b}>{OCR_LABELS[b] ?? b}</option>
+                  <option key={b} value={b}>{OCR_LABELS[b] ?? humanizeValue(b)}</option>
                 ))}
               </select>
             </Field>
-            <Field label="Japanese: prefer PaddleOCR-VL" help="Only changes what Auto picks for Japanese. Leave off unless a side-by-side on your own pages shows it reads better than manga_ocr.">
-              <Toggle checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(next) => set('ocr_prefer_paddle_vl_manga', next)} />
-            </Field>
+            <div className="setting-list">
+              <Field label="Japanese: prefer PaddleOCR-VL" help="Only changes what Auto picks for Japanese. Leave off unless a side-by-side on your own pages shows it reads better than manga_ocr.">
+                <Toggle checked={Boolean(d.ocr_prefer_paddle_vl_manga)} onChange={(next) => set('ocr_prefer_paddle_vl_manga', next)} />
+              </Field>
+            </div>
             <Field label="Tesseract program" help="Only needed if OCR says Tesseract is not installed or not on PATH after installing it. The full path to tesseract.exe on the Baihe PC. Blank if OCR already works.">
               <input type="text" spellCheck={false} value={String(d.tesseract_cmd)} onChange={(e) => set('tesseract_cmd', e.target.value)} placeholder="C:\Program Files\Tesseract-OCR\tesseract.exe" />
             </Field>
@@ -178,7 +209,7 @@ export function PreferencesSections({ settings, onSettings }: Props) {
         {...common}
         title="Downloads"
         storageKey="settings.downloads"
-        summary={`Cookies: ${cookiesSummary(p.cookies_browser, p.cookies_file)}`}
+        summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
         fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file })}
         toPatch={(d) => {
           const paths = pathPatch(d, ['cookies_file'])
@@ -189,7 +220,7 @@ export function PreferencesSections({ settings, onSettings }: Props) {
       >
         {(d, set) => (
           <>
-            <p className="muted">
+            <p className="settings-note">
               Some sites block downloads unless you are signed in. yt-dlp can use your own browser
               login for video downloads from a URL and for Live capture started on this PC. Other
               devices never get these cookies.
@@ -198,7 +229,7 @@ export function PreferencesSections({ settings, onSettings }: Props) {
               <select value={String(d.cookies_browser)} onChange={(e) => set('cookies_browser', e.target.value)}>
                 <option value="">None</option>
                 {c.cookie_browsers.map((b) => (
-                  <option key={b} value={b}>{b}</option>
+                  <option key={b} value={b}>{humanizeValue(b)}</option>
                 ))}
               </select>
             </Field>
@@ -208,8 +239,8 @@ export function PreferencesSections({ settings, onSettings }: Props) {
           </>
         )}
       </PrefsSection>
-      <EndpointsSection settings={settings} remote={remote} onSettings={onSettings} />
-    </>
+      <EndpointsSection settings={settings} remote={common.remote} onSettings={onSettings} />
+    </Card>
   )
 }
 
@@ -227,6 +258,7 @@ function pathPatch(d: Draft, keys: (keyof SettingsPreferences)[]): Parsed<Partia
 type Draft = Record<string, string | boolean | number | null>
 
 type PrefsSectionProps = {
+  as?: 'card' | 'section'
   title: string
   storageKey: string
   summary: string
@@ -238,7 +270,7 @@ type PrefsSectionProps = {
   children: (d: Draft, set: (key: string, value: string | boolean) => void) => ReactNode
 }
 
-function PrefsSection({ title, storageKey, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
+function PrefsSection({ as = 'section', title, storageKey, summary, prefs, remote, fromPrefs, toPatch, onSaved, children }: PrefsSectionProps) {
   const [draft, setDraft] = useState<Draft>(() => fromPrefs(prefs))
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -247,9 +279,9 @@ function PrefsSection({ title, storageKey, summary, prefs, remote, fromPrefs, to
 
   if (remote) {
     return (
-      <Section title={title} summary={PC_ONLY_SUMMARY} storageKey={storageKey}>
+      <Block as={as} title={title} summary={PC_ONLY_SUMMARY} storageKey={storageKey}>
         <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
+      </Block>
     )
   }
 
@@ -289,13 +321,14 @@ function PrefsSection({ title, storageKey, summary, prefs, remote, fromPrefs, to
   }
 
   return (
-    <Section title={title} summary={summary} storageKey={storageKey}>
+    <Block as={as} title={title} summary={summary} storageKey={storageKey}>
       <div style={grid}>
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
         {children(draft, set)}
         {problem && <p className="error" role="alert">{problem}</p>}
-        <div style={row}>
-          <button type="button" className={buttonClass('primary')} disabled={busy || !dirty} onClick={save}>
+        <div className="settings-actions">
+          {/* Save is a Card's main action; the Advanced Card holds several, so there it stays secondary. */}
+          <button type="button" className={buttonClass(as === 'card' ? 'primary' : 'secondary')} disabled={busy || !dirty} onClick={save}>
             {busy ? 'Saving…' : 'Save'}
           </button>
           {dirty && !busy && (
@@ -306,15 +339,30 @@ function PrefsSection({ title, storageKey, summary, prefs, remote, fromPrefs, to
           <span className="muted" role="status">{note ?? ''}</span>
         </div>
       </div>
+    </Block>
+  )
+}
+
+// A Card (always open; the summary is its meta line) or a Section fold.
+function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'section'; title: string; summary: string; storageKey: string; children: ReactNode }) {
+  if (as === 'card')
+    return (
+      <Card title={title} meta={summary} aria-label={title}>
+        {children}
+      </Card>
+    )
+  return (
+    <Section title={title} summary={summary} storageKey={storageKey}>
+      {children}
     </Section>
   )
 }
 
-function AppearanceSection() {
+export function AppearanceCard() {
   const [theme, setTheme] = useState<ThemePref>(() => loadTheme())
   const label = THEME_OPTIONS.find((o) => o.value === theme)?.label ?? ''
   return (
-    <Section title="Appearance" summary={label} storageKey="settings.appearance">
+    <Card title="Appearance" meta={label} aria-label="Appearance">
       <div style={grid}>
         <Field label="Theme" help="Light, dark, or follow this device's setting. Saved in this browser only. The Reader's Auto theme follows it.">
           <select
@@ -332,7 +380,7 @@ function AppearanceSection() {
           </select>
         </Field>
       </div>
-    </Section>
+    </Card>
   )
 }
 
@@ -340,8 +388,10 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
   const title = 'Server addresses'
   if (remote) {
+    // Away from the PC the addresses aren't sent, but whether each is set is (engine_keys).
+    const configured = ENDPOINTS.filter((e) => settings.engine_keys[e.name]).length
     return (
-      <Section title={title} summary={PC_ONLY_SUMMARY} storageKey="settings.endpoints">
+      <Section title={title} summary={`${configured} of ${ENDPOINTS.length} set · ${PC_ONLY_SUMMARY}`} storageKey="settings.endpoints">
         <p className="muted">{PC_ONLY_BODY}</p>
       </Section>
     )
@@ -349,7 +399,7 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
   return (
     <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`} storageKey="settings.endpoints">
       <div style={grid}>
-        <p className="muted">
+        <p className="settings-note">
           Addresses of local servers Baihe talks to. Saved to .env on the Baihe PC, like keys, so
           changing them works only on that PC (on when started with start.bat; otherwise set
           BAIHE_API_ALLOW_KEY_WRITES=1).
@@ -435,11 +485,11 @@ function EndpointForm({ name, label, help, placeholder, current, configured, onR
         />
       </Field>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
-      <div style={row}>
-        <button type="button" className={buttonClass('primary')} disabled={busy || !draft.trim() || draft.trim() === current} onClick={save}>
+      <div className="settings-actions">
+        <button type="button" className={buttonClass('secondary')} disabled={busy || !draft.trim() || draft.trim() === current} onClick={save}>
           Save
         </button>
-        <button type="button" className={buttonClass('secondary')} disabled={busy || !configured} onClick={() => run(() => clearEndpointUrl(name), 'Cleared.')}>
+        <button type="button" className={buttonClass('ghost')} disabled={busy || !configured} onClick={() => run(() => clearEndpointUrl(name), 'Cleared.')}>
           Clear
         </button>
         <span className="muted" role="status">{note ?? clearNote ?? ''}</span>

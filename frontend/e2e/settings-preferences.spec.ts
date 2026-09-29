@@ -77,7 +77,20 @@ async function mockSettings(page: Page) {
   return { state, posts, unmocked }
 }
 
+// Appearance, Defaults and Spending are always-open Cards; the rest are
+// Sections (folds) inside the Advanced Card.
+const CARDS = ['Appearance', 'Defaults for new dramas', 'Spending']
+const block = (page: Page, title: string) =>
+  CARDS.includes(title)
+    ? page.getByRole('region', { name: title, exact: true })
+    : page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+
 async function open(page: Page, title: string) {
+  if (CARDS.includes(title)) {
+    const card = block(page, title)
+    await expect(card).toBeVisible()
+    return card
+  }
   const section = page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
   await section.locator('summary').click()
   await expect(section).toHaveAttribute('open', '')
@@ -105,8 +118,8 @@ test('defaults for new dramas save only what changed', async ({ page }) => {
     { path: '/api/settings', body: { default_engine: 'deepseek', default_locale: 'en-GB', default_style_note: 'Keep it short.' } },
   ])
   await expect(save).toBeDisabled()
-  await s.locator('summary').click()
-  await expect(s.locator('.section-summary')).toHaveText('deepseek · en-GB · style note')
+  await expect(s.locator('.card-meta')).toHaveText('DeepSeek · English (UK) · style note')
+  await expect(s.getByRole('option', { name: 'DeepSeek' })).toHaveCount(2) // engine names humanized (engine + summary engine)
   expect(unmocked).toEqual([])
 })
 
@@ -190,9 +203,9 @@ test('appearance: dark and light apply at once and survive a reload', async ({ p
 
   // Light wins over a dark system setting.
   await page.emulateMedia({ colorScheme: 'dark' })
-  await page.locator('details.section', { hasText: 'Appearance' }).getByLabel('Theme', { exact: true }).selectOption('light')
+  await block(page, 'Appearance').getByLabel('Theme', { exact: true }).selectOption('light')
   expect(await bg()).toBe(light)
-  await page.locator('details.section', { hasText: 'Appearance' }).getByLabel('Theme', { exact: true }).selectOption('system')
+  await block(page, 'Appearance').getByLabel('Theme', { exact: true }).selectOption('system')
   await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.*/)
   expect(await bg()).not.toBe(light)
 })
@@ -204,8 +217,9 @@ test('away from the PC the preference blocks say PC only; Appearance still works
   )
   await page.goto('/#/settings')
   for (const title of ['Defaults for new dramas', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
-    const s = page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
-    await expect(s.locator('.section-summary')).toHaveText('PC only')
+    // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
+    await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
+      title === 'Server addresses' ? /^\d of 3 set · PC only$/ : 'PC only')
   }
   const a = await open(page, 'Appearance')
   await a.getByLabel('Theme', { exact: true }).selectOption('dark')
