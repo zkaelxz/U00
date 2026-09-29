@@ -3,8 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { clearReviewResults, seedReviewResults } from './reviewResultsSeed'
 
 // Phone project (390x844, touch): the Review results and checks fit the width,
-// their line links are full-size touch targets and still open the line. The
-// (i) help buttons are left out: they use the shared ::after hit area.
+// their line links are full-size touch targets and still open the line.
 
 test.beforeEach(() => seedReviewResults())
 test.afterAll(() => clearReviewResults())
@@ -39,7 +38,7 @@ test('Review results: no sideways scroll, 44px line links, a link opens its line
   await openAll(page)
   await expectNoHorizontalOverflow(page)
 
-  const heights = await page.locator('.review-jump, .review-fix button:not(.field-help-btn), .review-fix select, .review-fix input').evaluateAll((els) =>
+  const heights = await page.locator('.review-jump, .review-fix button, .review-fix select, .review-fix input').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [e.getBoundingClientRect().height, e.outerHTML.slice(0, 80)] as const),
   )
   expect(heights.length).toBeGreaterThan(5)

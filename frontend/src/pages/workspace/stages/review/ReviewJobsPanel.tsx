@@ -81,9 +81,9 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo }: Props) 
     const e = engines.find((x) => x.name === name)
     return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
   }
-  const capHelp = config
-    ? `Stop the fix at this many dollars; blank means no cap. Spend this month: $${config.month_spend.toFixed(2)} of $${config.monthly_cap_usd.toFixed(2)}.`
-    : 'Stop the fix at this many dollars; blank means no cap.'
+  // Plain text rather than (i) help buttons: the Review stage keeps every
+  // visible button at 44px on phones.
+  const spend = config ? ` Spent this month: $${config.month_spend.toFixed(2)} of $${config.monthly_cap_usd.toFixed(2)}.` : ''
 
   // The job status stays outside the collapsed section so a running or
   // reattached job is always visible.
@@ -104,9 +104,9 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo }: Props) 
         </div>
         <fieldset className="review-fix" aria-label="Fix flagged lines">
           <legend>Fix flagged lines</legend>
-          <p className="muted review-fix-hint">Re-transcribes and re-translates every flagged line. {fixFormSummary(fix, defaultEngine)}</p>
+          <p className="muted review-fix-hint">Re-transcribes and re-translates every flagged line, stopping at the cost cap (blank: no cap).{spend} Now: {fixFormSummary(fix, defaultEngine)}</p>
           <div className="review-edit-row">
-            <Field label="Engine" help="Which service re-translates. The default comes from Settings; engines marked (no key) cannot run.">
+            <Field label="Engine">
               <select value={fix.engine} onChange={(e) => setFix((f) => ({ ...f, engine: e.target.value, model: '' }))}>
                 <option value="">Default{defaultEngine ? ` (${defaultEngine})` : ''}</option>
                 {engines.map((e) => (
@@ -128,11 +128,11 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo }: Props) 
                 </select>
               </Field>
             ) : (
-              <Field label="Model" help="Blank uses the engine's default model.">
+              <Field label="Model">
                 <input value={fix.model} maxLength={200} onChange={(e) => setFix((f) => ({ ...f, model: e.target.value }))} />
               </Field>
             )}
-            <Field label="Cost cap" unit="$" help={capHelp} error={problem}>
+            <Field label="Cost cap" unit="$" error={problem}>
               <input
                 type="number"
                 inputMode="decimal"
