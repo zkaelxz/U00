@@ -21,13 +21,15 @@ in the app. Not a copy of the commit log.
 
 ## Exit condition
 
-Copy this step's exit condition from `docs/baihe-roadmap.md` and confirm each
-part is actually met — don't just link the doc.
+Copy this step's exit condition from the roadmap (it lives on the planning
+branch, not in this repo; the fetch command is in the root `CLAUDE.md`) or from
+the task you were given, and confirm each part is actually met — don't just
+link it.
 
 ## Manual check (for the user, after merge)
 
-Copy this step's row from the roadmap's manual-check table, so it's right
-here instead of a separate lookup.
+Copy this step's row from the roadmap's manual-check table (same source as
+above), so it's right here instead of a separate lookup.
 
 ## Anything uncertain or out of scope
 
