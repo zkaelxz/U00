@@ -4,7 +4,8 @@ import { ApiError } from '../../../../api/client'
 import { addNote, dismissFlag, patchLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import type { ReviewLine } from '../../../../types/review'
-import { buildPatch, CONFLICT_MESSAGE, draftFromLine, formatTime, type LineDraft } from './reviewLogic'
+import { LineAi } from './LineAi'
+import { buildPatch, CONFLICT_MESSAGE, draftFromLine, formatTime, suggestionPatch, type LineDraft } from './reviewLogic'
 
 interface Props {
   dramaId: number
@@ -80,6 +81,24 @@ function LineRowImpl({ dramaId, line, onChanged }: Props) {
       onChanged()
     }, fail)
 
+  // Applying an AI suggestion is the same compare-and-set patch as an edit.
+  const useSuggestion = (text: string): Promise<boolean> => {
+    const patch = suggestionPatch(line, text)
+    if (!patch) return Promise.resolve(true)
+    return patchLine(dramaId, line.id, patch).then(
+      () => {
+        setError(null)
+        setConflict(false)
+        onChanged()
+        return true
+      },
+      (e) => {
+        fail(e)
+        return false
+      },
+    )
+  }
+
   const saveNote = () => {
     if (!note) return
     addNote(dramaId, { line_id: line.id, term: note.term, note_type: note.type, note: note.text }).then(
@@ -120,6 +139,7 @@ function LineRowImpl({ dramaId, line, onChanged }: Props) {
         >
           Edit details
         </button>
+        {line.en && <LineAi dramaId={dramaId} line={line} onUse={useSuggestion} />}
         {line.flag && (
           <span className="review-flag" data-testid="line-flag">
             Flagged: {line.flag}

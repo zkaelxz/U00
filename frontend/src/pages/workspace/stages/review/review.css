@@ -25,3 +25,12 @@ button.review-en:hover:not(:disabled), button.review-en:focus-visible { backgrou
 .review-matches del { color: var(--bad); }
 .review-matches ins { color: var(--ok); text-decoration: none; }
 @media (max-width: 640px) { .review-body { grid-template-columns: minmax(0, 1fr); } }
+.review-ai { position: relative; display: inline-flex; gap: 8px; align-items: baseline; }
+.review-ai-menu { display: inline-flex; gap: 8px; }
+.review-ai-panel { flex: 1 1 100%; box-sizing: border-box; font-size: 0.95rem; color: var(--text, inherit); display: grid; gap: 6px; margin: 6px 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.review-ai-ask { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.review-ai-ask label { display: grid; gap: 2px; font-size: 0.9rem; flex: 1 1 12rem; min-width: 0; }
+.review-ai-ask input { font: inherit; min-width: 0; }
+.review-ai-compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 16px; }
+.review-ai-text { overflow-wrap: anywhere; white-space: pre-wrap; margin: 0; }
+@media (max-width: 640px) { .review-ai-compare { grid-template-columns: minmax(0, 1fr); } }

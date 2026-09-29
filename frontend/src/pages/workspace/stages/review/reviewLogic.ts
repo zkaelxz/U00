@@ -68,3 +68,20 @@ export function staleLabels(staleIds: number[], matches: ReviewMatch[]): string[
     return m ? `#${m.idx}` : `line id ${id}`
   })
 }
+
+export const AI_UNAVAILABLE_MESSAGE =
+  'AI help is not set up. Add an API key under Settings, then try again.'
+export const AI_STALE_MESSAGE = 'The line changed after this suggestion was made. Ask again.'
+
+// A suggestion is applied like any other edit: only "en" is sent, with the
+// value it was made against as the expected old value (a mismatch is a 409).
+export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch | null {
+  if (suggestion === line.en) return null
+  return { en: suggestion, expected: { en: line.en } }
+}
+
+// The suggestion was made for current_en; if the row shows something else now
+// it is stale and must not be applied.
+export function suggestionIsStale(line: ReviewLine, currentEn: string): boolean {
+  return line.en !== currentEn
+}

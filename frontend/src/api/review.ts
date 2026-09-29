@@ -3,6 +3,8 @@ import type {
   FindReplaceRequest,
   HistoryItem,
   LineFilter,
+  LineExplanation,
+  LineImprovement,
   LineNoteCreate,
   LinePatch,
   NoteDeleteResult,
@@ -64,3 +66,13 @@ export const listTmSuggestions = (id: number, f?: Fetch) =>
 
 export const startReviewJob = (id: number, kind: ReviewJobKind, f?: Fetch) =>
   postJson<ReviewJobStarted>(`/api/review-jobs/dramas/${id}/${kind}`, {}, f)
+
+// Per-line AI helpers (Slice 50). Neither call writes; the engine and model
+// are left to the server's default, and no key ever passes through the browser.
+const lineAi = (id: number, lineId: number) => `/api/line-ai/dramas/${id}/lines/${lineId}`
+
+export const improveLine = (id: number, lineId: number, issue: string, f?: Fetch) =>
+  postJson<LineImprovement>(`${lineAi(id, lineId)}/improve`, { gemini_free_tier: false, issue: issue.trim() }, f)
+
+export const explainLine = (id: number, lineId: number, f?: Fetch) =>
+  postJson<LineExplanation>(`${lineAi(id, lineId)}/explain`, { gemini_free_tier: false }, f)

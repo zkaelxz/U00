@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildPatch, draftFromLine, formatTime, pageCount, staleLabels } from '../pages/workspace/stages/review/reviewLogic'
+import { buildPatch, draftFromLine, formatTime, pageCount, staleLabels, suggestionIsStale, suggestionPatch } from '../pages/workspace/stages/review/reviewLogic'
 import type { ReviewLine } from '../types/review'
 import { ApiError } from './client'
 import * as review from './review'
@@ -72,5 +72,26 @@ describe('review api', () => {
       ['POST', '/api/review-jobs/dramas/1/fix-flagged'],
       ['DELETE', '/api/lines/dramas/1/notes/4'],
     ])
+  })
+})
+
+describe('line AI', () => {
+  it('builds a compare-and-set patch for a suggestion', () => {
+    expect(suggestionPatch(line, 'Hi')).toEqual({ en: 'Hi', expected: { en: 'Hello' } })
+    expect(suggestionPatch(line, 'Hello')).toBeNull()
+  })
+  it('flags a suggestion made for an older translation as stale', () => {
+    expect(suggestionIsStale(line, 'Hello')).toBe(false)
+    expect(suggestionIsStale(line, 'Old')).toBe(true)
+  })
+  it('posts to the improve and explain endpoints without engine or keys', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const out = { line_id: 7, current_en: 'Hello', suggestion: 'Hi', changed: true, engine: 'x', model: null }
+    await review.improveLine(1, 7, ' softer ', fakeFetch(200, out, calls))
+    expect(calls[0].url).toBe('/api/line-ai/dramas/1/lines/7/improve')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ gemini_free_tier: false, issue: 'softer' })
+    await review.explainLine(1, 7, fakeFetch(200, { line_id: 7, explanation: 'e', engine: 'x', model: null }, calls))
+    expect(calls[1].url).toBe('/api/line-ai/dramas/1/lines/7/explain')
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ gemini_free_tier: false })
   })
 })
