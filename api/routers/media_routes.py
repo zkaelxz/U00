@@ -53,13 +53,14 @@ def post_upload_and_transcribe(
         source_language: Optional[str] = Form(None), chinese_script: Optional[str] = Form(None),
         transcript_text: Optional[str] = Form(None), run_diarize: bool = Form(False),
         expected_speakers: Optional[int] = Form(None), initial_prompt: str = Form(""),
-        tesseract_cmd: Optional[str] = Form(None)):
+        tesseract_cmd: Optional[str] = Form(None),
+        extra_names: str = Form("", max_length=1000)):
     try:  # validate options up front so a bad option never leaves an orphan upload
         opts = TranscribeRunRequest(
             source_language=source_language, chinese_script=chinese_script,
             transcript_text=transcript_text, run_diarize=run_diarize,
             expected_speakers=expected_speakers, initial_prompt=initial_prompt,
-            tesseract_cmd=tesseract_cmd)
+            tesseract_cmd=tesseract_cmd, extra_names=extra_names)
     except ValidationError:
         raise InvalidInputError("Invalid transcribe options.")
     transcribe_service.validate_transcribe_options(drama_id, **opts.model_dump())
