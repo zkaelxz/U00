@@ -123,6 +123,19 @@ describe('Translate file controls', () => {
     expect(html).toContain('Loaded ep1.txt')
   })
 
+  it('shows the accepted types as visible text, and a file error in place of it', () => {
+    const idle = renderToStaticMarkup(
+      createElement(OpenFileField, { sourceName: null, message: null, target: target() }),
+    )
+    expect(idle).toContain('.txt or .md; replaces the text below')
+    const failed = renderToStaticMarkup(
+      createElement(OpenFileField, { sourceName: 'ep1.txt', message: 'Not a text file.', target: target() }),
+    )
+    expect(failed).toContain('role="alert"')
+    expect(failed).toContain('Not a text file.')
+    expect(failed).not.toContain('Loaded ep1.txt')
+  })
+
   it('download button names the file after the source and language', () => {
     const html = renderToStaticMarkup(
       createElement(DownloadResultButton, {
@@ -131,7 +144,8 @@ describe('Translate file controls', () => {
         targetLanguage: 'en',
       }),
     )
-    expect(html).toContain('Download result (ep1.en.txt)')
+    expect(html).toContain('aria-label="Download result (ep1.en.txt)"')
+    expect(html).toContain('>Download</button>')
     expect(html).toContain('type="button"')
   })
 })

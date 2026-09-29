@@ -26,8 +26,8 @@ export function languagePair(
     : { source_language: 'en', target_language: other }
 }
 
-// Engines the picker offers. A missing key is a Settings problem, so those
-// stay out; the server still answers 503 if the list was stale.
+// Engines that can run now (key configured). The Translate page lists these
+// first and marks the rest "(no key)"; the server answers 503 for those.
 export function usableEngines(engines: TranslateEngine[]): TranslateEngine[] {
   return engines.filter((e) => e.key_configured)
 }
@@ -53,7 +53,7 @@ export function engineShortName(engine: Pick<TranslateEngine, 'name'>): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : engine.name
 }
 
-// One-line description for the details list: the first sentence of the text
+// One-line description of the chosen engine: the first sentence of the text
 // before the first " -- ", capped so a long note can't blow up the layout.
 export function engineSummary(label: string): string {
   const first = label.split(' -- ')[0].trim()
