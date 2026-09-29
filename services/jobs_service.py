@@ -86,6 +86,85 @@ def _error_item_text(item) -> str:
     return f"{where}: {message}"
 
 
+_BULK_SKIP_KEYS = ("running", "no_key", "no_lines", "cap", "engine_changed")
+_MAX_BULK_ERROR = 120
+
+
+def _int_id(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _project_fallbacks(events):
+    """A FallbackEngine's switch events ({"from", "to", "reason", "detail"})
+    as [{"from", "to", "count"}]: engine names and how often each switch
+    happened, never error text. Also accepts its own output (re-projection)."""
+    counts = {}
+    for ev in events if isinstance(events, (list, tuple)) else []:
+        if not isinstance(ev, dict):
+            continue
+        pair = ((_safe_scalar(str(ev.get("from") or "")) or "")[:40],
+                (_safe_scalar(str(ev.get("to") or "")) or "")[:40])
+        n = _int_id(ev.get("count")) or 1
+        counts[pair] = counts.get(pair, 0) + max(1, n)
+    return [{"from": a, "to": b, "count": n} for (a, b), n in list(counts.items())[:_MAX_LIST]]
+
+
+def _project_bulk(result):
+    """Library bulk translate's per-drama outcome (translated / skipped_* /
+    errors {drama_id: message}) as counts plus bounded id lists and short,
+    redacted error text."""
+    translated = [i for i in (_int_id(v) for v in result.get("translated") or []) if i is not None]
+    skipped = {}
+    for key in _BULK_SKIP_KEYS:
+        ids = [i for i in (_int_id(v) for v in result.get(f"skipped_{key}") or []) if i is not None]
+        if ids:
+            skipped[key] = {"count": len(ids), "drama_ids": ids[:_MAX_LIST]}
+    raw_errors = result.get("errors") if isinstance(result.get("errors"), dict) else {}
+    failed = []
+    for did, message in raw_errors.items():
+        did = _int_id(did)
+        if did is None:
+            continue
+        text = _safe_scalar(str(message or "failed")) or "failed"
+        failed.append({"drama_id": did, "error": text[:_MAX_BULK_ERROR]})
+    return {"translated_count": len(translated), "translated_ids": translated[:_MAX_LIST],
+            "skipped": skipped, "skipped_count": sum(v["count"] for v in skipped.values()),
+            "failed_count": len(failed), "failed": failed[:_MAX_LIST]}
+
+
+def _reproject_bulk(bulk):
+    """A stored bulk projection, re-sanitised through _project_bulk (the
+    counts may exceed the capped id lists, so they are carried over)."""
+    raw = {"translated": bulk.get("translated_ids") or [],
+           "errors": {f.get("drama_id"): f.get("error") for f in bulk.get("failed") or []
+                      if isinstance(f, dict)}}
+    stored_skipped = bulk.get("skipped") if isinstance(bulk.get("skipped"), dict) else {}
+    for key in _BULK_SKIP_KEYS:
+        entry = stored_skipped.get(key)
+        if isinstance(entry, dict):
+            raw[f"skipped_{key}"] = entry.get("drama_ids") or []
+    out = _project_bulk(raw)
+    for key in ("translated_count", "failed_count"):
+        n = _int_id(bulk.get(key))
+        if n is not None and n > out[key]:
+            out[key] = n
+    for key, entry in out["skipped"].items():
+        n = _int_id(stored_skipped[key].get("count"))
+        if n is not None and n > entry["count"]:
+            entry["count"] = n
+    out["skipped_count"] = sum(v["count"] for v in out["skipped"].values())
+    return out
+
+
+def _is_bulk_result(result) -> bool:
+    return isinstance(result, dict) and "translated" in result and "skipped_running" in result
+
+
 def project_result(result):
     """A JSON-safe, redacted, size-capped view of a job's result dict, or
     None when there is nothing to show (no result, or a non-dict result
@@ -93,8 +172,14 @@ def project_result(result):
     if not isinstance(result, dict):
         return None
     out = {}
+    if _is_bulk_result(result):
+        out["bulk"] = _project_bulk(result)
+    elif isinstance(result.get("bulk"), dict):
+        out["bulk"] = _reproject_bulk(result["bulk"])  # stored row, on read
+    if result.get("fallbacks"):
+        out["fallbacks"] = _project_fallbacks(result["fallbacks"])
     for key in RESULT_ALLOWED_KEYS:
-        if key not in result:
+        if key not in result or (key == "errors" and "bulk" in out):
             continue
         value = result[key]
         if isinstance(value, (list, tuple)):
@@ -159,6 +244,19 @@ def derive_outcome(status, error, result):
         return "failed", (result.get("last_error") or "The job failed.")
     if result.get("status") == "cancelled":
         return "cancelled", "The bulk translation was cancelled."
+    bulk = result.get("bulk")
+    if isinstance(bulk, dict):
+        done = bulk.get("translated_count") or 0
+        failed = bulk.get("failed_count") or 0
+        skipped = bulk.get("skipped_count") or 0
+        parts = [f"Translated {done} drama(s)."]
+        if failed:
+            parts.append(f"{failed} failed.")
+        if skipped:
+            parts.append(f"{skipped} skipped.")
+        if not failed and not skipped:
+            return "ok", " ".join(parts)
+        return ("partial" if done else "failed"), " ".join(parts)
     errors = result.get("errors") or []
     cap = result.get("cap_reached")
     parts = []
@@ -185,6 +283,10 @@ def derive_outcome(status, error, result):
         parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
                      f"({result['forced_align_error']}).")
         warned = True
+    fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
+    if fallbacks:
+        parts.append("Switched engine: " + ", ".join(
+            f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
     if cap is not None or errors or result.get("partial") or warned:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")

@@ -20,6 +20,7 @@ import logging
 import os
 import time
 
+import adaptive_style
 import db
 import background_jobs
 import translate_engines
@@ -38,6 +39,28 @@ def _id_by_idx(lines):
     if any(getattr(ln, "id", None) is None for ln in lines):
         return None
     return {ln.idx: ln.id for ln in lines}
+
+
+def build_run_style_context(drama_id, drama, lines, style_preset):
+    """(glossary_terms, style_guidelines, character_names) for one drama,
+    built exactly as translate_run_service.start_translate_run builds them:
+    series glossary, the learned style profile, emotion guidance and
+    character gender hints in custom_notes, and named-speaker labels."""
+    series_id = (drama or {}).get("series_id")
+    glossary_terms = db.list_glossary_terms(series_id) if series_id else None
+    series_chars = db.list_series_characters(series_id) if series_id else []
+    drama_chars = db.list_characters_with_series_names(drama_id)
+    prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
+    learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {})) if prof else ""
+    emap = db.load_emotions(drama_id)
+    emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
+    style_guidelines = tguide.build_style_guidelines(
+        style_preset, glossary_terms=glossary_terms,
+        custom_notes="\n\n".join(b for b in (
+            learned, emotion_block,
+            tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
+    character_names = tguide.build_speaker_labels(drama_chars, series_chars)
+    return glossary_terms, style_guidelines, character_names
 
 
 def _fallback_result(engine) -> dict:
@@ -420,7 +443,8 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
-                               source_language, engine, engine_choice, cost_cap_usd=None):
+                               source_language, engine, engine_choice, cost_cap_usd=None,
+                               locale="en-US"):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -438,8 +462,19 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     is still flagged untouched. Step 25w: this loop previously had no cap
     check at all, so it could spend without limit regardless of a
     configured monthly cap.
+
+    Each re-translation gets the same context a translate run uses
+    (glossary, style guidelines, locale, the line's character name).
     """
     flagged = [ln for ln in lines if ln.flag]
+    drama = db.get_drama(drama_id) or {}
+    style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
+    glossary_terms, style_guidelines, character_names = build_run_style_context(
+        drama_id, drama, lines, style_preset)
+    base_context = translate_engines.build_translation_context(
+        engine, drama, locale=locale, glossary_terms=glossary_terms,
+        style_guidelines=style_guidelines)
+    base_context["source_language"] = source_language
     fixed_count = 0
     spent = 0.0
     cap_reached = None
@@ -477,7 +512,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                         os.remove(slice_path)
             if ln.zh.strip():
                 try:
-                    translated = engine.translate_batch([ln.zh], {"source_language": source_language})[0]
+                    translated = engine.translate_batch(
+                        [ln.zh], {**base_context,
+                                  "speaker_labels": [character_names.get(ln.speaker)]})[0]
                     if hasattr(engine, "last_usage"):
                         cost = translate_engines.estimate_cost_for_engine(
                             engine, engine.last_usage.get("input_tokens", 0),
@@ -957,6 +994,9 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     cli.py translate's own per-run cap resolution, since this was the one
     translate path in the app that didn't enforce it at all.
     """
+    # Imported here: translate_run_service imports this module.
+    from services import translate_run_service
+    summary_engine, summary_choice = translate_run_service._summary_engine()
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}}
@@ -1001,8 +1041,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         # month's spend-so-far right before each drama, not just once for
         # the whole batch, since earlier dramas in this same run add to
         # that spend too.
-        cap_applies = (engine_choice in ("claude", "deepseek", "gemini")
-                       and not (engine_choice == "gemini" and gemini_free_tier))
+        cap_applies = translate_run_service._cap_applies(engine_choice, gemini_free_tier)
         cost_cap = None
         if cap_applies and monthly_cap:
             cost_cap, refusal = translate_engines.resolve_cost_cap(
@@ -1021,18 +1060,15 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             continue
 
         lines = core_module.lines_from_rows(rows)
-        series_id = drama.get("series_id")
-        glossary_terms = db.list_glossary_terms(series_id) if series_id else None
-        series_chars = db.list_series_characters(series_id) if series_id else []
-        drama_chars = db.list_characters_with_series_names(did)
         # Step 25d item 1: this used to always be "audio_drama", even for
         # a novel-narration drama -- same per-content-mode default Step
         # 25c's own shared translate-finishing helper and `cli.py
         # translate` already use.
-        style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
-        style_guidelines = tguide.build_style_guidelines(
-            style_preset=style_preset, glossary_terms=glossary_terms,
-            custom_notes=tguide.build_character_gender_hints(series_chars, drama_chars))
+        is_novel = drama.get("content_mode") == "novel_narration"
+        style_preset = "novel" if is_novel else "audio_drama"
+        glossary_terms, style_guidelines, _ = build_run_style_context(
+            did, drama, lines, style_preset)
+        defaults = translate_run_service.get_translate_config_defaults(is_novel)
         novel_reference = None
         if drama.get("novel_reference_filename"):
             novel_path = os.path.join(db.drama_dir(did), drama["novel_reference_filename"])
@@ -1046,8 +1082,12 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         started = background_jobs.start_job(
             per_job_id, run_translate_job,
             per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
-            glossary_terms, style_guidelines, engine_choice, style_preset, 6, None,
+            glossary_terms, style_guidelines, engine_choice, style_preset,
+            defaults["context_window"], None,
             cost_cap_usd=cost_cap,
+            context_window_ahead=defaults["context_window_ahead"],
+            batch_size=defaults["batch_size"],
+            summary_engine=summary_engine, summary_engine_choice=summary_choice,
             # Step 25d item 1: an Ollama-engine run touches the local GPU
             # like every other Ollama translation job in the app, and
             # needs the same GPU-job guard (Step 5c) so it can't run
