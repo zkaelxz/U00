@@ -32,6 +32,7 @@ from api.auth import (EarlyAuthGate, LocalOnlyCrossSiteGate, LoopbackOnlyGate, l
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    auth_routes,
     blocked_retry_routes,
     characters_routes,
     delete_routes,
@@ -176,6 +177,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
+    app.include_router(auth_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

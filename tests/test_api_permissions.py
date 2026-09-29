@@ -31,7 +31,8 @@ from services.service_errors import RateLimitedError
 
 HOW_TO_DECLARE = (
     "Every route needs exactly one of dependencies=[require_permission(\"x.y\")], "
-    "[public_route()] or [local_only()] from api/auth.py on its decorator, and a row in "
+    "[public_route()], [local_only()] or (own-session routes under /api/auth/ only) "
+    "[authenticated()] from api/auth.py on its decorator, and a row in "
     "the route table in docs/remote-access-decision.md.")
 
 # Starlette routes FastAPI itself adds for the interactive docs. Only served
@@ -155,6 +156,18 @@ class TestEveryRouteDeclared:
         for p in ("/api/docs", "/api/openapi.json", "/api/redoc"):
             r = c.get(p)
             assert r.status_code == 401 and "openapi" not in r.text.lower()
+
+    def test_authenticated_only_on_own_session_routes(self):
+        """authenticated() (signed in, no permission) is the fourth declaration
+        kind; it is only for routes on the caller's own session, so it may not
+        spread to routes that touch shared data."""
+        app = _app("on")
+        uses = sorted(f"{sorted(m)} {p}" for _r, p, m, d in api_auth.iter_route_declarations(app)
+                      if ("authenticated", None) in d)
+        assert uses == ["['POST'] /api/auth/logout"]
+        kinds = {d[0] for _r, _p, _m, decls in api_auth.iter_route_declarations(app)
+                 for d in decls}
+        assert kinds == {"permission", "public", "local_only", "authenticated"}
 
     def test_unknown_permission_name_is_a_startup_error(self):
         with pytest.raises(ValueError):

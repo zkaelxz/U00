@@ -17,3 +17,6 @@ fastapi>=0.115           # the HTTP API (api/) the React frontend talks to -- co
 starlette>=0.39          # FileResponse Range/If-Range (media playback, Slice 52); fastapi pulls it in
 python-multipart>=0.0.9  # multipart parsing for the media upload endpoint (api/routers/media_routes.py)
 uvicorn>=0.30           # the server that runs it
+authlib>=1.3,<2         # Google sign-in (services/oidc_service.py, BAIHE_API_AUTH=on); <2 because
+                         # authlib.jose (used for the id_token check) is removed in 2.0
+httpx>=0.27             # Authlib's HTTP client for sign-in (also FastAPI's TestClient)

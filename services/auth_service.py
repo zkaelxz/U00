@@ -159,6 +159,20 @@ def find_user_by_google_sub(google_sub: str):
     return _public_user(row) if row else None
 
 
+def find_user_by_email(email: str):
+    """Allowlist lookup by email, for local administration (the CLI) and
+    the first-login binding in `oidc_service` (a verified email may bind
+    an allowlisted user that has no Google binding yet). Never the way a
+    returning user is identified: that is `find_user_by_google_sub`.
+    None for an unknown or malformed address."""
+    try:
+        email = _norm_email(email)
+    except InvalidInputError:
+        return None
+    row = db.auth_get_user_by_email(email)
+    return _public_user(row) if row else None
+
+
 def bind_google_sub(user_id: int, google_sub: str):
     """Binds an allowlisted user to a Google `sub` once. Never rebinds."""
     row = _require_user(user_id)
