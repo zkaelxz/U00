@@ -66,9 +66,15 @@ def data_problems(data: dict) -> list:
 
 
 def registered_adapters() -> dict:
+    """Registered adapters in the BUILTIN list's order. Registration order
+    depends on which modules were imported first (a test run differs from a
+    plain script run), so it can't be used for a stable board."""
     from sources import registry
-    return {n: c for n, c in registry.adapter_classes().items()
-            if not getattr(c, "is_demo", False)}
+    from sources.adapters import BUILTIN
+    rank = {name: i for i, name in enumerate(BUILTIN)}
+    found = {n: c for n, c in registry.adapter_classes().items()
+             if not getattr(c, "is_demo", False)}
+    return {n: found[n] for n in sorted(found, key=lambda n: (rank.get(n, len(rank)), n))}
 
 
 def _expand_groups(s: str) -> list:
