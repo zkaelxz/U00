@@ -31,7 +31,10 @@ built from validated ids, never from client text). The token is sent only as
 a log line or an error. Every request has timeout=, follows no redirects and
 reads at most MAX_RESPONSE_BYTES. Calls are spaced to Notion's ~3 requests
 per second, blocks are appended at most 100 per call (and under the payload
-cap), and a 429/5xx is retried after Retry-After or a growing back-off.
+cap), and a 429/409 (and, for reads, deletes and property updates, a
+500/502/503/504) is retried after Retry-After or a capped back-off. Writes
+that add content are never retried on a 5xx (it may have landed already).
+Test connection runs in the request, so it retries once with a short wait.
 Errors are fixed text; the only Notion text passed on (a validation message)
 is redacted, including the token by value, and shortened.
 
@@ -40,6 +43,7 @@ No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 import datetime
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -58,12 +62,13 @@ SETTING = "notion"
 TOKEN_ENV = ("BAIHE_NOTION_TOKEN",)
 API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
-HTTP_TIMEOUT = (5, 30)
+HTTP_TIMEOUT = (5, 20)
 MAX_RESPONSE_BYTES = 5_000_000
 READ_DEADLINE = 60.0
 MIN_INTERVAL = 0.35          # Notion allows an average of 3 requests per second
 MAX_RETRIES = 5
 MAX_RETRY_WAIT = 30.0
+TEST_RETRIES, TEST_RETRY_WAIT = 1, 5.0  # the synchronous Test connection route
 MAX_BLOCKS_PER_CALL = 100    # Notion's limit for one append
 MAX_PAYLOAD_BYTES = 400_000  # under Notion's 500 KB request cap
 MAX_TEXT = 2000              # Notion's limit for one rich-text item
@@ -90,6 +95,10 @@ _HEX32 = re.compile(r"^[0-9a-f]{32}$")
 _ID_IN_TEXT = re.compile(r"([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$")
 _NOTION_HOSTS = ("notion.so", "www.notion.so")
 _RETRY_STATUSES = (409, 429, 500, 502, 503, 504)
+# A write (create a page, append blocks) is retried only when Notion says it
+# did nothing: a 5xx from its gateway can arrive after the write landed, and
+# Notion has no idempotency key, so a retry could add the content twice.
+_WRITE_RETRY_STATUSES = (409, 429)
 
 _UNREACHABLE = "Couldn't reach Notion. Check the internet connection and try again."
 _BAD_TOKEN = ("Notion refused the token. Copy the internal integration secret from "
@@ -207,18 +216,23 @@ def _throttle():
         _last_request[0] = time.monotonic()
 
 
-def _retry_wait(resp, attempt: int) -> float:
+def _retry_wait(resp, attempt: int, max_wait: float = MAX_RETRY_WAIT) -> float:
     raw = (resp.headers or {}).get("Retry-After") if resp is not None else None
     try:
         wait = float(raw) if raw is not None else 2.0 ** attempt
     except (TypeError, ValueError):
         wait = 2.0 ** attempt
-    return min(max(wait, 0.5), MAX_RETRY_WAIT)
+    if not math.isfinite(wait):
+        wait = 2.0 ** attempt
+    return min(max(wait, 0.5), max_wait)
 
 
 def _read_capped(resp) -> bytes:
+    """At most MAX_RESPONSE_BYTES; the READ_DEADLINE is checked after every
+    small read (each read itself is bounded by HTTP_TIMEOUT), so a trickled
+    reply is cut off soon after the deadline."""
     started, body = time.monotonic(), bytearray()
-    for chunk in resp.iter_content(64 * 1024):
+    for chunk in resp.iter_content(8 * 1024):
         body.extend(chunk)
         if len(body) > MAX_RESPONSE_BYTES or time.monotonic() - started > READ_DEADLINE:
             raise DependencyUnavailableError(_BAD_REPLY)
@@ -236,9 +250,14 @@ def _parse(body: bytes) -> dict:
 
 
 def _request(method: str, path: str, token: str, body: Optional[dict] = None,
-             params: Optional[dict] = None) -> dict:
+             params: Optional[dict] = None, *, write: bool = False,
+             retries: int = MAX_RETRIES, max_wait: float = MAX_RETRY_WAIT,
+             job_id: Optional[str] = None) -> dict:
     """One Notion API call. `path` is built by this module from validated
-    ids only. Raises _Missing on 404, fixed-text errors otherwise."""
+    ids only. Raises _Missing on 404, fixed-text errors otherwise. `write`:
+    a call that adds content (see _WRITE_RETRY_STATUSES). `job_id`: a cancel
+    request is honoured before each retry wait."""
+    retry_on = _WRITE_RETRY_STATUSES if write else _RETRY_STATUSES
     import requests
     headers = {"Authorization": f"Bearer {token}", "Notion-Version": NOTION_VERSION,
                "Accept": "application/json"}
@@ -246,7 +265,7 @@ def _request(method: str, path: str, token: str, body: Optional[dict] = None,
     if body is not None:
         headers["Content-Type"] = "application/json"
         data = json.dumps(body).encode("utf-8")
-    for attempt in range(MAX_RETRIES + 1):
+    for attempt in range(retries + 1):
         _throttle()
         session = requests.Session()
         try:
@@ -255,8 +274,8 @@ def _request(method: str, path: str, token: str, body: Optional[dict] = None,
                                    allow_redirects=False, stream=True)
             try:
                 status = resp.status_code
-                if status in _RETRY_STATUSES and attempt < MAX_RETRIES:
-                    wait = _retry_wait(resp, attempt)
+                if status in retry_on and attempt < retries:
+                    wait = _retry_wait(resp, attempt, max_wait)
                     log.info("Notion answered HTTP %s; retrying in %.1fs", status, wait)
                 else:
                     payload = _read_capped(resp)
@@ -267,6 +286,8 @@ def _request(method: str, path: str, token: str, body: Optional[dict] = None,
             raise DependencyUnavailableError(_UNREACHABLE) from None
         finally:
             session.close()
+        if job_id:
+            _check_cancel(job_id)
         _sleep(wait)
     raise DependencyUnavailableError(_BUSY)  # pragma: no cover - loop always returns/raises
 
@@ -320,19 +341,20 @@ def _configured() -> tuple:
     return token, target_type, target_id
 
 
-def _target_info(token: str, target_type: str, target_id: str) -> dict:
+def _target_info(token: str, target_type: str, target_id: str, **kw) -> dict:
     if target_type == "database":
-        return _target_request("GET", f"/databases/{target_id}", token)
-    return _target_request("GET", f"/pages/{target_id}", token)
+        return _target_request("GET", f"/databases/{target_id}", token, **kw)
+    return _target_request("GET", f"/pages/{target_id}", token, **kw)
 
 
 def test_connection() -> dict:
     token, target_type, target_id = _configured()
     try:
-        me = _request("GET", "/users/me", token)
+        me = _request("GET", "/users/me", token, retries=TEST_RETRIES, max_wait=TEST_RETRY_WAIT)
     except _Missing:
         raise DependencyUnavailableError(_BAD_TOKEN) from None
-    info = _target_info(token, target_type, target_id)
+    info = _target_info(token, target_type, target_id, retries=TEST_RETRIES,
+                        max_wait=TEST_RETRY_WAIT)
     title = _plain(info.get("title")) if target_type == "database" else _page_title(info)
     return {"ok": True, "bot_name": str(me.get("name") or "")[:200],
             "target_title": title[:300], "target_type": target_type}
@@ -456,7 +478,8 @@ def _parent_id(page: dict) -> Optional[str]:
     return str(raw).replace("-", "").lower() if raw else None
 
 
-def _existing_page(token: str, page_id: Optional[str], target_id: str) -> Optional[str]:
+def _existing_page(token: str, page_id: Optional[str], target_id: str,
+                   job_id: Optional[str] = None) -> Optional[str]:
     """The stored page, if it still exists, is not in the trash and still
     sits under the current target. Anything else means "make a new one" (the
     old page is never touched)."""
@@ -465,7 +488,7 @@ def _existing_page(token: str, page_id: Optional[str], target_id: str) -> Option
         return None
     page_id = _dashed(hex32)
     try:
-        page = _request("GET", f"/pages/{page_id}", token)
+        page = _request("GET", f"/pages/{page_id}", token, job_id=job_id)
     except _Missing:
         return None
     if page.get("archived") or page.get("in_trash"):
@@ -482,13 +505,14 @@ def _is_baihe_heading(block: dict) -> bool:
     return bool(heading.get("is_toggleable")) and _plain(heading.get("rich_text")) == HEADING_TEXT
 
 
-def _baihe_headings(token: str, page_id: str) -> list:
+def _baihe_headings(token: str, page_id: str, job_id: Optional[str] = None) -> list:
     found, cursor = [], None
     for _ in range(MAX_CHILD_PAGES):
         params = {"page_size": 100}
         if cursor:
             params["start_cursor"] = cursor
-        data = _target_request("GET", f"/blocks/{page_id}/children", token, params=params)
+        data = _target_request("GET", f"/blocks/{page_id}/children", token, params=params,
+                               job_id=job_id)
         for block in data.get("results") or []:
             if _is_baihe_heading(block) and isinstance(block.get("id"), str):
                 found.append(block["id"])
@@ -531,31 +555,33 @@ def _run_export(job_id: str, drama_id: int, field: str):
     today = datetime.date.today().isoformat()
 
     background_jobs.update_progress(job_id, 0.02, "Checking Notion...")
-    schema = _target_info(token, target_type, target_id) if target_type == "database" else None
+    schema = (_target_info(token, target_type, target_id, job_id=job_id)
+              if target_type == "database" else None)
     props = _properties(schema, drama, drama_id, total, translated, today)
-    page_id = _existing_page(token, drama.get("notion_page_id"), target_id)
+    page_id = _existing_page(token, drama.get("notion_page_id"), target_id, job_id)
     _check_cancel(job_id)
     if page_id:
         background_jobs.update_progress(job_id, 0.05, "Updating the Notion page...")
-        _target_request("PATCH", f"/pages/{page_id}", token, body={"properties": props})
+        _target_request("PATCH", f"/pages/{page_id}", token, body={"properties": props},
+                        job_id=job_id)
     else:
         background_jobs.update_progress(job_id, 0.05, "Creating the Notion page...")
         parent = {"database_id": target_id} if target_type == "database" else {"page_id": target_id}
-        created = _target_request("POST", "/pages", token,
+        created = _target_request("POST", "/pages", token, write=True, job_id=job_id,
                                   body={"parent": parent, "properties": props})
         page_id = _block_id(created.get("id"))
         # Stored at once: if a later step fails, the next export reuses this page.
         db.set_drama_notion_page_id(drama_id, page_id)
 
-    old = _baihe_headings(token, page_id)
+    old = _baihe_headings(token, page_id, job_id)
     blocks = _details(drama, total, translated, field, today)
     blocks += [b for b in (_line_block(ln, field) for ln in lines) if b is not None]
     chunks = _chunks(blocks)
     heading = {"object": "block", "type": "heading_2",
                "heading_2": {"rich_text": _rt(HEADING_TEXT), "is_toggleable": True,
                              "children": chunks[0]}}
-    reply = _target_request("PATCH", f"/blocks/{page_id}/children", token,
-                            body={"children": [heading]})
+    reply = _target_request("PATCH", f"/blocks/{page_id}/children", token, write=True,
+                            job_id=job_id, body={"children": [heading]})
     new_ids = [b.get("id") for b in (reply.get("results") or []) if _is_baihe_heading(b)]
     if len(new_ids) != 1:
         raise DependencyUnavailableError(_BAD_REPLY)
@@ -566,20 +592,20 @@ def _run_export(job_id: str, drama_id: int, field: str):
             background_jobs.update_progress(job_id, 0.1 + 0.85 * n / len(chunks),
                                             f"Writing lines ({n * MAX_BLOCKS_PER_CALL} "
                                             f"of about {len(blocks)})...")
-            _target_request("PATCH", f"/blocks/{new_id}/children", token,
-                            body={"children": chunk})
+            _target_request("PATCH", f"/blocks/{new_id}/children", token, write=True,
+                            job_id=job_id, body={"children": chunk})
     except BaseException:
         # Half-written: drop the new block so the old transcript stays the
         # only one. Best effort; a leftover is removed by the next export.
         try:
-            _request("DELETE", f"/blocks/{new_id}", token)
+            _request("DELETE", f"/blocks/{new_id}", token, retries=1, max_wait=2.0)
         except Exception:
             log.info("Could not remove a half-written Notion transcript block")
         raise
     for old_id in old:
         if _block_id(old_id) != new_id:
             try:
-                _request("DELETE", f"/blocks/{_block_id(old_id)}", token)
+                _request("DELETE", f"/blocks/{_block_id(old_id)}", token, job_id=job_id)
             except _Missing:
                 pass
     background_jobs.update_progress(job_id, 1.0, "Exported to Notion.")

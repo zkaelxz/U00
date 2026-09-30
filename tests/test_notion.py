@@ -310,19 +310,56 @@ def test_redact_removes_the_token_by_value():
     assert token not in ns.redact(f"oops {token} here", token)
 
 
-def test_rate_limit_is_retried_after_retry_after(notion):
-    notion.fail[("GET", "/users/me")] = [(429, {"message": "slow down"}, {"Retry-After": "3"}), 503]
-    assert ns.test_connection()["ok"] is True
+def test_rate_limit_is_retried_after_retry_after(notion, drama):
+    notion.fail[("GET", "/databases/")] = [(429, {"message": "slow down"}, {"Retry-After": "3"}),
+                                           503]
+    _export(drama)
     assert 3.0 in notion.sleeps and 2.0 in notion.sleeps  # Retry-After, then back-off 2**1
-    assert [c["url"] for c in notion.calls].count(ns.API_BASE + "/users/me") == 3
+    assert [c["url"] for c in notion.calls].count(f"{ns.API_BASE}/databases/{DB_ID}") == 3
 
 
-def test_rate_limit_gives_up_eventually(notion):
-    notion.fail[("GET", "/users/me")] = [429] * (ns.MAX_RETRIES + 1)
+def test_rate_limit_gives_up_eventually(notion, drama):
+    notion.fail[("GET", "/databases/")] = [429] * (ns.MAX_RETRIES + 1)
+    with pytest.raises(DependencyUnavailableError) as e:
+        _export(drama)
+    assert e.value.message == ns._BUSY
+    assert all(s <= ns.MAX_RETRY_WAIT for s in notion.sleeps)
+
+
+def test_test_connection_has_a_small_retry_budget(notion):
+    notion.fail[("GET", "/users/me")] = [(429, {}, {"Retry-After": "600"})] * 3
     with pytest.raises(DependencyUnavailableError) as e:
         ns.test_connection()
     assert e.value.message == ns._BUSY
-    assert all(s <= ns.MAX_RETRY_WAIT for s in notion.sleeps)
+    assert len([c for c in notion.calls if c["url"].endswith("/users/me")]) == ns.TEST_RETRIES + 1
+    assert max(notion.sleeps) <= ns.TEST_RETRY_WAIT
+
+
+def test_writes_are_retried_only_when_notion_did_nothing(notion, drama):
+    notion.fail[("POST", "/pages")] = [503]
+    with pytest.raises(DependencyUnavailableError):
+        _export(drama)
+    assert [c["method"] for c in notion.calls].count("POST") == 1
+    notion.fail[("POST", "/pages")] = [429, 409]
+    _export(drama)
+    assert [c["method"] for c in notion.calls].count("POST") == 4
+    assert len([p for p in notion.pages.values()
+                if p["parent"].get("database_id") == DB_ID]) == 1
+
+
+def test_bad_retry_after_values_fall_back(notion):
+    for raw in ("nan", "inf", "-5", "soon"):
+        notion.fail[("GET", "/users/me")] = [(429, {}, {"Retry-After": raw})]
+        assert ns.test_connection()["ok"] is True
+    assert all(0.5 <= s <= ns.TEST_RETRY_WAIT for s in notion.sleeps if s > ns.MIN_INTERVAL)
+
+
+def test_cancel_is_honoured_before_a_retry_wait(notion, drama, monkeypatch):
+    notion.fail[("GET", "/databases/")] = [(429, {}, {"Retry-After": "30"})] * 3
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
+    with pytest.raises(background_jobs.JobCancelled):
+        _export(drama)
+    assert 30.0 not in notion.sleeps
 
 
 def test_requests_are_spaced(monkeypatch):
@@ -462,7 +499,7 @@ def test_failed_append_keeps_the_old_transcript(notion, drama):
     with pytest.raises(DependencyUnavailableError):
         _export(drama)
     assert [h["id"] for h in notion.headings(page_id)] == [old_heading]
-    assert state["appends"] == ns.MAX_RETRIES + 1
+    assert state["appends"] == 1  # a write is never retried on a 5xx (it may have landed)
 
 
 def test_cancel_removes_the_half_written_block(notion, drama, monkeypatch):
