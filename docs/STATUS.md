@@ -33,9 +33,7 @@ Deferred: Step 108 (adapter interfaces), and the `db.py` and `api/schemas.py` sp
 Parked import and export follow-ups (owner decision 2026-09-30, revisit only if they cause trouble):
 - The chapter list is fetched twice: the import job re-lists, and listing never seeds the raw cache. Only lightnovel_fun's volume walk repeats real page fetches.
 - `media_export_service` builds in the system temp dir and `shutil.move`s to the final path; across drives that is a copy, so a failure can leave a half-copied file.
-- `export_package.py` has no caller outside tests and `diagnostics.py`'s file list; delete it.
 - Rows written before the at-rest redaction change (`access_attempts`, `source_health`, `tracked_series.last_check_error`, `job_records`) are only scrubbed on read. In-memory job messages are not query-stripped; check that the job API scrubs them.
-- Per-host pacing (shared pace state keyed by host, not source name) is approved; start it after the at-rest redaction PR lands, since both touch `sources/http.py`.
 
 Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
 

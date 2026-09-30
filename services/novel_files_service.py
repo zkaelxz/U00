@@ -7,7 +7,7 @@ Streamlit deletion:
     in the drama folder, recorded in `dramas.novel_reference_filename`
     (tabs/workspace_tab.py tab_transcript "Upload novel translation
     (.txt/.md)", saved on Prepare). Read by translate_run_service,
-    workspace_job_service, glossary_service, cli and export_package.
+    workspace_job_service, glossary_service and cli.
   - the raw original-language novel (S04): `raw_novel_context.txt` (no DB
     field; its presence is the flag). Primes the automatic Whisper prompt
     (transcribe_service.build_auto_initial_prompt) and pairs with the

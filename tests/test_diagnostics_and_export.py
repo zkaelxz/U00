@@ -1,6 +1,6 @@
 """
-tests/test_diagnostics_and_export.py -- tests for diagnostics.py,
-export_package.py, and db.py's line history (undo) functions.
+tests/test_diagnostics_and_export.py -- tests for diagnostics.py
+and db.py's line history (undo) functions.
 """
 
 import sys
@@ -14,7 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import db
 import diagnostics
-import export_package
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -221,89 +220,6 @@ class TestLineHistory:
             did, [Line(idx=0, start=0, end=1, zh="a", en="b")], "test")
         isolated_db.delete_drama(did)
         assert isolated_db.list_line_history(did) == []
-
-
-class TestExportPackage:
-    def test_full_package_contains_all_components(self, isolated_db, tmp_path_str):
-        did = isolated_db.create_drama(title_en="Export Test", author="Author")
-        ddir = isolated_db.drama_dir(did)
-        with open(os.path.join(ddir, "source.mp3"), "wb") as f:
-            f.write(b"audio")
-        isolated_db.update_drama(did, audio_filename="source.mp3")
-        with open(os.path.join(ddir, "dub_track.wav"), "wb") as f:
-            f.write(b"dub")
-        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1.5, zh="你好", en="Hello")])
-        isolated_db.upsert_character(did, "A", character_name="Character A")
-
-        out_zip = os.path.join(tmp_path_str, "pkg.zip")
-        path, manifest = export_package.build_drama_export_package(
-            isolated_db, did, out_zip, lines_to_srt, lines_to_bilingual_srt, Line)
-
-        with zipfile.ZipFile(path) as zf:
-            names = zf.namelist()
-            assert "metadata.json" in names
-            assert "subtitles/english.srt" in names
-            assert "subtitles/chinese.srt" in names
-            assert "subtitles/bilingual.srt" in names
-            assert "source/source.mp3" in names
-            assert "audio/dub_track.wav" in names
-
-    def test_overlapping_cues_are_clamped_before_export(self, isolated_db, tmp_path_str):
-        """Step 25d item 6: Workspace's own export already promises "never
-        export an overlapping (invalid) cue" (subtitle_formats.clamp_overlaps)
-        -- this path used to skip that clamp entirely."""
-        did = isolated_db.create_drama(title_en="Overlap Test")
-        isolated_db.save_lines(did, [
-            Line(idx=0, start=0.0, end=2.0, zh="a", en="Hello"),
-            Line(idx=1, start=1.5, end=3.0, zh="b", en="World"),
-        ])
-        out_zip = os.path.join(tmp_path_str, "overlap.zip")
-        export_package.build_drama_export_package(
-            isolated_db, did, out_zip, lines_to_srt, lines_to_bilingual_srt, Line)
-        with zipfile.ZipFile(out_zip) as zf:
-            srt = zf.read("subtitles/english.srt").decode("utf-8")
-        assert "00:00:00,000 --> 00:00:01,500" in srt  # clamped to the next cue's start
-        assert "00:00:00,000 --> 00:00:02,000" not in srt  # the original, overlapping timing
-
-    def test_metadata_includes_drama_and_characters(self, isolated_db, tmp_path_str):
-        did = isolated_db.create_drama(title_en="Meta Test")
-        isolated_db.upsert_character(did, "A", character_name="Someone")
-        out_zip = os.path.join(tmp_path_str, "pkg.zip")
-        export_package.build_drama_export_package(
-            isolated_db, did, out_zip, lines_to_srt, lines_to_bilingual_srt, Line)
-        with zipfile.ZipFile(out_zip) as zf:
-            meta = json.loads(zf.read("metadata.json"))
-            assert meta["drama"]["title_en"] == "Meta Test"
-            assert meta["characters"][0]["character_name"] == "Someone"
-
-    def test_incomplete_drama_still_produces_valid_zip(self, isolated_db, tmp_path_str):
-        did = isolated_db.create_drama(title_en="Bare")
-        out_zip = os.path.join(tmp_path_str, "bare.zip")
-        path, manifest = export_package.build_drama_export_package(
-            isolated_db, did, out_zip, lines_to_srt, lines_to_bilingual_srt, Line)
-        assert os.path.exists(path)
-        # should explain the gap rather than silently omitting it
-        assert any("no subtitles" in m for m in manifest)
-
-    def test_nonexistent_drama_raises_value_error(self, isolated_db, tmp_path_str):
-        with pytest.raises(ValueError):
-            export_package.build_drama_export_package(
-                isolated_db, 99999, os.path.join(tmp_path_str, "x.zip"),
-                lines_to_srt, lines_to_bilingual_srt, Line)
-
-    def test_manifest_matches_zip_contents(self, isolated_db, tmp_path_str):
-        did = isolated_db.create_drama(title_en="Manifest Test")
-        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="b")])
-        out_zip = os.path.join(tmp_path_str, "pkg.zip")
-        _, manifest = export_package.build_drama_export_package(
-            isolated_db, did, out_zip, lines_to_srt, lines_to_bilingual_srt, Line)
-        with zipfile.ZipFile(out_zip) as zf:
-            names = set(zf.namelist())
-        # every real file in the manifest should exist in the zip
-        # (explanatory entries in parentheses aren't files)
-        for m in manifest:
-            if not m.startswith("("):
-                assert m in names
 
 
 # ---------------------------------------------------------------------------
