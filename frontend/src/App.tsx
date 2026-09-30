@@ -38,7 +38,7 @@ function ApiStatus() {
   if (!meta) return <span className="badge">Connecting…</span>
   return (
     <span className="badge ok" data-testid="api-status">
-      API v{meta.api_version} · {meta.environment}
+      API v{meta.api_version}{meta.environment ? ` · ${meta.environment}` : ''}
     </span>
   )
 }

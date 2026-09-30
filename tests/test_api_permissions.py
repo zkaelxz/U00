@@ -112,8 +112,10 @@ class TestEveryRouteDeclared:
 
     def test_household_listener_has_the_same_declared_routes(self, dist):
         """The household app (D5) is the same route table with auth on."""
-        household = create_app(ApiSettings(household_port=8610), frontend_dist=dist,
-                               listener="household")
+        household = create_app(ApiSettings(household_port=8610, google_client_id="cid",
+                                           google_client_secret="s",
+                                           public_url="https://baihe.example.com"),
+                               frontend_dist=dist, listener="household")
         bad = _undeclared(household)
         assert not bad, "Routes without exactly one permission declaration:\n  " + \
             "\n  ".join(bad) + "\n" + HOW_TO_DECLARE

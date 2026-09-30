@@ -36,7 +36,8 @@ class HealthResponse(BaseModel):
 class MetaResponse(BaseModel):
     app: str
     api_version: str
-    environment: str = Field(description="`development` or `production`.")
+    environment: str = Field(description="`development` or `production`; empty on the "
+                                         "household listener.")
     local: bool = Field(description="True when this request would pass a PC-only (local_only) "
                                     "route: the viewer is at the PC. A UI hint only; those "
                                     "routes still enforce it.")

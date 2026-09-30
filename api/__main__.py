@@ -102,7 +102,11 @@ def _serve_with_household(settings):
     from api.server import app as admin_app, create_app
     from services import shutdown_service
     household_app = create_app(settings, listener="household")
+    # Pinned, not left to FORWARDED_ALLOW_IPS: the household app's HSTS and
+    # client address rely on uvicorn taking X-Forwarded-* only from the
+    # proxy on this PC.
     servers = [_quiet_server(uvicorn.Config(app, host=settings.host, port=port,
+                                            proxy_headers=True, forwarded_allow_ips="127.0.0.1",
                                             timeout_graceful_shutdown=3))
                for app, port in ((admin_app, settings.port),
                                  (household_app, settings.household_port))]
