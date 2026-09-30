@@ -4,7 +4,7 @@ import { mockBackups } from './backupsMocks'
 
 // Automatic backups (Step 43), desktop. The settings test runs against the
 // real seeded API (a throwaway library) and resets what it changed; the
-// Back up now and snapshot tests use the stateful mocks in backupsMocks.ts.
+// Back up now and copies tests use the stateful mocks in backupsMocks.ts.
 // BACKUP_SHOTS_DIR=<dir> also saves review screenshots.
 
 const SHOTS = process.env.BACKUP_SHOTS_DIR
@@ -21,16 +21,17 @@ async function openAdmin(page: Page) {
 
 test.describe('Settings card (real API)', () => {
   test.afterAll(async ({ request }) => {
-    await request.post('/api/backups/settings', { data: { enabled: false, frequency: 'weekly', folder: '' } })
+    await request.post('/api/backups/settings', { data: { enabled: false, frequency: 'daily', folder: '' } })
   })
 
   test('the toggle and frequency persist; a bad folder is refused in plain words', async ({ page }) => {
     await page.goto('/#/settings')
     const c = card(page)
-    await expect(c).toContainText('Keeps one snapshot; each new backup replaces it.')
+    await expect(c).toContainText('Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
-    await expect(c.getByRole('radio', { name: 'Weekly' })).toBeChecked()
+    // Daily is the default.
+    await expect(c.getByRole('radio', { name: 'Daily' })).toBeChecked()
     await expect(c.getByRole('switch', { name: /Include media/ })).not.toBeChecked()
 
     const saved = page.waitForResponse((r) => r.url().endsWith('/api/backups/settings') && r.request().method() === 'POST')
@@ -40,13 +41,13 @@ test.describe('Settings card (real API)', () => {
     await expect(c).toContainText(/Next backup:/)
 
     const freq = page.waitForResponse((r) => r.url().endsWith('/api/backups/settings') && r.request().method() === 'POST')
-    await c.getByRole('radio', { name: 'Daily' }).check()
-    expect((await freq).request().postDataJSON()).toEqual({ frequency: 'daily' })
+    await c.getByRole('radio', { name: 'Weekly' }).check()
+    expect((await freq).request().postDataJSON()).toEqual({ frequency: 'weekly' })
 
     await page.reload()
     await expect(card(page).getByRole('switch', { name: 'Back up automatically' })).toBeChecked()
-    await expect(card(page).getByRole('radio', { name: 'Daily' })).toBeChecked()
-    await expect(card(page).locator('.card-meta')).toHaveText('Daily · database only')
+    await expect(card(page).getByRole('radio', { name: 'Weekly' })).toBeChecked()
+    await expect(card(page).locator('.card-meta')).toHaveText('Weekly · database only')
 
     const folder = card(page).getByRole('textbox', { name: 'Backup folder' })
     await expect(folder).toHaveAttribute('placeholder', 'Library backups folder (default)')
@@ -59,12 +60,16 @@ test.describe('Settings card (real API)', () => {
   })
 })
 
-test.describe('Back up now and the snapshot (mocked)', () => {
-  test('with a snapshot, Back up now asks to replace it first, then sends replace', async ({ page }) => {
+test.describe('Back up now and the copies (mocked)', () => {
+  test('lists the copies newest first; Back up now adds one at once, no replace question', async ({ page }) => {
     const state = await mockBackups(page, { jobPollsBeforeDone: 2 })
     await page.goto('/#/settings')
     const c = card(page)
     await expect(c.getByTestId('auto-backup-snapshot')).toContainText('Database only · 12.3 MB · 3 dramas')
+    const copies = c.getByRole('list', { name: 'Backup copies, newest first' }).getByRole('listitem')
+    await expect(copies).toHaveCount(3)
+    await expect(copies.nth(0)).toContainText(/2026.* · Database only · 12.3 MB · daily$/)
+    await expect(copies.nth(2)).toContainText(/Database \+ media · 11.0 MB · weekly$/)
     if (SHOTS) {
       await page.setViewportSize({ width: 1440, height: 900 })
       await c.scrollIntoViewIfNeeded()
@@ -73,32 +78,44 @@ test.describe('Back up now and the snapshot (mocked)', () => {
     }
 
     await c.getByRole('button', { name: 'Back up now' }).click()
-    const confirm = c.getByRole('group', { name: 'Replace the snapshot?' })
-    await expect(confirm).toContainText(/This replaces the snapshot from .*2026/)
-    await expect(confirm).toContainText('(Database only · 12.3 MB · 3 dramas). Only one snapshot is kept.')
-    expect(state.posts).toEqual([])
-    if (SHOTS) await c.screenshot({ path: `${SHOTS}/settings-auto-backups-replace-desktop.png` })
-
-    // Cancel keeps it; asking again and confirming sends replace: true.
-    await confirm.getByRole('button', { name: 'Cancel' }).click()
-    await expect(confirm).toHaveCount(0)
-    await c.getByRole('button', { name: 'Back up now' }).click()
-    await c.getByRole('button', { name: 'Replace snapshot' }).click()
     await expect(c.getByText('Backup finished.')).toBeVisible()
-    expect(state.posts).toEqual([{ path: '/api/backups/now', body: { replace: true } }])
+    expect(state.posts).toEqual([{ path: '/api/backups/now', body: {} }])
+    await expect(copies).toHaveCount(4)
+    await expect(copies.nth(0)).toContainText(/12.4 MB · daily$/)
     await expect(c).toContainText(/Last backup: .*2026/)
   })
 
-  test('with no snapshot, Back up now starts at once', async ({ page }) => {
-    const state = await mockBackups(page, { snapshot: { exists: false } })
+  test('with no copies, Back up now starts at once', async ({ page }) => {
+    const state = await mockBackups(page, { snapshot: { exists: false, copies: [] } })
     await page.goto('/#/settings')
-    await expect(card(page).getByTestId('auto-backup-snapshot')).toHaveText('Snapshot: No snapshot yet.')
+    await expect(card(page).getByTestId('auto-backup-snapshot')).toHaveText('Newest copy: No snapshot yet.')
+    await expect(card(page).getByTestId('auto-backup-copies')).toHaveCount(0)
     await card(page).getByRole('button', { name: 'Back up now' }).click()
     await expect(card(page).getByText('Backup finished.')).toBeVisible()
-    expect(state.posts).toEqual([{ path: '/api/backups/now', body: { replace: false } }])
+    expect(state.posts).toEqual([{ path: '/api/backups/now', body: {} }])
   })
 
-  test('Library tools shows the snapshot and deletes it with a typed DELETE', async ({ page }) => {
+  test('Library tools restores from a chosen older copy', async ({ page }) => {
+    const state = await mockBackups(page)
+    const block = await openAdmin(page)
+    await block.getByRole('button', { name: 'Restore one drama…' }).click()
+    const from = block.getByLabel('Restore from')
+    await expect(from).toHaveValue('baihe_snapshot-20260928-093000.zip')
+    await expect(block.getByRole('list', { name: 'Dramas in the copy' }).getByRole('button')).toHaveCount(3)
+    await from.selectOption('baihe_snapshot-20260921-093000.zip')
+    const list = block.getByRole('list', { name: 'Dramas in the copy' })
+    await expect(list.getByRole('button')).toHaveCount(2)
+    await list.getByRole('button', { name: /Signal/ }).click()
+    await block.getByLabel(/Type RESTORE to confirm/).fill('RESTORE')
+    await block.getByRole('button', { name: 'Restore drama' }).click()
+    await expect(block.getByTestId('restore-result')).toContainText("Restored 'Signal'.")
+    expect(state.posts).toEqual([{
+      path: '/api/backups/snapshot/restore-drama',
+      body: { drama_id: 3, confirm: true, confirm_text: 'RESTORE', snapshot: 'baihe_snapshot-20260921-093000.zip' },
+    }])
+  })
+
+  test('Library tools deletes one chosen copy, then all of them, each with a typed DELETE', async ({ page }) => {
     const state = await mockBackups(page)
     const block = await openAdmin(page)
     await expect(block.getByTestId('snapshot-info')).toContainText('Database only · 12.3 MB · 3 dramas')
@@ -108,15 +125,27 @@ test.describe('Back up now and the snapshot (mocked)', () => {
       await page.screenshot({ path: `${SHOTS}/library-page-1440.png`, fullPage: true })
     }
 
-    await block.getByRole('button', { name: 'Delete snapshot…' }).click()
-    const go = block.getByRole('button', { name: 'Delete snapshot', exact: true })
+    await block.getByRole('button', { name: 'Delete a copy…' }).click()
+    // The oldest copy is chosen first.
+    await expect(block.getByLabel('Copy to delete')).toHaveValue('baihe_snapshot-20260921-093000.zip')
+    const go = block.getByRole('button', { name: 'Delete copy', exact: true })
     await block.getByLabel(/Type DELETE to confirm/).fill('delete')
     await expect(go).toBeDisabled()
     await block.getByLabel(/Type DELETE to confirm/).fill('DELETE')
     await go.click()
-    await expect(block.getByText('Snapshot deleted.')).toBeVisible()
+    await expect(block.getByText('Copy deleted.')).toBeVisible()
+    await expect(block.getByTestId('snapshot-info')).toContainText('Database only · 12.3 MB · 3 dramas')
+
+    await block.getByRole('button', { name: 'Delete a copy…' }).click()
+    await block.getByLabel('Copy to delete').selectOption({ label: 'All copies (2)' })
+    await block.getByLabel(/Type DELETE to confirm/).fill('DELETE')
+    await block.getByRole('button', { name: 'Delete all copies', exact: true }).click()
+    await expect(block.getByText('All copies deleted.')).toBeVisible()
     await expect(block.getByTestId('snapshot-info')).toHaveText('No snapshot yet.')
     await expect(block.getByRole('button', { name: 'Restore one drama…' })).toBeDisabled()
-    expect(state.posts).toEqual([{ path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE' } }])
+    expect(state.posts).toEqual([
+      { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', snapshot: 'baihe_snapshot-20260921-093000.zip' } },
+      { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', all: true } },
+    ])
   })
 })
