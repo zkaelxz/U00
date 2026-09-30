@@ -1,6 +1,6 @@
 # Media-server metadata: Baihe and Jellyfin/Plex (Step 116 design note)
 
-Roadmap item 116 (`docs/baihe-roadmap-master.md`): "Plex/Jellyfin
+Roadmap item 116 (`docs/archive/baihe-roadmap-master.md`): "Plex/Jellyfin
 metadata-provider adjacency for 'Fetch & add to library'". Design only;
 nothing here is built. Written 2026-09-30 against `baihe-subtitler` at
 1eb36e4 (Step 39's Jellyfin connector, #474). Facts about Jellyfin and Plex
@@ -23,9 +23,11 @@ Private fields that must never leave Baihe this way: `personal_notes`,
 `source_url` (it can carry a session or token in its query),
 `last_translate_errors`, and any file path.
 
-"Fetch & add to library" (Discover, `title_library.import_title_from_url`)
-reads a public listing page, asks an LLM for the title metadata and adds it
-to Discover's `known_titles` catalog. The drama fields above are filled by
+"Fetch & add to library" (Discover: `discover_lookup_service.import_suggestion`
+in the React app, and the frozen Streamlit `title_library.import_title_from_url`)
+fetches a public listing page and asks an LLM for the title metadata; the
+result is added to Discover's `known_titles` catalog only when the user
+accepts it. The drama fields above are filled by
 hand or by the similar auto-fill (`services/metadata_service.py`). Neither
 touches a media server today.
 
