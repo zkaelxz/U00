@@ -341,6 +341,25 @@ class TestStorage:
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_typeset_pages_match_rendered_pages_but_keep_scans(self):
+        # The comic editor renders pages/typeset_NNNN.png next to the
+        # source scans in pages/; only the rendered files are cleanable.
+        d = self._make_dir()
+        try:
+            pages = os.path.join(d, "pages")
+            os.makedirs(pages)
+            for name, size in (("page_0001.png", 700), ("typeset_0001.png", 400),
+                               ("typeset_pages.zip", 100)):
+                with open(os.path.join(pages, name), "wb") as f:
+                    f.write(b"p" * size)
+            assert stg.scan_drama_storage(d)["categories"]["typeset_pages"] == 500
+            res = stg.clean_drama_storage(d, ["typeset_pages"])
+            assert res["freed_bytes"] == 500
+            assert sorted(os.listdir(pages)) == ["page_0001.png"]
+            assert os.path.exists(os.path.join(d, "source.mp3"))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_nonexistent_dir_no_crash(self):
         assert stg.scan_drama_storage("/nonexistent/xyz")["total_bytes"] == 0
         assert stg.clean_drama_storage("/nonexistent/xyz", ["dub_clips"])["freed_bytes"] == 0
@@ -357,6 +376,12 @@ class TestStorage:
         cats = stg.categories_for_preset("minimal")
         for expected in ("dub_clips", "ocr_temp", "typeset_pages"):
             assert expected in cats
+
+    def test_every_category_is_cleaned_by_some_preset(self):
+        # A category no preset selects is reported as reclaimable but can
+        # never actually be reclaimed.
+        cleaned = {c for p in stg.STORAGE_QUALITY_PRESETS for c in stg.categories_for_preset(p)}
+        assert set(stg.CLEANABLE_CATEGORIES) <= cleaned
 
     def test_all_cleanable_categories_are_regenerable(self):
         # nothing marked cleanable should ever be irreplaceable

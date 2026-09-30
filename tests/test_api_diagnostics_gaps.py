@@ -50,6 +50,8 @@ def fakes(isolated_db, monkeypatch):
          "size_bytes": 10, "path": ABS_PATH}])
     monkeypatch.setattr(diagnostics, "scan_piper_voices", lambda *a, **k: [
         {"voice": "en_US-amy", "size_bytes": 5, "path": ABS_PATH}])
+    monkeypatch.setattr(diagnostics, "scan_model_folder", lambda kind, *a, **k: [
+        {"name": f"{kind}.bin", "size_bytes": 3, "path": ABS_PATH}])
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name: HF_TOKEN if name == "hf_token" else None)
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
@@ -100,6 +102,10 @@ def test_reads(client):
     m = _clean(client.get("/api/diagnostics/model-cache"))
     assert m["hf_total_bytes"] == 10 and m["piper_voices"] == [{"voice": "en_US-amy",
                                                                  "size_bytes": 5}]
+    assert m["model_files"] == [
+        {"folder": "torch", "name": "torch.bin", "size_bytes": 3},
+        {"folder": "audio_separator", "name": "audio_separator.bin", "size_bytes": 3}]
+    assert m["model_files_total_bytes"] == 6
     p = _clean(client.get("/api/diagnostics/pyannote"))
     assert p["hf_token_configured"] is True and p["models"] is None
     p = _clean(client.get("/api/diagnostics/pyannote?check_access=true"))
