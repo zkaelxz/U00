@@ -33,6 +33,7 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     auth_routes,
+    backup_routes,
     benchmark_routes,
     blocked_retry_routes,
     bug_report_routes,
@@ -200,6 +201,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
+    app.include_router(backup_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)

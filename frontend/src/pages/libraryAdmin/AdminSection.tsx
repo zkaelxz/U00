@@ -11,6 +11,7 @@ import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
+import { SnapshotBlock } from './SnapshotBlock'
 import { anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
 
@@ -36,6 +37,7 @@ export function AdminSection({ pc, exportable, exporter }: {
       <ExportBlock exportable={exportable} job={exporter} />
       <BackupBlock />
       <RestoreBlock />
+      <SnapshotBlock />
       <StorageBlock />
     </Section>
   )

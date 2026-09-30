@@ -1,0 +1,34 @@
+/* Automatic backups: the Settings Card (settings/AutoBackupCard.tsx) and the
+   Library tools snapshot block (libraryAdmin/SnapshotBlock.tsx). */
+
+/* The frequency row wraps on narrow screens so the segmented control drops under its label. */
+.auto-backup .setting-list > .backup-frequency { flex-wrap: wrap; }
+.auto-backup .setting-list { margin: 0; }
+.auto-backup .card-body { display: grid; gap: var(--space-3); }
+.backup-status { display: grid; gap: var(--space-1); margin: 0; }
+.backup-status p { margin: 0; }
+.backup-confirm { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.backup-confirm p { margin: 0; }
+.folder-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
+.folder-form .field-item { flex: 1 1 16rem; min-width: 0; }
+
+/* The restore picker: one row per drama, whole row is the tap target. */
+.snapshot-dramas { list-style: none; margin: 0; padding: 0; max-height: 22rem; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.snapshot-dramas > li + li { border-top: 1px solid var(--border); }
+.snapshot-dramas button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+}
+.snapshot-dramas button:hover { background: var(--accent-soft); }
+.snapshot-drama-title { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.snapshot-drama-meta { color: var(--muted); font-size: var(--text-sm); }
+.restore-notes { margin: 0; padding-left: var(--space-4); display: grid; gap: var(--space-1); }
