@@ -30,7 +30,7 @@ export const SETTINGS = {
   pace_min_delay: 3, pace_max_delay: 8, max_concurrent: 1, max_retries: 3,
   session_break_min_requests: 8, session_break_max_requests: 20,
   session_break_min_delay: 30, session_break_max_delay: 90,
-  cache_mode: 'keep_originals', check_interval_hours: 24,
+  cache_mode: 'keep_originals', cache_max_mb: 0, check_interval_hours: 24,
   auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
   proxy_configured: false,
   cache_modes: ['none', 'temporary', 'keep_originals', 'keep_translated', 'keep_both'],
@@ -60,7 +60,7 @@ export function searchResult(n = 3) {
 }
 
 
-export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1') {
+export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1', links?: unknown[]) {
   return {
     kind: 'series',
     source: 'alpha',
@@ -69,12 +69,19 @@ export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven B
       title, url: 'https://alpha.example/a', cover_url: 'https://alpha.example/c.jpg',
       authors: ['Mo Xiang'], description: 'A long description. '.repeat(20), genres: ['xianxia'],
       status: 'ongoing', content_type: 'manhua', language: 'zh',
+      ...(links ? { links } : {}),
     },
     chapters: Array.from({ length: chapters }, (_, i) => ({
       chapter_id: `c${i + 1}`, title: `Chapter ${i + 1}`, group: i < chapters - 2 ? 'Main' : 'Extras', url: 'https://alpha.example/c',
     })),
   }
 }
+
+// A work's posted EPUB links as the service sends them (no query string).
+export const SERIES_LINKS = [
+  { label: '百度网盘 (Baidu Pan)', url: 'https://pan.baidu.com/s/1UW8fzsl6WfJ1RRIXRt_MPw', password: 'roh1' },
+  { label: '蓝奏云 (Lanzou)', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
+]
 
 export function sourceDetail(summary: (typeof SOURCES)[number]) {
   const tier = { tested: false, ok: false, reason: null, detail: '', at: null }
@@ -109,6 +116,8 @@ export interface MockState {
   // Which series the job holds; its result is seriesResult(124, seriesId, seriesTitle).
   seriesId: string
   seriesTitle: string
+  // Download links the series posts (info.links), if any.
+  seriesLinks?: unknown[]
   // Keep a running series job running (no auto-finish on the next poll).
   seriesHold: boolean
   tracked: unknown[]
@@ -214,7 +223,7 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     return json(route, {
       job_id: 'sources_series_alpha', status: 'done', progress: 1, message: null,
       source: 'alpha', series_id: s.seriesId,
-      result: seriesResult(124, s.seriesId, s.seriesTitle),
+      result: seriesResult(124, s.seriesId, s.seriesTitle, s.seriesLinks),
     })
   })
   // The paste-a-link box looks for an earlier preview on load: none here

@@ -186,11 +186,15 @@ test('learn my style when remote: the all-projects style is PC only to learn or 
 
 test('SenseVoice: start the job, then show the side-by-side table (model mocked)', async ({ page }) => {
   let tagged = false
+  let started = false
   const rows = [
     { line_id: lineIds[0], idx: 0, text: '你', text_emotion: 'happy', audio_emotion: 'sad', audio_events: 'crying', disagree: true },
   ]
   await page.route('**/api/review-extras/dramas/3/sensevoice', (route) => {
-    if (route.request().method() === 'POST') return route.fulfill({ json: { job_id: 'sensevoice_3', drama_id: 3, line_count: 3 } })
+    if (route.request().method() === 'POST') {
+      started = true
+      return route.fulfill({ json: { job_id: 'sensevoice_3', drama_id: 3, line_count: 3 } })
+    }
     return route.fulfill({
       json: {
         drama_id: 3, installed: true, has_audio: true, license_note: 'Model weights have their own licence.',
@@ -198,7 +202,9 @@ test('SenseVoice: start the job, then show the side-by-side table (model mocked)
       },
     })
   })
+  // Before the POST the stage's reattach lookup reads this id too: no job yet.
   await page.route('**/api/jobs/sensevoice_3', (route) => {
+    if (!started) return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No job.' } } })
     tagged = true
     return route.fulfill({ json: job('sensevoice_3', 'done') })
   })
@@ -233,6 +239,7 @@ test('burned preview: a line number resolves to its id, then the clip plays (ffm
     return route.fulfill({ json: { job_id: 'burnpreview_3', drama_id: 3, line_id: lineIds[1], start: 0, end: 3 } })
   })
   await page.route('**/api/jobs/burnpreview_3', (route) => {
+    if (!bodies.length) return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No job.' } } })
     rendered = true
     return route.fulfill({ json: job('burnpreview_3', 'done') })
   })

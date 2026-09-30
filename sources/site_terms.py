@@ -212,6 +212,27 @@ SITE_TERMS = [
                           "read.",
         },
     },
+    {
+        # roadmap Step 115. Has an adapter (sources/adapters/lightnovel_fun.py),
+        # whose own capability record carries the same notes; recorded here
+        # too as the directly-read finding for the domain as a whole.
+        "domains": ("lightnovel.fun",),
+        "platform": "轻之国度 (LightNovel)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "robots.txt fetched directly (2026-09-30): User-agent: * disallows only "
+                    "/settings/ and /publish_mgr/; AhrefsBot, DotBot, MJ12bot and SemrushBot "
+                    "get Disallow: /. The site rules page (LK站规) couldn't be located: the "
+                    "footer's rules links have no target and /site_rule returns 404.",
+            "notices": "Per-work notices uploaders put on their releases: \"仅供个人学习交流使用，"
+                       "禁作商业用途\" (personal study only, no commercial use), \"禁止转载\" (no "
+                       "reposting), \"禁止二改二传\" (no re-editing or re-uploading).",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. The per-work notices restrict "
+                          "redistribution, not reading; they are not a site-wide automation "
+                          "clause.",
+        },
+    },
 ]
 
 

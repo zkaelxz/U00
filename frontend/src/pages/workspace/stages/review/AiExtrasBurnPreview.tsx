@@ -7,6 +7,8 @@ import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { burnPreviewJobId } from '../../stageJobIds'
 import type { BurnPreviewInfo } from '../../../../types/reviewExtras'
 import { JobPanel } from '../JobPanel'
 import { clipCaption, resolveLineNumber } from './aiExtrasLogic'
@@ -26,7 +28,8 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
   const [preset, setPreset] = useState('Clean')
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob([burnPreviewJobId(dramaId)], adoptJob)
   const [loadKey, setLoadKey] = useState(0)
   const reload = useCallback(() => setLoadKey((n) => n + 1), [])
   const { job, done, error: pollError } = useJob(jobId, { runKey, onDone: reload })

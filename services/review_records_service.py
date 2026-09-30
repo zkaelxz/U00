@@ -68,8 +68,8 @@ def get_line_history_snapshot(drama_id: int, history_id: int) -> dict:
     raw = db.get_line_history_snapshot(history_id)
     if raw is None:
         raise NotFoundError(f"No history snapshot {history_id} for drama {drama_id}.")
-    # db.save_line_history_snapshot does not store flag/flag_note/sfx, so
-    # they are deliberately absent here rather than invented.
+    # flag/flag_note/sfx are left out: snapshots saved before they were
+    # recorded don't have them, so this read shape doesn't promise them.
     lines = [{"id": r.get("id"), "idx": r.get("idx"), "start": r.get("start"),
               "end": r.get("end"), "zh": r.get("zh") or "", "en": r.get("en") or "",
               "speaker": r.get("speaker"),

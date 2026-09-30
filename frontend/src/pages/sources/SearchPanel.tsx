@@ -22,6 +22,7 @@ import {
 import type { SourceErrorCopy } from './sourcesFormat'
 import { openerKey } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
+import { WebSearchFallback } from './WebSearchFallback'
 
 /** One failed source call: the copy, a browser-check link and Try again. */
 export function SourceErrorLine({ copy, onRetry }: { copy: SourceErrorCopy; onRetry?: () => void }) {
@@ -56,9 +57,12 @@ type Props = {
   // "Show more" and the scroll position survive).
   resultsHidden: boolean
   onOpen: (series: OpenSeries, opener: string) => void
+  // Web-search fallback: puts a result's address into the Paste a link box
+  // (null where that box is not available).
+  onUseLink: ((url: string) => void) | null
 }
 
-export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Props) {
+export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUseLink }: Props) {
   const [query, setQuery] = useState('')
   // Unticked source names; everything else searchable is ticked.
   const [excluded, setExcluded] = usePersistedState<string[]>('sources.searchIn', [])
@@ -155,6 +159,9 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
           </div>
           {result.cancelled && <p className="muted">Stopped. Showing what came back before you cancelled.</p>}
           {!result.results.length && <p className="muted">No results for "{result.query}".</p>}
+          {!result.results.length && !result.cancelled && (
+            <WebSearchFallback key={result.query} query={result.query} onUseLink={onUseLink} />
+          )}
           {errors.map(([name, err]) => (
             <SourceErrorLine
               key={name}
