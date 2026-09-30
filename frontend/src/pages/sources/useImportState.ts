@@ -23,7 +23,12 @@ export function useImportState(source: string, seriesId: string, dramaId: number
         setLoaded({ key, state })
         setFailed(null)
       },
-      (error: unknown) => live && setFailed({ key, error }),
+      (error: unknown) => {
+        if (!live) return
+        // Don't keep showing marks and a retry set from before the last run.
+        setLoaded(null)
+        setFailed({ key, error })
+      },
     )
     return () => {
       live = false

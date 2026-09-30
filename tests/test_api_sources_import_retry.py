@@ -130,3 +130,81 @@ def test_import_state_validation(client, fakes):
                       params={"series_id": "s1"}).status_code == 422
     assert db.get_drama(did) is not None
     assert background_jobs.get_status(f"sourceimport_{did}") is None
+
+
+def test_retried_chapter_gone_from_the_site_leaves_the_manifest(client, fakes):
+    fakes["alpha"] = _make("alpha", fail={"c2": SourceUnavailable("down")})
+    did = _novel()
+    _start(client, did, ["c2"])
+    assert _state(client, did).json()["retry_count"] == 1
+    Fake = _make("alpha")
+    Fake.get_chapters = lambda self, series_id: []     # c2 is no longer listed
+    fakes["alpha"] = Fake
+    res = _start(client, did, ["c2"])
+    assert [c["outcome"] for c in res["chapters"]] == ["not_found"]
+    assert _state(client, did).json()["retry_count"] == 0
+
+
+def test_unexpected_error_still_saves_the_manifest(client, fakes, monkeypatch):
+    from sources import pipeline
+    fakes["alpha"] = _make("alpha", fail={"c1": SourceUnavailable("down")})
+    did = _novel()
+    real = pipeline.save_novel_text
+
+    def boom(drama_id, text, **kw):
+        if "c2" in text:
+            raise OSError("disk full")
+        return real(drama_id, text, **kw)
+    monkeypatch.setattr(pipeline, "save_novel_text", boom)
+    client.post("/api/sources/alpha/import",
+                json={"series_id": "s1", "chapter_ids": ["c1", "c2", "c10"], "drama_id": did})
+    _wait(f"sourceimport_{did}")
+    rows = {x["chapter_id"]: x["status"] for x in _state(client, did).json()["retry"]}
+    assert rows == {"c1": "failed", "c2": "not_attempted", "c10": "not_attempted"}
+
+
+def test_rows_older_than_the_drama_are_not_shown(client, fakes):
+    """A library reset starts drama ids at 1 again while sources.db stays:
+    an old library's manifest must not show up on the new drama."""
+    fakes["alpha"] = _make("alpha")
+    did = _novel()
+    store.record_import_retry("alpha", "s1", did, [("c2", "old", "failed", "old error")])
+    with store.connect() as conn:
+        conn.execute("UPDATE import_retry SET updated_at=0")
+    assert _state(client, did).json()["retry"] == []
+
+
+def test_import_state_auth_on_permission_and_ownership(fakes):
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from services import auth_service
+    fakes["alpha"] = _make("alpha")
+    a = auth_service.add_user("a@example.com")
+    b = auth_service.add_user("b@example.com")
+    private = db.create_drama(title_en="A private", media_type="novel",
+                              content_mode="novel_narration", owner_user_id=a["id"],
+                              is_private=1)
+    store.record_import_retry("alpha", "s1", private, [("c2", "secret title", "failed", "x")])
+    c = TestClient(create_app(ApiSettings(auth_mode="on")),
+                   base_url="https://baihe.example.com", raise_server_exceptions=False)
+    q = {"series_id": "s1", "drama_id": private}
+    assert c.get("/api/sources/alpha/import-state", params=q).status_code == 401
+
+    def hdrs(user):
+        s = auth_service.create_session(user["id"])
+        return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"}
+    hb = hdrs(b)
+    assert c.get("/api/sources/alpha/import-state", params=q, headers=hb).status_code == 403
+    auth_service.grant_permission(b["id"], "sources.import")
+    hidden = c.get("/api/sources/alpha/import-state", params=q, headers=hb)
+    missing = c.get("/api/sources/alpha/import-state",
+                    params={**q, "drama_id": 999999}, headers=hb)
+    assert hidden.status_code == missing.status_code == 404
+    assert "secret title" not in hidden.text
+    assert hidden.json()["error"]["message"].replace(str(private), "N") == \
+        missing.json()["error"]["message"].replace("999999", "N")
+    auth_service.grant_permission(a["id"], "sources.import")
+    mine = c.get("/api/sources/alpha/import-state", params=q, headers=hdrs(a))
+    assert mine.status_code == 200 and mine.json()["retry_count"] == 1

@@ -143,9 +143,31 @@ def _save_manifest(name: str, series_id: str, drama_id: int, chapters: list):
             name, series_id, drama_id,
             [(c["chapter_id"], c.get("title") or "", c["outcome"], c.get("error") or "")
              for c in chapters if c["outcome"] in store.RETRY_STATUSES],
-            [c["chapter_id"] for c in chapters if c["outcome"] in ("imported", "skipped")])
+            # A chapter no longer on the site can't be retried either.
+            [c["chapter_id"] for c in chapters
+             if c["outcome"] in ("imported", "skipped", "not_found")])
     except Exception:
-        pass
+        import applog
+        applog.get_logger().warning("Could not save the import retry manifest", exc_info=True)
+
+
+def _chapter_outcomes(raw: dict, wanted: list, missing_ids: list) -> list:
+    """The pipeline's rows matched to the wanted chapters by chapter_id
+    (never by position). A wanted chapter with no row is "not_attempted":
+    the job stopped first (browser check, terms, cancel, an error)."""
+    rows = {}
+    for row in raw.get("chapters") or []:
+        rows.setdefault(str(row.get("chapter_id")), row)
+    chapters = []
+    for ch in wanted:
+        row = rows.get(str(ch.chapter_id))
+        if row is not None:
+            chapters.append(_outcome(row))
+        else:
+            chapters.append({"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
+                             "outcome": "not_attempted", "error": _NOT_ATTEMPTED})
+    return chapters + [{"chapter_id": c, "title": "", "outcome": "not_found"}
+                       for c in missing_ids]
 
 
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
@@ -171,21 +193,16 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
               if str(ch.chapter_id) in requested]
     already = store.imported_chapter_ids(name, series_id, drama_id)
     skip = {c for c in chapter_ids if c in already}
-    pipeline.run_import_job(job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip)
+    try:
+        pipeline.run_import_job(job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip)
+    except Exception:
+        # An unexpected error (e.g. an unreadable page image) still leaves
+        # the chapters that failed or never ran in the retry manifest.
+        raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
+        _save_manifest(name, series_id, drama_id, _chapter_outcomes(raw, wanted, []))
+        raise
     raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
-    rows = {}
-    for row in raw.get("chapters") or []:
-        rows.setdefault(str(row.get("chapter_id")), row)
-    chapters = []
-    for ch in wanted:  # matched by chapter_id, never by position
-        row = rows.get(str(ch.chapter_id))
-        if row is not None:
-            chapters.append(_outcome(row))
-        else:   # the job stopped first (browser check, terms, cancel)
-            chapters.append({"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
-                             "outcome": "not_attempted", "error": _NOT_ATTEMPTED})
-    chapters += [{"chapter_id": c, "title": "", "outcome": "not_found"}
-                 for c in chapter_ids if c not in by_id]
+    chapters = _chapter_outcomes(raw, wanted, [c for c in chapter_ids if c not in by_id])
     handoff = None
     if raw.get("handoff"):
         h = raw["handoff"]
@@ -224,6 +241,19 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None)
                   description=f"Import {len(ids)} chapter(s) from {name}")
 
 
+def _drama_created(drama: dict):
+    """The drama's created_at (UTC ISO text in library.db) as epoch
+    seconds, or None if missing or unreadable."""
+    import datetime
+    try:
+        dt = datetime.datetime.fromisoformat(str(drama.get("created_at") or ""))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.timestamp()
+
+
 def get_import_state(name, series_id, drama_id, principal=None) -> dict:
     """Step 107: what the chapter picker marks before an import -- the
     chapters of this series already imported into this drama, and the ones
@@ -233,11 +263,15 @@ def get_import_state(name, series_id, drama_id, principal=None) -> dict:
     name = str(name or "")
     _require_source(name)
     series_id = _series_id(series_id)
-    _require_drama(drama_id, principal)
+    drama = _require_drama(drama_id, principal)
     imported = sorted(store.imported_chapter_ids(name, series_id, drama_id))
+    # Rows older than the drama belong to an earlier library whose drama had
+    # the same id (a library reset starts ids at 1 again; sources.db stays).
+    born = _drama_created(drama)
     retry = [{"chapter_id": r["chapter_id"], "title": _scrub(r["title"] or ""),
               "status": r["status"], "error": _scrub(r["error"] or "")}
-             for r in store.import_retry_rows(name, series_id, drama_id)]
+             for r in store.import_retry_rows(name, series_id, drama_id)
+             if born is None or float(r["updated_at"]) >= born]
     return {"source": name, "series_id": series_id, "drama_id": drama_id,
             "imported_chapter_ids": imported, "retry": retry, "retry_count": len(retry)}
 
