@@ -4,7 +4,7 @@ between the Settings sidebar (tabs/settings_tab.py) and the FastAPI
 settings endpoint (api/routers/settings_routes.py), so both read the same
 env-var mapping instead of maintaining two copies that could drift.
 
-Per D2 (docs/migration-review.md §6): API keys are server-side only.
+Per D2 (docs/archive/migration-review.md §6): API keys are server-side only.
 resolve_key() is for server-side use (e.g. a future translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.

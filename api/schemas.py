@@ -420,6 +420,10 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    # Step 105: a speaker-count range for the chained speaker detection
+    # (pyannote min_speakers/max_speakers); not combined with expected_speakers.
+    min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     # Non-empty: replaces the automatic prompt entirely. Empty: the server
     # builds glossary names + extra_names + raw-novel excerpt.
     initial_prompt: str = ""
