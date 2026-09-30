@@ -52,9 +52,9 @@ test.describe('Settings card (real API)', () => {
     await expect(folder).toHaveAttribute('placeholder', 'Library backups folder (default)')
     await folder.fill('relative/folder')
     await folder.blur()
-    // The server's sentence names an example path, so the field shows its own rules instead.
+    // The server's folder message carries no path, so it is shown as is.
     await expect(card(page).getByRole('alert')).toHaveText(
-      'Use a full folder path that already exists and is outside the library (for example D:\\Backups), or leave it empty.',
+      'The backup folder must be a full folder path, starting with the drive letter.',
     )
   })
 })
