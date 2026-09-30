@@ -290,3 +290,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (max-width: 640px) {
   .review-flagnav button { flex: 1 1 0; }
 }
+
+/* R49: one row per AI check, the Start button then its Bulk switch. */
+.review-job-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; max-width: 36rem; }
+.review-job-row > button { flex: 1 1 auto; min-width: 0; white-space: normal; }
+.review-job-row > .setting-list { flex: none; margin: 0; }

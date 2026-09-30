@@ -188,10 +188,18 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
         <BulkRun key={r.kind} run={r} onDone={bulkDone} onSubmitted={reloadBatches} />
       ))}
       <Section storageKey="review.ai" title="AI review" summary="consistency, emotion, notes, flag, fix flagged">
-        {/* One row per check: the Bulk switch sits with its Start button. */}
+        {/* One row per check: its Start button, then its Bulk switch. */}
         <div role="list" aria-label="AI checks to run" className="stack">
           {KINDS.map(({ kind, label, what }) => (
-            <div key={kind} role="listitem" className="review-actions" data-testid={`review-job-${kind}`}>
+            <div key={kind} role="listitem" className="review-job-row" data-testid={`review-job-${kind}`}>
+              <button
+                type="button"
+                className={buttonClass('secondary')}
+                disabled={busy}
+                onClick={() => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), what)}
+              >
+                {label}
+              </button>
               <div className="setting-list review-toggles">
                 <Field label="Bulk" help={BULK_HELP}>
                   <Toggle
@@ -202,14 +210,6 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
                   />
                 </Field>
               </div>
-              <button
-                type="button"
-                className={buttonClass('secondary')}
-                disabled={busy}
-                onClick={() => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), what)}
-              >
-                {label}
-              </button>
             </div>
           ))}
         </div>
