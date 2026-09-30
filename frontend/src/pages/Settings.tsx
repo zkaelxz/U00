@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
+import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
@@ -23,6 +24,13 @@ const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // Step 36: the routing card reloads after any key, endpoint or preference
+  // save here (a replaced key keeps configured=true but clears its Test), and
+  // the Defaults card remounts after the routing card changes a preference
+  // they share, so its draft isn't stale.
+  const [routingToken, setRoutingToken] = useState(0)
+  const [defaultsKey, setDefaultsKey] = useState(0)
+  const bumpRouting = () => setRoutingToken((t) => t + 1)
 
   useEffect(() => {
     getSettings().then(setSettings, setError)
@@ -41,7 +49,15 @@ export default function SettingsPage() {
     }
   }
 
-  const prefProps = settings ? { settings, onSettings: setSettings } : null
+  const prefProps = settings
+    ? {
+        settings,
+        onSettings: (s: SettingsOverview) => {
+          setSettings(s)
+          bumpRouting()
+        },
+      }
+    : null
 
   // Layout (UI refresh §3.12): always-open Cards for what people change on
   // most visits; rare options sit in Sections inside the "Advanced" Card.
@@ -62,13 +78,23 @@ export default function SettingsPage() {
           </Card>
           <ApiKeysCard
             settings={settings}
-            onKey={(r) =>
+            onKey={(r) => {
               setSettings((cur) =>
                 cur ? { ...cur, engine_keys: { ...cur.engine_keys, [r.engine]: r.configured } } : cur,
               )
+              bumpRouting()
+            }}
+          />
+          <EngineRoutingCard
+            refreshToken={routingToken}
+            onPreferencesChanged={() =>
+              getSettings().then((s) => {
+                setSettings(s)
+                setDefaultsKey((k) => k + 1)
+              }, setError)
             }
           />
-          <DefaultsCard {...prefProps} />
+          <DefaultsCard key={defaultsKey} {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
           <JellyfinSection />
