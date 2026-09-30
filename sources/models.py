@@ -265,6 +265,9 @@ class SeriesInfo:
     status: str = "unknown"          # ongoing / completed / unknown
     content_type: str = ""
     language: str = ""
+    # Download links a work's page posts ({"label", "url", "password"}),
+    # listed for the person to open themselves. The app never fetches them.
+    links: list = field(default_factory=list)
 
 
 @dataclass
