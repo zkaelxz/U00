@@ -780,6 +780,16 @@ def init_db():
             value TEXT NOT NULL
         );
 
+        -- Step 42: the maintenance assistant's small project backlog
+        -- ("track this as a bug"). Written only by the user, through
+        -- services/maintenance_assistant_service.py.
+        CREATE TABLE IF NOT EXISTS assistant_backlog (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
         -- Step 41 (services/job_checkpoint_service.py): per-unit progress
         -- of a long job, so a re-run after a crash or cancel skips the
         -- units already done. `scope` already folds in the input, model

@@ -85,7 +85,13 @@ ACTION_TIERS: dict[str, ActionTier] = {
 # hit forces RED regardless of what ACTION_TIERS says about the nominal
 # action name -- this is the "the maintenance agent's own code is harder
 # to modify than the rest of the app" guarantee.
-_PROTECTED_MODULE_NAMES = frozenset({"action_tiers.py"})
+_PROTECTED_MODULE_NAMES = frozenset({
+    "action_tiers.py",
+    # Step 42's maintenance assistant: its own tool table and routes
+    # (roadmap Step 42 item 6).
+    "maintenance_assistant_service.py", "assistant_pytest_guard.py",
+    "assistant_routes.py", "assistant_schemas.py",
+})
 _PROTECTED_PACKAGE_NAMES = frozenset({"maintenance", "permissions", "security"})
 
 # Which Confirmation values satisfy which tier. RED's own confirmation

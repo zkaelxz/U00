@@ -45,7 +45,7 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
     return _dispatch_chat(system_prompt, messages, engine)
 
 
-def _dispatch_chat(system_prompt: str, messages: list, engine) -> str:
+def _dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int = 1000) -> str:
     """Shared multi-engine chat dispatch, factored out of ask_about_drama
     so app_help.ask_about_app (Step 18b) can reuse the exact same
     Claude/OpenAI-shaped/Gemini/Ollama request handling -- only the
@@ -57,7 +57,7 @@ def _dispatch_chat(system_prompt: str, messages: list, engine) -> str:
     client = getattr(engine, "client", None)
     if client is not None and hasattr(client, "messages"):
         resp = call_with_backoff(lambda: client.messages.create(
-            model=engine.model, max_tokens=1000, system=system_prompt, messages=messages,
+            model=engine.model, max_tokens=max_tokens, system=system_prompt, messages=messages,
         ))
         return "".join(b.text for b in resp.content if b.type == "text").strip()
     if client is not None:
