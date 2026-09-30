@@ -83,7 +83,7 @@ Service modules: `scanlate_pages_service` (S1, S2, S6 fonts), `scanlate_regions_
 - S6: blank text untouched (`tests/test_scanlate.py:304`); shape mask applied (`tests/test_scanlate_regions.py:249`); concurrent render does not collide on the tmp file; font cap and invalid font rejected; explicit save only (Class U+S 25p; `tests/test_scanlate_tab.py:217`).
 - S7: brush survives re-render; mask shape mismatch 422. S8: one failing page does not stop the rest; artifact download works; kinds whitelist.
 - Class U (React/e2e): drama-switch isolation (4j/25j), refetch after find/replace or job done, per-drama upload only on explicit submit.
-- `docs/migration-review.md` §4 has no Scanlate-specific rows beyond the §3.4 mentions of 25n/25o/25p. Missing rows to add: SFX default, dedupe, blank-text, per-page context.
+- `docs/archive/migration-review.md` §4 has no Scanlate-specific rows beyond the §3.4 mentions of 25n/25o/25p. Missing rows to add: SFX default, dedupe, blank-text, per-page context.
 - Real-model, real-OCR and real-LaMa runs stay owed to the user.
 
 ## 7. Open questions for the user (ranked)
