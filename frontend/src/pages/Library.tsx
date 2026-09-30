@@ -18,6 +18,7 @@ import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import { Section } from '../components/Section'
 import { Sheet } from '../components/Sheet'
+import { SharingControl } from '../components/SharingControl'
 import { VoiceBankPlayButton } from '../components/VoiceBankPlayButton'
 import {
   continueItems, countDramas, dramaName, parseTime, readHref, tileHue, tileText, workspaceHref, type ContinueItem,
@@ -308,6 +309,7 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
                 <span className="tool-row"><strong>{x.name}</strong> <span className="muted">{countDramas(x.dramas.length)}</span></span>
                 <span className="muted series-meta">{countsLine(x.types, 'mediaType')}</span>
                 <span className="muted series-meta">{sharedLine(x)}</span>
+                <SharingControl kind="series" id={x.id} title={x.name} isPrivate={x.is_private} ownedByMe={x.owned_by_me} onChanged={onChanged} />
                 <ul className="series-drama-list" aria-label={`Dramas in ${x.name}`}>
                   {x.dramas.map((d) => (
                     <li key={d.id} className="series-drama">

@@ -98,7 +98,22 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
         dramas = [d for d in dramas
                   if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")]
                          for t in custom_tags)]
-    return dramas
+    return _with_sharing(dramas, principal)
+
+
+def _with_sharing(dramas: list, principal) -> list:
+    """Add `sharing_private` (what the household sees: a drama in a series
+    follows the series) and `sharing_owned` (the signed-in viewer created it;
+    False with sign-in off) to each row."""
+    uid = None if principal is None else principal.get("user_id")
+    series = {s["id"]: s for s in db.list_series()} if any(d.get("series_id") for d in dramas) else {}
+    out = []
+    for d in dramas:
+        parent = series.get(d.get("series_id"))
+        private = parent.get("is_private") if parent else d.get("is_private")
+        out.append({**d, "sharing_private": bool(private),
+                    "sharing_owned": uid is not None and d.get("owner_user_id") == uid})
+    return out
 
 
 def get_library_drama(drama_id: int) -> dict:
@@ -167,12 +182,15 @@ def list_series_with_dramas(principal=None) -> list:
     Only series `principal` may see; every drama in a visible series is
     visible to it (ownership_service's rule)."""
     out = []
+    uid = None if principal is None else principal.get("user_id")
     for s in db.list_series(visible_to=ownership_service.visible_to_filter(principal)):
         dramas = db.list_dramas_by_series(s["id"])
         if len(dramas) < 2:
             continue
         out.append({
             "id": s["id"], "name": s["name"],
+            "is_private": bool(s.get("is_private")),
+            "owned_by_me": uid is not None and s.get("owner_user_id") == uid,
             "character_count": len(db.list_series_characters(s["id"])),
             "glossary_term_count": len(db.list_glossary_terms(s["id"])),
             "dramas": [{k: d.get(k) for k in ("id", "title_en", "title_zh", "status", "media_type")}
