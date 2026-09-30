@@ -7,7 +7,7 @@ Migration Slice 19: the minimal prerequisite this migration needs before
 a future "transcribe-and-align" action slice can be built (a prior
 migration-architect scoping pass found that action's real home is inside
 `tab_translate`, depending on state `tab_source` sets up -- see
-docs/migration-review.md's own Transcript-stage scoping notes). This
+docs/archive/migration-review.md's own Transcript-stage scoping notes). This
 slice covers config only: source_language, chinese_script, content_mode,
 transcript_mode, and read-only audio/video/transcript-source presence.
 

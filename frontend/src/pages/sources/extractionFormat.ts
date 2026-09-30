@@ -1,0 +1,176 @@
+// Pure logic and copy for the pasted-URL extraction extras (parity SO09):
+// the AI fallback picker; SO06, the comic import's result; SO10, Review
+// extraction. No React here; tested in extractionFormat.test.ts.
+import { humanize } from '../../components/labels'
+import type {
+  AiEngines, AiRequestFields, ComicUrlImportResult, ExtractionImage, ExtractionNovel, ExtractionReview, ImageChoice,
+  NovelRerunRequest, ProfileSaved, ReviewImportResult,
+} from '../../types/sourcesExtraction'
+
+export interface AiChoice {
+  on: boolean
+  // null: the saved default engine.
+  engine: string | null
+}
+
+export const AI_OFF: AiChoice = { on: false, engine: null }
+
+export const AI_HELP =
+  'Only used when Baihe can’t tell which part of the page is the chapter: one AI call for the page, ' +
+  'and the site’s layout is remembered so its next chapter needs none. The AI only points at parts of ' +
+  'the page; the text and images are copied from the page itself, never rewritten.'
+
+/** The engine the request will use: the one picked, else the saved default. */
+export function effectiveEngine(choice: AiChoice, engines: AiEngines | null): string | null {
+  if (!choice.on) return null
+  if (choice.engine && (!engines || engines.engines.includes(choice.engine))) return choice.engine
+  return engines?.default ?? null
+}
+
+/** Why the fallback can't be used as set, or null. */
+export function aiReason(choice: AiChoice, engines: AiEngines | null): string | null {
+  if (!choice.on) return null
+  if (!engines) return 'Loading the AI engines…'
+  if (engines.engines.length === 0) return 'No AI engine can be used for this.'
+  if (!effectiveEngine(choice, engines)) return 'Still needed: an AI engine.'
+  return null
+}
+
+/** The fields to add to the import request (nothing when the fallback is off). */
+export function aiRequestFields(choice: AiChoice, engines: AiEngines | null): AiRequestFields {
+  const engine = effectiveEngine(choice, engines)
+  return choice.on && engine ? { use_ai: true, engine } : {}
+}
+
+export const engineLabel = (name: string) => (name === 'ollama' ? 'Ollama (on this PC)' : humanize('engine', name))
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+
+export function comicImportText(r: ComicUrlImportResult): string {
+  if (r.needs_review) {
+    return r.review_open
+      ? 'Nothing was added yet. Check which images are the pages below, then import them.'
+      : 'Baihe couldn’t be sure which images are the pages, so nothing was added.'
+  }
+  return `Added ${plural(r.pages_added, 'page')} to the drama.`
+}
+
+/** The heading of the "left out" list, or null when nothing was left out. */
+export function skippedTitle(r: ComicUrlImportResult): string | null {
+  if (!r.skipped_count) return null
+  const shown = r.skipped.length < r.skipped_count ? ` (first ${r.skipped.length} shown)` : ''
+  return `${plural(r.skipped_count, 'image')} left out${shown}`
+}
+
+// ---------------------------------------------------------------- SO10 review
+
+export const REVIEW_WHY: Record<string, string> = {
+  low_confidence: 'Baihe isn’t sure it found the right parts of the page, so nothing was saved yet.',
+  asked: 'You asked to check the result before it is saved.',
+  diagnostics: 'Sources diagnostics mode is on, so every result is shown here first.',
+}
+
+export const reviewWhy = (why: string) => REVIEW_WHY[why] ?? REVIEW_WHY.low_confidence
+
+export const REVIEW_FIRST_HELP =
+  'Shows what Baihe found (and lets you correct it) before anything is saved. Baihe also does this by itself when it isn’t sure.'
+
+export const REVIEW_NOTE =
+  'Corrections change which parts of the page are used and can be saved as this site’s profile; the text and images themselves are never edited.'
+
+export const BUCKET_TONE: Record<string, 'ok' | 'info' | 'warn' | 'bad'> = { HIGH: 'ok', MEDIUM: 'info', LOW: 'warn', FAILED: 'bad' }
+export const bucketTone = (b: string | null | undefined) => BUCKET_TONE[b ?? ''] ?? 'warn'
+
+const BUCKET_WORD: Record<string, string> = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low', FAILED: 'Failed' }
+export const bucketLabel = (b: string | null | undefined) => BUCKET_WORD[b ?? ''] ?? 'Unknown'
+
+const FIELD_LABELS: Record<string, string> = {
+  title: 'Title', author: 'Author', chapter_title: 'Chapter title', chapter_number: 'Chapter number',
+  content: 'Chapter text', next_url: 'Next chapter', previous_url: 'Previous chapter', page_images: 'Page images',
+  page_order: 'Page order', media_resources: 'Media',
+}
+export const fieldLabel = (f: string) => FIELD_LABELS[f] ?? f.replace(/_/g, ' ')
+
+const ROLE_LABELS: Record<string, string> = {
+  content: 'Page', cover: 'Cover', thumbnail: 'Thumbnail', ad: 'Ad', recommendation: 'Recommendation',
+  icon: 'Icon', duplicate: 'Duplicate', other: 'Other',
+}
+export const roleLabel = (r: string) => ROLE_LABELS[r] ?? r.charAt(0).toUpperCase() + r.slice(1).replace(/_/g, ' ')
+
+/** The corrections form for a novel review, as the server last showed it. */
+export function novelForm(n: ExtractionNovel): Omit<NovelRerunRequest, 'revision'> {
+  return {
+    content_selector: n.content_selector ?? n.containers[0]?.selector ?? '',
+    exclude_selectors: n.exclude_selectors,
+    title_block: n.title_block,
+    next_link: n.next_link,
+    previous_link: n.previous_link,
+    number_from: n.number_from,
+  }
+}
+
+/** The leave-out options for the chosen container (only those are sent). */
+export function exclusionsFor(n: ExtractionNovel, selector: string) {
+  return n.containers.find((c) => c.selector === selector)?.exclusions ?? []
+}
+
+/** Change the container: leave-outs that don't belong to it are dropped. */
+export function withContainer(form: Omit<NovelRerunRequest, 'revision'>, n: ExtractionNovel, selector: string) {
+  const ok = new Set(exclusionsFor(n, selector).map((e) => e.selector))
+  return { ...form, content_selector: selector, exclude_selectors: form.exclude_selectors.filter((s) => ok.has(s)) }
+}
+
+export const containerLabel = (c: { selector: string; chars: number; preview: string }) =>
+  `${c.preview || c.selector} (${plural(c.chars, 'character')})`
+
+/** The comic choices that differ from what the server shows, keyed by image id. */
+export function changedImages(images: ExtractionImage[], edits: Record<number, { role: string; page: number }>): ImageChoice[] {
+  const out: ImageChoice[] = []
+  for (const img of images) {
+    const e = edits[img.id]
+    if (!e) continue
+    const page = e.role === 'content' ? e.page : 0
+    if (e.role !== img.role || page !== img.page) out.push({ id: img.id, role: e.role, page })
+  }
+  return out
+}
+
+/** Page numbers used more than once among the images marked as pages. */
+export function duplicatePages(images: ExtractionImage[], edits: Record<number, { role: string; page: number }>): number[] {
+  const seen = new Map<number, number>()
+  for (const img of images) {
+    const e = edits[img.id] ?? img
+    if (e.role !== 'content' || e.page <= 0) continue
+    seen.set(e.page, (seen.get(e.page) ?? 0) + 1)
+  }
+  return [...seen].filter(([, n]) => n > 1).map(([p]) => p).sort((a, b) => a - b)
+}
+
+export function importLabel(r: ExtractionReview): string {
+  if (r.content_type === 'novel') return 'Import this text'
+  return `Import ${plural(r.comic?.page_count ?? 0, 'page')}`
+}
+
+export function canImport(r: ExtractionReview): boolean {
+  return r.content_type === 'novel' ? (r.novel?.char_count ?? 0) > 0 : (r.comic?.page_count ?? 0) > 0
+}
+
+export function reviewImportText(r: ReviewImportResult): string {
+  if (r.content_type === 'novel') return `Added ${plural(r.char_count ?? 0, 'character')} to the drama’s novel text.`
+  const skipped = r.skipped_count ? ` ${plural(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
+  return `Added ${plural(r.pages_added ?? 0, 'page')} to the drama.${skipped}`
+}
+
+export const profileSavedText = (p: ProfileSaved) =>
+  `Saved as profile v${p.version} for ${p.domain}; the next chapter from this site uses it` +
+  (p.replaces ? ` (v${p.replaces} is kept and can be made active again).` : '.')
+
+/** The page number after the highest one in use. */
+export function nextPageNumber(images: ExtractionImage[], edits: Record<number, { role: string; page: number }>): number {
+  let max = 0
+  for (const img of images) {
+    const e = edits[img.id] ?? img
+    if (e.role === 'content') max = Math.max(max, e.page)
+  }
+  return Math.min(500, max + 1)
+}

@@ -22,6 +22,7 @@ import {
   formatFactor,
   formatMs,
   initialDubForm,
+  narrationResumeNote,
   pacingRows,
   pacingSummary,
   untranslatedNarrationWarning,
@@ -244,7 +245,7 @@ export default function DubStage() {
           </div>
         </Section>
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {jobId && <JobPanel job={job} pollError={pollError} note={narrationResumeNote(job?.message)} />}
     </div>
   )
 }

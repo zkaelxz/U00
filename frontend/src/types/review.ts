@@ -119,6 +119,9 @@ export interface ReviewJobBody {
   model?: string
   use_audio_cues?: boolean // emotion only; default: on when the drama has audio
   job_cost_cap_usd?: number // fix-flagged only
+  // Parity R49: half price through Claude's/Gemini's batch API; results
+  // arrive later. Not fix-flagged (the server refuses it there).
+  bulk?: boolean
 }
 
 export interface ReviewJobStarted {
@@ -128,6 +131,7 @@ export interface ReviewJobStarted {
   engine: string
   model: string | null
   line_count: number
+  bulk?: boolean // true: a bulk batch was submitted (older servers omit it)
 }
 
 export interface LineImprovement {
