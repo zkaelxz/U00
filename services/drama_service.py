@@ -138,7 +138,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         if not new_series_name:
             raise InvalidInputError("new_series_name must not be blank.")
         taken = db.get_series_id_by_name(new_series_name)
-        if taken is not None and not ownership_service.can_see_series(principal, taken):
+        if taken is not None and not ownership_service.can_edit(principal, "series", taken):
             raise ConflictError("That series name is taken")
 
     preset = None

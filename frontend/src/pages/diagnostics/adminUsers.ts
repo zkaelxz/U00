@@ -5,13 +5,25 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import type { SessionState } from '../../hooks/useSession'
 import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 
-/** Show the sections? Only to a caller holding admin.users. If /me is
- * unavailable the page renders as before sign-in existed (routes still enforce). */
-export function canManageUsers(s: SessionState): boolean {
+function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
   if (s.status === 'unavailable') return true
-  return s.me.permissions.includes('admin.users')
+  return s.me.permissions.includes(permission)
 }
+
+/** Show the sections? Only to a caller holding admin.users.read. If /me is
+ * unavailable the page renders as before sign-in existed (routes still enforce). */
+export function canViewUsers(s: SessionState): boolean {
+  return holds(s, 'admin.users.read')
+}
+
+/** Show the account buttons? Only with admin.users, which an admin session
+ * on the household (internet) address doesn't hold: changes are PC-only there. */
+export function canChangeUsers(s: SessionState): boolean {
+  return holds(s, 'admin.users')
+}
+
+export const CHANGES_AT_PC = 'Account changes are made on the main PC.'
 
 export function activeAdminCount(users: AdminUser[]): number {
   return users.filter((u) => u.is_admin && u.is_active).length

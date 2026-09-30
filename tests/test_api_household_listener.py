@@ -256,14 +256,186 @@ class TestHouseholdNeverLocal:
                                      json={"engine": "ollama"}, headers=_h(s))
         assert r.status_code == 403 and learned == []
 
-    def test_settings_paths_blanked_even_for_an_admin(self, isolated_db):
+    def test_settings_refused_even_for_an_admin(self, isolated_db):
         from services import settings_service
         settings_service.set_settings({"tesseract_cmd": "/opt/tess/tesseract"})
         s = _admin_session()
-        prefs = _household_client().get("/api/settings", headers=_h(s)).json()["preferences"]
-        assert prefs["tesseract_cmd"] == "" and prefs["tesseract_cmd_configured"] is True
+        r = _household_client().get("/api/settings", headers=_h(s))
+        assert r.status_code == 403 and "/opt/tess" not in r.text
         prefs = _admin_client().get("/api/settings").json()["preferences"]
         assert prefs["tesseract_cmd"] == "/opt/tess/tesseract"
+
+
+# --- admin permissions stay on the PC ------------------------------------------
+
+class TestNoAdminPermissionsOnHousehold:
+    """D5 and the 2026-09-30 decision: on the household listener a signed-in
+    admin keeps the household permissions and the admin view permissions
+    (user list, audit log) but no admin write permission. Every admin change
+    is PC-only there, including deactivating a non-admin account."""
+
+    def _admin_routes(self, app):
+        return [(sorted(methods), path, perm) for _r, path, methods, decls
+                in api_auth.iter_route_declarations(app)
+                for kind, perm in decls if kind == "permission" and perm.startswith("admin.")]
+
+    def test_every_admin_permission_is_classified(self):
+        """A new admin.* permission fails here until it is listed as view or
+        write in services/auth_service.py (unlisted counts as write)."""
+        view = set(auth_service.ADMIN_VIEW_PERMISSIONS)
+        write = set(auth_service.ADMIN_WRITE_PERMISSIONS)
+        assert not view & write
+        assert view | write == set(auth_service.ADMIN_PERMISSIONS)
+        in_use = {perm for _m, _p, perm in self._admin_routes(_household_app())}
+        declared = {p for p in auth_service.PERMISSIONS if p.startswith("admin.")}
+        unclassified = (in_use | declared) - view - write
+        assert not unclassified, f"classify as admin view or write: {sorted(unclassified)}"
+
+    def test_view_permissions_cover_only_reads(self):
+        for methods, path, perm in self._admin_routes(_household_app()):
+            if perm in auth_service.ADMIN_VIEW_PERMISSIONS:
+                assert set(methods) <= {"GET", "HEAD"}, f"{methods} {path} ({perm})"
+
+    def test_every_admin_write_route_refused_to_a_signed_in_admin(self, isolated_db):
+        app = _household_app()
+        routes = [r for r in self._admin_routes(app)
+                  if r[2] not in auth_service.ADMIN_VIEW_PERMISSIONS]
+        assert ({perm for _m, _p, perm in routes} == set(auth_service.ADMIN_WRITE_PERMISSIONS))
+        c = _household_client(app)
+        s = _admin_session()
+        bad = []
+        for methods, path, _perm in routes:
+            for method in methods:
+                kw = {} if method in ("GET", "HEAD", "DELETE") else {"json": {}}
+                r = c.request(method, _concrete(path), headers=_h(s), **kw)
+                if r.status_code != 403 or (method != "HEAD" and r.json() != {
+                        "error": {"code": "forbidden", "message": "Not allowed."}}):
+                    bad.append(f"{method} {path}: {r.status_code}")
+        assert not bad, "household served admin writes to an admin:\n  " + "\n  ".join(bad)
+
+    def test_non_admin_account_changes_refused_too(self, isolated_db):
+        s = _admin_session()
+        member = auth_service.add_user("kid@example.com")
+        auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        before = len(auth_service.list_audit(500))
+        h = _household_client()
+        for action in ("deactivate", "activate", "revoke-sessions"):
+            r = h.post(f"/api/admin/users/{member['id']}/{action}", headers=_h(s))
+            assert r.status_code == 403, action
+        row = auth_service.get_user(member["id"])
+        assert row["is_active"] is True
+        assert db.auth_list_sessions(member["id"])
+        assert len(auth_service.list_audit(500)) == before
+
+    def test_view_routes_served_audit_emails_masked(self, isolated_db):
+        """The user list shows each account's email in full (the admin needs
+        to know whose account it is); audit details mask addresses (#522)."""
+        app = _household_app()
+        views = [(m, p) for methods, p, perm in self._admin_routes(app)
+                 if perm in auth_service.ADMIN_VIEW_PERMISSIONS for m in methods]
+        assert sorted(views) == [("GET", "/api/admin/audit"), ("GET", "/api/admin/users")]
+        s = _admin_session()
+        db.auth_insert_audit(None, "login.denied", "not_allowlisted email stranger@gmail.com")
+        h = _household_client(app)
+        for _m, path in views:
+            assert h.get(path, headers=_h(s)).status_code == 200, path
+        users = h.get("/api/admin/users", headers=_h(s)).json()["users"]
+        assert [u["email"] for u in users] == ["owner@example.com"]
+        r = h.get("/api/admin/audit", headers=_h(s))
+        assert "stranger@gmail.com" not in r.text and "s***@gmail.com" in r.text
+
+    def test_me_lists_household_and_admin_view_permissions_only(self, isolated_db):
+        s = _admin_session()
+        h = _household_client()
+        assert h.get("/api/library/dramas", headers=_h(s)).status_code == 200
+        me = h.get("/api/auth/me", headers=_h(s)).json()
+        assert me["signed_in"] is True and me["user"]["is_admin"] is True
+        assert "library.read" in me["permissions"]
+        assert ({p for p in me["permissions"] if p.startswith("admin.")}
+                == set(auth_service.ADMIN_VIEW_PERMISSIONS))
+
+    def test_admin_listener_unchanged(self, isolated_db):
+        assert _admin_client().get("/api/admin/users").status_code == 200
+        # The single-listener sign-in setup is the admin listener with auth on:
+        # an admin session keeps every admin.* permission there.
+        app = create_app(ApiSettings(auth_mode="on", serve_frontend=False))
+        s = _admin_session()
+        c = _client(app, "http://127.0.0.1:8600")
+        assert c.get("/api/admin/users", headers=_h(s)).status_code == 200
+        member = auth_service.add_user("kid@example.com")
+        r = c.post(f"/api/admin/users/{member['id']}/deactivate", headers=_h(s))
+        assert r.status_code == 200
+        me = c.get("/api/auth/me", headers=_h(s)).json()
+        assert set(auth_service.ADMIN_PERMISSIONS) <= set(me["permissions"])
+
+    def test_listener_principal(self):
+        principal = {"user_id": 1, "is_admin": True,
+                     "permissions": list(auth_service.PERMISSIONS) + ["admin.unlisted"]}
+        household = api_auth.listener_principal(_household_app(), principal)
+        # Default-deny: an admin.* permission not listed as view is dropped.
+        assert set(household["permissions"]) == (set(auth_service.PERMISSIONS)
+                                                 - set(auth_service.ADMIN_WRITE_PERMISSIONS))
+        assert household["admin_override"] is False
+        assert "admin.unlisted" in principal["permissions"]   # not mutated
+        assert "admin_override" not in principal
+        assert api_auth.listener_principal(_admin_app(), principal) is principal
+        assert api_auth.listener_principal(_household_app(), None) is None
+
+
+class TestAdminOverrideIsPcOnly:
+    """On the household listener an admin still sees every item and job but
+    changes only what a member of their account could: no flipping another
+    member's private flag, no stopping a PC job, no editing another member's
+    private drama. The PC and the single-port sign-in setup are unchanged."""
+
+    def _world(self):
+        s = _admin_session()
+        member = auth_service.add_user("kid@example.com")
+        private = db.create_drama(title_zh="p", owner_user_id=member["id"], is_private=1)
+        db.save_job_record("sources_search", "running", started_at=time.time(),
+                           owner_user_id=None)
+        return s, private
+
+    def _single_port(self):
+        return _client(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                       "http://127.0.0.1:8600")
+
+    def test_views_everything(self, isolated_db):
+        s, private = self._world()
+        h = _household_client()
+        assert h.get(f"/api/library/dramas/{private}", headers=_h(s)).status_code == 200
+        assert [j["job_id"] for j in h.get("/api/jobs", headers=_h(s)).json()["items"]] == [
+            "sources_search"]
+
+    def test_cannot_flip_another_members_private_drama(self, isolated_db):
+        s, private = self._world()
+        r = _household_client().post(f"/api/sharing/dramas/{private}/private", headers=_h(s),
+                                     json={"private": False})
+        assert r.status_code == 403
+        assert db.get_item_ownership("drama", private)["is_private"] == 1
+
+    def test_cannot_cancel_a_pc_job(self, isolated_db):
+        s, _private = self._world()
+        r = _household_client().post("/api/jobs/sources_search/cancel", headers=_h(s))
+        assert r.status_code == 403
+        assert not db.get_job_record("sources_search").get("cancel_requested")
+
+    def test_cannot_edit_another_members_private_drama(self, isolated_db):
+        s, private = self._world()
+        r = _household_client().post(f"/api/export/dramas/{private}/flag-overlaps", headers=_h(s))
+        assert r.status_code == 403
+
+    @pytest.mark.parametrize("where", ["admin", "single_port"])
+    def test_pc_and_single_port_unchanged(self, isolated_db, where):
+        s, private = self._world()
+        c = _admin_client() if where == "admin" else self._single_port()
+        h = {} if where == "admin" else _h(s)
+        post = {"X-Baihe-Local": "1"} if where == "admin" else {}
+        assert c.post(f"/api/export/dramas/{private}/flag-overlaps",
+                      headers={**h, **post}).status_code == 200
+        assert c.post(f"/api/sharing/dramas/{private}/private", headers={**h, **post},
+                      json={"private": False}).status_code == 200
+        assert c.post("/api/jobs/sources_search/cancel", headers={**h, **post}).status_code == 200
 
 
 # --- docs, admin unchanged ------------------------------------------------------
@@ -706,6 +878,8 @@ class TestRunServers:
         assert {s.config.host for s in ran[0]} == {"127.0.0.1"}
         assert not admin.config.app.state.settings.is_household
         assert household.config.app.state.settings.is_household
+        # The household access log would print sign-in codes from query strings.
+        assert admin.config.access_log is True and household.config.access_log is False
         svc._stopper()
         assert admin.should_exit and household.should_exit
 

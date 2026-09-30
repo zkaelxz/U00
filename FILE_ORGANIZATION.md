@@ -61,6 +61,9 @@ baihe-subtitler/
 │   │                             pip from its wheel, installs requirements-core offline
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
+├── deploy/caddy/Caddyfile.template   Caddy config template for household access: TLS, proxy to the
+│                                 household listener only, PC-only routes refused (docs/household-access.md;
+│                                 checked by tests/test_caddyfile_template.py)
 ├── scripts/
 │   ├── build_release.py          packages the built React app as a release zip (baihe-frontend-<version>.zip)
 │   ├── dependency_canary.py      tests one package upgrade in a throwaway venv against the offline suite;
@@ -97,6 +100,8 @@ baihe-subtitler/
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
 │   ├── runbook.md                one-page maintainer steps: installer lock, tests, restore, certificate, benchmark [reference]
+│   ├── household-access.md       step-by-step guide to expose Baihe to the household through Caddy:
+│   │                             user-only vs Claude steps, checks, rollback [reference]
 │   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
 │   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
 │   │                             [design proposal, nothing built]
@@ -486,7 +491,7 @@ baihe-subtitler/
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
 │       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
-│       │                         /api/admin/audit (read-only, paged), all admin.users; tests/test_api_admin_users.py
+│       │                         /api/admin/audit (read-only, paged); reads admin.users.read, writes admin.users; tests/test_api_admin_users.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore

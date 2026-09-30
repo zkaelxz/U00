@@ -38,9 +38,9 @@ Close other work first: a restore is refused while any job runs. Restores are PC
 2. This replaces the whole library (dramas, lines, media) with the backup. Everyone is signed out. Sign-in accounts, source settings and this library's backup id and copy number are kept. "Back up library" first if unsure.
 - A failed restore leaves the current library in place.
 
-## 4. Renew the certificate (not set up yet)
-- Not built: the Caddy config template and the certificate steps (work packages WP4/WP5) are not in the repo yet. There is nothing to renew today.
-- General guidance for later: Caddy gets and renews certificates by itself once your domain points at this PC and ports 80/443 reach Caddy. If it fails, check:
+## 4. Renew the certificate
+- The Caddy template is `deploy/caddy/Caddyfile.template` and the setup steps are in `docs/household-access.md`. Until you have gone live with it there is nothing to renew; renewal monitoring (WP5) is not built yet.
+- Caddy gets and renews certificates by itself once your domain points at this PC and ports 80/443 reach Caddy (or with a DNS-challenge build). If it fails, check:
   1. Caddy's logs for certificate errors.
   2. The dynamic DNS record still shows your current home IP.
   3. The router's port forward for 80/443 is still there.

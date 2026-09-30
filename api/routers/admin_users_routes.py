@@ -8,11 +8,14 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
     GET  /api/admin/audit                            newest first, paged
 
-Every route is `admin.users` (held only by admins, and by the local owner
-with auth off), so with auth on the writes also need the session's CSRF
-token. Guards (409): not your own account, not the last active admin, not
-your own sessions. A write whose target is an admin account is PC-only
-(403 from a remote session): remote admins manage non-admin accounts only.
+The two reads are `admin.users.read`, the writes `admin.users` (both held
+only by admins, and by the local owner with auth off), so with auth on the
+writes also need the session's CSRF token. On the household listener an
+admin session holds `admin.users.read` only, so every write is refused
+there (403) and admin changes happen at the PC. Guards (409): not your own
+account, not the last active admin, not your own sessions. A write whose
+target is an admin account is PC-only (403 from a remote session): on the
+single-port sign-in setup remote admins manage non-admin accounts only.
 Unknown user: 404. The service audits every write.
 Nothing here creates users, changes permissions, or edits or deletes
 audit rows.
@@ -28,6 +31,7 @@ from services import auth_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
+_READ = [require_permission("admin.users.read")]
 _ADMIN = [require_permission("admin.users")]
 _MAX_ID = 2 ** 62   # past SQLite's integer range the lookup would raise, not 404
 _UserId = Path(..., ge=1, le=_MAX_ID)
@@ -42,7 +46,7 @@ def _no_store(response: Response):
     response.headers["Cache-Control"] = "no-store"
 
 
-@router.get("/users", dependencies=_ADMIN, response_model=AdminUserList,
+@router.get("/users", dependencies=_READ, response_model=AdminUserList,
             summary="List users (no session details)")
 def list_users(request: Request, response: Response):
     _no_store(response)
@@ -73,7 +77,7 @@ def revoke_sessions(request: Request, response: Response, user_id: int = _UserId
                                             at_pc=is_local_request(request))
 
 
-@router.get("/audit", dependencies=_ADMIN, response_model=AuditPage,
+@router.get("/audit", dependencies=_READ, response_model=AuditPage,
             summary="Audit log, newest first (read-only)")
 def list_audit(response: Response,
                limit: int = Query(50, ge=1, le=auth_service.AUDIT_PAGE_MAX),

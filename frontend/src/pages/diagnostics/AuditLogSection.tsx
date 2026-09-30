@@ -7,7 +7,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 import {
-  appendAudit, auditActionLabel, auditActor, auditTime, canManageUsers, userName,
+  appendAudit, auditActionLabel, auditActor, auditTime, canViewUsers, userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
@@ -16,11 +16,11 @@ type Filter = { action: string; userId: number | null }
 /**
  * "Audit log": sign-ins and admin actions, newest first, read-only. Loads
  * one page when opened; "Show older" pages back. Hidden from anyone
- * without admin.users.
+ * without admin.users.read.
  */
 export function AuditLogSection() {
   const session = useSession()
-  if (!canManageUsers(session)) return null
+  if (!canViewUsers(session)) return null
   return <AuditBody />
 }
 

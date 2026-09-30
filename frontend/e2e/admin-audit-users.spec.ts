@@ -27,7 +27,7 @@ const event = (id: number, o: Record<string, unknown> = {}) => ({
 
 const me = (permissions: string[]) => ({
   auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet', permissions,
-  user: { id: 1, email: 'owner@example.com', display_name: 'Owner', is_admin: permissions.includes('admin.users'), is_local_owner: false },
+  user: { id: 1, email: 'owner@example.com', display_name: 'Owner', is_admin: permissions.includes('admin.users.read'), is_local_owner: false },
 })
 
 /** Catch-all first (Playwright tries the newest route first, so later mocks win). */
@@ -53,7 +53,7 @@ const openSection = (page: Page, title: RegExp) => page.locator('summary', { has
 
 test('Users: lists accounts, explains the guards, and deactivates after a confirm', async ({ page }) => {
   const unmocked = await guard(page)
-  await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users'])
+  await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
   let users = [ME_ADMIN, KID, GUEST]
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users } }))
   const sent: Request[] = []
@@ -90,7 +90,7 @@ test('Users: lists accounts, explains the guards, and deactivates after a confir
 
 test('Users: a refused action shows the server reason in plain words', async ({ page }) => {
   const unmocked = await guard(page)
-  await mockPage(page, ['admin.users'])
+  await mockPage(page, ['admin.users.read', 'admin.users'])
   const other = user({ id: 4, email: 'second@example.com', is_admin: true })
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other, KID] } }))
   await page.route('**/api/admin/users/2/revoke-sessions', (r) => r.fulfill({
@@ -119,7 +119,7 @@ test('Users: a refused action shows the server reason in plain words', async ({ 
 
 test('Users: away from the PC, admin accounts are off with the reason; others still work', async ({ page }) => {
   const unmocked = await guard(page)
-  await mockPage(page, ['admin.users'], false)
+  await mockPage(page, ['admin.users.read', 'admin.users'], false)
   const other = user({ id: 4, email: 'second@example.com', is_admin: true })
   const otherOff = user({ id: 5, email: 'third@example.com', is_admin: true, is_active: false, active_sessions: 0 })
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other, otherOff, KID] } }))
@@ -137,9 +137,22 @@ test('Users: away from the PC, admin accounts are off with the reason; others st
   expect(unmocked).toEqual([])
 })
 
+test('Users: an admin on the household address sees the list without any buttons', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['library.read', 'admin.users.read'], false)
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST] } }))
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Users/)
+  const section = page.getByTestId('admin-users')
+  await expect(section.getByRole('list', { name: 'Users' }).locator('li')).toHaveCount(3)
+  await expect(section).toContainText('Account changes are made on the main PC.')
+  await expect(section.getByRole('button')).toHaveCount(0)
+  expect(unmocked).toEqual([])
+})
+
 test('Audit log: newest first, filters by action and user, pages back', async ({ page }) => {
   const unmocked = await guard(page)
-  await mockPage(page, ['admin.users'])
+  await mockPage(page, ['admin.users.read', 'admin.users'])
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID] } }))
   const asked: URLSearchParams[] = []
   await page.route((u) => u.pathname === '/api/admin/audit', (r) => {
@@ -180,7 +193,7 @@ test('Audit log: newest first, filters by action and user, pages back', async ({
   expect(unmocked).toEqual([])
 })
 
-test('hidden from a signed-in user without admin.users', async ({ page }) => {
+test('hidden from a signed-in user without admin.users.read', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, ['library.read', 'admin.diagnostics'])
   const admin: string[] = []

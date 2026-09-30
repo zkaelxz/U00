@@ -62,11 +62,13 @@ def _audit(action):
 
 # --- permissions ---------------------------------------------------------------
 
-def test_every_route_is_admin_users(isolated_db):
+def test_reads_are_admin_users_read_and_writes_admin_users(isolated_db):
     decls = {(m, p): d for _r, p, ms, d in api_auth.iter_route_declarations(_app())
              for m in ms if p.startswith("/api/admin/")}
     assert {(m, p.replace("{id}", "{user_id}")) for m, p in ROUTES} == set(decls)
-    assert all(d == [("permission", "admin.users")] for d in decls.values())
+    for (method, path), d in decls.items():
+        want = "admin.users.read" if method == "GET" else "admin.users"
+        assert d == [("permission", want)], (method, path)
 
 
 def test_anonymous_and_household_refused(isolated_db):
@@ -370,7 +372,8 @@ def test_every_user_id_route_is_admin_users_or_pc_only(isolated_db):
                  if "{user_id}" in p]
         assert found
         for path, decls in found:
-            assert decls in ([("permission", "admin.users")], [("local_only", None)]), path
+            assert decls in ([("permission", "admin.users")], [("permission", "admin.users.read")],
+                             [("local_only", None)]), path
 
 
 def _set_flags(user_id, **flags):

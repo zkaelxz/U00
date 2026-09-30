@@ -4,7 +4,7 @@ import type { AuthMe } from '../../api/auth'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
-  auditTime, canManageUsers, deactivateBlock, revokeBlock, rowBlocks, sessionsText, userName,
+  auditTime, canChangeUsers, canViewUsers, deactivateBlock, revokeBlock, rowBlocks, sessionsText, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -17,12 +17,20 @@ const me = (permissions: string[], auth_enabled = true): AuthMe => ({
   user: { id: 1, email: 'a@example.com', display_name: '', is_admin: false, is_local_owner: false },
 })
 
-describe('canManageUsers', () => {
-  it('needs admin.users; waits while loading; trusts the server when /me is unavailable', () => {
-    expect(canManageUsers({ status: 'loading' })).toBe(false)
-    expect(canManageUsers({ status: 'unavailable' })).toBe(true)
-    expect(canManageUsers({ status: 'ready', me: me(['library.read', 'admin.diagnostics']) })).toBe(false)
-    expect(canManageUsers({ status: 'ready', me: me(['admin.users']) })).toBe(true)
+describe('canViewUsers / canChangeUsers', () => {
+  it('view needs admin.users.read; waits while loading; trusts the server when /me is unavailable', () => {
+    expect(canViewUsers({ status: 'loading' })).toBe(false)
+    expect(canViewUsers({ status: 'unavailable' })).toBe(true)
+    expect(canViewUsers({ status: 'ready', me: me(['library.read', 'admin.diagnostics']) })).toBe(false)
+    expect(canViewUsers({ status: 'ready', me: me(['admin.users']) })).toBe(false)
+    expect(canViewUsers({ status: 'ready', me: me(['admin.users.read']) })).toBe(true)
+  })
+
+  it('changes need admin.users, which an admin on the household address lacks', () => {
+    expect(canChangeUsers({ status: 'loading' })).toBe(false)
+    expect(canChangeUsers({ status: 'unavailable' })).toBe(true)
+    expect(canChangeUsers({ status: 'ready', me: me(['admin.users.read']) })).toBe(false)
+    expect(canChangeUsers({ status: 'ready', me: me(['admin.users.read', 'admin.users']) })).toBe(true)
   })
 })
 

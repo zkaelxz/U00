@@ -1,7 +1,8 @@
 // User administration and the audit log (api/routers/admin_users_routes.py).
-// Every route needs admin.users; the writes are not PC-only (an admin can
-// lock out an account from anywhere), so they use plain postJson, not
-// pcOnlyFetch: a 403 here means "not an admin", not "not at the PC".
+// Reads need admin.users.read, writes admin.users. The writes are not
+// local_only() routes, so they use plain postJson, not pcOnlyFetch: the
+// household (internet) listener refuses them to an admin session by not
+// granting admin.users there, and the Users section hides the buttons.
 import type {
   AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
