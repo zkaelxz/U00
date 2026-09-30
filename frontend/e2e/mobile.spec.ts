@@ -97,3 +97,54 @@ test('Library at 360px: no sideways scroll; New drama and Details open bottom sh
   const box = await sheet.boundingBox()
   expect(box && Math.round(box.y + box.height)).toBe(800)
 })
+
+test('Notion: the settings card and Export to Notion fit a phone', async ({ page }) => {
+  // Mocked: Notion set up, and this drama already has a page.
+  await page.route('**/api/notion/config', (route) =>
+    route.fulfill({ json: { target_type: 'database', target_id: '01234567-89ab-cdef-0123-456789abcdef', token_configured: true } }))
+  await page.route('**/api/notion/dramas/1', (route) =>
+    route.fulfill({ json: { drama_id: 1, page_id: 'abc', page_url: 'https://www.notion.so/Signal-abc' } }))
+  await page.goto('/#/settings')
+  const card = page.getByRole('region', { name: 'Notion' })
+  await expect(card.getByTestId('notion-token')).toHaveText('Token saved')
+  await expectNoHorizontalOverflow(page)
+  for (const name of ['Save token', 'Test connection', 'Clear token']) {
+    const box = await card.getByRole('button', { name }).boundingBox()
+    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+  }
+
+  await page.goto('/#/drama/1/export')
+  const panel = page.getByRole('region', { name: 'Export to Notion' })
+  await panel.locator('.section-title', { hasText: 'Export to Notion' }).click()
+  await expect(panel.getByRole('button', { name: 'Update Notion page' })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+  await expectTall(page, '[aria-label="Export to Notion"] .btn-primary')
+  await expectTall(page, '[aria-label="Export to Notion"] a.button-link')
+})
+
+test('Jellyfin: the settings card fits a phone (labels on one line, full-width fields)', async ({ page }, info) => {
+  // Mocked: connector on and set up, so every field and button is shown.
+  await page.route('**/api/jellyfin/config', (route) =>
+    route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
+  await page.goto('/#/settings')
+  const card = page.getByRole('region', { name: 'Jellyfin' })
+  await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
+  await expectNoHorizontalOverflow(page)
+  await card.screenshot({ path: info.outputPath('jellyfin-phone.png') })
+  const labels = await card.locator('.field-label-row label').evaluateAll((els) =>
+    els.map((e) => {
+      const lh = parseFloat(getComputedStyle(e).lineHeight) || 20
+      return { text: e.textContent ?? '', lines: Math.round(e.getBoundingClientRect().height / lh) }
+    }),
+  )
+  expect(labels.length).toBeGreaterThanOrEqual(4)
+  for (const { text, lines } of labels) expect(lines, `label "${text}" wraps`).toBeLessThanOrEqual(1)
+  for (const input of await card.locator('input[type="url"], input[type="text"], input[type="password"], select').all()) {
+    const box = await input.boundingBox()
+    expect(box?.width ?? 0, 'field too narrow').toBeGreaterThanOrEqual(250)
+  }
+  for (const name of ['Save', 'Save key', 'Remove key', 'Test connection', 'Scan library']) {
+    const box = await card.getByRole('button', { name, exact: true }).boundingBox()
+    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+  }
+})

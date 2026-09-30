@@ -70,10 +70,18 @@ export function startJobPolling(id: string, opts: PollOptions): () => void {
 // Tracks the job a stage started. Job ids are fixed per drama (e.g. transcribe_3),
 // so a second run reuses the id; every set bumps runKey so useJob restarts
 // polling and drops the previous run's state instead of showing its stale "done".
-export function useJobRun(): [string | null, (id: string | null) => void, number] {
+// The fourth value adopts an already-running job (useReattachJob) only while
+// no run is tracked, decided inside the state update so a run the user just
+// started always wins.
+export function useJobRun(): [string | null, (id: string | null) => void, number, (id: string) => void] {
   const [run, setRun] = useState<{ id: string | null; key: number }>({ id: null, key: 0 })
   const set = useCallback((id: string | null) => setRun((r) => ({ id, key: r.key + 1 })), [])
-  return [run.id, set, run.key]
+  const adopt = useCallback((id: string) => setRun((r) => adoptRun(r, id)), [])
+  return [run.id, set, run.key, adopt]
+}
+
+export function adoptRun<T extends { id: string | null; key: number }>(r: T, id: string): T {
+  return r.id === null ? { ...r, id, key: r.key + 1 } : r
 }
 
 // State belongs to one (job id, run) pair; anything else reads as "no state yet".

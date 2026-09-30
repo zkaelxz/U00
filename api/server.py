@@ -65,9 +65,11 @@ from api.routers import (
     media_routes,
     metadata_research_routes,
     metadata_routes,
+    model_registry_routes,
     narration_routes,
     notification_center_routes,
     notification_routes,
+    notion_routes,
     novel_files_routes,
     novel_routes,
     reader_routes,
@@ -93,6 +95,7 @@ from api.routers import (
     translation_version_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
+    web_search_routes,
     workflow_routes,
 )
 from api.schemas import API_VERSION
@@ -190,12 +193,14 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(metadata_routes.router)
     app.include_router(metadata_research_routes.router)
     app.include_router(jellyfin_routes.router)
+    app.include_router(notion_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
+    app.include_router(web_search_routes.router)
     app.include_router(sources_catalog_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
@@ -224,6 +229,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
     app.include_router(benchmark_routes.router)
+    app.include_router(model_registry_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
