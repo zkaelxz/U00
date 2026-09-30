@@ -1538,6 +1538,8 @@ class EmotionJobStart(ReviewJobStart):
 
 class FixFlaggedJobStart(ReviewJobStart):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    include_genre_notes: StrictBool = True
+    default_female_pronouns: StrictBool = False
     bulk: Literal[False] = False   # there is no batch variant of fix-flagged
 
 
@@ -3015,6 +3017,8 @@ class LibraryBulkTranslateRequest(BaseModel):
     drama_ids: LibraryDramaIds
     # Omitted: the Settings default English variant.
     default_locale: Optional[str] = Field(None, max_length=5)
+    include_genre_notes: StrictBool = True
+    default_female_pronouns: StrictBool = False
 
 
 class LibraryExportRequest(BaseModel):

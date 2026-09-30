@@ -487,7 +487,8 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
                                source_language, engine, engine_choice, cost_cap_usd=None,
-                               locale="en-US"):
+                               locale="en-US", include_genre_notes=True,
+                               default_female_pronouns=False):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -513,7 +514,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     drama = db.get_drama(drama_id) or {}
     style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     glossary_terms, style_guidelines, character_names = build_run_style_context(
-        drama_id, drama, lines, style_preset, with_emotions=False)
+        drama_id, drama, lines, style_preset, with_emotions=False,
+        include_genre_notes=include_genre_notes,
+        default_female_pronouns=default_female_pronouns)
     base_context = translate_engines.build_translation_context(
         engine, drama, locale=locale, glossary_terms=glossary_terms,
         style_guidelines=style_guidelines)
@@ -1007,7 +1010,9 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
                                   ollama_base_url: str = None, gemini_free_tier: bool = False,
                                   models: dict = None, monthly_cap: float = 0,
-                                  expected_engines: dict = None, allow_paid_summary: bool = True):
+                                  expected_engines: dict = None, allow_paid_summary: bool = True,
+                                  include_genre_notes: bool = True,
+                                  default_female_pronouns: bool = False):
     """Step 9b.3: translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -1039,6 +1044,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     checked before each paid episode-summary call. allow_paid_summary=False
     (a caller without engines.paid) skips a cloud summary engine picked in
     Settings, so only the engines the caller was authorized for run.
+    include_genre_notes/default_female_pronouns: the Translate toggles,
+    applied to every drama in the queue (defaults as the API).
     """
     # Imported here: translate_run_service imports this module.
     from services import settings_service, translate_run_service
@@ -1116,7 +1123,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         is_novel = drama.get("content_mode") == "novel_narration"
         style_preset = "novel" if is_novel else "audio_drama"
         glossary_terms, style_guidelines, _ = build_run_style_context(
-            did, drama, lines, style_preset)
+            did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
+            default_female_pronouns=default_female_pronouns)
         defaults = translate_run_service.get_translate_config_defaults(is_novel)
         novel_reference = None
         if drama.get("novel_reference_filename"):
