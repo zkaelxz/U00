@@ -15,7 +15,7 @@ import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { badgeClass, buttonClass } from '../../components/uiClasses'
-import { useSession } from '../../hooks/useSession'
+import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../../hooks/useSession'
 import type { SharingItem } from '../../types/sharing'
 import {
   PC_ITEMS_NOTE,
@@ -39,7 +39,9 @@ const TITLE = 'Sharing'
 const PAGE = 100
 
 export function SharingCard() {
-  const admin = canSeeAllItems(useSession())
+  const session = useSession()
+  const admin = canSeeAllItems(session)
+  const remoteAdmin = isRemoteAdmin(session)
   const [shareDefault, setShareDefault] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -92,6 +94,11 @@ export function SharingCard() {
         </p>
       )}
       {admin && <SharingItems />}
+      {remoteAdmin && (
+        <p className="settings-note" data-testid="remote-admin-sharing-note">
+          {REMOTE_ADMIN_NOTE} Sharing for your own items is set from the Library.
+        </p>
+      )}
     </Card>
   )
 }

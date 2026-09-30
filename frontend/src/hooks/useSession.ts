@@ -53,6 +53,15 @@ export function menuUser(s: SessionState): AuthMe['user'] {
   return s.me.user
 }
 
+export const REMOTE_ADMIN_NOTE = 'Changing other people’s items is done on the main PC.'
+
+/** An admin signed in on the household (internet) address. They see everyone's items, but the
+ * server strips admin.library and the other admin writes and the override there. */
+export function isRemoteAdmin(s: SessionState): boolean {
+  const u = menuUser(s)
+  return s.status === 'ready' && !!u && u.is_admin && !u.is_local_owner && !s.me.permissions.includes('admin.library')
+}
+
 /** The server said 401 (or the user signed out): show the Login page. */
 export function markSignedOut(): void {
   const prev = state.status === 'ready' ? state.me : null
