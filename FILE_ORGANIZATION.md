@@ -183,6 +183,10 @@ baihe-subtitler/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
+│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup keeping ONE
+│   │                             snapshot (temp file, validated, atomic replace), due-check (startup +
+│   │                             hourly via api/background.py), restore one drama from the snapshot
+│   │                             (same id, or a new "(restored <date>)" copy); router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
@@ -416,6 +420,7 @@ baihe-subtitler/
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
+│   ├── backup_schemas.py         automatic backup / snapshot restore models (kept apart from schemas.py)
 │   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
 │   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
 │   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
@@ -423,7 +428,6 @@ baihe-subtitler/
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
-
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   └── routers/
@@ -435,6 +439,9 @@ baihe-subtitler/
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
+│       ├── backup_routes.py      /api/backups/* (Step 43): auto-backup settings, back up now, snapshot
+│       │                         info/dramas, restore one drama, delete snapshot; all local_only;
+│       │                         tests/test_api_backups.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
