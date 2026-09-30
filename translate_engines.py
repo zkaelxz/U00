@@ -1944,6 +1944,44 @@ TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
 
 
 # ---------------------------------------------------------------------------
+# Step 36: capability tags per engine -- what each engine can actually do,
+# so a task asks services/engine_routing_service.resolve_capability() for a
+# capability instead of naming an engine. Descriptive only: nothing here
+# switches engines on its own (settled decision: no automatic switching).
+# ---------------------------------------------------------------------------
+
+CAP_TRANSLATE = "translate"            # can translate a batch of lines
+CAP_INSTRUCTIONS = "instructions"      # follows instructions / returns JSON (QC, summaries, helpers)
+CAP_LONG_CONTEXT = "long_context"      # large context window (novel reference, whole episodes)
+CAP_LOCAL = "local"                    # runs on this PC; nothing leaves it
+CAP_CHEAP = "cheap"                    # free or a few cents per drama
+CAP_GROUNDED_SEARCH = "grounded_search"  # web-grounded answers (Gemini Search Grounding)
+
+ENGINE_CAPABILITIES = {
+    "claude": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT}),
+    "deepseek": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP}),
+    "gemini": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP,
+                         CAP_GROUNDED_SEARCH}),
+    "deepl": frozenset({CAP_TRANSLATE}),
+    "google": frozenset({CAP_TRANSLATE, CAP_CHEAP}),
+    "test_offline": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
+    "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
+    "nllb": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
+    "libretranslate": frozenset({CAP_TRANSLATE, CAP_CHEAP}),
+}
+
+
+def engine_capabilities(engine_name: str) -> frozenset:
+    """The capability tags of a registered engine (empty for an unknown one)."""
+    return ENGINE_CAPABILITIES.get(engine_name, frozenset())
+
+
+def engines_with_capability(tag: str) -> list:
+    """Registered engines carrying `tag`, in ENGINES order."""
+    return [name for name in ENGINES if tag in engine_capabilities(name)]
+
+
+# ---------------------------------------------------------------------------
 # Step 97b: translate fallback chain
 # ---------------------------------------------------------------------------
 
