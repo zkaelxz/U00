@@ -136,6 +136,15 @@ CREATE TABLE IF NOT EXISTS known_chapters (
     first_seen REAL NOT NULL,
     PRIMARY KEY (source, series_id, chapter_id)
 );
+CREATE TABLE IF NOT EXISTS chapter_poll_validators (
+    source TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    etag TEXT NOT NULL DEFAULT '',
+    last_modified TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (source, series_id)
+);
 CREATE TABLE IF NOT EXISTS chapter_notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -367,6 +376,39 @@ def untrack_series(source: str, series_id: str):
     with connect() as conn:
         conn.execute("DELETE FROM tracked_series WHERE source=? AND series_id=?", (source, series_id))
         conn.execute("DELETE FROM known_chapters WHERE source=? AND series_id=?", (source, series_id))
+        conn.execute("DELETE FROM chapter_poll_validators WHERE source=? AND series_id=?",
+                     (source, series_id))
+
+
+def poll_validators(source: str, series_id: str, max_age: float = None) -> dict:
+    """The ETag / Last-Modified the last chapter-list poll of this series
+    got for its one URL (Step 106), as conditional_poll() kwargs; {} if
+    none, or if they were saved more than `max_age` seconds ago (a 304
+    doesn't refresh them, so the list is fetched in full now and then)."""
+    with connect() as conn:
+        row = conn.execute("SELECT url, etag, last_modified, updated_at FROM "
+                           "chapter_poll_validators WHERE source=? AND series_id=?",
+                           (source, series_id)).fetchone()
+    if not row or (max_age is not None and time.time() - float(row["updated_at"]) > max_age):
+        return {}
+    return {"url": row["url"], "etag": row["etag"], "last_modified": row["last_modified"]}
+
+
+def save_poll_validators(source: str, series_id: str, validators) -> None:
+    """Stores (url, etag, last_modified) for the next poll; None forgets
+    them, so the next poll is an ordinary full fetch."""
+    with connect() as conn:
+        if not validators:
+            conn.execute("DELETE FROM chapter_poll_validators WHERE source=? AND series_id=?",
+                         (source, series_id))
+            return
+        url, etag, last_modified = validators
+        conn.execute("INSERT INTO chapter_poll_validators(source, series_id, url, etag, "
+                     "last_modified, updated_at) VALUES(?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT(source, series_id) DO UPDATE SET url=excluded.url, "
+                     "etag=excluded.etag, last_modified=excluded.last_modified, "
+                     "updated_at=excluded.updated_at",
+                     (source, series_id, url, etag or "", last_modified or "", time.time()))
 
 
 def list_tracked_series() -> list:

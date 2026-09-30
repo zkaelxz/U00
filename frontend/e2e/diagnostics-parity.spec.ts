@@ -133,3 +133,61 @@ test('saved bug bundles list and delete', async ({ page }) => {
   expect(bodies).toEqual([{ confirm: true }])
   expect(unmocked).toEqual([])
 })
+
+test('Job history shows time by stage once an entry is opened, fetched lazily', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page)
+  const item = (o: Record<string, unknown>) => ({
+    job_id: 'x', label: 'Translating', status: 'done', description: null, message: '', error: null,
+    gpu_touching: false, started_at: 1, finished_at: 2, duration_seconds: 90, ...o,
+  })
+  await page.route('**/api/diagnostics/job-history', (r) => r.fulfill({
+    json: [item({ job_id: 'a' }), item({ job_id: 'b', label: 'Transcribing' }), item({ job_id: 'c', label: 'Dubbing' })],
+  }))
+  const asked: string[] = []
+  await page.route('**/api/jobs/*/stages', (r) => {
+    const id = new URL(r.request().url()).pathname.split('/')[3]
+    asked.push(id)
+    if (id === 'c') return r.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No job.' } } })
+    if (id === 'b') return r.fulfill({ json: { job_id: 'b', runs: [] } })
+    return r.fulfill({ json: { job_id: 'a', runs: [
+      { run_started_at: 100, running: false, total_seconds: 90, cost_usd: 0.03, stages: [
+        { stage: 'Preparing', started_at: 100, duration_seconds: 3.4, cost_usd: 0 },
+        { stage: 'Translating', started_at: 103.4, duration_seconds: 72, cost_usd: 0.03 },
+        { stage: 'Saving', started_at: 175.4, duration_seconds: 14.6, cost_usd: 0 },
+      ] },
+      { run_started_at: 10, running: false, total_seconds: 5, cost_usd: 0, stages: [] },
+    ] } })
+  })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Job history/)
+  const history = page.getByRole('list', { name: 'Job history' })
+  await expect(history.locator('summary')).toHaveCount(3)
+  expect(asked).toEqual([])
+
+  await history.locator('summary', { hasText: 'Translating' }).click()
+  const stages = history.getByRole('list', { name: 'Time by stage' })
+  const rows = stages.locator('li')
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(0)).toContainText('Preparing')
+  await expect(rows.nth(0)).toContainText('3.4 s')
+  await expect(rows.nth(1)).toContainText('1 min 12 s · $0.03')
+  await expect(rows.nth(2)).not.toContainText('$')
+  await expect(history).toContainText('Total 1 min 30 s · estimated $0.03')
+  await expect(history).toContainText('Latest of 2 runs.')
+  // The bar is the stage's share of the total: 72 of 90 s = 80%.
+  const bar = rows.nth(1).locator('.stage-times-bar > span')
+  expect(await bar.evaluate((e) => (e as HTMLElement).style.width)).toBe('80%')
+
+  await history.locator('summary', { hasText: 'Transcribing' }).click()
+  await expect(history).toContainText('No stage timing recorded for this job.')
+  await history.locator('summary', { hasText: 'Dubbing' }).click()
+  await expect(history).toContainText('Stage timing unavailable.')
+
+  // Closing and reopening does not fetch again.
+  await history.locator('summary', { hasText: 'Translating' }).click()
+  await history.locator('summary', { hasText: 'Translating' }).click()
+  await expect(rows).toHaveCount(3)
+  expect(asked).toEqual(['a', 'b', 'c'])
+  expect(unmocked).toEqual([])
+})
