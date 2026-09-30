@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 import { checkPackageUpdates, getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
+import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -19,6 +20,9 @@ import {
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
+import { UpgradeTestResult } from './UpgradeTest'
+import { testConfirmLabel } from './upgradeTestText'
+import { useServerJobStatus } from './useServerJobStatus'
 import {
   belowMinText, firstHint, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
   sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskResultText, taskStatus,
@@ -37,7 +41,7 @@ type Outcome =
  * and upgrade are synchronous on the server (no progress, no cancel), so the
  * request stays open and every admin button on the page waits for it.
  */
-export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange }: {
+export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChanged, onOpenChange, onJobStarted }: {
   overview: DiagnosticsOverview
   pc: PcMode
   jobsActive: boolean
@@ -46,6 +50,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // An install or upgrade finished: refetch the overview and setup checks.
   onChanged: () => void
   onOpenChange: (open: boolean) => void
+  // "Test first" started a server job: refresh the jobs list.
+  onJobStarted: () => void
 }) {
   const [openRef, open] = useDetailsOpen()
   const [outcome, setOutcome] = useState<Outcome | null>(null)
@@ -113,6 +119,24 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
       onBusy(null)
     }
   }
+
+  // "Test first": the server installs the update target into a throwaway
+  // environment and runs the tests there (a job, minutes); polled while it runs.
+  const upgradeTest = useServerJobStatus(getUpgradeCheck)
+  const [testStart, setTestStart] = useState<{ name: string; error: string | null } | null>(null)
+  const runTest = async (name: string, target: string) => {
+    setTestStart({ name, error: null })
+    try {
+      await testUpgrade(name, target)
+      setTestStart(null)
+      onJobStarted()
+    } catch (e) {
+      setTestStart({ name, error: adminErrorText(e, 'upgrade') })
+    } finally {
+      await upgradeTest.refresh()
+    }
+  }
+  const testing = upgradeTest.running
 
   // GPU PyTorch: the matched torch/torchvision/torchaudio set from the server's table.
   const GPU_NAME = 'GPU PyTorch'
@@ -182,6 +206,22 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
         onConfirm={() => void run(kind, name, target)}
+      />
+    )
+
+  const testAction = (name: string, target: string) =>
+    local && (
+      <ConfirmButton
+        name={`${name} ${target}`}
+        label="Test first…"
+        ariaLabel={`Test ${name} ${target} first`}
+        verb="test"
+        tone="primary"
+        confirmLabel={testConfirmLabel(name, target)}
+        disabled={!!blocked || testing}
+        describedBy={running ? runningId : blocked ? reasonId : undefined}
+        busy={testStart?.name === name && testStart.error === null}
+        onConfirm={() => void runTest(name, target)}
       />
     )
 
@@ -285,7 +325,12 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                 return (
                   <li key={d.name}>
                     <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} installed update={u} />
+                    {isInstallable(d.tier) && canUpdate(u) && testAction(d.name, u.target)}
                     {isInstallable(d.tier) && canUpdate(u) && action('upgrade', d.name, u.target)}
+                    {isInstallable(d.tier) && canUpdate(u) && (
+                      <UpgradeTestResult state={upgradeTest.status} name={d.name} target={u.target}
+                        error={testStart?.name === d.name ? testStart.error : null} />
+                    )}
                   </li>
                 )
               })}

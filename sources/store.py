@@ -175,6 +175,17 @@ CREATE TABLE IF NOT EXISTS imported_chapters (
     imported_at REAL NOT NULL,
     PRIMARY KEY (source, series_id, chapter_id, drama_id)
 );
+CREATE TABLE IF NOT EXISTS import_retry (
+    source TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    drama_id INTEGER NOT NULL,
+    chapter_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (source, series_id, drama_id, chapter_id)
+);
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -311,6 +322,45 @@ def imported_chapter_ids(source: str, series_id: str, drama_id: int) -> set:
         return {r["chapter_id"] for r in conn.execute(
             "SELECT chapter_id FROM imported_chapters WHERE source=? AND series_id=? "
             "AND drama_id=?", (source, str(series_id), int(drama_id)))}
+
+
+RETRY_STATUSES = ("failed", "not_attempted")
+# "partial": the chapter an unexpected error interrupted mid-write -- some of
+# its pages or text may be in the drama already, so it is shown (check it
+# first) but never part of the automatic retry.
+MANIFEST_STATUSES = RETRY_STATUSES + ("partial",)
+
+
+def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):
+    """Step 107's failed-chapter manifest for one (series, drama). `pending`
+    is (chapter_id, title, status, error) per chapter that failed or was not
+    attempted (status in MANIFEST_STATUSES; title and error already redacted by
+    the caller); `done_ids` are chapters this import imported or skipped,
+    which leave the manifest."""
+    now = time.time()
+    with connect() as conn:
+        conn.executemany("DELETE FROM import_retry WHERE source=? AND series_id=? AND "
+                         "drama_id=? AND chapter_id=?",
+                         [(source, str(series_id), int(drama_id), str(c)) for c in done_ids])
+        conn.executemany(
+            "INSERT INTO import_retry(source, series_id, drama_id, chapter_id, title, status, "
+            "error, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source, series_id, "
+            "drama_id, chapter_id) DO UPDATE SET title=excluded.title, status=excluded.status, "
+            "error=excluded.error, updated_at=excluded.updated_at",
+            [(source, str(series_id), int(drama_id), str(cid), title or "", status, error or "",
+              now) for cid, title, status, error in pending if status in MANIFEST_STATUSES])
+
+
+def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
+    """The manifest's chapters still waiting for a retry, oldest first. A
+    chapter imported since (by any path, e.g. the auto-import) is left out."""
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT chapter_id, title, status, error, updated_at FROM import_retry r "
+            "WHERE source=? AND series_id=? AND drama_id=? AND NOT EXISTS (SELECT 1 FROM "
+            "imported_chapters i WHERE i.source=r.source AND i.series_id=r.series_id AND "
+            "i.drama_id=r.drama_id AND i.chapter_id=r.chapter_id) ORDER BY updated_at, rowid",
+            (source, str(series_id), int(drama_id)))]
 
 
 def set_tracked_drama(source: str, series_id: str, drama_id) -> bool:

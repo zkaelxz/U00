@@ -71,3 +71,53 @@ export function buildPersonCreate(f: PersonForm): SeriesPersonCreate {
     notes: f.notes.trim(),
   }
 }
+
+// ---- Bulk pronouns (parity X16) ----
+
+/** The bulk picker: '' (nothing chosen yet), CLEAR_PRONOUNS, a preset, or
+ * CUSTOM plus typed text. Nothing is chosen at first, so one tap can't clear
+ * everyone's pronouns by accident. */
+export const CLEAR_PRONOUNS = 'clear'
+
+export interface BulkPronounsForm {
+  choice: string
+  custom: string
+}
+
+export const toBulkPronounsForm = (): BulkPronounsForm => ({ choice: '', custom: '' })
+
+export const peopleCount = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`
+
+/** Why the bulk button is disabled, or null when it can run. */
+export function bulkPronounsProblem(selected: number, f: BulkPronounsForm): string | null {
+  if (selected === 0) return 'Still needed: tick at least one person in the list.'
+  if (!f.choice) return 'Still needed: choose the pronouns to set.'
+  if (f.choice === CUSTOM && !f.custom.trim()) return 'Still needed: type the custom pronouns.'
+  return null
+}
+
+/** The pronoun text to set ('' clears). */
+export const bulkPronouns = (f: BulkPronounsForm) =>
+  f.choice === CUSTOM ? f.custom.trim() : f.choice === CLEAR_PRONOUNS ? '' : f.choice
+
+/** Who gets a request: people whose pronouns already match are skipped,
+ * so only a change is sent. Order follows `people`, picked by id. */
+export function planBulkPronouns(people: SeriesCharacter[], selected: ReadonlySet<number>, f: BulkPronounsForm) {
+  const pronouns = bulkPronouns(f)
+  const picked = people.filter((p) => selected.has(p.id))
+  return {
+    pronouns,
+    body: { pronouns } as SeriesPersonUpdate,
+    send: picked.filter((p) => normalizePronouns(p.pronouns) !== pronouns),
+    unchanged: picked.filter((p) => normalizePronouns(p.pronouns) === pronouns),
+  }
+}
+
+/** One plain-English line for the end of a run. */
+export function bulkPronounsSummary(r: { updated: number; unchanged: number; failed: number }, pronouns: string): string {
+  const parts: string[] = []
+  if (r.updated) parts.push(`Updated ${peopleCount(r.updated)}.`)
+  if (r.unchanged) parts.push(`${peopleCount(r.unchanged)} already had ${pronouns ? pronouns : 'no pronouns set'}.`)
+  if (r.failed) parts.push(`${peopleCount(r.failed)} could not be updated.`)
+  return parts.join(' ') || 'Nothing to update.'
+}
