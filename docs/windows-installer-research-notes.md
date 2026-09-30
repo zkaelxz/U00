@@ -1,5 +1,9 @@
 # Windows installer — further research notes (follow-up to Step 80)
 
+> **Status (2026-09-30):** the installer was built in Step 80b. What was built
+> from these decisions, and what was deferred, is in
+> [`windows-installer-design.md`](windows-installer-design.md) (sections 1, 6 and 10).
+
 **Discussion document, not a build step.** Spawned as a dedicated
 research/discussion session per the user's request (2026-09-28: "Let's
 discuss and research this, it can be done in another session"), after the

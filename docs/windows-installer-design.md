@@ -1,419 +1,282 @@
-# Windows installer/uninstaller architecture — design proposal
+# Windows installer/uninstaller — design and as-built reference
 
-Roadmap Step 80. **Design only — nothing in this document has been
-implemented.** No installer code, no packaging CI, and no change to
-`start.bat`/`start.ps1` beyond what Step 79 already does. This is the
-write-up an implementing session (or the user) reads before Step 80's
-eventual follow-on build step starts.
+Roadmap Step 80 wrote the design (2026-09-27); Step 80b built it
+(2026-09-30, user decision "Yes, start it"). The first version of this
+document predates the React + FastAPI migration and described a Streamlit
+app. This version describes the app as it is now: `python -m api` serves
+the API and the prebuilt React screens from one process on
+`http://127.0.0.1:8600/`. Read it with
+[`windows-installer-research-notes.md`](windows-installer-research-notes.md),
+whose 2026-09-28 decisions are folded in below.
 
-Written against `baihe-subtitler` as it exists today (Step 79 not yet
-merged — its Python-Store-stub fix is a separate, narrower patch to
-`start.bat` and doesn't change anything below). Every claim here is
-checked against this branch's real files, not assumed.
+Code: [`installer/`](../installer/) (Inno Setup script, payload builder, and
+the two runtime scripts), [`portable.py`](../portable.py) (`data_dir()`),
+and [`.github/workflows/windows-installer.yml`](../.github/workflows/windows-installer.yml).
 
----
-
-## 1. What's real today (the base this design builds on)
-
-**Dependency tiers** (`requirements-core.txt`, `requirements-media.txt`,
-`requirements-optional.txt`, Step 75):
-- `requirements-core.txt` — streamlit, pandas, requests, beautifulsoup4,
-  anthropic. Enough to launch the app and do text translation + subtitle
-  export, no ffmpeg/GPU/ML needed.
-- `requirements-media.txt` — faster-whisper, pydub, edge-tts, opencv-python,
-  pillow. Audio/video: alignment, diarization, dubbing, subtitle burn-in.
-  Needs ffmpeg on PATH.
-- `requirements-optional.txt` — everything else, already grouped by
-  feature in comments: alternative translation engines, yt-dlp downloads,
-  pyannote diarization, Qwen3-ASR/aligner, voice cloning (F5-TTS +
-  commented-out OmniVoice/Chatterbox/TADA, which can't share one
-  environment), vocal separation, word-level forced alignment, offline TTS
-  (Piper), OCR (pytesseract/PaddleOCR/manga-ocr), Reader segmentation
-  (jieba/pypinyin/sudachipy/pykakasi/kiwipiepy), Scanlate ML
-  detection+inpainting (torch/transformers/safetensors), PDF import, the
-  erase/heal brush, export helpers (genanki/ebooklib), desktop
-  notifications, Playwright, trafilatura, and mangaz.com's
-  cryptography-dependent adapter.
-
-**Diagnostics' existing dependency machinery** (`diagnostics.py`):
-- `OPTIONAL_DEPENDENCIES` (line 60) tags every import by name → (import
-  name, plain-English feature description, tier). Tiers used today:
-  `"required"`, `"engine"`, `"feature"` (a fourth, `"dev"`, exists only in
-  spirit for pytest — see the Step 83 note below).
-- `INSTALLABLE_TIERS = ("feature", "engine")` (line 589) — only these two
-  ever get a generic per-package Install button; `"required"` is assumed
-  already installed (the app wouldn't be running otherwise) and `"dev"` has
-  nothing to do with a running session.
-- `parse_requirements_file()` (line 629) + a bulk-install action (Step 62)
-  installs a whole tier's requirements file in one click, streaming real
-  pip output (`stream_pip_install`, line 592) rather than swallowing
-  errors.
-- A throwaway-venv upgrade-safety check (Step 66, line ~1000 on):
-  `_make_throwaway_venv()` creates an isolated venv that still sees the
-  running environment's own site-packages via a `.pth` file, installs a
-  candidate package version into it, and runs the real test suite there —
-  never touching the real environment. Reports "safe" / "broken" /
-  "conflict" / "incomplete", never a guess.
-- **Known, pre-existing bug, not this step's to fix** (flagged by the
-  secondary-review pass, tracked as provisional Step 83): `cv2`,
-  `faster_whisper`, and `PIL` are tagged `"required"` in this dict even
-  though none of the three ship in `requirements-core.txt` — only in
-  `requirements-media.txt`. This design doesn't depend on that tagging
-  being fixed, but a real installer's tier mapping (§3 below) should read
-  from the same three `requirements-*.txt` files directly rather than
-  trusting `OPTIONAL_DEPENDENCIES`'s tier field, so it isn't silently
-  wrong if that bug isn't fixed first.
-
-**Startup flow**: `start.bat`/`start.ps1` create a `venv/` next to the app,
-install `requirements-core.txt` (checked by trying to import its packages,
-not just checking `streamlit` — Step 53/63), run `check_setup.py` for a
-plain-words ffmpeg/JS-runtime/CUDA check, then launch
-`streamlit run app.py --server.headless true` and open a browser window
-(Edge app-mode preferred, Chrome fallback, default browser last resort).
-`app.py`'s own first two lines call `portable.activate_portable_mode()`
-before any other import.
-
-**Model/data storage**:
-- `portable.py` — off by default. Model downloads (Whisper, pyannote,
-  F5-TTS, audio-separator) go to each library's own OS-standard cache
-  (`~/.cache/huggingface`, `~/.cache/audio-separator-models`, etc.) exactly
-  as any other Python tool using them would. When a `PORTABLE` marker file
-  sits next to `portable.py` (or `--portable`/`BAIHE_PORTABLE=1`), every
-  model cache this app's own code can redirect (`HF_HOME`, `TORCH_HOME`,
-  `BAIHE_AUDIO_SEP_MODEL_DIR`) gets pointed at `model_cache/<subdir>` next
-  to the app instead, via `os.environ.setdefault` (never overriding a value
-  the user already set). This must run before any module that imports
-  `huggingface_hub`/`torch` at its own top level.
-- `db.py` — `LIBRARY_DIR = <app dir>/library`, with `DRAMAS_DIR`,
-  `DB_PATH` (`library.db`), `BENCHMARK_DIR`, `VOICE_BANK_DIR` all derived
-  from it. There's a `set_library_dir()` override, but nothing today calls
-  it from a config file or installer-supplied path — `LIBRARY_DIR` is
-  always relative to `db.py`'s own `__file__` unless a caller sets it in
-  code. **This matters directly for §3 below**: today the library sits
-  inside the app folder itself, which is fine for `start.bat`'s
-  copy-the-folder model but is the wrong place once the app installs to
-  `C:\Program Files\...` (a machine-wide, admin-writable, per-user-hostile
-  location — see §5).
-
-**Uninstall precedent** (`uninstall.bat`): removes exactly the desktop
-shortcut, Start Menu entry, `venv/`, and `model_cache/` (if portable mode
-was used) unconditionally, then separately prompts (default **No**) before
-touching `library/`, and separately again (default **No**) before checking
-user-level PATH for ffmpeg/Tesseract entries it might have added. Never
-touches system-wide installs (ffmpeg, Ollama, CUDA driver) or Hugging
-Face/PyTorch's own default (non-portable) cache — explicitly out of scope
-because it can't know if something else on the machine still depends on
-them.
+**Not verified on a real Windows PC yet.** The script compiles with Inno
+Setup 6.7.3, and the payload and runtime scripts are tested on Linux. The
+Windows CI smoke test (silent install, start, `/api/health`, silent
+uninstall) runs only on demand, and the user's first real install is still
+owed (see §9).
 
 ---
 
-## 2. Packaging approach: installer framework + bundled Python, vs. a compiled single executable
+## 1. Decisions this builds on
 
-Two real, commonly used paths for a Python desktop app on Windows:
+- **Inno Setup + bundled Python, not a frozen executable** (Step 80 §2, user-confirmed
+  2026-09-28). Freezers (PyInstaller/Nuitka) fit badly with the app's many
+  optional, sometimes mutually exclusive ML backends, and they can't reuse the
+  tiered `requirements-*.txt` files or Diagnostics' install buttons. Inno Setup is
+  free, scriptable, supports silent install/uninstall natively, and gives a real
+  Settings → Apps entry. MSI/WiX was ruled out (no fleet-management need), and so
+  was conda (research notes §3: it would duplicate the requirements files). Conda
+  is the fallback only if embeddable Python + pip fails in practice.
+- **The React screens ship inside the installer** (user, 2026-09-30). There is no
+  separate frontend zip for installed users: `frontend/dist` is built at package
+  time and served by FastAPI (`api/static_frontend.py`). No Node.js is needed on
+  the user's PC.
+- **Heavier components stay opt-in** (research notes, decision 2). The installer
+  installs the Basic tier only. Media and optional packages (GPU torch,
+  diarization, OCR, TTS, …) are added afterwards from Diagnostics, as today.
+- **Code signing is deferred** until a public release (research notes §8). The
+  installer is unsigned, so SmartScreen shows "Windows protected your PC" and
+  the user clicks More info → Run anyway.
+- **`start.bat`/`start.ps1` stay the source-checkout path**, unchanged. Two
+  audiences, two entry points; both run the same `python -m api` and share the
+  same requirements files.
 
-### Option A — Installer framework (Inno Setup / NSIS / WiX) + a bundled, pinned Python runtime
+## 2. What gets installed, and where
 
-The installer (a real `.exe` built by Inno Setup, NSIS, or WiX) copies the
-app's source/bytecode plus a **Python embeddable package** (the official
-`python-3.x.y-embed-amd64.zip` redistributable, or a similarly pinned
-standalone Python build) onto disk, then runs `pip install` against that
-bundled interpreter at install time (or ships a pre-built `venv`/wheel
-cache so no network call is needed for Basic tier). The running app is
-still "real Python running real source," just with the interpreter
-resolved from a fixed path the installer controls, never from `PATH` — so
-the Windows-Store-alias bug class Step 79 fixes can't occur at all, because
-nothing ever does `where python`.
+Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 
-- **Build size**: small base (embeddable Python is ~15-25MB; the app's own
-  source is trivial). Total size scales with which tiers/components are
-  selected — a Basic-tier installer can stay under 150-300MB; Recommended
-  with GPU torch + pyannote weights predownloaded is multiple GB, same as
-  today's real `pip install` footprint already is.
-- **Update granularity**: excellent. Each install "component" (app files,
-  a specific optional dependency, a specific downloaded model) can be its
-  own file group in the installer script, updated independently — this is
-  the natural fit for §5's "updates don't redownload unchanged models."
-- **Startup time**: unaffected — it's the same interpreter starting the
-  same `streamlit run app.py` process `start.bat` already does, just from a
-  fixed path instead of a resolved-from-PATH one.
-- **Large optional ML dependencies**: handled cleanly — pip already knows
-  how to install torch/pyannote/transformers against this bundled
-  interpreter exactly as it does in today's dev venv; nothing about the
-  packaging format constrains this.
-- **GPU/CUDA passthrough**: no additional complication versus what the app
-  already does — CUDA drivers stay a system-level install (already true
-  per `uninstall.bat`'s own scope), and `torch`'s CUDA wheel installs into
-  the bundled interpreter the same way it would into any venv.
-- **Cost**: an installer script to write and maintain (Inno Setup's
-  scripting language, or WiX's XML, or NSIS's own script language); one
-  more build artifact type in the release process.
+| Location | What | Written by | Replaced on upgrade? |
+|---|---|---|---|
+| `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.12.10 x64 (pinned by SHA-256), with `python312._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept, and core is upgraded in place by pip. |
+| `...\Baihe Studio\app\` | The app's code (allow-by-default copy minus the exclusions in §3), `frontend\dist`, `installer\launcher.py`, `installer\postinstall.py`, and the `INSTALLED` marker | Installer | Yes, wholesale (`[InstallDelete]`), so a module deleted upstream can't linger |
+| `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
+| **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `launcher\` (server pid, server log, install log) | The app at runtime | **Never** |
 
-### Option B — Fully compiled single executable (PyInstaller / Nuitka)
+Why a separate data folder: the program folder is replaced on every upgrade
+and removed on uninstall, and a multi-GB growing library doesn't belong next
+to code. The user can choose another drive for the data folder. The installer
+refuses a folder inside the install folder or a whole drive (it checks on the
+page, and again in `PrepareToInstall` because silent installs skip the page).
+`postinstall.py` checks the same rules as a backstop.
 
-Freezes the interpreter and the app's own code (and, in practice, a large
-slice of its dependency tree) into one `.exe` or a `.exe` + support-files
-folder, with no Python source or separate interpreter visible at all.
+**How the app finds its data**: `portable.data_dir()`:
 
-- **Build size**: much larger per-build up front — freezing even
-  `requirements-core.txt` alone typically produces a base bundle in the
-  tens of MB to ~100MB+ before any optional ML dependency is added; adding
-  torch/transformers/pyannote to a *frozen* build routinely produces
-  multi-GB single artifacts, and every optional-dependency permutation
-  either needs its own separate frozen build or the freezer has to bundle
-  every optional dependency it might ever need, defeating the point of
-  tiers.
-  This is the most contested trade-off Basic  Standard packaging is
-  designed to avoid.
-- **Update granularity**: poor by default. PyInstaller/Nuitka produce one
-  monolithic bundle; there's no first-class notion of "just update the
-  model files" or "just update this one optional component" without
-  significant custom bootstrapping on top (effectively rebuilding
-  Option A's component model by hand, inside a format that isn't designed
-  for it).
-- **Startup time**: PyInstaller in particular has a real, well-documented
-  cold-start penalty (unpacking to a temp dir on `--onefile` builds) that
-  doesn't exist for a normal `python -m streamlit run` process. Nuitka
-  (compiles to C) avoids most of that penalty but has a much heavier build
-  step and less mature support for some of this app's heavier optional
-  packages (pyannote, funasr, several TTS backends) than plain pip/venv
-  does.
-- **Large optional ML dependencies**: the worst fit of the two options.
-  Freezers work by static analysis of imports; a codebase this large, with
-  this many optional, dynamically-imported ML backends (Scanlate's ML
-  detector, four alternate TTS engines, several OCR backends, several ASR
-  backends — many already conditionally imported specifically so they
-  don't have to all coexist, per `requirements-optional.txt`'s own
-  comments about OmniVoice/Chatterbox/TADA not sharing an environment)
-  is exactly the shape that trips up static-import freezing the hardest,
-  and doesn't map onto "toggle this component on/off" the way separate
-  `pip install` targets already do today.
-- **GPU/CUDA passthrough**: no inherent advantage or penalty versus
-  Option A — CUDA drivers are still a system install either way — but
-  torch's own CUDA wheels are large and freezing them in adds directly to
-  the single-executable size problem above, whereas Option A only pulls
-  them in for whichever tier/component actually needs them.
+1. `BAIHE_DATA_DIR`, if set (an override for anyone).
+2. Otherwise, for an installed copy (an `app\INSTALLED` marker exists), the
+   first non-comment line of that marker (an absolute path; UTF-8 with BOM, so
+   non-ASCII user names work), falling back to `%LOCALAPPDATA%\Baihe Studio`.
+3. Otherwise, the app folder, which is exactly what a source checkout always did.
 
-### Recommendation: Option A
+`db.LIBRARY_DIR`, `dictionary.CEDICT_PATH` and `settings_service`'s `.env` path
+come from `data_dir()`. The app log already follows `db.LIBRARY_DIR`.
+For an installed copy, `activate_portable_mode()` also points `HF_HOME`,
+`TORCH_HOME` and `BAIHE_AUDIO_SEP_MODEL_DIR` at `<data>\model_cache\…`
+(Step 80 §5 item 3), always via `setdefault`, so a user's own `HF_HOME` wins.
+Portable mode (the `PORTABLE` marker) is unchanged.
 
-Baihe's actual dependency shape — large, sometimes mutually-conflicting
-optional ML components (§1), an existing venv-based dev workflow
-(`start.bat`, this design's own §1), and already-built tiered-install
-infrastructure (`requirements-core/media/optional.txt`, Diagnostics'
-per-tier bulk-install buttons, the throwaway-venv upgrade-safety check) —
-all point the same direction: an installer framework with a bundled,
-pinned Python runtime, not a compiled single executable. It's the option
-that:
-- reuses the existing tiered requirements files and Diagnostics'
-  install/upgrade machinery almost as-is (§3, §6);
-- supports independent updates per category (§5) without inventing a
-  parallel component system a freezer doesn't have;
-- has no realistic single-executable story for a codebase whose optional
-  dependency count and mutual exclusivity (OmniVoice vs. Chatterbox vs.
-  TADA) is this large;
-- is immune to the exact Windows-Store-alias bug class Step 79 exists to
-  patch, the same guarantee Option B would also give, so that's not a
-  deciding factor between them.
+**Keys stay on the PC.** The payload never contains a `.env` (see §3). Keys
+the user types into Settings are written by the running app to `<data>\.env`,
+server-side only, as for a source checkout. Nothing in the installer reads,
+copies or uploads them. The launcher starts the server on loopback
+(`BAIHE_API_HOST=127.0.0.1`, forced) with the PC-only key form enabled, the
+same as `start.bat`.
 
-Inno Setup specifically (over NSIS/WiX) is the pragmatic default recommendation
-within Option A: free, widely used for exactly this "installer +
-Program Files + Add/Remove Programs entry" shape, scriptable components
-map cleanly onto §3's three tiers, and it has straightforward support for
-running a post-install `pip install` step against a bundled interpreter.
-WiX gives more enterprise-grade MSI compliance the project doesn't
-currently need; NSIS is comparable to Inno Setup in capability but with a
-less readable scripting language. This is a preference to revisit at
-actual build time, not a hard architectural dependency — nothing in §3-§6
-requires Inno Setup specifically over NSIS or WiX.
+## 3. Building the installer
 
----
+`python installer/build_installer.py --version <v>` (on Windows; CI does this):
 
-## 3. Three-tier component breakdown, mapped onto existing infrastructure
+1. Builds `frontend/dist` (`npm ci && npm run build`, reusing
+   `scripts/build_release.py`), unless `--skip-frontend-build` is passed.
+2. Stages the app into `build/installer/payload/app/`. `is_excluded()` is the
+   one rule; then `check_payload()` re-checks the staged tree and fails the
+   build if anything below slipped through, or if a key file is missing.
+   - **Never shipped**: `.env` and `.env.*` anywhere, `cookies*.txt`,
+     `*.key`/`*.pem`/`*.pfx`/`*.p12`/`*.crt`, `library/` and `model_cache/`
+     anywhere, `venv`/`.venv`, `__pycache__`/`*.pyc`, logs and database files,
+     `tests/`, `docs/`, `scripts/`, `frontend/` (except `frontend/dist`),
+     `installer/` (except the two runtime scripts), `.github`, `.claude`,
+     `.streamlit`, `build`/`dist`, the source-checkout launchers (`start.bat`,
+     `start.ps1`, `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
+     the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
+3. Downloads the embeddable Python zip, checks its pinned SHA-256, extracts it,
+   and rewrites the `._pth` (research notes §2).
+4. Runs `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12`
+   for `requirements-core.txt`, constrained by `constraints.lock.txt` if present,
+   else `constraints.txt` (the same rule as `start.bat`), plus pip's own wheel.
+   This must run on Windows under Python 3.12, because pip evaluates environment
+   markers for the build machine (a Linux download silently drops `colorama` and
+   `tzdata`). The script warns otherwise.
+5. Writes `manifest.json`, including the unpacked size of the wheels. That size
+   is passed to Inno's `ExtraDiskSpaceRequired`, so the free-space check counts
+   what pip will unpack (the disk-space preflight, research notes decision 2).
+6. Compiles `installer/baihe.iss` with ISCC. Output:
+   `build/installer/output/BaiheStudio-Setup-<version>.exe`, about 100 MB
+   (measured locally with the current core requirements; roughly 300 MB once
+   installed).
 
-Maps directly onto `requirements-core/media/optional.txt` (Step 75) and
-Diagnostics' existing tier vocabulary (`OPTIONAL_DEPENDENCIES`'s
-`required`/`engine`/`feature` tags, `INSTALLABLE_TIERS`) — **not a second
-grouping**. The installer's tier selector is a UI in front of the same
-three requirements files already checked into the repo:
+`build/` is git-ignored.
 
-- **🟢 Basic** — app files + bundled Python + `requirements-core.txt`
-  only. Text translation, subtitle export, no ffmpeg/GPU/ML. This is
-  already exactly what `requirements-core.txt`'s own header comment
-  describes ("Minimum to launch the app and do text translation +
-  subtitle export").
-- **🔵 Recommended** — Basic + `requirements-media.txt` (alignment,
-  diarization from `pyannote.audio`, dubbing, subtitle burn-in — note
-  `pyannote.audio` itself is technically in `requirements-optional.txt`
-  today under "speaker diarization," so Recommended's real definition is
-  "core + media + the diarization/OCR/transcription-adjacent subset of
-  optional that most users actually want," matched against what Step 75's
-  own tiering already treats as the common path) + GPU-enabled `torch`
-  (CUDA wheel where a supported GPU is detected, CPU wheel otherwise) +
-  a default OCR backend (pytesseract) + a default local-segmentation set
-  (jieba/pypinyin for Chinese, matching the app's own CJK-first framing).
-  **This tier's exact membership is this design's one open call, deferred
-  to the implementing step**: the honest options are (a) Recommended =
-  core + media only, letting Custom cover every "feature"/"engine"-tier
-  optional component, or (b) Recommended = core + media + a curated
-  subset of optional (diarization, one OCR backend, one segmentation set
-  per major source language) chosen to match what most users installing
-  "the whole audio-drama-to-dub pipeline" actually want. Both are
-  legitimate; picking between them needs the same kind of real-usage
-  judgment call Step 75's own tiering already made once, not a fresh
-  invention here.
-- **🟣 Custom** — every optional component from `requirements-optional.txt`
-  individually toggleable, sourced directly from `OPTIONAL_DEPENDENCIES`'s
-  own per-package feature description (already written in plain English —
-  e.g. "GPU acceleration — uses your NVIDIA GPU to significantly
-  accelerate supported AI workloads; without it, supported workloads run
-  on CPU but may be substantially slower" is exactly the tone
-  `OPTIONAL_DEPENDENCIES`'s existing feature-description strings already
-  use, just surfaced in an installer checkbox list instead of a Diagnostics
-  table row). Mutually-exclusive groups (OmniVoice / Chatterbox-tts /
-  TADA — `requirements-optional.txt`'s own comment already states these
-  "can't all share one environment") render as a radio group, not
-  independent checkboxes, so the installer enforces the same constraint
-  the comment currently only documents.
+## 4. Install flow
 
-Each tier/component maps to one or more pip package specs already listed
-in the three requirements files — the installer's job is selecting which
-specs to pass to a post-install `pip install` step against the bundled
-interpreter, not maintaining a separate dependency list.
+1. Wizard: install folder (default `%LOCALAPPDATA%\Programs\Baihe Studio`),
+   then the data folder page, then an optional desktop shortcut.
+   Free-space check.
+2. `PrepareToInstall`: validate the data folder, and stop a server a previous
+   install started (`launcher.py --stop`) so its files can be replaced.
+3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
+4. `postinstall.py`, run by the bundled `python.exe -s`:
+   1. Writes `app\INSTALLED` with the data folder, and creates the folder.
+      This comes first, so even a failed install never puts the library in
+      the program folder.
+   2. Bootstraps pip by running pip straight from its wheel (`python -s pip.whl\pip install --no-index ... pip`).
+      No network is needed, and nothing is fetched from bootstrap.pypa.io.
+   3. `pip install --no-index --find-links <wheels> -r requirements-core.txt -c <constraints>`.
+      `PIP_USER`, `PIP_REQUIRE_VIRTUALENV`, `PIP_INDEX_URL` and similar variables
+      from the user's environment are dropped first, and `-s` keeps the user's
+      own site-packages out (research notes §1, the ComfyUI `-s` lesson).
+   4. Checks that the core packages import, then runs `check_setup.py`
+      (ffmpeg, JS runtime, CUDA) for the log only.
+   5. Logs everything to `<data>\launcher\install.log`.
+   If this step fails, Setup shows a plain-words error with the log path.
+   It exits with **code 8** so a silent install can detect the failure, and the
+   "Start Baihe Studio now" option is skipped.
+5. Shortcuts: Start menu → Baihe Studio → **Baihe Studio** (runs
+   `pythonw.exe -s app\installer\launcher.py`) and **Stop Baihe Studio**
+   (`… --stop`).
 
----
+## 5. Launching (installer/launcher.py)
 
-## 4. Data-category separation for install / update / uninstall
+This is the same behaviour as `start.bat` for a source checkout, minus the setup:
 
-Four categories, kept genuinely independent so an update or uninstall can
-touch one without touching the others:
+- If `/api/health` already answers on the port, it just opens a window.
+- If something else holds the port, it shows a message box saying so and how
+  to choose another port (`BAIHE_API_PORT`).
+- Otherwise it starts `python.exe -s -m api` in its own minimized console
+  window titled "Baihe Studio (server -- closing this window stops the app)",
+  records the pid in `<data>\launcher\server.pid`, and waits up to 90 s for
+  `/api/health`. If the server exits early, it stops waiting at once.
+- It opens the app in its own window: Edge `--app`, then Chrome `--app`, then
+  the default browser.
+- Errors appear in a message box (under `pythonw.exe` there is no console).
+- `--no-browser`: start with no window, log to `<data>\launcher\server.log`,
+  exit 0 once healthy (for CI).
+- `--stop`: kills the recorded pid, but only if that process's image is this
+  install's own `python.exe`. A stale pid that Windows has reused for another
+  program is left alone.
 
-| Category | What it is | Where it lives | Install/update behavior | Uninstall behavior |
-|---|---|---|---|---|
-| **App files** | Python source, `tabs/*.py`, `.streamlit/config.toml`, the bundled interpreter itself | Installed location (see §5's own open question on where that should be) | Replaced wholesale on every app update — small, fast | Always removed (this is "the app"), same as today's `venv`/shortcut cleanup |
-| **Optional components** (pip packages) | Whatever the chosen tier/Custom selection installed — torch, pyannote, OCR backends, TTS backends, etc. | Inside the bundled interpreter's own `site-packages` | Only reinstalled/upgraded when that specific component's pinned version changes; untouched otherwise | Prompted per-component category (mirrors `uninstall.bat`'s existing separate-prompt pattern), not lumped in with app files |
-| **Downloaded models** | Whisper/pyannote/F5-TTS/audio-separator weights, whatever `portable.py`'s redirect map already governs | `model_cache/` (portable-mode path, already real) or the OS default HF/torch cache, depending on whether the installer turns portable mode on by default (see §5) | Never redownloaded on an app-files-only update; each model updates independently only when that specific model's own version changes | Separate opt-in prompt, default **No** — same discipline as `uninstall.bat`'s existing library-deletion default |
-| **User data** | `library/` (dramas, translations, audio/video, the SQLite database, backups), Settings' saved config | Wherever `db.py`'s `LIBRARY_DIR` resolves to (see §5) | Never touched by an app-files or optional-component update | Separate opt-in prompt, default **No** — this is exactly `uninstall.bat`'s existing `DELETE_LIBRARY` prompt, carried over unchanged in spirit |
+The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
+(forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
+`BAIHE_API_PORT=8600` unless already set. `PYTHONNOUSERSITE=1` is set, and the
+user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
+(`sys.executable -m pip install`) install into the bundled interpreter.
 
-This is a direct extension of `uninstall.bat`'s already-working pattern
-(app files always removed; library only removed on explicit separate
-opt-in, default no) — not a new design. The only genuinely new piece is
-splitting "app files" and "optional components" into two categories
-instead of one, so a components-only update (e.g. bumping `torch` for a
-new CUDA release) doesn't have to reship or re-verify the whole app.
+## 6. Tiers: Basic in the installer, the rest through Diagnostics
 
----
+| Tier | How it gets installed |
+|---|---|
+| **Basic**: `requirements-core.txt` (FastAPI/uvicorn, requests, anthropic, pandas, …; Streamlit too, until it leaves `requirements-core.txt`) | The installer, offline, from bundled wheels |
+| **Media**: `requirements-media.txt` | Diagnostics → the tier's bulk Install button (Step 62), into the bundled interpreter. Needs network. |
+| **Optional / GPU torch / engines**: `requirements-optional.txt`, `diagnostics.TORCH_VARIANTS` | Diagnostics' per-package and GPU PyTorch buttons, as today. The CPU fallback and GPU reporting (research notes decision 2) are Diagnostics' existing behaviour; the installer adds no GPU detection of its own. |
 
-## 5. What needs to change later to support this (not built now)
+This keeps the design's §7 promise: the installer reuses, rather than
+replaces, the tiered requirements files and Diagnostics' install machinery.
+The installer-side tier picker and prompted GPU/torch opt-in with size
+estimates, from the original §3, are **not built**: installing them offline
+would multiply the download to several GB. Diagnostics already does this
+online with real pip output. Revisit if users want an all-in-one offline
+installer.
 
-Concrete list for the follow-on implementation step:
+Known limit: Diagnostics' Step 66 "will this upgrade break the app?" check runs
+the test suite in a throwaway venv. An installed copy has no `tests/` (it is
+excluded), and the embeddable Python has no `venv`/`ensurepip`, so that check
+reports "incomplete" on an installed copy. It still works from a source checkout.
 
-1. **`db.py`'s `LIBRARY_DIR` needs to stop being hardcoded relative to
-   `__file__`.** Installing to `C:\Program Files\Baihe Subtitler\` means
-   the app directory is (by Windows convention, and often by actual ACLs)
-   not meant to hold per-user, frequently-written data — a
-   multi-GB-and-growing SQLite database and media library sitting under
-   `Program Files` is the wrong place both by convention and, on a
-   locked-down machine, potentially unwritable without admin rights. The
-   installer path should default `LIBRARY_DIR` to somewhere under
-   `%LOCALAPPDATA%\Baihe Subtitler\` (or let the installer set an
-   environment variable / config value `db.py` reads at startup, using
-   `set_library_dir()`, which already exists but is currently never
-   called from any config source). This is the single most important
-   pre-existing assumption this design breaks, and needs deciding before
-   an installer is actually built — not a detail to discover mid-build.
-2. **A config layer that distinguishes "installed by the installer" from
-   "run from a dev checkout."** Today `start.bat` always assumes the app
-   directory is both the code location and (via `db.py`'s default) the
-   data location. An installed copy needs a small startup check (a marker
-   file or an installer-written config, similar in spirit to the existing
-   `PORTABLE` marker file pattern) so `app.py`/`db.py` know to resolve
-   `LIBRARY_DIR` and `model_cache`'s equivalent from the installed,
-   per-user location instead of next to the code.
-3. **Portable mode's redirect map (`portable.py`) becomes the installed
-   app's default model-storage mechanism, not just an opt-in.** An
-   installed app's models shouldn't go to each library's own scattered
-   default cache (`~/.cache/huggingface`, etc.) — they should land
-   somewhere the uninstaller and the update mechanism can find as one
-   unit, which is exactly what `portable.py`'s `MODEL_CACHE_DIR` redirect
-   already does. The installer likely turns portable-style model
-   redirection on by default (pointed at the per-user data location from
-   item 1, not literally next to the app files in `Program Files`), reusing
-   the existing `_REDIRECTS` dict rather than inventing a new one.
-4. **The installer's post-install step needs to shell out to the bundled
-   interpreter's own `pip`**, running effectively the same three-tier
-   install `start.bat` already does today (`pip install -r
-   requirements-core.txt [-c constraints.lock.txt]`, then
-   media/optional per the chosen tier), just from the installer's own
-   script instead of a batch file. `check_setup.py`'s plain-words
-   ffmpeg/JS-runtime/CUDA check should run as part of this step too, so
-   a missing system tool is caught during install, not on first launch.
-5. **Model storage and update handling need a manifest**: which model
-   files/weights belong to which optional component, and what version
-   each one is currently at, so an update can compare "what's already
-   downloaded and current" against "what the new installer package
-   offers" and skip anything unchanged (§4's "updates preserve data by
-   design" requirement). Nothing like this exists today — `portable.py`
-   redirects *where* models land, but nothing currently tracks *which*
-   model version is sitting there. This is new bookkeeping, not a reuse
-   of an existing mechanism.
-6. **Diagnostics' `OPTIONAL_DEPENDENCIES`/bulk-install/throwaway-venv
-   machinery stays exactly as it is for the installed app** — an
-   installed user still benefits from Diagnostics' existing per-package
-   Install button and Step 66's upgrade-safety check for anything they
-   add or change after initial install; nothing about the installer
-   replaces that in-app machinery, it only replaces the very first
-   bootstrap (`start.bat`'s job) with a proper installer for end users.
-7. **`start.bat`/`start.ps1` and the dev `venv/` workflow are explicitly
-   unchanged** — they remain the contributor path, addressed to
-   `python`-on-PATH exactly as today (plus Step 79's stub-detection fix,
-   separately), with no dependency on anything in this document. Two
-   audiences, two entry points, sharing the same `requirements-*.txt`
-   files and the same `app.py`/`diagnostics.py` runtime code.
-8. **Uninstaller registration**: a real Windows uninstaller entry under
-   Settings → Apps → Installed apps (an Inno Setup `[UninstallRun]`/
-   registry-uninstall-key mechanism, not a bare `.bat` file the user has
-   to find and run manually as today). Its actual deletion logic is a
-   near-verbatim port of `uninstall.bat`'s existing category/prompt
-   structure (§4's table), not a rewrite of the policy.
+## 7. Upgrade
 
----
+Running a newer `BaiheStudio-Setup-<v>.exe`:
 
-## 6. Distinct from Docker/containerization (M8-F)
+- It keeps the same `AppId`, so Windows sees one app. The install folder is
+  reused (`UsePreviousAppDir`), and the data folder is reused through
+  `GetPreviousData('DataDir')` (`/DATADIR=` overrides it).
+- It stops the running server first (`PrepareToInstall` → `launcher.py --stop`).
+  Inno's Restart Manager (`CloseApplications=yes`) covers anything else holding
+  files.
+- `app\` is replaced wholesale. The `python\` interpreter files are overwritten,
+  and its `site-packages` is kept, so optional packages added through
+  Diagnostics survive. Then `postinstall.py` runs `pip install` again against
+  the new bundled wheels, which changes only what changed.
+- The data folder is never touched.
+- A Python minor-version bump (3.12 → 3.13) would make the kept `site-packages`
+  unusable. When that happens, the release must say "uninstall first" or add
+  an `[InstallDelete]` for `python\Lib\site-packages`. This is not needed yet.
+- There are no delta updates (research notes §9). An upgrade re-downloads the
+  whole ~100 MB installer. Model files are in the data folder and are never
+  re-downloaded. The per-component manifest the design keeps
+  (`manifest.json`) records versions and hashes for the future updater; nothing
+  reads it yet.
 
-This design is about a **native Windows installer/uninstaller** — a
-different packaging axis from the separately-deferred Docker/
-containerization question tracked in the roadmap's own §3 as M8-F.
-Docker would isolate CUDA/PyTorch dependency conflicts inside a container,
-but GPU passthrough into Docker containers on Windows (the actual target
-platform for this app, per Step 10) is itself a known, separately-tracked
-source of friction — a different trade-off from anything in this
-document. M8-F stays deferred, unchanged by this design; this document's
-findings shouldn't be read as a substitute for, or a merge into, that
-separate question.
+## 8. Uninstall
 
----
+Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 
-## 7. Confirmation against existing infrastructure (exit condition)
+1. `[UninstallRun]` stops the server (`launcher.py --stop`).
+2. A dialog lists the data folder with three boxes, **all unticked by default**:
+   delete my library; delete my saved settings and API keys (`.env`); delete
+   downloaded AI models (`model_cache`). Cancel aborts the uninstall.
+3. The program is removed: `{app}\python` (including pip-installed packages),
+   `{app}\app`, the shortcuts and the uninstall entry. `{app}` itself is removed
+   if it is empty.
+4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
+   `<data>\model_cache`). The data folder's other contents are never touched,
+   since it may be a folder the user picked and shares with other files. The
+   `launcher\` subfolder (pid, logs) is always removed. The data folder itself
+   is removed only if it is then empty.
+5. **A silent uninstall (`/VERYSILENT`) never deletes user data.**
 
-- **Reuses, doesn't replace, Step 75's tiered requirements** — §3's three
-  installer tiers map directly onto `requirements-core/media/optional.txt`
-  ; the installer's job is a UI in front of `pip install -r
-  <existing file>`, not a new dependency list.
-- **Reuses, doesn't replace, Step 62's bulk-install UI** — Diagnostics'
-  in-app Install buttons and `INSTALLABLE_TIERS` keep working exactly as
-  they do today for anything a user adds or changes after initial
-  install; the installer only replaces the very first bootstrap.
-- **Reuses, doesn't replace, Step 66's throwaway-venv pattern** — nothing
-  about the installer needs its own upgrade-safety logic; an installed
-  app still has Diagnostics' existing "will this upgrade break the app?"
-  check available for post-install package changes.
-- **Extends, doesn't invent, `uninstall.bat`'s data-preservation
-  default** — §4's category table and §5 item 8 are a direct port of the
-  existing app-files-always / library-opt-in-default-no pattern, split one
-  category further (app files vs. optional components) than today's
-  script does.
+If the marker can't be read or names an invalid folder, no user data is
+deleted. Out of scope, as with `uninstall.bat`: system-wide ffmpeg, Ollama,
+CUDA drivers, and Hugging Face/torch caches outside the data folder.
 
-**No installer code, no packaging CI changes, and no `start.bat`/
-`start.ps1` changes exist as part of this step** — implementation is a
-later, separate step once this design is reviewed and the app's own
-dependency/model layout (specifically §5 item 1's `LIBRARY_DIR` question)
-has stabilized further.
+## 9. Testing
+
+- Linux (the test suite): `tests/test_installer_payload.py` covers staging,
+  exclusions, `._pth`, the wheel command, the manifest and ISCC arguments.
+  `tests/test_installer_iss.py` statically checks the `.iss` (per-user install,
+  no secrets, sources only from the payload, the data folder, opt-in deletion,
+  two Pascal pitfalls that broke the compile) and the workflow (on-demand only,
+  pinned Inno Setup, what the smoke test covers). `tests/test_installer_runtime.py`
+  covers the launcher and post-install logic with fakes. `tests/test_portable.py`
+  covers `data_dir()`.
+- Windows CI, **on demand** (Actions → Windows Installer → Run workflow, or push
+  an `installer-v*` tag; never on PRs, because of the minutes budget): it builds
+  the `.exe`, uploads it as an artifact, and smoke-tests it. The smoke test runs
+  a silent install to a temp folder with `/DATADIR=`, checks the `INSTALLED`
+  marker, and checks that no `.env`, `library`, `tests` or `model_cache` got
+  installed. It runs `launcher.py --no-browser`, checks `/api/health`, checks
+  that `/` is HTML and the JS bundle is served as JavaScript, and checks that
+  `/api/library/dramas` creates `library.db` in the data folder, not the
+  program folder. Then it runs `--stop`, a silent uninstall, confirms the
+  program is gone, and confirms the library and `.env` survived.
+- Still owed, from a person: a real install on the user's PC (steps in the PR),
+  the interactive wizard and uninstall dialog, SmartScreen, Edge app window, and
+  the research notes' clean-Windows GPU matrix once a GPU tier is added through
+  Diagnostics.
+
+## 10. Still open / deferred
+
+- An offline installer-side tier picker and GPU/torch opt-in (§6). Today these
+  are online, through Diagnostics.
+- An updater that reads `manifest.json`, and delta updates (§7).
+- Code signing (§1).
+- Moving an existing source-checkout library into the installed app. For now,
+  point the data folder at the checkout folder (it holds `library\` and `.env`),
+  or copy those two into the data folder.
+- `start.bat`/`start.ps1` still tell a source-checkout user without
+  `frontend\dist` to download the frontend zip from Releases. Now that installed
+  users get the screens inside the installer (2026-09-30), whether that zip
+  keeps being published for source checkouts is a planning decision (the
+  alternative is `start.bat --build-frontend`).

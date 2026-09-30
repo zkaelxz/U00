@@ -49,6 +49,8 @@ class TestIsPortable:
 class TestActivatePortableMode:
     def _setup(self, monkeypatch, tmp_path, on: bool):
         monkeypatch.setattr(portable, "_MARKER_PATH", str(tmp_path / "PORTABLE"))
+        monkeypatch.setattr(portable, "_INSTALLED_MARKER_PATH", str(tmp_path / "INSTALLED"))
+        monkeypatch.delenv(portable.DATA_DIR_ENV, raising=False)
         monkeypatch.setattr(portable, "MODEL_CACHE_DIR", str(tmp_path / "model_cache"))
         monkeypatch.setattr(sys, "argv", ["app.py"])
         for var in portable._REDIRECTS:
@@ -75,3 +77,54 @@ class TestActivatePortableMode:
         assert os.environ["HF_HOME"] == "/already/set/by/the/user"
         # An unrelated redirect is still set normally.
         assert os.environ["TORCH_HOME"] == os.path.join(str(tmp_path / "model_cache"), "torch")
+
+
+class TestDataDir:
+    """Step 80b: where an installed copy keeps library/, .env and models."""
+
+    def _setup(self, monkeypatch, tmp_path, marker_text=None):
+        marker = tmp_path / "app" / "INSTALLED"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        if marker_text is not None:
+            marker.write_text(marker_text, encoding="utf-8-sig")
+        monkeypatch.setattr(portable, "_INSTALLED_MARKER_PATH", str(marker))
+        monkeypatch.setattr(portable, "_APP_DIR", str(tmp_path / "app"))
+        monkeypatch.delenv(portable.DATA_DIR_ENV, raising=False)
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+
+    def test_source_checkout_keeps_data_next_to_the_code(self, monkeypatch, tmp_path):
+        self._setup(monkeypatch, tmp_path)
+        assert portable.is_installed() is False
+        assert portable.data_dir() == str(tmp_path / "app")
+
+    def test_installed_marker_names_the_data_dir(self, monkeypatch, tmp_path):
+        data = tmp_path / "My Data"
+        self._setup(monkeypatch, tmp_path, f"# comment\n\n{data}\n# more\n")
+        assert portable.is_installed() is True
+        assert portable.data_dir() == str(data)
+
+    def test_installed_without_a_path_uses_localappdata(self, monkeypatch, tmp_path):
+        self._setup(monkeypatch, tmp_path, "")
+        assert portable.data_dir() == str(tmp_path / "Local" / "Baihe Studio")
+
+    def test_a_relative_path_in_the_marker_is_ignored(self, monkeypatch, tmp_path):
+        self._setup(monkeypatch, tmp_path, "..\\somewhere\n")
+        assert portable.data_dir() == str(tmp_path / "Local" / "Baihe Studio")
+
+    def test_env_var_overrides_everything(self, monkeypatch, tmp_path):
+        self._setup(monkeypatch, tmp_path, str(tmp_path / "marker-data"))
+        monkeypatch.setenv(portable.DATA_DIR_ENV, str(tmp_path / "env-data"))
+        assert portable.data_dir() == str(tmp_path / "env-data")
+
+    def test_installed_copy_redirects_model_caches_into_the_data_dir(self, monkeypatch, tmp_path):
+        data = tmp_path / "data"
+        self._setup(monkeypatch, tmp_path, str(data))
+        monkeypatch.setattr(portable, "_MARKER_PATH", str(tmp_path / "PORTABLE"))
+        monkeypatch.setenv("BAIHE_PORTABLE", "0")
+        monkeypatch.setattr(sys, "argv", ["api"])
+        for var in portable._REDIRECTS:
+            monkeypatch.delenv(var, raising=False)
+        assert portable.activate_portable_mode() is True
+        for var, subdir in portable._REDIRECTS.items():
+            assert os.environ[var] == os.path.join(str(data), "model_cache", subdir)
+        assert (data / "model_cache").is_dir()
