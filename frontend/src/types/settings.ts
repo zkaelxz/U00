@@ -19,11 +19,13 @@ export interface SettingsPreferences {
   tesseract_cmd: string
   cookies_browser: string | null
   cookies_file: string
-  // The three paths above come back only to the PC itself; other devices get
+  lncrawl_cmd: string
+  // The four paths above come back only to the PC itself; other devices get
   // '' there and only these flags.
   whisper_model_path_configured: boolean
   tesseract_cmd_configured: boolean
   cookies_file_configured: boolean
+  lncrawl_cmd_configured: boolean
 }
 
 export type PreferenceKey = keyof SettingsPreferences

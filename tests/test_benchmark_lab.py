@@ -7,6 +7,7 @@ next run; plus golden-set import, CER/WER scoring, the Model Arena view and
 the spending-cap refusals. Mocked engines only (test_offline, or a fake
 engine class patched into translate_engines.ENGINES).
 """
+import builtins
 import time
 
 import pytest
@@ -70,15 +71,112 @@ class TestScoring:
         assert svc.error_rate("the cat sat", "the cat sat down", unit="word") == pytest.approx(0.25)
 
     def test_metric_per_stage(self):
-        assert svc.score_output("translation", "a", "a") == (1.0, "similarity")
-        assert svc.score_output("ocr", "你好", "你好") == (1.0, "cer")
+        assert svc.score_output("translation", "a", "a") == (1.0, "similarity", "builtin")
+        assert svc.score_output("ocr", "你好", "你好")[:2] == (1.0, "cer")
         assert svc.score_output("transcription", "hi", "hi", "zh")[1] == "cer"
         assert svc.score_output("transcription", "hi there", "hi there", "en")[1] == "wer"
-        assert svc.score_output("ocr", "x", None) == (None, "cer")
+        assert svc.score_output("ocr", "x", None) == (None, "cer", None)
 
     def test_score_is_never_negative(self):
-        score, _ = svc.score_output("ocr", "完全不同的很长很长的文字", "对")
+        score = svc.score_output("ocr", "完全不同的很长很长的文字", "对")[0]
         assert score == 0.0
+
+
+def _hide_jiwer(monkeypatch):
+    """Make `import jiwer` fail, whether or not it is installed."""
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "jiwer" or name.startswith("jiwer."):
+            raise ImportError("no jiwer")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
+# (stage, output, reference, source language, built-in score before jiwer)
+_FALLBACK_CASES = [
+    ("ocr", "你好世", "你好世界", "zh", 0.75),
+    ("ocr", "你好 世界", "你好世界", "zh", 1.0),
+    ("transcription", "the cat sat", "the cat sat down", "en", 0.75),
+    ("transcription", "The cat, sat.", "the cat sat", "en", 0.0),  # case/punctuation count
+    ("ocr", "完全不同的很长很长的文字", "对", "zh", 0.0),
+]
+
+
+class TestScorerChoice:
+    @pytest.mark.parametrize("stage,output,ref,lang,expected", _FALLBACK_CASES)
+    def test_fallback_matches_old_numbers_without_jiwer(self, monkeypatch, stage, output, ref,
+                                                        lang, expected):
+        _hide_jiwer(monkeypatch)
+        score, _metric, scorer = svc.score_output(stage, output, ref, lang)
+        assert scorer == "builtin"
+        assert score == pytest.approx(expected)
+        assert score == pytest.approx(max(0.0, 1.0 - svc.error_rate(
+            output, ref, "char" if stage == "ocr" or lang == "zh" else "word")))
+
+    def test_fallback_keeps_the_length_bound(self, monkeypatch):
+        _hide_jiwer(monkeypatch)
+        started = time.monotonic()
+        assert svc.score_output("ocr", "x" * 200000, "你好")[::2] == (0.0, "builtin")
+        assert time.monotonic() - started < 2
+
+    def test_run_records_builtin_scorer_without_jiwer(self, isolated_db, monkeypatch):
+        _hide_jiwer(monkeypatch)
+        monkeypatch.setattr(svc, "_run_file_case", lambda stage, cfg, case, use_gpu: {
+            "output_text": "你好世", "duration_seconds": 0.1})
+        case = db.create_benchmark_case("c", "ocr", "image", "zh", input_filename="img.png",
+                                        reference_text="你好世界")
+        (sid,) = svc.start_run("ocr", [{"engine": "tesseract"}], case_ids=[case])["session_ids"]
+        assert _wait()["status"] == "done"
+        (res,) = svc.get_run(sid)["results"]
+        assert (res["metric"], res["scorer"], res["score"]) == ("cer", "builtin", pytest.approx(0.75))
+
+
+class TestJiwerScorer:
+    @pytest.fixture(autouse=True)
+    def _need_jiwer(self):
+        pytest.importorskip("jiwer")
+
+    def test_standard_cer_and_wer(self):
+        assert svc.score_output("ocr", "你好世", "你好世界") == (pytest.approx(0.75), "cer", "jiwer")
+        score, metric, scorer = svc.score_output("transcription", "the cat sat", "the cat sat down", "en")
+        assert (metric, scorer) == ("wer", "jiwer") and score == pytest.approx(0.75)
+
+    def test_same_normalisation_on_both_sides(self):
+        # Case, punctuation and extra whitespace are removed from reference
+        # and output alike, so only real word/character errors count.
+        assert svc.score_output("transcription", "The  cat, sat.", "the cat sat", "en")[0] == 1.0
+        assert svc.score_output("transcription", "the cat sat", "The cat, sat!", "en")[0] == 1.0
+        assert svc.score_output("transcription", "你好，世界", "你好 世界。", "zh")[0] == 1.0
+
+    def test_ocr_keeps_punctuation(self):
+        # User decision: punctuation is part of what OCR read, so it counts.
+        assert svc.score_output("ocr", "你好，世界", "你好，世界。") == (pytest.approx(5 / 6), "cer", "jiwer")
+        assert svc.score_output("ocr", "Hello, World", "hello, world")[0] == 1.0  # case still ignored
+        assert svc.score_output("ocr", "……", "……")[::2] == (1.0, "jiwer")
+        # Non-ASCII spaces are dropped too, from both sides.
+        assert svc.score_output("ocr", "你好世", "你好\u3000世界")[0] == pytest.approx(0.75)
+        assert svc.score_output("ocr", "你好\u00a0世界", "你好世界")[0] == 1.0
+
+    def test_transform_is_built_once(self):
+        import jiwer
+        assert svc._jiwer_transform(jiwer, "char", True) is svc._jiwer_transform(jiwer, "char", True)
+        assert svc._jiwer_transform(jiwer, "word") is not svc._jiwer_transform(jiwer, "char")
+
+    def test_empty_output_is_all_deletions(self):
+        assert svc.score_output("ocr", "", "你好世界")[::2] == (0.0, "jiwer")
+        assert svc.score_output("transcription", "", "the cat", "en")[::2] == (0.0, "jiwer")
+
+    def test_empty_after_normalisation_falls_back(self):
+        # A punctuation-only reference has nothing left for jiwer to score.
+        assert svc.score_output("transcription", "……", "……", "zh")[::2] == (1.0, "builtin")
+
+    def test_length_bound_kept(self):
+        started = time.monotonic()
+        score, _metric, scorer = svc.score_output("ocr", "x" * 200000, "你好")
+        assert (score, scorer) == (0.0, "jiwer") and time.monotonic() - started < 2
+        # Same numbers as the built-in scorer on a plain (unnormalised) case.
+        assert svc._jiwer_error_rate("x" * 200000, "你好", "char") == svc.error_rate("x" * 200000, "你好")
 
 
 class TestCasesAndImport:
@@ -448,3 +546,43 @@ class TestLeadReviewFixes:
         started = time.monotonic()
         rate = svc.error_rate("x" * 200000, "你好")
         assert rate > 1 and time.monotonic() - started < 2
+
+
+class TestJobCostCap:
+    """max_cost_usd: a per-run cap enforced on real spend, not the estimate."""
+
+    def _setup(self, monkeypatch, n=5):
+        svc.import_golden_set("g", "".join(f"句{i}\tS{i}\n" for i in range(n)), "tsv")
+        monkeypatch.setattr(svc, "_estimate_config", lambda cfg, cases: 0.0)
+
+    def test_real_cost_above_estimate_stops_run(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch)
+        (sid,) = _run(configs=[{"engine": "claude"}], max_cost_usd=0.015)["session_ids"]
+        run = svc.get_run(sid)["run"]
+        assert run["status"] == "stopped_cap"
+        assert run["total_cost_usd"] < 5 * 0.018 and run["total_cost_usd"] > 0
+
+    def test_zero_cap_means_free_engines_only(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch)
+        (sid,) = _run(configs=[{"engine": "claude"}], max_cost_usd=0)["session_ids"]
+        run = svc.get_run(sid)["run"]
+        assert run["status"] == "stopped_cap" and not run["total_cost_usd"]
+        # A free engine still runs under a cap of 0.
+        (free,) = _run(configs=[{"engine": "test_offline"}], max_cost_usd=0)["session_ids"]
+        assert svc.get_run(free)["run"]["status"] == "done"
+
+    def test_spend_is_cumulative_across_configs(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch, n=2)
+        one = _run(configs=[{"engine": "claude"}], max_cost_usd=100)["session_ids"][0]
+        per_config = svc.get_run(one)["run"]["total_cost_usd"]
+        assert per_config > 0
+        # Room for the first config in full but not for the second.
+        a, b = _run(configs=[{"engine": "claude"}, {"engine": "claude", "model": "claude-sonnet-4-6"}],
+                    max_cost_usd=per_config * 1.2)["session_ids"]
+        assert svc.get_run(a)["run"]["status"] == "done"
+        assert svc.get_run(b)["run"]["status"] == "stopped_cap"
+
+    def test_no_job_cap_is_unchanged(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch, n=2)
+        (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
+        assert svc.get_run(sid)["run"]["status"] == "done"

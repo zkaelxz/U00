@@ -696,13 +696,10 @@ def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     a key here, it's the caller's job (_request_translations_with_retry)
     to decide what to do about that, not this function's.
 
-    Tolerates a plain JSON array too (mapping array position to id
-    positionally) for a model that ignores the object-shape instruction
-    -- graceful degradation, not the primary path. Only when the array's
-    length matches expected_ids exactly: a short or long array has no
-    reliable position-to-id mapping (["A", "C"] for ids [1, 2, 3] would
-    otherwise put line 3's translation on line 2's id), so those are
-    left for the retry path to re-request instead of guessed at here.
+    A plain JSON array (a model ignoring the object-shape instruction) is
+    malformed and returns {}: an array can be short, long or reordered,
+    so matching it to ids by position could put a translation on the
+    wrong line. The retry path re-requests those ids instead.
     """
     stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     expected_str = {str(i) for i in expected_ids}
@@ -712,10 +709,6 @@ def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     if isinstance(data, dict):
         return {str(k): v for k, v in data.items()
                 if str(k) in expected_str and isinstance(v, str)}
-    if isinstance(data, list):
-        if len(data) != len(expected_ids):
-            return {}
-        return {str(expected_ids[i]): v for i, v in enumerate(data) if isinstance(v, str)}
     return {}
 
 

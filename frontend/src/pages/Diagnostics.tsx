@@ -9,6 +9,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { statusTone } from '../components/labels'
 import { Section } from '../components/Section'
 import { buttonClass } from '../components/uiClasses'
+import { useEventStream } from '../hooks/useEventStream'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
@@ -30,7 +31,7 @@ import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
-import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel } from './diagnosticsFormat'
+import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel, upsertJob } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
@@ -79,21 +80,41 @@ export default function DiagnosticsPage() {
 
   useEffect(() => {
     refreshSetup()
-    listJobs().then((r) => setJobs(r.items), setError)
     refreshHistory()
     refreshCache()
   }, [refreshSetup, refreshHistory, refreshCache])
 
+  // Job changes are pushed (GET /api/events); the list is read once at the
+  // start and after every (re)connect.
+  const stream = useEventStream((type, data) => {
+    const pushed = data as Partial<JobRecord> | null
+    if (!pushed?.job_id || (type !== 'job' && type !== 'job_gone')) return
+    setJobs((cur) => (cur === null ? cur : type === 'job' ? upsertJob(cur, pushed as JobRecord) : cur.filter((j) => j.job_id !== pushed.job_id)))
+    setNow(Date.now() / 1000)
+  })
+  useEffect(() => {
+    listJobs().then((r) => {
+      setJobs(r.items)
+      setNow(Date.now() / 1000)
+    }, setError)
+  }, [stream.syncs])
+
   const active = jobs !== null && jobs.some((j) => isActive(j.status))
   const running = jobs?.filter((j) => isActive(j.status)).length ?? 0
-  // Poll while a job runs, and while Packages or the Danger zone is open
-  // (their buttons wait for running jobs).
-  const watch = active || packagesOpen || dangerOpen
+  // While the stream is down: poll while a job runs, and while Packages or
+  // the Danger zone is open (their buttons wait for running jobs).
+  const watch = stream.mode === 'poll' && (active || packagesOpen || dangerOpen)
   useEffect(() => {
     if (!watch) return
     const t = setInterval(() => void refreshJobs(), POLL_MS)
     return () => clearInterval(t)
   }, [watch, refreshJobs])
+  // Elapsed times keep counting while a job runs, with or without polls.
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setNow(Date.now() / 1000), POLL_MS)
+    return () => clearInterval(t)
+  }, [active])
   // A job just finished: it moves to the history.
   useEffect(() => {
     if (!active) refreshHistory()

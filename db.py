@@ -1175,6 +1175,72 @@ def init_db():
     _migrate_step26e_profiles()
 
 
+# ---------------------------------------------------------------------------
+# Step 40b: model re-evaluation candidates and decisions
+# ---------------------------------------------------------------------------
+
+def create_model_candidate(capability: str, engine: str, model: str, note: str = "") -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO model_candidates (capability, engine, model, note, status, created_at) "
+            "VALUES (?, ?, ?, ?, 'candidate', ?)",
+            (capability, engine, model, note, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_model_candidate(candidate_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM model_candidates WHERE id = ?", (candidate_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_model_candidate(capability: str, engine: str, model: str):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute(
+            "SELECT * FROM model_candidates WHERE capability = ? AND engine = ? AND model IS ?",
+            (capability, engine, model)).fetchone()
+    return dict(row) if row else None
+
+
+def list_model_candidates(capability: str):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM model_candidates WHERE capability = ? ORDER BY id",
+                            (capability,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_model_candidate_status(candidate_id: int, status: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE model_candidates SET status = ? WHERE id = ?", (status, candidate_id))
+        conn.commit()
+
+
+def record_model_decision(candidate_id: int, decision: str, reason: str, scores_json: str) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO model_decisions (candidate_id, decision, reason, scores, decided_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (candidate_id, decision, reason, scores_json, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def latest_model_decision(candidate_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM model_decisions WHERE candidate_id = ? "
+                           "ORDER BY id DESC LIMIT 1", (candidate_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_model_decisions(capability: str):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT d.* FROM model_decisions d JOIN model_candidates c ON d.candidate_id = c.id "
+            "WHERE c.capability = ? ORDER BY d.id DESC", (capability,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def _init_benchmark_lab_schema():
     """Step 38 (Benchmark Lab): golden-set tiers on benchmark_cases, plus a
     per-run record (benchmark_sessions: engine/model/prompt version/context,
@@ -1213,6 +1279,7 @@ def _init_benchmark_lab_schema():
             output_text TEXT,
             score REAL,
             metric TEXT,             -- 'similarity', 'cer', 'wer'
+            scorer TEXT,             -- 'jiwer', 'builtin'; NULL on rows from before it was recorded
             passed INTEGER,
             duration_seconds REAL,
             cost_usd REAL DEFAULT 0.0,
@@ -1222,12 +1289,37 @@ def _init_benchmark_lab_schema():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        -- Step 40b: candidate models for scheduled re-evaluation, and every
+        -- promote/reject decision (kept so a rejected candidate isn't re-proposed
+        -- as new).
+        CREATE TABLE IF NOT EXISTS model_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            capability TEXT NOT NULL,
+            engine TEXT NOT NULL,
+            model TEXT,
+            note TEXT DEFAULT '',
+            status TEXT DEFAULT 'candidate',   -- candidate / promoted / rejected
+            created_at TEXT,
+            UNIQUE(capability, engine, model)
+        );
+        CREATE TABLE IF NOT EXISTS model_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_id INTEGER NOT NULL,
+            decision TEXT NOT NULL,            -- promoted / rejected
+            reason TEXT DEFAULT '',
+            scores TEXT,                       -- JSON snapshot of the runs compared
+            decided_at TEXT,
+            FOREIGN KEY (candidate_id) REFERENCES model_candidates(id) ON DELETE CASCADE
+        );
         """)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_cases)").fetchall()}
         for col, coltype in (("tier", "TEXT DEFAULT 'application'"), ("set_name", "TEXT DEFAULT ''"),
                              ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
+        result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
+        if "scorer" not in result_cols:
+            _safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
         conn.commit()
 
 
@@ -3679,6 +3771,19 @@ def list_job_records() -> list:
         return [dict(r) for r in rows]
 
 
+def list_job_record_fingerprints() -> dict:
+    """{job_id: (status, progress, message, error, finished_at,
+    cancel_requested, result length)} for every job_records row: the cheap
+    change check behind the SSE stream's sweep (services/
+    event_stream_service.py). updated_at is left out on purpose: the
+    heartbeat bumps it without any visible change."""
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT job_id, status, progress, message, error, finished_at, cancel_requested, "
+            "LENGTH(result_json) FROM job_records").fetchall()
+    return {r[0]: tuple(r[1:]) for r in rows}
+
+
 def get_job_record(job_id: str):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM job_records WHERE job_id = ?", (job_id,)).fetchone()
@@ -4256,10 +4361,10 @@ def save_benchmark_result(session_id: int, case: dict, result: dict):
     with contextlib.closing(get_conn()) as conn:
         conn.execute(
             "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
-            "metric, passed, duration_seconds, cost_usd, error, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "metric, scorer, passed, duration_seconds, cost_usd, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
-             result.get("score"), result.get("metric"),
+             result.get("score"), result.get("metric"), result.get("scorer"),
              None if result.get("passed") is None else int(bool(result["passed"])),
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
              datetime.datetime.utcnow().isoformat()))

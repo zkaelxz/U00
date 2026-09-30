@@ -126,6 +126,21 @@ export interface KnownPlatform {
 
 export type NovelMode = 'replace' | 'append'
 
+// Step 115b: mirrors api/schemas.py LncrawlStatus / LncrawlImportRequest.
+export interface LncrawlStatus {
+  installed: boolean
+  path_configured: boolean
+}
+
+export type LncrawlChapters = 'all' | 'first' | 'last'
+
+export interface LncrawlImportRequest {
+  url: string
+  chapters: LncrawlChapters
+  count?: number
+  mode: NovelMode
+}
+
 export interface NovelStatus {
   drama_id: number
   has_novel_text: boolean

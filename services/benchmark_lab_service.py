@@ -24,6 +24,10 @@ benchmark_cases table) rather than beside it:
   a transcript in a space-delimited language. Each result records its
   metric so a WER is never read as a translation score. One aggregate
   score per run plus per-example pass/fail (item 8: no rubric sliders).
+  CER/WER use jiwer when it is installed (lower-cased and whitespace
+  normalised on both texts; punctuation removed for transcripts but kept
+  for OCR, where it is part of what was read) and the built-in scorer when it
+  isn't; each result records its scorer, since the two can differ.
 - Money. A run can spend on paid engines, so estimate() is shown first and
   start_run() refuses when the monthly cap is used up or the estimate is
   over what is left; while running, each paid engine stops at the cap.
@@ -37,6 +41,7 @@ they are stored.
 Not built here (see the Step 38 PR): scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
+import functools
 import json
 import time
 import uuid
@@ -94,8 +99,8 @@ _MAX_SCORED_OUTPUT_FACTOR = 2
 
 
 def error_rate(actual: str, reference: str, unit: str = "char") -> float:
-    """CER (unit "char", whitespace ignored) or WER (unit "word"): edits
-    needed to turn the output into the reference, over the reference
+    """Built-in CER (unit "char", whitespace ignored) or WER (unit "word"):
+    edits needed to turn the output into the reference, over the reference
     length. Can exceed 1.0 when the output is much longer."""
     if unit == "word":
         a, r = (actual or "").split(), (reference or "").split()
@@ -109,18 +114,65 @@ def error_rate(actual: str, reference: str, unit: str = "char") -> float:
     return (_edit_distance(a[:limit], r) + extra) / len(r)
 
 
+@functools.lru_cache(maxsize=None)
+def _jiwer_transform(jiwer, unit: str, keep_punctuation: bool = False):
+    """jiwer's usual normalisation, applied the same way to both texts:
+    lower-case, punctuation (unless kept, as for OCR) and extra whitespace
+    removed, then split into words (WER) or characters with all whitespace
+    dropped (CER). Cached: jiwer 3.x's RemovePunctuation scans all of Unicode
+    when it is built."""
+    steps = [jiwer.ToLowerCase()]
+    if not keep_punctuation:
+        steps.append(jiwer.RemovePunctuation())
+    if unit == "word":
+        steps += [jiwer.RemoveMultipleSpaces(), jiwer.Strip(), jiwer.ReduceToListOfListOfWords()]
+    else:
+        # Every Unicode space (U+3000 in CJK text too), not only ASCII ones
+        # as jiwer.RemoveWhiteSpace does.
+        steps += [jiwer.SubstituteRegexes({r"\s+": ""}), jiwer.ReduceToListOfListOfChars()]
+    return jiwer.Compose(steps)
+
+
+def _jiwer_error_rate(actual: str, reference: str, unit: str, keep_punctuation: bool = False):
+    """CER/WER from jiwer, or None when jiwer isn't installed or the
+    reference is empty after normalisation (the caller falls back)."""
+    try:
+        import jiwer
+    except ImportError:
+        return None
+    transform = _jiwer_transform(jiwer, unit, keep_punctuation)
+    r = [t for sentence in transform(reference or "") for t in sentence][:MAX_TEXT_CHARS]
+    if not r:
+        return None
+    a = [t for sentence in transform(actual or "") for t in sentence]
+    # Same length bound as the built-in scorer: output past the bound counts
+    # fully as insertions and isn't aligned. Tokens hold no whitespace, so
+    # joining them with spaces makes jiwer's word alignment a token alignment.
+    limit = _MAX_SCORED_OUTPUT_FACTOR * len(r) + 10
+    extra = max(0, len(a) - limit)
+    out = jiwer.process_words(" ".join(r), " ".join(a[:limit]))
+    return (out.substitutions + out.deletions + out.insertions + extra) / len(r)
+
+
 def score_output(stage: str, output: str, reference: str, source_language: str = "zh"):
-    """(score 0.0-1.0 or None when there is no reference, metric name)."""
+    """(score 0.0-1.0 or None when there is no reference, metric name,
+    scorer): scorer is "jiwer" or "builtin" for CER/WER, "builtin" for
+    translation similarity, None when nothing was scored."""
     if stage == "translation":
         metric = "similarity"
         if not reference:
-            return None, metric
-        return benchmark.score_text_similarity(output, reference), metric
+            return None, metric, None
+        return benchmark.score_text_similarity(output, reference), metric, "builtin"
     unit = "char" if stage == "ocr" or source_language in _CHARACTER_LANGUAGES else "word"
     metric = "cer" if unit == "char" else "wer"
     if not reference:
-        return None, metric
-    return max(0.0, 1.0 - error_rate(output, reference, unit)), metric
+        return None, metric, None
+    # User decision (2026-09-30): OCR keeps punctuation in its CER.
+    rate, scorer = _jiwer_error_rate(output, reference, unit,
+                                     keep_punctuation=stage == "ocr"), "jiwer"
+    if rate is None:
+        rate, scorer = error_rate(output, reference, unit), "builtin"
+    return max(0.0, 1.0 - rate), metric, scorer
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +421,8 @@ def _check_config(stage: str, cfg) -> dict:
                 if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                         or ".." in model or model.startswith("/"):
                     raise InvalidInputError("That model isn't offered for this engine.")
+            elif entry["models"] is None and model == _default_model(engine):
+                model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
         return {"engine": engine, "model": model}
@@ -450,10 +504,12 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
 
 def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
               case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None) -> dict:
+              use_gpu: bool = None, max_cost_usd: float = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
-    is used up or the estimate is over what's left of it."""
+    is used up or the estimate is over what's left of it. max_cost_usd is an
+    optional cap on the run's total real spend across all its configs (0 =
+    free engines only); the run stops with stopped_cap once it is reached."""
     label = _clean_text(label, "label", required=False, max_len=MAX_LABEL_CHARS)
     prompt_version = _clean_text(prompt_version, "prompt_version", required=False, max_len=60)
     est = estimate(stage, configs, tier, set_name, case_ids)
@@ -491,7 +547,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             "case_count": len(cases)}))
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
-        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu,
+        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
         gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
         description="Benchmark run")
     if not started:
@@ -584,9 +640,9 @@ def _reset_vram():
         pass
 
 
-def _run_job(job_id, stage, plan, case_ids, use_gpu):
+def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
     try:
-        _run_plan(job_id, stage, plan, case_ids, use_gpu)
+        _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap)
     finally:
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
@@ -596,11 +652,12 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu):
                                             note="The run stopped unexpectedly.")
 
 
-def _run_plan(job_id, stage, plan, case_ids, use_gpu):
+def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
     cases = {c["id"]: c for c in db.list_benchmark_cases(stage)}
     ordered = [cases[i] for i in case_ids if i in cases]
     total_steps = max(1, len(ordered) * len(plan))
     step = 0
+    run_spent = 0.0     # real spend across every config in this run
     for session_id, cfg, api_key in plan:
         db.update_benchmark_session(session_id, status="running")
         engine, cap, capped = None, None, False
@@ -618,8 +675,14 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 continue
             if _cap_applies(cfg["engine"]):
                 monthly = settings_service.get_monthly_cap_usd()
-                cap, refusal = translate_engines.resolve_cost_cap(
-                    None, monthly, db.get_month_spend() if monthly else 0.0)
+                # resolve_cost_cap reads 0 as "no cap", so a job cap that is
+                # used up (or 0) is handled here, never passed through.
+                job_left = None if job_cap is None else max(float(job_cap) - run_spent, 0.0)
+                if job_left is not None and job_left <= 0:
+                    cap, refusal = None, "This run's spending limit is reached."
+                else:
+                    cap, refusal = translate_engines.resolve_cost_cap(
+                        job_left, monthly, db.get_month_spend() if monthly else 0.0)
                 if refusal:
                     db.update_benchmark_session(session_id, status="stopped_cap", note=refusal,
                                                 finished_at=_now())
@@ -649,14 +712,15 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 spent += r["cost_usd"]
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu)
-            score, metric = score_output(stage, r.get("output_text") or "",
-                                         case.get("reference_text"), case.get("source_language"))
+            score, metric, scorer = score_output(stage, r.get("output_text") or "",
+                                                 case.get("reference_text"),
+                                                 case.get("source_language"))
             if r.get("error") and score is not None:
                 # A referenced case that errored is a fail scored 0, so an
                 # engine that errors on most cases can't rank above one that
                 # answers them all.
                 score = 0.0
-            r["score"], r["metric"] = score, metric
+            r["score"], r["metric"], r["scorer"] = score, metric, scorer
             r["passed"] = None if score is None else score >= PASS_THRESHOLD
             db.save_benchmark_result(session_id, case, r)
             if r.get("error"):
@@ -666,6 +730,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 passed += 1 if r["passed"] else 0
             durations.append(r.get("duration_seconds") or 0.0)
             step += 1
+        run_spent += spent
         db.update_benchmark_session(
             session_id, status=status, scored_count=len(scores), passed_count=passed,
             error_count=errors,
@@ -724,7 +789,7 @@ def list_runs(stage: str = None, limit: int = 50) -> dict:
 def _result_out(r: dict) -> dict:
     return {"case_id": r.get("case_id"), "case_label": r.get("case_label") or "",
             "output_text": r.get("output_text") or "", "score": r.get("score"),
-            "metric": r.get("metric"), "passed": None if r.get("passed") is None else bool(r["passed"]),
+            "metric": r.get("metric"), "scorer": r.get("scorer"), "passed": None if r.get("passed") is None else bool(r["passed"]),
             "duration_seconds": r.get("duration_seconds"), "cost_usd": r.get("cost_usd") or 0.0,
             "error": _redact(r.get("error"))}
 

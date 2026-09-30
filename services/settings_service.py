@@ -307,6 +307,10 @@ _PREFERENCES = {
     # Accepted risk (inventory G05): the program Tesseract runs is editable
     # here. Writes are PC-only, like every other settings write.
     "tesseract_cmd": ("", _check_text("tesseract_cmd", _MAX_PATH_LENGTH)),
+    # Step 115b: the lightnovel-crawler program, when it isn't on PATH. Same
+    # accepted risk as tesseract_cmd; services/lncrawl_service.py also only
+    # runs a file named lncrawl / lightnovel-crawler.
+    "lncrawl_cmd": ("", _check_text("lncrawl_cmd", _MAX_PATH_LENGTH)),
     "cookies_browser": (None, _optional_one_of("cookies_browser", _cookie_browser_choices)),
     # A path only; the file's contents are never read or returned here.
     "cookies_file": ("", _check_text("cookies_file", _MAX_PATH_LENGTH)),
@@ -375,6 +379,10 @@ def get_whisper_model_path():
 
 def get_tesseract_cmd():
     return get_preference("tesseract_cmd") or None
+
+
+def get_lncrawl_cmd():
+    return get_preference("lncrawl_cmd") or None
 
 
 def get_cookie_settings() -> dict:

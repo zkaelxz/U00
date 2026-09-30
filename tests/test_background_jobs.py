@@ -29,7 +29,7 @@ def _isolate_library():
     setup_method runs outside pytest's own fixture resolution, so
     isolated_db can't be requested the normal way here. Same
     isolate/restore logic as conftest.py's isolated_db fixture, inlined."""
-    previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+    previous = db.LIBRARY_DIR
     temp_dir = tempfile.mkdtemp(prefix="baihe_test_bg_")
     db.configure_library_dir(temp_dir)
     db.init_db()
@@ -37,7 +37,7 @@ def _isolate_library():
 
 
 def _restore_library(previous, temp_dir):
-    db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+    db.configure_library_dir(previous)
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -1009,6 +1009,30 @@ class TestProcessJobOnDone:
                              on_done=lambda j, r: seen.append(j))
         assert _wait_for_status(job_id, "running")["status"] == "error"
         assert seen == []
+        bg.clear_job(job_id)
+
+    def test_subprocess_error_is_redacted_in_record_and_log(self, monkeypatch, isolated_db):
+        import os
+        import applog
+        import db
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        key = "sk-abcdefghijklmnopqrstuvwxyz123456"
+        job_id = "test_process_err_redacted"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("error", "RuntimeError", f"401 bad key {key}")),
+                             args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert "401 bad key" in status["error"]
+        assert key not in status["error"]
+        rec = db.get_job_record(job_id)
+        assert rec["status"] == "error" and key not in (rec["error"] or "")
+        for h in applog.get_logger().handlers:
+            h.flush()
+        with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+            log_text = f.read()
+        assert f"job {job_id} failed" in log_text
+        assert key not in log_text
         bg.clear_job(job_id)
 
     def test_hook_not_called_on_cancel(self, monkeypatch):

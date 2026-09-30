@@ -1678,12 +1678,12 @@ class TestStep26eProfilesMigration:
         conn.close()
 
     def _with_redirected_library(self, temp_dir, fn):
-        previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+        previous = db.LIBRARY_DIR
         try:
             db.configure_library_dir(temp_dir)
             fn()
         finally:
-            db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+            db.configure_library_dir(previous)
 
     def test_upgrading_a_pre_profiles_install_preserves_its_data(self, tmp_path_str):
         self._make_old_schema_db(tmp_path_str)

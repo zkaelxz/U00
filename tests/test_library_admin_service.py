@@ -379,6 +379,21 @@ def test_restore_round_trip_keeps_backups_and_kept_entries(isolated_db):
     assert not _leftovers()
 
 
+def test_backup_excludes_source_cache(isolated_db):
+    # The sources raw-content cache is rebuildable (a missing file is a
+    # cache miss), so full backups leave it out.
+    from sources import store as src_store
+    _new("A")
+    cached = os.path.join(src_store.cache_dir(), "ab", "ab" + "0" * 62)
+    _write(os.path.relpath(cached, db.LIBRARY_DIR), b"raw page bytes")
+    _write("dramas/keep_me.txt", b"media")
+    data = _backup_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+    assert "dramas/keep_me.txt" in names
+    assert not [n for n in names if n.startswith("source_cache/")]
+
+
 def test_backup_excludes_token_and_sessions(isolated_db):
     _new("A")
     _write(page_server.TOKEN_FILENAME, b"tok")
