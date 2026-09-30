@@ -3953,6 +3953,13 @@ def create_benchmark_lab_case(label: str, stage: str, source_language: str, sour
         return cur.lastrowid
 
 
+def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE benchmark_cases SET source_text = ?, reference_text = ? WHERE id = ?",
+                     (source_text, reference_text, case_id))
+        conn.commit()
+
+
 def get_benchmark_case(case_id: int):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM benchmark_cases WHERE id = ?", (case_id,)).fetchone()

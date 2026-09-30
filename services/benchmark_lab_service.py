@@ -164,7 +164,9 @@ def _select_cases(stage: str, tier: str = None, set_name: str = None, case_ids=N
         cases = [c for c in cases if (c.get("tier") or "application") == tier]
     if set_name:
         cases = [c for c in cases if (c.get("set_name") or "") == set_name]
-    if case_ids:
+    if case_ids is not None:
+        if not case_ids:
+            raise InvalidInputError("case_ids can't be an empty list.")
         wanted = set(case_ids)
         cases = [c for c in cases if c["id"] in wanted]
     return cases
@@ -213,7 +215,18 @@ def create_case(label: str, source_text: str, reference_text: str = None,
     return _case_out(db.get_benchmark_case(case_id))
 
 
+def _job_active() -> bool:
+    st = background_jobs.get_status(JOB_ID)
+    return bool(st and st.get("status") in ("running", "queued"))
+
+
+def _refuse_while_running():
+    if _job_active():
+        raise ConflictError("A benchmark run is going; wait for it to finish.")
+
+
 def delete_case(case_id: int) -> dict:
+    _refuse_while_running()
     if not db.get_benchmark_case(case_id):
         raise NotFoundError("Benchmark case not found.")
     db.delete_benchmark_case(case_id)
@@ -300,7 +313,10 @@ def add_regression_case(drama_id: int, line_id: int) -> dict:
     lang = drama.get("source_language") if drama.get("source_language") in SOURCE_LANGUAGES else "zh"
     existing = db.find_benchmark_case(REGRESSION_SET, source, origin_line_id=line_id)
     if existing:
-        db.delete_benchmark_case(existing["id"])
+        # Updated in place, so earlier runs' results stay tied to this case.
+        _refuse_while_running()
+        db.update_benchmark_case_texts(existing["id"], source, fixed)
+        return {"case": _case_out(db.get_benchmark_case(existing["id"])), "replaced": True}
     title = drama.get("title_en") or drama.get("title_zh") or f"Drama {drama_id}"
     case_id = db.create_benchmark_lab_case(
         f"{title[:80]} · line {line.get('idx', 0) + 1}", "translation", lang, source, fixed,
@@ -388,7 +404,9 @@ def _estimate_config(cfg: dict, cases: list):
     probe.name = getattr(engine_cls, "name", cfg["engine"])
     probe.model = cfg["model"] or _default_model(cfg["engine"])
     probe.free_tier = False
-    return translate_engines.estimate_translation_cost(probe, [c.get("source_text") or "" for c in cases])
+    # One call per case, so the fixed instructions overhead is paid per case.
+    return sum(translate_engines.estimate_translation_cost(probe, [c.get("source_text") or ""])
+               for c in cases)
 
 
 def _default_model(engine: str):
@@ -446,7 +464,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
                 raise DependencyUnavailableError(
                     f"No {cfg['engine']} key is configured. Set one in Settings first.")
             engines.append(key)
-    if background_jobs.is_running(JOB_ID):
+    if _job_active():
         raise ConflictError("A benchmark run is already going.")
     use_gpu = settings_service.get_use_gpu() if use_gpu is None else bool(use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
@@ -464,7 +482,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
         JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu,
-        gpu_touching=stage != "translation", description="Benchmark run")
+        gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
+        description="Benchmark run")
     if not started:
         for sid in session_ids:
             db.update_benchmark_session(sid, status="failed", note="Another benchmark run is going.",
@@ -480,21 +499,33 @@ def _now() -> str:
 
 
 def _redact(text, key=None):
-    """redact_secrets, plus the run's own key by value (a key without a
-    recognisable prefix would otherwise slip through)."""
+    """Secrets (redact_secrets, plus the run's own key by value, since a key
+    without a recognisable prefix would otherwise slip through) and absolute
+    paths / the OS user name (diagnostics.redact_for_support, via
+    jobs_service's never-raising wrapper): errors are shown to remote admins."""
     if not text:
         return text
     text = str(text)
     if key and len(key) >= 8:
         text = text.replace(key, "[redacted]")
-    return translate_engines.redact_secrets(text)
+    from services import jobs_service
+    return jobs_service._redact_text(text)
+
+
+def _translation_context(case: dict) -> dict:
+    """The case's own source language, where every engine reads it (MT
+    engines from source_language, LLM prompts from drama_meta); an empty
+    context would make every engine treat Japanese/Korean as Chinese."""
+    lang = case.get("source_language") if case.get("source_language") in SOURCE_LANGUAGES else "zh"
+    return {"source_language": lang, "target_language": "en",
+            "drama_meta": {"source_language": lang}}
 
 
 def _run_translation(engine, case: dict, key: str = None) -> dict:
     started = time.monotonic()
     usage = None
     try:
-        out = engine.translate_batch([case.get("source_text") or ""], {})
+        out = engine.translate_batch([case.get("source_text") or ""], _translation_context(case))
         output_text = out[0] if out else ""
         error = None
         usage = getattr(engine, "last_usage", None)
@@ -603,10 +634,13 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 spent += r["cost_usd"]
             else:
                 r = _run_file_case(stage, cfg, case, use_gpu)
-            score, metric = (None, score_output(stage, "", "", case.get("source_language"))[1])
-            if not r.get("error"):
-                score, metric = score_output(stage, r.get("output_text") or "",
-                                             case.get("reference_text"), case.get("source_language"))
+            score, metric = score_output(stage, r.get("output_text") or "",
+                                         case.get("reference_text"), case.get("source_language"))
+            if r.get("error") and score is not None:
+                # A referenced case that errored is a fail scored 0, so an
+                # engine that errors on most cases can't rank above one that
+                # answers them all.
+                score = 0.0
             r["score"], r["metric"] = score, metric
             r["passed"] = None if score is None else score >= PASS_THRESHOLD
             db.save_benchmark_result(session_id, case, r)
@@ -653,9 +687,21 @@ def _session_out(s: dict) -> dict:
     return out
 
 
+def _close_stale_runs():
+    """A run left queued/running with no live job (the app was closed
+    mid-run) is marked interrupted, so it doesn't read "running" forever."""
+    if _job_active():
+        return
+    for s in db.list_benchmark_sessions(200):
+        if s.get("status") in ("queued", "running"):
+            db.update_benchmark_session(s["id"], status="failed", finished_at=_now(),
+                                        note="Interrupted (the app stopped during the run).")
+
+
 def list_runs(stage: str = None, limit: int = 50) -> dict:
     if stage is not None and stage not in STAGES:
         raise InvalidInputError("Unknown stage.")
+    _close_stale_runs()
     limit = max(1, min(int(limit or 50), 200))
     return {"runs": [_session_out(s) for s in db.list_benchmark_sessions(limit, stage)]}
 
@@ -689,7 +735,10 @@ def arena(run_ids: list) -> dict:
         s = db.get_benchmark_session(rid)
         if not s:
             raise NotFoundError("Benchmark run not found.")
-        runs.append((s, {r["case_id"]: r for r in db.list_benchmark_results(rid)}))
+        # A result whose case was deleted keeps its own row (keyed by result
+        # id), never merged with another orphan under one None key.
+        runs.append((s, {(r["case_id"] if r["case_id"] is not None else f"r{r['id']}"): r
+                         for r in db.list_benchmark_results(rid)}))
     if len({s["stage"] for s, _ in runs}) > 1:
         raise InvalidInputError("Only runs of the same stage can be compared.")
     case_order = []
@@ -703,7 +752,7 @@ def arena(run_ids: list) -> dict:
         c = cases.get(cid) or {}
         cells = [(_result_out(res[cid]) if cid in res else None) for _s, res in runs]
         label = c.get("label") or next((x["case_label"] for x in cells if x), "")
-        rows.append({"case_id": cid, "label": label, "source_text": c.get("source_text"),
+        rows.append({"case_id": cid if isinstance(cid, int) else None, "label": label, "source_text": c.get("source_text"),
                      "reference_text": c.get("reference_text"), "tier": c.get("tier"),
                      "results": cells})
     base = runs[0][0].get("aggregate_score")

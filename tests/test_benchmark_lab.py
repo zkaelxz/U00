@@ -297,3 +297,117 @@ class TestFileStages:
         assert seen["size"] == "small"
         (res,) = svc.get_run(sid)["results"]
         assert (res["metric"], res["score"]) == ("cer", 1.0)
+
+
+class TestReviewFixes:
+    def test_source_language_reaches_engine(self, isolated_db, paid_engine, monkeypatch):
+        seen = []
+
+        def spy(self, zh_lines, context):
+            seen.append(context)
+            return ["x"]
+        monkeypatch.setattr(paid_engine, "translate_batch", spy)
+        svc.import_golden_set("ja", "こんにちは\tHello\n", "tsv", "public", "ja")
+        _run(configs=[{"engine": "claude"}])
+        assert seen[0]["source_language"] == "ja"
+        assert seen[0]["drama_meta"]["source_language"] == "ja"
+
+    def test_errored_referenced_case_counts_as_fail(self, isolated_db, monkeypatch):
+        class Flaky(EchoEngine):
+            def translate_batch(self, zh_lines, context):
+                if zh_lines[0] == "谢谢":
+                    raise RuntimeError("blocked")
+                return ["Hello"]
+        monkeypatch.setitem(translate_engines.ENGINES, "claude", Flaky)
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: "k")
+        svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
+        (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
+        run = svc.get_run(sid)["run"]
+        assert run["aggregate_score"] == pytest.approx(0.5)
+        assert (run["passed_count"], run["scored_count"], run["error_count"]) == (1, 2, 1)
+
+    def test_estimate_counts_instructions_per_case(self, isolated_db, paid_engine):
+        svc.import_golden_set("g", "".join(f"句子{i}\tS{i}\n" for i in range(10)), "tsv")
+        ten = svc.estimate("translation", [{"engine": "claude"}])["estimated_cost_usd"]
+        one = svc.estimate("translation", [{"engine": "claude"}],
+                           case_ids=[svc.list_cases()["cases"][0]["id"]])["estimated_cost_usd"]
+        assert ten == pytest.approx(one * 10, rel=0.05)
+
+    def test_stops_at_cap_mid_run(self, isolated_db, paid_engine, monkeypatch):
+        paid_engine.answers = {}
+        svc.import_golden_set("g", "".join(f"句{i}\tS{i}\n" for i in range(5)), "tsv")
+        # Estimate passes (tiny), but each real call costs far more.
+        monkeypatch.setattr(svc, "_estimate_config", lambda cfg, cases: 0.0)
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.015)
+        (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
+        detail = svc.get_run(sid)
+        assert detail["run"]["status"] == "stopped_cap"
+        assert "spending cap" in detail["run"]["note"]
+        assert 0 < len(detail["results"]) < 5
+
+    def test_gemini_free_tier_not_capped(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
+        assert svc._cap_applies("gemini") is False
+        assert svc._cap_applies("claude") is True
+
+    def test_cancel_marks_current_and_later_runs(self, isolated_db, monkeypatch):
+        svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
+        started = _run(configs=[{"engine": "test_offline"}, {"engine": "libretranslate"}])
+        statuses = [svc.get_run(s)["run"]["status"] for s in started["session_ids"]]
+        assert statuses == ["cancelled", "cancelled"]
+
+    def test_arena_keeps_orphaned_results_apart(self, isolated_db):
+        svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
+        a = _run()["session_ids"][0]
+        b = _run()["session_ids"][0]
+        for c in svc.list_cases()["cases"]:
+            svc.delete_case(c["id"])
+        view = svc.arena([a, b])
+        assert len(view["rows"]) == 4
+        assert all(r["case_id"] is None for r in view["rows"])
+        assert all(sum(x is not None for x in r["results"]) == 1 for r in view["rows"])
+
+    def test_error_paths_are_hidden(self, isolated_db, monkeypatch):
+        import benchmark
+        db.create_benchmark_case("page", "ocr", "manhua", input_filename="p.png", reference_text="x")
+        monkeypatch.setattr(benchmark, "run_ocr_case", lambda case, backend="tesseract": {
+            "output_text": "", "duration_seconds": 0.0, "score": None,
+            "error": "[Errno 2] No such file: '/home/someone/library/benchmark_cases/p.png'"})
+        (sid,) = _run(stage="ocr", configs=[{"engine": "tesseract"}])["session_ids"]
+        err = svc.get_run(sid)["results"][0]["error"]
+        assert "/home/someone" not in err and "p.png" in err
+
+    def test_empty_case_ids_rejected(self, isolated_db):
+        svc.create_case("c", "你好", "Hello")
+        with pytest.raises(InvalidInputError):
+            svc.estimate("translation", [{"engine": "test_offline"}], case_ids=[])
+
+    def test_stale_running_run_closed(self, isolated_db):
+        sid = db.create_benchmark_session({"stage": "translation", "engine": "claude",
+                                           "status": "running", "case_count": 1})
+        (run,) = svc.list_runs()["runs"]
+        assert run["id"] == sid and run["status"] == "failed"
+        assert "Interrupted" in run["note"]
+
+    def test_delete_refused_during_run(self, isolated_db):
+        c = svc.create_case("c", "你好", "Hello")
+        with background_jobs._lock:
+            background_jobs._jobs[svc.JOB_ID] = {"status": "running"}
+        try:
+            with pytest.raises(ConflictError):
+                svc.delete_case(c["id"])
+        finally:
+            with background_jobs._lock:
+                background_jobs._jobs.pop(svc.JOB_ID, None)
+
+    def test_regression_readd_keeps_earlier_results(self, isolated_db):
+        import core
+        did = db.create_drama(title_en="D", source_language="zh")
+        db.save_lines(did, [core.Line(0, 0.0, 1.0, "你好", "Hi")])
+        line_id = db.load_lines(did)[0]["id"]
+        case_id = svc.add_regression_case(did, line_id)["case"]["id"]
+        (sid,) = _run(tier="regression")["session_ids"]
+        again = svc.add_regression_case(did, line_id)
+        assert again["case"]["id"] == case_id
+        assert svc.get_run(sid)["results"][0]["case_id"] == case_id
