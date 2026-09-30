@@ -3,7 +3,7 @@ services/library_service.py -- read-only Library queries, shared by the
 Streamlit Library tab and the FastAPI `/api/library` routes.
 
 This is the first piece of the React + FastAPI migration's service layer
-(see `docs/migration-react-fastapi.md`). Before it existed, the Library
+(see `docs/archive/migration-react-fastapi.md`). Before it existed, the Library
 tab's "All dramas" list did part of its filtering in `db.list_dramas`
 (SQL) and the rest inline in the widget code (the Quick-filter pill and
 the Custom-tags multiselect), so any second UI would have had to copy
