@@ -1012,12 +1012,141 @@ class TestExportVideoClampsOverlappingCues:
         monkeypatch.setattr(video_export, "burn_subtitles",
                             lambda video_path, srt_text, out_path: captured.update(srt=srt_text))
 
-        args = argparse.Namespace(id=did, style="hardsub", subs="english")
+        args = argparse.Namespace(id=did, style=None, mode=None, plain=True,
+                                  no_speaker_colors=False, subs="english")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_export_video(args)
 
         assert "00:00:00,000 --> 00:00:01,500" in captured["srt"]  # clamped
         assert "00:00:00,000 --> 00:00:02,000" not in captured["srt"]  # original, overlapping
+
+
+class TestAlignTranscriptOption:
+    def _setup(self, isolated_db, monkeypatch, with_file=True):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="not started",
+                                       audio_filename="audio.wav")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        if with_file:
+            with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
+                f.write("旧的")
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        seen = []
+        real = cli.split_user_transcript
+        monkeypatch.setattr(cli, "split_user_transcript",
+                            lambda text: seen.append(text) or real(text))
+        return did, ddir, seen
+
+    def _align(self, **kw):
+        opts = dict(id=None, whisper_size=None, fast=False, transcript=None)
+        opts.update(kw)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(argparse.Namespace(**opts))
+        return out.getvalue()
+
+    def test_transcript_file_wins_over_drama_folder_file(self, isolated_db, monkeypatch, tmp_path):
+        did, _, seen = self._setup(isolated_db, monkeypatch)
+        f = tmp_path / "mine.txt"
+        f.write_text("你好", encoding="utf-8")
+        self._align(id=did, transcript=str(f))
+        assert seen == ["你好"]
+
+    def test_transcript_from_stdin(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch, with_file=False)
+        monkeypatch.setattr("sys.stdin", io.StringIO("你好"))
+        self._align(id=did, transcript="-")
+        assert seen == ["你好"]
+
+    def test_falls_back_to_transcript_txt(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch)
+        self._align(id=did)
+        assert seen == ["旧的"]
+
+    def test_missing_transcript_skips_and_names_both_options(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch, with_file=False)
+        out = self._align(id=did)
+        assert seen == [] and "--transcript" in out and "transcript.txt" in out
+
+    def test_unreadable_transcript_file_is_a_clear_error(self, isolated_db, monkeypatch, capsys):
+        did, _, _ = self._setup(isolated_db, monkeypatch)
+        with pytest.raises(SystemExit):
+            self._align(id=did, transcript="/no/such/file.txt")
+        assert "Couldn't read the transcript" in capsys.readouterr().err
+
+    def test_transcript_without_id_is_an_error(self, isolated_db, monkeypatch, capsys):
+        self._setup(isolated_db, monkeypatch)
+        with pytest.raises(SystemExit):
+            self._align(transcript="whatever.txt")
+        assert "--id" in capsys.readouterr().err
+
+    def test_run_passes_transcript_through(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(cli, "cmd_align", lambda a: seen.update(t=a.transcript))
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: None)
+        cli.cmd_run(argparse.Namespace(transcript="x.txt"))
+        assert seen["t"] == "x.txt"
+        monkeypatch.setattr("sys.argv", ["cli.py", "run", "--id", "1", "--transcript", "x.txt"])
+        monkeypatch.setattr(cli, "cmd_run", lambda a: seen.update(parsed=a.transcript))
+        cli.main()
+        assert seen["parsed"] == "x.txt"
+
+
+class TestExportVideoAss:
+    def _drama(self, isolated_db):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="translated",
+                                       source_video_filename="source.mp4")
+        with open(os.path.join(isolated_db.drama_dir(did), "source.mp4"), "wb") as f:
+            f.write(b"x")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="a", en="Hello", speaker="SPEAKER_00"),
+            Line(idx=1, start=1.0, end=2.0, zh="b", en="World", speaker="SPEAKER_01"),
+        ])
+        return did
+
+    def _run(self, monkeypatch, did, **kw):
+        import video_export
+        cap = {}
+        monkeypatch.setattr(video_export, "burn_ass",
+                            lambda v, ass, out: cap.update(ass=ass, out=out))
+        monkeypatch.setattr(video_export, "burn_subtitles",
+                            lambda v, srt, out: cap.update(srt=srt))
+        opts = dict(id=did, style=None, mode=None, plain=False, no_speaker_colors=False,
+                    subs="english")
+        opts.update(kw)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(argparse.Namespace(**opts))
+        return cap
+
+    def test_default_is_ass_with_speaker_colours(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db))
+        assert "[V4+ Styles]" in cap["ass"] and "srt" not in cap
+        assert "Style: Speaker 1," in cap["ass"] and "Style: Speaker 2," in cap["ass"]
+
+    def test_no_speaker_colors(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), no_speaker_colors=True)
+        assert "Style: Speaker 1," not in cap["ass"]
+
+    def test_style_preset_is_used(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), style="streamer clip")
+        assert "Arial Black" in cap["ass"]
+
+    def test_unknown_style_lists_valid_names(self, isolated_db, monkeypatch, capsys):
+        with pytest.raises(SystemExit):
+            self._run(monkeypatch, self._drama(isolated_db), style="Nope")
+        assert "Clean" in capsys.readouterr().err
+
+    def test_plain_burns_srt(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), plain=True)
+        assert "-->" in cap["srt"] and "ass" not in cap
+
+    def test_legacy_style_hardsub_still_ass(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), style="hardsub")
+        assert "ass" in cap
 
 
 class TestInspectLine:

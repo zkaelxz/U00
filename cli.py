@@ -49,8 +49,9 @@ import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
-    DEFAULT_WHISPER_SIZE, ModelDownloadError,
+    DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
+import subtitle_formats
 import translate_engines
 import translation_guide as tguide
 import bulk_translate
@@ -215,11 +216,39 @@ def cmd_narrate_prep(args):
     _run_batch(dramas, step, "narrate-prep")
 
 
+def _resolve_export_options(args):
+    """(mode, preset) for export-video. --style used to mean hardsub/softsub;
+    those two values still work there, anything else is an ASS preset name."""
+    mode = getattr(args, "mode", None)
+    style = getattr(args, "style", None)
+    if style in ("hardsub", "softsub"):
+        mode, style = mode or style, None
+    mode = mode or "hardsub"
+    preset = None
+    if style:
+        presets = subtitle_formats.ASS_PRESETS
+        matches = [n for n in presets if n.lower() == style.lower()]
+        if not matches:
+            print(f"Unknown style {style!r}. Valid styles: {', '.join(presets)}.",
+                  file=sys.stderr)
+            sys.exit(2)
+        preset = matches[0]
+    if mode == "softsub" and (preset or getattr(args, "no_speaker_colors", False)):
+        print("--style and --no-speaker-colors only apply to burned-in (hardsub) video.",
+              file=sys.stderr)
+        sys.exit(2)
+    return mode, preset
+
+
 def cmd_export_video(args):
     import video_export
-    import subtitle_formats
     from core import lines_to_srt, lines_to_bilingual_srt
+    from services import export_service
 
+    mode, preset = _resolve_export_options(args)
+    # Burned-in video uses the same ASS the API/React export produces (styled,
+    # one colour per speaker); --plain keeps the flat SRT burn.
+    use_ass = mode == "hardsub" and not getattr(args, "plain", False)
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
 
     def step(d):
@@ -231,11 +260,8 @@ def cmd_export_video(args):
         if not os.path.exists(video_path):
             print(f"#{d['id']} skipped: source video file missing on disk.")
             return
-        rows = db.load_lines(d["id"])
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
-                      sfx=bool(r.get("sfx"))) for r in rows]
-        # Step 25d item 6: same clamp Workspace's own export already applies --
-        # never burn in an overlapping (invalid) cue.
+        lines = [line_from_row(r) for r in db.load_lines(d["id"])]
+        # Never burn in an overlapping (invalid) cue.
         lines, _ = subtitle_formats.clamp_overlaps(lines)
 
         # A timed-but-textless subtitle track burns in fine and produces no
@@ -251,18 +277,24 @@ def cmd_export_video(args):
             print(f"#{d['id']} warning: {len(lines) - filled}/{len(lines)} lines have no "
                   f"{field_for_track} text and will appear blank in the burned-in subtitles.")
 
-        srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
-                    "chinese": lines_to_srt(lines, "zh")}[args.subs]
-
         out_ext = os.path.splitext(video_path)[1]
         out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
-        print(f"#{d['id']} rendering {args.style} video...")
-        if args.style == "hardsub":
-            video_export.burn_subtitles(video_path, srt_text, out_path)
+        print(f"#{d['id']} rendering {mode} video...")
+        if use_ass:
+            ass_text = export_service.generate_ass_text(
+                d["id"], field={"english": "en", "bilingual": "bilingual", "chinese": "zh"}[args.subs],
+                preset=preset or "Clean",
+                per_speaker_colors=not getattr(args, "no_speaker_colors", False))
+            video_export.burn_ass(video_path, ass_text, out_path)
         else:
-            if out_ext.lower() not in (".mp4", ".mkv"):
-                out_path = os.path.splitext(out_path)[0] + ".mp4"
-            video_export.mux_soft_subtitles(video_path, srt_text, out_path)
+            srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
+                        "chinese": lines_to_srt(lines, "zh")}[args.subs]
+            if mode == "hardsub":
+                video_export.burn_subtitles(video_path, srt_text, out_path)
+            else:
+                if out_ext.lower() not in (".mp4", ".mkv"):
+                    out_path = os.path.splitext(out_path)[0] + ".mp4"
+                video_export.mux_soft_subtitles(video_path, srt_text, out_path)
         print(f"#{d['id']} exported: {out_path}")
 
     _run_batch(dramas, step, "export-video")
@@ -353,7 +385,29 @@ def _qwen3_missing(exc) -> RuntimeError:
         f"or change this drama's alignment method. ({detail})")
 
 
+def _read_transcript_option(args):
+    """The --transcript text (FILE, or - for stdin), or None when not given.
+    One transcript can only belong to one drama, so it needs --id."""
+    source = getattr(args, "transcript", None)
+    if not source:
+        return None
+    if not args.id:
+        print("--transcript needs --id: one transcript can't be aligned to several dramas.",
+              file=sys.stderr)
+        sys.exit(2)
+    try:
+        if source == "-":
+            return sys.stdin.read()
+        with open(source, "r", encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"Couldn't read the transcript: {translate_engines.redact_secrets(str(exc))}",
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_align(args):
+    given_transcript = _read_transcript_option(args)
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
 
     def step(d):
@@ -363,12 +417,15 @@ def cmd_align(args):
         if not audio_path or not os.path.exists(audio_path):
             print(f"#{d['id']} skipped: no audio file found in {ddir}")
             return
-        if not os.path.exists(transcript_path):
-            print(f"#{d['id']} skipped: no transcript.txt found in {ddir} "
-                  f"(place your Chinese transcript there)")
+        if given_transcript is not None:
+            transcript_text = given_transcript
+        elif os.path.exists(transcript_path):
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                transcript_text = f.read()
+        else:
+            print(f"#{d['id']} skipped: no transcript. Pass --transcript FILE (or - for stdin), "
+                  f"or place your Chinese transcript at {transcript_path}")
             return
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            transcript_text = f.read()
         # UI parity (Step 25d item 10): this command used to always use
         # args.whisper_size (or its own hardcoded default), plain
         # character-diff alignment, and no recognition priming at all --
@@ -873,6 +930,9 @@ def main():
                               "has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
+    p_align.add_argument("--transcript", default=None, metavar="FILE",
+                         help="Chinese transcript to align (- for stdin); needs --id. "
+                              "Default: <drama folder>/transcript.txt.")
     p_align.set_defaults(func=cmd_align)
 
     p_diarize = sub.add_parser("diarize", help="Re-run speaker detection on stored audio (no re-transcription)")
@@ -1014,6 +1074,9 @@ def main():
     p_run.add_argument("--no-genre-notes", action="store_true",
                            help="Leave out the baihe/GL genre guidance (on by default, "
                                 "as in the Workspace).")
+    p_run.add_argument("--transcript", default=None, metavar="FILE",
+                       help="Chinese transcript to align (- for stdin); needs --id. "
+                            "Default: <drama folder>/transcript.txt.")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
@@ -1032,7 +1095,16 @@ def main():
 
     p_export_video = sub.add_parser("export-video")
     p_export_video.add_argument("--id", type=int, default=None)
-    p_export_video.add_argument("--style", default="hardsub", choices=["hardsub", "softsub"])
+    p_export_video.add_argument("--mode", default=None, choices=["hardsub", "softsub"],
+                                help="hardsub (burned in, default) or softsub (selectable track, SRT).")
+    p_export_video.add_argument("--style", default=None, metavar="PRESET",
+                                help="ASS style preset for the burned-in subtitles, by the export "
+                                     "stage's names: " + ", ".join(subtitle_formats.ASS_PRESETS)
+                                     + " (default Clean). The old hardsub/softsub values still work.")
+    p_export_video.add_argument("--no-speaker-colors", action="store_true",
+                                help="One colour for every speaker (default: a colour per speaker).")
+    p_export_video.add_argument("--plain", action="store_true",
+                                help="Burn a plain SRT (flat style, no speaker colours) instead of ASS.")
     p_export_video.add_argument("--subs", default="english", choices=["english", "bilingual", "chinese"])
     p_export_video.set_defaults(func=cmd_export_video)
 
