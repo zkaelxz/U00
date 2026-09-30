@@ -150,11 +150,29 @@ def _drama_with_audio(isolated_db):
 class TestCliDiarize:
     def _run(self, did, **kw):
         import cli
-        args = argparse.Namespace(id=did, hf_token="hf", num_speakers=kw.get("num_speakers", 0),
+        args = argparse.Namespace(id=did, hf_token=kw.get("hf_token", "hf"), num_speakers=kw.get("num_speakers", 0),
                                   overwrite_manual=kw.get("overwrite_manual", False))
         with contextlib.redirect_stdout(io.StringIO()) as out:
             cli.cmd_diarize(args)
         return out.getvalue()
+
+    def test_saved_settings_hf_token_is_used_when_no_flag_or_env(
+            self, isolated_db, no_asr, monkeypatch):
+        import cli
+        did, _ = _drama_with_audio(isolated_db)
+        for name in ("HF_TOKEN", "BAIHE_HF_TOKEN"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(cli.settings_service, "resolve_key",
+                            lambda name, *a: "saved-hf" if name == "hf_token" else None)
+        tokens = []
+
+        def fake(audio_path, hf_token, num_speakers=None, return_model=False,
+                 return_embeddings=False, **kwargs):
+            tokens.append(hf_token)
+            return (TWO, "fake-model", {}) if return_model and return_embeddings else TWO
+        monkeypatch.setattr(diarize, "diarize", fake)
+        self._run(did, hf_token=None)
+        assert tokens == ["saved-hf"]
 
     def test_changing_expected_speakers_relabels_without_asr(self, isolated_db, no_asr, fake_diarize):
         did, ddir = _drama_with_audio(isolated_db)

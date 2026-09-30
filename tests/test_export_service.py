@@ -62,6 +62,19 @@ class TestGetExportReadiness:
         result = export_service.get_export_readiness(did)
         assert result["fully_translated"] is True
 
+    def test_auto_qc_count_uses_glossary_banned_terms(self, isolated_db):
+        sid = isolated_db.create_series("QC series")
+        isolated_db.upsert_glossary_term(
+            sid, "沈清疑", "Shen Qingyi", banned_translations="Chen Qingyi")
+        did = _drama(isolated_db, series_id=sid)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="沈清疑来了", en="Chen Qingyi is here"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        count = export_service.get_export_readiness(did)["auto_qc_issue_count"]
+        assert count == 1
+        assert export_service.run_auto_qc_flagging(did)["flagged"] == count
+
     def test_overlapping_lines_are_counted(self, isolated_db):
         did = _drama(isolated_db)
         lines = [

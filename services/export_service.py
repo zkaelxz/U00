@@ -227,7 +227,13 @@ def get_export_readiness(drama_id: int) -> dict:
     fully_translated = total_lines > 0 and en_filled == total_lines
 
     _, overlaps = subtitle_formats.clamp_overlaps(lines)
-    qc_issues = auto_qc.find_issues(lines)
+    # Same names / banned terms run_auto_qc_flagging uses, so this count
+    # matches what "Flag these for review" would flag.
+    series_id = drama.get("series_id")
+    glossary_terms = db.list_glossary_terms(series_id) if series_id else []
+    names = auto_qc.build_name_list(
+        glossary_terms, db.list_series_characters(series_id) if series_id else [])
+    qc_issues = auto_qc.find_issues(lines, names, auto_qc.build_banned_terms(glossary_terms))
     dense = subtitle_formats.dense_lines(lines)
 
     return {
