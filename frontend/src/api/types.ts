@@ -44,6 +44,9 @@ export interface DramaSummary {
   custom_tags: string[]
   created_at: string | null
   updated_at: string | null
+  // Library list only: hidden from the household, and created by the signed-in viewer.
+  is_private?: boolean | null
+  owned_by_me?: boolean | null
 }
 
 export interface DramaDetail extends DramaSummary {

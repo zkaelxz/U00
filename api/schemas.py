@@ -62,6 +62,11 @@ class DramaSummary(BaseModel):
     custom_tags: List[str] = Field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    is_private: Optional[bool] = Field(
+        default=None, description="Hidden from the household (a drama in a series follows its "
+                                  "series). Only set in the Library list.")
+    owned_by_me: Optional[bool] = Field(
+        default=None, description="The signed-in viewer created it. Only set in the Library list.")
 
 
 class DramaDetail(DramaSummary):
@@ -1437,6 +1442,8 @@ class LibraryCostResponse(BaseModel):
 class LibrarySeries(BaseModel):
     id: int
     name: str
+    is_private: bool
+    owned_by_me: bool = Field(description="The signed-in viewer created it.")
     character_count: int
     glossary_term_count: int
     dramas: List[LibraryDramaRef]
