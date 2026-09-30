@@ -222,6 +222,45 @@ test.describe('Glossary from novel', () => {
     await expect(page.getByTestId('novel-glossary').locator('button.primary')).toHaveCount(1)
   })
 
+  test('Fresh suggestions sends ?fresh=true only while it is on', async ({ page }) => {
+    await inSeries(page)
+    await page.route('**/api/novel/dramas/1/status', (route) =>
+      route.fulfill({ json: { drama_id: 1, has_novel_text: true, char_count: 900, chapters: 3, ocr_running: false } }),
+    )
+    await page.route('**/api/characters/series/7/characters', (route) => route.fulfill({ json: [] }))
+    const posts: string[] = []
+    // A regex, so the start is matched with or without its query string.
+    await page.route(/\/api\/glossary\/dramas\/1\/from-novel(\?.*)?$/, (route) => {
+      if (route.request().method() === 'POST') {
+        posts.push(route.request().url())
+        return route.fulfill({ json: { job_id: 'novelglossary_1', engine: 'claude', paired: false } })
+      }
+      return route.fulfill({
+        json: { job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', proposals: [], run_id: `run-${posts.length}` },
+      })
+    })
+    await page.goto('/#/drama/1/translate')
+    await openSection(page, 'Glossary')
+    await openSection(page, 'From novel')
+    const box = page.getByTestId('novel-glossary')
+    const fresh = box.getByRole('switch', { name: 'Fresh suggestions' })
+    const extract = box.getByRole('button', { name: 'Extract terms' })
+    await expect(fresh).toHaveAttribute('aria-checked', 'false')
+    await fresh.click()
+    await expect(fresh).toHaveAttribute('aria-checked', 'true')
+    await extract.click()
+    await expect.poll(() => posts.length).toBe(1)
+    expect(new URL(posts[0]).search).toBe('?fresh=true')
+    await expect(box).toContainText('No new terms were found.')
+    await shot(page, 'glossary-fresh-toggle-desktop')
+    await fresh.click()
+    await expect(fresh).toHaveAttribute('aria-checked', 'false')
+    await expect(extract).toBeEnabled()
+    await extract.click()
+    await expect.poll(() => posts.length).toBe(2)
+    expect(new URL(posts[1]).search).toBe('')
+  })
+
   test('overwriting always confirms, counts against the current glossary and sends confirm: true', async ({ page }) => {
     await inSeries(page)
     await page.route('**/api/glossary/dramas/1/terms', (route) =>
