@@ -12,6 +12,7 @@ import db
 
 REAL_LIBRARY_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "library")
+PROBE = ".baihe_guard_probe"
 
 
 def _under_real_library(path):
@@ -55,11 +56,13 @@ def test_clearing_jobs_without_isolated_db_uses_the_temp_library():
 
 
 @pytest.mark.parametrize("touch", [
-    lambda p: open(os.path.join(p, "library.db"), "rb"),
-    lambda p: sqlite3.connect(os.path.join(p, "sources.db")),
-    lambda p: os.makedirs(os.path.join(p, "dramas", "1")),
+    lambda p: open(os.path.join(p, PROBE), "rb"),
+    lambda p: sqlite3.connect(os.path.join(p, PROBE)),
+    lambda p: os.makedirs(os.path.join(p, PROBE)),
 ], ids=["open", "sqlite3.connect", "makedirs"])
 def test_touching_the_real_library_fails_loudly(touch, request):
+    """Probes a name the app never uses, so a broken guard creates
+    nothing that matters in the real folder."""
     with pytest.raises(RuntimeError, match="real library"):
         touch(REAL_LIBRARY_DIR)
     # The guard also records the hit so a caller that swallows the error

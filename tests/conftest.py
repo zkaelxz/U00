@@ -38,6 +38,7 @@ import db
 REAL_LIBRARY_DIR = os.path.abspath(db.LIBRARY_DIR)
 _SESSION_ROOT = tempfile.mkdtemp(prefix="baihe_test_session_")
 db.configure_library_dir(os.path.join(_SESSION_ROOT, "library"))
+db.init_db()
 
 import dictionary  # noqa: E402  (the one path not derived from db.LIBRARY_DIR)
 dictionary.CEDICT_PATH = os.path.join(db.LIBRARY_DIR, "cedict.txt")
