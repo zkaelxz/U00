@@ -14,7 +14,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
-import { routeHref } from '../../router'
+import { workspaceHref } from '../../components/libraryView'
 import type { KnownTitle, KnownTitleList } from '../../types/discover'
 import { LANGUAGES, TITLE_MEDIA_TYPES, catalogCount, existingDramaId, mediaLabel, sourceLabel, titleMeta } from './discoverFormat'
 
@@ -196,7 +196,7 @@ function TitleCard({ t, pc, dramaId, busy, onAdd, onRemove }: {
       )}
       <div className="discover-card-actions">
         {dramaId !== null ? (
-          <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+          <ButtonLink variant="ghost" size="sm" href={workspaceHref(dramaId)}>
             In your Library — open
           </ButtonLink>
         ) : (
