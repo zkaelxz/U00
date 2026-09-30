@@ -292,6 +292,12 @@ _SECRET_PATTERNS = [
 ]
 
 
+# scheme://user:pass@host or scheme://token@host: the userinfo is the secret,
+# host and path stay readable. Greedy so a raw "@" inside the password is
+# still covered.
+_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]*://)[^\s/?#"\'<>]+@', re.IGNORECASE)
+
+
 def redact_secrets(text: str) -> str:
     """Strips anything that looks like an API key or bearer token out of
     an error string before it's shown in the UI, stored on the drama, or
@@ -300,7 +306,9 @@ def redact_secrets(text: str) -> str:
         return text
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(lambda m: m.group(1) + "[REDACTED]" if m.groups() else "[REDACTED]", text)
-    return text
+    # After the token patterns: userinfo they already replaced stays as is.
+    return _URL_USERINFO_PATTERN.sub(
+        lambda m: m.group(0) if "[REDACTED]" in m.group(0) else m.group(1) + "***@", text)
 
 
 # Reused from forced_align.py rather than duplicated -- both files need

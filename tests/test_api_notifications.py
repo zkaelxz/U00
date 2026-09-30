@@ -233,6 +233,15 @@ def test_redact_secrets_strips_discord_webhooks():
         assert "[REDACTED]" in out and out.endswith(" failed")
 
 
+def test_redact_secrets_masks_url_userinfo():
+    for scheme in ("http", "https", "ftp"):
+        out = redact_secrets(f"GET {scheme}://bob:p%40ss:w0rd!@proxy.example:8080/a/b failed")
+        assert out == f"GET {scheme}://***@proxy.example:8080/a/b failed"
+    assert redact_secrets("https://ghtoken123@example.com/x") == "https://***@example.com/x"
+    assert redact_secrets("http://u:p@ss@host/p") == "http://***@host/p"
+    assert redact_secrets("see https://example.com/a@b") == "see https://example.com/a@b"
+
+
 # --- message content ---------------------------------------------------------
 
 def test_message_has_kind_title_outcome_only(env):
