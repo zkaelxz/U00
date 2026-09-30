@@ -16,7 +16,7 @@ import {
   costText,
   defaultSelection,
   selectionEstimate,
-} from './glossaryRetranslate'
+} from './glossaryRetranslateModel'
 
 function isStalePreview(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409

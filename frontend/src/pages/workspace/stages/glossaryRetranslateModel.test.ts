@@ -10,7 +10,7 @@ import {
   costText,
   defaultSelection,
   selectionEstimate,
-} from './glossaryRetranslate'
+} from './glossaryRetranslateModel'
 
 const line = (id: number, hand_edited: boolean): GlossaryAffectedLine => ({
   id, idx: id - 1, start: 0, end: 1, zh: '林晚', en: 'Lin', hand_edited,
