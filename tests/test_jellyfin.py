@@ -155,11 +155,21 @@ def test_link_local_and_own_ports_refused(setup, monkeypatch):
 def test_household_port_refused_only_when_set(setup, monkeypatch):
     monkeypatch.setattr(jf.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("127.0.0.1", port))])
-    monkeypatch.delenv(jf.HOUSEHOLD_PORT_ENV, raising=False)
+    monkeypatch.delenv(settings_service.HOUSEHOLD_PORT_ENV, raising=False)
     jf._check_target("http://127.0.0.1:8610")  # unset: an ordinary local port
-    monkeypatch.setenv(jf.HOUSEHOLD_PORT_ENV, "8610")
+    monkeypatch.setenv(settings_service.HOUSEHOLD_PORT_ENV, "8610")
     with pytest.raises(InvalidInputError):
         jf._check_target("http://127.0.0.1:8610")
+    jf._check_target("http://localhost:8096")
+
+
+def test_changed_api_port_is_refused_and_default_still_is(setup, monkeypatch):
+    monkeypatch.setattr(jf.socket, "getaddrinfo",
+                        lambda host, port, **kw: [(2, 1, 6, "", ("127.0.0.1", port))])
+    monkeypatch.setenv(settings_service.API_PORT_ENV, "9123")
+    for port in (9123, 8600, 8756):
+        with pytest.raises(InvalidInputError):
+            jf._check_target(f"http://127.0.0.1:{port}")
     jf._check_target("http://localhost:8096")
 
 
