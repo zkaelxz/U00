@@ -3,13 +3,13 @@ services/diagnostics_service.py -- Migration Slice 5: a read-only
 snapshot of Diagnostics, shared by the FastAPI `/api/diagnostics` route
 and (in a later slice) the Streamlit Diagnostics tab.
 
-Scope, matching Phase 2 of docs/migration-review.md's own recommended
+Scope, matching Phase 2 of docs/archive/migration-review.md's own recommended
 sequence ("Low-risk reads ... Diagnostics read-only (deps, versions,
 running jobs, log)"): this wraps `diagnostics.py`'s and
 `background_jobs.py`'s existing read-only checks verbatim -- no new
 logic, no admin action (install/upgrade/delete buttons stay
 Streamlit-only, gated by D5's admin-action rules in
-docs/migration-review.md). Every check here is local (imports,
+docs/archive/migration-review.md). Every check here is local (imports,
 filesystem, GPU driver, in-process job state) -- never a network call,
 matching this service's own "diagnostics overview" scope; version
 freshness checks hit PyPI, so they live in diagnostics_gaps_service.
