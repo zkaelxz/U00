@@ -950,10 +950,13 @@ def _detect_soft_refusal_text(text: str):
 # Claude (Anthropic)
 # ---------------------------------------------------------------------------
 
-# Per-request timeout (seconds) for the Anthropic/OpenAI SDK clients --
-# the same bound the cloud REST engines pass to requests (timeout=120), so
-# a hung server can't leave a job stuck at "running".
-SDK_REQUEST_TIMEOUT = 120
+# Per-request timeout (seconds) for the Anthropic/OpenAI SDK clients, so a
+# hung server can't leave a job stuck at "running". A non-streaming reply
+# sends nothing until it is complete, and a 4000-token batch from a slow
+# model can pass the cloud REST paths' 120 s, so this uses the slow-path
+# bound the Ollama REST call uses (300 s) rather than retrying (and
+# re-billing) a reply that was still coming.
+SDK_REQUEST_TIMEOUT = 300
 
 
 class ClaudeEngine:
