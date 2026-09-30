@@ -187,6 +187,16 @@ class TestDetection:
         settings_service.set_settings({"lncrawl_cmd": str(tmp_path / "missing" / "lncrawl")})
         assert svc.find_program() is None
 
+    @pytest.mark.parametrize("name", ["lncrawl.cmd", "lncrawl.bat", "LNCRAWL.CMD"])
+    def test_batch_launchers_are_refused(self, isolated_db, tmp_path, monkeypatch, name):
+        # cmd.exe would read "&" in a pasted URL as a command separator.
+        launcher = tmp_path / name
+        launcher.write_text("")
+        monkeypatch.setattr(svc.shutil, "which", lambda n: str(launcher))
+        assert svc.find_program() is None
+        settings_service.set_settings({"lncrawl_cmd": str(launcher)})
+        assert svc.find_program() is None
+
     def test_registered_not_offered_and_never_imported(self, isolated_db, monkeypatch):
         dep = diagnostics.OPTIONAL_DEPENDENCIES["lightnovel-crawler"]
         assert dep[0] == "lncrawl" and dep[2] == "feature" and "GPL-3.0" in dep[1]

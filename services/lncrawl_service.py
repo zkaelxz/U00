@@ -10,8 +10,8 @@ imports `lncrawl`, and detection looks for the program, not the module.
 
 The program is found on PATH or at the PC-only Settings path `lncrawl_cmd`
 (like `tesseract_cmd`); a configured path must name an existing file whose
-name is lncrawl / lightnovel-crawler, so the setting can't point at an
-arbitrary program.
+name is lncrawl / lightnovel-crawler (no extension or .exe), so the setting
+can't point at an arbitrary program or a batch file.
 
 Safety of a run (the lncrawl 4.x CLI: `lncrawl crawl --noin -f epub
 {--all | --first N | --last N} <url>`):
@@ -52,7 +52,9 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 
 JOB_PREFIX = "lncrawl_"
 PROGRAM_NAMES = ("lncrawl", "lightnovel-crawler", "lightnovel_crawler")
-_PROGRAM_EXTENSIONS = ("", ".exe", ".cmd", ".bat")
+# Never .cmd/.bat: Windows runs a batch file through cmd.exe, which would
+# read "&", "|" or "%" in the pasted URL as shell syntax even with shell=False.
+_PROGRAM_EXTENSIONS = ("", ".exe")
 RANGES = ("all", "first", "last")
 MAX_CHAPTER_COUNT = novel_attach_service.MAX_EPUB_ENTRIES
 MAX_URL_LENGTH = 2000
@@ -89,7 +91,7 @@ def find_program() -> Optional[str]:
         return None
     for name in PROGRAM_NAMES:
         found = shutil.which(name)
-        if found:
+        if found and _is_program_name(found):     # skips an lncrawl.cmd/.bat shim
             return found
     return None
 

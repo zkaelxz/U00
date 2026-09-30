@@ -71,7 +71,7 @@ test('a failed import shows the short error and what lncrawl printed', async ({ 
       ? route.fulfill({ json: {
         job_id: 'lncrawl_1', status: 'error', progress: 0.1, message: '', updated_at: 2,
         error: 'RuntimeError: lightnovel-crawler stopped with exit code 1.',
-        result: { failed_reason: 'lncrawl', detail: 'No crawler found for https://novels.example.com' },
+        result: { failed_reason: 'lncrawl', detail: 'No crawler found for this site' },
       } })
       : route.fulfill({ status: 404, json: { code: 'not_found', message: 'x' } }),
   )
@@ -81,5 +81,5 @@ test('a failed import shows the short error and what lncrawl printed', async ({ 
   await page.getByRole('button', { name: 'Start import' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'exit code 1' })).toBeVisible()
   await page.getByText('What lightnovel-crawler printed').click()
-  await expect(page.getByText('No crawler found for https://novels.example.com')).toBeVisible()
+  await expect(page.getByText('No crawler found for this site')).toBeVisible()
 })
