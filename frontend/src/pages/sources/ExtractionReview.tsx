@@ -10,6 +10,10 @@
  *          chapter number comes from; "Re-run with these corrections"
  *   comic  mark each image's role and number the pages; "Apply these corrections"
  *
+ * A novel import that followed next-chapter links also lists every page it
+ * read (title, length, host), each with a checkbox: the ticked pages are
+ * imported in reading order. Corrections apply to the first page only.
+ *
  * Then import (the per-drama sourceimport_ job), save the corrections as
  * the site's profile, or approve a suggested profile (both PC only). Every
  * choice is an option the server offered, sent by id or selector. A
@@ -29,11 +33,12 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type {
-  ExtractionComic, ExtractionNovel, ExtractionReview as Review, ProfileSaved, ReviewImportResult,
+  ExtractionComic, ExtractionFollow, ExtractionNovel, ExtractionReview as Review, ProfileSaved, ReviewImportResult,
 } from '../../types/sourcesExtraction'
 import {
   REVIEW_NOTE, bucketLabel, bucketTone, canImport, changedImages, containerLabel, duplicatePages, exclusionsFor,
-  fieldLabel, importLabel, nextPageNumber, novelForm, profileSavedText, reviewImportText, reviewWhy, roleLabel, withContainer,
+  fieldLabel, followPageLabel, followStopText, importLabel, importPages, nextPageNumber, novelForm, pickedChars,
+  profileSavedText, reviewImportText, reviewWhy, roleLabel, withContainer,
 } from './extractionFormat'
 import { describeSourceError, percent } from './sourcesFormat'
 import { useSourcesJob } from './useSourcesJob'
@@ -53,6 +58,8 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<unknown>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  // Page ids of a followed import left out of the import (ids stay the same across re-runs).
+  const [unticked, setUnticked] = useState<ReadonlySet<number>>(() => new Set())
   const remote = usePcOnly() === 'remote'
   const job = useSourcesJob<ReviewImportResult>(sourceImportJobId(dramaId), { reattachOn409: false })
   const running = job.status === 'running'
@@ -212,6 +219,21 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
           onRerun={(form) => change(() => rerunNovel(dramaId, { revision: review.revision, ...form }))}
         />
       )}
+      {review.follow && (
+        <FollowedPages
+          follow={review.follow}
+          unticked={unticked}
+          disabled={locked}
+          onToggle={(id, on) =>
+            setUnticked((u) => {
+              const next = new Set(u)
+              if (on) next.delete(id)
+              else next.add(id)
+              return next
+            })
+          }
+        />
+      )}
       {review.comic && (
         <ComicReview
           key={review.revision}
@@ -229,10 +251,10 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
         <button
           type="button"
           className={buttonClass('primary')}
-          disabled={locked || !canImport(review)}
-          onClick={() => job.start(() => startReviewImport(dramaId, review.revision))}
+          disabled={locked || !canImport(review, unticked)}
+          onClick={() => job.start(() => startReviewImport(dramaId, review.revision, importPages(review, unticked)))}
         >
-          {running ? 'Importing…' : importLabel(review)}
+          {running ? 'Importing…' : importLabel(review, unticked)}
         </button>
         {remote ? (
           <span className="muted">Saving a site profile is PC only.</span>
@@ -257,6 +279,36 @@ export function ExtractionReview({ dramaId, onClose }: Props) {
         {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
       </div>
     </section>
+  )
+}
+
+function FollowedPages({ follow, unticked, disabled, onToggle }: {
+  follow: ExtractionFollow
+  unticked: ReadonlySet<number>
+  disabled: boolean
+  onToggle: (id: number, on: boolean) => void
+}) {
+  return (
+    <div className="extraction-follow" role="group" aria-label="Pages read">
+      <fieldset className="extraction-fieldset">
+        <legend>Pages to import, in reading order</legend>
+        {follow.pages.map((p) => (
+          <label key={p.id}>
+            <input
+              type="checkbox"
+              checked={!unticked.has(p.id)}
+              disabled={disabled}
+              onChange={(e) => onToggle(p.id, e.target.checked)}
+            />
+            {followPageLabel(p)}
+            {p.id === 0 ? ' (the page shown above)' : ''}
+          </label>
+        ))}
+      </fieldset>
+      <p className="muted" data-testid="follow-stop">
+        {followStopText(follow)} Ticked: {pickedChars(follow, unticked).toLocaleString('en-US')} characters.
+      </p>
+    </div>
   )
 }
 

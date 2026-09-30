@@ -99,6 +99,8 @@ def preflight_view(pf, url: str) -> dict:
         "text_chars": int(pf.text_chars or 0),
         "images": int(pf.images or 0),
         "confidence": _scrub(pf.confidence or "") or "",
+        "next_link": bool(pf.next_link),
+        "previous_link": bool(pf.previous_link),
         "warnings": _lines(pf.warnings),
         "lines": _lines(pf.lines),
         "display_url": safe_url(url),

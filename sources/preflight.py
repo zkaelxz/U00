@@ -20,8 +20,8 @@ This composes the existing parts into one verdict:
                the preflight can't be kinder than the real thing
   trustworthy  duplicate-paragraph, short-fragment and link-text rates,
                i.e. "is this prose or is it navigation"
-  navigable    whether next/previous/contents links were found, which is
-               what decides if a whole series can be followed
+  navigable    whether next/previous/contents links were found; a next
+               link is what the import can follow to later chapters
   warnings     a page the person's own browser already machine-translated
 
 **Why not ask Google Translate.** A well-known rule of thumb says that if
@@ -114,15 +114,19 @@ def _check_novel(result: Preflight, html: str, url: str):
     for problem in result.problems:
         result.note(f"  - {problem}")
 
-    followers = []
-    if result.next_link:
-        followers.append("a next-chapter link")
+    # Only a next-chapter link is followed (the pasted-URL import's "follow
+    # next chapters"); previous and contents links are reported, not walked.
+    others = []
     if result.previous_link:
-        followers.append("a previous-chapter link")
+        others.append("a previous-chapter link")
     if result.toc_links:
-        followers.append(f"{result.toc_links} contents link(s)")
-    if followers:
-        result.note("Found " + ", ".join(followers) + " -- a series can be followed from here.")
+        others.append(f"{result.toc_links} contents link(s)")
+    if result.next_link:
+        result.note("Found a next-chapter link" + (", " + ", ".join(others) if others else "")
+                    + " -- the import can follow next chapters from here.")
+    elif others:
+        result.note("Found " + ", ".join(others) + ", but no next-chapter link, so chapters "
+                    "would have to be added one URL at a time.")
     else:
         result.note("No next/previous/contents links found, so chapters would have to be "
                     "added one URL at a time.")

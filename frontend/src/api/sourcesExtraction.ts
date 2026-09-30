@@ -3,7 +3,8 @@
 //   GET  /api/sources/url/ai-engines  -> {engines, default}           (sources.import)
 //   POST /api/sources/url/import       {url, drama_id, use_ai?, engine?} -> {job_id: 'sourceimport_<drama>'}
 //   POST /api/sources/url/import-comic {url, drama_id, use_ai?, engine?} -> same job id (comic dramas)
-//   (both also take review: true -> open a Review extraction instead of writing)
+//   (both also take review: true -> open a Review extraction instead of writing;
+//    the novel one also follow_pages: n > 1 -> follow next-chapter links into a review)
 //
 // Review extraction, per drama (sources.import unless marked PC only):
 //   GET  /api/sources/dramas/{id}/extraction                      -> ExtractionReview (404: none)
@@ -11,7 +12,8 @@
 //   POST .../extraction/rerun-comic   {revision, images}          -> ExtractionReview
 //   POST .../extraction/save-profile  {revision}   PC only        -> ProfileSaved
 //   POST .../extraction/approve-profile {revision} PC only        -> ProfileSaved
-//   POST .../extraction/import        {revision}                  -> {job_id: 'sourceimport_<drama>'}
+//   POST .../extraction/import        {revision, pages?}          -> {job_id: 'sourceimport_<drama>'}
+//        (pages: a followed novel import's page ids to import; omitted = all)
 //   GET  .../extraction/images/{id}   a thumbnail (raster image)
 // A stale revision is a 409: reload the review.
 //
@@ -50,7 +52,7 @@ export const saveReviewProfile = (dramaId: number, revision: string, f?: Fetch) 
 export const approveReviewProfile = (dramaId: number, revision: string, f?: Fetch) =>
   postJson<ProfileSaved>(`${review(dramaId)}/approve-profile`, { revision }, pcOnlyFetch(f))
 
-export const startReviewImport = (dramaId: number, revision: string, f?: Fetch) =>
-  postJson<SourcesJobStarted>(`${review(dramaId)}/import`, { revision }, f)
+export const startReviewImport = (dramaId: number, revision: string, pages?: number[] | null, f?: Fetch) =>
+  postJson<SourcesJobStarted>(`${review(dramaId)}/import`, pages ? { revision, pages } : { revision }, f)
 
 export const reviewImageUrl = (dramaId: number, imageId: number) => apiUrl(`${review(dramaId)}/images/${imageId}`)

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ExtractionImage, ExtractionNovel, ExtractionReview } from '../../types/sourcesExtraction'
+import type { ExtractionFollow, ExtractionImage, ExtractionNovel, ExtractionReview } from '../../types/sourcesExtraction'
 import {
-  AI_OFF, aiReason, aiRequestFields, canImport, changedImages, comicImportText, duplicatePages, effectiveEngine, engineLabel,
-  exclusionsFor, importLabel, nextPageNumber, novelForm, profileSavedText, reviewImportText, reviewWhy, roleLabel,
-  skippedTitle, withContainer,
+  AI_OFF, MAX_FOLLOW_PAGES, aiReason, aiRequestFields, canImport, changedImages, clampFollowPages, comicImportText,
+  duplicatePages, effectiveEngine, engineLabel, exclusionsFor, followPageLabel, followRequestFields, followStopText,
+  importLabel, importPages, nextPageNumber, novelForm, pickedChars, pickedPages, profileSavedText, reviewImportText,
+  reviewWhy, roleLabel, skippedTitle, withContainer,
 } from './extractionFormat'
 
 const engines = { engines: ['claude', 'gemini', 'ollama'], default: 'claude' }
@@ -150,5 +151,69 @@ describe('review: import and messages', () => {
     )
     expect(profileSavedText({ domain: 'a.example', kind: 'novel', version: 2, replaces: 1 })).toMatch(/v2 for a\.example.*v1 is kept/)
     expect(profileSavedText({ domain: 'a.example', kind: 'novel', version: 1, replaces: null })).toMatch(/uses it\.$/)
+  })
+})
+
+describe('following next chapters', () => {
+  const follow: ExtractionFollow = {
+    stop: 'cap',
+    pages: [
+      { id: 0, title: 'Ch 1', char_count: 300, host: 'a.example' },
+      { id: 1, title: '', char_count: 1200, host: 'a.example' },
+      { id: 2, title: 'Ch 3', char_count: 500, host: 'a.example' },
+    ],
+  }
+  const review: ExtractionReview = {
+    kind: 'extraction_review', drama_id: 1, revision: 'r', why: 'follow', display_url: null,
+    confidence: { overall: { bucket: 'HIGH', score: 0.9 }, fields: [] },
+    report: { headline: '', lines: [], llm_calls: 0, cache_hit: false, profile: '', pending_profile: null },
+    can_save_profile: false, content_type: 'novel', novel, comic: null, follow,
+  }
+
+  it('sends follow_pages only when on and above one page', () => {
+    expect(followRequestFields(false, 10)).toEqual({})
+    expect(followRequestFields(true, 1)).toEqual({})
+    expect(followRequestFields(true, 10)).toEqual({ follow_pages: 10 })
+    expect(followRequestFields(true, 7.8)).toEqual({ follow_pages: 7 })
+    expect(followRequestFields(true, 500)).toEqual({ follow_pages: MAX_FOLLOW_PAGES })
+    expect(followRequestFields(true, Number.NaN)).toEqual({})
+  })
+
+  it('keeps a typed page count within 1-50', () => {
+    expect(clampFollowPages('')).toBe(1)
+    expect(clampFollowPages('0')).toBe(1)
+    expect(clampFollowPages('12')).toBe(12)
+    expect(clampFollowPages('99')).toBe(50)
+  })
+
+  it('imports the ticked pages in reading order', () => {
+    expect(pickedPages(follow, new Set())).toEqual([0, 1, 2])
+    expect(pickedPages(follow, new Set([1]))).toEqual([0, 2])
+    expect(pickedChars(follow, new Set([1]))).toBe(800)
+    expect(importPages(review, new Set([0]))).toEqual([1, 2])
+    expect(importPages({ ...review, follow: null }, new Set([0]))).toBeNull()
+    expect(importLabel(review, new Set([2]))).toBe('Import 2 pages')
+    expect(canImport(review, new Set([0, 1, 2]))).toBe(false)
+    expect(canImport(review, new Set([0, 1]))).toBe(true)
+  })
+
+  it('labels pages and explains why following stopped', () => {
+    expect(followPageLabel(follow.pages[1])).toBe('Page 2 · 1,200 characters · a.example')
+    expect(followStopText(follow)).toMatch(/number of pages you asked for/)
+    expect(followStopText({ ...follow, stop: 'handoff' })).toMatch(/verification page/)
+    expect(followStopText({ ...follow, stop: 'downgrade' })).toMatch(/plain http/)
+    expect(followStopText({ ...follow, stop: 'invalid' })).toMatch(/next page/)
+    expect(followStopText({ pages: [follow.pages[0]], stop: 'invalid' })).toMatch(/didn’t follow/)
+    expect(followStopText({ ...follow, stop: 'new-code' })).toBe('Stopped following next-chapter links.')
+    expect(reviewWhy('follow')).toMatch(/followed the next-chapter links/)
+  })
+
+  it('reports several imported pages', () => {
+    expect(reviewImportText({ kind: 'review_import', content_type: 'novel', char_count: 2000, pages_imported: 3 })).toBe(
+      'Added 3 pages (2,000 characters) to the drama’s novel text.',
+    )
+    expect(reviewImportText({ kind: 'review_import', content_type: 'novel', char_count: 20, pages_imported: 1 })).toBe(
+      'Added 20 characters to the drama’s novel text.',
+    )
   })
 })

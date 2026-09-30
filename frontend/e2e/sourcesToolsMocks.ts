@@ -10,8 +10,8 @@ import type { MockState } from './sourcesMocks'
 export const PREFLIGHT = {
   kind: 'url_preflight', ok: true, verdict: 'Looks importable as a novel.', permitted: true, reachable: true,
   content_type: 'novel', tier: 'STATIC_HTTP', adapter: null, title: 'Chapter 5', text_chars: 5120, images: 0,
-  confidence: 'HIGH', warnings: [],
-  lines: ['Reached the page over STATIC_HTTP.', 'Found a next-chapter link -- a series can be followed from here.'],
+  confidence: 'HIGH', next_link: true, previous_link: false, warnings: [],
+  lines: ['Reached the page over STATIC_HTTP.', 'Found a next-chapter link -- the import can follow next chapters from here.'],
   display_url: 'https://novels.example/book/5',
 }
 

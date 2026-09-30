@@ -1,9 +1,12 @@
 /*
  * NovelUrlImport: a pasted novel chapter link -> its text, appended to a
  * novel drama's novel text (S-5 R2; job sourceimport_<drama>). Options:
- * the AI fallback (SO09, AiFallback) and "Check before importing" (SO10).
- * When Baihe is unsure, or the check was asked for, nothing is written and
- * the Review extraction step opens below (ExtractionReview). With page
+ * the AI fallback (SO09, AiFallback), "Check before importing" (SO10) and
+ * "Follow next chapters" (follow_pages: the next-chapter links on the same
+ * site are followed, up to that many pages, and always reviewed first).
+ * When Baihe is unsure, the check was asked for or links were followed,
+ * nothing is written and the Review extraction step opens below
+ * (ExtractionReview, with the list of pages to keep). With page
  * source pasted after a verification page (`html`, SO03), the text is read
  * from the paste instead (POST /api/sources/url/import-pasted), without the
  * AI fallback or the review step.
@@ -22,7 +25,10 @@ import type { UrlImportResult } from '../../types/sourcesImport'
 import { AiFallback } from './AiFallback'
 import { DramaPicker } from './DramaPicker'
 import { ExtractionReview } from './ExtractionReview'
-import { AI_OFF, REVIEW_FIRST_HELP, aiReason, aiRequestFields } from './extractionFormat'
+import {
+  AI_OFF, DEFAULT_FOLLOW_PAGES, FOLLOW_HELP, MAX_FOLLOW_PAGES, REVIEW_FIRST_HELP, aiReason, aiRequestFields, clampFollowPages,
+  followRequestFields,
+} from './extractionFormat'
 import { describeSourceError, percent } from './sourcesFormat'
 import { useAiEngines } from './useAiEngines'
 import { useDramaList } from './useDramaList'
@@ -42,6 +48,8 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
   const failed = job.startedHere && job.status === 'error' ? job.error : null
   const [aiChoice, setAiChoice] = useState(AI_OFF)
   const [reviewFirst, setReviewFirst] = useState(false)
+  const [follow, setFollow] = useState(false)
+  const [followPages, setFollowPages] = useState(DEFAULT_FOLLOW_PAGES)
   // The drama whose review is shown (closed: null).
   const [reviewing, setReviewing] = useState<number | null>(null)
   const ai = useAiEngines(aiChoice.on)
@@ -53,7 +61,11 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
     job.start(() =>
       html
         ? startPastedImport(url, html, dramaId)
-        : startNovelUrlImport(url, dramaId, { ...aiRequestFields(aiChoice, ai.engines), ...(reviewFirst ? { review: true } : {}) }),
+        : startNovelUrlImport(url, dramaId, {
+            ...aiRequestFields(aiChoice, ai.engines),
+            ...(reviewFirst ? { review: true } : {}),
+            ...followRequestFields(follow, followPages),
+          }),
     )
   }
   const showReview = result?.review_open && dramaId !== null && reviewing === dramaId
@@ -77,7 +89,23 @@ export function NovelUrlImport({ url, html = null, title, language }: Props) {
             <Field label="Check before importing" help={REVIEW_FIRST_HELP}>
               <Toggle checked={reviewFirst} disabled={running} onChange={setReviewFirst} />
             </Field>
+            <Field label="Follow next chapters" help={FOLLOW_HELP}>
+              <Toggle checked={follow} disabled={running} onChange={setFollow} />
+            </Field>
           </div>
+          {follow && (
+            <Field label="Pages in all" help={`Up to ${MAX_FOLLOW_PAGES}, this page included.`}>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={2}
+                max={MAX_FOLLOW_PAGES}
+                value={followPages}
+                disabled={running}
+                onChange={(e) => setFollowPages(clampFollowPages(e.target.value))}
+              />
+            </Field>
+          )}
         </>
       )}
       <div className="actions">

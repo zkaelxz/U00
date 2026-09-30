@@ -36,16 +36,21 @@ def _dns(monkeypatch, ip="93.184.216.34"):
 
 
 class FakeFetch:
-    """Stands in for generic_import.fetch_page: serves `pages[url]`."""
+    """Stands in for generic_import.fetch_page: serves `pages[url]`, or a
+    verification-page hand-off for a URL in `handoffs`."""
 
     def __init__(self):
-        self.pages, self.calls = {}, []
+        self.pages, self.calls, self.handoffs, self.clients = {}, [], set(), []
 
     def __call__(self, url, client=None, rendered_fetch=None, user_html=None,
                  authenticated_fetch=None, allow_signed_in=True, allow_browser=True,
                  record=True):
         self.calls.append({"url": url, "signed_in": allow_signed_in, "browser": allow_browser})
+        self.clients.append(client)
         lr = LadderResult(url)
+        if url in self.handoffs:
+            lr.handoff = {"tier": "STATIC_HTTP", "reason": "CAPTCHA", "url": url}
+            return lr
         lr.tier, lr.html = AccessTier.STATIC_HTTP.value, self.pages[url]
         return lr
 
@@ -1078,3 +1083,220 @@ def test_sweep_removes_only_folders_older_than_the_expiry(isolated_db):
     os.utime(old, (long_ago, long_ago))
     svc._sweep_stale(time.time())
     assert not os.path.exists(old) and os.path.isdir(live)   # another process's live review stays
+
+
+# ---------------------------------------------------------------------------
+# Following next-chapter links: a multi-page review, then the chosen pages
+# ---------------------------------------------------------------------------
+
+def _chain(env, *numbers):
+    for n in numbers:
+        _novel_page(env, n)
+    return chapter_url(numbers[0])
+
+
+def _follow_review(client, env, pages=(12, 13, 14), follow=3):
+    url = _chain(env, *pages)
+    did = db.create_drama(title_en="N", media_type="novel")
+    r = _run(client, "/api/sources/url/import",
+             {"url": url, "drama_id": did, "follow_pages": follow}, did)
+    assert r.status_code == 200, r.text
+    return did, r.json()["result"]
+
+
+def test_follow_pages_one_is_the_single_page_import(client, env):
+    url = _chain(env, 12, 13)
+    for body in ({}, {"follow_pages": 1}):
+        did = db.create_drama(title_en="N", media_type="novel")
+        env["fetch"].calls.clear()
+        r = _run(client, "/api/sources/url/import", {"url": url, "drama_id": did, **body}, did)
+        assert r.json()["result"] == {"kind": "url_import", "needs_review": False,
+                                      "char_count": r.json()["result"]["char_count"],
+                                      "review_open": False}
+        assert [c["url"] for c in env["fetch"].calls] == [url]
+        assert "第12章第0段" in _raw(did) and "第13章" not in _raw(did)
+
+
+def test_follow_reads_pages_in_order_into_a_review_and_writes_nothing(client, env):
+    did, res = _follow_review(client, env, pages=(12, 13, 14, 15))
+    assert res["needs_review"] is True and res["review_open"] is True
+    assert res["pages_found"] == 3 and res["follow_stop"] == "cap"
+    assert [c["url"] for c in env["fetch"].calls] == [chapter_url(n) for n in (12, 13, 14)]
+    # One client for the whole chain: one pacing state, one set of caps.
+    assert len({id(c) for c in env["fetch"].clients}) == 1
+    assert _raw(did) == ""
+    r = client.get(f"/api/sources/dramas/{did}/extraction")
+    rv = r.json()
+    assert rv["why"] == "follow" and rv["novel"]["char_count"] > 200
+    pages = rv["follow"]["pages"]
+    assert [p["id"] for p in pages] == [0, 1, 2]
+    assert [p["title"] for p in pages] == ["第12章 重逢", "第13章 重逢", "第14章 重逢"]
+    assert all(p["host"] == "novel.example" and p["char_count"] > 200 for p in pages)
+    assert rv["follow"]["stop"] == "cap"
+    # The first page's links are shown as the one-page review shows them;
+    # nothing read by following (page 3's address, page 2's links) goes out.
+    assert "1014" not in r.text and "1015" not in r.text
+    _leak_free(r.text)
+
+
+def test_follow_imports_the_chosen_pages_in_order_once(client, env):
+    did, _res = _follow_review(client, env)
+    rv = _review(client, did)
+    r = client.post(f"/api/sources/dramas/{did}/extraction/import",
+                    json={"revision": rv["revision"], "pages": [2, 0]})
+    assert r.status_code == 200, r.text
+    _wait(f"sourceimport_{did}")
+    res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
+    assert res["pages_imported"] == 2 and res["content_type"] == "novel"
+    raw = _raw(did)
+    assert raw.startswith("第12章 重逢") and raw.count("第14章 重逢") == 1
+    assert raw.index("第12章第0段") < raw.index("第14章第0段")
+    assert "第13章" not in raw                                   # unticked: skipped
+    assert res["char_count"] == sum(p["char_count"] for p in rv["follow"]["pages"]
+                                    if p["id"] in (0, 2))
+    # The review ended with its import: it can't be appended twice.
+    assert client.post(f"/api/sources/dramas/{did}/extraction/import",
+                       json={"revision": rv["revision"]}).status_code == 404
+    assert _raw(did) == raw
+
+
+def test_follow_import_without_pages_takes_them_all(client, env):
+    did, _res = _follow_review(client, env)
+    rv = _review(client, did)
+    client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    _wait(f"sourceimport_{did}")
+    raw = _raw(did)
+    assert raw.index("第12章第0段") < raw.index("第13章第0段") < raw.index("第14章第0段")
+
+
+def test_follow_rerun_changes_the_first_page_only(client, env):
+    did, _res = _follow_review(client, env)
+    rv = _review(client, did)
+    n = rv["novel"]
+    sel = n["content_selector"]
+    container = next(c for c in n["containers"] if c["selector"] == sel)
+    ad = next(o["selector"] for o in container["exclusions"] if "广告" in o["preview"])
+    r = client.post(f"/api/sources/dramas/{did}/extraction/rerun-novel", json={
+        "revision": rv["revision"], "content_selector": sel, "exclude_selectors": [ad],
+        "title_block": n["title_block"], "next_link": n["next_link"],
+        "previous_link": n["previous_link"], "number_from": "title"})
+    rv2 = r.json()
+    assert rv2["revision"] != rv["revision"] and len(rv2["follow"]["pages"]) == 3
+    assert rv2["follow"]["pages"][0]["char_count"] == rv2["novel"]["char_count"]
+    assert rv2["follow"]["pages"][1:] == rv["follow"]["pages"][1:]
+
+
+def test_follow_stops_at_a_hand_off_keeping_the_pages_so_far(client, env):
+    url = _chain(env, 12, 13)
+    env["fetch"].handoffs.add(chapter_url(14))
+    did = db.create_drama(title_en="N", media_type="novel")
+    r = _run(client, "/api/sources/url/import", {"url": url, "drama_id": did, "follow_pages": 5}, did)
+    res = r.json()["result"]
+    assert res["follow_stop"] == "handoff" and res["pages_found"] == 2
+    rv = _review(client, did)
+    assert rv["follow"]["stop"] == "handoff" and len(rv["follow"]["pages"]) == 2
+    assert _raw(did) == ""
+
+
+def test_follow_hand_off_on_the_first_page_is_the_usual_409(client, env):
+    url = chapter_url(12)
+    env["fetch"].handoffs.add(url)
+    did = db.create_drama(title_en="N", media_type="novel")
+    r = _run(client, "/api/sources/url/import", {"url": url, "drama_id": did, "follow_pages": 5}, did)
+    assert r.status_code == 409 and r.json()["error"]["details"]["handoff"] is True
+    assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404
+    assert _raw(did) == ""
+
+
+def test_follow_request_validation(client, env):
+    url = _chain(env, 12)
+    did = db.create_drama(title_en="N", media_type="novel")
+    for bad in (0, 51, "3", True, 2.0):
+        r = client.post("/api/sources/url/import",
+                        json={"url": url, "drama_id": did, "follow_pages": bad})
+        assert r.status_code == 422, bad
+    # The comic import takes no follow_pages.
+    assert client.post("/api/sources/url/import-comic",
+                       json={"url": url, "drama_id": did, "follow_pages": 2}).status_code == 422
+    assert env["fetch"].calls == []
+
+
+def test_follow_import_refuses_pages_not_offered(client, env):
+    did, _res = _follow_review(client, env, pages=(12, 13), follow=2)
+    rv = _review(client, did)
+    path = f"/api/sources/dramas/{did}/extraction/import"
+    for bad in ([2], [-1], [], ["0"], [True]):
+        assert client.post(path, json={"revision": rv["revision"], "pages": bad}).status_code == 422, bad
+    assert _raw(did) == ""
+    # A one-page review has only page 0.
+    did2, rv2 = _novel_review(client, env, review=True)
+    assert rv2["follow"] is None
+    assert client.post(f"/api/sources/dramas/{did2}/extraction/import",
+                       json={"revision": rv2["revision"], "pages": [1]}).status_code == 422
+    r = client.post(f"/api/sources/dramas/{did2}/extraction/import",
+                    json={"revision": rv2["revision"], "pages": [0]})
+    assert r.status_code == 200
+    _wait(f"sourceimport_{did2}")
+    assert "第12章第0段" in _raw(did2)
+
+
+def test_follow_address_check_refuses_a_private_address(env, monkeypatch):
+    from services import sources_import_service as imp
+    assert imp._is_public(chapter_url(13)) is True
+    _dns(monkeypatch, "10.0.0.5")
+    assert imp._is_public(chapter_url(13)) is False
+
+
+def test_follow_first_page_heading_falls_back_to_the_page_title(client, env):
+    from services import sources_extraction_service as svc
+    from sources import adaptive, ai_extract
+    url = _novel_page(env)
+    did = db.create_drama(title_en="N", media_type="novel")
+    html = env["fetch"].pages[url]
+    data = ai_extract.deterministic_novel(ai_extract.PageModel(html, url))
+    data["chapter_title"] = None
+    later = adaptive.FollowedPage(chapter_url(13), "第13章 重逢", "第13章第0段。" * 40)
+    assert svc.open_review(did, "novel", url, html, data, None, svc.WHY_FOLLOWED,
+                           chain=[later], follow_stop="cap")
+    rv = _review(client, did)
+    assert rv["follow"]["pages"][0]["title"] == "第12章 重逢 - 某某小说网"
+    client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    _wait(f"sourceimport_{did}")
+    assert _raw(did).startswith("第12章 重逢 - 某某小说网")     # as a direct import would
+
+
+def test_follow_cancelled_import_says_how_many_pages_were_appended(client, env, monkeypatch):
+    from services import sources_extraction_service as svc
+    did, _res = _follow_review(client, env)
+    rv = _review(client, did)
+    asked = []
+
+    def cancel_after_first_page(job_id):
+        asked.append(job_id)
+        return len(asked) > 1               # the check before page 1 says no
+    monkeypatch.setattr(svc.background_jobs, "is_cancel_requested", cancel_after_first_page)
+    client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    st = _wait(f"sourceimport_{did}")
+    assert st["status"] == "cancelled"
+    assert st["message"] == "Cancelled after appending 1 of 3 pages."
+    assert st["result"]["pages_imported"] == 1 and st["result"]["cancelled"] is True
+    raw = _raw(did)
+    assert "第12章第0段" in raw and "第13章" not in raw
+    assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404   # not re-opened
+
+
+def test_follow_keeps_the_pages_when_a_later_page_is_too_large(client, env, monkeypatch):
+    from sources.http import ResponseTooLarge
+    url = _chain(env, 12, 13)
+    real = env["fetch"]
+
+    def fetch(u, *a, **kw):
+        if u == chapter_url(14):
+            raise ResponseTooLarge()
+        return real(u, *a, **kw)
+    monkeypatch.setattr(generic_import, "fetch_page", fetch)
+    did = db.create_drama(title_en="N", media_type="novel")
+    r = _run(client, "/api/sources/url/import", {"url": url, "drama_id": did, "follow_pages": 5}, did)
+    res = r.json()["result"]
+    assert res["follow_stop"] == "unreachable" and res["pages_found"] == 2
+    assert _review(client, did)["follow"]["stop"] == "unreachable" and _raw(did) == ""

@@ -1,6 +1,6 @@
 import { expect as baseExpect, test } from '@playwright/test'
 
-import { COMIC_PAGE_PREVIEW, comicReview, mockExtraction, novelReview } from './sourcesExtractionMocks'
+import { COMIC_PAGE_PREVIEW, comicReview, followReview, mockExtraction, novelReview } from './sourcesExtractionMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources, posted } from './sourcesMocks'
 
@@ -75,6 +75,42 @@ test('novel: AI fallback engine, check before importing, correct, save profile, 
   await review.getByRole('button', { name: 'Import this text' }).click()
   await expect.poll(() => posted(s, '/api/sources/dramas/11/extraction/import')[0]?.body).toEqual({ revision: 'r2' })
   await expect(review.getByTestId('review-import-result')).toContainText('Added 5,120 characters to the drama’s novel text.')
+  expect(s.unmocked).toEqual([])
+})
+
+test('novel: follow next chapters, untick a page, import the rest in order', async ({ page }) => {
+  const s = await mockSources(page)
+  const m = await mockImports(page, s, {
+    previewBody: NOVEL_PREVIEW,
+    urlImportBody: { kind: 'url_import', needs_review: true, char_count: 14920, review_open: true, pages_found: 3, follow_stop: 'no_next' },
+  })
+  await mockExtraction(page, s, m, { review: followReview() })
+  const card = await paste(page, 'https://novels.example/book/5')
+  await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
+
+  // Off by default: the page count only shows once following is on.
+  await expect(card.getByRole('spinbutton', { name: 'Pages in all' })).toHaveCount(0)
+  await card.getByRole('switch', { name: 'Follow next chapters' }).click()
+  await expect(card.getByRole('spinbutton', { name: 'Pages in all' })).toHaveValue('10')
+  await card.getByRole('spinbutton', { name: 'Pages in all' }).fill('3')
+  await card.getByRole('button', { name: 'Import text' }).click()
+  await expect.poll(() => posted(s, '/api/sources/url/import')[0]?.body).toEqual({
+    url: 'https://novels.example/book/5', drama_id: 11, follow_pages: 3,
+  })
+  await expect(card.getByTestId('url-import-result')).toContainText('Read 3 pages. Nothing was saved yet.')
+
+  const review = card.getByRole('region', { name: 'Review extraction' })
+  await expect(review.getByText('Baihe followed the next-chapter links.', { exact: false })).toBeVisible()
+  const pages = review.getByRole('group', { name: 'Pages read' })
+  await expect(pages.getByRole('checkbox')).toHaveCount(3)
+  await expect(pages.getByRole('checkbox', { name: /Chapter 6 · 4,800 characters · novels\.example/ })).toBeChecked()
+  await expect(pages.getByTestId('follow-stop')).toContainText('The last page has no next-chapter link.')
+  await expect(review.getByRole('button', { name: 'Import 3 pages' })).toBeEnabled()
+
+  await pages.getByRole('checkbox', { name: /Chapter 6/ }).uncheck()
+  await review.getByRole('button', { name: 'Import 2 pages' }).click()
+  await expect.poll(() => posted(s, '/api/sources/dramas/11/extraction/import')[0]?.body).toEqual({ revision: 'r1', pages: [0, 2] })
+  await expect(review.getByTestId('review-import-result')).toContainText('Added 2 pages (10,120 characters) to the drama’s novel text.')
   expect(s.unmocked).toEqual([])
 })
 

@@ -186,6 +186,11 @@ describe('outcomes', () => {
     expect(urlImportText({ kind: 'url_import', needs_review: false, char_count: 5120 })).toBe('Added 5,120 characters to the drama’s novel text.')
     expect(urlImportText({ kind: 'url_import', needs_review: true, char_count: 0 })).toMatch(/nothing was saved/)
   })
+  it('url import copy after following next chapters', () => {
+    const r = { kind: 'url_import' as const, needs_review: true, char_count: 9000, review_open: true, pages_found: 3, follow_stop: 'cap' }
+    expect(urlImportText(r)).toBe('Read 3 pages. Nothing was saved yet. Check the pages below, then import the ones you want.')
+    expect(urlImportText({ ...r, pages_found: 1 })).toMatch(/^Nothing was saved yet\. Check what Baihe found/)
+  })
 })
 
 describe('downloadReason', () => {

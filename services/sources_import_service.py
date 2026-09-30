@@ -28,7 +28,12 @@ PC). When the extraction needs review (low confidence, the request asked
 for `review`, or Sources diagnostics mode is on) nothing is written: the
 job opens a Review extraction for the drama instead (parity SO10,
 sources_extraction_service.open_review). From another device the signed-in profile and the browser tier
-are off.
+are off. With `follow_pages` above 1 the job also follows each page's
+next-chapter link (adaptive.follow_novel: same client, host and checks,
+each followed address re-checked as public) and always opens a review of
+the pages it read instead of writing; the person then imports the pages
+they keep, in order. Nothing is recorded per page: like a one-page URL
+import, a pasted-URL chain has no chapter ids to mark imported or retry.
 
 `start_comic_url_import` (parity SO06) is the comic counterpart: the job
 runs adaptive.import_comic (same opt-in LLM fallback) and adds the kept
@@ -66,7 +71,8 @@ import db
 from services import drama_service, ownership_service
 from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+from services.service_errors import (ConflictError, DependencyUnavailableError,
+                                     InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import (_import_supported, _require_source, _scrub,
                                               safe_url)
@@ -82,6 +88,8 @@ from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
 MAX_CHAPTERS = 200
 MAX_SKIPPED_LISTED = 100
+MAX_FOLLOW_PAGES = adaptive.MAX_FOLLOW_PAGES
+FOLLOW_STOPS = adaptive.FOLLOW_STOPS
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
@@ -362,8 +370,57 @@ def _url_fail(job_id: str, err: dict):
     fail_job(job_id, "url_import", err)
 
 
+def _is_public(url: str) -> bool:
+    try:
+        check_public_url(url)
+    except (InvalidInputError, DependencyUnavailableError):
+        return False
+    return True
+
+
+def _follow_import_job(job_id: str, url: str, drama_id: int, local: bool, engine,
+                       follow_pages: int):
+    """Reads the pasted page and the pages its next links lead to into a
+    review for the drama; writes nothing to the drama."""
+    background_jobs.update_progress(job_id, 0.05, "Reading the page...")
+
+    def progress(done: int, cap: int):
+        background_jobs.update_progress(job_id, 0.05 + 0.9 * done / cap,
+                                        f"Reading page {done + 1} of up to {cap}...")
+    try:
+        chain = adaptive.follow_novel(
+            url, follow_pages, engine=engine, client=source_client(url, job_id),
+            allow_signed_in=local, allow_browser=local, hold_profiles=not local,
+            url_check=_is_public, progress=progress,
+            cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
+    except Cancelled:
+        raise background_jobs.JobCancelled(job_id) from None
+    except generic_import.NoContentFound:
+        _url_fail(job_id, {"status": 422, "code": InvalidInputError.code, "message": _NO_TEXT,
+                           "details": {"reason": "NO_CONTENT"}})
+    except Exception as e:
+        _url_fail(job_id, _error_view(e))
+    first = chain.first
+    if first.ladder is not None and getattr(first.ladder, "handoff", None):
+        _url_fail(job_id, handoff_error(first.ladder.handoff, url))
+    report = chain.report
+    why = extraction.review_reason(report, False) or extraction.WHY_FOLLOWED
+    signed_in = _signed_in(first.ladder) or any(
+        p.tier == AccessTier.AUTHENTICATED_BROWSER.value for p in chain.pages)
+    opened = extraction.open_review(drama_id, "novel", url, getattr(first.ladder, "html", ""),
+                                    report.data, report, why, pc_only=signed_in,
+                                    chain=chain.pages[1:], follow_stop=chain.stop)
+    background_jobs.set_result(job_id, {
+        "kind": "url_import", "needs_review": True,
+        "char_count": sum(len(p.text or "") for p in chain.pages), "review_open": opened,
+        "pages_found": len(chain.pages), "follow_stop": chain.stop})
+
+
 def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
-                    review: bool = False):
+                    review: bool = False, follow_pages: int = 1):
+    if follow_pages > 1:
+        _follow_import_job(job_id, url, drama_id, local, engine, follow_pages)
+        return
     background_jobs.update_progress(job_id, 0.1, "Reading the page...")
     try:
         res, report = adaptive.import_novel(url, engine=engine, client=source_client(url, job_id),
@@ -397,13 +454,19 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
 
 
 def start_url_import(url, drama_id, local: bool = True, principal=None,
-                     ai_engine: str = None, review: bool = False) -> dict:
+                     ai_engine: str = None, review: bool = False,
+                     follow_pages: int = 1) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
     appended to a novel drama's raw-novel text. `ai_engine` (a name from
     sources_extraction_service.resolve_ai_engine_name, None = off) is the
-    LLM fallback. 422 bad/private URL or not a novel drama; 503 the host
-    doesn't resolve or the engine has no key; 404 no drama; 409 while a job
-    runs for the drama."""
+    LLM fallback. `follow_pages` above 1: read up to that many pages by
+    following next-chapter links, into a review (nothing written). 422
+    bad/private URL, `follow_pages` out of range or not a novel drama; 503
+    the host doesn't resolve or the engine has no key; 404 no drama; 409
+    while a job runs for the drama."""
+    if (isinstance(follow_pages, bool) or not isinstance(follow_pages, int)
+            or not 1 <= follow_pages <= MAX_FOLLOW_PAGES):
+        raise InvalidInputError(f"Follow between 1 and {MAX_FOLLOW_PAGES} pages.")
     url = check_public_url(url)
     drama = _require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
@@ -413,7 +476,7 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
     engine = extraction.build_ai_engine(ai_engine)
     job_id = import_job_id(drama_id)
     return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local), engine,
-                  bool(review), description="Import novel text from a pasted URL")
+                  bool(review), follow_pages, description="Import novel text from a pasted URL")
 
 
 # ---------------------------------------------------------------------------
