@@ -20,7 +20,11 @@ person asked to review first, or Sources diagnostics mode is on, the import
 job writes nothing and opens a review for its drama instead
 (`open_review`, one per drama, in this process only: at most MAX_REVIEWS,
 each dropped after REVIEW_TTL seconds or once imported). The review keeps
-the page the job already fetched; nothing here fetches anything. The person
+the page the job already fetched; nothing here fetches anything. A comic
+review's downloaded images are moved out of memory into its own folder
+under the library (`<library>/source_review_tmp/`), removed when the review
+ends (expiry, replacement, or once its import job finishes or fails); the
+folder is emptied the first time a review opens in a new process. The person
 can then:
 
   * see the independent confidence per field (never the AI's own claim);
@@ -48,7 +52,9 @@ page chrome), and a run started from another device never auto-saves a
 site profile (adaptive `hold_profiles`).
 """
 
+import os
 import secrets
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -56,6 +62,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import background_jobs
+import db
 import translate_engines
 from services import page_import_limits as limits
 from services import settings_service
@@ -169,10 +176,45 @@ class _Review:
     revision: str = ""
     created_at: float = 0.0
     pc_only: bool = False    # read through the signed-in browser: this PC only
+    tmp_dir: str = ""        # comic: the images' bytes, one file per candidate id
+    sizes: dict = field(default_factory=dict)        # candidate id -> bytes on disk
 
 
 _REVIEWS = {}
 _LOCK = threading.Lock()
+_TMP_CLEANED = False
+
+
+def _tmp_root() -> str:
+    return os.path.join(db.LIBRARY_DIR, "source_review_tmp")
+
+
+def _spill(rv) -> None:
+    """Moves each candidate's downloaded bytes to a file in the review's
+    own folder, so an open review holds no image bytes in memory."""
+    global _TMP_CLEANED
+    with _LOCK:
+        if not _TMP_CLEANED:          # left over from an earlier process
+            shutil.rmtree(_tmp_root(), ignore_errors=True)
+            _TMP_CLEANED = True
+    rv.tmp_dir = os.path.join(_tmp_root(), f"{rv.drama_id}_{secrets.token_hex(6)}")
+    os.makedirs(rv.tmp_dir, exist_ok=True)
+    for i, c in enumerate(rv.candidates):
+        if c.content:
+            with open(os.path.join(rv.tmp_dir, f"{i}.img"), "wb") as f:
+                f.write(c.content)
+            rv.sizes[i] = len(c.content)
+        c.content = b""
+
+
+def _discard(rv) -> None:
+    if rv is not None and rv.tmp_dir:
+        shutil.rmtree(rv.tmp_dir, ignore_errors=True)
+
+
+def _read(rv, i: int) -> bytes:
+    with open(os.path.join(rv.tmp_dir, f"{i}.img"), "rb") as f:
+        return f.read()
 
 
 def diagnostics_mode() -> bool:
@@ -197,10 +239,10 @@ def _new_revision() -> str:
 
 def _prune(now: float):
     for did in [d for d, r in _REVIEWS.items() if now - r.created_at > REVIEW_TTL]:
-        _REVIEWS.pop(did, None)
+        _discard(_REVIEWS.pop(did, None))
     while len(_REVIEWS) > MAX_REVIEWS:
         oldest = min(_REVIEWS, key=lambda d: _REVIEWS[d].created_at)
-        _REVIEWS.pop(oldest, None)
+        _discard(_REVIEWS.pop(oldest, None))
 
 
 def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, report,
@@ -212,7 +254,10 @@ def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, repor
         return False
     rv = _Review(int(drama_id), kind, url, ai_extract.PageModel(html or "", url), data, report,
                  why, list(candidates), None, _new_revision(), time.time(), bool(pc_only))
+    if kind == "comic":
+        _spill(rv)
     with _LOCK:
+        _discard(_REVIEWS.get(rv.drama_id))
         _REVIEWS[rv.drama_id] = rv
         _prune(time.time())
     return rv.drama_id in _REVIEWS
@@ -236,7 +281,7 @@ def _require_drama(drama_id, principal):
 
 def drop_review(drama_id: int):
     with _LOCK:
-        _REVIEWS.pop(int(drama_id), None)
+        _discard(_REVIEWS.pop(int(drama_id), None))
 
 
 def display_url(url):
@@ -362,38 +407,53 @@ def _comic_items(rv: _Review) -> list:
                     "width": int(c.width or 0), "height": int(c.height or 0),
                     "role": role if role in ai_extract.COMIC_ROLES else "other", "page": page,
                     "reason": _label(c.reject_reason or p.get("reason") or ""),
-                    "has_image": _usable(c)})
+                    "has_image": _usable(rv, i)})
     return out
 
 
-def _usable(c) -> bool:
+def _usable(rv: _Review, i: int) -> bool:
     """Downloaded, an accepted type (PNG/JPEG/WebP) with a size within the
     page rules (services/page_import_limits.py, header only): only such an
     image can become a page."""
-    return (bool(c.content) and _image_type(c) is not None and c.width > 0 and c.height > 0
+    c = rv.candidates[i]
+    size = rv.sizes.get(i, 0)
+    return (size > 0 and _image_type(c) is not None and c.width > 0 and c.height > 0
             and c.width * c.height <= limits.MAX_IMAGE_PIXELS
-            and len(c.content) <= limits.MAX_IMAGE_BYTES)
+            and size <= limits.MAX_IMAGE_BYTES)
 
 
-def prepare_pages(candidates) -> tuple:
+def prepare_pages(items, job_id: str = None) -> tuple:
     """([(bytes, ext)] page files in order, [skipped candidates]) under the
     page rules: EXIF orientation applied, webtoon strips cut into pages; an
-    image over a cap is skipped with its reason set, never failing the rest."""
+    image over a cap, or damaged, is skipped with its reason set, never
+    failing the rest. `items`: (candidate, bytes or a callable returning
+    them). With `job_id`, a cancel is honoured between images."""
     pages, skipped = [], []
-    for c in candidates:
+    for c, content in items:
+        if job_id and background_jobs.is_cancel_requested(job_id):
+            raise background_jobs.JobCancelled(job_id)
         try:
-            pages.extend(limits.prepare_page(c.content))
+            pages.extend(limits.prepare_page(content() if callable(content) else content))
         except limits.ImageRejected as e:
             c.reject_reason = str(e)
+            skipped.append(c)
+        except OSError:
+            c.reject_reason = "couldn't be read back for import"
             skipped.append(c)
     return pages, skipped
 
 
+def _kept_ids(rv: _Review, data: dict) -> list:
+    """Candidate ids of the images marked as pages, in page order, usable only."""
+    by_url = {c.url: i for i, c in enumerate(rv.candidates)}
+    ids = [by_url[p["resource_url"]] for p in sorted(
+        (p for p in data.get("pages") or [] if p.get("role") == "content"),
+        key=lambda p: p["index"]) if p["resource_url"] in by_url]
+    return [i for i in ids if _usable(rv, i)]
+
+
 def _kept_count(rv: _Review) -> int:
-    by_url = {c.url: c for c in rv.candidates}
-    return sum(1 for p in rv.data.get("pages") or []
-               if p.get("role") == "content" and by_url.get(p["resource_url"]) is not None
-               and _usable(by_url[p["resource_url"]]))
+    return len(_kept_ids(rv, rv.data))
 
 
 def _comic_view(rv: _Review) -> dict:
@@ -485,14 +545,14 @@ def rerun_comic(drama_id: int, revision: str, images, principal=None, local: boo
             raise InvalidInputError(_NOT_OFFERED, details={"field": "images.role"})
         if isinstance(page, bool) or not isinstance(page, int) or not 0 <= page <= MAX_PAGE_NUMBER:
             raise InvalidInputError(f"Page numbers go from 0 (not a page) to {MAX_PAGE_NUMBER}.")
-        if role == "content" and not _usable(rv.candidates[cid]):
+        if role == "content" and not _usable(rv, cid):
             raise InvalidInputError("That image couldn't be downloaded or read, so it can't be a page.",
                                     details={"field": "images.role", "id": cid})
         chosen[cid] = (role, page)
     roles, order = {}, {}
     for cid, it in current.items():
         role, page = chosen.get(cid, (it["role"], it["page"]))
-        if role == "content" and not _usable(rv.candidates[cid]):
+        if role == "content" and not _usable(rv, cid):
             role, page = "other", 0
         url = rv.candidates[cid].url
         roles[url] = role
@@ -557,21 +617,25 @@ def approve_profile(drama_id: int, revision: str, principal=None) -> dict:
 
 # ----- import --------------------------------------------------------------
 
-def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, revision: str):
-    if background_jobs.is_cancel_requested(job_id):
-        raise background_jobs.JobCancelled(job_id)
-    background_jobs.update_progress(job_id, 0.5, "Saving the reviewed result...")
-    if kind == "novel":
-        text, heading = snapshot
-        pipeline.save_novel_text(drama_id, text, append=True, heading=heading)
-        result = {"kind": "review_import", "content_type": "novel", "char_count": len(text)}
-    else:
-        from services import sources_import_service as imp
-        pages, skipped = prepare_pages(snapshot)
-        n = pipeline.add_page_images(drama_id, pages)
-        result = {"kind": "review_import", "content_type": "comic", "pages_added": n,
-                  "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped)}
-    background_jobs.set_result(job_id, result)
+def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Review):
+    try:
+        if background_jobs.is_cancel_requested(job_id):
+            raise background_jobs.JobCancelled(job_id)
+        background_jobs.update_progress(job_id, 0.5, "Saving the reviewed result...")
+        if kind == "novel":
+            text, heading = snapshot
+            pipeline.save_novel_text(drama_id, text, append=True, heading=heading)
+            result = {"kind": "review_import", "content_type": "novel", "char_count": len(text)}
+        else:
+            from services import sources_import_service as imp
+            pages, skipped = prepare_pages(
+                ((rv.candidates[i], (lambda i=i: _read(rv, i))) for i in snapshot), job_id)
+            n = pipeline.add_page_images(drama_id, pages)
+            result = {"kind": "review_import", "content_type": "comic", "pages_added": n,
+                      "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped)}
+        background_jobs.set_result(job_id, result)
+    finally:
+        _discard(rv)                  # the review ended when its import started
 
 
 def start_review_import(drama_id: int, revision: str, principal=None,
@@ -597,23 +661,28 @@ def start_review_import(drama_id: int, revision: str, principal=None,
     else:
         if media not in imp.COMIC_MEDIA_TYPES:
             raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama.")
-        by_url = {c.url: c for c in rv.candidates}
-        kept = [by_url[p["resource_url"]] for p in sorted(
-            (p for p in data.get("pages") or [] if p.get("role") == "content"),
-            key=lambda p: p["index"]) if p["resource_url"] in by_url]
-        kept = [c for c in kept if _usable(c)]
+        kept = _kept_ids(rv, data)
         if not kept:
             raise InvalidInputError("No image is marked as a page.")
         snapshot = kept
     imp._require_idle(drama_id)
     job_id = imp.import_job_id(drama_id)
-    started = imp._start(job_id, _review_import_job, job_id, int(drama_id), rv.kind, snapshot,
-                         revision, description="Import a reviewed extraction")
+    start = imp.start_comic_job if rv.kind == "comic" else imp._start
     # The review ends with its import: it can't be imported (appended) twice.
+    # Taken out first so an expiry can't delete its images under the job.
     with _LOCK:
-        if _REVIEWS.get(int(drama_id)) is rv:
-            _REVIEWS.pop(int(drama_id), None)
-    return started
+        if _REVIEWS.get(int(drama_id)) is not rv:
+            raise NotFoundError(_NO_REVIEW)
+        if rv.revision != revision:
+            raise ConflictError(_STALE, details={"revision": rv.revision})
+        _REVIEWS.pop(int(drama_id), None)
+    try:
+        return start(job_id, _review_import_job, job_id, int(drama_id), rv.kind, snapshot, rv,
+                     description="Import a reviewed extraction")
+    except Exception:
+        with _LOCK:                   # didn't start: the review stays open
+            _REVIEWS.setdefault(int(drama_id), rv)
+        raise
 
 
 # ----- image previews ------------------------------------------------------
@@ -633,8 +702,9 @@ def review_image(drama_id: int, candidate_id: int, principal=None, local: bool =
     rv = _get(drama_id, local=local)
     if rv.kind != "comic" or not 0 <= candidate_id < len(rv.candidates):
         raise NotFoundError("No such image in this review.")
-    c = rv.candidates[candidate_id]
-    media_type = _image_type(c)
-    if not _usable(c):
+    if not _usable(rv, candidate_id):
         raise NotFoundError("No such image in this review.")
-    return c.content, media_type
+    try:
+        return _read(rv, candidate_id), _image_type(rv.candidates[candidate_id])
+    except OSError:
+        raise NotFoundError("No such image in this review.") from None

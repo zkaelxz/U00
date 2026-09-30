@@ -417,13 +417,16 @@ def download_candidates(candidates, page_url: str, client, budget: DownloadBudge
         _measure(c)
 
 
-def filter_candidates(candidates, page_url: str, remember: bool = True) -> tuple:
-    """filter_page_images plus this site's cross-chapter image memory."""
+def filter_candidates(candidates, page_url: str, remember: bool = True,
+                      learn: bool = True) -> tuple:
+    """filter_page_images plus this site's cross-chapter image memory:
+    read when `remember`, and also written when `learn` (the API reads it
+    for every import but writes it only for one started at this PC)."""
     domain = _domain(page_url)
     hashes = [c.sha256 for c in candidates if c.sha256]
     seen = store.hashes_seen_elsewhere(domain, page_url, hashes) if remember else set()
     kept, rejected = filter_page_images(candidates, page_url, seen)
-    if remember:
+    if remember and learn:
         store.remember_images(domain, page_url, hashes)
     return kept, rejected
 

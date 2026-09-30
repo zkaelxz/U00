@@ -825,21 +825,22 @@ def test_comic_per_image_byte_cap_is_the_clients(env, comic, monkeypatch):
     real = imp.adaptive.import_comic
 
     def spy(url, engine=None, client=None, **kw):
-        seen.append((client.max_image_bytes, kw.get("remember"), kw["budget"]))
+        assert kw.get("remember", True) is True           # the memory is always read
+        seen.append((client.max_image_bytes, kw.get("learn"), kw["budget"]))
         return real(url, engine=engine, client=client, **kw)
     monkeypatch.setattr(imp.adaptive, "import_comic", spy)
     did = _comic_drama()
     imp.start_comic_url_import(COMIC_URL, did, local=True)
     _wait(f"sourceimport_{did}")
-    cap, remember, budget = seen[0]
-    assert cap == limits.MAX_IMAGE_BYTES and remember is True
+    cap, learn, budget = seen[0]
+    assert cap == limits.MAX_IMAGE_BYTES and learn is True
     assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
                                                            limits.MAX_IMPORT_BYTES)
     assert budget.max_image_pixels == limits.MAX_IMAGE_PIXELS
     did2 = _comic_drama()
     imp.start_comic_url_import(COMIC_URL, did2, local=False)
     _wait(f"sourceimport_{did2}")
-    assert seen[1][1] is False       # a remote run doesn't write the shared image memory
+    assert seen[1][1] is False       # a remote run doesn't add to the shared image memory
 
 
 def test_failed_downloads_count_against_the_budget():
@@ -866,9 +867,10 @@ def test_page_index_is_max_plus_one_not_the_row_count(isolated_db):
     did = db.create_drama(title_en="C", media_type="manhua")
     pages_dir = os.path.join(db.drama_dir(did), "pages")
     os.makedirs(pages_dir, exist_ok=True)
-    db.create_page(did, 7, "pages/page_0007.png", 10, 10)     # a gap below 7
+    db.create_page(did, 1, "pages/page_0001.png", 10, 10)     # 2 rows, idx 1 and 8
+    db.create_page(did, 8, "pages/page_0008.png", 10, 10)
     assert pipeline.add_page_images(did, [(_img("PNG", 10, 10), ".png")]) == 1
-    assert sorted(p["idx"] for p in db.list_pages(did)) == [7, 8]
+    assert sorted(p["idx"] for p in db.list_pages(did)) == [1, 8, 9]
 
 
 def test_review_closes_once_its_import_starts_and_approve_is_idempotent(client, env):
@@ -889,3 +891,103 @@ def test_review_closes_once_its_import_starts_and_approve_is_idempotent(client, 
                        json={"revision": rv["revision"]}).status_code in (404, 409)
     _wait(f"sourceimport_{did}")
     assert _raw(did).count("第12章第0段") == 1
+
+
+# ---------------------------------------------------------------------------
+# Lead re-review follow-ups
+# ---------------------------------------------------------------------------
+
+def _truncated_rotated_jpeg():
+    body = _img("JPEG", 800, 1200, 70, exif_orientation=6)
+    return body[: len(body) // 2]
+
+
+def test_damaged_image_is_rejected_not_raised():
+    from services import page_import_limits as limits
+    with pytest.raises(limits.ImageRejected, match="damaged or incomplete"):
+        limits.prepare_page(_truncated_rotated_jpeg())
+    strip = _img("PNG", 100, 400)
+    with pytest.raises(limits.ImageRejected):
+        limits.prepare_page(strip[: len(strip) // 2])
+
+
+def test_direct_import_skips_an_image_that_fails_after_download(client, env, comic):
+    env["fetch"].pages[COMIC_URL] = comic_page_html(4)
+    _set_page(comic, 2, "image/jpeg", _truncated_rotated_jpeg())   # passes the header checks
+    did = _comic_drama()
+    res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    res = res.json()["result"]
+    assert "damaged or incomplete" in _skipped_reasons(res)["002.png"]
+    assert res["pages_added"] == len(db.list_pages(did)) == 3
+
+
+def test_prepare_pages_stops_between_images_on_cancel():
+    from services import sources_extraction_service as svc
+    from sources.generic_import import ImageCandidate
+    background_jobs.start_job("sourceimport_990", lambda: time.sleep(0.3))
+    background_jobs.request_cancel("sourceimport_990")
+    items = [(ImageCandidate(f"https://a.example/{i}.png", i), _img("PNG", 10, 10)) for i in range(3)]
+    with pytest.raises(background_jobs.JobCancelled):
+        svc.prepare_pages(items, "sourceimport_990")
+    _wait("sourceimport_990")
+
+
+def test_remote_imports_read_but_never_write_the_image_memory(isolated_db):
+    from sources import generic_import as gi, store
+    from sources.generic_import import ImageCandidate
+    page = "https://comic.example/read/77/6"
+
+    def cand(sha, n):
+        c = ImageCandidate(f"https://img.comic.example/{n}.png", n, content=b"x", ext=".png",
+                           width=800, height=1200, sha256=sha)
+        return c
+    store.remember_images("comic.example", "https://comic.example/read/77/5", ["logo"])
+    kept, rejected = gi.filter_candidates([cand("logo", 0), cand("p1", 1), cand("p2", 2),
+                                           cand("p3", 3)], page, remember=True, learn=False)
+    assert [c.sha256 for c in rejected] == ["logo"]           # read: the banner is still dropped
+    assert store.hashes_seen_elsewhere("comic.example", "https://x/other", ["p1"]) == set()
+    gi.filter_candidates([cand("p1", 1)], page, remember=True, learn=True)
+    assert store.hashes_seen_elsewhere("comic.example", "https://x/other", ["p1"]) == {"p1"}
+
+
+def test_one_comic_import_at_a_time(client, env, comic, monkeypatch):
+    import threading
+    from services import sources_import_service as imp
+    gate = threading.Event()
+    real = imp.adaptive.import_comic
+
+    def held(*a, **kw):
+        gate.wait(5)
+        return real(*a, **kw)
+    monkeypatch.setattr(imp.adaptive, "import_comic", held)
+    a, b = _comic_drama(), _comic_drama()
+    assert client.post("/api/sources/url/import-comic",
+                       json={"url": COMIC_URL, "drama_id": a}).status_code == 200
+    r = client.post("/api/sources/url/import-comic", json={"url": COMIC_URL, "drama_id": b})
+    assert r.status_code == 409 and r.json()["error"]["details"]["job_id"] == f"sourceimport_{a}"
+    gate.set()
+    _wait(f"sourceimport_{a}")
+    _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": b}, b)
+
+
+def test_comic_review_images_live_on_disk_and_are_removed(client, env, comic, monkeypatch):
+    import os
+    from services import sources_extraction_service as svc
+    did, rv = _comic_review(client, env, comic)
+    live = svc._REVIEWS[did]
+    assert live.tmp_dir.startswith(os.path.join(db.LIBRARY_DIR, "source_review_tmp"))
+    assert all(not c.content for c in live.candidates)          # nothing held in memory
+    assert len(os.listdir(live.tmp_dir)) == len(live.sizes) == 4
+    first = next(i["id"] for i in rv["comic"]["images"] if i["display_url"].endswith("001.png"))
+    img = client.get(f"/api/sources/dramas/{did}/extraction/images/{first}")
+    assert img.status_code == 200 and img.content == comic.files["https://img.comic.example/77/5/001.png"][1]
+    r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    assert r.status_code == 200
+    _wait(f"sourceimport_{did}")
+    assert len(db.list_pages(did)) == 3 and not os.path.exists(live.tmp_dir)
+
+    did2, _rv2 = _comic_review(client, env, comic)
+    folder = svc._REVIEWS[did2].tmp_dir
+    monkeypatch.setattr(svc, "REVIEW_TTL", -1)
+    assert client.get(f"/api/sources/dramas/{did2}/extraction").status_code == 404
+    assert not os.path.exists(folder)                           # expiry removes it too

@@ -43,8 +43,12 @@ MAX_IMAGE_PIXELS, both read from the header before any decode). Each kept
 image then has its EXIF orientation applied and a webtoon strip is cut into
 pages. An image over a cap is skipped with a reason, never failing the
 chapter. The result lists the images left out and why (the Streamlit
-"skipped as page furniture" list). A run from another device doesn't write
-the site's shared "seen on other chapters" image memory (`remember`).
+"skipped as page furniture" list). A run from another device reads the
+site's shared "seen on other chapters" image memory but doesn't add to it
+(`learn`). One comic import runs at a time in this process
+(`start_comic_job`, 409 otherwise), so at most one import's bytes are held
+in memory; a review's images are kept on disk
+(sources_extraction_service).
 When the extraction needs review nothing is written (a review opens, as
 for novel text).
 
@@ -52,6 +56,8 @@ Results live in this process only; read them with
 sources_search_service.get_job_result (GET /api/sources/jobs/{id}/result).
 Text is scrubbed, URLs reduced to scheme+host+path.
 """
+
+import threading
 
 import background_jobs
 import db
@@ -76,6 +82,26 @@ MAX_SKIPPED_LISTED = 100
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_COMIC_BUSY = ("Another comic import is running. One runs at a time; wait for it to "
+               "finish, then try again.")
+_COMIC_SLOT_LOCK = threading.Lock()
+_comic_job_id = None
+
+
+def start_comic_job(job_id: str, target, *args, description: str) -> dict:
+    """Starts a job that holds comic image bytes (the pasted-URL comic
+    import, a reviewed comic import): one at a time in this process, 409
+    while another runs, so at most one import's budget
+    (page_import_limits.MAX_IMPORT_BYTES) is held in memory."""
+    global _comic_job_id
+    with _COMIC_SLOT_LOCK:
+        if _comic_job_id:
+            st = background_jobs.get_status(_comic_job_id)
+            if st and st.get("status") in ("running", "queued"):
+                raise ConflictError(_COMIC_BUSY, details={"job_id": _comic_job_id})
+        started = _start(job_id, target, *args, description=description)
+        _comic_job_id = job_id
+        return started
 
 
 def import_job_id(drama_id: int) -> str:
@@ -329,7 +355,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         res, report = adaptive.import_comic(url, engine=engine, client=client,
                                             allow_signed_in=local, allow_browser=local,
                                             budget=budget, hold_profiles=not local,
-                                            remember=local)
+                                            learn=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -352,7 +378,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
     extraction.drop_review(drama_id)
-    pages, skipped = extraction.prepare_pages(res.images)
+    pages, skipped = extraction.prepare_pages(((c, c.content) for c in res.images), job_id)
     n = pipeline.add_page_images(drama_id, pages)
     background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
 
@@ -370,5 +396,5 @@ def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
     _require_idle(drama_id)
     engine = extraction.build_ai_engine(ai_engine)
     job_id = import_job_id(drama_id)
-    return _start(job_id, _comic_url_import_job, job_id, url, drama_id, bool(local), engine,
-                  bool(review), description="Import comic pages from a pasted URL")
+    return start_comic_job(job_id, _comic_url_import_job, job_id, url, drama_id, bool(local),
+                           engine, bool(review), description="Import comic pages from a pasted URL")

@@ -463,6 +463,7 @@ def classify_comic_page(html: str, url: str, engine=None, use_cache: bool = True
 
 
 def extract_comic(page, candidates, engine=None, download=None, remember: bool = True,
+                  learn: bool = True,
                   use_cache: bool = True, report: ExtractionReport = None):
     """Runs the ladder on the candidates the deterministic pass surfaced.
     `download(candidates)` is the existing resource downloader
@@ -507,11 +508,11 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
     # unrelated covers, and each download is a paced request.
     pool = [c for c in candidates if c.attr != "manifest"]
     download(pool)
-    kept, rejected = generic_import.filter_candidates(pool, url, remember)
+    kept, rejected = generic_import.filter_candidates(pool, url, remember, learn)
     if not kept and len(pool) < len(candidates):
         pool = candidates
         download(pool)
-        kept, rejected = generic_import.filter_candidates(pool, url, remember)
+        kept, rejected = generic_import.filter_candidates(pool, url, remember, learn)
     det = ax.comic_from_filter(page, pool, kept, rejected)
     ax.validate_comic(det, page, measured(pool))
     ambiguous = ax.comic_needs_review(det, pool)
@@ -545,11 +546,13 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
 
 def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
                  remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, budget=None, hold_profiles: bool = False):
+                 allow_browser: bool = True, budget=None, hold_profiles: bool = False,
+                 learn: bool = True):
     """The generic comic import with the Step 23g ladder. Returns
     (ComicImportResult, report); raises NoContentFound (with `.report`).
     `budget` (generic_import.DownloadBudget) caps the image downloads;
-    `hold_profiles`: never auto-save a generated site profile."""
+    `hold_profiles`: never auto-save a generated site profile; `learn=False`
+    reads the site's cross-chapter image memory but doesn't add to it."""
     report = ExtractionReport(url, "comic", hold_profiles=hold_profiles)
     client = generic_import._client(client, url)
     lr = generic_import.fetch_page(url, client, rendered_fetch, user_html,
@@ -574,7 +577,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
     data, report = extract_comic(
         page, candidates, engine,
         download=lambda cs: generic_import.download_candidates(cs, url, client, budget),
-        remember=remember, use_cache=use_cache, report=report)
+        remember=remember, learn=learn, use_cache=use_cache, report=report)
     _log(report)
     if data is None:
         raise _no_content(report.reason, report)

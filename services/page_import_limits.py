@@ -1,8 +1,11 @@
 """
 services/page_import_limits.py -- the page-upload rules for comic pages
-(user decision 2026-09-29), shared by every path that adds pages to a
-drama: the pasted-URL comic import (Sources parity SO06, SO10 review
-import) now, the Scanlate upload route later. UI-free.
+(user decision 2026-09-29), meant to be shared by every path that adds
+pages to a drama. Used today by the pasted-URL comic import and its reviewed import
+(Sources parity SO06/SO10, services/sources_import_service.py and
+services/sources_extraction_service.py). To adopt them: the S-4 adapter
+chapter import (sources/pipeline.py run_import_job's page downloads) and
+the Scanlate upload route. UI-free.
 
   * Accepted: PNG, JPEG and WebP images (PDF too where a path can receive
     one; the pasted-URL import can't). Anything else is skipped.
@@ -90,9 +93,20 @@ def _slices(png: bytes) -> list:
 def prepare_page(content: bytes, slice_strips: bool = True) -> list:
     """The page files one accepted image becomes: [(bytes, ext)], with EXIF
     orientation applied and, by default, a webtoon strip cut into pages.
-    Raises ImageRejected (checked before any decode)."""
+    Raises ImageRejected -- the caps are checked before any decode, and a
+    file that then fails to decode, rotate or re-encode (truncated, corrupt)
+    is rejected too, so one bad image never fails the rest."""
+    fmt, _w, _h = check_image(content)
+    try:
+        return _prepare(content, fmt, slice_strips)
+    except ImageRejected:
+        raise
+    except Exception:
+        raise ImageRejected("not a readable image (the file is damaged or incomplete)") from None
+
+
+def _prepare(content: bytes, fmt: str, slice_strips: bool) -> list:
     from PIL import Image, ImageOps
-    fmt, w, h = check_image(content)
     with Image.open(io.BytesIO(content)) as im:
         try:
             rotated = im.getexif().get(0x0112, 1) not in (None, 1)   # EXIF Orientation
@@ -102,10 +116,7 @@ def prepare_page(content: bytes, slice_strips: bool = True) -> list:
             im = ImageOps.exif_transpose(im)
         size = im.size
         if not rotated and not (slice_strips and is_strip(*size)):
-            try:
-                im.load()                 # decodes cleanly, within the pixel cap
-            except Exception:
-                raise ImageRejected("not a readable image of an accepted image type") from None
+            im.load()                     # decodes cleanly, within the pixel cap
             return [(content, _EXT_FOR[fmt])]
         if im.mode not in ("RGB", "RGBA", "L", "LA", "P"):
             im = im.convert("RGB")
