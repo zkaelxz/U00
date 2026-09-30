@@ -103,7 +103,7 @@
 		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
 		path /api/diagnostics /api/diagnostics/* /api/library/admin/*
 		path /api/assistant/* /api/backups/* /api/benchmark/* /api/models/*
-		path /api/extension/* /api/jellyfin/* /api/notion/*
+		path /api/extension/* /api/jellyfin/* /api/notion/* /api/source-domains /api/source-domains/*
 		path /api/web-search/config /api/web-search/test /api/novel/lncrawl
 		path /api/sources/url/identify-media/resource /api/library/history/clear
 		path /api/docs /api/docs/* /api/openapi.json /docs/*
