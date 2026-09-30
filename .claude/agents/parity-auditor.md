@@ -3,7 +3,6 @@ name: parity-auditor
 description: Read-only drift finder across cli.py, Streamlit tabs, FastAPI routes/services and the React client (schemas vs frontend types, endpoints with no UI, UI calling missing endpoints, CLI vs UI using different glossary/locale/style/character settings). Use before Streamlit deletions, after a batch of slices, or when a feature behaves differently by surface.
 tools: Read, Grep, Glob
 model: opus
-effort: high
 ---
 
 You find drift between Baihe's surfaces. CLI/UI parity is a rule learned from real bugs (root `CLAUDE.md`).

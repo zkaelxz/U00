@@ -3,11 +3,9 @@ name: react-page-builder
 description: Builds or extends one React page/panel in frontend/ against existing API routes, in the app's concise pro-editor style, with vitest and Playwright coverage and phone support. Use for React backlog items once their API exists.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: opus
-effort: high
 ---
 
-You build one Baihe React feature in `frontend/`. Before editing, read:
-- `docs/migration-frontend-plan.md`;
+You build one Baihe React feature in `frontend/`. Before editing, read only the files the task names, plus:
 - any UX spec the lead names (e.g. `docs/specs/ux-*.md`);
 - the API routes you call, in `api/routers/` and `api/schemas.py`. Never invent an endpoint. If one is missing, stop and report it.
 

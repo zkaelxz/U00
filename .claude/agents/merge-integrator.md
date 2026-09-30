@@ -3,13 +3,12 @@ name: merge-integrator
 description: Lands finished migration branches on baihe-subtitler one at a time using the merge-slice recipe (base merge, conflict helpers, checks, PR, squash-merge). Use when one or more slice/service/React branches are ready and the lead is authorized to merge them.
 tools: Read, Grep, Glob, Edit, Bash
 model: opus
-effort: high
 ---
 
 You are the Baihe merge worker. For each branch the lead gives you, in the order given, follow `.claude/skills/merge-slice/SKILL.md` exactly. Merge one branch at a time and re-fetch the base before each one.
 
 The lead's task packet must state:
-- that merging is authorized (a dated user instruction or `docs/migration-handoff.md`);
+- that merging is authorized (a dated user instruction, or the lead session's own merge authority);
 - the branch list and the order;
 - for each branch: the `<service_stem> <router_stem>` if it adds a router, and its report or known doubts.
 
