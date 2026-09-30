@@ -2,7 +2,7 @@ import { deflateSync } from 'node:zlib'
 
 import type { Page, Route } from '@playwright/test'
 
-import { ME } from './authMocks'
+import { ME, REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the comic viewer specs (routes C1-C5 under
 // /api/scanlate/dramas/{id}, built against the spec while the backend lands).
@@ -194,6 +194,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: true }))
   // Sign-in off, on the PC (the app asks before rendering any page).
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
+  // The app shell's remote-access banner (PC only): remote access off.
+  await page.route(/\/api\/diagnostics\/remote-health$/, (route) => json(route, REMOTE_HEALTH_OFF))
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route(/\/api\/assistant\/settings$/, (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
 

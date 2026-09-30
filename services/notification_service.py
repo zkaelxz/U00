@@ -46,10 +46,12 @@ shown to one viewer, lost on a restart), whether or not a channel is configured,
 to someone who can see that job (`ownership_service.can_see_job`); new-
 chapter events are household-wide, like the Sources notifications list.
 
-Categories: "jobs" (a job finished or failed) and "chapters" (a tracked-
-series check found new chapters) can each be switched off for Discord and
-ntfy (`db.app_settings["notify_categories"]`, both on by default); the
-in-app list always gets both. The chapter check itself is a background job
+Categories: "jobs" (a job finished or failed), "chapters" (a tracked-
+series check found new chapters) and "remote" (remote access broke or
+recovered, `services/remote_health_service.py`) can each be switched off for
+Discord and ntfy (`db.app_settings["notify_categories"]`, all on by default);
+the in-app list always gets every one. A remote-access entry is shown only to
+the PC owner and admins, like `record_event`. The chapter check itself is a background job
 that runs on a schedule, so it never sends "Finished: ..."; it sends one
 "N new chapters found" when a check finds any (a failed check is still a
 failed job).
@@ -70,7 +72,7 @@ from services import url_guard
 from services.service_errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
-CATEGORIES = ("jobs", "chapters")
+CATEGORIES = ("jobs", "chapters", "remote")
 CATEGORY_SETTING = "notify_categories"
 CHAPTER_CHECK_JOB_ID = "sources_chapter_check"   # sources.chapter_check.CHECK_JOB_ID
 RECENT_MAX = 50          # events returned to one viewer
@@ -138,7 +140,8 @@ def configured_channels():
 
 
 def get_categories() -> dict:
-    """{"jobs": bool, "chapters": bool}; both on unless switched off."""
+    """{"jobs": bool, "chapters": bool, "remote": bool}; each on unless
+    switched off."""
     try:
         import db
         stored = db.get_app_setting(CATEGORY_SETTING, None)
@@ -148,11 +151,11 @@ def get_categories() -> dict:
     return {c: stored.get(c) is not False for c in CATEGORIES}
 
 
-def set_categories(jobs=None, chapters=None) -> dict:
+def set_categories(jobs=None, chapters=None, remote=None) -> dict:
     """Switches the external-push categories. None leaves one unchanged."""
     import db
     current = get_categories()
-    for name, value in (("jobs", jobs), ("chapters", chapters)):
+    for name, value in (("jobs", jobs), ("chapters", chapters), ("remote", remote)):
         if value is not None:
             current[name] = bool(value)
     db.set_app_setting(CATEGORY_SETTING, current)
@@ -166,7 +169,8 @@ def get_status() -> dict:
             "ntfy_configured": bool(_channel_url("ntfy")),
             "ntfy_allow_local": allow_local_ntfy(),
             "send_jobs": categories["jobs"],
-            "send_chapters": categories["chapters"]}
+            "send_chapters": categories["chapters"],
+            "send_remote": categories["remote"]}
 
 
 def _unmap(ip):
@@ -652,6 +656,30 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None):
             return
         with _lock:
             _pending.append((status, message, category))
+            if _timer is None:
+                _timer = _schedule_flush()
+    except Exception as exc:
+        try:
+            _log().warning(f"notification: could not queue ({type(exc).__name__})")
+        except Exception:
+            pass
+
+
+def notify_remote_access(text) -> None:
+    """A remote-access health change (remote_health_service, once per
+    change): the in-app list, and Discord/ntfy when the "remote" category is
+    on. Never raises, never blocks on the network."""
+    global _timer
+    try:
+        from translate_engines import redact_secrets
+        message = redact_secrets(_tidy(text, 200))
+        _record("remote", message, None, None)
+        if os.environ.get(DISABLED_ENV) == "1" or not get_categories()["remote"]:
+            return
+        if not configured_channels():
+            return
+        with _lock:
+            _pending.append(("remote", message, "remote"))
             if _timer is None:
                 _timer = _schedule_flush()
     except Exception as exc:

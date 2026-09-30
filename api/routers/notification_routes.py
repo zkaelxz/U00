@@ -14,7 +14,7 @@ notifications. Thin: see services/notification_service.py.
   required.
 
 - `POST /api/settings/notifications/categories` (`local_only()`): which
-  events (jobs, new chapters) go to Discord/ntfy. Not secret, so no
+  events (jobs, new chapters, remote-access problems) go to Discord/ntfy. Not secret, so no
   key-write gate.
 The in-app list (`GET /api/notifications`) is in notification_center_routes.
 
@@ -48,7 +48,7 @@ def get_status():
              summary="PC only: choose which events go to Discord/ntfy",
              responses={422: {"model": ErrorResponse}})
 def set_categories(body: NotificationCategoriesRequest):
-    return svc.set_categories(jobs=body.jobs, chapters=body.chapters)
+    return svc.set_categories(jobs=body.jobs, chapters=body.chapters, remote=body.remote)
 
 
 @router.post("/test", dependencies=[local_only()], response_model=NotificationTestResult,

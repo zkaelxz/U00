@@ -17,6 +17,7 @@ class NotificationSettingsStatus(NotificationStatus):
     """Configured booleans plus which events go to Discord/ntfy."""
     send_jobs: bool
     send_chapters: bool
+    send_remote: bool
 
 
 class NotificationCategoriesRequest(BaseModel):
@@ -24,12 +25,13 @@ class NotificationCategoriesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     jobs: Optional[StrictBool] = None
     chapters: Optional[StrictBool] = None
+    remote: Optional[StrictBool] = None
 
 
 class NotificationEvent(BaseModel):
     id: int
     at: float
-    kind: Literal["job_done", "job_failed", "chapters"]
+    kind: Literal["job_done", "job_failed", "chapters", "remote"]
     text: str
 
 

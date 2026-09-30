@@ -8,6 +8,7 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { NotificationBell } from './components/NotificationBell'
+import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
 import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
@@ -155,6 +156,7 @@ export default function App() {
           {user && <UserMenu user={user} />}
         </div>
       </header>
+      <RemoteHealthBanner />
       {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
       <RouteErrorBoundary>
         {route.name === 'library' && <LibraryPage />}

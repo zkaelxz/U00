@@ -34,7 +34,7 @@ export const CHANNELS: {
 
 // "What to send": which events go to Discord/ntfy. `field` is the status
 // field, `body` the key POST .../categories takes.
-export type CategoryField = 'send_jobs' | 'send_chapters'
+export type CategoryField = 'send_jobs' | 'send_chapters' | 'send_remote'
 
 export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategories; label: string; help: string }[] = [
   {
@@ -48,6 +48,12 @@ export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategor
     body: 'chapters',
     label: 'New chapters found',
     help: 'A message when a check of your tracked sources finds new chapters.',
+  },
+  {
+    field: 'send_remote',
+    body: 'remote',
+    label: 'Remote access problems',
+    help: 'A message when access from other devices stops working or its certificate is not renewed in time, and again when it is fixed.',
   },
 ]
 

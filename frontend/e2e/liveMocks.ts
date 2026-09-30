@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the Live specs. A real session would run
 // yt-dlp, ffmpeg and Whisper, so every /api call the page makes is mocked
@@ -53,6 +54,8 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
   }))
   // The header bell (every page) polls this; not part of the Live flow.
   await page.route('**/api/notifications', (route) => json(route, { items: [] }))
+  // The app shell's remote-access banner (PC only): remote access off.
+  await page.route('**/api/diagnostics/remote-health', (route) => json(route, REMOTE_HEALTH_OFF))
   // No push stream: these specs drive the page through its polling fallback
   // (event-stream.spec.ts covers the pushed Live status).
   await page.route('**/api/events?*', (route) =>

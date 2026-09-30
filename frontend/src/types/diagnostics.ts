@@ -263,3 +263,39 @@ export interface BugBundleDeleteResult {
   bundle_id: number
   deleted: boolean
 }
+
+// GET /api/diagnostics/remote-health: the last scheduled remote-access check
+// (services/remote_health_service.py). States, whole days, Unix times and
+// fixed messages only: never the public name, an address or a URL.
+export type RemoteHealthState = 'off' | 'unknown' | 'ok' | 'warn' | 'critical'
+export type RemoteCheckState = RemoteHealthState | 'not_configured'
+
+export interface RemoteHealthCheck {
+  state: RemoteCheckState
+  message: string
+}
+
+export interface RemoteHealth {
+  state: RemoteHealthState
+  message: string
+  /** Unix seconds of the last check; null before the first one. */
+  checked_at: number | null
+  /** Unix seconds since the overall state has been what it is now. */
+  since: number | null
+  certificate: RemoteHealthCheck & { days_left: number | null }
+  ddns: RemoteHealthCheck & { configured: boolean }
+  listener: RemoteHealthCheck
+}
+
+// Settings > Remote access: the public-address check (PC only). The address
+// is write-only: the API answers `configured` and, for Test, a state and a
+// fixed message, never the address.
+export interface RemoteIpCheckStatus {
+  configured: boolean
+}
+
+export interface RemoteIpCheckTestResult {
+  configured: boolean
+  state: RemoteCheckState
+  message: string
+}

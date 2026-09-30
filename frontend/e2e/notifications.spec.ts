@@ -13,6 +13,7 @@ type Status = {
   ntfy_allow_local: boolean
   send_jobs: boolean
   send_chapters: boolean
+  send_remote: boolean
 }
 
 const OFF: Status = {
@@ -21,6 +22,7 @@ const OFF: Status = {
   ntfy_allow_local: false,
   send_jobs: true,
   send_chapters: true,
+  send_remote: true,
 }
 
 async function guard(page: Page): Promise<string[]> {
@@ -54,11 +56,12 @@ async function mockNotifications(
       if (o.categoriesGate) await o.categoriesGate
       if (o.categoriesStatus && o.categoriesStatus !== 200)
         return route.fulfill(json({ error: { code: 'internal_error', message: 'Boom.' } }, o.categoriesStatus))
-      const b = r.postDataJSON() as { jobs?: boolean; chapters?: boolean }
+      const b = r.postDataJSON() as { jobs?: boolean; chapters?: boolean; remote?: boolean }
       status = {
         ...status,
         ...(b.jobs !== undefined ? { send_jobs: b.jobs } : {}),
         ...(b.chapters !== undefined ? { send_chapters: b.chapters } : {}),
+        ...(b.remote !== undefined ? { send_remote: b.remote } : {}),
       }
       return route.fulfill(json(status))
     }
