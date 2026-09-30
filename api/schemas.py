@@ -1268,7 +1268,7 @@ class TranslateRunStart(BaseModel):
     line_ids: Optional[List[int]] = Field(None, max_length=100000)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
+    fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=2)
     reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
     bulk: bool = False  # Slice 41: batch API / DeepSeek off-peak, job bulk_translate_{id}
     # A preset's prompt toggles; None = the tab's defaults (she/her off, genre notes on).

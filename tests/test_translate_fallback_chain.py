@@ -299,10 +299,19 @@ def test_failed_attempt_does_not_recount_previous_batch_usage(isolated_db, engin
 
 
 def test_api_path_refuses_more_than_two_fallbacks(isolated_db, engines):
-    """The API schema still allows 3 entries; the shared rule caps it at 2,
-    the same limit as the CLI and React."""
+    """The service's shared rule caps the chain at 2 fallbacks, the same
+    limit as the API schema, the CLI and React."""
     did = _seed(1)
     with pytest.raises(InvalidInputError):
         svc.start_translate_run(did, engine_name="claude", fallback_chain=[
             {"engine": "deepseek"}, {"engine": "gemini"}, {"engine": "ollama"}])
     assert translate_engines.fallback_chain_error(["claude", "deepseek", "gemini"]) is None
+
+
+def test_api_schema_refuses_a_third_fallback(isolated_db, engines):
+    client = TestClient(create_app())
+    did = _seed(1)
+    r = client.post(f"/api/translate-run/dramas/{did}/run", json={
+        "engine": "claude",
+        "fallback_chain": [{"engine": "deepseek"}, {"engine": "gemini"}, {"engine": "ollama"}]})
+    assert r.status_code == 422

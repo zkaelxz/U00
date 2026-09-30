@@ -237,3 +237,37 @@ def test_one_staleness_cutoff_everywhere():
     assert (jobs_service.STALE_JOB_SECONDS == drama_service._STALE_JOB_RECORD_SECONDS
             == novel_files_service._STALE_JOB_RECORD_SECONDS
             == background_jobs.STALE_JOB_SECONDS)
+
+
+def test_heartbeat_write_failure_is_logged_redacted(isolated_db, monkeypatch):
+    """A heartbeat that can't be written is logged (secrets stripped), not
+    silently dropped; the job itself is unaffected."""
+    import applog
+    logged = []
+    monkeypatch.setattr(applog, "get_logger",
+                        lambda: type("L", (), {"warning": lambda self, m, **k: logged.append(m)})())
+
+    def boom(ids):
+        raise RuntimeError("db locked sk-ant-SECRET1234567890abcdef")
+    monkeypatch.setattr(db, "touch_job_records", boom)
+    _own("hb_fail")
+    try:
+        background_jobs._heartbeat_once()
+    finally:
+        _disown("hb_fail")
+    assert logged and "heartbeat" in logged[0]
+    assert "SECRET1234567890" not in logged[0]
+
+
+def test_sweep_skips_a_job_live_in_this_process(isolated_db):
+    """Even with a missed heartbeat (stale row), an in-process job is never
+    closed by this process's sweep."""
+    from services import jobs_service
+    db.save_job_record("live_stale", "running")
+    _age("live_stale", 3600)
+    _own("live_stale")
+    try:
+        assert jobs_service.sweep_stale_job_records() == 0
+    finally:
+        _disown("live_stale")
+    assert db.get_job_record("live_stale")["status"] == "running"
