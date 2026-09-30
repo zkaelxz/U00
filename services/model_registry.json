@@ -8,7 +8,7 @@
       "status": "retired",
       "retired_on": "2026-07",
       "replacement": "deepseek-v4-flash",
-      "note": "DeepSeek's legacy alias, retired July 2026 (api-docs.deepseek.com). V4 Flash is the app's default; V4 Pro is the higher-quality option."
+      "note": "DeepSeek's legacy alias, retired July 2026 (api-docs.deepseek.com). V4 Flash is the model this app uses for DeepSeek (it has no model choice here)."
     },
     {
       "engine": "deepseek",
@@ -16,7 +16,7 @@
       "status": "retired",
       "retired_on": "2026-07",
       "replacement": "deepseek-v4-flash",
-      "note": "DeepSeek's legacy alias, retired July 2026 (api-docs.deepseek.com). V4 Flash is the app's default; V4 Pro is the higher-quality option."
+      "note": "DeepSeek's legacy alias, retired July 2026 (api-docs.deepseek.com). V4 Flash is the model this app uses for DeepSeek (it has no model choice here)."
     }
   ]
 }

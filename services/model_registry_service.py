@@ -158,7 +158,10 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
     provider = engines_checked.get(engine) or {}
     listed = None
     if provider.get("ok"):
-        listed = model in set(provider.get("models") or [])
+        ids = set(provider.get("models") or [])
+        # An alias (e.g. "claude-sonnet-5") may be listed only as its dated
+        # snapshot ("claude-sonnet-5-20260101"): that counts as listed.
+        listed = model in ids or any(i.startswith(model + "-") for i in ids)
     replacement = entry.get("replacement") if entry else None
     if entry and entry["status"] == "retired":
         status = "retired"
