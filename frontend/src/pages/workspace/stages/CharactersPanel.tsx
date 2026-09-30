@@ -5,6 +5,7 @@ import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, save
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import type { RememberResult } from '../../../types/characters'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
@@ -187,6 +188,9 @@ function Row({ entry, engines, bank, hasSeries, onSaved, onRemembered }: {
                           <option key={b.id} value={b.id}>{b.name}{b.clone_engine ? ` (${b.clone_engine})` : ''}</option>
                         ))}
                       </select>
+                      {bankId && (
+                        <VoiceBankPlayButton key={bankId} entryId={Number(bankId)} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
+                      )}
                       <button type="button" disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
                         Apply
                       </button>

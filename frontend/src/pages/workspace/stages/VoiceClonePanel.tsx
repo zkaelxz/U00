@@ -19,6 +19,7 @@ import { safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
+import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { usePcOnly, type PcMode } from '../../../hooks/usePcOnly'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
@@ -244,6 +245,9 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, extracting, o
                 ))}
               </select>
             </Field>
+            {bankId && (
+              <VoiceBankPlayButton key={bankId} entryId={Number(bankId)} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
+            )}
             <button
               type="button"
               disabled={!bankId || busy}
