@@ -512,3 +512,57 @@ class TestLayering:
         found = [m for _l, m in _absolute_imports(str(p))]
         assert "db" in found and "db.save_lines" in found and "api.auth" in found
         assert "local" not in found and not any(m.startswith(".") for m in found)
+
+
+def _find_ffmpeg_runs_missing_timeout(source):
+    """Line numbers of subprocess.run/check_call/check_output calls that run
+    an ffmpeg/ffprobe argument list (a literal, a local variable assigned
+    from one, or a *_cmd(...) builder) without timeout=. Popen is left out:
+    live capture is a long-lived stream stopped by stop_capture, and the
+    cancellable job paths go through background_jobs.run_cancellable."""
+    def is_ffmpeg_list(n):
+        return (isinstance(n, (ast.List, ast.Tuple)) and n.elts
+                and isinstance(n.elts[0], ast.Constant) and n.elts[0].value in ("ffmpeg", "ffprobe"))
+
+    tree = ast.parse(source)
+    problems = set()
+    for scope in ast.walk(tree):
+        if not isinstance(scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        names = {t.id for a in ast.walk(scope) if isinstance(a, ast.Assign) and is_ffmpeg_list(a.value)
+                 for t in a.targets if isinstance(t, ast.Name)}
+        for call in ast.walk(scope):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr in ("run", "check_call", "check_output")
+                    and isinstance(call.func.value, ast.Name) and call.func.value.id == "subprocess"
+                    and call.args):
+                continue
+            arg = call.args[0]
+            builder = isinstance(arg, ast.Call) and getattr(
+                arg.func, "id", getattr(arg.func, "attr", "")).endswith("_cmd")
+            if (is_ffmpeg_list(arg) or builder or (isinstance(arg, ast.Name) and arg.id in names)) \
+                    and not any(kw.arg == "timeout" for kw in call.keywords):
+                problems.add(call.lineno)
+    return sorted(problems)
+
+
+class TestFfmpegRunsHaveTimeouts:
+    def test_production_ffmpeg_runs_have_a_timeout(self):
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__"}
+        problems = {}
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for name in files:
+                if name.endswith(".py"):
+                    path = os.path.join(root, name)
+                    with open(path, encoding="utf-8") as f:
+                        found = _find_ffmpeg_runs_missing_timeout(f.read())
+                    if found:
+                        problems[os.path.relpath(path, PROJECT_ROOT)] = found
+        assert problems == {}, f"ffmpeg subprocess.run without timeout=: {problems}"
+
+    def test_checker_catches_a_missing_timeout(self):
+        bad = "import subprocess\ndef f():\n    cmd = ['ffmpeg', '-i', 'a']\n    subprocess.run(cmd, check=True)\n"
+        good = bad.replace("check=True", "check=True, timeout=5")
+        assert _find_ffmpeg_runs_missing_timeout(bad) == [4]
+        assert _find_ffmpeg_runs_missing_timeout(good) == []

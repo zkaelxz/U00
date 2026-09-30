@@ -1454,7 +1454,7 @@ TAG_SPEAKERS_PROMPT_VERSION = "1"
 
 
 def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size: int = 15,
-                       usage_cb=None, done=None, on_batch=None):
+                       usage_cb=None, done=None, on_batch=None, cancel_check=None):
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
     a character name, or 'Narrator' for descriptive prose. Works with
@@ -1472,7 +1472,8 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     Step 41 resume: `done` ({id: label}) holds labels an earlier,
     interrupted run already paid for -- a batch whose ids are all in it is
     not sent again. `on_batch({id: label})` is called after each new batch
-    (the caller checkpoints it)."""
+    (the caller checkpoints it). `cancel_check` is called before each batch
+    that would be sent; it may raise to stop the run."""
     if not getattr(engine, "supports_reference", False):
         return {i: "Narrator" for i in id_to_zh}
 
@@ -1485,6 +1486,8 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
         if all(i in done for i in batch_ids):
             labels.update({i: done[i] for i in batch_ids})
             continue
+        if cancel_check:
+            cancel_check()
 
         def call_model(numbered, known=known):
             prompt = (

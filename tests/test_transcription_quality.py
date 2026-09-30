@@ -302,3 +302,31 @@ class TestSenseVoiceTags:
         # sarcasm sounding happy isn't a contradiction; sad text read as happy is
         assert [r["disagree"] for r in rows] == [False, True]
 
+
+
+class TestSensevoiceCancelAndTimeout:
+    def test_tag_lines_checks_cancel_per_line_and_slices_with_a_timeout(self, monkeypatch):
+        import core
+        import sensevoice_tags as sv
+        from core import Line
+        _fake_funasr(monkeypatch, {})
+        slices = []
+        monkeypatch.setattr(core, "extract_audio_slice",
+                            lambda *a, **k: slices.append(k) or a[3])
+
+        class Stop(Exception):
+            pass
+
+        def cancel():
+            if slices:
+                raise Stop()
+        lines = [Line(idx=i, start=i, end=i + 1, zh="x", id=i + 1) for i in range(3)]
+        with pytest.raises(Stop):
+            sv.tag_lines("a.wav", lines, cancel_check=cancel)
+        assert len(slices) == 1
+
+    def test_slice_default_timeout_is_finite(self):
+        import inspect
+        import core
+        assert inspect.signature(core.extract_audio_slice).parameters["timeout"].default \
+            == core.SLICE_TIMEOUT_SECONDS

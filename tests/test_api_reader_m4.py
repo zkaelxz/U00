@@ -806,6 +806,8 @@ def test_extract_audio_slice_passes_timeout(monkeypatch, tmp_path):
     core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=15)
     assert seen["timeout"] == 15
     core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"))
+    assert seen["timeout"] == core.SLICE_TIMEOUT_SECONDS
+    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=None)
     assert seen["timeout"] is None
 
 

@@ -37,7 +37,7 @@ def build_page_audio_data_uri(audio_path: str, start: float, end: float, max_sec
     try:
         cmd = ["ffmpeg", "-y", "-ss", str(max(0, start)), "-t", str(duration),
                "-i", audio_path, "-acodec", "libmp3lame", "-b:a", "96k", out_path]
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
         with open(out_path, "rb") as f:
             encoded = base64.b64encode(f.read()).decode("ascii")
         return f"data:audio/mp3;base64,{encoded}"

@@ -77,7 +77,8 @@ def _load_model(use_gpu: bool):
         raise SenseVoiceUnavailable(f"Couldn't load {MODEL_ID}: {exc}") from exc
 
 
-def tag_lines(audio_path: str, lines, use_gpu: bool = False, progress_cb=None) -> dict:
+def tag_lines(audio_path: str, lines, use_gpu: bool = False, progress_cb=None,
+              cancel_check=None) -> dict:
     """{line_id: {"emotion", "events"}} for every line with a permanent id.
     Each line's own time slice is run through SenseVoice; results come back
     keyed by line id (a wav.scp list), never matched up by position."""
@@ -90,6 +91,8 @@ def tag_lines(audio_path: str, lines, use_gpu: bool = False, progress_cb=None) -
         scp = os.path.join(tmp, "wav.scp")
         with open(scp, "w", encoding="utf-8") as f:
             for i, ln in enumerate(lines):
+                if cancel_check:
+                    cancel_check()
                 clip = os.path.join(tmp, f"line_{ln.id}.wav")
                 extract_audio_slice(audio_path, ln.start, ln.end, clip)
                 f.write(f"line_{ln.id} {clip}\n")

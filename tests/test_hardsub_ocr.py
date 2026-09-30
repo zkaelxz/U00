@@ -288,7 +288,7 @@ class TestExtractHardsubSubtitlesOrchestration:
     def test_wires_frames_through_band_detection_ocr_and_dedupe(self, monkeypatch, tmp_path):
         fake_frames = [(0.0, "f0.png"), (1.0, "f1.png"), (2.0, "f2.png")]
         monkeypatch.setattr(hardsub_ocr, "extract_frames",
-                             lambda video_path, out_dir, interval_sec: fake_frames)
+                             lambda video_path, out_dir, interval_sec, job_id=None: fake_frames)
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
 
         ocr_calls = []
@@ -312,7 +312,7 @@ class TestExtractHardsubSubtitlesOrchestration:
 
     def test_falls_back_to_bottom_quarter_when_band_undetected(self, monkeypatch, tmp_path):
         monkeypatch.setattr(hardsub_ocr, "extract_frames",
-                             lambda video_path, out_dir, interval_sec: [(0.0, "f0.png")])
+                             lambda video_path, out_dir, interval_sec, job_id=None: [(0.0, "f0.png")])
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: None)
 
         seen_regions = []
@@ -325,7 +325,7 @@ class TestExtractHardsubSubtitlesOrchestration:
 
     def test_no_frames_returns_empty_without_calling_ocr(self, monkeypatch, tmp_path):
         monkeypatch.setattr(hardsub_ocr, "extract_frames",
-                             lambda video_path, out_dir, interval_sec: [])
+                             lambda video_path, out_dir, interval_sec, job_id=None: [])
         called = []
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
                              lambda *a, **k: called.append(1))
@@ -339,7 +339,7 @@ class TestExtractHardsubSubtitlesOrchestration:
         the default pipeline call must actually use the stability filter,
         not just have it available as an unused option."""
         monkeypatch.setattr(hardsub_ocr, "extract_frames",
-                             lambda video_path, out_dir, interval_sec:
+                             lambda video_path, out_dir, interval_sec, job_id=None:
                              [(0.0, "f0.png"), (1.0, "f1.png"), (2.0, "f2.png"), (3.0, "f3.png")])
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
         texts = {"f0.png": "hello", "f1.png": "hello", "f2.png": "glitch", "f3.png": "hello"}
@@ -350,3 +350,55 @@ class TestExtractHardsubSubtitlesOrchestration:
             "/fake/video.mp4", sample_interval=1.0, tmp_dir=str(tmp_path))
 
         assert result == [{"start": 0.0, "end": 4.0, "text": "hello"}]
+
+
+class TestHardsubCancel:
+    def _frames(self, tmp_path, n=3):
+        paths = []
+        for i in range(n):
+            p = tmp_path / f"f{i}.png"
+            p.write_bytes(b"x")
+            paths.append((float(i), str(p)))
+        return paths
+
+    def test_cancel_check_stops_the_frame_loop_and_removes_the_frame_dir(self, tmp_path, monkeypatch):
+        import background_jobs
+        seen = {}
+        frames = self._frames(tmp_path)
+
+        def fake_extract(video, out_dir, interval_sec=1.0, job_id=None):
+            seen["dir"] = out_dir
+            seen["job_id"] = job_id
+            return frames
+        ocr_calls = []
+        monkeypatch.setattr(hardsub_ocr, "extract_frames", fake_extract)
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths: (0.8, 1.0))
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
+                            lambda *a, **k: ocr_calls.append(a) or "t")
+        monkeypatch.setattr(ocr_module, "resolve_tesseract_lang", lambda *a, **k: "chi_sim")
+
+        def cancel():
+            if ocr_calls:
+                raise background_jobs.JobCancelled("j")
+        with pytest.raises(background_jobs.JobCancelled):
+            hardsub_ocr.extract_hardsub_subtitles("v.mp4", job_id="j", cancel_check=cancel,
+                                                  tmp_dir=str(tmp_path))
+        assert len(ocr_calls) == 1
+        assert seen["job_id"] == "j"
+        assert not os.path.exists(seen["dir"])
+
+    def test_extract_frames_routes_ffmpeg_through_run_cancellable_with_a_timeout(self, tmp_path, monkeypatch):
+        import background_jobs
+        got = {}
+        monkeypatch.setattr(background_jobs, "run_cancellable",
+                            lambda job_id, cmd, **k: got.update(job_id=job_id, cmd=cmd, **k))
+        hardsub_ocr.extract_frames("v.mp4", str(tmp_path / "o"), 1.0, job_id="j")
+        assert got["job_id"] == "j" and got["cmd"][0] == "ffmpeg"
+        assert got["timeout"] == hardsub_ocr.EXTRACT_FRAMES_TIMEOUT_SECONDS
+
+    def test_extract_frames_without_a_job_still_has_a_timeout(self, tmp_path, monkeypatch):
+        got = {}
+        monkeypatch.setattr(hardsub_ocr.subprocess, "run",
+                            lambda cmd, **k: got.update(k))
+        hardsub_ocr.extract_frames("v.mp4", str(tmp_path / "o"), 1.0)
+        assert got["timeout"] == hardsub_ocr.EXTRACT_FRAMES_TIMEOUT_SECONDS
