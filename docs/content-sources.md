@@ -275,7 +275,7 @@ work".
 | Pacing | The normal default pace. robots.txt has no `Crawl-delay`. Chapter lists and search are never served from cache. |
 | Terms, recorded separately | robots.txt (fetched directly 2026-09-30): `User-agent: *` disallows only `/settings/` and `/publish_mgr/`; AhrefsBot, DotBot, MJ12bot and SemrushBot get `Disallow: /`. The site rules page (LK站规) couldn't be located (footer anchors have no href; `/site_rule` 404s), so `automation_permission` stays `UNKNOWN`. Uploaders' per-work notices ("仅供个人学习交流使用，禁作商业用途", "禁止转载", "禁止二改二传") are recorded in the capability `terms` block and in `sources/site_terms.py`, shown under the source's **Terms notes**, and the work's own notice lines (from its summary or first chapter, e.g. 仅供个人学习交流使用 / 下载后请在24小时内删除 / 转载请保留…) open its series description, above the summary, so the series panel's 3-line clamp doesn't hide them; the generic site notice is used only when the work has none. |
 | Reference | Read directly from the live site. JeffersonQin/lightnovel_epub consulted for the Cloudflare history only; no code ported. |
-| Known limits | If a volume can't be reached through the prev/next chain it is left out of the list (logged, not shown to the person) rather than failing the whole series. The shared `chapter_order` sort puts unnumbered front matter (制作信息, 彩页, 后记) after the numbered chapters of each volume; the adapter's own order is the site's. The book record's own `chapterCount` can differ from the per-volume counts (book 1338: 91 vs 84); the adapter lists what the volumes contain. Locked chapters were recorded live: `/reader/31629/318181` (`coin`, 20 轻币, teaser body with `[资源解锁后可用]`) and `/reader/361/260712` (`brave`). |
+| Known limits | If a volume can't be reached through the prev/next chain it is left out of the list (logged, not shown to the person) rather than failing the whole series. Imports and chapter lists keep the adapter's order, which is the site's (user decision 2026-09-30), so unnumbered front matter (制作信息, 彩页, 后记) stays where the site puts it. Only manhuagui opts out (`chapters_in_site_order = False`, its per-section `<ul>` blocks aren't reliably in reading order) and keeps the natural sort within each section; chapters already stored in a library are never reordered. The book record's own `chapterCount` can differ from the per-volume counts (book 1338: 91 vs 84); the adapter lists what the volumes contain. Locked chapters were recorded live: `/reader/31629/318181` (`coin`, 20 轻币, teaser body with `[资源解锁后可用]`) and `/reader/361/260712` (`brave`). |
 | Tests | `tests/test_sources_lightnovel_fun.py`, fixtures in `tests/lightnovel_fun_fixtures.py` (recorded 2026-09-30 and trimmed; no network). |
 
 ## Generic "paste a URL" import (no adapter)
@@ -404,6 +404,15 @@ path as Workspace's "Video URL" option, with the same cookie settings.
 | Name | `demo`. Hidden until **Sources → Source settings → Show the demo source** is turned on. |
 | What it is | A locally generated three-chapter comic, plus a "Challenge test" series that always answers like a Cloudflare challenge. It goes through the real paced client, so the status view and the hand-off can be tried without the network. |
 | Tests | `tests/test_sources_workflows.py`, `tests/test_sources_tab.py` |
+
+## If a site blocks your IP or region
+
+Nothing in the app needs a proxy: source requests go direct by default. If a
+site refuses your IP or region (or throttles it), set the optional source
+proxy (`http_proxy_url` in the Sources settings, HTTP or HTTPS only, empty by
+default, applied to every source adapter's requests). The API shows only
+whether one is set, never the value, and it can only be changed from the PC.
+Check the site's terms before routing around a block.
 
 ## Manual checks still to do
 

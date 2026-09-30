@@ -81,7 +81,7 @@ test('away from the PC the key rows show status only, with no Set buttons', asyn
 test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
   const switches = page.getByRole('region', { name: 'Jobs' }).getByRole('switch')
-  await expect(switches).toHaveCount(4)
+  await expect(switches).toHaveCount(5)
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
   const sw = page.getByRole('switch', { name: /Gemini free tier/ })
