@@ -2,8 +2,11 @@
 services/update_service.py -- check for, download and hand off to a newer
 Windows installer published on the project's public GitHub Releases.
 
-- Check: one unauthenticated GET of the releases API's `latest` release
-  (drafts and pre-releases are never offered). The repository is a setting,
+- Check: one unauthenticated GET of the repository's newest releases (the
+  first page). The newest one that is a `v<version>` release (not a draft or
+  pre-release) with its BaiheStudio-Setup-<version>.exe and `.sha256` is
+  offered: the same repository also publishes other releases (`frontend-v*`)
+  that must not hide the installer. The repository is a setting,
   BAIHE_UPDATE_REPO in .env (default zkaelxz/U00), so installers can move to
   a separate public repository without a code change.
 - Download: only on the user's click. The installer and its `.sha256` go to
@@ -14,17 +17,19 @@ Windows installer published on the project's public GitHub Releases.
 - Install: only on the user's click, only on Windows and only for an
   installed copy. The verified file is copied into a new private temp
   folder, the copy is hashed again and that copy is started with a fixed
-  argument list (no shell, no silent flags) and a minimal environment (no
-  shutdown token, job name or key-write flag), outside the server's
-  kill-on-close Job Object so it outlives the server (process_guard.py lets
-  only this launch break away). The server is never stopped from here: when
+  argument list (no shell, no silent flags) and the server's environment
+  minus the shutdown token, the job name and anything named like a secret
+  (so "Start Baihe Studio now" after Setup keeps the user's settings), outside
+  the server's kill-on-close Job Object so it outlives the server: the job
+  allows breakaway only for the moment of this launch
+  (process_guard.breakaway_allowed). The server is never stopped from here: when
   the user clicks Install in Setup, Setup's own upgrade step
   (`launcher.py --stop`) stops it cleanly, cancelling running jobs; a
   cancelled Setup leaves it running. The temp copy and installers that are
   no longer newer are removed at the next start and the next download.
-- Private releases: nothing here authenticates. If the repository's
-  releases stop being public, GitHub answers the unauthenticated `latest`
-  with a 404, which reads as "no release found"; installers then have to be
+- Private releases: nothing here authenticates. If the repository (or its
+  releases) stops being public, GitHub answers the unauthenticated list with
+  a 404, reported as `release_lookup="not_found"`; installers then have to be
   downloaded and checked by hand (docs/runbook.md).
 
 Every request is https to an allowlisted host, redirects are followed by
@@ -51,6 +56,7 @@ import requests
 import background_jobs
 import db
 import portable
+import process_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError, ServiceError,
                                      UnsupportedOperationError)
 
@@ -65,7 +71,8 @@ DOWNLOAD_HOSTS = frozenset({"github.com", "objects.githubusercontent.com",
                             "release-assets.githubusercontent.com"})
 TIMEOUT = (10, 30)              # connect, read (between chunks)
 MAX_REDIRECTS = 5
-MAX_RELEASE_JSON_BYTES = 1_000_000
+MAX_RELEASE_JSON_BYTES = 2_000_000
+RELEASES_PER_PAGE = 10
 MAX_HASH_FILE_BYTES = 4096
 MAX_INSTALLER_BYTES = 600 * 1024 * 1024
 NOTES_MAX_CHARS = 2000
@@ -75,18 +82,13 @@ CHUNK = 64 * 1024
 DOWNLOAD_DEADLINE_SECONDS = 30 * 60
 # baihe_* in %TEMP% is also what a clean uninstall removes.
 SETUP_TEMP_PREFIX = "baihe_setup_"
-# What Setup and the `launcher.py --stop` / "Start Baihe Studio now" it runs
-# need: Windows' own variables, plus the two Baihe settings the launcher
-# reads to find the running server (data folder, port). Upper case: Windows
-# environment names are case-insensitive and os.environ upper-cases them.
-_SETUP_ENV = frozenset({
-    "ALLUSERSPROFILE", "APPDATA", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)",
-    "COMMONPROGRAMW6432", "COMPUTERNAME", "COMSPEC", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA",
-    "NUMBER_OF_PROCESSORS", "OS", "PATH", "PATHEXT", "PROCESSOR_ARCHITECTURE", "PROGRAMDATA",
-    "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PUBLIC", "SYSTEMDRIVE", "SYSTEMROOT",
-    "TEMP", "TMP", "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR",
-    "BAIHE_DATA_DIR", "BAIHE_API_PORT",
-})
+# Setup inherits the server's environment (so the server "Start Baihe Studio
+# now" starts gets the same proxy, cache, port, auth and key-write settings)
+# minus these: the old server's one-time shutdown token and job name (the
+# launcher makes new ones), and anything named like a secret. Upper case:
+# Windows environment names are case-insensitive.
+_SETUP_ENV_DROP = frozenset({"BAIHE_SHUTDOWN_TOKEN", "BAIHE_PROCESS_GROUP_NAME"})
+_SECRET_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET", "_PASSWORD")
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
 _VERSION_RE = re.compile(r"^v?(\d{1,6})\.(\d{1,6})(?:\.(\d{1,6}))?(-[0-9A-Za-z.-]{1,40})?"
@@ -102,7 +104,9 @@ _CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
 
 _lock = threading.Lock()
-_state = {"checked_at": None, "check_error": None, "latest": None, "notes": "",
+# lookup: "unchecked" | "found" | "no_installer_release" | "not_found" (404).
+_state = {"checked_at": None, "check_error": None, "lookup": "unchecked",
+          "latest": None, "notes": "",
           "installer_name": None, "size": None, "download": "idle",
           "downloaded_bytes": 0, "download_error": None}
 _release = None     # internal: {"version", "exe_name", "exe_url", "exe_size", "hash_url"}
@@ -271,48 +275,56 @@ def _plain_notes(text) -> str:
 
 
 def _parse_release(data):
-    """The internal release record, or None when the latest release offers
-    nothing usable (a draft, a pre-release, an odd tag, no installer)."""
+    """The internal release record, or None when this release offers nothing
+    usable (a draft, a pre-release, a tag that isn't v<version>, no installer
+    or no `.sha256`)."""
     if not isinstance(data, dict) or data.get("draft") or data.get("prerelease"):
         return None
     tag = data.get("tag_name")
     parsed = parse_version(tag)
-    if not parsed or not parsed[3]:
+    if not str(tag).startswith("v") or not parsed or not parsed[3]:
         return None
     version = str(tag).strip().lstrip("v")
     exe_name = f"BaiheStudio-Setup-{version}.exe"
     assets = {a.get("name"): a for a in data.get("assets") or [] if isinstance(a, dict)}
     exe, sha = assets.get(exe_name), assets.get(exe_name + ".sha256")
-    if not exe or not isinstance(exe.get("browser_download_url"), str):
+    if not exe or not sha or not isinstance(exe.get("browser_download_url"), str) \
+            or not isinstance(sha.get("browser_download_url"), str):
         return None
     size = exe.get("size")
     return {"version": version, "exe_name": exe_name, "exe_url": exe["browser_download_url"],
             "exe_size": size if isinstance(size, int) and size > 0 else None,
-            "hash_url": sha.get("browser_download_url") if sha else None,
+            "hash_url": sha["browser_download_url"],
             "notes": _plain_notes(data.get("body"))}
 
 
 def check() -> dict:
-    """Asks GitHub for the latest release and records it. Never downloads.
-    A verified download of any other version is forgotten, so Install can
-    only ever start the version the card names."""
+    """Asks GitHub for the newest installer release and records it. Never
+    downloads. A verified download of any other version is forgotten, so
+    Install can only ever start the version the card names."""
     global _release, _verified
     repo = releases_repo()
+    lookup = "no_installer_release"
     try:
-        resp = _open(f"https://api.github.com/repos/{repo}/releases/latest", API_HOSTS,
-                     "application/vnd.github+json")
+        resp = _open(f"https://api.github.com/repos/{repo}/releases?per_page={RELEASES_PER_PAGE}",
+                     API_HOSTS, "application/vnd.github+json")
         data = json.loads(_read_capped(resp, MAX_RELEASE_JSON_BYTES))
     except (ServiceError, requests.RequestException, ValueError) as exc:
-        # No published release yet: GitHub's `latest` is a 404, not a failure.
+        # A missing, renamed or private repository: not a failure to report
+        # as an error, but not "no installer yet" either.
         if getattr(exc, "details", None) == {"http_status": 404}:
-            data = None
+            data, lookup = [], "not_found"
         else:
             message = "GitHub's answer wasn't readable." if isinstance(exc, ValueError) \
                 else _plain_error(exc)
             with _lock:
                 _state.update(checked_at=time.time(), check_error=message)
             raise DependencyUnavailableError(message) from None
-    release = _parse_release(data)
+    # Newest first, as GitHub lists them.
+    release = next((r for r in map(_parse_release, data if isinstance(data, list) else [])
+                    if r is not None), None)
+    if release is not None:
+        lookup = "found"
     with _lock:
         _release = release
         if _verified is not None and (release is None
@@ -320,7 +332,7 @@ def check() -> dict:
             _verified = None
             if _state["download"] != "downloading":
                 _state.update(download="idle", downloaded_bytes=0, download_error=None)
-        _state.update(checked_at=time.time(), check_error=None,
+        _state.update(checked_at=time.time(), check_error=None, lookup=lookup,
                       latest=release["version"] if release else None,
                       notes=release["notes"] if release else "",
                       installer_name=release["exe_name"] if release else None,
@@ -361,6 +373,7 @@ def status() -> dict:
             "update_available": bool(s["latest"] and current and is_newer(s["latest"], current)),
             "notes": s["notes"], "installer_name": s["installer_name"], "size": s["size"],
             "checked_at": s["checked_at"], "check_error": s["check_error"],
+            "release_lookup": s["lookup"],
             "download": s["download"], "downloaded_bytes": s["downloaded_bytes"],
             "download_error": s["download_error"], "verified": verified,
             "verified_version": verified_version, "verified_name": verified_name,
@@ -539,7 +552,8 @@ def _file_sha256(path) -> str:
 
 
 def _setup_env() -> dict:
-    return {k: v for k, v in os.environ.items() if k.upper() in _SETUP_ENV}
+    return {k: v for k, v in os.environ.items()
+            if k.upper() not in _SETUP_ENV_DROP and not k.upper().endswith(_SECRET_SUFFIXES)}
 
 
 def install() -> dict:
@@ -579,9 +593,11 @@ def install() -> dict:
             _state.update(download="failed", download_error=changed)
         raise ConflictError(changed)
     try:
-        subprocess.Popen([copy], cwd=folder, env=_setup_env(),
-                         creationflags=_CREATE_BREAKAWAY_FROM_JOB | _CREATE_NEW_PROCESS_GROUP,
-                         close_fds=True)
+        # The server's job lets a child out only for the length of this call.
+        with process_guard.breakaway_allowed():
+            subprocess.Popen([copy], cwd=folder, env=_setup_env(),
+                             creationflags=_CREATE_BREAKAWAY_FROM_JOB | _CREATE_NEW_PROCESS_GROUP,
+                             close_fds=True)
     except (OSError, ValueError):
         shutil.rmtree(folder, ignore_errors=True)
         raise DependencyUnavailableError(

@@ -9,11 +9,14 @@ smoke test then runs `launcher.py --stop` and checks the ping is gone.
 
 With --breakaway-check it proves the server's Job Object rules instead: a
 stand-in server (this file, --stand-in-server) calls
-process_guard.contain_children() exactly as `python -m api` does, then starts
-one ordinary child and one with CREATE_BREAKAWAY_FROM_JOB (how the update
-installer's Setup is started, services/update_service.py). Ending the job the
-way `launcher.py --stop` does must end the ordinary child and leave the
-breakaway one running. Exit 0 only if both hold.
+process_guard.contain_children() exactly as `python -m api` does and starts
+an ordinary child, a child in its own nested kill-on-close job (as
+lncrawl_service does), and a child with CREATE_BREAKAWAY_FROM_JOB inside
+process_guard.breakaway_allowed() (how the update installer's Setup is
+started, services/update_service.py). The same breakaway request just before
+and just after that window must be refused. Ending the job the way
+`launcher.py --stop` does must end the ordinary and nested children and leave
+the Setup-style one running. Exit 0 only if all of that holds.
 
     python installer/smoke_child.py --breakaway-check
 """
@@ -55,18 +58,39 @@ def _quiet(cmd, **kw):
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
 
 
+def _breakaway_child():
+    try:
+        return _quiet(PING, creationflags=CREATE_BREAKAWAY_FROM_JOB)
+    except OSError:
+        return None
+
+
 def stand_in_server(name) -> int:
     if not process_guard.contain_children(name):
-        print("no-job", flush=True)
+        print("fail no-job", flush=True)
         return 1
     ordinary = _quiet(PING)
-    try:
-        setup = _quiet(PING, creationflags=CREATE_BREAKAWAY_FROM_JOB)
-    except OSError:
-        print(f"breakaway-refused {ordinary.pid}", flush=True)
+    nested = _quiet(PING)
+    nested_job = process_guard.create_kill_on_close_job(int(nested._handle))  # kept open
+    before = _breakaway_child()
+    with process_guard.breakaway_allowed() as opened:
+        setup = _breakaway_child()
+    after = _breakaway_child()
+    problems = [text for text, bad in (
+        ("breakaway-before-the-window", before is not None),
+        ("breakaway-after-the-window", after is not None),
+        ("window-not-opened", not opened),
+        ("setup-launch-refused", setup is None),
+        ("no-nested-job", not nested_job)) if bad]
+    if problems:
+        # Anything that got out would outlive the job: end it here.
+        for proc in (before, after, setup):
+            if proc is not None:
+                proc.kill()
+        print("fail " + " ".join(problems), flush=True)
         time.sleep(300)
         return 1
-    print(f"ok {ordinary.pid} {setup.pid}", flush=True)
+    print(f"ok {ordinary.pid} {nested.pid} {setup.pid}", flush=True)
     time.sleep(300)
     return 0
 
@@ -93,23 +117,29 @@ def breakaway_check() -> int:
     words = (server.stdout.readline() or "").split()
     if not words or words[0] != "ok":
         process_guard.terminate_group(name)
-        print(f"The stand-in server couldn't start both children: {' '.join(words) or 'no answer'}",
+        print(f"The stand-in server's job rules are wrong: {' '.join(words) or 'no answer'}",
               file=sys.stderr)
         return 1
-    ordinary, setup = int(words[1]), int(words[2])
+    ordinary, nested, setup = int(words[1]), int(words[2]), int(words[3])
     process_guard.terminate_group(name)      # what launcher.py --stop does last
     time.sleep(3)
-    ordinary_left, setup_left = _running(ordinary), _running(setup)
-    for pid in (ordinary, setup):
+    left = {pid: _running(pid) for pid in (ordinary, nested, setup)}
+    for pid in left:
         _kill(pid)
-    if ordinary_left:
+    ok = True
+    if left[ordinary]:
         print("An ordinary child outlived the server's job.", file=sys.stderr)
-    if not setup_left:
-        print("The breakaway child (the Setup launch path) was ended with the server's job.",
-              file=sys.stderr)
-    if ordinary_left or not setup_left:
+        ok = False
+    if left[nested]:
+        print("A child in a nested job outlived the server's job.", file=sys.stderr)
+        ok = False
+    if not left[setup]:
+        print("The Setup-style breakaway child was ended with the server's job.", file=sys.stderr)
+        ok = False
+    if not ok:
         return 1
-    print("Ordinary children end with the server's job; a breakaway child is let out.")
+    print("Ordinary and nested children end with the server's job; breakaway is let out only "
+          "inside the Setup launch window.")
     return 0
 
 

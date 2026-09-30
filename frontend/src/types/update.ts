@@ -16,6 +16,8 @@ export interface UpdateStatus {
   // Unix seconds.
   checked_at: number | null
   check_error: string | null
+  // not_found: GitHub answered 404 (repository missing, renamed or private).
+  release_lookup: 'unchecked' | 'found' | 'no_installer_release' | 'not_found'
   download: UpdateDownloadState
   downloaded_bytes: number
   download_error: string | null

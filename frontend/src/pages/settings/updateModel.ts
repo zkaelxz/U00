@@ -13,6 +13,7 @@ export const INSTALL_NOTE =
   'Opens Setup. Baihe keeps running until you click Install there; then Setup stops Baihe (running jobs are cancelled), updates it and can start it again. Cancelling Setup changes nothing.'
 export const AUTO_CHECK_HELP = 'Looks for a newer version once a day. It never downloads or installs on its own.'
 export const SOURCE_CHECKOUT_NOTE = 'This copy runs from a source checkout: update it with git.'
+export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =
   "No release found. If the project's releases were made private, download the installer by hand from the releases page and check it against its .sha256 file."
 export const CUSTOM_SOURCE_NOTE = 'Custom update source: this PC checks a different repository than the default.'
@@ -24,7 +25,7 @@ export function versionLine(s: UpdateStatus): string {
 export function checkLine(s: UpdateStatus): string {
   if (s.check_error) return s.check_error
   if (s.checked_at == null) return 'Not checked yet.'
-  if (!s.latest) return NO_RELEASE_LINE
+  if (!s.latest) return s.release_lookup === 'not_found' ? NO_RELEASE_LINE : NO_INSTALLER_RELEASE_LINE
   if (s.update_available) {
     return `Version ${s.latest} is available${s.size ? ` (${formatBytes(s.size)})` : ''}.`
   }

@@ -16,7 +16,7 @@ from services import update_service as us
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 
-API_URL = "https://api.github.com/repos/zkaelxz/U00/releases/latest"
+API_URL = "https://api.github.com/repos/zkaelxz/U00/releases?per_page=10"
 EXE_URL = "https://github.com/zkaelxz/U00/releases/download/v0.2.0/BaiheStudio-Setup-0.2.0.exe"
 HASH_URL = EXE_URL + ".sha256"
 CDN_URL = "https://release-assets.githubusercontent.com/x/BaiheStudio-Setup-0.2.0.exe"
@@ -55,14 +55,26 @@ class FakeHttp:
         return FakeResp(status, body, headers)
 
 
-def _release(tag="v0.2.0", prerelease=False, draft=False, size=len(PAYLOAD), with_hash=True,
-             exe_url=EXE_URL, body="## What's new\n* Faster export in https://github.com/x/y/pull/1"):
+def _release_obj(tag="v0.2.0", prerelease=False, draft=False, size=len(PAYLOAD), with_hash=True,
+                 exe_url=EXE_URL, body="## What's new\n* Faster export in https://github.com/x/y/pull/1",
+                 with_exe=True):
     name = f"BaiheStudio-Setup-{tag.lstrip('v')}.exe"
-    assets = [{"name": name, "size": size, "browser_download_url": exe_url}]
+    assets = [{"name": name, "size": size, "browser_download_url": exe_url}] if with_exe else []
     if with_hash:
         assets.append({"name": name + ".sha256", "size": 90, "browser_download_url": HASH_URL})
-    return json.dumps({"tag_name": tag, "prerelease": prerelease, "draft": draft,
-                       "body": body, "assets": assets}).encode()
+    return {"tag_name": tag, "prerelease": prerelease, "draft": draft, "body": body,
+            "assets": assets}
+
+
+def _release(**kw):
+    """The releases list GitHub answers, with this one release in it."""
+    return json.dumps([_release_obj(**kw)]).encode()
+
+
+def _frontend_release(tag="frontend-v0.9.0"):
+    return {"tag_name": tag, "prerelease": False, "draft": False, "body": "",
+            "assets": [{"name": "baihe-frontend-0.9.0.zip", "size": 10,
+                        "browser_download_url": "https://github.com/zkaelxz/U00/f.zip"}]}
 
 
 def _hash_file(data=PAYLOAD, name=NAME):
@@ -154,10 +166,41 @@ def test_check_ignores_prereleases_and_drafts(http, kw):
     assert s["latest"] is None and s["update_available"] is False
 
 
-def test_no_release_yet_is_not_an_error(http):
+def test_a_404_is_reported_as_not_found_not_as_an_error(http):
+    # A missing, renamed or private repository: GitHub answers 404 to an
+    # unauthenticated list.
     http.add(API_URL, status=404, body=b'{"message": "Not Found"}')
     s = us.check()
     assert s["latest"] is None and s["check_error"] is None and s["checked_at"]
+    assert s["release_lookup"] == "not_found"
+
+
+def test_no_releases_at_all_is_no_installer_release(http):
+    http.add(API_URL, body=b"[]")
+    s = us.check()
+    assert s["latest"] is None and s["release_lookup"] == "no_installer_release"
+
+
+def test_newest_frontend_release_does_not_hide_an_older_installer_release(http):
+    # The same repository publishes frontend-v* zips; GitHub's "latest" can
+    # be one of those.
+    http.add(API_URL, body=json.dumps([
+        _frontend_release("frontend-v1.2.0"),
+        _release_obj(tag="v0.3.0", with_exe=False),          # no installer asset
+        _release_obj(tag="0.2.5"),                           # not a v<version> tag
+        _release_obj(tag="v0.2.0"),
+        _release_obj(tag="v0.1.5"),
+    ]).encode())
+    s = us.check()
+    assert s["latest"] == "0.2.0" and s["update_available"] and s["release_lookup"] == "found"
+    assert s["installer_name"] == NAME
+
+
+def test_only_frontend_releases_is_no_installer_release(http):
+    http.add(API_URL, body=json.dumps([_frontend_release(), _frontend_release("frontend-v0.8.0")]).encode())
+    s = us.check()
+    assert s["latest"] is None and s["release_lookup"] == "no_installer_release"
+    assert s["check_error"] is None
 
 
 def test_other_http_errors_are_reported(http):
@@ -207,7 +250,7 @@ def test_repo_setting_changes_the_api_url(http, monkeypatch):
     from services import settings_service
     monkeypatch.setattr(settings_service, "resolve_env_names",
                         lambda names, env_path=None: "someone/baihe-installers")
-    http.add("https://api.github.com/repos/someone/baihe-installers/releases/latest",
+    http.add("https://api.github.com/repos/someone/baihe-installers/releases?per_page=10",
              body=_release())
     assert us.check()["latest"] == "0.2.0"
 
@@ -249,9 +292,21 @@ def test_hash_mismatch_refuses_and_deletes(http):
     assert _no_installer_left() and us.status()["verified"] is False
 
 
-def test_missing_hash_refuses_before_downloading(http):
+def test_release_without_hash_is_never_offered(http):
     _serve_release(http, with_hash=False)
+    s = us.check()
+    assert s["latest"] is None and s["release_lookup"] == "no_installer_release"
+    with pytest.raises(ConflictError):
+        us.start_download()
+    assert [u for u, _ in http.calls] == [API_URL]
+    assert _no_installer_left()
+
+
+def test_missing_hash_url_refuses_before_downloading(http):
+    # Belt and braces: the download itself refuses without a hash too.
+    _serve_release(http)
     us.check()
+    us._release = dict(us._release, hash_url=None)
     with pytest.raises(ConflictError, match="no SHA-256"):
         us.download()
     assert [u for u, _ in http.calls] == [API_URL]
@@ -430,10 +485,14 @@ def test_install_refused_while_downloading(verified, monkeypatch):
 
 def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified, monkeypatch):
     monkeypatch.setattr(us, "_is_windows", lambda: True)
-    for name, value in (("BAIHE_SHUTDOWN_TOKEN", "t" * 40), ("BAIHE_PROCESS_GROUP_NAME", "Local\\x"),
-                        ("BAIHE_API_ALLOW_KEY_WRITES", "1"), ("HF_HOME", "/cache"),
-                        ("ANTHROPIC_API_KEY", "sk-ant-secret"), ("BAIHE_DATA_DIR", "/data"),
-                        ("PATH", "/bin")):
+    kept = {"BAIHE_API_ALLOW_KEY_WRITES": "0", "HF_HOME": "/cache", "TORCH_HOME": "/torch",
+            "HTTPS_PROXY": "http://proxy:3128", "REQUESTS_CA_BUNDLE": "/ca.pem",
+            "BAIHE_API_AUTH": "on", "BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_DATA_DIR": "/data",
+            "PATH": "/bin"}
+    dropped = {"BAIHE_SHUTDOWN_TOKEN": "t" * 40, "BAIHE_PROCESS_GROUP_NAME": "Local\\x",
+               "ANTHROPIC_API_KEY": "sk-ant-secret", "HF_TOKEN": "hf_x",
+               "BAIHE_GOOGLE_CLIENT_SECRET": "s", "SMTP_PASSWORD": "p", "baihe_claude_key": "k"}
+    for name, value in {**kept, **dropped}.items():
         monkeypatch.setenv(name, value)
     assert us.status()["can_install"] is True
     out = us.install()
@@ -446,11 +505,45 @@ def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified,
         assert fh.read() == PAYLOAD
     assert "shell" not in kw and kw["close_fds"] is True
     assert kw["creationflags"] & us._CREATE_BREAKAWAY_FROM_JOB
-    env = kw["env"]
-    assert env["BAIHE_DATA_DIR"] == "/data" and env["PATH"] == "/bin"
-    for gone in ("BAIHE_SHUTDOWN_TOKEN", "BAIHE_PROCESS_GROUP_NAME", "BAIHE_API_ALLOW_KEY_WRITES",
-                 "HF_HOME", "ANTHROPIC_API_KEY"):
-        assert gone not in env
+    # The user's settings reach Setup (and the server its "Start now" runs);
+    # the old server's token and job name, and anything secret-named, don't.
+    env = {k.upper(): v for k, v in kw["env"].items()}
+    for name, value in kept.items():
+        assert env[name] == value, name
+    for name in dropped:
+        assert name.upper() not in env, name
+
+
+def test_setup_is_launched_only_inside_the_breakaway_window(verified, monkeypatch):
+    import contextlib
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    seen = []
+
+    @contextlib.contextmanager
+    def window():
+        seen.append("open")
+        try:
+            yield True
+        finally:
+            seen.append("closed")
+    monkeypatch.setattr(us.process_guard, "breakaway_allowed", window)
+
+    class Recording(FakePopen):
+        def __init__(self, args, **kw):
+            seen.append("popen")
+            super().__init__(args, **kw)
+    monkeypatch.setattr(us.subprocess, "Popen", Recording)
+    us.install()
+    assert seen == ["open", "popen", "closed"]
+
+    def refuse(*a, **kw):
+        seen.append("popen")
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(us.subprocess, "Popen", refuse)
+    seen.clear()
+    with pytest.raises(DependencyUnavailableError):
+        us.install()
+    assert seen == ["open", "popen", "closed"]
 
 
 def test_install_never_stops_the_server(verified, monkeypatch):

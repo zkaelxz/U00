@@ -4052,6 +4052,8 @@ class UpdateStatus(BaseModel):
     size: Optional[int] = None
     checked_at: Optional[float] = None
     check_error: Optional[str] = None
+    release_lookup: Literal["unchecked", "found", "no_installer_release", "not_found"] = Field(
+        description="`not_found`: GitHub answered 404 (repository missing, renamed or private).")
     download: Literal["idle", "downloading", "verified", "failed"]
     downloaded_bytes: int
     download_error: Optional[str] = None

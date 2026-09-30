@@ -4,19 +4,20 @@ import { getPcMode, resetPcModeForTests } from '../../api/pcOnly'
 import { checkForUpdates, installUpdate, setUpdateAutoCheck } from '../../api/update'
 import type { UpdateStatus } from '../../types/update'
 import {
-  NO_RELEASE_LINE, SMARTSCREEN_NOTE, canDownload, checkLine, downloadLine, installTarget, isDownloading,
+  NO_INSTALLER_RELEASE_LINE, NO_RELEASE_LINE, SMARTSCREEN_NOTE, canDownload, checkLine, downloadLine, installTarget, isDownloading,
   versionLine,
 } from './updateModel'
 
 const BASE: UpdateStatus = {
   current: '0.1.0', installed: true, latest: null, update_available: false, notes: '',
-  installer_name: null, size: null, checked_at: null, check_error: null, download: 'idle',
+  installer_name: null, size: null, checked_at: null, check_error: null, release_lookup: 'unchecked',
+  download: 'idle',
   downloaded_bytes: 0, download_error: null, verified: false, verified_version: null, verified_name: null,
   can_install: false, auto_check: false, custom_source: false,
 }
 const AVAILABLE: UpdateStatus = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
-  size: 104_000_000, checked_at: 1759000000,
+  size: 104_000_000, checked_at: 1759000000, release_lookup: 'found',
 }
 
 const reply = (body: unknown, status = 200) =>
@@ -34,7 +35,12 @@ describe('updateModel', () => {
 
   it('says what the last check found', () => {
     expect(checkLine(BASE)).toBe('Not checked yet.')
-    expect(checkLine({ ...BASE, checked_at: 1 })).toBe(NO_RELEASE_LINE)
+    // Releases exist but none carries the installer (e.g. only frontend-v*).
+    expect(checkLine({ ...BASE, checked_at: 1, release_lookup: 'no_installer_release' })).toBe(
+      NO_INSTALLER_RELEASE_LINE,
+    )
+    // A 404: the private-releases hint, without claiming it is the cause.
+    expect(checkLine({ ...BASE, checked_at: 1, release_lookup: 'not_found' })).toBe(NO_RELEASE_LINE)
     // No cause is claimed; the manual, hash-checked route is named.
     expect(NO_RELEASE_LINE).toMatch(/^No release found\. If .*by hand.*\.sha256/)
     expect(checkLine(AVAILABLE)).toBe('Version 0.2.0 is available (104.0 MB).')

@@ -402,10 +402,7 @@ class TestProcessGuard:
         # No launcher, no name: the API process still goes into a job, so
         # closing start.bat's window ends ffmpeg, Node and Chromium with it.
         assert process_guard.contain_children() is True
-        # Kill on close, and breakaway allowed only for a child that asks
-        # (the update installer's Setup); never the silent kind.
-        assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000 | 0x0800),
-                               ("assign", 101, -1)]
+        assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, -1)]
         assert process_guard._job_handle == 101
         # Once per process; the handle stays open (closing it ends the job).
         assert process_guard.contain_children() is True
@@ -427,10 +424,41 @@ class TestProcessGuard:
 
     def test_one_childs_own_job(self, win32):
         # lncrawl_service's per-run job: the same kill-on-close job, holding
-        # that child (it nests inside the server's) and refuses breakaway.
+        # that child (it nests inside the server's).
         assert process_guard.create_kill_on_close_job(555) == 101
         assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, 555)]
         assert process_guard._job_handle is None
+
+    def test_breakaway_is_allowed_only_inside_the_window(self, win32):
+        # The server's job refuses breakaway (0x2000 only); the window adds
+        # BREAKAWAY_OK (0x800, never the silent 0x1000) for one launch and
+        # puts kill-on-close alone back, even when the launch fails.
+        assert process_guard.contain_children() is True
+        assert win32.calls[1] == ("limits", 101, 9, 0x2000)
+        win32.calls.clear()
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is True
+            assert win32.calls == [("limits", 101, 9, 0x2000 | 0x0800)]
+        assert win32.calls == [("limits", 101, 9, 0x2800), ("limits", 101, 9, 0x2000)]
+        win32.calls.clear()
+        with pytest.raises(OSError):
+            with process_guard.breakaway_allowed():
+                raise OSError("CreateProcess failed")
+        assert win32.calls[-1] == ("limits", 101, 9, 0x2000)
+
+    def test_breakaway_window_changes_nothing_without_a_job(self, win32):
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is False
+        assert win32.calls == []
+
+    def test_breakaway_window_when_windows_refuses(self, win32):
+        assert process_guard.contain_children() is True
+        win32.calls.clear()
+        win32._set_info = 0
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is False
+        # Nothing was set, so nothing is cleared.
+        assert win32.calls == [("limits", 101, 9, 0x2800)]
 
     def test_console_close_runs_the_clean_stop(self, win32):
         stops = []

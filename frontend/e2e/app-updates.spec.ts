@@ -5,13 +5,13 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 
 const BASE = {
   current: '0.1.0', installed: true, latest: null, update_available: false, notes: '', installer_name: null,
-  size: null, checked_at: null, check_error: null, download: 'idle', downloaded_bytes: 0, download_error: null,
+  size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
   verified: false, verified_version: null, verified_name: null, can_install: false, auto_check: false,
   custom_source: false,
 }
 const AVAILABLE = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
-  size: 104_000_000, checked_at: 1759000000, notes: "What's new\n* Faster export",
+  size: 104_000_000, checked_at: 1759000000, release_lookup: 'found', notes: "What's new\n* Faster export",
 }
 
 const card = (page: Page) => page.getByRole('region', { name: 'App updates', exact: true })

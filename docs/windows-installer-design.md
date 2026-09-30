@@ -423,6 +423,12 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
     long-running stand-in child (`ping`) into the server's Job Object. The
     smoke test asserts that `--stop` reports a clean shutdown, the child is
     gone, and no process from the install folder is left.
+  - **Breakaway check.** `installer/smoke_child.py --breakaway-check` runs a
+    stand-in server with the real `process_guard.contain_children()`. Its
+    job must refuse `CREATE_BREAKAWAY_FROM_JOB` except inside
+    `breakaway_allowed()` (the update installer's Setup launch). Ending the
+    job must end an ordinary child and a child in a nested job, and leave the
+    Setup-style child running.
   - **Clean-uninstall check.** A second install into new folders is
     clean-uninstalled with `/CLEAN`. The smoke test asserts that the install
     folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
@@ -445,8 +451,11 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   (`BAIHE_UPDATE_REPO`, default `zkaelxz/U00`; no token) for a newer `v*`
   release, and on the user's clicks downloads the whole installer into
   `<data>\library\updates\`, checks it against the release's `.sha256` and
-  opens its normal Setup from a private temp copy (hashed again, minimal
-  environment, allowed out of the server's Job Object). The app keeps running
+  opens its normal Setup from a private temp copy (hashed again; the server's
+  environment minus the shutdown token, job name and secret-named variables;
+  let out of the server's Job Object only for that launch). It picks the
+  newest `v*` release that has the installer and its `.sha256`, so other
+  releases (`frontend-v*`) don't hide it. The app keeps running
   until the user clicks Install in Setup, which stops the server as in §7; a
   cancelled Setup changes nothing. That SHA-256 comes
   from the same release as the installer, so it detects a broken or truncated

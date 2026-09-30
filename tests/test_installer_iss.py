@@ -48,6 +48,12 @@ class TestSetup:
         assert re.fullmatch(r"\{\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}",
                             _setup_value(iss, "AppId"))
 
+    def test_one_setup_at_a_time(self, iss):
+        # The app's Install button opens Setup; a second click must not open
+        # a second one (Inno refuses while this mutex exists).
+        assert _setup_value(iss, "SetupMutex") == \
+            r"BaiheStudioSetupMutex,Global\BaiheStudioSetupMutex"
+
     def test_64_bit_and_disk_space(self, iss):
         assert _setup_value(iss, "ArchitecturesInstallIn64BitMode") == "x64compatible"
         assert _setup_value(iss, "ExtraDiskSpaceRequired") == "{#ExtraDiskSpace}"
