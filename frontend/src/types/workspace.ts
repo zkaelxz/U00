@@ -70,6 +70,18 @@ export interface TranscribeRunRequest {
   tesseract_cmd?: string | null
 }
 
+// GET /api/diarization/dramas/{id}/config (api/schemas.py DiarizationConfig).
+export interface DiarizationConfig {
+  drama_id: number
+  hf_token_configured: boolean
+  expected_speakers: number | null // the last run's count (D03)
+  min_speakers: number | null
+  max_speakers: number | null
+  last_device: string | null
+  audio_available: boolean
+  manual_speaker_count?: number // lines whose speaker was corrected by hand (D06)
+}
+
 export interface JobStarted {
   job_id: string
 }
@@ -127,6 +139,20 @@ export interface MediaAnalysis {
   has_audio: boolean
   audio_track_count: number
   sample_rate: number | null
+  // Parity P05 (B1); optional so an older server still type-checks.
+  width?: number | null
+  height?: number | null
+  fps?: number | null
+  subtitle_tracks?: MediaSubtitleTrack[]
+  suggested_pipeline?: string[] // advisory steps, plain words
+  content_type_guess?: string | null // a media type value
+  content_type_reason?: string | null
+}
+
+export interface MediaSubtitleTrack {
+  index: number | null
+  codec: string
+  language: string | null
 }
 
 export interface AutofillRequest {
