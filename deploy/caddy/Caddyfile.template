@@ -9,8 +9,8 @@
 # Caddy must be a build that includes the rate_limit module
 # (github.com/mholt/caddy-ratelimit); a plain build refuses to load this file.
 #
-# Caddy proxies only to the household listener. Never point it at 8600 (the
-# PC's own admin listener) or 8756 (the extension bridge).
+# Caddy proxies only to the household listener. Never point it at the PC's
+# own admin listener (the API port, 8600 by default) or 8756 (the extension bridge).
 #
 # Baihe enforces every refusal below itself (the household listener refuses
 # PC-only routes and never grants an admin write permission); the blocks here

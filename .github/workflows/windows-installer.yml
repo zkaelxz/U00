@@ -331,6 +331,38 @@ jobs:
           if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
           Write-Host "The update kept the data folder and the running service."
 
+      # The owner's chosen port: Setup passes the user's BAIHE_API_PORT to the
+      # service, which stores it in the admin folder and answers only there.
+      # 8611 is neither the household default nor one of Baihe's own ports.
+      # Moved back to the default afterwards for the steps below.
+      - name: Service -- an update with a chosen port moves it there, and back
+        shell: pwsh
+        run: |
+          $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $log5 = Join-Path $env:RUNNER_TEMP "setup5.log"
+          $env:BAIHE_API_PORT = "8611"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$env:APP_DIR3`"","/LOG=`"$log5`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup (port 8611) exited $($p.ExitCode)"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8611/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8611 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8600 -ErrorAction SilentlyContinue) { Write-Error "port 8600 is still listening after the move to 8611"; exit 1 }
+          $pids = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:APP_DIR3, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [int]$_.ProcessId })
+          $other = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { ($pids -contains [int]$_.OwningProcess) -and ($_.LocalAddress -ne '127.0.0.1' -or $_.LocalPort -ne 8611) })
+          if ($other) { $other | Format-Table LocalAddress, LocalPort, OwningProcess; Write-Error "listening beyond 127.0.0.1:8611"; exit 1 }
+          $status = (& "$admin\helper\python\python.exe" -I -S "$admin\helper\lib\installer\service.py" status) | Out-String
+          if ($status -notmatch '127\.0\.0\.1:8611') { Write-Error "status doesn't show port 8611: $status"; exit 1 }
+          # Back to the default port, named explicitly: without it an update keeps 8611.
+          $env:BAIHE_API_PORT = "8600"
+          $log6 = Join-Path $env:RUNNER_TEMP "setup6.log"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$env:APP_DIR3`"","/LOG=`"$log6`"" -Wait -PassThru
+          Remove-Item Env:BAIHE_API_PORT
+          if ($p.ExitCode -ne 0) { Write-Error "Setup (back to 8600) exited $($p.ExitCode)"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8611 -ErrorAction SilentlyContinue) { Write-Error "port 8611 is still listening after the move back"; exit 1 }
+          Write-Host "The service moved to the chosen port 8611 (and nowhere else), then back to 8600."
+
       # Remote access is the owner's own step. Without its sign-in settings
       # enable-remote refuses and changes nothing; nothing here runs it with
       # settings, so no port opens, no certificate is requested and no
@@ -399,7 +431,7 @@ jobs:
         if: failure() || cancelled()
         shell: pwsh
         run: |
-          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log", "$env:RUNNER_TEMP\setup3.log", "$env:RUNNER_TEMP\setup4.log", "$env:DATA_DIR3\launcher\install.log", "$env:DATA_DIR3\library\logs\app.log", "$env:ProgramW6432\Baihe Studio Services\service.log")) {
+          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log", "$env:RUNNER_TEMP\setup3.log", "$env:RUNNER_TEMP\setup4.log", "$env:RUNNER_TEMP\setup5.log", "$env:RUNNER_TEMP\setup6.log","$env:DATA_DIR3\launcher\install.log", "$env:DATA_DIR3\library\logs\app.log", "$env:ProgramW6432\Baihe Studio Services\service.log")) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
           }
           if ($env:DATA_DIR3 -and (Test-Path "$env:DATA_DIR3\library\logs\service")) {

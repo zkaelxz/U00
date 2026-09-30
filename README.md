@@ -360,8 +360,9 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   `frontend/src/report/capture.test.ts`, the two Windows workflows, this
   README and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py`
   fails if one of them drifts. Baihe also refuses its own ports as ntfy, SearXNG and
-  Jellyfin targets. The Windows boot service (PR #575, not merged yet) pins
-  8600 and ignores `BAIHE_API_PORT`.
+  Jellyfin targets. The Windows boot service takes the port only at install:
+  Setup passes your `BAIHE_API_PORT`, so after `setx` run Setup again
+  (`docs/windows-installer-design.md` section 11, "Choosing the port").
 - The React app calls the relative path `/api`; the Vite dev server
   (5173) and `npm run preview` (4173) proxy it to
   `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.

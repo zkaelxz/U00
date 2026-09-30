@@ -293,7 +293,7 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
-`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it). `PYTHONNOUSERSITE=1` is set, and the
+`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it; with the boot service, run Setup again so the service moves too, §11). `PYTHONNOUSERSITE=1` is set, and the
 user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 (`sys.executable -m pip install`) install into the bundled interpreter.
 
@@ -492,7 +492,7 @@ staging in `build_installer.py`. **Not run on Windows yet:**
 only the workflow's "Service --" steps prove it on Windows.
 
 **What it does.** A `BaiheStudio` service runs `python -s -m api` on
-`127.0.0.1:8600` and nothing else, starting at boot (no sign-in needed),
+`127.0.0.1:8600` (or the port chosen at install, below) and nothing else, starting at boot (no sign-in needed),
 restarted after 10 s, 30 s, then every 60 s if it fails. It stops with
 Ctrl+C, so the server's clean stop (§5) runs and its Job Object ends every
 child. The wrapper is WinSW 2.12.0 (MIT, pinned by SHA-256). The task is on by
@@ -534,6 +534,23 @@ per-user.
   this PC. If it has other Windows accounts, untick the service task (it is
   ticked by default for now).**
 - **Caddy and a crashed Baihe.** If Baihe's process exits on its own, Caddy keeps forwarding to the household port until the service restarts (about 10 s). Another program on this PC could bind that port in the gap and receive household requests. Accepted on the same condition: only the owner uses this PC.
+- **Choosing the port.** The service's port is chosen at install, never at
+  run time. Setup passes the user's `BAIHE_API_PORT` (the variable the
+  Start-menu launcher uses, so both find the same server) as
+  `service.py install --port N`; the port is stored in the admin-only
+  `helper\config.json` and written into the service definition, and
+  `status`, `enable-remote` and the health check read it from there. The
+  data folder's `.env` and the machine or user environment can't change it
+  while the service runs. To change it, in a Command Prompt run
+  `setx BAIHE_API_PORT 8611` (any port from 1024 to 65535 except 8501,
+  8756, 8610 and the household port while remote access is on), then run
+  Setup again and allow the administrator prompt. An update without the
+  variable keeps the port the service has; to go back, set it to 8600 and
+  run Setup again (don't just remove it: the launcher would then look on
+  8600 while the service stays on the old port). A port that is refused or
+  already in use changes nothing (Setup exits with code 101, the service
+  keeps its port and is started again); a new port where `/api/health`
+  doesn't answer is undone like any failed update, back to the old port.
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing
@@ -587,7 +604,7 @@ and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
 code 2 and nothing changed, unless the data folder's `.env` has the Google
 sign-in settings and a `BAIHE_PUBLIC_URL` that is just `https://` and an ASCII
 DNS name on the default port, and the port is free and not one of Baihe's own
-(`settings_service.baihe_own_ports()`, and 8601). The server no longer refuses
+(`settings_service.baihe_own_ports()`, 8601 and the service's own port). The server no longer refuses
 to start over a bad household setting (it skips the household listener and
 keeps the PC one), so these checks run first. Then it sets the household
 port in the `BaiheStudio` service definition (the only place it can come
