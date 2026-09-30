@@ -172,7 +172,14 @@ describe('other sections', () => {
       hf_total_bytes: 12_000_000_000,
       piper_voices: [{ voice: 'a', size_bytes: 1 }, { voice: 'b', size_bytes: 1 }],
       piper_total_bytes: 400_000_000,
+      model_files: [],
+      model_files_total_bytes: 0,
     })).toBe('12.4 GB · 7 models · 2 voices')
+    expect(modelCacheSummary({
+      hf_cache: [], hf_total_bytes: 0, piper_voices: [], piper_total_bytes: 0,
+      model_files: [{ folder: 'torch', name: 'htdemucs.th', size_bytes: 1 }],
+      model_files_total_bytes: 84_000_000,
+    })).toBe('84.0 MB · 1 model file')
   })
 
   it('summarises a history entry', () => {

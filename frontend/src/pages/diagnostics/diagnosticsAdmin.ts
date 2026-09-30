@@ -7,7 +7,8 @@ import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
-  DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
+  DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
+  DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
@@ -167,13 +168,21 @@ export const hfModelUrl = (model: string) => `https://huggingface.co/${model.spl
 // ---- Model cache ----
 
 export const hasModelCache = (c: DiagnosticsModelCache | null) =>
-  !!c && (c.hf_cache.length > 0 || c.piper_voices.length > 0)
+  !!c && (c.hf_cache.length > 0 || c.piper_voices.length > 0 || c.model_files.length > 0)
 
-/** "12.4 GB · 7 models · 2 voices". */
+export const MODEL_FOLDER_LABELS: Record<DiagnosticsModelFolder, string> = {
+  torch: 'PyTorch hub',
+  audio_separator: 'Vocal separation',
+}
+
+/** "12.4 GB · 7 models · 2 voices · 3 model files". */
 export function modelCacheSummary(c: DiagnosticsModelCache): string {
-  const parts = [formatBytes(c.hf_total_bytes + c.piper_total_bytes)]
+  const parts = [formatBytes(c.hf_total_bytes + c.piper_total_bytes + c.model_files_total_bytes)]
   if (c.hf_cache.length) parts.push(`${c.hf_cache.length} ${c.hf_cache.length === 1 ? 'model' : 'models'}`)
   if (c.piper_voices.length) parts.push(`${c.piper_voices.length} ${c.piper_voices.length === 1 ? 'voice' : 'voices'}`)
+  if (c.model_files.length) {
+    parts.push(`${c.model_files.length} ${c.model_files.length === 1 ? 'model file' : 'model files'}`)
+  }
   return parts.join(' · ')
 }
 

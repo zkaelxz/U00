@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  getDiagnostics, getJobHistory, getLog, getModelCache, getPyannote, getSetupChecks, getSupportReport,
-  installDependency, resetLibrary, upgradeDependency,
+  deleteModelFile, getDiagnostics, getJobHistory, getLog, getModelCache, getPyannote, getSetupChecks,
+  getSupportReport, installDependency, resetLibrary, upgradeDependency,
 } from './diagnostics'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -63,6 +63,15 @@ describe('diagnostics api', () => {
     expect(JSON.parse(i2.body)).toEqual({ confirm: true, target: '2026.9.1' })
     expect(i1.method).toBe('POST')
     expect(localHeader(i1)).toBe('1')
+  })
+
+  it('model file delete names the folder and file, PC only', async () => {
+    const { mock, f } = reply(200, { deleted: true, name: 'htdemucs.th' })
+    await deleteModelFile('torch', 'htdemucs.th', f)
+    const [url, init] = mock.mock.calls[0]
+    expect(url).toBe('/api/diagnostics/model-cache/files/torch/htdemucs.th/delete')
+    expect(JSON.parse(init.body)).toEqual({ confirm: true })
+    expect(localHeader(init)).toBe('1')
   })
 
   it('reset sends RESET and a 403 marks the tab remote', async () => {

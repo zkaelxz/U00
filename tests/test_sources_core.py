@@ -318,6 +318,42 @@ class TestCache:
     def test_keep_modes_keep(self, isolated_db, mode):
         assert self._cycle(mode) == (b"page-bytes", b"page-bytes")
 
+    def test_release_drops_only_the_callers_own_downloads(self, isolated_db):
+        a, b = cache_mod.RawCache("temporary"), cache_mod.RawCache("temporary")
+        a.put("https://a.invalid/1", b"a-bytes")
+        b.put("https://b.invalid/1", b"b-bytes")
+        a.release()
+        assert cache_mod.RawCache("temporary").get("https://a.invalid/1") is None
+        assert b.get("https://b.invalid/1") == b"b-bytes"
+        b.release()
+        assert cache_mod.RawCache("temporary").get("https://b.invalid/1") is None
+
+    def test_a_url_both_imports_hold_survives_until_the_last_release(self, isolated_db):
+        a, b = cache_mod.RawCache("temporary"), cache_mod.RawCache("temporary")
+        a.put(self.URL, b"page-bytes")
+        b.put(self.URL, b"page-bytes")
+        a.release()
+        assert b.get(self.URL) == b"page-bytes"
+        b.release()
+        assert cache_mod.RawCache("temporary").get(self.URL) is None
+
+    def test_release_sweeps_day_old_leftovers_of_a_crashed_import(self, isolated_db, monkeypatch):
+        crashed = cache_mod.RawCache("temporary")
+        crashed.put("https://old.invalid/1", b"old")
+        del crashed   # its import died without releasing: nothing holds the row any more
+        mine = cache_mod.RawCache("temporary")
+        mine.put("https://new.invalid/1", b"new")
+        other = cache_mod.RawCache("temporary")   # a long-running live import
+        other.put("https://other.invalid/1", b"other")
+        now = cache_mod.time.time()
+        monkeypatch.setattr(cache_mod.time, "time", lambda: now + 2 * 86400)
+        mine.release()
+        with store.connect() as conn:
+            urls = [r["url"] for r in conn.execute("SELECT url FROM cache_index")]
+        assert urls == ["https://other.invalid/1"]
+        assert other.get("https://other.invalid/1") == b"other"
+        other.release()
+
     def test_same_content_stored_once(self, isolated_db):
         import os
         c = cache_mod.RawCache("keep_originals")

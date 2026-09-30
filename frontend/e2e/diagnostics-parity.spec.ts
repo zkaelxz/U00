@@ -85,9 +85,16 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
     hf_total_bytes: 2048,
     piper_voices: [{ voice: 'en_US-amy-medium', size_bytes: 1024 }],
     piper_total_bytes: 1024,
+    model_files: [{ folder: 'torch' as const, name: 'htdemucs.th', size_bytes: 512 }],
+    model_files_total_bytes: 512,
   }
   await page.route('**/api/diagnostics/model-cache', (r) => r.fulfill({ json: cache }))
   const sent: Request[] = []
+  await page.route('**/api/diagnostics/model-cache/files/torch/htdemucs.th/delete', (r) => {
+    sent.push(r.request())
+    cache = { ...cache, model_files: [], model_files_total_bytes: 0 }
+    return r.fulfill({ json: { deleted: true, name: 'htdemucs.th' } })
+  })
   await page.route(`**/api/diagnostics/model-cache/hf/${REV}/delete`, (r) => {
     sent.push(r.request())
     cache = { ...cache, hf_cache: [], hf_total_bytes: 0 }
@@ -103,6 +110,12 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
   await expect(page.getByRole('list', { name: 'Downloaded models' })).toHaveCount(0)
   await expect(page.getByRole('list', { name: 'Piper voices' })).toContainText('en_US-amy-medium')
+  await expect(page.getByRole('list', { name: 'Model files' })).toContainText('htdemucs.th (PyTorch hub)')
+  await page.getByRole('button', { name: 'Delete htdemucs.th' }).click()
+  await page.getByRole('button', { name: 'Confirm delete htdemucs.th' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Deleted htdemucs.th.' })).toBeVisible()
+  expect(sent[1].headers()['x-baihe-local']).toBe('1')
+  await expect(page.getByRole('list', { name: 'Model files' })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
 

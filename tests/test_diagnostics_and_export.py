@@ -434,6 +434,55 @@ class TestPiperVoiceScanAndDelete:
         assert diagnostics.delete_piper_voice("does-not-exist", tmp_path_str) is False
 
 
+class TestModelFolders:
+    """torch.hub checkpoints (TORCH_HOME) and the audio-separator models
+    live outside the Hugging Face cache; the model panel lists and deletes
+    their entries, never anything outside those folders."""
+
+    def test_folders_follow_their_env_vars(self, monkeypatch, tmp_path_str):
+        import audio_preprocess
+        monkeypatch.setenv("TORCH_HOME", tmp_path_str)
+        assert diagnostics.model_folder("torch") == os.path.join(tmp_path_str, "hub", "checkpoints")
+        monkeypatch.delenv("TORCH_HOME")
+        monkeypatch.setenv("XDG_CACHE_HOME", tmp_path_str)
+        assert diagnostics.model_folder("torch") == os.path.join(
+            tmp_path_str, "torch", "hub", "checkpoints")
+        monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", tmp_path_str)
+        assert diagnostics.model_folder("audio_separator") == tmp_path_str
+
+    def test_lists_files_and_folders_largest_first_skipping_symlinks(self, tmp_path_str):
+        folder = os.path.join(tmp_path_str, "models")
+        os.makedirs(os.path.join(folder, "repo"))
+        with open(os.path.join(folder, "htdemucs.th"), "wb") as f:
+            f.write(b"x" * 300)
+        with open(os.path.join(folder, "repo", "w.bin"), "wb") as f:
+            f.write(b"x" * 500)
+        outside = os.path.join(tmp_path_str, "outside.bin")
+        with open(outside, "wb") as f:
+            f.write(b"x" * 900)
+        try:
+            os.symlink(outside, os.path.join(folder, "link.bin"))
+        except (OSError, NotImplementedError):
+            pass
+        assert diagnostics.scan_model_folder("torch", folder) == [
+            {"name": "repo", "size_bytes": 500}, {"name": "htdemucs.th", "size_bytes": 300}]
+        assert diagnostics.scan_model_folder("torch", os.path.join(tmp_path_str, "nope")) == []
+
+    def test_delete_stays_inside_the_folder(self, tmp_path_str):
+        folder = os.path.join(tmp_path_str, "models")
+        os.makedirs(os.path.join(folder, "repo"))
+        with open(os.path.join(folder, "m.ckpt"), "wb") as f:
+            f.write(b"x")
+        with open(os.path.join(tmp_path_str, "keep.txt"), "wb") as f:
+            f.write(b"x")
+        for bad in ("../keep.txt", "..", ".", "", "repo/../../keep.txt", "missing.ckpt"):
+            assert diagnostics.delete_model_folder_entry("torch", bad, folder) is False
+        assert os.path.exists(os.path.join(tmp_path_str, "keep.txt"))
+        assert diagnostics.delete_model_folder_entry("audio_separator", "m.ckpt", folder) is True
+        assert diagnostics.delete_model_folder_entry("audio_separator", "repo", folder) is True
+        assert os.listdir(folder) == []
+
+
 class TestModelEngineVersions:
     def test_lists_every_registered_backend_with_a_version_or_repo_id(self):
         versions = diagnostics.get_model_engine_versions()

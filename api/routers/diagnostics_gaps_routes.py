@@ -22,14 +22,15 @@ no longer says so), the GPU
 PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
 static table, never the request) and the
 library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Deleting a cached model or Piper voice is also
+background job runs (409). Deleting a cached model, Piper voice or model
+file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
 name the cache scan lists. The saved bug bundles are listed here
 (`admin.diagnostics`); their delete is in delete_routes.py. Bundle replay,
 benchmark and the App Assistant are not exposed.
 """
 
-from typing import List
+from typing import List, Literal
 
 from fastapi import APIRouter, Path, Query
 
@@ -61,7 +62,8 @@ def get_setup_checks():
 
 @router.get("/model-cache", dependencies=[require_permission("admin.diagnostics")],
             response_model=DiagnosticsModelCache,
-            summary="Hugging Face cache revisions and Piper voices (names and sizes)")
+            summary="Hugging Face cache revisions, Piper voices, torch.hub checkpoints and "
+                    "audio-separator models (names and sizes)")
 def get_model_cache():
     return svc.get_model_cache()
 
@@ -179,6 +181,18 @@ def post_delete_piper_voice(body: DiagnosticsAdminConfirm,
                             voice: str = Path(min_length=1, max_length=120,
                                               pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
     return svc.delete_piper_voice(voice, confirm=body.confirm)
+
+
+@router.post("/model-cache/files/{kind}/{name}/delete", dependencies=[local_only()],
+             response_model=DiagnosticsCacheDeleteResult,
+             summary="PC only: delete one torch.hub checkpoint or audio-separator model file "
+                     "(confirm=true)",
+             responses=_ERRS)
+def post_delete_model_file(body: DiagnosticsAdminConfirm,
+                           kind: Literal["torch", "audio_separator"],
+                           name: str = Path(min_length=1, max_length=200,
+                                            pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
+    return svc.delete_model_file(kind, name, confirm=body.confirm)
 
 
 @router.get("/bug-bundles", dependencies=[require_permission("admin.diagnostics")],
