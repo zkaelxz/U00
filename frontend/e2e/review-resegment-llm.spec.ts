@@ -129,9 +129,10 @@ test('a discarded preview stays discarded when Use AI is turned off and on again
 
 test('a refusal the apply job finds at run time asks for the typed confirm', async ({ page }) => {
   const calls = await mockAiResegment(page, { preview: { ...PREVIEW, needs_confirm: false, translated: 0, flagged: 0 } })
-  let applied = 0
+  // Answers by apply count, not read count: the panel also reads this id on mount (reattach).
   await page.route('**/api/jobs/resegment_3', (route) => {
-    applied += 1
+    const applied = calls.applies.length
+    if (!applied) return route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No job.' } } })
     return route.fulfill({
       json: {
         job_id: 'resegment_3', status: applied === 1 ? 'error' : 'done', progress: null, message: '', description: null,

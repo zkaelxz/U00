@@ -200,6 +200,8 @@ baihe-subtitler/
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
+│   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
+│   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -422,6 +424,8 @@ baihe-subtitler/
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
+
+│   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
@@ -557,12 +561,15 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
 │       │                         Steps 103/104)
-│       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
-│                                 /dramas/{id}/send -- all local_only (Step 39)
+│       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
+│       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
 │       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
 │       │                         /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
+
+│       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
+│       │                         (local_only; address change also key-write gate) -- item 114
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │
@@ -593,6 +600,8 @@ baihe-subtitler/
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
+│   │                              useReattachJob (a stage revisited mid-job picks its job up again;
+│   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),

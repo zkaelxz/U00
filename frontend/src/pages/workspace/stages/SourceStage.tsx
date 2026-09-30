@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { getJob } from '../../../api/jobs'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
 import type { MediaStatus } from '../../../types/workspace'
-import { TERMINAL_STATUSES } from '../../../types/jobs'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
@@ -32,7 +31,7 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [reloads, setReloads] = useState(0)
   // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
   const [modeVersion, setModeVersion] = useState(0)
@@ -53,27 +52,8 @@ export default function SourceStage() {
     }
   }, [dramaId, reloads])
 
-  const startedRef = useRef(false)
-  useEffect(() => {
-    startedRef.current = jobId !== null
-  })
-
-  // Reattach to a run started before this stage was left/reloaded: the job
-  // keeps running server-side. 404 or a finished job means nothing to show.
-  useEffect(() => {
-    let cancelled = false
-    for (const id of sourceJobIds(dramaId)) {
-      getJob(id).then(
-        (j) => {
-          if (!cancelled && !startedRef.current && !TERMINAL_STATUSES.includes(j.status)) setJobId(id)
-        },
-        () => undefined,
-      )
-    }
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, setJobId])
+  // Reattach to a run started before this stage was left/reloaded.
+  useReattachJob(sourceJobIds(dramaId), adoptJob)
 
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
