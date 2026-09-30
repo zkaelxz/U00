@@ -14,6 +14,11 @@ non-loopback request is refused (`api.auth.LoopbackOnlyGate`), whatever
 address uvicorn was told to bind. Interactive API docs are served at
 `/api/docs` and the OpenAPI schema at `/api/openapi.json` with auth off
 only.
+
+`create_app(listener="household")` builds the second, household app that
+`python -m api` serves on `BAIHE_API_HOUSEHOLD_PORT` in the same process
+(see `api/api_config.py`): sign-in on, no background services, no docs,
+never "the PC".
 """
 
 # Must run before any other app import -- same rule, and same reason, as
@@ -27,7 +32,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.api_config import ApiSettings, check_bind_safety, load_settings
+from api.api_config import ApiSettings, check_bind_safety, household_settings, load_settings
 from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSiteGate,
                       LoopbackOnlyGate, local_only_matchers, public_api_paths)
 from api.error_handlers import install_error_handlers
@@ -114,7 +119,12 @@ async def _lifespan(app: FastAPI):
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
-    and job records left running by a dead process are closed (B-04)."""
+    and job records left running by a dead process are closed (B-04).
+    The household listener's app does none of this, at start or stop: it
+    shares the process with the admin listener, whose lifespan owns it."""
+    if getattr(app.state.settings, "is_household", False):
+        yield
+        return
     from services import lncrawl_service
     if not getattr(app.state.settings, "background_services", False):
         try:
@@ -142,11 +152,19 @@ async def _lifespan(app: FastAPI):
         stop_reeval_scheduler()
 
 
-def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
+def create_app(settings: ApiSettings = None, frontend_dist=None,
+               listener: str = "admin") -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
     safe to call at import time and in tests; the library is opened
-    lazily by the first request that needs it (`db._ensure_ready`)."""
+    lazily by the first request that needs it (`db._ensure_ready`).
+    `listener="household"` builds the household app from the admin
+    listener's settings (`api_config.household_settings`, which refuses an
+    unsafe household port or host)."""
     settings = settings or load_settings()
+    if listener == "household":
+        settings = household_settings(settings)
+    elif listener != "admin" or settings.is_household:
+        raise ValueError("listener must be 'admin' or 'household'.")
     app = FastAPI(
         title="Baihe Studio API",
         version=API_VERSION,
@@ -171,7 +189,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
         app.add_middleware(ActingPrincipalMiddleware)
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
-                           local_only_fn=lambda: local_only_matchers(app))
+                           local_only_fn=lambda: local_only_matchers(app),
+                           never_local=settings.is_household)
     else:
         app.add_middleware(LoopbackOnlyGate)
     # Refuse a simple (no-preflight) POST before its body is read (see

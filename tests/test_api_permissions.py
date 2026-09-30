@@ -110,6 +110,18 @@ class TestEveryRouteDeclared:
         assert not bad, "Routes without exactly one permission declaration:\n  " + \
             "\n  ".join(bad) + "\n" + HOW_TO_DECLARE
 
+    def test_household_listener_has_the_same_declared_routes(self, dist):
+        """The household app (D5) is the same route table with auth on."""
+        household = create_app(ApiSettings(household_port=8610), frontend_dist=dist,
+                               listener="household")
+        bad = _undeclared(household)
+        assert not bad, "Routes without exactly one permission declaration:\n  " + \
+            "\n  ".join(bad) + "\n" + HOW_TO_DECLARE
+        def table(app):
+            return sorted((p, sorted(m), d)
+                          for _r, p, m, d in api_auth.iter_route_declarations(app))
+        assert table(household) == table(_app("on", dist))
+
     def test_walker_sees_every_route(self, dist):
         app = _app("off", dist)
         paths = {p for _r, p, _m, _d in api_auth.iter_route_declarations(app)}

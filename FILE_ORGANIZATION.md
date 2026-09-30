@@ -447,10 +447,12 @@ baihe-subtitler/
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
-│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings (plus the household
+│   │                             listener on BAIHE_API_HOUSEHOLD_PORT, same process, when set);
 │   │                             `grant-admin` / `add-user` / `deactivate` / `grant` / `list-users` (local user admin)
-│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
+│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS; listener="household" (D5)
 │   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND,
+│   │                             HOUSEHOLD_PORT (household_settings, check_household_bind_safety),
 │   │                             BAIHE_GOOGLE_CLIENT_ID/SECRET + BAIHE_PUBLIC_URL (sign-in; also read from .env)
 │   ├── background.py             startup hook (lifespan): chapter-check scheduler + extension endpoint (if enabled);
 │   │                             off in tests (BAIHE_API_BACKGROUND=0); tests/test_api_background.py
