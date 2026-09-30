@@ -107,6 +107,22 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
         store.release_check_cycle(token)
 
 
+LINK_OWNER_DENIED = "The link owner can no longer edit the drama."
+
+
+def _link_owner_can_edit(row) -> bool:
+    """The cycle has no request principal, so a link made by a user imports
+    only while that user could still make it: a drama shared at link time
+    may since have gone private, or the user been removed. A NULL owner
+    (auth off / the PC owner made the link) imports as before."""
+    uid = row.get("linked_by_user_id")
+    if uid is None:
+        return True
+    from services import auth_service, ownership_service
+    principal = auth_service.member_principal(uid)
+    return principal is not None and ownership_service.can_edit_drama(principal, row["drama_id"])
+
+
 def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
@@ -140,6 +156,10 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 summary["errors"][row["title"]] = "The linked drama was deleted."
                 store.mark_checked(row["source"], row["series_id"],
                                    error="The linked drama was deleted.")
+                continue
+            if not _link_owner_can_edit(row):
+                summary["errors"][row["title"]] = LINK_OWNER_DENIED
+                store.mark_checked(row["source"], row["series_id"], error=LINK_OWNER_DENIED)
                 continue
             if start_import(row["source"], row["series_id"], new, row["drama_id"]):
                 summary["queued"].append(row["title"])

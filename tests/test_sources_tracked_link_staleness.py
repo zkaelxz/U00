@@ -2,16 +2,14 @@
 link went stale after it was made.
 
 A tracked series' drama link is checked (ownership_service.can_edit_drama)
-only when it is set (sources_tracking_service.set_tracked_drama,
-sources_registry_service.set_tracked). The chapter check then runs with no
-principal and, with `auto_queue_new_chapters` on, hands `row["drama_id"]`
-straight to pipeline.start_import. These tests pin down what happens when,
-between link time and the next cycle, (A) the drama's owner makes it
-private, or (B) the drama is deleted.
-
-`test_current_behaviour_*` assert what the code does today; the matching
-`test_desired_*` tests are strict xfails describing what it should do.
-Fake adapters only, no network."""
+when it is set (sources_tracking_service.set_tracked_drama,
+sources_registry_service.set_tracked), which also records who set it
+(`linked_by_user_id`). The chapter check runs with no request principal;
+with `auto_queue_new_chapters` on it imports into `row["drama_id"]` only
+while the link owner, as an ordinary member, can still edit that drama.
+These tests cover what happens when, between link time and the next cycle,
+(A) the drama's owner makes it private (or the link owner is deactivated),
+or (B) the drama is deleted. Fake adapters only, no network."""
 
 import os
 import time
@@ -20,7 +18,7 @@ import pytest
 
 import background_jobs
 import db
-from services import drama_service
+from services import auth_service, drama_service, sources_registry_service
 from services import ownership_service as own
 from services import sources_tracking_service as tracking
 from sources import chapter_check, pipeline, registry, store
@@ -154,37 +152,142 @@ def made_private(env):
     return did
 
 
-def test_current_behaviour_private_drama_still_receives_auto_import(made_private, env):
-    """Current: the link survives set_private, and the next cycle imports
-    B's series into A's now-private drama with no ownership check."""
-    did = made_private
+def _denied(did, env, name="alpha"):
+    summary = chapter_check.run_check_cycle()
+    _wait(pipeline.import_job_id(did))
+    assert summary["new"] == 2 and summary["queued"] == []
+    assert summary["errors"] == {"Series T": chapter_check.LINK_OWNER_DENIED}
+    assert env[name].calls == []
     assert not os.path.exists(_raw_path(did))
+    assert store.imported_chapter_ids(name, SERIES, did) == set()
+    row = _row(name)
+    assert row["drama_id"] == did          # the link is kept, not cleared
+    assert row["last_check_error"] == "The link owner can no longer edit the drama."
+
+
+def _imports(did, env, name="alpha"):
     summary, st = _cycle_then_wait(did)
-    assert summary["new"] == 2 and summary["queued"] == ["Series T"]
-    assert summary["errors"] == {}
+    assert summary["queued"] == ["Series T"] and summary["errors"] == {}
     assert st["status"] == "done"
-    assert [c["chapter_id"] for c in st["result"]["chapters"] if c["ok"]] == ["c2", "c3"]
-    assert env["alpha"].calls == ["c2", "c3"]
+    assert env[name].calls == ["c2", "c3"]
     with open(_raw_path(did), encoding="utf-8") as f:
         text = f.read()
     assert "imported text of c2" in text and "imported text of c3" in text
-    assert store.imported_chapter_ids("alpha", SERIES, did) == {"c2", "c3"}
-    row = _row("alpha")
-    assert row["drama_id"] == did and not row["last_check_error"]
+    assert store.imported_chapter_ids(name, SERIES, did) == {"c2", "c3"}
+    assert not _row(name)["last_check_error"]
+
+
+def test_desired_private_drama_gets_no_auto_import_from_another_users_link(made_private, env):
+    did = made_private
+    assert db.auth_get_user_by_email("b@example.com")["id"] == _row("alpha")["linked_by_user_id"]
+    _denied(did, env)
     assert db.get_item_ownership("drama", did)["is_private"] == 1
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Stale tracked link: sources/chapter_check.py _run_claimed_cycle auto-queues into "
-    "row['drama_id'] with no principal, and tracked_series has no linked_by/owner column, "
-    "so a link made while the drama was shared keeps writing after it goes private."))
-def test_desired_private_drama_gets_no_auto_import_from_another_users_link(made_private, env):
-    did = made_private
-    summary = chapter_check.run_check_cycle()
-    _wait(pipeline.import_job_id(did))
-    assert summary["queued"] == []
-    assert env["alpha"].calls == []
-    assert not os.path.exists(_raw_path(did))
+@pytest.fixture
+def shared_link(env):
+    """A owns a shared novel drama that B links a tracked series to."""
+    env["alpha"] = _make("alpha")
+    a = db.auth_create_user("a@example.com")
+    b = db.auth_create_user("b@example.com")
+    did = db.create_drama(title_en="A's novel", media_type="novel",
+                          content_mode="novel_narration", owner_user_id=a, is_private=0)
+    _track("alpha")
+    tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(b))
+    return a, b, did
+
+
+def test_link_owner_still_imports_while_the_drama_stays_shared(shared_link, env):
+    _a, b, did = shared_link
+    assert _row("alpha")["linked_by_user_id"] == b
+    _imports(did, env)
+
+
+def test_deactivated_link_owner_gets_no_import(shared_link, env):
+    _a, b, did = shared_link
+    auth_service.deactivate_user(b)
+    _denied(did, env)
+
+
+def test_missing_link_owner_gets_no_import(shared_link, env):
+    _a, _b, did = shared_link
+    store.set_tracked_drama("alpha", SERIES, None)
+    store.set_tracked_drama("alpha", SERIES, did, linked_by_user_id=987654)
+    assert db.auth_get_user(987654) is None
+    _denied(did, env)
+
+
+def test_admin_link_is_checked_as_a_member(env):
+    """An admin at the PC may link another user's private drama (the admin
+    override); the scheduled check acts for them only as a member."""
+    env["alpha"] = _make("alpha")
+    a = db.auth_create_user("a@example.com")
+    admin = db.auth_create_user("admin@example.com", is_admin=True)
+    did = db.create_drama(title_en="A's novel", media_type="novel",
+                          content_mode="novel_narration", owner_user_id=a, is_private=1)
+    _track("alpha")
+    pc_admin = dict(_p(admin), is_admin=True, admin_override=True)
+    tracking.set_tracked_drama("alpha", SERIES, did, principal=pc_admin)
+    assert _row("alpha")["linked_by_user_id"] == admin
+    _denied(did, env)
+
+
+def test_null_link_owner_keeps_importing(env):
+    """Auth off / the PC owner made the link: no owner is stored and the
+    cycle imports as before, even into a private drama."""
+    env["alpha"] = _make("alpha")
+    a = db.auth_create_user("a@example.com")
+    did = db.create_drama(title_en="A's novel", media_type="novel",
+                          content_mode="novel_narration", owner_user_id=a, is_private=1)
+    _track("alpha")
+    tracking.set_tracked_drama("alpha", SERIES, did)
+    assert _row("alpha")["linked_by_user_id"] is None
+    _imports(did, env)
+
+
+def test_owner_linking_their_own_drama_then_making_it_private_still_imports(env):
+    env["alpha"] = _make("alpha")
+    a = db.auth_create_user("a@example.com")
+    did = db.create_drama(title_en="A's novel", media_type="novel",
+                          content_mode="novel_narration", owner_user_id=a, is_private=0)
+    _track("alpha")
+    tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(a))
+    own.set_private(_p(a), "drama", did, True)
+    _imports(did, env)
+
+
+def test_relinking_the_same_drama_keeps_the_link_owner(shared_link, env):
+    a, b, did = shared_link
+    tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(a))
+    assert _row("alpha")["linked_by_user_id"] == b
+    store.track_series("alpha", SERIES, "Series T", "", did, linked_by_user_id=a)
+    assert _row("alpha")["linked_by_user_id"] == b
+    other = db.create_drama(title_en="A's other", media_type="novel",
+                            content_mode="novel_narration", owner_user_id=a, is_private=0)
+    tracking.set_tracked_drama("alpha", SERIES, other, principal=_p(a))
+    assert _row("alpha")["linked_by_user_id"] == a
+    store.track_series("alpha", SERIES, "Series T", "", did, linked_by_user_id=b)
+    assert _row("alpha")["linked_by_user_id"] == b
+
+
+def test_link_owner_is_not_in_the_tracked_list(shared_link):
+    _a, b, _did = shared_link
+    for principal in (None, _p(b)):
+        rows = sources_registry_service.list_tracked(principal)
+        assert rows and all("linked_by_user_id" not in r for r in rows)
+
+
+def test_old_sources_db_gains_the_link_owner_column(isolated_db):
+    import sqlite3
+    path = store.db_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE tracked_series (source TEXT NOT NULL, series_id TEXT NOT "
+                     "NULL, title TEXT NOT NULL, url TEXT, drama_id INTEGER, last_checked "
+                     "REAL, last_check_error TEXT, PRIMARY KEY (source, series_id))")
+        conn.execute("INSERT INTO tracked_series(source, series_id, title) VALUES('x', 's', 'T')")
+    [row] = store.list_tracked_series()
+    assert row["title"] == "T" and row["linked_by_user_id"] is None
 
 
 # ---------------------------------------------------------------------------
