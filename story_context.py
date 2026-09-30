@@ -11,6 +11,7 @@ character summary is worse than "not covered in what's loaded".
 
 import re
 import json
+from core import LANGUAGE_NAMES
 from translate_engines import call_llm_json
 
 
@@ -179,7 +180,7 @@ def explain_reference(phrase: str, lines, engine, source_language: str = "zh"):
 
     context = "\n".join(f"{ln.zh} → {ln.en}" for ln in lines
                         if phrase in ln.zh or phrase in (ln.en or ""))[:3000]
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     prompt = (
         f"Explain this {lang} phrase for an English-speaking reader: \"{phrase}\"\n\n"
         "Cover its literal meaning, its figurative/idiomatic sense if it has one, and any "

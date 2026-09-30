@@ -444,7 +444,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
     list-position zip (a short or reordered reply would otherwise put a
     definition on the wrong word). A word whose id doesn't come back is
     just left undefined."""
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = core_module.LANGUAGE_NAMES.get(source_language, "Chinese")
     context = "\n".join(context_lines[:50])
     out = {}
     unique = list(dict.fromkeys(words))

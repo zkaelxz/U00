@@ -39,6 +39,8 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 
+from core import SOURCE_LANGUAGES
+
 
 def _peak_vram_mb():
     """Peak CUDA memory allocated since the last reset, in MB, or None if
@@ -179,7 +181,7 @@ def main():
     p = argparse.ArgumentParser(
         description="Compare Whisper vs Qwen3-ASR/Qwen3-ForcedAligner on one clip")
     p.add_argument("--audio", required=True, help="Path to a short (5-10 min) representative clip")
-    p.add_argument("--language", required=True, choices=["zh", "ja", "ko"])
+    p.add_argument("--language", required=True, choices=list(SOURCE_LANGUAGES))
     p.add_argument("--transcript", default=None,
                    help="Optional reference transcript (.txt) -- enables the forced-alignment "
                         "comparison and a rough text-similarity check for both ASR backends")
