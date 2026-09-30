@@ -22,6 +22,9 @@ class JellyfinConfigUpdate(BaseModel):
     enabled: Optional[bool] = None
     server_url: Optional[str] = Field(None, max_length=2000)
     library_dir: Optional[str] = Field(None, max_length=1000)
+    # Changing the address moves where the key is sent: needs confirm and the
+    # key-write gate, like the engine endpoint URLs.
+    confirm: bool = False
 
 
 class JellyfinKeySet(BaseModel):

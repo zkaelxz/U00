@@ -140,7 +140,8 @@ export default function ExportStage() {
           }
         />
       </Section>
-      <ExportJellyfin field={form.field} />
+      {/* keyed by the text choice, so a video list found for one language is not reused for another */}
+      <ExportJellyfin key={form.field} field={form.field} />
     </div>
   )
 }

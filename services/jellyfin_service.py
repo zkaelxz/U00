@@ -24,17 +24,23 @@ fragment. Every address it resolves to is checked at call time: loopback and
 private LAN addresses are fine (Jellyfin usually runs on this PC or the LAN),
 but link-local (cloud metadata), multicast, reserved and unspecified
 addresses are refused, and so are Baihe's own ports on this PC (8501, 8600 or
-BAIHE_API_PORT, 8756). Requests carry timeout=, follow no redirects and
-ignore proxy settings. Errors are fixed text: never the URL, a path or the key.
+BAIHE_API_PORT, 8756). The check is not pinned to the connection (the address
+is the PC owner's own choice, and a key-write-gated setting). Requests carry
+timeout=, follow no redirects, ignore proxy settings and read at most
+MAX_RESPONSE_BYTES within READ_DEADLINE. Errors are fixed text: never the URL, a path or the key.
 
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
+import contextlib
 import ipaddress
+import json
 import logging
 import os
 import re
 import shutil
 import socket
+import tempfile
+import time
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -51,6 +57,8 @@ HTTP_TIMEOUT = (3.05, 20)
 BAIHE_OWN_PORTS = (8501, 8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
 PAGE_SIZE = 200
+MAX_RESPONSE_BYTES = 20_000_000
+READ_DEADLINE = 60.0
 MAX_SCAN_ITEMS = 5000
 MAX_REPORT_ITEMS = 500
 MAX_LIBRARY_DIR_LEN = 1000
@@ -65,6 +73,8 @@ _LANG_ALIASES = {"en": {"en", "eng"}, "zh": {"zh", "chi", "zho"}, "ja": {"ja", "
 _KEY_RE = re.compile(r"^[A-Za-z0-9]{16,128}$")
 _ITEM_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 _UNSAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_ITEM_REFRESH = {"metadataRefreshMode": "Default", "imageRefreshMode": "Default",
+                 "replaceAllMetadata": "false", "replaceAllImages": "false"}
 _VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v")
 
 _UNREACHABLE = "Couldn't reach the Jellyfin server. Check the address and that it is running."
@@ -190,23 +200,37 @@ def _request(method: str, path: str, params: Optional[dict] = None,
         resp = session.request(method, url + path, params=params,
                                headers={"Authorization": f'MediaBrowser Token="{key}"',
                                         "Accept": "application/json"},
-                               timeout=HTTP_TIMEOUT, allow_redirects=False)
+                               timeout=HTTP_TIMEOUT, allow_redirects=False, stream=True)
+        try:
+            if resp.status_code in (401, 403):
+                raise DependencyUnavailableError(_BAD_KEY)
+            if resp.status_code >= 300:
+                log.info("Jellyfin answered HTTP %s", resp.status_code)
+                raise DependencyUnavailableError(_UNREACHABLE)
+            return _read_capped(resp)
+        finally:
+            resp.close()
     except requests.RequestException:
         raise DependencyUnavailableError(_UNREACHABLE) from None
     finally:
         session.close()
-    if resp.status_code in (401, 403):
-        raise DependencyUnavailableError(_BAD_KEY)
-    if resp.status_code >= 300:
-        log.info("Jellyfin answered HTTP %s", resp.status_code)
-        raise DependencyUnavailableError(_UNREACHABLE)
-    return resp
 
 
-def _json(resp) -> dict:
+def _read_capped(resp) -> bytes:
+    """The body, at most MAX_RESPONSE_BYTES and READ_DEADLINE seconds in
+    all (the per-read timeout alone restarts on every trickled chunk)."""
+    started, body = time.monotonic(), bytearray()
+    for chunk in resp.iter_content(64 * 1024):
+        body.extend(chunk)
+        if len(body) > MAX_RESPONSE_BYTES or time.monotonic() - started > READ_DEADLINE:
+            raise DependencyUnavailableError(_BAD_REPLY)
+    return bytes(body)
+
+
+def _json(body: bytes) -> dict:
     try:
-        data = resp.json()
-    except ValueError:
+        data = json.loads(body.decode("utf-8")) if body else None
+    except (ValueError, UnicodeDecodeError):
         raise DependencyUnavailableError(_BAD_REPLY) from None
     if not isinstance(data, dict):
         raise DependencyUnavailableError(_BAD_REPLY)
@@ -310,8 +334,10 @@ def _subtitle_text(drama_id: int, fmt: str, field: str) -> str:
 
 def _item_media_path(item_id: str, library_dir: str) -> str:
     data = _json(_request("GET", "/Items", params={"Ids": item_id, "Fields": "Path"}))
-    items = data.get("Items") or []
-    path = items[0].get("Path") if items and isinstance(items[0], dict) else None
+    wanted = item_id.replace("-", "").lower()
+    match = [i for i in (data.get("Items") or []) if isinstance(i, dict)
+             and str(i.get("Id") or "").replace("-", "").lower() == wanted]
+    path = match[0].get("Path") if match else None  # by id, never by list position
     if not isinstance(path, str) or not path:
         raise NotFoundError("Jellyfin has no media file for that item.")
     if not _inside(library_dir, path):
@@ -339,29 +365,46 @@ def _source_media(drama_id: int, drama: dict, media: str) -> Optional[str]:
     return path
 
 
-def _place(src_or_text, dest: str, library_dir: str, overwrite: bool, *, text: bool):
+def _check_free(dest: str, library_dir: str, overwrite: bool):
     if not _inside(library_dir, os.path.dirname(dest)):
         raise InvalidInputError("The destination is outside the library folder.")
     if os.path.lexists(dest) and not overwrite:
         raise ConflictError(f"{os.path.basename(dest)} already exists in the library. "
                             "Allow replacing it to overwrite.",
                             details={"reason": "exists", "file": os.path.basename(dest)})
+
+
+def _place(src_or_text, dest: str, library_dir: str, overwrite: bool, *, text: bool):
+    """Writes through a fresh, exclusively created temp file in the target
+    folder (mkstemp: never an existing name or link someone planted), then
+    re-checks the folder is still inside the library before the rename. A
+    video is copied, never hard-linked, so the library file and Baihe's own
+    file stay independent."""
+    _check_free(dest, library_dir, overwrite)
+    folder = os.path.dirname(dest)
+    tmp = None
     try:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        tmp = dest + ".baihe-tmp"
-        if text:
-            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-                f.write(src_or_text)
-        else:
-            try:
-                if os.path.lexists(tmp):
-                    os.remove(tmp)
-                os.link(src_or_text, tmp)  # same drive: instant, no copy
-            except OSError:
-                shutil.copyfile(src_or_text, tmp)
+        os.makedirs(folder, exist_ok=True)
+        if not _inside(library_dir, folder):  # swapped for a link after the check
+            raise InvalidInputError("The destination is outside the library folder.")
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".baihe-", suffix=".tmp")
+        with os.fdopen(fd, "wb") as out:
+            if text:
+                out.write(src_or_text.replace("\r\n", "\n").encode("utf-8"))
+            else:
+                with open(src_or_text, "rb") as src:
+                    shutil.copyfileobj(src, out, 1024 * 1024)
+        _check_free(dest, library_dir, overwrite)
+        if os.path.realpath(os.path.dirname(tmp)) != os.path.realpath(folder):
+            raise InvalidInputError("The destination is outside the library folder.")
         os.replace(tmp, dest)
+        tmp = None
     except OSError:
         raise DependencyUnavailableError(_WRITE_FAILED) from None
+    finally:
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
 
 
 def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "srt",
@@ -408,21 +451,28 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
             or f"Drama {drama_id}"
         folder = os.path.join(library_dir, title)
         src = _source_media(drama_id, drama, media)
+        dest = os.path.join(folder, f"{title}.{code}.{fmt}")
+        video_dest = None
         if src:
             ext = os.path.splitext(src)[1].lower()
             if ext not in _VIDEO_EXTS:
                 raise InvalidInputError("That video type can't be added to Jellyfin.")
             video_dest = os.path.join(folder, f"{title}{ext}")
+        for d in filter(None, (video_dest, dest)):  # refuse before writing anything
+            _check_free(d, library_dir, overwrite)
+        if video_dest:
             _place(src, video_dest, library_dir, overwrite, text=False)
             files.append(video_dest)
-        dest = os.path.join(folder, f"{title}.{code}.{fmt}")
         _place(text, dest, library_dir, overwrite, text=True)
         files.append(dest)
 
     status = "skipped"
     if refresh:
         try:
-            _request("POST", f"/Items/{item_id}/Refresh" if item_id else "/Library/Refresh")
+            if item_id:  # "Default" runs the file scan that finds new external subtitles
+                _request("POST", f"/Items/{item_id}/Refresh", params=_ITEM_REFRESH)
+            else:
+                _request("POST", "/Library/Refresh")
             status = "done"
         except (DependencyUnavailableError, InvalidInputError, ConflictError):
             status = "failed"

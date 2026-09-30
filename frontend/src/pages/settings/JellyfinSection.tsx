@@ -88,11 +88,16 @@ function JellyfinControls() {
     )
   }
 
-  const save = () =>
-    call(saveJellyfinConfig({ server_url: url.trim(), library_dir: folder.trim() }), (c) => {
+  const save = () => {
+    const urlChanged = url.trim() !== (cfg?.server_url ?? '')
+    const body = urlChanged
+      ? { server_url: url.trim(), library_dir: folder.trim(), confirm: true }
+      : { library_dir: folder.trim() }
+    call(saveJellyfinConfig(body), (c) => {
       load(c)
       setNote('Saved.')
-    })
+    }, urlChanged)
+  }
   const toggle = (enabled: boolean) => call(saveJellyfinConfig({ enabled }), load)
   const saveKey = () => {
     const value = key.trim()
@@ -122,7 +127,7 @@ function JellyfinControls() {
         !error && <p className="muted">Loading…</p>
       ) : (
         <div className="setting-list">
-          <Field label="Server address" help="For example http://localhost:8096 or http://192.168.1.20:8096.">
+          <Field label="Server address" help="For example http://localhost:8096 or http://192.168.1.20:8096. Changing it works only on the Baihe PC with key writes on (it decides where the key is sent).">
             <input type="url" value={url} placeholder="http://localhost:8096" onChange={(e) => setUrl(e.target.value)} />
           </Field>
           <Field label="Library folder" help="The folder on this PC that Jellyfin reads (the same one set in Jellyfin's library). Files are only ever written inside it.">

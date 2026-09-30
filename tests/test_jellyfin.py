@@ -26,14 +26,18 @@ URL = "http://192.168.1.20:8096"
 
 
 class Resp:
-    def __init__(self, status=200, data=None):
+    def __init__(self, status=200, data=None, raw=None):
+        import json
         self.status_code = status
-        self._data = data
+        self._body = raw if raw is not None else (json.dumps(data).encode() if data is not None
+                                                  else b"")
 
-    def json(self):
-        if self._data is None:
-            raise ValueError("no json")
-        return self._data
+    def iter_content(self, size):
+        for i in range(0, len(self._body), size):
+            yield self._body[i:i + size]
+
+    def close(self):
+        pass
 
 
 class FakeSession:
@@ -45,8 +49,8 @@ class FakeSession:
         self.trust_env = True
 
     def request(self, method, url, params=None, headers=None, timeout=None,
-                allow_redirects=True):
-        assert timeout and allow_redirects is False and self.trust_env is False
+                allow_redirects=True, stream=False):
+        assert timeout and allow_redirects is False and self.trust_env is False and stream
         path = url[len(URL):]
         FakeSession.calls.append((method, path, dict(params or {}), headers))
         handler = FakeSession.routes.get((method, path))
@@ -101,7 +105,8 @@ def setup(isolated_db, monkeypatch, lib, tmp_path):
         ("GET", "/Items"): list_items,
         ("GET", "/System/Info"): lambda p: Resp(200, {"ServerName": "Den", "Version": "10.9.0"}),
         ("POST", "/Library/Refresh"): lambda p: Resp(204),
-        ("POST", "/Items/ep1/Refresh"): lambda p: Resp(204),
+        ("POST", "/Items/ep1/Refresh"): lambda p: Resp(204 if p.get("metadataRefreshMode")
+                                                      == "Default" else 400),
     }
     drama = db.create_drama(title_en="My Drama", source_language="zh")
     db.save_lines(drama, _lines())
@@ -260,6 +265,80 @@ def test_send_requires_enabled_and_folder(setup):
         jf.set_config(library_dir="relative/path")
 
 
+def test_item_is_matched_by_id_not_position(setup):
+    drama, lib = setup
+    everything = FakeSession.routes[("GET", "/Items")]
+    # a server that ignores Ids and returns the whole library
+    FakeSession.routes[("GET", "/Items")] = lambda p: everything({"StartIndex": 0, "Limit": 99})
+    jf.send_to_jellyfin(drama, item_id="mv1", refresh=False, overwrite=True)
+    assert (lib / "Movie" / "Movie.eng.srt").is_file()
+    assert not (lib / "Show" / "S01E01.eng.srt").exists()
+
+
+def test_planted_temp_link_is_never_followed(setup, tmp_path):
+    drama, lib = setup
+    outside = tmp_path / "outside.txt"
+    outside.write_text("precious", encoding="utf-8")
+    for name in ("S01E01.eng.srt.baihe-tmp", ".baihe-planted.tmp"):
+        os.symlink(outside, lib / "Show" / name)
+    jf.send_to_jellyfin(drama, item_id="ep1", refresh=False)
+    assert outside.read_text(encoding="utf-8") == "precious"
+    dest = lib / "Show" / "S01E01.eng.srt"
+    assert dest.is_file() and not dest.is_symlink()
+
+
+def test_symlinked_title_folder_is_refused(setup, tmp_path):
+    drama, lib = setup
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    os.symlink(elsewhere, lib / "My Drama")
+    with pytest.raises(InvalidInputError):
+        jf.send_to_jellyfin(drama, refresh=False)
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_folder_send_checks_every_file_before_writing(setup):
+    drama, lib = setup
+    folder = db.drama_dir(drama)
+    with open(os.path.join(folder, "src.mkv"), "wb") as f:
+        f.write(b"video")
+    db.update_drama(drama, source_video_filename="src.mkv")
+    (lib / "My Drama").mkdir()
+    (lib / "My Drama" / "My Drama.eng.srt").write_text("mine", encoding="utf-8")
+    with pytest.raises(ConflictError):
+        jf.send_to_jellyfin(drama, media="source", refresh=False)
+    assert sorted(p.name for p in (lib / "My Drama").iterdir()) == ["My Drama.eng.srt"]
+
+
+def test_video_is_copied_not_linked(setup):
+    drama, lib = setup
+    src = os.path.join(db.drama_dir(drama), "src.mkv")
+    with open(src, "wb") as f:
+        f.write(b"video")
+    db.update_drama(drama, source_video_filename="src.mkv")
+    jf.send_to_jellyfin(drama, media="source", refresh=False)
+    assert os.stat(src).st_nlink == 1
+
+
+def test_dubbed_media_needs_a_dubbed_video(setup):
+    drama, lib = setup
+    with pytest.raises(InvalidInputError):
+        jf.send_to_jellyfin(drama, media="dubbed", refresh=False)
+    from services import artifact_service
+    path = artifact_service.output_path(drama, "dubbed_video", "dub.mp4")
+    with open(path, "wb") as f:
+        f.write(b"dub")
+    jf.send_to_jellyfin(drama, media="dubbed", refresh=False)
+    assert (lib / "My Drama" / "My Drama.mp4").read_bytes() == b"dub"
+
+
+def test_oversized_reply_is_refused(setup, monkeypatch):
+    monkeypatch.setattr(jf, "MAX_RESPONSE_BYTES", 100)
+    FakeSession.routes[("GET", "/System/Info")] = lambda p: Resp(200, raw=b"{" + b" " * 500 + b"}")
+    with pytest.raises(DependencyUnavailableError):
+        jf.test_connection()
+
+
 def test_static_timeout():
     from tests.test_static_analysis import PROJECT_ROOT, _find_requests_calls_missing_timeout
     path = os.path.join(PROJECT_ROOT, "services", "jellyfin_service.py")
@@ -288,10 +367,29 @@ def test_routes_round_trip(client, setup):
     assert again.status_code == 409
 
 
+def test_key_and_address_routes_use_the_key_write_gate(setup, isolated_db):
+    drama, lib = setup
+    closed = TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                        headers={"X-Baihe-Local": "1"})
+    assert closed.post("/api/jellyfin/key", json={"value": KEY, "confirm": True}).status_code == 403
+    assert closed.post("/api/jellyfin/key/clear", json={"confirm": True}).status_code == 403
+    r = closed.post("/api/jellyfin/config", json={"server_url": "http://evil.example", "confirm": True})
+    assert r.status_code == 403 and jf.get_config()["server_url"] == URL
+    assert closed.post("/api/jellyfin/config", json={"enabled": False}).status_code == 200
+    opened = TestClient(create_app(ApiSettings(allow_key_writes=True)), raise_server_exceptions=False,
+                        headers={"X-Baihe-Local": "1"})
+    assert opened.post("/api/jellyfin/key", json={"value": KEY}).status_code == 422  # no confirm
+    r = opened.post("/api/jellyfin/key", json={"value": KEY, "confirm": True})
+    assert r.status_code == 200 and KEY not in r.text and r.json()["key_configured"] is True
+    r = opened.post("/api/jellyfin/config", json={"server_url": "http://10.0.0.5:8096", "confirm": True})
+    assert r.status_code == 200 and r.json()["server_url"] == "http://10.0.0.5:8096"
+    assert opened.post("/api/jellyfin/key/clear", json={"confirm": True}).json()["key_configured"] is False
+
+
 def test_routes_validation(client, setup):
     drama, _ = setup
     assert client.post("/api/jellyfin/config", json={"api_key": KEY}).status_code == 422
-    assert client.post("/api/jellyfin/config", json={"server_url": "file:///x"}).status_code == 422
+    assert client.post("/api/jellyfin/config", json={"library_dir": "relative"}).status_code == 422
     assert client.post("/api/jellyfin/scan", json={"language": "xx"}).status_code == 422
     assert client.post("/api/jellyfin/dramas/99999/send", json={}).status_code == 404
     assert client.post(f"/api/jellyfin/dramas/{drama}/send",

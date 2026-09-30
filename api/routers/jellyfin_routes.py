@@ -2,7 +2,8 @@
 api/routers/jellyfin_routes.py -- the optional Jellyfin connector (roadmap
 Step 39). See services/jellyfin_service.py.
 
-Every route is local_only(); the key routes also take the engine-key gate
+Every route is local_only(); the key routes, and a change of server address
+(which moves where the key is sent), also take the engine-key gate
 (`_require_local_admin`, key writes allowed in the API settings) and
 confirm=true. The connector's settings hold a key and a
 server address, the scan reads another server's library, and a send writes
@@ -32,10 +33,15 @@ def get_config():
 
 
 @router.post("/config", dependencies=[local_only()], response_model=JellyfinConfig,
-             summary="PC only: save the Jellyfin address, library folder, key or on/off",
+             summary="PC only: save the Jellyfin library folder or on/off; the address also "
+                     "needs the key-write gate and confirm",
              responses={422: {"model": ErrorResponse}})
-def set_config(payload: JellyfinConfigUpdate):
-    return jellyfin_service.set_config(**payload.model_dump())
+def set_config(payload: JellyfinConfigUpdate, request: Request):
+    if payload.server_url is not None:  # where the key goes: same gate as endpoint URLs
+        _require_local_admin(request)
+        _require_confirm(payload.confirm)
+    return jellyfin_service.set_config(enabled=payload.enabled, server_url=payload.server_url,
+                                       library_dir=payload.library_dir)
 
 
 @router.post("/key", dependencies=[local_only()], response_model=JellyfinConfig,

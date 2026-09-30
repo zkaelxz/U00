@@ -16,9 +16,11 @@ const BASE = '/api/jellyfin'
 
 export const getJellyfinConfig = (f?: Fetch) => getJson<JellyfinConfig>(`${BASE}/config`, pcOnlyFetch(f))
 
+// Changing server_url moves where the key goes, so it also needs confirm and
+// the key-write gate; that 403 means "key writes are off", so it uses a plain fetch.
 export const saveJellyfinConfig = (
-  body: { enabled?: boolean; server_url?: string; library_dir?: string }, f?: Fetch,
-) => postJson<JellyfinConfig>(`${BASE}/config`, body, pcOnlyFetch(f))
+  body: { enabled?: boolean; server_url?: string; library_dir?: string; confirm?: boolean }, f?: Fetch,
+) => postJson<JellyfinConfig>(`${BASE}/config`, body, body.server_url !== undefined ? f : pcOnlyFetch(f))
 
 export const setJellyfinKey = (value: string, f?: Fetch) =>
   postJson<JellyfinConfig>(`${BASE}/key`, { value, confirm: true }, f)

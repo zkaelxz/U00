@@ -13,25 +13,28 @@ const report = {
 }
 
 async function mockConfig(page: Page, initial: typeof on) {
-  let cfg = { ...initial }
+  const state = { cfg: { ...initial } }
   const saved: unknown[] = []
   await page.route('**/api/jellyfin/config', async (route) => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON()
       saved.push(body)
-      cfg = { ...cfg, ...body }
+      const { confirm: _c, ...rest } = body
+      void _c
+      state.cfg = { ...state.cfg, ...rest }
     }
-    return route.fulfill({ json: cfg })
+    return route.fulfill({ json: state.cfg })
   })
-  return saved
+  return { saved, state }
 }
 
 test('settings: off by default, saves the address, never shows the key, scan is a read-only report', async ({ page }) => {
-  const saved = await mockConfig(page, { enabled: false, server_url: null, library_dir: null, key_configured: false } as never)
+  const { saved, state } = await mockConfig(page, { enabled: false, server_url: null, library_dir: null, key_configured: false } as never)
   const keyBodies: unknown[] = []
   await page.route('**/api/jellyfin/key', async (route) => {
     keyBodies.push(route.request().postDataJSON())
-    return route.fulfill({ json: { ...on, enabled: false, key_configured: true } })
+    state.cfg = { ...state.cfg, key_configured: true }
+    return route.fulfill({ json: state.cfg })
   })
   await page.route('**/api/jellyfin/test', (route) => route.fulfill({ json: { ok: true, server_name: 'Den', version: '10.9.0' } }))
   await page.route('**/api/jellyfin/scan', (route) => route.fulfill({ json: report }))
@@ -45,7 +48,7 @@ test('settings: off by default, saves the address, never shows the key, scan is 
   await card.getByRole('textbox', { name: 'Server address' }).fill('http://192.168.1.20:8096')
   await card.getByRole('textbox', { name: 'Library folder' }).fill('D:\\Media')
   await card.getByRole('button', { name: 'Save', exact: true }).click()
-  expect(saved[0]).toEqual({ server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media' })
+  expect(saved[0]).toEqual({ server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media', confirm: true })
 
   const keyBox = card.getByLabel('API key', { exact: true })
   await keyBox.fill('0123456789abcdef0123456789abcdef')
@@ -98,7 +101,7 @@ test('export: sends next to a Jellyfin video and never overwrites unless asked',
   await panel.getByRole('button', { name: 'Send to Jellyfin' }).click()
   await expect(panel.getByRole('status')).toHaveText('Saved Show/S01E01.eng.srt. Jellyfin is rescanning the library.')
   expect(sends).toEqual([
-    { format: 'srt', field: 'en', overwrite: false, refresh: true, media: 'none', item_id: 'ep1' },
-    { format: 'srt', field: 'en', overwrite: true, refresh: true, media: 'none', item_id: 'ep1' },
+    { format: 'srt', field: 'en', language: 'en', overwrite: false, refresh: true, media: 'none', item_id: 'ep1' },
+    { format: 'srt', field: 'en', language: 'en', overwrite: true, refresh: true, media: 'none', item_id: 'ep1' },
   ])
 })

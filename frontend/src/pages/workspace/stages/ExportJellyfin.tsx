@@ -14,14 +14,18 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
-import type { JellyfinConfig, JellyfinScanItem, JellyfinSendRequest } from '../../../types/jellyfin'
+import type { JellyfinConfig, JellyfinLanguage, JellyfinScanItem, JellyfinSendRequest } from '../../../types/jellyfin'
 import { itemLabel, jellyfinErrorMessage, readyToSend, sendResultText } from '../../settings/jellyfin'
 import { useStage } from '../StageContext'
 
 type Target = 'item' | 'folder'
 
 export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) {
-  const { dramaId } = useStage()
+  const { dramaId, drama } = useStage()
+  // The language the file is written in: the drama's own for the original text.
+  const src = drama.source_language
+  const language: JellyfinLanguage =
+    field === 'zh' ? (src === 'ja' || src === 'ko' || src === 'zh' ? src : 'zh') : 'en'
   const [cfg, setCfg] = useState<JellyfinConfig | null>(null)
   const [target, setTarget] = useState<Target>('folder')
   const [items, setItems] = useState<JellyfinScanItem[] | null>(null)
@@ -49,7 +53,7 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
   const loadItems = () => {
     setBusy(true)
     setError(null)
-    scanJellyfin(field === 'zh' ? 'zh' : 'en').then(
+    scanJellyfin(language).then(
       (r) => {
         const writable = r.items.filter((i) => i.writable)
         setItems(writable)
@@ -68,7 +72,7 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
     setNote(null)
     setError(null)
     const body: JellyfinSendRequest = {
-      format, field, overwrite, refresh: true,
+      format, field, language, overwrite, refresh: true,
       media: target === 'folder' ? media : 'none',
       ...(target === 'item' ? { item_id: itemId } : {}),
     }
