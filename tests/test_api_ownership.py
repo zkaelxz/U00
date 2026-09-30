@@ -59,6 +59,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
     "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
     "user_id": "a user account, not an owned item (admin.users only)",
+    "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
+                       "caller's user id from their session (404 otherwise)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a

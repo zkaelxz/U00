@@ -10,7 +10,9 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
     dependencies=[local_only()]                          # PC-only (loopback), see below
     dependencies=[authenticated()]                       # any signed-in user; only for
                                                          # routes on the caller's own
-                                                         # session (/api/auth/logout)
+                                                         # sessions (/api/auth/logout
+                                                         # and the three
+                                                         # /api/auth/sessions routes)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -165,8 +167,11 @@ def require_path_visible(request: Request, principal) -> None:
 
 def authenticated():
     """Any signed-in user, no permission needed; unsafe methods still need
-    the CSRF token. Only for routes that act on the caller's own session
-    (`POST /api/auth/logout`); the static test keeps it under /api/auth/.
+    the CSRF token. Only for routes that act on the caller's own sessions
+    (`POST /api/auth/logout`, `GET /api/auth/sessions`,
+    `POST /api/auth/sessions/revoke-others` and
+    `POST /api/auth/sessions/{auth_session_id}/revoke`); the static test
+    keeps it under /api/auth/.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
         if not _auth_enabled(request.app):

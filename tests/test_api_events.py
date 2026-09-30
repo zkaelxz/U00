@@ -211,7 +211,8 @@ def test_overflow_becomes_one_resync():
     batch = sub.drain()
     assert batch["overflow"] and batch["jobs"] == []
     assert ev.build_events(sub, batch, None) == [("resync", {"topics": list(ev.TOPICS)})]
-    assert sub.drain() == {"overflow": False, "jobs": [], "live": [], "notifications": False}
+    assert sub.drain() == {"overflow": False, "jobs": [], "live": [], "notifications": False,
+                           "recheck": False}
 
 
 def test_clear_all_jobs_is_a_resync():
@@ -345,11 +346,14 @@ def test_revoked_session_ends_the_stream(world, monkeypatch):
         auth_service.revoke_session(world["b"]["session_id"])
         _job_row(job)
         background_jobs._emit_change(job)
-    _after_open(fire)
+    # The revoke itself wakes the stream (request_recheck), so it can end
+    # before fire() finishes: wait for it, or it writes into the next test's DB.
+    t = _after_open(fire)
     started = time.time()
     r = _remote(create_app(ApiSettings(auth_mode="on"))).get("/api/events",
                                                              headers=_cookie(world["b"]))
     assert time.time() - started < 3
+    t.join(5)
     assert [n for n, _ in _parse(r.text) if n == "job"] == []
 
 
