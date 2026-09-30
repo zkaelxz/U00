@@ -34,6 +34,9 @@ def _check_id(value):
         raise InvalidInputError("title id is out of range.")
 
 
+MAX_TAG_LEN = 40
+
+
 def _check_query(name, value):
     if value is None:
         return ""
@@ -155,11 +158,17 @@ def list_platforms(language="", content_type="") -> dict:
     return {"platforms": [dict(s) for s in sites]}
 
 
-def search_links(q, fmt="") -> dict:
+def search_links(q, fmt="", genre="baihe", tag="") -> dict:
     q = _check_query("q", q)
     if not q:
         raise InvalidInputError("q is required.")
     fmt = _check_query("format", fmt)
     if fmt and fmt not in SEARCH_LINK_FORMATS:
         raise InvalidInputError("Unknown format.", details={"allowed": list(SEARCH_LINK_FORMATS)})
-    return {"links": known_sites.build_search_links(q, content_type=fmt or None)}
+    if genre not in ("baihe", "any"):
+        raise InvalidInputError("Unknown genre.", details={"allowed": ["baihe", "any"]})
+    tag = _check_query("tag", tag)
+    if len(tag) > MAX_TAG_LEN:
+        raise InvalidInputError(f"tag must be at most {MAX_TAG_LEN} characters.")
+    return {"links": known_sites.build_search_links(
+        q, content_type=fmt or None, baihe_only=genre == "baihe", tag=tag if genre == "any" else "")}
