@@ -337,6 +337,11 @@ baihe-subtitler/
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text (optional chapter
 │   │                             range), chapters imported in Sources as narration text, chapter OCR job
+│   ├── lncrawl_service.py        Step 115b -- optional "Import with lightnovel-crawler": finds the
+│   │                             user-installed GPL-3.0 `lncrawl` program (PATH or Settings lncrawl_cmd;
+│   │                             never imported), runs it as a separate process (fixed argv, timeout,
+│   │                             cancel, output/size caps, redacted tail) and attaches its EPUB through
+│   │                             novel_attach_service (router: novel_routes.py, local_only)
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
@@ -655,6 +660,9 @@ baihe-subtitler/
 │   │                              CreditsCoverPanel (Source > Credits & cover: bilingual credits, Romanize,
 │   │                              PC-only cover upload) + ../preambleForm.ts (pure, unit-tested; also the
 │   │                              EPUB chapter range NovelPanel uses) + preamble.css
+│   │                              LncrawlPanel (Source > Novel text > Import with lightnovel-crawler; shown
+│   │                              only when lncrawl is installed and on the PC) + lncrawlForm.ts (pure,
+│   │                              unit-tested)
 │   │                              VoiceSuggestions (Characters > "sounds like X": accept/reject) + characters.css;
 │   │                              CharactersPanel's sample lines, custom pronouns and "Remember in this series"
 │   │                              use characterForm.ts (pure, unit-tested); API in src/api/characters.ts,

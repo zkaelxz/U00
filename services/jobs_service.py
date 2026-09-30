@@ -45,6 +45,8 @@ RESULT_ALLOWED_KEYS = (
     "status", "stage", "last_error", "line_id", "candidate_count",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
+    # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
+    "epub_chapters",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
