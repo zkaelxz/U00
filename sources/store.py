@@ -9,6 +9,7 @@ db.LIBRARY_DIR at call time, so the tests' `isolated_db` fixture
 redirects it along with everything else.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -659,13 +660,57 @@ def set_last_good_domain(source: str, origin):
     set_setting(_last_good_key(source), origin or None)
 
 
+MAX_PENDING_PROPOSALS = 5
+
+
+@contextlib.contextmanager
+def _write_transaction():
+    """One BEGIN IMMEDIATE transaction: the write lock is taken before
+    anything is read, so a check-then-write inside it can't race another
+    thread or process sharing sources.db."""
+    conn = connect()
+    conn.isolation_level = None
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
+    finally:
+        conn.close()
+
+
 def propose_domain(source: str, host: str, now: float = None) -> bool:
-    """Records a pending proposal. False when the host was already proposed
-    or was dismissed before (a dismissed host is not proposed again)."""
-    with connect() as conn:
-        cur = conn.execute("INSERT OR IGNORE INTO domain_proposals(source, host, found_at) "
-                           "VALUES(?, ?, ?)", (source, host, time.time() if now is None else now))
-    return cur.rowcount > 0
+    """Records a pending proposal (`host` is host[:port]). False when the
+    host was already proposed, was dismissed before (a dismissed host is not
+    proposed again), or the source already has MAX_PENDING_PROPOSALS
+    waiting."""
+    with _write_transaction() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO domain_proposals(source, host, found_at) SELECT ?, ?, ? "
+            "WHERE (SELECT COUNT(*) FROM domain_proposals WHERE source=? AND dismissed=0) < ?",
+            (source, host, time.time() if now is None else now, source, MAX_PENDING_PROPOSALS))
+        return cur.rowcount > 0
+
+
+def claim_discovery(source: str, interval: float, now: float = None) -> bool:
+    """True if discovery may run for the source now, recording the time in
+    the same transaction; False if it ran less than `interval` seconds ago
+    (a time in the future, e.g. after a clock change, doesn't block)."""
+    key = f"source_domain_discovery_at.{source}"
+    with _write_transaction() as conn:
+        # Read the clock under the write lock, so a later claimant never
+        # holds an earlier time than the one it is compared with.
+        now = time.time() if now is None else now
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        last = json.loads(row["value"]) if row is not None else None
+        if isinstance(last, (int, float)) and 0 <= now - last < interval:
+            return False
+        conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(now)))
+        return True
 
 
 def domain_proposals(source: str = None) -> list:

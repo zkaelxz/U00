@@ -1,11 +1,14 @@
 """
 tests/test_source_domains.py -- domain lists for sources that move
 (sources/domains.py, services/source_domains_service.py and the PC-only
-/api/source-domains routes). Scripted transport and a fake clock; no
+/api/source-domains routes). Scripted transport, a fake clock, and for the
+redirect rules the real transport over a fake requests session; no
 request reaches the network, and host names resolve through a fake
 getaddrinfo.
 """
 import json
+import threading
+import time
 
 import pytest
 import requests
@@ -58,11 +61,13 @@ def world(isolated_db, monkeypatch):
         return [(2, 1, 6, "", (ip, port))]
 
     monkeypatch.setattr(url_guard.socket, "getaddrinfo", fake_getaddrinfo)
-    domains.reset_discovery_state()
     src_http.reset_pacing_state()
     yield
-    domains.reset_discovery_state()
     src_http.reset_pacing_state()
+
+
+def _allow_discovery_again(source="toonkor"):
+    store.set_setting(f"source_domain_discovery_at.{source}", None)
 
 
 def _toonkor(routes, clock=None):
@@ -167,17 +172,30 @@ class TestDiscovery:
         assert [u for u in t.urls()[before:] if u.startswith(TK_NEW)] == []
 
     def test_discovery_runs_at_most_once_per_interval(self, world):
-        clock = FakeClock()
-        a, t = _toonkor({f"{TK}/webtoon-1": _down(), f"{TK}/": _down()}, clock)
+        a, t = _toonkor({f"{TK}/webtoon-1": _down(), f"{TK}/": _down()})
         for _ in range(2):
             with pytest.raises(SourceUnavailable):
                 a.get_series("webtoon-1")
         assert t.urls().count(f"{TK}/") == 1
         health.reset("toonkor")
-        clock.t += domains.DISCOVERY_INTERVAL
+        store.set_setting("source_domain_discovery_at.toonkor",
+                          time.time() - domains.DISCOVERY_INTERVAL - 1)
         with pytest.raises(SourceUnavailable):
             a.get_series("webtoon-1")
         assert t.urls().count(f"{TK}/") == 2
+
+    def test_the_throttle_survives_a_new_client_and_process_state(self, world):
+        routes = {f"{TK}/webtoon-1": _down(), f"{TK}/": _down()}
+        a, t = _toonkor(dict(routes))
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert t.urls().count(f"{TK}/") == 1
+        health.reset("toonkor")
+        src_http.reset_pacing_state()      # what a restart forgets
+        b, t2 = _toonkor(dict(routes))
+        with pytest.raises(SourceUnavailable):
+            b.get_series("webtoon-1")
+        assert t2.urls() == [f"{TK}/webtoon-1"]
 
     def test_a_lookalike_is_not_proposed(self, world):
         lookalike = TOONKOR_HOME.replace("툰코", "웹툰천국")
@@ -264,13 +282,13 @@ class TestUnreachable:
         assert SECRET not in text and "?" not in text and "://" not in text
 
         health.reset("toonkor")
-        domains.reset_discovery_state()
+        _allow_discovery_again()
         self._fail()
         assert len(assistant.list_backlog()["items"]) == 1
 
         assistant.delete_backlog_item(items[0]["id"], confirm=True)
         health.reset("toonkor")
-        domains.reset_discovery_state()
+        _allow_discovery_again()
         self._fail()
         assert len(assistant.list_backlog()["items"]) == 1
 
@@ -361,7 +379,9 @@ class TestRoutes:
         assert local.post("/api/source-domains/proposals/confirm",
                           json={"source": "baozimh", "host": "x.org"}).status_code == 404
         assert local.post("/api/source-domains/nosuch", json={"domains": ["a.org"]}).status_code == 404
-        for bad in (["https://a.org/x?k=1"], ["10.0.0.1"], ["localhost"], ["a.org:8443"], []):
+        for bad in (["https://a.org/x?k=1"], ["10.0.0.1"], ["localhost"], ["[::1]"],
+                    ["::ffff:10.0.0.1"], ["a.org:"], ["a.org:0"], ["a.org:65536"], ["a.org:abc"],
+                    ["a.org:-1"], ["a.org:8443:1"], []):
             r = local.post("/api/source-domains/toonkor", json={"domains": bad})
             assert r.status_code == 422, bad
         assert store.domain_list("toonkor") is None
@@ -397,3 +417,246 @@ class TestRoutes:
             assert c.post("/api/source-domains/toonkor", headers=h,
                           json={"domains": ["a.org"]}).status_code == 403
         assert [p["host"] for p in store.domain_proposals()] == ["toonkor1.org"]
+
+
+# ---------------------------------------------------------------------------
+# Ports and trailing dots
+# ---------------------------------------------------------------------------
+
+class TestHostForms:
+    def test_normalize_host(self):
+        n = domains.normalize_host
+        assert n("Toonkor1.ORG.") == "toonkor1.org"
+        assert n("toonkor1.org:443") == "toonkor1.org"
+        assert n("toonkor1.org:8443") == "toonkor1.org:8443"
+        for bad in ("toonkor1.org:", "toonkor1.org:0", "toonkor1.org:65536", "toonkor1.org:x",
+                    "toonkor1.org:８４４３", "10.0.0.1", "[::1]", "::ffff:10.0.0.1", "https://a.org",
+                    "a.org/x", "localhost", ""):
+            assert n(bad) == "", bad
+
+    def test_a_trailing_dot_proposal_is_stored_plain_and_can_be_confirmed(self, local):
+        a, t = _toonkor({f"{TK}/webtoon-1": _down(),
+                         f"{TK}/": html("", 301, {"Location": "https://toonkor1.org./"}),
+                         "https://toonkor1.org./": html(TOONKOR_HOME)})
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert [p["host"] for p in store.domain_proposals()] == ["toonkor1.org"]
+        r = local.post("/api/source-domains/proposals/confirm",
+                       json={"source": "toonkor", "host": "toonkor1.org."})
+        assert r.status_code == 200, r.text
+        assert r.json()["domains"][0] == "toonkor1.org"
+
+    def test_a_stored_trailing_dot_row_can_still_be_dismissed(self, local):
+        store.propose_domain("toonkor", "toonkor3.org.")
+        assert [p["host"] for p in local.get("/api/source-domains/proposals").json()] == \
+            ["toonkor3.org"]
+        r = local.post("/api/source-domains/proposals/dismiss",
+                       json={"source": "toonkor", "host": "toonkor3.org"})
+        assert r.status_code == 200 and store.domain_proposals() == []
+
+    def test_a_non_default_port_is_kept_through_confirm(self, local):
+        a, t = _toonkor({f"{TK}/webtoon-1": _down(),
+                         f"{TK}/": html("", 301, {"Location": "https://toonkor1.org:8443/"}),
+                         "https://toonkor1.org:8443/": html(TOONKOR_HOME)})
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert local.get("/api/source-domains/proposals").json()[0]["host"] == "toonkor1.org:8443"
+        r = local.post("/api/source-domains/proposals/confirm",
+                       json={"source": "toonkor", "host": "toonkor1.org:8443"})
+        assert r.json()["domains"] == ["toonkor1.org:8443", "toonkor0.org"]
+        assert store.domain_list("toonkor")[0] == "https://toonkor1.org:8443"
+        b, t2 = _toonkor({"https://toonkor1.org:8443/webtoon-1": html(TOONKOR_SERIES)})
+        b.get_series("webtoon-1")
+        assert t2.urls() == ["https://toonkor1.org:8443/webtoon-1"]
+
+    def test_an_invalid_port_in_a_redirect_is_refused(self, world):
+        a, t = _toonkor({f"{TK}/webtoon-1": _down(),
+                         f"{TK}/": html("", 301, {"Location": "https://toonkor1.org:99999/"}),
+                         "https://toonkor1.org:99999/": html(TOONKOR_HOME)})
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert "https://toonkor1.org:99999/" not in t.urls()
+        assert store.domain_proposals() == []
+
+    def test_an_owner_can_enter_a_port(self, local):
+        r = local.post("/api/source-domains/toonkor",
+                       json={"domains": ["b.example:8443", "b.example:443"]})
+        assert r.status_code == 200
+        assert r.json()["domains"] == ["b.example:8443", "b.example"]
+
+
+# ---------------------------------------------------------------------------
+# The proposal cap and the throttle are atomic
+# ---------------------------------------------------------------------------
+
+class TestAtomic:
+    def test_at_most_five_pending_proposals(self, world):
+        results = [store.propose_domain("toonkor", f"t{i}.example") for i in range(7)]
+        assert results == [True] * 5 + [False] * 2
+        store.dismiss_domain_proposal("toonkor", "t0.example")
+        assert store.propose_domain("toonkor", "t9.example") is True
+        assert store.propose_domain("xbanxia", "x.example") is True   # per source
+
+    def _race(self, fn, n=12):
+        barrier = threading.Barrier(n)
+        out = []
+
+        def run(i):
+            barrier.wait()
+            out.append(fn(i))
+
+        threads = [threading.Thread(target=run, args=(i,)) for i in range(n)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(30)
+        assert len(out) == n
+        return out
+
+    def test_concurrent_proposals_cannot_pass_the_cap(self, world):
+        out = self._race(lambda i: store.propose_domain("toonkor", f"race{i}.example"))
+        assert out.count(True) == store.MAX_PENDING_PROPOSALS
+        assert len(store.domain_proposals("toonkor")) == store.MAX_PENDING_PROPOSALS
+
+    def test_concurrent_discoveries_claim_once(self, world):
+        out = self._race(lambda i: store.claim_discovery("toonkor", domains.DISCOVERY_INTERVAL))
+        assert out.count(True) == 1
+
+
+# ---------------------------------------------------------------------------
+# Redirect rules through the real transport: a fake requests session under
+# sources.http._requests_transport, so its own redirect code runs
+# ---------------------------------------------------------------------------
+
+class _Raw:
+    def __init__(self, body: bytes):
+        self.chunks = [body] if body else []
+
+    def read1(self, n, decode_content=True):
+        return self.chunks.pop(0) if self.chunks else b""
+
+
+class _Resp:
+    def __init__(self, url, status=200, body=b"", headers=None):
+        self.url, self.status_code = url, status
+        self.headers = {"Content-Type": "text/html; charset=utf-8", **(headers or {})}
+        self.raw, self.cookies, self.history = _Raw(body), [], []
+
+    def close(self):
+        pass
+
+
+class _Session:
+    def __init__(self, routes):
+        self.routes, self.calls = routes, []
+
+    def request(self, method, url, **kw):
+        assert kw.get("allow_redirects") is False and kw.get("timeout")
+        self.calls.append(url)
+        route = self.routes.get(url)
+        if isinstance(route, Exception):
+            raise route
+        if route is None:
+            return _Resp(url, 404, b"<html>nf</html>")
+        status, body, headers = route
+        return _Resp(url, status, body.encode("utf-8"), headers)
+
+
+def _real_adapter():
+    return toonkor.ToonkorSource(client=make_client("toonkor", None, FakeClock(), max_retries=0))
+
+
+@pytest.fixture
+def real(world, monkeypatch):
+    holder = {}
+    monkeypatch.setattr(src_http, "_thread_session", lambda: holder["s"])
+
+    def run(routes):
+        holder["s"] = _Session(routes)
+        with pytest.raises(SourceUnavailable):
+            _real_adapter().get_series("webtoon-1")
+        return holder["s"].calls
+
+    run.holder = holder
+    return run
+
+
+def _redirect(to):
+    return (301, "", {"Location": to})
+
+
+class TestRealTransport:
+    DOWN = {f"{TK}/webtoon-1": requests.exceptions.ConnectionError("down")}
+
+    def test_a_proposal_is_found_hop_by_hop(self, real):
+        calls = real({**self.DOWN, f"{TK}/": _redirect(f"{TK_NEW}/"),
+                      f"{TK_NEW}/": (200, TOONKOR_HOME, {})})
+        assert calls == [f"{TK}/webtoon-1", f"{TK}/", f"{TK_NEW}/"]
+        assert [p["host"] for p in store.domain_proposals()] == ["toonkor1.org"]
+
+    def test_a_downgrade_to_http_is_refused_and_never_requested(self, real):
+        calls = real({**self.DOWN, f"{TK}/": _redirect("http://toonkor2.org/"),
+                      "http://toonkor2.org/": (200, TOONKOR_HOME, {})})
+        assert "http://toonkor2.org/" not in calls
+        assert store.domain_proposals() == []
+
+    def test_more_than_three_hops_are_refused(self, real):
+        hops = {f"https://hop{i}.example/": _redirect(f"https://hop{i + 1}.example/")
+                for i in range(6)}
+        calls = real({**self.DOWN, f"{TK}/": _redirect("https://hop0.example/"), **hops,
+                      "https://hop6.example/": (200, TOONKOR_HOME, {})})
+        assert [c for c in calls if "hop" in c] == [f"https://hop{i}.example/" for i in range(3)]
+        assert store.domain_proposals() == []
+
+    def test_a_loop_is_refused(self, real):
+        calls = real({**self.DOWN, f"{TK}/": _redirect("https://loop.example/"),
+                      "https://loop.example/": _redirect(f"{TK}/")})
+        assert calls.count(f"{TK}/") == 1 and calls.count("https://loop.example/") == 1
+        assert store.domain_proposals() == []
+
+    @pytest.mark.parametrize("target", [f"https://{PRIVATE_HOST}/", "https://10.0.0.7/",
+                                        "https://[::ffff:10.0.0.1]/", "https://[fd00::1]/",
+                                        "https://toonkor1.org:0/"])
+    def test_an_unsafe_target_is_refused_and_never_requested(self, real, target):
+        calls = real({**self.DOWN, f"{TK}/": _redirect(target), target: (200, TOONKOR_HOME, {})})
+        assert calls == [f"{TK}/webtoon-1", f"{TK}/"]
+        assert store.domain_proposals() == []
+
+    def test_ordinary_fetches_still_follow_redirects(self, real):
+        session = _Session({f"{TK}/webtoon-1": _redirect(f"{TK}/webtoon-1/"),
+                            f"{TK}/webtoon-1/": (200, TOONKOR_SERIES, {})})
+        real.holder["s"] = session
+        assert _real_adapter().get_series("webtoon-1").title == "Title"
+        assert session.calls == [f"{TK}/webtoon-1", f"{TK}/webtoon-1/"]
+
+
+# ---------------------------------------------------------------------------
+# The raw cache never holds an off-list host's page under a listed URL
+# ---------------------------------------------------------------------------
+
+class TestCache:
+    def _adapter(self, routes):
+        from sources.cache import RawCache
+        a, t = _toonkor(routes)
+        a.client.cache = RawCache("keep_originals")
+        return a, t
+
+    def test_an_off_list_page_is_not_cached_or_reused(self, world):
+        routes = {f"{TK}/webtoon-1": html(TOONKOR_SERIES, url=f"{TK_NEW}/webtoon-1"),
+                  f"{TK}/": _down()}
+        a, t = self._adapter(dict(routes))
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert a.client.cache.get(f"{TK}/webtoon-1") is None
+        health.reset("toonkor")
+        a2, t2 = self._adapter(dict(routes))
+        with pytest.raises(SourceUnavailable):
+            a2.get_series("webtoon-1")
+        assert t2.urls() == [f"{TK}/webtoon-1"]      # asked the network, not the cache
+
+    def test_a_listed_page_is_still_cached(self, world):
+        a, t = self._adapter({f"{TK}/webtoon-1": html(TOONKOR_SERIES)})
+        a.get_series("webtoon-1")
+        a2, t2 = self._adapter({})
+        assert a2.get_series("webtoon-1").title == "Title"
+        assert t2.urls() == []

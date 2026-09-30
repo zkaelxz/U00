@@ -129,6 +129,20 @@ class ConditionalPoll:
 
 
 _poll_local = threading.local()
+_redirect_local = threading.local()
+
+
+@contextmanager
+def redirects_not_followed():
+    """Requests this thread's clients send inside the block get a redirect
+    back as the 3xx response (Location header intact) instead of the
+    transport following it, so the caller can vet every hop itself."""
+    previous = getattr(_redirect_local, "off", False)
+    _redirect_local.off = True
+    try:
+        yield
+    finally:
+        _redirect_local.off = previous
 
 
 def _active_poll():
@@ -365,6 +379,8 @@ class FetchLimits:
     deadline: float = REQUEST_DEADLINE
     cancel_check: object = None
     clock: object = time.monotonic
+    # False: a redirect comes back to the caller as the 3xx response itself.
+    follow_redirects: bool = True
 
 
 def _header(headers, name: str) -> str:
@@ -588,7 +604,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
             _tls.pin = None
         hops.append(r)
         location = (r.headers or {}).get("Location") or (r.headers or {}).get("location")
-        if r.status_code not in _REDIRECT_CODES or not location:
+        if r.status_code not in _REDIRECT_CODES or not location or not limits.follow_redirects:
             try:
                 content = _read_body(r, limits, deadline_at)
             finally:
@@ -849,7 +865,8 @@ class SourceClient:
         read at call time, so a cancel_check set after construction works."""
         return _requests_transport(method, url, headers, data, timeout, limits=FetchLimits(
             self.max_page_bytes, self.max_image_bytes, self.request_deadline,
-            self._cancel_requested))
+            self._cancel_requested,
+            follow_redirects=not getattr(_redirect_local, "off", False)))
 
     def _cancel_requested(self) -> bool:
         return bool(self.cancel_check and self.cancel_check())
@@ -1036,7 +1053,9 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
-                    if cacheable:
+                    # Content a redirect fetched from another host is never
+                    # stored under the URL that was asked for.
+                    if cacheable and _host_key(resp.url or url) == _host_key(url):
                         self.cache.put(url, resp.content)
                     if poll is not None and method.upper() == "GET":
                         low = {k.lower(): v for k, v in resp.headers.items()}

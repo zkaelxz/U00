@@ -4,8 +4,8 @@ between domains (sources/domains.py): read and edit a source's list, and
 confirm or dismiss a host that discovery proposed. UI-free; every route is
 PC-only (api/routers/source_domains_routes.py).
 
-Only host names leave this module, never a scheme-full URL, a path or a
-query. Host names are a deliberate exception to "no fetched URLs": the
+Only host names (with a port when it isn't 443) leave this module, never a
+scheme-full URL, a path or a query. Host names are a deliberate exception to "no fetched URLs": the
 owner has to see which host they are confirming, which is why every route
 is local_only().
 
@@ -16,18 +16,13 @@ the assistant's Developer Mode is on), and none again while that item is
 still in the backlog.
 """
 
-import re
-
 from services.service_errors import InvalidInputError, NotFoundError, ServiceError
 from sources import domains, health, registry, store
 from translate_engines import redact_for_storage
 
 MAX_DOMAINS = 10
-# A plain DNS name with a dot and an alphabetic TLD: no scheme, port, path,
-# userinfo or IP literal.
-_HOST = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
-                   r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-BAD_HOST = "Each domain must be a host name like example.com (no https://, port or path)."
+BAD_HOST = ("Each domain must be a host name like example.com, optionally with a port "
+            "(example.com:8443); no https://, path or IP address.")
 BACKLOG_MARKER = "[source-domains:{source}]"
 
 
@@ -46,8 +41,8 @@ def _require(name: str):
 def _clean_host(value) -> str:
     if not isinstance(value, str):
         raise InvalidInputError(BAD_HOST)
-    host = value.strip().lower().rstrip(".")
-    if not _HOST.match(host):
+    host = domains.normalize_host(value)
+    if not host:
         raise InvalidInputError(BAD_HOST)
     return host
 
@@ -58,10 +53,10 @@ def _entry(name: str, cls) -> dict:
     return {
         "source": name,
         "display_name": cls.display_name or name,
-        "domains": [domains.host_of(o) for o in listed],
-        "default_domains": [domains.host_of(u) for u in cls.base_urls],
+        "domains": [domains.hostport(o) for o in listed],
+        "default_domains": [domains.hostport(u) for u in cls.base_urls],
         "customized": store.domain_list(name) is not None,
-        "last_good": domains.host_of(last) if last in listed else None,
+        "last_good": domains.hostport(last) if last in listed else None,
         "pending_proposals": len(store.domain_proposals(name)),
     }
 
@@ -97,15 +92,17 @@ def reset_domains(name: str) -> dict:
 def list_proposals() -> list:
     classes = _domain_classes()
     return [{"source": p["source"], "display_name": classes[p["source"]].display_name or p["source"],
-             "host": p["host"], "found_at": p["found_at"]}
+             "host": domains.normalize_host(p["host"]) or p["host"], "found_at": p["found_at"]}
             for p in store.domain_proposals() if p["source"] in classes]
 
 
-def _require_pending(name: str, host: str) -> str:
+def _require_pending(name: str, host: str):
+    """(normalized host[:port], the stored value it matches)."""
     host = _clean_host(host)
-    if host not in {p["host"] for p in store.domain_proposals(name)}:
-        raise NotFoundError("No pending proposal for that source and host.")
-    return host
+    for p in store.domain_proposals(name):
+        if domains.normalize_host(p["host"]) == host:
+            return host, p["host"]
+    raise NotFoundError("No pending proposal for that source and host.")
 
 
 def confirm_proposal(name: str, host) -> dict:
@@ -113,12 +110,12 @@ def confirm_proposal(name: str, host) -> dict:
     domain, so the next request goes there. The source's backoff is lifted
     (the owner's explicit "try again now")."""
     cls = _require(name)
-    host = _require_pending(name, host)
-    listed = [domains.host_of(o) for o in domains.configured_origins(cls)]
+    host, stored = _require_pending(name, host)
+    listed = [domains.hostport(o) for o in domains.configured_origins(cls)]
     new = ([host] + [h for h in listed if h != host])[:MAX_DOMAINS]
     store.set_domain_list(name, [f"https://{h}" for h in new])
     store.set_last_good_domain(name, f"https://{host}")
-    store.delete_domain_proposal(name, host)
+    store.delete_domain_proposal(name, stored)
     health.reset(name)
     return _entry(name, cls)
 
@@ -126,8 +123,8 @@ def confirm_proposal(name: str, host) -> dict:
 def dismiss_proposal(name: str, host) -> dict:
     """The host is not proposed for this source again."""
     _require(name)
-    host = _require_pending(name, host)
-    store.dismiss_domain_proposal(name, host)
+    _host, stored = _require_pending(name, host)
+    store.dismiss_domain_proposal(name, stored)
     return {"dismissed": True}
 
 

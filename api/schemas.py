@@ -4034,12 +4034,12 @@ class SourcesProxyRequest(BaseModel):
     url: StrictStr = Field("", max_length=500)
 
 
-# Domain lists of sources that move between domains (PC-only routes). Host
-# names only: never a scheme, path or query.
+# Domain lists of sources that move between domains (PC-only routes). host or
+# host:port only: never a scheme, path or query.
 class SourceDomainList(BaseModel):
     source: str
     display_name: str
-    domains: List[str] = Field(description="Host names, tried in this order (https).")
+    domains: List[str] = Field(description="host or host:port (443 implicit), tried in this order (https).")
     default_domains: List[str] = Field(description="The adapter's own list.")
     customized: bool = Field(description="True when the owner's saved list is in use.")
     last_good: Optional[str] = Field(
@@ -4050,7 +4050,7 @@ class SourceDomainList(BaseModel):
 class SourceDomainsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     domains: List[StrictStr] = Field(min_length=1, max_length=10,
-                                     description="Host names like example.com, in order.")
+                                     description="host or host:port, e.g. example.com, in order.")
 
 
 class SourceDomainProposal(BaseModel):
@@ -4063,7 +4063,7 @@ class SourceDomainProposal(BaseModel):
 class SourceDomainProposalAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: StrictStr = Field(min_length=1, max_length=60)
-    host: StrictStr = Field(min_length=1, max_length=253)
+    host: StrictStr = Field(min_length=1, max_length=260)
 
 
 class SourceDomainProposalDismissed(BaseModel):
