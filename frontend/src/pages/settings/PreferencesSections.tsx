@@ -210,9 +210,9 @@ export function AdvancedCard(props: Props) {
         title="Downloads"
         storageKey="settings.downloads"
         summary={`Cookies: ${cookiesSummary(p.cookies_browser && humanizeValue(p.cookies_browser), p.cookies_file)}`}
-        fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file })}
+        fromPrefs={(x) => ({ cookies_browser: x.cookies_browser ?? '', cookies_file: x.cookies_file, lncrawl_cmd: x.lncrawl_cmd })}
         toPatch={(d) => {
-          const paths = pathPatch(d, ['cookies_file'])
+          const paths = pathPatch(d, ['cookies_file', 'lncrawl_cmd'])
           return paths.ok
             ? { ok: true, value: { ...paths.value, cookies_browser: String(d.cookies_browser) || null } }
             : paths
@@ -235,6 +235,9 @@ export function AdvancedCard(props: Props) {
             </Field>
             <Field label="cookies.txt file" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
               <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
+            </Field>
+            <Field label="lightnovel-crawler program" help="Only needed if you installed lightnovel-crawler (a separate program you install yourself) and it isn't on PATH. The full path to lncrawl on the Baihe PC; the file must be named lncrawl or lightnovel-crawler. Blank to find it on PATH.">
+              <input type="text" spellCheck={false} value={String(d.lncrawl_cmd)} onChange={(e) => set('lncrawl_cmd', e.target.value)} placeholder="C:\Users\you\.local\bin\lncrawl.exe" />
             </Field>
           </>
         )}
