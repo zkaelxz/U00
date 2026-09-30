@@ -310,3 +310,21 @@ def test_detail_source_url_never_returns_a_query_or_userinfo(client):
         assert body["source_url"] == "https://cdn.example.com:8443/v/1.mp4"
     db.update_drama(did, source_url="example.com/novel")   # old free text: not a URL
     assert client.get(f"/api/library/dramas/{did}").json()["source_url"] is None
+
+
+
+@pytest.mark.parametrize("stored,shown", [
+    ("https://host/v.mp4;jsessionid=ABC", "https://host/v.mp4"),
+    ("https://api.telegram.org/file/bot123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/videos/f.mp4",
+     "https://api.telegram.org/"),
+    ("https://customer-x.cloudflarestream.com/eyJhbGciOiJSUzI1NiIsImtpZCI6IjEyMyJ9abcdefgh/downloads/d.mp4",
+     "https://customer-x.cloudflarestream.com/"),
+    ("https://[2001:db8::1]:8443/p", "https://[2001:db8::1]:8443/p"),
+    ("file://localhost/C:/Users/me/Videos/ep1.mp4", None),
+    ("javascript://host/%0Aalert(1)", None),
+    ("https://www.example.com/drama/tgcf-123", "https://www.example.com/drama/tgcf-123"),
+])
+def test_detail_source_url_drops_path_tokens_and_non_http(client, stored, shown):
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    db.update_drama(did, source_url=stored)
+    assert client.get(f"/api/library/dramas/{did}").json()["source_url"] == shown
