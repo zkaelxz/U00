@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS tracked_series (
     drama_id INTEGER,
     last_checked REAL,
     last_check_error TEXT,
+    linked_by_user_id INTEGER,
     PRIMARY KEY (source, series_id)
 );
 CREATE TABLE IF NOT EXISTS known_chapters (
@@ -220,13 +221,28 @@ def connect() -> sqlite3.Connection:
     # needs no "already initialized?" bookkeeping that could go stale when
     # the library folder moves.
     conn.executescript(_SCHEMA)
-    if "text_offset" not in {r["name"] for r in conn.execute("PRAGMA table_info(import_retry)")}:
-        try:
-            conn.execute("ALTER TABLE import_retry ADD COLUMN text_offset INTEGER")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e):   # else another connection added it first
-                raise
+    _add_missing_columns(conn)
     return conn
+
+
+# Columns added after a table first shipped: CREATE TABLE IF NOT EXISTS
+# leaves an older sources.db without them.
+_ADDED_COLUMNS = (("tracked_series", "linked_by_user_id", "INTEGER"),
+                  ("import_retry", "text_offset", "INTEGER"))
+
+
+def _add_missing_columns(conn) -> None:
+    for table, column, decl in _ADDED_COLUMNS:
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in have:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+                conn.commit()
+            except sqlite3.OperationalError as e:
+                # Only "another connection added it first" is fine.
+                if "duplicate column name" not in str(e).lower() and column not in {
+                        r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                    raise
 
 
 # ---------------------------------------------------------------------------
@@ -325,17 +341,26 @@ def recent_attempts(source: str = None, limit: int = 50) -> list:
 # Tracked series, known chapters, notifications (Step 23 item 5)
 # ---------------------------------------------------------------------------
 
+# The link owner follows the drama link: it changes only when drama_id does,
+# so re-tracking the same link (by anyone) keeps whoever made it.
+_KEEP_LINK_OWNER = ("linked_by_user_id=CASE WHEN tracked_series.drama_id IS excluded.drama_id "
+                    "THEN tracked_series.linked_by_user_id ELSE excluded.linked_by_user_id END")
+
+
 def track_series(source: str, series_id: str, title: str, url: str = "",
-                 drama_id: int = None, known_chapters=()):
+                 drama_id: int = None, known_chapters=(), linked_by_user_id: int = None):
     """Starts tracking a series. The chapters it already has are recorded
     as known, so the first check doesn't announce the whole back catalog
-    as "new"."""
+    as "new". `linked_by_user_id`: the user who set the drama link (None =
+    auth off / the PC owner); the scheduled check imports only while that
+    user can still edit the drama."""
     now = time.time()
     with connect() as conn:
-        conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, last_checked) "
-                     "VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(source, series_id) DO UPDATE SET "
-                     "title=excluded.title, url=excluded.url, drama_id=excluded.drama_id",
-                     (source, series_id, title, url, drama_id, now))
+        conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, "
+                     "last_checked, linked_by_user_id) VALUES(?, ?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT(source, series_id) DO UPDATE SET title=excluded.title, "
+                     "url=excluded.url, " + _KEEP_LINK_OWNER + ", drama_id=excluded.drama_id",
+                     (source, series_id, title, url, drama_id, now, linked_by_user_id))
         conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, title, "
                          "first_seen) VALUES(?, ?, ?, ?, ?)",
                          [(source, series_id, c.chapter_id, c.title, now) for c in known_chapters])
@@ -425,12 +450,16 @@ def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
             (source, str(series_id), int(drama_id)))]
 
 
-def set_tracked_drama(source: str, series_id: str, drama_id) -> bool:
+def set_tracked_drama(source: str, series_id: str, drama_id,
+                      linked_by_user_id: int = None) -> bool:
     """Points a tracked series' auto-import at another drama (None = no
-    auto-import target). Touches nothing else; False if not tracked."""
+    auto-import target) and, if the drama changes, records who linked it.
+    Touches nothing else; False if not tracked."""
     with connect() as conn:
-        cur = conn.execute("UPDATE tracked_series SET drama_id=? WHERE source=? AND series_id=?",
-                           (drama_id, source, series_id))
+        cur = conn.execute("UPDATE tracked_series SET linked_by_user_id=CASE WHEN drama_id IS ? "
+                           "THEN linked_by_user_id ELSE ? END, drama_id=? "
+                           "WHERE source=? AND series_id=?",
+                           (drama_id, linked_by_user_id, drama_id, source, series_id))
         return cur.rowcount > 0
 
 
