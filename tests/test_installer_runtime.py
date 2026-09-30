@@ -1,6 +1,7 @@
 """Step 80b: the installed app's runtime scripts -- installer/launcher.py
 (the Start-menu shortcut) and installer/postinstall.py (the install step).
 No real server, browser, pip or Windows process calls: those are faked."""
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -255,21 +256,16 @@ class TestPipEnvAndCommands:
         wheels = tmp_path / "wheels"
         wheels.mkdir()
         (wheels / "pip-26.2-py3-none-any.whl").write_bytes(b"")
-        app = tmp_path / "app"
-        app.mkdir()
-        (app / "constraints.txt").write_text("")
         boot = postinstall.bootstrap_pip_command("py", wheels)
-        core = postinstall.core_install_command("py", wheels, app)
+        core = postinstall.core_install_command("py", wheels)
         for cmd in (boot, core):
             assert cmd[:2] == ["py", "-s"]
             assert "--no-index" in cmd and "--find-links" in cmd
         assert boot[2] == "-c" and "runpy.run_module('pip'" in boot[3]
         assert boot[4].endswith("pip-26.2-py3-none-any.whl")
-        assert core[core.index("-r") + 1] == str(app / "requirements-core.txt")
-        assert core[core.index("-c") + 1] == str(app / "constraints.txt")
-        (app / "constraints.lock.txt").write_text("")
-        core = postinstall.core_install_command("py", wheels, app)
-        assert core[core.index("-c") + 1] == str(app / "constraints.lock.txt")
+        assert "--require-hashes" in core and "--no-deps" in core
+        assert core[core.index("-r") + 1] == str(wheels / postinstall.LOCK_NAME)
+        assert "-c" not in core and "--require-hashes" not in boot
 
     def test_no_pip_wheel(self, tmp_path):
         with pytest.raises(postinstall.PostInstallError) as e:
@@ -284,7 +280,9 @@ class TestRun:
         app.mkdir(parents=True)
         wheels = tmp_path / "wheels"
         wheels.mkdir()
-        (wheels / "pip-26-py3-none-any.whl").write_bytes(b"")
+        (wheels / "pip-26-py3-none-any.whl").write_bytes(b"pip")
+        digest = hashlib.sha256(b"pip").hexdigest()
+        (wheels / postinstall.LOCK_NAME).write_text(f"pip==26 \\\n    --hash=sha256:{digest}\n")
         return app, wheels, tmp_path / "data"
 
     def test_success(self, tmp_path):
@@ -302,6 +300,23 @@ class TestRun:
         assert cmds[0][2] == "-c" and "run_module('pip'" in cmds[0][3] and cmds[1][2:4] == ["-m", "pip"]
         assert cmds[2][2] == "-c"
         assert cmds[3][-1].endswith("check_setup.py")
+
+    def test_a_tampered_wheel_stops_before_pip_runs(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+        (wheels / "pip-26-py3-none-any.whl").write_bytes(b"tampered")
+        with pytest.raises(postinstall.PostInstallError) as e:
+            postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                            runner=lambda *a: pytest.fail("ran pip"))
+        assert e.value.code == 6 and "pip-26-py3-none-any.whl" in str(e.value)
+        assert "FAILED" in (data / "launcher" / "install.log").read_text(encoding="utf-8")
+
+    def test_a_missing_lock_stops_the_install(self, tmp_path):
+        app, wheels, data = self._layout(tmp_path)
+        (wheels / postinstall.LOCK_NAME).unlink()
+        with pytest.raises(postinstall.PostInstallError) as e:
+            postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                            runner=lambda *a: pytest.fail("ran pip"))
+        assert e.value.code == 6
 
     @pytest.mark.parametrize("fail_at,code", [(0, 3), (1, 4), (2, 5)])
     def test_failures_stop_with_their_code(self, tmp_path, fail_at, code):

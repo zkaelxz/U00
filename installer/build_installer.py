@@ -8,6 +8,9 @@ and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe
         [--python-zip PATH]       # a local copy of the embeddable zip
         [--no-compile]            # stop after the payload (no ISCC)
         [--iscc PATH]             # ISCC.exe if it isn't in the usual place
+    python installer/build_installer.py --update-lock
+                                      # regenerate installer/wheels.lock.txt
+                                      # (Windows, Python 3.12; see the design doc)
 
 Payload (build/installer/payload/):
     python/         the official embeddable Python, pinned by version and
@@ -15,7 +18,9 @@ Payload (build/installer/payload/):
     app/            the app's code (an allow-by-default copy with the
                     exclusions below), frontend/dist, and the two runtime
                     installer scripts (app/installer/launcher.py, postinstall.py)
-    wheels/         requirements-core.txt's wheels plus pip's own, so the
+    wheels/         the wheels pinned in installer/wheels.lock.txt (SHA-256
+                    hashes; requirements-core.txt plus pip and every
+                    transitive dependency) and a copy of that lock, so the
                     install step never needs the network
     manifest.json   versions, the wheel list with hashes, and the size estimate
 
@@ -42,12 +47,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER_DIR = REPO_ROOT / "installer"
+WHEEL_LOCK = INSTALLER_DIR / "wheels.lock.txt"
 DEFAULT_OUT = REPO_ROOT / "build" / "installer"
 
 # The bundled interpreter. 3.12.10 is the last 3.12 release with Windows
@@ -89,6 +96,11 @@ EXCLUDED_SUFFIXES = frozenset({
     ".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3", ".db-journal", ".db-wal",
     ".key", ".pem", ".pfx", ".p12", ".crt", ".zip", ".whl", ".swp", ".bak", ".tmp",
 })
+
+
+if str(INSTALLER_DIR) not in sys.path:
+    sys.path.insert(0, str(INSTALLER_DIR))
+import postinstall  # noqa: E402  (the lock parser/verifier the installed app runs too)
 
 
 class BuildError(Exception):
@@ -295,7 +307,57 @@ def wheel_download_command(repo_root, wheels_dest, python_version=PYTHON_VERSION
             "pip"]
 
 
-def download_wheels(repo_root, wheels_dest, python_version=PYTHON_VERSION) -> list:
+def locked_download_command(lock_path, wheels_dest, python_version=PYTHON_VERSION,
+                            python_exe=None) -> list:
+    """`pip download` of exactly the pinned set. --require-hashes makes pip
+    itself refuse a file whose hash isn't in the lock (or a requirement
+    without one); --no-deps means nothing outside the lock is resolved."""
+    major_minor = ".".join(python_version.split(".")[:2])
+    return [python_exe or sys.executable, "-m", "pip", "download",
+            "--only-binary=:all:", "--platform", "win_amd64",
+            "--python-version", major_minor, "--implementation", "cp",
+            "--require-hashes", "--no-deps",
+            "-d", str(wheels_dest), "-r", str(lock_path)]
+
+
+def _requirement_names(text) -> set:
+    names = set()
+    for line in text.splitlines():
+        match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", line)
+        if match and not line.lstrip().startswith("#"):
+            names.add(postinstall.canonical_name(match.group(1)))
+    return names
+
+
+def check_lock_covers_requirements(repo_root, lock_path=None) -> None:
+    """Fails if requirements-core.txt (or pip) names a package the lock
+    doesn't pin, i.e. the lock is stale for a dependency change."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    if not lock_path.is_file():
+        raise BuildError(f"{lock_path} doesn't exist. Generate it with "
+                         "`python installer/build_installer.py --update-lock` (docs/windows-installer-design.md).")
+    try:
+        lock = postinstall.parse_lock(lock_path.read_text(encoding="utf-8"))
+    except postinstall.LockError as e:
+        raise BuildError(str(e))
+    wanted = _requirement_names((Path(repo_root) / "requirements-core.txt").read_text(encoding="utf-8"))
+    missing = sorted((wanted | {"pip"}) - set(lock))
+    if missing:
+        raise BuildError("wheels.lock.txt doesn't pin: " + ", ".join(missing)
+                         + ". Regenerate it (--update-lock) and review the diff.")
+
+
+def verify_wheel_hashes(wheels_dir, lock_path=None) -> int:
+    """The build's own check, independent of pip: every wheel in wheels_dir
+    is pinned with a matching SHA-256, and none is extra or missing."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    try:
+        return postinstall.verify_wheels(wheels_dir, lock_path.read_text(encoding="utf-8"))
+    except postinstall.LockError as e:
+        raise BuildError(str(e))
+
+
+def _pip_platform_warnings(python_version):
     if os.name != "nt":
         print("WARNING: downloading wheels on a non-Windows machine drops Windows-only "
               "dependencies (pip evaluates markers for this machine). Use this payload "
@@ -304,18 +366,70 @@ def download_wheels(repo_root, wheels_dest, python_version=PYTHON_VERSION) -> li
         print(f"WARNING: this is Python {sys.version_info[0]}.{sys.version_info[1]} but the bundled "
               f"one is {python_version}; pip evaluates python_version markers for this "
               "interpreter, so build with the same minor version.", file=sys.stderr)
+
+
+def download_wheels(repo_root, wheels_dest, python_version=PYTHON_VERSION, lock_path=None) -> list:
+    """Downloads the locked wheels, then re-verifies every file against the
+    lock ourselves. No unhashed fallback: any failure stops the build."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    check_lock_covers_requirements(repo_root, lock_path)
     wheels_dest = Path(wheels_dest)
     if wheels_dest.exists():
         shutil.rmtree(wheels_dest)
     wheels_dest.mkdir(parents=True)
-    result = subprocess.run(wheel_download_command(repo_root, wheels_dest, python_version),
+    result = subprocess.run(locked_download_command(lock_path, wheels_dest, python_version),
                             timeout=1800)
     if result.returncode != 0:
-        raise BuildError(f"`pip download` failed (exit code {result.returncode}).")
+        raise BuildError(f"`pip download --require-hashes` failed (exit code {result.returncode}); "
+                         "see pip's message above for the package.")
     wheels = sorted(p.name for p in wheels_dest.glob("*.whl"))
     if not any(w.startswith("pip-") for w in wheels):
         raise BuildError("pip's own wheel wasn't downloaded; the install step needs it.")
+    verify_wheel_hashes(wheels_dest, lock_path)
+    shutil.copy2(lock_path, wheels_dest / postinstall.LOCK_NAME)
     return wheels
+
+
+def format_lock(wheels_dir) -> str:
+    """wheels.lock.txt text for the wheels in wheels_dir, one entry per
+    package, in `pip install --require-hashes` format."""
+    entries = {}
+    for whl in sorted(Path(wheels_dir).glob("*.whl")):
+        try:
+            name, version = postinstall.wheel_identity(whl.name)
+        except postinstall.LockError as e:
+            raise BuildError(str(e))
+        if name in entries and entries[name][0] != version:
+            raise BuildError(f"{name} was downloaded in two versions ({entries[name][0]}, {version}).")
+        entries.setdefault(name, (version, set()))[1].add(sha256_of(whl))
+    lines = ["# installer/wheels.lock.txt -- SHA-256 pins for every wheel the Windows installer bundles",
+             "# (requirements-core.txt, pip and all transitive dependencies; win_amd64, CPython 3.12).",
+             "# Generated by `python installer/build_installer.py --update-lock`; do not edit by hand.",
+             "# See docs/windows-installer-design.md, \"Pinned wheels\"."]
+    for name in sorted(entries):
+        version, hashes = entries[name]
+        lines.append(f"{name}=={version} \\")
+        ordered = sorted(hashes)
+        lines.extend(f"    --hash=sha256:{h}" + (" \\" if i < len(ordered) - 1 else "")
+                     for i, h in enumerate(ordered))
+    return "\n".join(lines) + "\n"
+
+
+def update_lock(repo_root=REPO_ROOT, lock_path=None, python_version=PYTHON_VERSION) -> int:
+    """Resolves requirements-core.txt + pip (with the constraints file) from
+    PyPI, the one step that trusts what PyPI serves right now, and writes
+    the SHA-256 of each downloaded wheel to the lock. Review the diff."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    _pip_platform_warnings(python_version)
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(wheel_download_command(repo_root, tmp, python_version), timeout=1800)
+        if result.returncode != 0:
+            raise BuildError(f"`pip download` failed (exit code {result.returncode}).")
+        text = format_lock(tmp)
+    postinstall.parse_lock(text)
+    lock_path.write_text(text, encoding="utf-8", newline="\n")
+    print(f"Wrote {lock_path} ({text.count('==')} packages). Review the diff before committing.")
+    return 0
 
 
 def installed_size_estimate(wheels_dir) -> int:
@@ -409,8 +523,9 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
             print(f"Downloading {PYTHON_EMBED_URL} ...")
             download(PYTHON_EMBED_URL, python_zip)
     prepare_python(python_zip, payload / "python")
+    _pip_platform_warnings(PYTHON_VERSION)
     wheels = download_wheels(REPO_ROOT, payload / "wheels")
-    print(f"Downloaded {len(wheels)} wheels.")
+    print(f"Downloaded {len(wheels)} wheels; all match installer/wheels.lock.txt.")
     manifest = write_manifest(payload, version)
     extra = json.loads(manifest.read_text(encoding="utf-8"))["installed_size_estimate_bytes"]
     if not compile_exe:
@@ -434,7 +549,9 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Build the Baihe Studio Windows installer.")
-    parser.add_argument("--version", required=True, help="the app version, e.g. 0.1.0")
+    parser.add_argument("--version", help="the app version, e.g. 0.1.0")
+    parser.add_argument("--update-lock", action="store_true",
+                        help="regenerate installer/wheels.lock.txt from PyPI and exit")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="build folder")
     parser.add_argument("--skip-frontend-build", action="store_true",
                         help="use the existing frontend/dist instead of running npm")
@@ -442,6 +559,14 @@ def main(argv=None) -> int:
     parser.add_argument("--no-compile", action="store_true", help="assemble the payload only")
     parser.add_argument("--iscc", help="path to Inno Setup's ISCC.exe")
     args = parser.parse_args(argv)
+    if args.update_lock:
+        try:
+            return update_lock()
+        except (BuildError, postinstall.LockError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+    if not args.version:
+        parser.error("--version is required (unless --update-lock)")
     if not re.fullmatch(r"[0-9A-Za-z.+-]{1,40}", args.version):
         print("ERROR: --version may only use letters, digits, '.', '+' and '-'.", file=sys.stderr)
         return 2
