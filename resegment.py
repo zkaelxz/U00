@@ -34,6 +34,7 @@ import json
 import re
 
 import subtitle_formats
+from core import LANGUAGE_NAMES
 
 # Split AFTER one of these (and after any run of closing punctuation,
 # quotes and spaces that follows it, so "……" or "。」" stay whole).
@@ -158,7 +159,7 @@ def rule_split_spans(text: str, language: str, max_chars: int, bounds=None) -> l
 # ---------------------------------------------------------------- LLM pass
 
 def _llm_prompt(text: str, language: str, max_chars: int) -> str:
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(language, "Chinese")
+    lang = LANGUAGE_NAMES.get(language, "Chinese")
     return (
         f"This {lang} subtitle line is too long to read in one go ({_length(text)} characters; "
         f"a subtitle should be at most about {max_chars}). Split it into two or more shorter "

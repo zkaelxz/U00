@@ -10,8 +10,11 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core import SOURCE_LANGUAGES
+
 Stage = Literal["translation", "transcription", "ocr"]
 Tier = Literal["public", "application", "regression"]
+SourceLanguage = Literal[SOURCE_LANGUAGES]
 
 
 class _Strict(BaseModel):
@@ -54,7 +57,7 @@ class BenchmarkCaseCreate(_Strict):
     label: str = Field(max_length=120)
     source_text: str = Field(max_length=4000)
     reference_text: Optional[str] = Field(default=None, max_length=4000)
-    source_language: Literal["zh", "ja", "ko"] = "zh"
+    source_language: SourceLanguage = "zh"
     tier: Tier = "application"
     set_name: str = Field(default="", max_length=60)
 
@@ -73,7 +76,7 @@ class BenchmarkImportRequest(_Strict):
     text: str = Field(max_length=2_000_000)
     format: Literal["jsonl", "tsv"] = "jsonl"
     tier: Tier = "public"
-    source_language: Literal["zh", "ja", "ko"] = "zh"
+    source_language: SourceLanguage = "zh"
 
 
 class BenchmarkImportResult(BaseModel):
