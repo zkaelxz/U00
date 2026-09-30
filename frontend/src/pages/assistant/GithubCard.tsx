@@ -1,4 +1,4 @@
-// Step 72: GitHub delivery settings. Off by default; the token is
+// GitHub delivery settings. Off by default; the token is
 // write-only (never shown back). Until it's on with a token and a repo,
 // no GitHub call is made.
 import { useState } from 'react'

@@ -1,4 +1,4 @@
-// Step 72: pure helpers for GitHub delivery (kept out of the .tsx for tests).
+// Pure helpers for GitHub delivery (kept out of the .tsx for tests).
 import { ApiError } from '../../api/client'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import type { GithubStatus } from '../../types/assistant'

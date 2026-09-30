@@ -1,4 +1,4 @@
-// Step 72: "Deliver as GitHub PR" for one proposed fix. Preview first: it
+// "Deliver as GitHub PR" for one proposed fix. Preview first: it
 // shows the exact diff that will be sent (from the server), the files and
 // the base; only then can the viewer confirm, once, for that exact diff.
 import { useState } from 'react'

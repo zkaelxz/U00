@@ -38,7 +38,7 @@ type Props = {
   onSettings: (s: AssistantSettings) => void
   onModeOff: () => void
   onAddToBacklog: AddToBacklog
-  // Step 72: GitHub delivery status (null: not loaded / PC-only).
+  // GitHub delivery status (null: not loaded / PC-only).
   github?: GithubStatus | null
 }
 

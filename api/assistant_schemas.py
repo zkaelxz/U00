@@ -148,7 +148,7 @@ class AssistantBacklogCleared(BaseModel):
     deleted: int
 
 
-# --- Step 72: deliver a proposed fix as a GitHub pull request ---------------
+# --- Deliver a proposed fix as a GitHub pull request ---------------
 
 class AssistantGithubStatus(BaseModel):
     """Never carries the token: only whether one is configured."""

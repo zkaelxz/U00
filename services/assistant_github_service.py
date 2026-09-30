@@ -1,6 +1,6 @@
 """
 services/assistant_github_service.py -- deliver a maintenance-assistant
-proposed fix as a real GitHub pull request (roadmap Step 72). UI-free;
+proposed fix as a real GitHub pull request. UI-free;
 api/routers/assistant_github_routes.py (every route PC-only) calls it.
 
 Hard rules, each enforced here, not only in the UI:
@@ -23,9 +23,10 @@ Hard rules, each enforced here, not only in the UI:
   every delivery.
 - Nothing that runs before review: a patch may not touch .github/ (CI
   workflows), .claude/ or CLAUDE.md (they steer any Claude Code session
-  on the branch), or the CI entry points the workflows run from the PR
-  head (run_tests.py, check_setup.py, conftest.py, pytest/pip/npm config and
-  manifests, frontend tool configs and frontend/scripts/, start.bat); see _runs_before_review.
+  on the branch), or the entry points and config that CI, python, pytest,
+  npm, PostCSS or the launcher load from the PR head; see
+  _runs_before_review for the exact list. Hunk lines with invisible or
+  text-direction control characters are refused too.
 - Out of scope (roadmap item 4): reading or triaging other issues/PRs.
 """
 
@@ -248,25 +249,33 @@ def _clean_path(raw: str):
 # manifest and lockfile, the frontend build/test tool configs, start.bat).
 # Compared case-insensitively.
 _BLOCKED_DIRS = {".github", ".claude"}                  # at any depth
-_BLOCKED_NAMES_ANY_DEPTH = {"claude.md", "claude.local.md", "conftest.py", ".npmrc"}
-_BLOCKED_ROOT_FILES = {"run_tests.py", "constraints.txt", "pytest.ini", "setup.cfg",
-                       "pyproject.toml", "tox.ini", "start.bat", "check_setup.py"}
+# At any depth: interpreter, test-runner and package-manager config that
+# python, pytest, tox or npm pick up from the working directory.
+_BLOCKED_NAMES_ANY_DEPTH = {"claude.md", "claude.local.md", "conftest.py", ".npmrc",
+                            "sitecustomize.py", "usercustomize.py", "pytest.ini", ".pytest.ini",
+                            "tox.ini", "setup.cfg", "pyproject.toml"}
+_BLOCKED_ANY_DEPTH_RE = re.compile(r"^(?:postcss\.config\..+|\.postcssrc.*)$")
+_BLOCKED_ROOT_FILES = {"run_tests.py", "start.bat", "check_setup.py", ".mcp.json"}
 _BLOCKED_FRONTEND_FILES = {"package.json", "package-lock.json", ".oxlintrc.json"}
 _BLOCKED_FRONTEND_CONFIG = re.compile(r"^(?:(?:vite|vitest|playwright|eslint)\.config\.[a-z]+|tsconfig[^/]*\.json)$")
-_REQUIREMENTS_RE = re.compile(r"^requirements[^/]*\.txt$")
+_REQUIREMENTS_RE = re.compile(r"^(?:requirements|constraints)[^/]*\.txt$")
+# Characters that make a line read differently from what it does.
+_HIDDEN_CHARS_RE = re.compile("[\u202a-\u202e\u2066-\u2069\u200b-\u200d\u2060\ufeff]")
 
 
 def _runs_before_review(parts: list) -> bool:
     low = [p.lower() for p in parts]
     name = low[-1]
-    if any(p in _BLOCKED_DIRS for p in low) or name in _BLOCKED_NAMES_ANY_DEPTH:
+    if (any(p in _BLOCKED_DIRS for p in low) or name in _BLOCKED_NAMES_ANY_DEPTH
+            or _BLOCKED_ANY_DEPTH_RE.match(name)):
         return True
     if len(low) == 1:
         return name in _BLOCKED_ROOT_FILES or bool(_REQUIREMENTS_RE.match(name))
-    if len(low) > 2 and low[0] == "frontend" and low[1] == "scripts":
-        return True
-    if len(low) == 2 and low[0] == "frontend":
-        return name in _BLOCKED_FRONTEND_FILES or bool(_BLOCKED_FRONTEND_CONFIG.match(name))
+    if low[0] == "frontend":
+        if len(low) > 2 and low[1] == "scripts":
+            return True
+        if len(low) == 2:
+            return name in _BLOCKED_FRONTEND_FILES or bool(_BLOCKED_FRONTEND_CONFIG.match(name))
     return False
 
 
@@ -313,6 +322,9 @@ def parse_patch(patch: str) -> list:
                     continue
                 if kind not in (" ", "-", "+"):
                     raise InvalidInputError("A hunk in the patch is shorter than its @@ header says.")
+                if _HIDDEN_CHARS_RE.search(body):
+                    raise InvalidInputError("The patch has an invisible or text-direction "
+                                            "control character, which can't be delivered.")
                 hunk["lines"].append((kind, body[1:]))
                 if kind in (" ", "-"):
                     old_left -= 1

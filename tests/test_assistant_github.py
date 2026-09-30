@@ -1,4 +1,4 @@
-"""Step 72: deliver a maintenance-assistant proposed fix as a GitHub PR
+"""Deliver a maintenance-assistant proposed fix as a GitHub PR
 (services/assistant_github_service.py, api/routers/assistant_github_routes.py).
 GitHub is a fake that records every request: no network, no real token."""
 import base64
@@ -316,6 +316,10 @@ def test_ci_workflows_and_git_internals_are_refused(path):
     "frontend/tsconfig.node.json", "frontend/TSConfig.build.json",
     "frontend/scripts/check.mjs", "frontend/scripts/sub/x.js",
     ".npmrc", "frontend/.npmrc", "check_setup.py", "Check_Setup.py",
+    "constraints-dev.txt", "Constraints.txt", "sitecustomize.py", "a/b/usercustomize.py",
+    "pytest.ini", ".pytest.ini", "services/pytest.ini", "frontend/tox.ini", "sub/setup.cfg",
+    "sub/pyproject.toml", ".mcp.json", "postcss.config.js", "frontend/postcss.config.cjs",
+    ".postcssrc", "frontend/.postcssrc.json", "tests/CLAUDE.local.md",
 ])
 def test_paths_that_run_before_review_are_refused(path):
     for patch in (f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n",
@@ -328,9 +332,19 @@ def test_paths_that_run_before_review_are_refused(path):
                                   "frontend/src/package.json", "frontend/src/vite.config.ts",
                                   "docs/requirements.txt", "frontend/src/App.tsx",
                                   "frontend/src/tsconfig.json", "frontend/src/scripts/x.js",
-                                  "services/check_setup.py", "frontend/scripts.ts"])
+                                  "services/check_setup.py", "frontend/scripts.ts", "docs/constraints-notes.md",
+                                  "services/.mcp.json"])
 def test_ordinary_paths_with_similar_names_are_allowed(path):
     assert gh.parse_patch(f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")[0]["new"] == path
+
+@pytest.mark.parametrize("ch", ["\u202e", "\u202a", "\u2066", "\u2069", "\u200b", "\u200d",
+                                "\u2060", "\ufeff"])
+def test_hidden_and_bidi_characters_in_a_hunk_are_refused(ch):
+    for kind in ("+", "-", " "):
+        with pytest.raises(gh.InvalidInputError, match="control character"):
+            gh.parse_patch(f"--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n{kind}a{ch}b\n"
+                           + ("+c\n" if kind == "-" else "-c\n" if kind == "+" else ""))
+
 
 @pytest.mark.parametrize("extra", ["Binary files a/x.png and b/x.png differ",
                                    "old mode 100644", "rename from x.py", "GIT binary patch",

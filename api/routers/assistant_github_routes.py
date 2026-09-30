@@ -1,6 +1,6 @@
 """
 api/routers/assistant_github_routes.py -- deliver a maintenance-assistant
-proposed fix as a GitHub pull request (roadmap Step 72). Thin: see
+proposed fix as a GitHub pull request. Thin: see
 services/assistant_github_service.py.
 
 Every route is `local_only()`. Off by default: until it is enabled with a

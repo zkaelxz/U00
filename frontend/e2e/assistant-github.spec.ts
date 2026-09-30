@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { ANSWER, mockAssistant } from './assistantMocks'
 
-// Step 72: deliver a proposed fix as a GitHub pull request. Every /api/assistant call is mocked.
+// Deliver a proposed fix as a GitHub pull request. Every /api/assistant call is mocked.
 
 const READY = { enabled: true, repo: 'me/app', base_branch: 'baihe-subtitler', token_configured: true, branch_prefix: 'baihe-assistant/' }
 

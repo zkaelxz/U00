@@ -118,7 +118,7 @@ export interface BacklogList {
   items: BacklogItem[]
 }
 
-// --- Step 72: deliver a proposed fix as a GitHub pull request ------------------
+// --- Deliver a proposed fix as a GitHub pull request ------------------
 
 export interface GithubStatus {
   enabled: boolean

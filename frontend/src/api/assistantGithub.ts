@@ -1,4 +1,4 @@
-// Step 72: deliver a maintenance-assistant proposed fix as a GitHub PR
+// Deliver a maintenance-assistant proposed fix as a GitHub PR
 // (api/routers/assistant_github_routes.py). Every route is PC only. The
 // token is write-only: it goes in the body of one POST and no response
 // carries it back. Token writes use a plain fetch (their 403 on the PC

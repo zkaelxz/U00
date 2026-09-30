@@ -63,7 +63,7 @@ export interface AssistantMock {
   rolesEnabled: boolean
   reviewEngine: string | null
   review: unknown
-  /** Step 72: GitHub delivery state (the token is only ever a boolean here). */
+  /** GitHub delivery state (the token is only ever a boolean here). */
   github: { enabled: boolean; repo: string | null; base_branch: string; token_configured: boolean; branch_prefix: string }
   /** Status for POST /github/token (403 = key writes off). */
   tokenStatus: number
@@ -174,7 +174,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     s.backlog = []
     return json(route, { deleted: n })
   })
-  // Step 72: GitHub delivery.
+  // GitHub delivery.
   await page.route(/\/api\/assistant\/github$/, (route) => {
     record(route)
     return json(route, s.github)

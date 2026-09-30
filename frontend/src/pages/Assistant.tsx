@@ -32,7 +32,7 @@ export default function AssistantPage() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [backlog, setBacklog] = useState<BacklogItem[] | null>(null)
   const [backlogError, setBacklogError] = useState<string | null>(null)
-  // Step 72: null until loaded (or when the status call fails: the card and Deliver stay hidden).
+  // Null until loaded (or when the status call fails: the card and Deliver stay hidden).
   const [github, setGithub] = useState<GithubStatus | null>(null)
   // The engine and model for this visit's asks and changelogs; blank = the saved default / server default.
   const [engine, setEngine] = useState('')
