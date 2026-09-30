@@ -398,25 +398,42 @@ def read_env_file(path) -> dict:
 
 # ---------------------------------------------------------------- WinSW XML
 
-def app_service_env(data_dir, allow_key_writes: bool = False) -> dict:
+def _winsw_xml(fields: list, env: dict, log_dir: Path) -> str:
+    root = ET.Element("service")
+    for tag, text in fields:
+        ET.SubElement(root, tag).text = text
+    for name, value in env.items():
+        ET.SubElement(root, "env", {"name": name, "value": value})
+    ET.SubElement(root, "logpath").text = str(log_dir)
+    log = ET.SubElement(root, "log", {"mode": "roll-by-size"})
+    ET.SubElement(log, "sizeThreshold").text = str(LOG_ROLL_KB)
+    ET.SubElement(log, "keepFiles").text = str(LOG_KEEP_FILES)
+    ET.indent(root)
+    return ET.tostring(root, encoding="unicode") + "\n"
+
+
+def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = False) -> dict:
     """The server's environment. Every setting the server reads is written
     out ("" = the app's default), so nothing machine-wide leaks in:
-    loopback only, port 8600, no household listener, the data folder the
-    service was given rights on, no user site-packages. The engine-key form
-    is off unless the data folder's .env turns it on: other accounts on this
-    PC can reach 127.0.0.1:8600 while the service runs."""
+    loopback only, port 8600, the data folder the service was given rights
+    on, no user site-packages. The engine-key form is off unless the data
+    folder's .env turns it on: other accounts on this PC can reach
+    127.0.0.1:8600 while the service runs. The household listener (which the
+    server itself binds to 127.0.0.1) only while remote access is on, and
+    only from here: a machine-wide variable or the .env can't open it."""
     env = {name: "" for name in API_ENV_NAMES}
     env.update({"BAIHE_API_HOST": "127.0.0.1", "BAIHE_API_PORT": str(ADMIN_PORT),
                 "BAIHE_API_AUTH": "off", "BAIHE_API_ENV": "production",
                 "BAIHE_API_ALLOW_KEY_WRITES": "1" if allow_key_writes else "0",
                 "BAIHE_DATA_DIR": str(data_dir),
                 "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
+    if household_port:
+        env["BAIHE_API_HOUSEHOLD_PORT"] = str(int(household_port))
     return env
 
 
-def app_service_xml(layout: Layout, allow_key_writes: bool = False) -> str:
-    root = ET.Element("service")
-    for tag, text in [
+def app_service_xml(layout: Layout, household_port: int = 0, allow_key_writes: bool = False) -> str:
+    fields = [
         ("id", APP_SERVICE),
         ("name", APP_DISPLAY_NAME),
         ("description", "Baihe Studio's server for this PC (http://127.0.0.1:8600)."),
@@ -428,16 +445,114 @@ def app_service_xml(layout: Layout, allow_key_writes: bool = False) -> str:
         # its Job Object then ends ffmpeg, the browser and the rest.
         ("stopparentprocessfirst", "true"),
         ("stoptimeout", APP_STOP_TIMEOUT),
-    ]:
-        ET.SubElement(root, tag).text = text
-    for name, value in app_service_env(layout.data, allow_key_writes).items():
-        ET.SubElement(root, "env", {"name": name, "value": value})
-    ET.SubElement(root, "logpath").text = str(layout.app_logs)
-    log = ET.SubElement(root, "log", {"mode": "roll-by-size"})
-    ET.SubElement(log, "sizeThreshold").text = str(LOG_ROLL_KB)
-    ET.SubElement(log, "keepFiles").text = str(LOG_KEEP_FILES)
-    ET.indent(root)
-    return ET.tostring(root, encoding="unicode") + "\n"
+    ]
+    env = app_service_env(layout.data, household_port, allow_key_writes)
+    return _winsw_xml(fields, env, layout.app_logs)
+
+
+def caddy_service_xml(layout: Layout) -> str:
+    # Caddy keeps its certificates and ACME account key under XDG_DATA_HOME,
+    # in a folder only it and administrators can open.
+    fields = [
+        ("id", CADDY_SERVICE),
+        ("name", CADDY_DISPLAY_NAME),
+        ("description", "HTTPS for household devices, forwarding to Baihe Studio's "
+                        "household listener on 127.0.0.1. Off unless remote access is enabled."),
+        ("executable", str(layout.caddy_exe)),
+        ("arguments", f'run --config "{layout.caddyfile}" --adapter caddyfile'),
+        ("workingdirectory", str(layout.caddy_storage)),
+        ("startmode", "Manual"),
+        ("stopparentprocessfirst", "true"),
+        ("stoptimeout", CADDY_STOP_TIMEOUT),
+    ]
+    env = {"XDG_DATA_HOME": str(layout.caddy_storage), "XDG_CONFIG_HOME": str(layout.caddy_storage)}
+    return _winsw_xml(fields, env, layout.caddy_logs)
+
+
+# ------------------------------------------------- remote access: checking
+
+def household_port_problem(port) -> str:
+    if (not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535
+            or port in RESERVED_PORTS):
+        return ("The household port must be a free port from 1024 to 65535 other than "
+                + ", ".join(str(p) for p in RESERVED_PORTS) + ".")
+    return ""
+
+
+def remote_access_config(env_values: dict, household_port) -> dict:
+    """{"domain", "household_port"} if remote access can be turned on, or
+    ConfigRefused naming what's missing (never a value). Sign-in must be set
+    up and the public URL must be just https:// and a DNS name on the
+    default port (Caddy answers on 443 and gets the certificate for that
+    name). These are the server's own household-listener rules
+    (api_config.normalize_public_url, check_household_bind_safety) and more,
+    checked here first because the server no longer refuses to start over
+    them: it skips the household listener and keeps the PC one running.
+    enable-remote then checks that the household listener answers."""
+    missing = [n for n in SIGN_IN_ENV_NAMES if not (env_values.get(n) or "").strip()]
+    if missing:
+        raise ConfigRefused(
+            "Remote access isn't set up: " + ", ".join(missing) + " must be set in the data "
+            "folder's .env first (docs/household-access.md). Nothing was changed.")
+    problem = household_port_problem(household_port)
+    if problem:
+        raise ConfigRefused(problem + " Nothing was changed.")
+    try:
+        parts = urlsplit(env_values["BAIHE_PUBLIC_URL"].strip())
+        port = parts.port
+    except ValueError:
+        raise ConfigRefused("BAIHE_PUBLIC_URL isn't a valid address. Nothing was changed.")
+    if parts.scheme != "https":
+        raise ConfigRefused("BAIHE_PUBLIC_URL must start with https:// for remote access. "
+                            "Nothing was changed.")
+    if "@" in parts.netloc or parts.path.strip("/") or parts.query or parts.fragment:
+        raise ConfigRefused("BAIHE_PUBLIC_URL must be just https://your-domain (no path, "
+                            "query or user name). Nothing was changed.")
+    if port not in (None, HTTPS_PORT):
+        raise ConfigRefused("BAIHE_PUBLIC_URL must not name a port: Caddy answers on the "
+                            "https port, 443. Nothing was changed.")
+    domain = (parts.hostname or "").lower()
+    if not _DOMAIN_RE.fullmatch(domain):
+        raise ConfigRefused("BAIHE_PUBLIC_URL must name your domain, like "
+                            "https://baihe.example.com (not an IP address or localhost; a "
+                            "non-ASCII name in its xn-- form). Nothing was changed.")
+    return {"domain": domain, "household_port": household_port}
+
+
+def render_caddyfile(template_text: str, domain: str, household_port: int, log_dir) -> str:
+    """The template with its three settings written in, so the Caddy
+    service needs no environment variables. It holds no secret: Google
+    sign-in is Baihe's, never Caddy's. Refuses a template that no longer
+    turns Caddy's admin endpoint off, keeps the refusal of PC-only routes or
+    forwards only to the household port, and values that could change the
+    file's meaning."""
+    if not _DOMAIN_RE.fullmatch(domain or ""):
+        raise ConfigRefused("The domain isn't a valid DNS name.")
+    problem = household_port_problem(household_port)
+    if problem:
+        raise ConfigRefused(problem)
+    log = str(log_dir).replace("\\", "/")
+    if not log or any(c in log for c in '"{}`\r\n\t'):
+        raise ServiceError("Caddy's log folder has a character a Caddyfile can't hold.")
+    if not re.search(r"^\s*admin off\s*$", template_text, re.M):
+        raise ServiceError("The Caddy template no longer turns Caddy's admin endpoint off; "
+                           "refusing to use it.")
+    if "respond @pc_only 404" not in template_text:
+        raise ServiceError("The Caddy template no longer refuses PC-only routes; "
+                           "refusing to use it.")
+    if template_text.count(TEMPLATE_LOG_TOKEN) != 1:
+        raise ServiceError("The Caddy template's access log line has changed; "
+                           "update installer/service.py with it.")
+    text = template_text.replace(TEMPLATE_LOG_TOKEN, f'"{log}/baihe-access.log"')
+    text = text.replace("{$BAIHE_DOMAIN}", domain)
+    text = text.replace("{$BAIHE_API_HOUSEHOLD_PORT}", str(household_port))
+    leftover = sorted(set(re.findall(r"\{\$[A-Za-z0-9_]+\}", text)))
+    if leftover:
+        raise ServiceError("The Caddy template uses settings this script doesn't fill in: "
+                           + ", ".join(leftover))
+    if f"reverse_proxy 127.0.0.1:{household_port} " not in text:
+        raise ServiceError("The Caddy template no longer forwards to the household listener.")
+    return GENERATED_HEADER + text
 
 
 # ------------------------------------------------------ running commands
@@ -543,28 +658,32 @@ def _quoted(path) -> str:
     return f'"{path}"'
 
 
-def create_service_command(wrapper: Path) -> list:
+def create_service_command(name: str, wrapper: Path, display: str) -> list:
     # sc.exe, not the wrapper's own `install`, and disabled until fully
     # configured: a failed install never leaves a service that starts at
     # boot as LocalSystem.
-    return [SC, "create", APP_SERVICE, "binPath=", _quoted(wrapper), "start=", "disabled",
-            "DisplayName=", APP_DISPLAY_NAME]
+    return [SC, "create", name, "binPath=", _quoted(wrapper), "start=", "disabled",
+            "DisplayName=", display]
 
 
-def configure_service_commands(wrapper: Path) -> list:
+def configure_service_commands(name: str, wrapper: Path) -> list:
     """sc.exe settings applied on every install, before the start type:
     the wrapper in the admin folder, its own virtual account, a cut-down
     privilege list, and restart after a failure (also when it exits with an
     error)."""
-    return [
-        [SC, "config", APP_SERVICE, "binPath=", _quoted(wrapper)],
-        [SC, "sidtype", APP_SERVICE, "unrestricted"],
-        [SC, "config", APP_SERVICE, "obj=", service_account(APP_SERVICE)],
-        [SC, "privs", APP_SERVICE, "/".join(SERVICE_PRIVILEGES)],
-        [SC, "failure", APP_SERVICE, "reset=", str(FAILURE_RESET_SECONDS),
-         "actions=", FAILURE_ACTIONS],
-        [SC, "failureflag", APP_SERVICE, "1"],
+    cmds = [
+        [SC, "config", name, "binPath=", _quoted(wrapper)],
+        [SC, "sidtype", name, "unrestricted"],
+        [SC, "config", name, "obj=", service_account(name)],
+        [SC, "privs", name, "/".join(SERVICE_PRIVILEGES)],
+        [SC, "failure", name, "reset=", str(FAILURE_RESET_SECONDS), "actions=", FAILURE_ACTIONS],
+        [SC, "failureflag", name, "1"],
     ]
+    if name == CADDY_SERVICE:
+        # Stopping Baihe Studio's service stops Caddy first, so Caddy never
+        # forwards to a household port something else might then take.
+        cmds.append([SC, "config", name, "depend=", APP_SERVICE])
+    return cmds
 
 
 def _icacls(path, *args) -> list:
@@ -573,15 +692,25 @@ def _icacls(path, *args) -> list:
 
 
 def grant_commands(layout: Layout) -> list:
-    """(command, timeout) pairs: icacls grants, by SID. BaiheStudio may
-    read and run the per-user install folder and its wrapper, and change
-    the data folder. It gets no write access to anything this script, its
-    wrapper or the interpreter that runs it is loaded from."""
-    sid = "*" + service_sid(APP_SERVICE)
+    """(command, timeout) pairs: icacls grants, by SID. BaiheStudio: read
+    and run the per-user install folder and its wrapper, change the data
+    folder. It gets no write access to anything this script or its own
+    interpreter loads code from. BaiheCaddy: read and run its wrapper and
+    caddy.exe, change its own two folders in the admin folder, which
+    inherit nothing: its certificates and ACME key (caddy-data) and its
+    logs (caddy-logs) are Caddy, SYSTEM and Administrators only."""
+    app_sid = "*" + service_sid(APP_SERVICE)
+    caddy_sid = "*" + service_sid(CADDY_SERVICE)
+    private = ("/inheritance:r", "/grant:r", f"*{SYSTEM_SID}:(OI)(CI)F",
+               "/grant:r", f"*{ADMINISTRATORS_SID}:(OI)(CI)F",
+               "/grant:r", f"{caddy_sid}:(OI)(CI)M")
     return [
-        (_icacls(layout.root, "/grant", f"{sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
-        (_icacls(layout.data, "/grant", f"{sid}:(OI)(CI)M"), DATA_GRANT_TIMEOUT),
-        (_icacls(layout.service_dir, "/grant", f"{sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
+        (_icacls(layout.root, "/grant", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
+        (_icacls(layout.data, "/grant", f"{app_sid}:(OI)(CI)M"), DATA_GRANT_TIMEOUT),
+        (_icacls(layout.service_dir, "/grant", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
+        (_icacls(layout.caddy_dir, "/grant", f"{caddy_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
+        (_icacls(layout.caddy_storage, *private), COMMAND_TIMEOUT),
+        (_icacls(layout.caddy_logs, *private), COMMAND_TIMEOUT),
     ]
 
 
@@ -591,6 +720,36 @@ def revoke_commands(layout: Layout) -> list:
     sid = "*" + service_sid(APP_SERVICE)
     return [(_icacls(layout.root, "/remove:g", sid), COMMAND_TIMEOUT),
             (_icacls(layout.data, "/remove:g", sid), DATA_GRANT_TIMEOUT)]
+
+
+def firewall_rule_command(layout: Layout) -> str:
+    """The command the owner runs by hand, in an administrator prompt, to let
+    connections from the private and domain networks reach Caddy on port
+    443. Only text: this script never runs it."""
+    return (f'netsh advfirewall firewall add rule name="{FIREWALL_RULE_NAME}" dir=in '
+            f'action=allow protocol=TCP localport={HTTPS_PORT} program="{layout.caddy_exe}" '
+            f'profile={FIREWALL_PROFILES} enable=yes')
+
+
+def firewall_delete_command_text() -> str:
+    return f'netsh advfirewall firewall delete rule name="{FIREWALL_RULE_NAME}"'
+
+
+def firewall_show_command() -> list:
+    # Read-only: this script looks for the owner's rule, never changes one.
+    return [NETSH, "advfirewall", "firewall", "show", "rule", f"name={FIREWALL_RULE_NAME}"]
+
+
+def remote_reminder(layout: Layout, rule_present: bool) -> str:
+    """What the owner still does by hand."""
+    if rule_present:
+        return (f"The Windows Firewall rule '{FIREWALL_RULE_NAME}' exists. Forwarding port 443 "
+                "on your router to this PC is your own step.")
+    return ("Windows Firewall still blocks connections to Caddy. To allow them from your "
+            "private and domain networks, run this in an administrator prompt:\n  "
+            + firewall_rule_command(layout)
+            + "\nThen forward TCP port 443 on your router to this PC. This script does "
+              "neither, and does nothing with DNS (docs/household-access.md).")
 
 
 # ------------------------------------------------------------- checks
@@ -604,6 +763,25 @@ def health_ok(port: int = ADMIN_PORT) -> bool:
             return r.status == 200
     except Exception:
         return False
+
+
+def household_is_baihe(port: int, domain: str) -> bool:
+    """True if what listens on the household port is Baihe's household app:
+    it answers /api/meta for the public name (any other Host is refused
+    there) with app "Baihe Studio". A check against a wrong program, not
+    proof against a deliberate impostor."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/meta", headers={"Host": domain})
+    try:
+        with _LOOPBACK_OPENER.open(req, timeout=2) as r:
+            return r.status == 200 and json.loads(r.read(4096)).get("app") == "Baihe Studio"
+    except Exception:
+        return False
+
+
+def port_answers(port: int) -> bool:
+    with socket.socket() as sock:
+        sock.settimeout(1)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
 def wait_until(check, seconds: float, sleep=time.sleep) -> bool:
