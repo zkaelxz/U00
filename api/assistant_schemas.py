@@ -14,6 +14,13 @@ BacklogKind = Literal["bug", "feature", "note"]
 Scalar = Union[str, int, float, bool, None]
 
 
+class AssistantTier(BaseModel):
+    tier: int
+    engine: str
+    local: bool
+    consent: bool
+
+
 class AssistantSettings(BaseModel):
     developer_mode: bool
     engine: Optional[str] = None
@@ -26,6 +33,11 @@ class AssistantSettings(BaseModel):
     default_engine: str = "ollama"
     local_engines: List[str] = Field(default_factory=list)
     cloud_consent: Dict[str, bool] = Field(default_factory=dict)
+    # The escalation ladder: the saved order (None = the default) and the
+    # tiers it gives now. engine_keys says only whether a key is set.
+    tier_order: Optional[List[str]] = None
+    tiers: List[AssistantTier] = Field(default_factory=list)
+    engine_keys: Dict[str, bool] = Field(default_factory=dict)
 
 
 class AssistantSettingsUpdate(BaseModel):
@@ -37,6 +49,7 @@ class AssistantSettingsUpdate(BaseModel):
     review_engine: Optional[str] = Field(None, max_length=40)
     review_model: Optional[str] = Field(None, max_length=100)
     cloud_consent: Optional[Dict[str, StrictBool]] = None
+    tiers: Optional[List[str]] = Field(None, max_length=3)
 
 
 class AssistantTool(BaseModel):
@@ -62,6 +75,22 @@ class AssistantAskRequest(BaseModel):
     chat_history: List[AssistantChatTurn] = Field(default_factory=list, max_length=20)
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=100)
+    # Escalation to a higher tier: consent must be true for a tier that
+    # leaves this PC; evidence is the previous tier's redacted tool output.
+    escalate: StrictBool = False
+    consent: StrictBool = False
+    evidence: str = Field("", max_length=16000)
+
+
+class AssistantReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chat_history: List[AssistantChatTurn] = Field(default_factory=list, max_length=20)
+    question: str = Field("", max_length=4000)
+    evidence: str = Field("", max_length=16000)
+
+
+class AssistantReport(BaseModel):
+    report: str
 
 
 class AssistantPatch(BaseModel):
@@ -100,6 +129,16 @@ class AssistantAnswer(BaseModel):
     engine: str
     model: Optional[str] = None
     review: Optional[AssistantReview] = None
+    # Why a proposed fix got no review (an escalation never sends it to a
+    # cloud reviewer the user didn't confirm); empty when not skipped.
+    review_skipped: str = ""
+    # Which tier answered (None: an engine outside the ladder), whether it
+    # ran on this PC, the tier the user may escalate to next, and the
+    # redacted tool output that escalation or a developer report would carry.
+    tier: Optional[int] = None
+    local: bool = False
+    next_engine: Optional[str] = None
+    evidence: str = ""
 
 
 class AssistantChangelogRequest(BaseModel):
