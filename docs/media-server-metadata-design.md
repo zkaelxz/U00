@@ -13,7 +13,7 @@ against a real server here; re-check them before building.
 |---|---|
 | Title | `dramas.title_en`, and the original title in `dramas.title_zh` |
 | Alternate titles | No field. Only the two titles above. (`aliases` exists for characters, glossary and wiki entries, not for a title.) |
-| Cast and crew | `dramas.voice_actors` (comma-separated), `director`, `studio`, `author`, plus the `*_romanized` forms. Per drama, `characters` rows carry `character_name`, an optional `voice_actor` and `pronouns`, linked to the series-wide `series_characters` (name, aliases, gender) by `series_character_id`. So actor-to-character roles exist wherever the voice actor has been filled in. |
+| Cast and crew | `dramas.voice_actors` (comma-separated), `director`, `studio`, `author`, plus the `*_romanized` forms. Per drama, `characters` rows carry `character_name`, an optional `voice_actor` and `pronouns`, linked to the series-wide `series_characters` (`character_name`, aliases, gender) by `series_character_id`. So actor-to-character roles exist wherever the voice actor has been filled in. |
 | Episode list | Dramas that share `series_id`, ordered by `episode_number` (Step 74). A series has a name (`series.name`) but no summary. |
 | Cover | `dramas.cover_art_filename`, a file in the drama folder |
 | Summary | `dramas.summary` (and `episode_summary`, an auto-generated recap used as translation context) |
@@ -48,20 +48,24 @@ touches a media server today.
 
 **A. NFO and poster sidecar files, written next to exported media.**
 When Step 39's "Send to Jellyfin" creates a new title folder
-(`<library>/<Title>/`, one folder per drama), it could also write
+(`<library>/<Title>/`, one folder per drama) **and copies a video into it**
+(`media` is `source` or `dubbed`), it could also write
 `movie.nfo` and copy the cover as `poster.<stored ext>` (covers are
 `cover.png`, `.jpg` or `.webp`; read through `cover_art_service.cover_file`,
 which only accepts that name inside the drama's own folder). Jellyfin then
 shows Baihe's title, original title, summary, cast (with character roles
 where `voice_actor` is set), genre and tags with no plugin and no network
 call. Plex gets the poster only.
+- Only sends that include a video. With `media="none"` the new folder holds
+  just the subtitle, so a `movie.nfo` there would describe no video.
 - Series are **not** covered by this first version: the send never reads
   `series_id` or `episode_number` and makes one folder per drama, so three
   episodes would become three one-episode titles. A series needs a new
   `<Series name>/Season 01/<episode>` layout for the send, then
   `tvshow.nfo` (from `series.name`) plus one `<episode>.nfo` per episode.
   That is a separate, larger change.
-- Fits Step 39's rule "API and filesystem only, never a plugin".
+- Fits the connector's design (`services/jellyfin_service.py` docstring:
+  "API + filesystem only, never a Jellyfin plugin").
 - One-way, point-in-time copy: an edit in Baihe needs another send.
 - Security: the same write guards as the subtitle send (only inside the
   configured library folder, resolved-path check, temp file and rename, no
@@ -72,8 +76,14 @@ call. Plex gets the poster only.
   `docs/remote-access-decision.md` beyond noting the extra files.
 
 **B. Pull Jellyfin's metadata into Baihe (the other direction).**
-The connector's read-only scan already lists Jellyfin items. For an item
-Jellyfin has already matched (TMDB, AniDB and so on), Baihe could offer its
+This needs new code; today's scan can't do it. `jellyfin_service.scan` only
+reports items missing a subtitle, asks Jellyfin for just `MediaStreams,Path`
+(no overview, people or images) and never matches a Jellyfin item to a
+Baihe drama. B would need (1) a new read of one item's metadata fields and
+images, and (2) a matching step: the user picks the Jellyfin item for a
+drama, or Baihe proposes one by title and the user confirms it; never an
+automatic match. For an item Jellyfin has already matched (TMDB, AniDB and
+so on), Baihe could then offer its
 title, original title, overview, people and poster as a *suggestion* for the
 drama (or a new `known_titles` entry), applied only when the user accepts,
 the same suggest-then-apply pattern as
@@ -92,8 +102,9 @@ into another server's database (a "lock" flag is needed or the next library
 refresh may undo it), where today the connector only reads and asks for a
 refresh. More reach than A for the same result. Not recommended.
 
-**D. A Jellyfin plugin.** A .NET provider that calls Baihe. Rejected by Step
-39 in the roadmap ("never a Jellyfin plugin for v1") and still not worth it: a second
+**D. A Jellyfin plugin.** A .NET provider that calls Baihe. Ruled out by the
+Step 39 connector's design (its docstring: "API + filesystem only, never a
+Jellyfin plugin") and still not worth it: a second
 language and packaging to maintain, and it needs a Baihe endpoint (option E)
 anyway.
 
@@ -118,12 +129,15 @@ for Plex's requests, and a new kind of caller.
 ## 4. Recommendation
 
 1. **Build A first, as an opt-in toggle on the existing Send to Jellyfin**
-   ("Also write title info and poster"), for single dramas in the
-   new-title-folder layout only (series need the new folder layout above); next to an existing Jellyfin item it would fight the metadata
-   Jellyfin already has. Small, local, no new route, and it is the most
+   ("Also write title info and poster"), for single dramas sent as a new
+   title folder with a video (series need the new folder layout above).
+   Next to an existing Jellyfin item it would fight the metadata Jellyfin
+   already has. Small, local, no new route, and it is the most
    useful piece for Jellyfin users.
-2. **B second, if wanted**: a "Use Jellyfin's details" suggestion on a drama
-   matched in a scan. Suggestion only, never auto-applied.
+2. **B second, if wanted**: a "Use Jellyfin's details" suggestion for a drama
+   the user has linked to a Jellyfin item. Medium-sized: a new metadata read,
+   a user-confirmed drama-to-item match and a cover import, none of which
+   exist yet. Suggestion only, never auto-applied.
 3. **Don't build C, D or E now.** E is the only way to feed Plex more than a
    poster, but it needs a series model Baihe lacks and a server-to-server
    auth path; revisit only if the user asks for Plex specifically, and only
