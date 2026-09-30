@@ -9,7 +9,7 @@ phone / laptop --https--> router :443 --> Caddy on the PC --> 127.0.0.1:<househo
 the PC's own window -----------------------------------------> 127.0.0.1:8600 (admin, never proxied)
 ```
 
-Caddy never forwards to 8600 (the PC's admin listener) or 8756 (the extension bridge), and the router never forwards those ports or the household port. Baihe enforces the household rules itself: the household listener refuses every PC-only route, and an admin signed in there holds the household permissions plus viewing the user list and the audit log, never an admin write (admin changes stay at the PC). The template's refusals are defence in depth on top of that; the only admin routes it passes are `GET`/`HEAD` `/api/admin/users` and `/api/admin/audit`.
+Caddy never forwards to 8600 (the PC's admin listener, or whatever `BAIHE_API_PORT` is set to) or 8756 (the extension bridge), and the router never forwards those ports or the household port. Baihe enforces the household rules itself: the household listener refuses every PC-only route, and an admin signed in there holds the household permissions plus viewing the user list and the audit log, never an admin write (admin changes stay at the PC). The template's refusals are defence in depth on top of that; the only admin routes it passes are `GET`/`HEAD` `/api/admin/users` and `/api/admin/audit`.
 
 ## Before you start (prerequisites)
 
@@ -52,7 +52,7 @@ which sends the request to Caddy on this PC and checks it against Caddy's local 
 1. **Windows firewall rule**, in an administrator PowerShell, for Caddy only:
    `New-NetFirewallRule -DisplayName "Caddy for Baihe" -Direction Inbound -Program "C:\caddy\caddy.exe" -Protocol TCP -LocalPort 80,443 -Action Allow`
    Add no rule for `python.exe` or for 8600, 8610 or 8756.
-2. **Router port forward:** TCP 443 and 80 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Never forward 8600, 8601, the household port, 8756 or 8501. With a DNS-challenge build you may forward 443 only.
+2. **Router port forward:** TCP 443 and 80 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Never forward 8600 (or your `BAIHE_API_PORT`), 8601, the household port, 8756 or 8501. Only Caddy's 443 and 80 are ever forwarded. With a DNS-challenge build you may forward 443 only.
 3. **Certificate:** stop the LAN-test Caddy and run the template itself (`caddy run --config deploy\caddy\Caddyfile.template --adapter caddyfile`). Caddy gets the certificate for `BAIHE_DOMAIN` through the forward above (or by DNS challenge) and renews it by itself. There is no separate, earlier forward for the first issuance.
 4. Run the outside checklist.
 

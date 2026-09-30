@@ -54,9 +54,6 @@ log = logging.getLogger(__name__)
 SETTING = "jellyfin"
 KEY_ENV = ("BAIHE_JELLYFIN_API_KEY",)
 HTTP_TIMEOUT = (3.05, 20)
-BAIHE_OWN_PORTS = (8501, 8600, 8756)
-API_PORT_ENV = "BAIHE_API_PORT"
-HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 PAGE_SIZE = 200
 MAX_RESPONSE_BYTES = 20_000_000
 READ_DEADLINE = 60.0
@@ -149,15 +146,6 @@ def clear_key(env_path: Optional[str] = None) -> dict:
 
 # --- HTTP ----------------------------------------------------------------------
 
-def _baihe_ports() -> set:
-    ports = set(BAIHE_OWN_PORTS)
-    for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
-        raw = (settings_service.resolve_env_names((name,)) or "").strip()
-        if raw.isdigit():
-            ports.add(int(raw))
-    return ports
-
-
 def _check_target(url: str):
     """Refuses a server address that resolves anywhere a Jellyfin server
     cannot sensibly be (see the module docstring). The lookup itself has no
@@ -177,7 +165,7 @@ def _check_target(url: str):
         if (ip.is_link_local or ip.is_multicast or ip.is_unspecified
                 or (ip.is_reserved and not ip.is_private)):
             raise InvalidInputError("That server address is not allowed.")
-        if ip.is_loopback and port in _baihe_ports():
+        if ip.is_loopback and port in settings_service.baihe_own_ports():
             raise InvalidInputError("That address is this app's own port, not Jellyfin.")
 
 
