@@ -35,7 +35,7 @@ from statistics import median
 from urllib.parse import urljoin, urlsplit
 
 from . import auth_browser, ladder, registry, store
-from .http import SourceClient
+from .http import PacingPolicy, SourceClient
 from .models import AccessTier, ContentAccess, SourceError
 
 GENERIC_SOURCE = "generic"
@@ -293,11 +293,14 @@ def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset()) ->
 def _client(client=None, url: str = "") -> SourceClient:
     """A URL a registered adapter recognizes is fetched (and recorded)
     under that adapter's source name, so its capability record -- and
-    its terms -- apply here too; anything else is GENERIC_SOURCE."""
+    its terms -- apply here too; anything else is GENERIC_SOURCE. It
+    declares the owning adapter's per-host minimum interval, so a pasted
+    URL waits as long as the adapter's own client would."""
     if client is not None:
         return client
     cls = registry.adapter_class_for_url(url)
-    return SourceClient(cls.name if cls else GENERIC_SOURCE)
+    return SourceClient(cls.name if cls else GENERIC_SOURCE,
+                        policy=PacingPolicy.from_settings(cls.host_min_interval if cls else None))
 
 
 def _default_capabilities(client: SourceClient):

@@ -334,6 +334,22 @@ def effective_permissions(user_id: int) -> list:
             if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]
 
 
+def member_principal(user_id: int):
+    """A least-privilege principal for work done later on a user's behalf
+    with no request (the scheduled chapter check acting on a link the user
+    made). An admin gets no admin rights or override: household admin
+    writes are stripped too, and the stored action may have come from
+    there. None for an unknown or inactive user -- callers must deny then,
+    never pass None on (None means auth off, which sees everything)."""
+    row = db.auth_get_user(user_id)
+    if not row or not row["is_active"]:
+        return None
+    return {"user_id": row["id"], "email": row["email"], "is_admin": False,
+            "is_local_owner": False, "admin_override": False,
+            "permissions": [p for p in db.auth_get_permissions(row["id"])
+                            if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]}
+
+
 def grant_permission(user_id: int, permission: str, actor_id=None) -> dict:
     _require_user(user_id)
     if permission not in PERMISSIONS:
