@@ -228,7 +228,10 @@ def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
         audio_path = os.path.join(db.drama_dir(drama["id"]), audio) if audio else None
         args = (lines, audio_path, transcribe_service.stored_whisper_size(drama),
                 settings_service.get_use_gpu(), drama.get("source_language") or "zh", eng, name)
+        # Settings' defaults, as `cli.py translate` resolves them.
         return args, {"cost_cap_usd": cap,
+                      "locale": settings_service.get_preference("default_locale"),
+                      "style_note": settings_service.get_preference("default_style_note") or "",
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "gpu_touching": bool(audio_path) or name == "ollama"}

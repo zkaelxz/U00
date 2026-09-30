@@ -588,6 +588,19 @@ class TestBurnPreview:
         assert part.status_code == 206 and part.content == b"CLIP"
         assert not os.path.exists(os.path.join(db.drama_dir(did), "_burn_preview.part.mp4"))
 
+    def test_custom_export_style_reaches_the_ass(self, client, fake_ffmpeg):
+        did, lid = _video_drama()
+        r = client.post(f"{BASE}/{did}/burn-preview", json={
+            "line_id": lid, "preset": "Clean", "style": {"font": "Comic Neue", "size": 51},
+            "speaker_colors": {"A": "#123456"}})
+        assert r.status_code == 200, r.text
+        assert _wait(r.json()["job_id"])["status"] == "done"
+        ass = fake_ffmpeg[-1]["ass"]
+        assert "Comic Neue" in ass and ",51," in ass
+        bad = client.post(f"{BASE}/{did}/burn-preview", json={
+            "line_id": lid, "style": {"primary": "red"}})
+        assert bad.status_code == 422
+
     def test_server_wide_cap_on_concurrent_renders(self, client, fake_ffmpeg, monkeypatch):
         import threading
         import video_export

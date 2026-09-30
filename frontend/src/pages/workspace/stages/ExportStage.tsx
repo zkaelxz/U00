@@ -5,7 +5,7 @@ import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
-import { buildAssRequest, emptyAssForm, type AssForm } from '../exportForm'
+import { buildAssRequest, emptyAssForm, loadAssForm, saveAssForm, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportFlags } from './ExportFlags'
@@ -46,13 +46,14 @@ export default function ExportStage() {
   const [options, setOptions] = useState<AssStyleOptions | null>(null)
   const [optionsError, setOptionsError] = useState<unknown>(null)
   const [form, setFormState] = useState<AssForm>(() => ({
-    ...emptyAssForm(''),
+    ...(loadAssForm(dramaId) ?? emptyAssForm('')),
     field: readChoice(FIELD_KEY, ['en', 'zh', 'bilingual'], 'en'),
   }))
   const [fmt, setFmtState] = useState<ExportFormat>(() => readChoice(FMT_KEY, ['srt', 'vtt', 'ass'], 'srt'))
 
   const setForm = (f: AssForm) => {
     setFormState(f)
+    saveAssForm(dramaId, f)
     writeChoice(FIELD_KEY, f.field)
   }
   const setFmt = (f: ExportFormat) => {
@@ -77,7 +78,7 @@ export default function ExportStage() {
       (o) => {
         if (cancelled) return
         setOptions(o)
-        setFormState((f) => ({ ...f, preset: o.default_preset }))
+        setFormState((f) => ({ ...f, preset: o.presets[f.preset] ? f.preset : o.default_preset }))
       },
       (e: unknown) => !cancelled && setOptionsError(e),
     )

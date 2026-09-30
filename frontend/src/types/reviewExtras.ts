@@ -1,5 +1,6 @@
 // Hand-written mirrors of api/schemas.py's Review AI extras (MergeShort*,
 // Style*, SenseVoice*, BurnPreview*). Routes: /api/review-extras/dramas/{id}/...
+import type { AssStyleOverrides } from './export'
 import type { RestructureResult } from './restructure'
 
 export interface MergeShortOptions {
@@ -102,6 +103,11 @@ export interface BurnPreviewStart {
   line_id: number
   pad_seconds?: number | null
   preset?: string | null
+  style?: AssStyleOverrides
+  speaker_colors?: Record<string, string>
+  per_speaker_colors?: boolean
+  wrap_chars_en?: number
+  wrap_chars_source?: number
 }
 
 export interface BurnPreviewStarted {

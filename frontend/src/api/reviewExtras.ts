@@ -68,6 +68,11 @@ export const startBurnPreview = (id: number, body: BurnPreviewStart, f?: Fetch) 
   const payload: Record<string, unknown> = { line_id: body.line_id }
   if (body.pad_seconds !== undefined && body.pad_seconds !== null) payload.pad_seconds = body.pad_seconds
   if (body.preset) payload.preset = body.preset
+  if (body.style) payload.style = body.style
+  if (body.speaker_colors) payload.speaker_colors = body.speaker_colors
+  if (body.per_speaker_colors !== undefined) payload.per_speaker_colors = body.per_speaker_colors
+  if (body.wrap_chars_en !== undefined) payload.wrap_chars_en = body.wrap_chars_en
+  if (body.wrap_chars_source !== undefined) payload.wrap_chars_source = body.wrap_chars_source
   return postJson<BurnPreviewStarted>(`${base(id)}/burn-preview`, payload, f)
 }
 

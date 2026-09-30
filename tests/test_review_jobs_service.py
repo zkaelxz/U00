@@ -201,6 +201,24 @@ def test_fix_flagged_retranslates_and_clears_flag(monkeypatch):
     assert calls == [("zh", "en", "flag", "flag_note")]
 
 
+def test_fix_flagged_sends_default_locale_and_style_note(monkeypatch):
+    from services import settings_service
+    seen = []
+
+    class Spy(FakeEngine):
+        def translate_batch(self, texts, ctx=None):
+            seen.append(ctx)
+            return super().translate_batch(texts, ctx)
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: Spy())
+    prefs = {"default_locale": "en-GB", "default_style_note": "Keep honorifics."}
+    real = settings_service.get_preference
+    monkeypatch.setattr(settings_service, "get_preference",
+                        lambda name: prefs.get(name, real(name)))
+    did = _seed((("你好", "old", "uncertain"),))
+    _wait(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
+    assert seen and seen[0]["locale"] == "en-GB" and seen[0]["style_note"] == "Keep honorifics."
+
+
 def test_fix_flagged_needs_flagged_lines():
     with pytest.raises(UnsupportedOperationError):
         svc.start_fix_flagged(_seed(), engine_name="claude")

@@ -136,7 +136,11 @@ def get_sensevoice(drama_id: int = Path(ge=1)):
              summary="Render a short burned-subtitle clip around one line (a job)",
              responses=_R)
 def post_burn_preview(body: BurnPreviewStart, drama_id: int = Path(ge=1)):
-    return svc.start_burn_preview(drama_id, body.line_id, body.pad_seconds, body.preset)
+    style = body.style.model_dump(exclude_unset=True) if body.style is not None else None
+    return svc.start_burn_preview(
+        drama_id, body.line_id, body.pad_seconds, body.preset, style=style,
+        speaker_colors=body.speaker_colors, per_speaker_colors=body.per_speaker_colors,
+        wrap_chars_en=body.wrap_chars_en, wrap_chars_source=body.wrap_chars_source)
 
 
 @router.get("/dramas/{drama_id}/burn-preview/info", dependencies=[require_permission("lines.read")],
