@@ -42,6 +42,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
     "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
+    "chapter_id": "a source chapter id, not an item; the AI-recover route takes the drama in "
+                  "its body and sources_import_service._require_drama checks ownership",
     "domain": "source profile domain (admin.settings)",
     "kind": "an artifact/profile kind, not an item",
     "engine": "an engine name (PC-only key routes, engine Test)",
@@ -676,6 +678,50 @@ class TestJobs:
         assert client.get(f"/api/jobs/{jobs['priv']}", headers=world["admin"]).status_code == 200
         off = _local(_app("off")).get("/api/jobs").json()["items"]
         assert {j["job_id"] for j in off} >= set(jobs.values())
+
+    def test_owned_by_me_agrees_with_cancel(self, world, jobs):
+        # owned_by_me: the caller started the job or owns its drama. Where it
+        # is true, cancel is allowed; where false, it is someone else's job
+        # (a member may still cancel one on a shared drama).
+        adm_drama = db.create_drama(title_en="Admin's", source_language="zh",
+                                    owner_user_id=world["admin_id"], is_private=1)
+        jobs = dict(jobs, adm_fixed="discover_navigation_help",
+                    adm_drama=f"translate_{adm_drama}")
+        db.save_job_record(jobs["adm_fixed"], "running", started_at=1.0,
+                           owner_user_id=world["admin_id"])
+        db.save_job_record(jobs["adm_drama"], "running", started_at=1.0, owner_user_id=None)
+        household = TestClient(
+            create_app(ApiSettings(household_port=8610, serve_frontend=False,
+                                   google_client_id="cid", google_client_secret="s3cr3t-value",
+                                   public_url=REMOTE), listener="household"),
+            base_url=REMOTE.replace("https", "http"), client=("127.0.0.1", 5000),
+            raise_server_exceptions=False)
+        remote = _client(_app())
+        # who -> (client, headers, {job key: (owned_by_me, cancel status)})
+        cases = {
+            "owner": (remote, world["a"], {"priv": (True, 200), "shared": (True, 200),
+                                           "a_fixed": (True, 200)}),
+            "member": (remote, world["b"], {"shared": (False, 200), "b_fixed": (True, 200)}),
+            "remote_admin": (household, world["admin"], {
+                "priv": (False, 403), "shared": (False, 200), "a_fixed": (False, 403),
+                "pc_fixed": (False, 403), "b_fixed": (False, 403),
+                "adm_fixed": (True, 200), "adm_drama": (True, 200)}),
+            "local_owner": (_local(_app("off")), {"X-Baihe-Local": "1"},
+                            {k: (True, 200) for k in jobs}),
+        }
+        for who, (client, headers, want) in cases.items():
+            items = client.get("/api/jobs", headers=headers).json()["items"]
+            assert all("owner_user_id" not in j for j in items)
+            owned = {j["job_id"]: j["owned_by_me"] for j in items}
+            assert owned == {jobs[k]: flag for k, (flag, _code) in want.items()}, who
+            for key, job_id in jobs.items():
+                one = client.get(f"/api/jobs/{job_id}", headers=headers)
+                code = client.post(f"/api/jobs/{job_id}/cancel", headers=headers).status_code
+                flag, expected = want.get(key, (None, 404))
+                assert code == expected, (who, key, code)
+                if flag is not None:
+                    assert one.json()["owned_by_me"] is flag, (who, key)
+                    assert not flag or code == 200, (who, key)
 
     def test_starter_loses_a_drama_job_when_the_drama_goes_private(self, world):
         # Review L-1: B started a run on A's shared drama; A then made it private.

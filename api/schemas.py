@@ -166,6 +166,60 @@ class DiagnosticsOverview(BaseModel):
     recent_log_lines: List[str]
 
 
+RemoteHealthState = Literal["off", "unknown", "not_configured", "ok", "warn", "critical"]
+
+
+class RemoteHealthCheck(BaseModel):
+    state: RemoteHealthState
+    message: str
+
+
+class RemoteCertificateCheck(RemoteHealthCheck):
+    days_left: Optional[int] = None
+
+
+class RemoteDdnsCheck(RemoteHealthCheck):
+    configured: bool
+
+
+class RemoteHealth(BaseModel):
+    """GET /api/diagnostics/remote-health: the last scheduled check of remote
+    access. States, whole days, Unix times and fixed messages only: never the
+    public name, an address, a URL or a path."""
+    state: Literal["off", "unknown", "ok", "warn", "critical"]
+    message: str
+    checked_at: Optional[float] = None
+    since: Optional[float] = None
+    certificate: RemoteCertificateCheck
+    ddns: RemoteDdnsCheck
+    listener: RemoteHealthCheck
+
+
+class RemoteIpCheckStatus(BaseModel):
+    """Whether the public-address check is set; never the address."""
+    configured: bool
+
+
+class RemoteIpCheckSetRequest(BaseModel):
+    """Write-only: `value` may carry a token, so it is never echoed back and
+    validation errors never include it."""
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(..., repr=False)
+    confirm: StrictBool = False
+
+
+class RemoteIpCheckClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class RemoteIpCheckTestResult(BaseModel):
+    """One check run now: a state and a fixed message, no address."""
+    configured: bool
+    state: RemoteHealthState
+    message: str
+
+
 class JobRecord(BaseModel):
     """One job's cross-process record (Migration Slice 8, reading
     Migration Slice 7's job_records mirror) -- the last status this app
@@ -191,6 +245,10 @@ class JobRecord(BaseModel):
     # Still queued/running on record, but no owner has heartbeated it for
     # 15 minutes (server clock): left behind by a process that died.
     stale: bool = False
+    # The caller started this job or owns its drama (auth off and the local
+    # owner: every job). Server-computed from the caller's session; true
+    # only where the caller may also cancel it.
+    owned_by_me: bool = False
 
 
 class JobListResponse(BaseModel):

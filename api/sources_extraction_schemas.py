@@ -14,6 +14,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
 from api.schemas import SourcesUrlImportRequest
+from services.sources_import_service import FOLLOW_STOPS, MAX_FOLLOW_PAGES
 
 
 class SourcesUrlImportAiRequest(SourcesUrlImportRequest):
@@ -27,11 +28,32 @@ class SourcesUrlImportAiRequest(SourcesUrlImportRequest):
     review: StrictBool = False
 
 
+class SourcesUrlImportFollowRequest(SourcesUrlImportAiRequest):
+    """POST /api/sources/url/import. `follow_pages` above 1: also follow
+    each page's next-chapter link, up to that many pages in all, on the
+    same site; the pages read open as a review (nothing is written until
+    the person imports the ones they keep). 1 = the one page, as before."""
+    follow_pages: StrictInt = Field(default=1, ge=1, le=MAX_FOLLOW_PAGES)
+
+
+class SourcesAiRecoverRequest(BaseModel):
+    """POST /api/sources/{name}/import/{chapter_id}/ai-recover. The person's
+    confirm for one AI call on a chapter whose page layout changed; `engine`
+    is required and `confirm` must be true."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: StrictStr = Field(min_length=1, max_length=200)
+    drama_id: StrictInt = Field(ge=1)
+    engine: StrictStr = Field(min_length=1, max_length=40)
+    confirm: StrictBool
+
+
 class SourcesAiEngines(BaseModel):
     """Engine names the AI fallback can use, and the saved default when it
     is one of them. Names only: no key and no key status."""
     engines: List[str]
     default: Optional[str] = None
+    # The engines that need no `engines.paid` (the rest may be paid).
+    free: List[str] = []
 
 
 class SourcesComicUrlImportRequest(SourcesUrlImportAiRequest):
@@ -136,18 +158,36 @@ class ExtractionComic(BaseModel):
     page_count: int
 
 
+class ExtractionFollowedPage(BaseModel):
+    """One page of a followed import. id 0 is the reviewed first page."""
+    id: int
+    title: str
+    char_count: int
+    # The page's host name only.
+    host: str
+
+
+class ExtractionFollow(BaseModel):
+    """The pages a followed import read, in reading order, and why it
+    stopped following."""
+    pages: List[ExtractionFollowedPage]
+    stop: Literal[FOLLOW_STOPS]
+
+
 class ExtractionReview(BaseModel):
     kind: Literal["extraction_review"]
     drama_id: int
     revision: str
     content_type: Literal["novel", "comic"]
-    why: Literal["low_confidence", "asked", "diagnostics"]
+    why: Literal["low_confidence", "asked", "diagnostics", "follow", "recovery"]
     display_url: Optional[str] = None
     confidence: ExtractionConfidence
     report: ExtractionReport
     can_save_profile: bool
     novel: Optional[ExtractionNovel] = None
     comic: Optional[ExtractionComic] = None
+    # Set for a novel import that followed next-chapter links.
+    follow: Optional[ExtractionFollow] = None
 
 
 _REVISION = Field(min_length=1, max_length=64)
@@ -158,6 +198,14 @@ _ID = Field(default=None, min_length=1, max_length=20)
 class ExtractionRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: StrictStr = _REVISION
+
+
+class ExtractionImportRequest(BaseModel):
+    """`pages`: for a followed novel import, the ids of the pages to import
+    (omitted = all); written in reading order."""
+    model_config = ConfigDict(extra="forbid")
+    revision: StrictStr = _REVISION
+    pages: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_FOLLOW_PAGES)
 
 
 class ExtractionNovelRerunRequest(BaseModel):

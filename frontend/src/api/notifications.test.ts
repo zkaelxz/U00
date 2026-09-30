@@ -10,6 +10,7 @@ const STATUS = {
   ntfy_allow_local: false,
   send_jobs: false,
   send_chapters: true,
+  send_remote: true,
 }
 
 const reply = (body: unknown, status = 200) =>

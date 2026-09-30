@@ -14,6 +14,7 @@ import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { RemoteAccessSection } from './settings/RemoteAccessSection'
 import { NotionSection } from './settings/NotionSection'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
@@ -110,6 +111,7 @@ export default function SettingsPage() {
           <DefaultsCard key={defaultsKey} {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
+          <RemoteAccessSection />
           <AutoBackupCard />
           <AppUpdatesCard />
           <JellyfinSection />

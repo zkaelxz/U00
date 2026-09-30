@@ -16,6 +16,15 @@ POST /api/jobs/{job_id}/cancel.
 The novel URL import takes an opt-in AI fallback (`use_ai`, `engine`;
 parity SO09): the engine name is checked and `engines.paid` required for a
 paid one before the job starts.
+`follow_pages` (default 1) also follows next-chapter links on the same
+site into a review of the pages read; nothing is written until the person
+imports the pages they keep (POST .../extraction/import with `pages`).
+
+POST /{name}/import/{chapter_id}/ai-recover: after an import stopped on a
+chapter whose page layout no longer matches the adapter ("needs_ai"), the
+person confirms one AI call (engine required; `engines.paid` for a paid
+one). The job ends in a Review extraction; nothing is written until the
+review is imported.
 
 GET /{name}/import-state (Step 107) reads sources.db only: which chapters
 of a series are already in a drama, and which the last imports left
@@ -31,7 +40,8 @@ from fastapi import APIRouter, Path, Query, Request
 from api.auth import is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, SourcesChapterImportRequest, SourcesJobStarted,
                          SourcesUrlPreviewRequest)
-from api.sources_extraction_schemas import SourcesUrlImportAiRequest
+from api.sources_extraction_schemas import (SourcesAiRecoverRequest,
+                                            SourcesUrlImportFollowRequest)
 from api.sources_import_schemas import SourcesImportState
 from services import sources_extraction_service as extraction
 from services import sources_import_service as svc
@@ -56,13 +66,13 @@ def post_url_preview(body: SourcesUrlPreviewRequest, request: Request):
              response_model=SourcesJobStarted,
              summary="Job: append a pasted URL's novel text to a novel drama",
              responses=_ERRS)
-def post_url_import(body: SourcesUrlImportAiRequest, request: Request):
+def post_url_import(body: SourcesUrlImportFollowRequest, request: Request):
     engine = extraction.resolve_ai_engine_name(body.use_ai, body.engine)
     if engine is not None:
         require_engines_allowed(request, engine)
     return svc.start_url_import(body.url, body.drama_id, local=is_local_request(request),
                                 principal=request.state.principal, ai_engine=engine,
-                                review=body.review)
+                                review=body.review, follow_pages=body.follow_pages)
 
 
 @router.post("/{name}/import", dependencies=[require_permission("sources.import")],
@@ -73,6 +83,21 @@ def post_chapter_import(body: SourcesChapterImportRequest, request: Request,
                         name: str = Path(min_length=1, max_length=60)):
     return svc.start_chapter_import(name, body.series_id, body.chapter_ids, body.drama_id,
                                     principal=request.state.principal)
+
+
+@router.post("/{name}/import/{chapter_id}/ai-recover",
+             dependencies=[require_permission("sources.import")],
+             response_model=SourcesJobStarted,
+             summary="Job: read one chapter whose page layout changed with one AI call, "
+                     "into a review",
+             responses=_ERRS)
+def post_ai_recover(body: SourcesAiRecoverRequest, request: Request,
+                    name: str = Path(min_length=1, max_length=60),
+                    chapter_id: str = Path(min_length=1, max_length=200)):
+    engine = extraction.resolve_ai_engine_name(True, body.engine)
+    require_engines_allowed(request, engine)
+    return svc.start_ai_recover(name, chapter_id, body.series_id, body.drama_id, engine,
+                                body.confirm, principal=request.state.principal)
 
 
 @router.get("/{name}/import-state", dependencies=[require_permission("sources.import")],

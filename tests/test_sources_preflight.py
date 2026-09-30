@@ -63,7 +63,16 @@ class TestAReadableNovelPage:
         assert result.next_link is True
         assert result.previous_link is True
         assert result.toc_links >= 1
-        assert any("series can be followed" in line for line in result.lines)
+        assert any("can follow next chapters" in line for line in result.lines)
+
+    def test_following_is_only_claimed_for_a_next_link(self, isolated_db):
+        """Previous and contents links are reported, but only a next link
+        is ever followed, so only a next link earns the claim."""
+        nav = '<a href="/book/1/chapter/6">上一章</a><a href="/book/1">目录</a>'
+        result = _run({URL: _chapter_html(with_links=False, extra=nav)})
+        assert result.next_link is False and result.previous_link is True
+        assert not any("follow" in line for line in result.lines)
+        assert any("one URL at a time" in line for line in result.lines)
 
     def test_it_says_so_when_chapters_cannot_be_followed(self, isolated_db):
         result = _run({URL: _chapter_html(with_links=False)})

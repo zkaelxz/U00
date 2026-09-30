@@ -3,8 +3,8 @@
 // extraction. No React here; tested in extractionFormat.test.ts.
 import { humanize } from '../../components/labels'
 import type {
-  AiEngines, AiRequestFields, ComicUrlImportResult, ExtractionImage, ExtractionNovel, ExtractionReview, ImageChoice,
-  NovelRerunRequest, ProfileSaved, ReviewImportResult,
+  AiEngines, AiRequestFields, ComicUrlImportResult, ExtractionFollow, ExtractionImage, ExtractionNovel, ExtractionReview,
+  ImageChoice, NovelRerunRequest, ProfileSaved, ReviewImportResult,
 } from '../../types/sourcesExtraction'
 
 export interface AiChoice {
@@ -44,7 +44,70 @@ export function aiRequestFields(choice: AiChoice, engines: AiEngines | null): Ai
 
 export const engineLabel = (name: string) => (name === 'ollama' ? 'Ollama (on this PC)' : humanize('engine', name))
 
+/** What the confirm shows before one AI call on a chapter: engine, call count, paid or not. */
+export function recoverSummary(engine: string, engines: AiEngines | null): string {
+  const paid = !(engines?.free ?? []).includes(engine)
+  return `${engineLabel(engine)} · 1 AI call · ${paid ? 'may use paid credits' : 'free engine'}`
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
+
+// ---------------------------------------------------------------- following next-chapter links
+
+export const MAX_FOLLOW_PAGES = 50
+export const DEFAULT_FOLLOW_PAGES = 10
+
+export const FOLLOW_HELP =
+  'Also reads the chapters after this one by following each page’s “next chapter” link on the same site, up to ' +
+  'this many pages in all. Nothing is saved until you have checked the list of pages.'
+
+/** The follow_pages field to send: a whole number from 2 to 50, else nothing (one page, as before). */
+export function followRequestFields(on: boolean, pages: number): Pick<AiRequestFields, 'follow_pages'> {
+  if (!on || !Number.isFinite(pages)) return {}
+  const n = Math.min(MAX_FOLLOW_PAGES, Math.trunc(pages))
+  return n > 1 ? { follow_pages: n } : {}
+}
+
+/** A typed page count, kept within 1-50. */
+export const clampFollowPages = (value: string) =>
+  Math.max(1, Math.min(MAX_FOLLOW_PAGES, Math.trunc(Number(value) || 1)))
+
+const FOLLOW_STOP: Record<string, string> = {
+  cap: 'Stopped at the number of pages you asked for.',
+  no_next: 'The last page has no next-chapter link.',
+  cycle: 'The next-chapter link led back to a page already read.',
+  other_host: 'The next-chapter link leads to another site, so it wasn’t followed.',
+  downgrade: 'The next-chapter link drops from a secure (https) address to plain http, so it wasn’t followed.',
+  gate: 'The next-chapter link leads to a sign-in, sign-out, age-check or payment page, so it wasn’t followed.',
+  not_public: 'The next-chapter link isn’t a public web address, so it wasn’t followed.',
+  handoff:
+    'The site showed a verification page, so Baihe stopped there. The pages before it are listed; open the site in your ' +
+    'browser to carry on from there.',
+  unreachable: 'The next page couldn’t be loaded.',
+  invalid: 'Baihe couldn’t find chapter text on the next page, so it stopped before it.',
+  chars: 'Stopped at the size limit for one import.',
+}
+
+/** Why following stopped, in words. */
+export function followStopText(f: ExtractionFollow): string {
+  if (f.stop === 'invalid' && f.pages.length <= 1) {
+    return 'Baihe isn’t sure about the text on this page, so it didn’t follow its next-chapter link.'
+  }
+  return FOLLOW_STOP[f.stop] ?? 'Stopped following next-chapter links.'
+}
+
+/** The ticked page ids, in reading order. */
+export function pickedPages(f: ExtractionFollow, unticked: ReadonlySet<number>): number[] {
+  return f.pages.map((p) => p.id).filter((id) => !unticked.has(id))
+}
+
+/** Characters in the ticked pages. */
+export function pickedChars(f: ExtractionFollow, unticked: ReadonlySet<number>): number {
+  return f.pages.filter((p) => !unticked.has(p.id)).reduce((n, p) => n + p.char_count, 0)
+}
+
+export const followPageLabel = (p: { id: number; title: string; char_count: number; host: string }) =>
+  `${p.title || `Page ${p.id + 1}`} · ${plural(p.char_count, 'character')} · ${p.host}`
 
 export function comicImportText(r: ComicUrlImportResult): string {
   if (r.needs_review) {
@@ -68,6 +131,8 @@ export const REVIEW_WHY: Record<string, string> = {
   low_confidence: 'Baihe isn’t sure it found the right parts of the page, so nothing was saved yet.',
   asked: 'You asked to check the result before it is saved.',
   diagnostics: 'Sources diagnostics mode is on, so every result is shown here first.',
+  recovery: 'This chapter’s page no longer matched the source’s reader, so AI read it once. Nothing was saved yet: check the text, then import it.',
+  follow: 'Baihe followed the next-chapter links. Nothing was saved yet: untick any page you don’t want, then import.',
 }
 
 export const reviewWhy = (why: string) => REVIEW_WHY[why] ?? REVIEW_WHY.low_confidence
@@ -146,16 +211,27 @@ export function duplicatePages(images: ExtractionImage[], edits: Record<number, 
   return [...seen].filter(([, n]) => n > 1).map(([p]) => p).sort((a, b) => a - b)
 }
 
-export function importLabel(r: ExtractionReview): string {
+const NONE_UNTICKED: ReadonlySet<number> = new Set()
+
+export function importLabel(r: ExtractionReview, unticked: ReadonlySet<number> = NONE_UNTICKED): string {
+  if (r.follow) return `Import ${plural(pickedPages(r.follow, unticked).length, 'page')}`
   if (r.content_type === 'novel') return 'Import this text'
   return `Import ${plural(r.comic?.page_count ?? 0, 'page')}`
 }
 
-export function canImport(r: ExtractionReview): boolean {
+export function canImport(r: ExtractionReview, unticked: ReadonlySet<number> = NONE_UNTICKED): boolean {
+  if (r.follow) return pickedChars(r.follow, unticked) > 0
   return r.content_type === 'novel' ? (r.novel?.char_count ?? 0) > 0 : (r.comic?.page_count ?? 0) > 0
 }
 
+/** The pages to send with the import: the ticked ids of a followed import, else none (the whole review). */
+export const importPages = (r: ExtractionReview, unticked: ReadonlySet<number>) =>
+  r.follow ? pickedPages(r.follow, unticked) : null
+
 export function reviewImportText(r: ReviewImportResult): string {
+  if (r.content_type === 'novel' && (r.pages_imported ?? 1) > 1) {
+    return `Added ${plural(r.pages_imported ?? 0, 'page')} (${plural(r.char_count ?? 0, 'character')}) to the drama’s novel text.`
+  }
   if (r.content_type === 'novel') return `Added ${plural(r.char_count ?? 0, 'character')} to the drama’s novel text.`
   const skipped = r.skipped_count ? ` ${plural(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
   return `Added ${plural(r.pages_added ?? 0, 'page')} to the drama.${skipped}`
