@@ -67,6 +67,8 @@ baihe-subtitler/
 │   │                             pip from its wheel, installs requirements-core offline
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
+├── scripts/dependency_canary.py  tests one package upgrade in a throwaway venv against the offline suite;
+│                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
