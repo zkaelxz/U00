@@ -116,7 +116,7 @@ function Controls() {
         </div>
         <Field
           label="MOSS-Transcribe-Diarize (experimental)"
-          help="Adds MOSS as an ASR backend choice in a drama's Transcribe > Advanced. It transcribes and labels speakers in one pass. Not yet compared with Whisper and pyannote on audio dramas."
+          help="Adds MOSS as an ASR backend choice in a drama's Transcribe > Advanced. It transcribes and labels speakers in one pass. Not yet compared with Whisper and pyannote on audio dramas. It runs model code downloaded from Hugging Face (a pinned version) inside this app, and once on, anyone allowed to edit lines and start jobs can use it."
         >
           <Toggle
             checked={opts.moss_experimental}
@@ -129,7 +129,7 @@ function Controls() {
           <Badge tone={opts.moss_installed ? 'ok' : 'neutral'}>{opts.moss_installed ? 'Installed' : 'Not installed'}</Badge>{' '}
           {opts.moss_installed
             ? 'The moss_transcribe_diarize package is installed on this PC.'
-            : 'Install it from its GitHub repository (see Diagnostics). It needs Transformers 5, which Qwen3-ASR does not work with.'}
+            : 'Install it from its GitHub repository (see docs/asr-experiments.md). It upgrades Transformers to 5, which stops Qwen3-ASR working.'}
         </p>
       </div>
     </Card>

@@ -20,7 +20,7 @@ from services.service_errors import InvalidInputError
 QWEN_ASR_BATCH_KEY = "qwen_asr_batch_size"
 MOSS_EXPERIMENTAL_KEY = "moss_experimental"
 MIN_BATCH_SIZE = 1
-MAX_BATCH_SIZE = 16  # asr_backend.QWEN_ASR_MAX_BATCH_SIZE; kept import-free here
+MAX_BATCH_SIZE = 16
 
 
 def get_qwen_asr_batch_size() -> int:

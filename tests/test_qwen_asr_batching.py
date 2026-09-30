@@ -164,3 +164,18 @@ def test_route_save_is_refused_away_from_the_pc(isolated_db):
     assert r.status_code in (403, 404)
     from services import asr_options_service as svc
     assert svc.get_qwen_asr_batch_size() == 1
+
+
+def test_a_batch_that_raises_is_retried_one_segment_at_a_time(monkeypatch, sliced):
+    class OomOnBatches(EchoModel):
+        def transcribe(self, audio, language):
+            if isinstance(audio, list):
+                self.calls.append(len(audio))
+                raise RuntimeError("CUDA out of memory")
+            return super().transcribe(audio, language)
+    model = OomOnBatches()
+    _use_model(monkeypatch, model)
+    out = ab.Qwen3ASRBackend().transcribe("/a.wav", "zh", whisper_segments=_segments(2),
+                                          batch_size=2)
+    assert model.calls == [2, 1, 1]
+    assert [s["text"] for s in out] == ["seg_0.wav", "seg_1.wav"]

@@ -1056,3 +1056,35 @@ class TestMossBackend:
         assert "sk-abcdefghijklmnopqrstuvwx" not in result["detail"]
         assert isolated_db.load_lines(did) == []
         _clear(job_id)
+
+    def test_a_cancel_during_the_moss_call_keeps_the_existing_lines(self, isolated_db, monkeypatch):
+        import asr_backend
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧的")])
+        job_id = f"transcribe_{did}"
+
+        class SlowMoss:
+            def transcribe(self, audio_path, language=None, use_gpu=False, run_info=None):
+                background_jobs._jobs[job_id]["cancel_requested"] = True
+                return [{"start": 0.0, "end": 1.0, "text": "新的", "speaker": "S01"}]
+        monkeypatch.setitem(asr_backend.BACKENDS, "moss_td", SlowMoss)
+        self._run(did, ddir)
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "cancelled"}
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧的"]
+        _clear(job_id)
+
+    def test_other_options_still_save_on_a_moss_drama_after_the_toggle_is_off(
+            self, isolated_db, monkeypatch):
+        self._enable(monkeypatch)
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")
+        from services import asr_options_service
+        asr_options_service.set_asr_options(moss_experimental=False)
+        # The form re-sends the stored moss_td with every save.
+        transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td", beam_size=7)
+        drama = isolated_db.get_drama(did)
+        assert drama["beam_size"] == 7 and drama["asr_backend_choice"] == "moss_td"
+        transcribe_service.update_transcribe_config(did, asr_backend_choice="whisper")
+        with pytest.raises(InvalidInputError, match="experimental"):
+            transcribe_service.update_transcribe_config(did, asr_backend_choice="moss_td")

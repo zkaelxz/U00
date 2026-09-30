@@ -44,9 +44,9 @@ export const getDiarizationConfig = (id: number, f?: Fetch) =>
 // Plain words for DiarizationConfig.last_device, or null before any run recorded one.
 export function deviceNote(device: string | null | undefined): string | null {
   if (!device) return null
-  if (device === 'cuda') return 'Last speaker detection ran on the GPU.'
-  if (device === 'cpu') return 'Last speaker detection ran on the CPU (GPU off in Settings, or not available).'
-  return `Last speaker detection ran on: ${device}.`
+  if (device === 'cuda') return 'Last Detect speakers run (pyannote) used the GPU.'
+  if (device === 'cpu') return 'Last Detect speakers run (pyannote) used the CPU (GPU off in Settings, or not available).'
+  return `Last Detect speakers run (pyannote) used: ${device}.`
 }
 
 // '' or a whole number within [min, max] -> the number; anything else -> null.

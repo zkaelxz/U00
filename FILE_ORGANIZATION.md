@@ -201,9 +201,9 @@ baihe-subtitler/
 │   ├── extension_service.py      API batch 1 -- browser-extension bridge (page_server) status, on/off
 │   │                             (persists page_server_enabled) and token reveal; for local_only routes
 │   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
-│   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
+│   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -515,7 +515,7 @@ baihe-subtitler/
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
-│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
+│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
@@ -542,7 +542,9 @@ baihe-subtitler/
 │   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
 │   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
-│   │                              settings.css (the page's Card stack and status rows)
+│   │                              settings.css (the page's Card stack and status rows).
+│   │                              TranscriptionExperimentsCard (Settings > Transcription experiments, Steps
+│   │                              103/104: Qwen3-ASR batch size, MOSS toggle; PC only); API in src/api/asrOptions.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
@@ -579,7 +581,8 @@ baihe-subtitler/
 │   │                              AddTitle, BulkImport, ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
-│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
+│   ├── src/pages/workspace/stages/  also DiarizationDeviceNote (Transcribe > Speakers: GPU/CPU of the last
+│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
 │   │                              Glossary > From novel / From lines, and the novel one on Source),
 │   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
 │   │                              (Translate: review glossary before translating), useGlossaryRun

@@ -2227,13 +2227,17 @@ def render_workspace_tab():
             db.update_drama(picked_id, alignment_method=alignment_method)
 
         _asr_backend_options = ["whisper", "qwen3_asr"]
+        # A choice made in the React app (e.g. the experimental "moss_td") is
+        # kept as an option so opening the drama here never rewrites it.
+        if (drama.get("asr_backend_choice") or "whisper") not in _asr_backend_options:
+            _asr_backend_options.append(drama["asr_backend_choice"])
         asr_backend_choice = st.selectbox(
             "Transcription model (when Whisper is doing the transcript, not just timing)",
             _asr_backend_options,
-            index=_asr_backend_options.index(drama.get("asr_backend_choice") or "whisper")
-                  if (drama.get("asr_backend_choice") or "whisper") in _asr_backend_options else 0,
+            index=_asr_backend_options.index(drama.get("asr_backend_choice") or "whisper"),
             format_func=lambda m: ("Whisper (current default)" if m == "whisper" else
-                                    "Qwen3-ASR (experimental -- purpose-built for zh/ja/ko)"),
+                                    "Qwen3-ASR (experimental -- purpose-built for zh/ja/ko)"
+                                    if m == "qwen3_asr" else f"{m} (set in the new app)"),
             disabled=content_mode == "novel_narration",
             key=f"asr_backend_choice_{picked_id}",
             help="Only applies when you picked 'let Whisper transcribe the audio' above -- if you "

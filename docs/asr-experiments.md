@@ -11,12 +11,30 @@ becomes a default is a later decision, made after the real comparison below.
 | Setting | `qwen_asr_batch_size`, 1-16, default 1 (1 = the original one-segment-at-a-time run) | `moss_experimental`, default off |
 | Applies when | a drama's ASR backend is **Qwen3 ASR** in Whisper-text mode | a drama's ASR backend is **MOSS-Transcribe-Diarize (experimental)** in Whisper-text mode |
 | Code | `asr_backend.Qwen3ASRBackend.transcribe(batch_size=...)` | `asr_backend.MossTranscribeDiarizeBackend`, `BACKENDS`/`get_backend` |
-| Written against | qwen-asr **0.0.6** (`transcribe(list)` returns one result per input, in order) | OpenMOSS/MOSS-Transcribe-Diarize commit **61bc29c** (package 0.1.0) |
+| Written against | qwen-asr **0.0.6** (`transcribe(list)` returns one result per input, in order) | OpenMOSS/MOSS-Transcribe-Diarize commit **61bc29c** (package 0.1.0), HF model revision **704aa4a** |
 | Safety | results keyed back by segment index; a batch with the wrong result count is redone one segment at a time; timing is always Whisper's | never picked automatically; refused unless the toggle is on and the package is installed; its own speaker labels are kept and pyannote is not chained over them |
 
-MOSS is not on PyPI and needs Transformers >= 5.6, while qwen-asr pins
-Transformers 4.57.6, so the two can't share one Python environment. Diagnostics
-lists it (`moss-transcribe-diarize`) but does not offer a pip install.
+### Before turning MOSS on
+
+- **It runs downloaded code.** The model needs `trust_remote_code`: its Python
+  files come from the Hugging Face repo `OpenMOSS-Team/MOSS-Transcribe-Diarize`
+  and run inside the Baihe server process, with the same rights as the app
+  (including access to stored API keys). The revision is pinned
+  (`asr_backend.MOSS_HF_REVISION` = `704aa4a9c304e8520be88901e0d1960158ef5b15`),
+  so a change on the Hub can't run new code here; moving the pin needs a review
+  of the upstream diff.
+- **Household members can start it.** The toggle is PC-only, but once it is on,
+  anyone with `lines.edit` + `jobs.start` can set a drama to MOSS and run it
+  (a multi-GB model download on first use), the same as Qwen3-ASR.
+- **It replaces Qwen3.** It is not on PyPI; install it into the app's own
+  environment from the tested commit:
+  `pip install "git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize@61bc29cd4120be7b5d3b761b64cd5dff57263642"`.
+  That upgrades Transformers to 5.x, which qwen-asr (pinned to 4.57.6) can't
+  use, so Qwen3-ASR and Qwen3 forced alignment stop working until you go back
+  (`pip install qwen-asr`). Diagnostics lists it (`moss-transcribe-diarize`) but
+  doesn't offer a pip install.
+- A run can't be stopped part-way (one blocking call); a Stop takes effect
+  when it returns, before any line is replaced.
 
 ## How to evaluate (the roadmap's method)
 

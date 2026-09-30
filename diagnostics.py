@@ -221,9 +221,10 @@ def pypi_url(name: str):
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
-    "moss-transcribe-diarize": "not offered: it isn't on PyPI. Install it from its GitHub "
-                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) in a separate "
-                               "environment -- it needs Transformers 5, which Qwen3-ASR can't use.",
+    "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
+                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
+                               "environment, and it upgrades Transformers to 5.x, which stops "
+                               "Qwen3-ASR and Qwen3 forced alignment working.",
     "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
                                  "Streamlit, and the Scanlate brush that uses it is deferred "
                                  "until Scanlate moves to the new interface.",

@@ -60,12 +60,11 @@ SEGMENT_DURATION_WARNING_SECONDS = 300.0
 
 _asr_model_cache = {}
 
-# Step 103: the qwen-asr release whose transcribe(list) contract (one result
-# per input, in input order) the batching code was written against. Batching
-# stays off by default until a real before/after run on the user's GPU
-# confirms it doesn't change the text on varied-length audio.
-QWEN_ASR_BATCH_VALIDATED_VERSION = "0.0.6"
-QWEN_ASR_MAX_BATCH_SIZE = 16
+# Step 103: batching (Qwen3ASRBackend.transcribe's batch_size) was written
+# against qwen-asr 0.0.6, whose transcribe(list) returns one result per input
+# in input order. It stays off by default until a real before/after run on
+# the user's GPU confirms it doesn't change the text on varied-length audio
+# (docs/asr-experiments.md). The 1-16 range lives in services/asr_options_service.
 
 
 class WhisperBackend:
@@ -148,7 +147,7 @@ class Qwen3ASRBackend:
         batch_size (Step 103, experimental): how many segments go to Qwen3-ASR
         in one call. 1 (the default) is the original one-segment-at-a-time
         behaviour. Timing is Whisper's either way; only throughput changes.
-        Not yet validated on real audio -- see QWEN_ASR_BATCH_VALIDATED_VERSION."""
+        Not yet validated on real audio -- see docs/asr-experiments.md."""
         if language not in LANGUAGE_NAMES:
             raise ValueError(
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
@@ -183,8 +182,8 @@ class Qwen3ASRBackend:
         """{segment index: text} for one batch. Step 103: with more than one
         index, qwen-asr's transcribe() gets a list of slices and returns one
         result per input in input order (checked against qwen-asr 0.0.6's
-        own code); results are keyed back by segment index, and a batch whose
-        result count doesn't match falls back to one call per segment rather
+        own code); results are keyed back by segment index, and a batch that
+        raises or whose result count doesn't match falls back to one call per segment rather
         than guessing which text belongs to which line."""
         paths = {}
         try:
@@ -192,8 +191,16 @@ class Qwen3ASRBackend:
                 paths[i] = os.path.join(tmp_dir, f"seg_{i}.wav")
                 extract_audio_slice(audio_path, segments[i]["start"], segments[i]["end"], paths[i])
             if len(indices) > 1:
-                results = model.transcribe(audio=[paths[i] for i in indices],
-                                           language=language_name)
+                try:
+                    results = model.transcribe(audio=[paths[i] for i in indices],
+                                               language=language_name)
+                except Exception as exc:
+                    # e.g. CUDA out of memory on a large batch: retry this
+                    # batch one segment at a time rather than failing the run.
+                    import applog
+                    applog.get_logger().error(
+                        f"Qwen3-ASR batch of {len(indices)} failed, retrying one by one: {exc}")
+                    results = None
                 if results is not None and len(results) == len(indices):
                     return {i: (r.text if r is not None else "")
                             for i, r in zip(indices, results)}
@@ -216,9 +223,10 @@ class Qwen3ASRBackend:
 # (https://github.com/OpenMOSS/MOSS-Transcribe-Diarize, Apache-2.0), unlike
 # Whisper (+ pyannote afterwards). Written against that repo's README and
 # moss_transcribe_diarize/inference_utils.py at commit 61bc29c (package
-# version 0.1.0). It is not on PyPI -- it installs from its own repository
-# and needs Transformers >= 5.6, which qwen-asr (pinned to 4.57.6) can't share
-# an environment with. Off unless Settings > Transcription experiments turns
+# version 0.1.0; model revision MOSS_HF_REVISION). It is not on PyPI -- it
+# installs from its own repository into the app's own Python environment and
+# needs Transformers >= 5.6, which breaks qwen-asr (pinned to 4.57.6): with
+# MOSS installed, Qwen3-ASR and Qwen3 forced alignment stop working. Off unless Settings > Transcription experiments turns
 # it on (services/asr_options_service.get_moss_experimental), and only ever
 # picked explicitly per drama -- never switched to automatically.
 #
@@ -227,7 +235,14 @@ class Qwen3ASRBackend:
 # both segmentation and text at once; see the Step 104 write-up.
 
 MOSS_MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
-MOSS_TESTED_COMMIT = "61bc29cd4120be7b5d3b761b64cd5dff57263642"
+# Package tested: pip install
+#   "git+https://github.com/OpenMOSS/MOSS-Transcribe-Diarize@61bc29cd4120be7b5d3b761b64cd5dff57263642"
+# The Hugging Face model revision loaded. The model needs trust_remote_code
+# (the package doesn't register its classes with transformers' Auto*), so the
+# Python files it downloads run inside this process: pin the revision so a
+# change on the Hub can't run new code here. Moving the pin needs a review
+# of the upstream diff.
+MOSS_HF_REVISION = "704aa4a9c304e8520be88901e0d1960158ef5b15"
 # Upper bound on generated tokens for one file. The upstream subtitle app
 # uses 2048 per request; an audio drama episode is longer, so allow more and
 # report when the limit was reached (the tail may be missing).
@@ -256,9 +271,11 @@ def load_moss_transcribe_diarize(use_gpu: bool = False):
     dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
     try:
         model = AutoModelForCausalLM.from_pretrained(
-            MOSS_MODEL_ID, trust_remote_code=True, dtype="auto", attn_implementation="sdpa",
+            MOSS_MODEL_ID, revision=MOSS_HF_REVISION, trust_remote_code=True, dtype="auto",
+            attn_implementation="sdpa",
         ).to(dtype=dtype).to(device).eval()
-        processor = AutoProcessor.from_pretrained(MOSS_MODEL_ID, trust_remote_code=True)
+        processor = AutoProcessor.from_pretrained(MOSS_MODEL_ID, revision=MOSS_HF_REVISION,
+                                                  trust_remote_code=True)
     except Exception as exc:
         if _is_network_error(exc):
             raise ModelDownloadError(

@@ -152,3 +152,18 @@ def test_registered_as_an_optional_dependency_but_not_offered_for_pip_install():
     import diagnostics
     assert diagnostics.OPTIONAL_DEPENDENCIES["moss-transcribe-diarize"][0] == "moss_transcribe_diarize"
     assert "moss-transcribe-diarize" in diagnostics.NOT_OFFERED_FOR_INSTALL
+
+
+def test_model_and_processor_load_a_pinned_hub_revision(fakes, monkeypatch):
+    """trust_remote_code runs the Hub repo's Python: it must be a pinned revision."""
+    seen = []
+    import transformers
+    real_model = transformers.AutoModelForCausalLM.from_pretrained
+    monkeypatch.setattr(transformers.AutoModelForCausalLM, "from_pretrained",
+                        staticmethod(lambda mid, **kw: seen.append(kw) or real_model(mid, **kw)))
+    monkeypatch.setattr(transformers.AutoProcessor, "from_pretrained",
+                        staticmethod(lambda mid, **kw: seen.append(kw) or object()))
+    ab.MossTranscribeDiarizeBackend().transcribe("/a.wav")
+    assert len(seen) == 2
+    assert all(kw["revision"] == ab.MOSS_HF_REVISION for kw in seen)
+    assert len(ab.MOSS_HF_REVISION) == 40

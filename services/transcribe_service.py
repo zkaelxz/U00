@@ -228,7 +228,11 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
         if fields["asr_backend_choice"] not in ("whisper", "qwen3_asr", "moss_td"):
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
-        if fields["asr_backend_choice"] == "moss_td" and not asr_options_service.get_moss_experimental():
+        # Only a change TO moss_td needs the toggle: the form re-sends the
+        # stored value with every save, and a run start checks it again.
+        if (fields["asr_backend_choice"] == "moss_td"
+                and drama.get("asr_backend_choice") != "moss_td"
+                and not asr_options_service.get_moss_experimental()):
             raise InvalidInputError(_MOSS_OFF_MESSAGE)
         updates["asr_backend_choice"] = fields["asr_backend_choice"]
     if "beam_size" in fields and fields["beam_size"] is not None:
@@ -622,6 +626,11 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     job_id, {"failed_reason": "moss_td", "detail": redact_secrets(str(exc))})
                 return
             device_msg = "GPU" if moss_info.get("device") == "cuda" else "CPU"
+            # One blocking call with no cancel hook: honour a cancel that
+            # arrived meanwhile before replacing any lines.
+            if background_jobs.is_cancel_requested(job_id):
+                background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                return
         elif use_groq:
             background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
             try:
