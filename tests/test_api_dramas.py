@@ -263,3 +263,21 @@ def test_delete_fresh_job_record_409(client):
     resp = client.delete(f"/api/dramas/{did}?confirm=true&confirm_text=DELETE")
     assert resp.status_code == 409
     assert db.get_drama(did) is not None and os.path.isdir(folder)
+
+
+def test_metadata_new_series_name_and_unassign(client):
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    r = client.post(f"/api/dramas/{did}/metadata", json={"new_series_name": "Saga"})
+    assert r.status_code == 200, r.text
+    sid = db.list_series()[0]["id"]
+    assert r.json()["series_id"] == sid
+    r = client.post(f"/api/dramas/{did}/metadata", json={"series_id": 0})
+    assert r.status_code == 200 and r.json()["series_id"] is None
+    r = client.post(f"/api/dramas/{did}/metadata",
+                    json={"series_id": sid, "new_series_name": "Other"})
+    assert r.status_code == 422 and "not both" in _error(r)["message"]
+    assert client.post(f"/api/dramas/{did}/metadata",
+                       json={"new_series_name": "x" * 301}).status_code == 422
+    assert client.post(f"/api/dramas/{did}/metadata",
+                       json={"series_id": -1}).status_code == 422
+    assert [s["name"] for s in db.list_series()] == ["Saga"]

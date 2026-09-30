@@ -51,6 +51,7 @@ class TestGetDiarizationConfig:
             "expected_speakers": None, "min_speakers": None, "max_speakers": None,
             "last_device": None,
             "audio_available": False,
+            "manual_speaker_count": 0,
         }
 
     def test_audio_present_is_reported(self, isolated_db, monkeypatch):
@@ -303,3 +304,30 @@ class TestDiarizationEstimateCaption:
     def test_caption_has_a_generic_fallback_for_unknown_length(self):
         caption = diarization_service.diarization_estimate_caption(0)
         assert caption
+
+
+def test_config_counts_hand_corrected_speakers(isolated_db):
+    """Parity D06: how many speakers a run with overwrite_manual would replace."""
+    from core import Line
+    did, _ = _drama_without_audio(isolated_db)
+    assert diarization_service.get_diarization_config(did)["manual_speaker_count"] == 0
+    isolated_db.save_lines(did, [
+        Line(idx=0, start=0, end=1, zh="a", speaker="A", speaker_manual=True),
+        Line(idx=1, start=1, end=2, zh="b", speaker="B"),
+        Line(idx=2, start=2, end=3, zh="c", speaker="C", speaker_manual=True)])
+    assert diarization_service.get_diarization_config(did)["manual_speaker_count"] == 2
+
+
+def test_api_config_carries_manual_speaker_count(isolated_db):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from core import Line
+    did, _ = _drama_without_audio(isolated_db)
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", speaker="A",
+                                      speaker_manual=True)])
+    c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    r = c.get(f"/api/diarization/dramas/{did}/config")
+    assert r.status_code == 200 and r.json()["manual_speaker_count"] == 1

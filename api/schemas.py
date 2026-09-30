@@ -321,6 +321,7 @@ class DiarizationConfig(BaseModel):
     # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
     last_device: Optional[str] = None
     audio_available: bool
+    manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
 
 
 class DiarizationRunResult(BaseModel):
@@ -554,7 +555,10 @@ class DramaCreateRequest(BaseModel):
 class DramaMetadataUpdate(BaseModel):
     """Partial metadata update: only fields present in the body are applied.
     Unknown keys (status, content_mode, *_filename, ...) are rejected. For
-    `chapter_count`/`episode_number`, 0 clears the value."""
+    `chapter_count`/`episode_number`, 0 clears the value; `series_id` 0
+    takes the drama out of its series. `new_series_name` ("+ New series")
+    moves it into the series of that name, created for the caller if none
+    exists; not together with `series_id`."""
     model_config = ConfigDict(extra="forbid")
     title_en: Optional[str] = Field(default=None, max_length=300)
     title_zh: Optional[str] = Field(default=None, max_length=300)
@@ -572,7 +576,8 @@ class DramaMetadataUpdate(BaseModel):
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
-    series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
+    series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    new_series_name: Optional[str] = Field(default=None, max_length=300)
 
 
 class DramaPresetDefaults(BaseModel):
@@ -634,6 +639,9 @@ class TranslateRunConfig(BaseModel):
     month_spend: float
     cap_applies_by_engine: Dict[str, bool]
     bulk_supported_engines: List[str]
+    # parity X24; never the URL. None when the drama's engine isn't Ollama
+    # (not probed).
+    ollama_reachable: Optional[bool] = None
 
 
 class TranslateRunEstimate(BaseModel):
@@ -1425,6 +1433,21 @@ class MediaAnalysis(BaseModel):
     has_audio: bool
     audio_track_count: int
     sample_rate: Optional[int] = None
+    # Parity P05: from media_inspect (the tab's media analysis).
+    width: Optional[int] = None
+    height: Optional[int] = None
+    fps: Optional[float] = None
+    subtitle_tracks: List["MediaSubtitleTrack"] = Field(default_factory=list)
+    suggested_pipeline: List[str] = Field(default_factory=list)  # advisory; nothing is applied
+
+
+class MediaSubtitleTrack(BaseModel):
+    index: Optional[int] = None
+    codec: str
+    language: Optional[str] = None
+
+
+MediaAnalysis.model_rebuild()
 
 
 class AutofillRequest(BaseModel):
@@ -1491,6 +1514,9 @@ class ReviewJobStart(BaseModel):
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
+    # Parity R49: half price through Claude's/Gemini's batch API; results
+    # arrive later and are applied by line id. Not for fix-flagged.
+    bulk: StrictBool = False
 
 
 class EmotionJobStart(ReviewJobStart):
@@ -1499,6 +1525,7 @@ class EmotionJobStart(ReviewJobStart):
 
 class FixFlaggedJobStart(ReviewJobStart):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    bulk: Literal[False] = False   # there is no batch variant of fix-flagged
 
 
 class ReviewJobStarted(BaseModel):
@@ -1508,6 +1535,7 @@ class ReviewJobStarted(BaseModel):
     engine: str
     model: Optional[str] = None
     line_count: int
+    bulk: bool = False
 
 
 class MediaExportStarted(BaseModel):
@@ -1609,6 +1637,8 @@ class ResegmentPreview(BaseModel):
 class ResegmentStart(_RestructureBase):
     confirm: StrictBool = False
     use_llm: StrictBool = False
+    # Parity R47: commit the stored LLM preview as shown (no LLM call).
+    use_preview: StrictBool = False
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
 
@@ -1616,6 +1646,17 @@ class ResegmentStart(_RestructureBase):
 class ResegmentStarted(BaseModel):
     job_id: str
     drama_id: int
+
+
+class ResegmentLlmPreviewStart(BaseModel):
+    """Parity R47: start an LLM re-segmentation preview (writes no lines)."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+
+
+class ResegmentLlmPreview(ResegmentPreview):
+    engine: str
 
 
 class RestoreVersionRequest(_RestructureBase):

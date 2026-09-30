@@ -25,6 +25,7 @@ an error.
 
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
+import math
 import os
 import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
@@ -106,9 +107,29 @@ def analyze_media(drama_id: int) -> dict:
             sample_rate = int(audio[0].get("sample_rate"))
         except (TypeError, ValueError):
             sample_rate = None
+    # Parity P05: resolution, subtitle tracks and the suggested (never
+    # applied) pipeline, as the tab's media analysis shows them.
+    try:
+        info = media_inspect.analysis_from_probe(probe, os.path.basename(path))
+    except (TypeError, ValueError, AttributeError):
+        info = None
     return {"drama_id": drama_id, "duration_seconds": duration, "has_video": has_video,
             "has_audio": bool(audio), "audio_track_count": len(audio),
-            "sample_rate": sample_rate}
+            "sample_rate": sample_rate,
+            "width": _positive_int(info.width) if info else None,
+            "height": _positive_int(info.height) if info else None,
+            "fps": info.fps if info and isinstance(info.fps, (int, float))
+            and math.isfinite(info.fps) and info.fps > 0 else None,
+            "subtitle_tracks": [
+                {"index": t.index if isinstance(t.index, int) else None,
+                 "codec": str(t.codec)[:40],
+                 "language": str(t.language)[:40] if t.language else None}
+                for t in info.subtitle_tracks] if info else [],
+            "suggested_pipeline": list(info.suggested_pipeline) if info else []}
+
+
+def _positive_int(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
 def _check_public_url(url: str) -> str:

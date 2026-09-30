@@ -140,11 +140,11 @@ export function DetailsPanel() {
             </Field>
             <Field
               label="Series"
-              help="Shares characters and glossary with other dramas in the series. Removing a series is not supported yet."
+              help="Shares characters and glossary with other dramas in the series. A drama taken out of a private series stays private."
               error={errors.series_id}
             >
               <select value={form.series_id} onChange={set('series_id')}>
-                {initial.series_id === '' && <option value="">No series</option>}
+                <option value="">No series</option>
                 {seriesOptions.map((s) => (
                   <option key={s.id} value={String(s.id)}>{s.name}</option>
                 ))}

@@ -52,7 +52,41 @@ def test_analyze_media(client, drama, monkeypatch):
     r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
     assert r.status_code == 200
     assert r.json() == {"drama_id": drama, "duration_seconds": 12.5, "has_video": False,
-                        "has_audio": True, "audio_track_count": 1, "sample_rate": 44100}
+                        "has_audio": True, "audio_track_count": 1, "sample_rate": 44100,
+                        "width": None, "height": None, "fps": None, "subtitle_tracks": [],
+                        "suggested_pipeline": ["Transcribe (Whisper)", "Diarize speakers",
+                                               "Translate", "Export subtitles (ASS/VTT/SRT)"]}
+
+
+VIDEO_PROBE = {"format": {"duration": "60"},
+               "streams": [{"index": 0, "codec_type": "video", "width": 1920, "height": 1080,
+                            "r_frame_rate": "30000/1001"},
+                           {"index": 1, "codec_type": "audio", "sample_rate": "48000"},
+                           {"index": 2, "codec_type": "subtitle", "codec_name": "ass",
+                            "tags": {"language": "chi"}},
+                           {"index": 3, "codec_type": "subtitle", "codec_name": "subrip",
+                            "tags": {"language": "und"}}]}
+
+
+def test_analyze_media_resolution_subtitles_pipeline(client, drama, monkeypatch):
+    """Parity P05: resolution, subtitle tracks and the suggested pipeline."""
+    folder = db.drama_dir(drama)
+    with open(os.path.join(folder, "v.mp4"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(drama, source_video_filename="v.mp4")
+    calls = []
+    monkeypatch.setattr(media_inspect, "run_ffprobe",
+                        lambda path, **kw: calls.append(path) or VIDEO_PROBE)
+    r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(calls) == 1                                  # ffprobe runs once
+    assert (body["width"], body["height"]) == (1920, 1080)
+    assert round(body["fps"], 2) == 29.97 and body["has_video"] is True
+    assert body["subtitle_tracks"] == [{"index": 2, "codec": "ass", "language": "chi"},
+                                       {"index": 3, "codec": "subrip", "language": None}]
+    assert body["suggested_pipeline"][0].startswith("Import existing subtitle track")
+    assert folder not in r.text and "v.mp4" not in r.text   # never a path
 
 
 def test_analyze_errors(client, drama, monkeypatch):

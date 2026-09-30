@@ -20,6 +20,13 @@ def _seed(did, texts):
                         for i, (z, en) in enumerate(texts)])
 
 
+@pytest.fixture(autouse=True)
+def _no_ollama_probe(monkeypatch):
+    """No test here touches the network: the Ollama health check is
+    stubbed (unreachable) unless a test swaps in its own."""
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+
+
 @pytest.fixture
 def cap(monkeypatch):
     """Sets the resolved monthly cap and month spend."""
@@ -159,3 +166,50 @@ def test_h3_config_does_not_create_folder(isolated_db):
     assert not os.path.exists(folder)
     assert svc.get_translate_config(did)["has_novel_reference"] is False
     assert not os.path.exists(folder)
+
+
+def test_config_reports_ollama_reachable_boolean_only(isolated_db, monkeypatch):
+    """Parity X24: a boolean from check_ollama_reachable against the
+    configured URL; the URL itself is never in the config."""
+    seen = []
+    real = settings_service.resolve_key
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda k, *a, **kw: "http://10.9.8.7:11434" if k == "ollama_url"
+                        else real(k, *a, **kw))
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable",
+                        lambda url: seen.append(url) or True)
+    cfg = svc.get_translate_config(_drama(translation_engine="ollama"))
+    assert cfg["ollama_reachable"] is True and seen == ["http://10.9.8.7:11434"]
+    assert "10.9.8.7" not in json.dumps(cfg)
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+    assert svc.get_translate_config(_drama(translation_engine="ollama"))["ollama_reachable"] is False
+
+
+def test_config_probes_ollama_only_for_an_ollama_drama(isolated_db, monkeypatch):
+    """Review fix: the health check is a network call, so a drama on
+    another engine (or the default engine, when it isn't Ollama) gets
+    None -- not probed -- and no request is made."""
+    seen = []
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable",
+                        lambda url: seen.append(url) or True)
+    assert svc.get_translate_config(_drama(translation_engine="claude"))["ollama_reachable"] is None
+    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "gemini")
+    assert svc.get_translate_config(_drama(translation_engine=None))["ollama_reachable"] is None
+    assert seen == []
+    monkeypatch.setattr(settings_service, "get_default_engine", lambda: "ollama")
+    assert svc.get_translate_config(_drama(translation_engine=None))["ollama_reachable"] is True
+    assert len(seen) == 1
+
+
+def test_api_config_carries_ollama_reachable(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: True)
+    c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    r = c.get(f"/api/translate-run/dramas/{_drama(translation_engine='ollama')}/config")
+    assert r.status_code == 200 and r.json()["ollama_reachable"] is True
+    r = c.get(f"/api/translate-run/dramas/{_drama(translation_engine='claude')}/config")
+    assert r.status_code == 200 and r.json()["ollama_reachable"] is None

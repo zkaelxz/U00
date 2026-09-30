@@ -214,6 +214,37 @@ def assign_drama_series(principal, drama_id, series_id) -> None:
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)   # the series went private meanwhile
 
 
+def unassign_drama_series(principal, drama_id) -> None:
+    """Takes a drama the principal can see out of its series (parity P11).
+    Leaving a private series keeps the drama private (db.unassign_drama_series)."""
+    drama = db.get_item_ownership("drama", _item_id(drama_id))
+    if not drama or not _visible(principal, "drama", drama):
+        raise NotFoundError("Drama not found.")
+    if not db.unassign_drama_series(drama["id"]):
+        raise NotFoundError("Drama not found.")
+
+
+def check_new_series_assignment(principal, name: str, drama_owner_user_id) -> None:
+    """Pre-check for get_or_create_series_for + assign_drama_series, so a
+    refused move never leaves a new, empty series behind (db has no
+    delete_series): the name must be free or name a series the principal
+    can see and may put this drama in, and a series created now (owned by
+    the principal, private unless they share by default) must accept it."""
+    name = (name or "").strip()
+    if not name:
+        raise InvalidInputError("A series name is required.")
+    existing = db.get_series_id_by_name(name)
+    if existing is not None:
+        if not can_see_series(principal, existing):
+            raise ConflictError("That series name is taken")
+        check_series_assignment(principal, existing, drama_owner_user_id)
+        return
+    new = new_item_defaults(principal)
+    if new["is_private"] and drama_owner_user_id is not None \
+            and drama_owner_user_id != new["owner_user_id"]:
+        raise ConflictError(_PRIVATE_SERIES_MESSAGE)
+
+
 def get_or_create_series_for(principal, name: str) -> int:
     """Visibility-aware `db.get_or_create_series`: reuses an existing series
     only if the principal can see it; a name taken by a series they can't

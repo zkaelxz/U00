@@ -48,6 +48,11 @@ describe('buildDetailsPayload', () => {
     expect(p.metadata).toEqual({ studio: 'X', custom_tags: 'bl, fav, new', series_id: 5 })
     expect(p.sourceLanguage).toBe('ja')
   })
+  it('sends series_id 0 to take the drama out of its series', () => {
+    expect(buildDetailsPayload({ ...init, series_id: '' }, init).metadata).toEqual({ series_id: 0 })
+    const none = { ...init, series_id: '' }
+    expect(isEmptyPayload(buildDetailsPayload(none, none))).toBe(true)
+  })
   it('treats whitespace-only tag edits as unchanged and keeps the legacy media type', () => {
     const p = buildDetailsPayload({ ...init, custom_tags: 'bl,fav' }, init)
     expect(isEmptyPayload(p)).toBe(true)
@@ -68,7 +73,7 @@ describe('validateDetails', () => {
     expect(e.title_en).toMatch(/title/)
     expect(e.author).toMatch(/300/)
     expect(e.summary).toMatch(/5000/)
-    expect(e.series_id).toMatch(/not supported/)
+    expect(e.series_id).toBeUndefined() // removing a series is allowed
     expect(e.source_language).toMatch(/language/)
   })
   it('rejects switching to a dropped media type', () => {

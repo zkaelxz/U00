@@ -404,3 +404,79 @@ def test_new_series_refused_after_precheck_creates_nothing(isolated_db, monkeypa
     with pytest.raises(ConflictError):
         ds.create_drama(source_language="zh", title_zh="x", new_series_name="Race")
     assert db.list_dramas() == []
+
+
+# --- Parity P11/X09: "+ New series" on update, and taking a drama out of its series ---
+
+def test_update_new_series_name_creates_and_assigns(isolated_db):
+    did = ds.create_drama(source_language="zh")["id"]
+    d = ds.update_drama_metadata(did, new_series_name="  Saga ", title_en="T")
+    assert [s["name"] for s in db.list_series()] == ["Saga"]
+    assert d["series_id"] == db.list_series()[0]["id"] and d["title_en"] == "T"
+    # an existing name is reused, not duplicated
+    other = ds.create_drama(source_language="zh")["id"]
+    assert ds.update_drama_metadata(other, new_series_name="Saga")["series_id"] == d["series_id"]
+    assert len(db.list_series()) == 1
+
+
+@pytest.mark.parametrize("kw", [{"new_series_name": "   "},
+                                {"new_series_name": "x" * 301},
+                                {"new_series_name": "X", "series_id": 1}])
+def test_update_new_series_name_rejected(isolated_db, kw):
+    db.get_or_create_series("S")
+    did = ds.create_drama(source_language="zh")["id"]
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(did, title_en="changed", **kw)
+    assert db.list_series()[0]["name"] == "S" and len(db.list_series()) == 1
+    assert db.get_drama(did)["title_en"] in (None, "")
+
+
+def test_update_new_series_refused_leaves_no_stray_series(isolated_db):
+    from services import ownership_service
+    from services.service_errors import ConflictError
+    a_id, a = _user("a@example.com")
+    b_id, _b = _user("b@example.com")
+    b_drama = db.create_drama(title_zh="b", owner_user_id=b_id)
+    # A doesn't share by default, so A's new series would be private and
+    # can't take B's drama: refused before the series is created.
+    ownership_service.set_share_by_default(a, False)
+    assert ownership_service.new_item_defaults(a)["is_private"] == 1
+    with pytest.raises(ConflictError):
+        ds.update_drama_metadata(b_drama, principal=a, new_series_name="Mine")
+    assert db.list_series() == [] and db.get_drama(b_drama)["series_id"] is None
+    # A name taken by a series A can't see is refused, not joined.
+    db.get_or_create_series("Hidden", owner_user_id=b_id, is_private=True)
+    own = db.create_drama(title_zh="a", owner_user_id=a_id)
+    with pytest.raises(ConflictError, match="taken"):
+        ds.update_drama_metadata(own, principal=a, new_series_name="Hidden")
+    assert db.get_drama(own)["series_id"] is None
+
+
+def test_update_series_id_zero_unassigns(isolated_db):
+    sid = db.get_or_create_series("S")
+    did = ds.create_drama(source_language="zh", series_id=sid)["id"]
+    assert ds.update_drama_metadata(did, series_id=0)["series_id"] is None
+    assert db.get_drama(did)["series_id"] is None
+    assert ds.update_drama_metadata(did, series_id=0)["series_id"] is None   # no-op
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(did, series_id=-1)
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(did, series_id=False)
+
+
+def test_leaving_a_private_series_keeps_the_drama_private(isolated_db):
+    a_id, a = _user("a@example.com")
+    b_id, b = _user("b@example.com")
+    secret = db.get_or_create_series("Secret", owner_user_id=a_id, is_private=True)
+    open_ = db.get_or_create_series("Open", owner_user_id=a_id)
+    hidden = db.create_drama(title_zh="h", owner_user_id=a_id, series_id=secret)
+    shown = db.create_drama(title_zh="s", owner_user_id=a_id, series_id=open_)
+    ds.update_drama_metadata(hidden, principal=a, series_id=0)
+    ds.update_drama_metadata(shown, principal=a, series_id=0)
+    assert db.get_item_ownership("drama", hidden)["is_private"] == 1
+    assert db.get_item_ownership("drama", shown)["is_private"] == 0
+    visible_to_b = {d["id"] for d in db.list_dramas(visible_to=b_id)}
+    assert hidden not in visible_to_b and shown in visible_to_b
+    # B can't take A's hidden drama out of anything.
+    with pytest.raises(NotFoundError):
+        ds.update_drama_metadata(hidden, principal=b, series_id=0)
