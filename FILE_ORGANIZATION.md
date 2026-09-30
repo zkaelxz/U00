@@ -547,7 +547,8 @@ baihe-subtitler/
 │   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
 │   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
-│   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
+│   │                              errorFallbackText.ts; clipboard.ts (copyText: the one Copy helper, falls back
+│   │                              to execCommand on plain http, never throws); src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
 │   │                              src/labels.ts: display labels for status, media type, language and engine
 │   │                              codes (unknown codes title-cased; one source of truth; unit-tested).
