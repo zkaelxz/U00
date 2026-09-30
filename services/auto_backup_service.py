@@ -612,12 +612,16 @@ def delete_snapshot(confirm=False, confirm_text="") -> dict:
 _CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
                  "bug_reports", "wiki_entries", "edit_samples", "voice_suggestion_dismissals",
-                 "progress", "personal_notes", "reading_history")
+                 "progress", "personal_notes", "reading_history", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
                  "would count the cost twice",
     "bulk_jobs": "provider batch jobs: a restored in-flight batch could be polled again and "
                  "write stale results over the restored lines",
+    "metadata_research_results": "a short-lived research cache pruned by age, keyed by a "
+                                 "research id a restored copy would collide with; the applied "
+                                 "values and their sources (metadata_field_provenance) are "
+                                 "restored",
 }
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")

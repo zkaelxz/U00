@@ -186,6 +186,8 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             description="d", updated_at="x")
     _insert(c, "edit_samples", drama_id=did, zh="z", ai_version="a", user_version="u",
             created_at="x")
+    _insert(c, "metadata_field_provenance", drama_id=did, field="author", value=f"Au {tag}",
+            source="grounded", status="applied")
     if sc.get("Mei"):
         _insert(c, "voice_suggestion_dismissals", drama_id=did, speaker_label="S1",
                 series_character_id=sc["Mei"], created_at="x")
@@ -200,6 +202,8 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             input_tokens=1, output_tokens=1, estimated_cost_usd=0.5, created_at="x")
     _insert(c, "bulk_jobs", drama_id=did, engine="claude", model="m", provider_batch_id="b1",
             status="submitted", submitted_at="x", updated_at="x")
+    _insert(c, "metadata_research_results", research_id=f"r-{tag}", drama_id=did,
+            result_json="{}", created_at="2099-01-01T00:00:00")
     return did
 
 
@@ -218,7 +222,7 @@ def _seed_world():
 
 
 # From the spec, deliberately not read from the module under test.
-SKIPPED = {"usage_log", "bulk_jobs"}
+SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results"}
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
@@ -226,8 +230,8 @@ SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
 
 
 def _fk_child_tables():
-    """Live tables with a foreign key to dramas(id), minus the two the spec
-    skips -- read from the schema, not from the module under test."""
+    """Live tables with a foreign key to dramas(id), minus the ones the
+    service deliberately skips -- read from the schema, not from the module under test."""
     with contextlib.closing(_conn()) as c:
         return sorted({t for t in _tables(c)
                        for fk in c.execute(f'PRAGMA foreign_key_list("{t}")')
@@ -990,7 +994,7 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
                      if fk["table"] == "dramas"}
     assert fk_tables == set(abs_._CHILD_TABLES) | set(abs_._SKIPPED_TABLES)
     assert not set(abs_._CHILD_TABLES) & set(abs_._SKIPPED_TABLES)
-    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs"}
+    assert set(abs_._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results"}
 
 
 class TestRestoreRoundTrip:
@@ -1011,7 +1015,7 @@ class TestRestoreRoundTrip:
         assert res["drama_id"] == a and res["restored_as_new"] is False
         assert res["title"] == "Alpha" and res["media_restored"] is False
         assert res["snapshot_kind"] == "db-only"
-        assert res["skipped_tables"] == ["bulk_jobs", "usage_log"]
+        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
         # P2 is gone, so its profile rows are not restored
         for t in PROFILE_TABLES:
             expected[t] = [r for r in expected[t] if "'P2'" not in r]

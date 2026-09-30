@@ -258,7 +258,7 @@ class TestLocal:
         body = r.json()
         assert body["drama_id"] == a and body["restored_as_new"] is False
         assert body["title"] == "Alpha" and body["snapshot_kind"] == "db-only"
-        assert body["skipped_tables"] == ["bulk_jobs", "usage_log"]
+        assert body["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
         assert db.get_drama(a)["title_en"] == "Alpha"
 
         r = _clean(client.post(f"{BASE}/snapshot/restore-drama",

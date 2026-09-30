@@ -157,5 +157,7 @@ describe('restore one drama', () => {
         "Its series is now someone else's private series, so the drama is back without a series.")
     expect(describeRestore({ ...r, series: 'recreated', media_restored: true, skipped_tables: [] }))
       .toContain('Its series was gone, so it was restored from the snapshot too.')
+    expect(describeRestore({ ...r, skipped_tables: ['bulk_jobs', 'metadata_research_results', 'usage_log'] }))
+      .toContain('Not restored: provider batch jobs, cached online research and spending history.')
   })
 })

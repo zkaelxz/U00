@@ -170,6 +170,7 @@ export function restoreNotes(drama: SnapshotDrama, kind: SnapshotKind, today: st
 const SKIPPED_WORDS: Record<string, string> = {
   usage_log: 'spending history',
   bulk_jobs: 'provider batch jobs',
+  metadata_research_results: 'cached online research',
 }
 
 /** The result line after a restore. */
@@ -187,6 +188,9 @@ export function describeRestore(r: RestoreDramaDone): string {
     parts.push("Its series is now someone else's private series, so the drama is back without a series.")
   }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)
-  if (skipped.length) parts.push(`Not restored: ${skipped.join(' and ')}.`)
+  if (skipped.length) {
+    const list = skipped.length > 1 ? `${skipped.slice(0, -1).join(', ')} and ${skipped[skipped.length - 1]}` : skipped[0]
+    parts.push(`Not restored: ${list}.`)
+  }
   return parts.join(' ')
 }
