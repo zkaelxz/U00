@@ -252,7 +252,7 @@ def _series_job(job_id: str, name: str, series_id: str, local: bool = True):
         background_jobs.update_progress(job_id, 0.2, "Loading the series...")
         info = adapter.get_series(series_id) if adapter.supports("get_series") else None
         background_jobs.update_progress(job_id, 0.6, "Loading the chapter list...")
-        chapters = chapter_order.sort_chapters_grouped(adapter.get_chapters(series_id))
+        chapters = chapter_order.reading_order(adapter, adapter.get_chapters(series_id))
     except Exception as e:
         err = _error_view(e, name)
         background_jobs.set_result(job_id, {"kind": "series", "source": name,
@@ -277,7 +277,7 @@ def _series_job(job_id: str, name: str, series_id: str, local: bool = True):
 
 def start_series(name, series_id, local: bool = True) -> dict:
     """Starts `sources_series_<name>`: the series info plus its chapters in
-    chapter_order.sort_chapters_grouped order. `local` False (a request not
+    chapter_order.reading_order: the site's own order. `local` False (a request not
     from this PC) keeps an adapter from opening a browser."""
     name = str(name or "")
     cls = _enabled_source(name)

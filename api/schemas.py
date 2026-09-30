@@ -235,6 +235,7 @@ class SettingsOverview(BaseModel):
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
+    bulk_auto_resume: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     monthly_cap_env_usd: float = 0.0
@@ -1114,6 +1115,7 @@ class SettingsUpdateRequest(BaseModel):
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
+    bulk_auto_resume: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
