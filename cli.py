@@ -139,10 +139,12 @@ def _run_batch(dramas, step_fn, label: str):
             step_fn(d)
             succeeded.append(d["id"])
         except Exception as e:
-            failed.append((d["id"], str(e)))
-            print(f"\n#{d['id']} FAILED during {label}: {e}", file=sys.stderr)
+            err = translate_engines.redact_secrets(str(e))
+            failed.append((d["id"], err))
+            print(f"\n#{d['id']} FAILED during {label}: {err}", file=sys.stderr)
             if os.environ.get("BAIHE_CLI_DEBUG"):
-                traceback.print_exc()
+                print(translate_engines.redact_secrets(traceback.format_exc()),
+                      file=sys.stderr, end="")
 
     print(f"\n--- {label} summary: {len(succeeded)} succeeded, {len(failed)} failed ---")
     if failed:
@@ -424,7 +426,7 @@ def cmd_align(args):
                         f"Qwen3 forced alignment model download failed: {detail}") from exc
                 except ValueError as exc:
                     print(f"#{d['id']} Qwen3 forced alignment couldn't align this transcript "
-                          f"({exc}) -- using the default character-alignment method for this run.")
+                          f"({translate_engines.redact_secrets(str(exc))}) -- using the default character-alignment method for this run.")
                     lines = align_transcript_to_timing(user_lines, segments)
             else:
                 lines = align_transcript_to_timing(user_lines, segments)
