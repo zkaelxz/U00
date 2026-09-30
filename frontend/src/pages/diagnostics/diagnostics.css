@@ -169,3 +169,18 @@
 /* Model cache rows with a delete button. */
 .diag-cache li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .diag-cache li > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Model health (ModelHealthCard): rows that need attention first, each with its actions. */
+.model-list { list-style: none; padding: 0 !important; margin: 0; display: grid; }
+.model-list > li.model-row { display: grid; gap: var(--space-1); padding: var(--space-3) 0; border-top: 1px solid var(--border); min-width: 0; }
+.model-list > li.model-row:first-child { border-top: 0; padding-top: 0; }
+.model-list.compact > li.model-row { padding: var(--space-2) 0; }
+.model-row p { margin: 0; overflow-wrap: anywhere; }
+.model-row-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
+.model-where { min-width: 0; overflow-wrap: anywhere; }
+.model-name { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; }
+.model-note, .model-help { font-size: var(--text-sm); }
+.model-row.sev-3 .model-message { color: var(--bad); }
+.model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.model-checks { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.model-checks > li.warn { color: var(--warn); }

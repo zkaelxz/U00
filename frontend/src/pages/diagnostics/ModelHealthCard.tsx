@@ -1,0 +1,230 @@
+import { useCallback, useEffect, useState } from 'react'
+
+import { checkModelProviders, getModelStatus, switchPresetModel, type ModelStatus, type ModelStatusItem } from '../../api/models'
+import { Badge } from '../../components/Badge'
+import { ButtonLink } from '../../components/Button'
+import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
+import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
+import type { PcMode } from '../../hooks/usePcOnly'
+import {
+  compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLabel,
+  modelStatusTone, splitModelItems, whereLabel,
+} from './modelHealth'
+
+/**
+ * "Model health" (Step 40): every model this app is set up to use (built-in
+ * defaults, workflow tiers, saved presets), with the ones that are retired,
+ * deprecated, no longer listed or older shown first. The provider check is a
+ * button, never automatic, and PC only; so is switching a preset, which asks
+ * for a second press. Nothing switches by itself.
+ */
+export function ModelHealthCard({ pc }: { pc: PcMode }) {
+  const [status, setStatus] = useState<ModelStatus | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    getModelStatus().then(
+      (s) => {
+        setStatus(s)
+        setLoadError(null)
+      },
+      (e: unknown) => setLoadError(modelHealthError(e)),
+    )
+  }, [])
+  useEffect(load, [load])
+
+  const check = () => {
+    setBusy('check')
+    setError(null)
+    setNotice(null)
+    checkModelProviders().then(
+      (s) => {
+        setStatus(s)
+        setBusy(null)
+        setNotice('Checked. The list below is up to date.')
+      },
+      (e: unknown) => {
+        setBusy(null)
+        setError(modelHealthError(e))
+      },
+    )
+  }
+
+  const switchPreset = (item: ModelStatusItem) => {
+    if (item.preset_id == null || !item.replacement) return
+    const to = item.replacement
+    setBusy(`switch:${item.preset_id}`)
+    setError(null)
+    setNotice(null)
+    switchPresetModel(item.preset_id, item.model, to).then(
+      () => {
+        setBusy(null)
+        setNotice(`${item.where} now uses ${to}.`)
+        load()
+      },
+      (e: unknown) => {
+        setBusy(null)
+        setError(modelHealthError(e))
+        // A stale row (409) or a deleted preset (404): show what is there now.
+        load()
+      },
+    )
+  }
+
+  const canAct = pc !== 'remote'
+  const badge = status ? healthBadge(status) : null
+  const { attention, others } = status ? splitModelItems(status.items) : { attention: [], others: [] }
+  const checks = status ? engineCheckLines(status.engines_checked) : []
+
+  return (
+    <Card
+      title="Model health"
+      meta={<span data-testid="model-health-checked">{status ? lastCheckedLine(status.checked_at) : 'Loading…'}</span>}
+      className="model-health"
+      aria-label="Model health"
+      actions={
+        <>
+          {badge && (
+            <span data-testid="model-health-badge">
+              <Badge tone={badge.tone}>{badge.text}</Badge>
+            </span>
+          )}
+          {canAct && (
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy !== null} onClick={check}>
+              {busy === 'check' ? 'Checking…' : 'Check providers now'}
+            </button>
+          )}
+        </>
+      }
+    >
+      {loadError && (
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {status && (
+        <>
+          <p className="muted">
+            Nothing switches automatically: a preset only changes when you confirm it here.{' '}
+            {canAct
+              ? 'Checking providers asks each engine with a key for its model list; it never runs by itself.'
+              : 'Checking providers and switching presets are PC only.'}
+          </p>
+
+          {checks.length > 0 && (
+            <ul className="model-checks" aria-label="Last provider check">
+              {checks.map((c) => (
+                <li key={c.engine} className={c.ok ? undefined : 'warn'}>
+                  <strong>{c.label}:</strong> {c.text}
+                </li>
+              ))}
+            </ul>
+          )}
+          {status.checked_at && checks.length === 0 && (
+            <p className="muted">No provider was checked: only Claude, Gemini and DeepSeek can be asked, and each needs a key in Settings.</p>
+          )}
+
+          {attention.length > 0 ? (
+            <ul className="model-list" aria-label="Models that need attention">
+              {attention.map((item) => (
+                <ModelRow key={rowKey(item)} item={item} canAct={canAct} busy={busy} onSwitch={() => switchPreset(item)} />
+              ))}
+            </ul>
+          ) : (
+            <p data-testid="model-health-ok">No configured model is retired, deprecated or older.</p>
+          )}
+
+          {others.length > 0 && (
+            <Section
+              title={attention.length ? 'Other configured models' : 'All configured models'}
+              count={others.length}
+              storageKey="diagnostics.modelHealthOthers"
+              summary={othersSummary(others)}
+            >
+              <ul className="model-list compact" aria-label="Other configured models">
+                {others.map((item) => (
+                  <ModelRow key={rowKey(item)} item={item} canAct={false} busy={null} onSwitch={() => undefined} />
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {status.registry_updated && (
+            <p className="muted">Retirement dates come from a list shipped with the app (updated {status.registry_updated}).</p>
+          )}
+        </>
+      )}
+      {notice && (
+        <p role="status" data-testid="model-health-notice">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </Card>
+  )
+}
+
+function othersSummary(items: ModelStatusItem[]): string {
+  const current = items.filter((i) => i.status === 'current').length
+  const rest = items.length - current
+  return [current ? `${current} current` : '', rest ? `${rest} not checked` : ''].filter(Boolean).join(' · ')
+}
+
+const rowKey = (i: ModelStatusItem) => `${i.kind}|${i.preset_id ?? i.where}|${i.engine}|${i.model}`
+
+function ModelRow({ item, canAct, busy, onSwitch }: {
+  item: ModelStatusItem
+  canAct: boolean
+  busy: string | null
+  onSwitch: () => void
+}) {
+  const href = item.severity >= 1 ? compareHref(item) : null
+  const help = item.severity >= 1 ? kindHelp(item) : null
+  const switchable = item.can_switch && item.preset_id != null && !!item.replacement
+  const key = `switch:${item.preset_id}`
+  const where = whereLabel(item)
+  return (
+    <li className={`model-row sev-${Math.max(0, Math.min(3, item.severity))}`}>
+      <div className="model-row-head">
+        <Badge tone={modelStatusTone(item.status)}>{modelStatusLabel(item.status)}</Badge>
+        <strong className="model-where">{where}</strong>
+        <code className="model-name">{item.model}</code>
+      </div>
+      <p className="model-message">{item.message}</p>
+      {item.note && <p className="muted model-note">{item.note}</p>}
+      {help && <p className="muted model-help">{help}</p>}
+      {(href || switchable) && (
+        <div className="model-actions">
+          {href && (
+            <ButtonLink href={href} variant="secondary" size="sm" aria-label={`Compare ${item.model} with ${item.replacement} in Benchmark Lab`}>
+              Compare in Benchmark Lab
+            </ButtonLink>
+          )}
+          {switchable && canAct && (
+            <ConfirmButton
+              name={`${where} to ${item.replacement}`}
+              label={`Switch preset to ${item.replacement}…`}
+              ariaLabel={`Switch ${where} to ${item.replacement}`}
+              confirmLabel={`Confirm switch to ${item.replacement}`}
+              verb="switch"
+              tone="primary"
+              busy={busy === key}
+              disabled={busy !== null && busy !== key}
+              onConfirm={onSwitch}
+            />
+          )}
+        </div>
+      )}
+      {switchable && !canAct && <p className="muted model-help">Switching a preset is PC only.</p>}
+    </li>
+  )
+}
