@@ -73,7 +73,7 @@ _IMPORT_BUSY = ("A Sources chapter import is running and may be adding to the ra
                 "Wait for it to finish or cancel it.")
 SOURCE_IMPORT_PREFIX = "source_import_"  # sources/pipeline.import_job_id
 # Same freshness window as drama_service.job_running_for_drama.
-_STALE_JOB_RECORD_SECONDS = 6 * 60 * 60
+_STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
 _ACTIVE = ("running", "queued")
 
 

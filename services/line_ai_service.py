@@ -24,12 +24,10 @@ refuse a paid engine once the monthly spending cap is used up.
 """
 import core
 import db
-import adaptive_style
 import line_tools
 import translate_engines
-import translation_guide
 from services import (engine_routing_service, settings_service, translate_run_service,
-                      translate_service)
+                      translate_service, workspace_job_service)
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, ServiceError,
                                       UnsupportedOperationError)
@@ -136,17 +134,11 @@ def improve_line(drama_id: int, line_id: int, engine_name: str = None, model: st
         raise InvalidInputError(f"issue is too long (max {MAX_ISSUE_CHARS} characters).")
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier)
-    series_id = drama.get("series_id")
-    glossary = db.list_glossary_terms(series_id) if series_id else None
-    prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
-    learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {})) if prof else ""
-    hints = translation_guide.build_character_gender_hints(
-        db.list_series_characters(series_id) if series_id else [],
-        db.list_characters_with_series_names(drama_id))
     preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
-    guidelines = translation_guide.build_style_guidelines(
-        preset, glossary_terms=glossary,
-        custom_notes="\n\n".join(b for b in (learned, hints) if b))
+    # Same builder as a translate run (B-20), so the line's emotion guidance
+    # is included too.
+    _glossary, guidelines, _names = workspace_job_service.build_run_style_context(
+        drama_id, drama, [line], preset)
     suggestion = _run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,
         source_language=drama.get("source_language") or "zh",

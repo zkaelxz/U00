@@ -172,3 +172,53 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     assert ctx["speaker_labels"] == ["Su Shan"]
     assert isolated_db.load_lines(did)[0]["en"] == "Su Shan is here."
     background_jobs.clear_job("fix_ctx")
+
+
+def _spy_style_context(monkeypatch):
+    calls = []
+    real = wjs.build_run_style_context
+
+    def spy(*a, **k):
+        calls.append(k)
+        return real(*a, **k)
+    monkeypatch.setattr(wjs, "build_run_style_context", spy)
+    return calls
+
+
+@pytest.mark.parametrize("genre,pronouns", [(True, False), (False, True)])
+def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, pronouns):
+    did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
+                                   content_mode="audio_drama", status="translated")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句", en="x", flag="bad")])
+    calls = _spy_style_context(monkeypatch)
+
+    class Engine:
+        name = "test_offline"
+
+        def translate_batch(self, zh, context):
+            return ["ok"]
+    import core
+    lines = core.lines_from_rows(isolated_db.load_lines(did))
+    background_jobs.clear_job("fix_toggles")
+    wjs.run_fix_flagged_lines_job("fix_toggles", did, lines, None, "small", False, "zh",
+                                  Engine(), "test_offline", include_genre_notes=genre,
+                                  default_female_pronouns=pronouns)
+    assert calls[0]["include_genre_notes"] is genre
+    assert calls[0]["default_female_pronouns"] is pronouns
+    background_jobs.clear_job("fix_toggles")
+
+
+def test_bulk_series_passes_translate_toggles(isolated_db, monkeypatch):
+    did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
+                                   content_mode="audio_drama", status="aligned",
+                                   translation_engine="claude")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
+    calls = _spy_style_context(monkeypatch)
+    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(wjs.background_jobs, "start_job", lambda *a, **k: False)
+    monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
+    wjs.run_bulk_series_translate_job("bulk_toggles", [did], {"claude": "k"},
+                                      include_genre_notes=False, default_female_pronouns=True)
+    background_jobs.clear_job("bulk_toggles")
+    assert calls[0]["include_genre_notes"] is False
+    assert calls[0]["default_female_pronouns"] is True

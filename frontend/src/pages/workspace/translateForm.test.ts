@@ -9,14 +9,20 @@ import {
   buildRunBody,
   bulkAvailable,
   bulkReflectAvailable,
+  FALLBACK_KIND_MESSAGE,
   failedBatches,
+  fallbackKindMismatch,
+  fallbackOptions,
   initialForm,
+  isTranslationOnly,
   lineRanges,
   loadPresetStart,
+  MAX_FALLBACKS,
   monthSpendText,
   ollamaWarning,
   parseCap,
   reflectAvailable,
+  sameEngineKind,
   savePresetStart,
   splitLines,
   styleGuidance,
@@ -55,12 +61,44 @@ describe('translate form', () => {
     expect(validateRun({ ...base, context_window: '101' }, 'x')).toMatch(/Context window must/)
     expect(validateRun({ ...base, context_window_ahead: '-1' }, 'x')).toMatch(/ahead/)
     expect(validateRun({ ...base, cost_cap: '-2' }, 'x')).toMatch(/Cost cap/)
-    expect(validateRun({ ...base, fallbacks: ['a', 'b', 'c', 'd'] }, 'x')).toMatch(/At most 3/)
+    expect(MAX_FALLBACKS).toBe(2)
+    expect(validateRun({ ...base, fallbacks: ['a', 'b', 'c'] }, 'x')).toMatch(/At most 2/)
+    expect(validateRun({ ...base, fallbacks: ['a', 'b'] }, 'x')).toBeNull()
     expect(validateRun({ ...base, fallbacks: [''] }, 'x')).toMatch(/every fallback/)
     expect(validateRun({ ...base, fallbacks: ['x'] }, 'x')).toMatch(/twice/)
     expect(validateRun({ ...base, engine: 'a', fallbacks: ['b', 'b'] }, 'x')).toMatch(/twice/)
     expect(validateRun({ ...base, force: true }, 'x')).toMatch(/confirmation/)
     expect(validateRun({ ...base, force: true, forceConfirmed: true }, 'x')).toBeNull()
+  })
+
+  it('offers only fallback engines of the main engine\'s kind, not already used', () => {
+    const all = ['claude', 'gemini', 'openai', 'deepl', 'google', 'nllb']
+    expect(isTranslationOnly('deepl')).toBe(true)
+    expect(isTranslationOnly('claude')).toBe(false)
+    expect(sameEngineKind('claude', 'openai')).toBe(true)
+    expect(sameEngineKind('claude', 'deepl')).toBe(false)
+    // AI main engine: AI engines only, minus the main engine.
+    expect(fallbackOptions(all, 'claude', [''], 0)).toEqual(['gemini', 'openai'])
+    // A slot never offers an engine chosen in another slot, but keeps its own.
+    expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 1)).toEqual(['openai'])
+    expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 0)).toEqual(['gemini'])
+    // Translation-only main engine: translation-only engines only.
+    expect(fallbackOptions(all, 'deepl', [], -1)).toEqual(['google', 'nllb'])
+  })
+
+  it('flags a fallback of a different kind from the main engine', () => {
+    const base = initialForm(config)
+    expect(fallbackKindMismatch('claude', ['gemini', ''])).toBe(false)
+    expect(fallbackKindMismatch('claude', ['deepl'])).toBe(true)
+    expect(validateRun({ ...base, engine: 'claude', fallbacks: ['gemini'] }, 'x')).toBeNull()
+    expect(validateRun({ ...base, engine: 'deepl', fallbacks: ['google'] }, 'x')).toBeNull()
+    // The main engine switched kind after the fallback was picked.
+    expect(validateRun({ ...base, engine: 'deepl', fallbacks: ['gemini'] }, 'x')).toBe(FALLBACK_KIND_MESSAGE)
+    // With no engine chosen, the drama's default engine decides the kind.
+    expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'claude')).toBe(FALLBACK_KIND_MESSAGE)
+    expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'google')).toBeNull()
+    // Reflect/Bulk are refused first, with their own reason.
+    expect(validateRun({ ...base, engine: 'claude', reflect: true, fallbacks: ['deepl'] }, 'x')).toMatch(/normal run/)
   })
 
   it('builds the run body without line_ids and only sends force when confirmed', () => {

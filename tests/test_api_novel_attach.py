@@ -178,6 +178,24 @@ def test_ocr_chapter_passes_tesseract_cmd(client, monkeypatch):
     assert seen["cmd"] == "D:/Tesseract/tesseract.exe"
 
 
+def test_ocr_chapter_falls_back_to_settings_tesseract_path(client, monkeypatch):
+    """B-03 leftover: with no tesseract_cmd in the request, the saved
+    Settings path is used (a Windows install off PATH)."""
+    from services import settings_service
+    settings_service.set_settings({"tesseract_cmd": "C:/Program Files/Tesseract/tesseract.exe"})
+    did = _drama()
+    seen = {}
+
+    def fake_ocr(paths, backend, source_language, chinese_script, tesseract_cmd=None, **kw):
+        seen["cmd"] = tesseract_cmd
+        return "OCR text"
+    monkeypatch.setattr(ocr, "extract_text_from_images", fake_ocr)
+    r = client.post(f"/api/novel/dramas/{did}/ocr-chapter", files=[("files", ("a.png", b"img"))])
+    assert r.status_code == 200
+    assert _wait(f"ocrchapter_{did}")["status"] == "done"
+    assert seen["cmd"] == "C:/Program Files/Tesseract/tesseract.exe"
+
+
 def test_ocr_chapter_errors(client, monkeypatch):
     did = _drama()
     url = f"/api/novel/dramas/{did}/ocr-chapter"

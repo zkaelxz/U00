@@ -356,7 +356,7 @@ class TestModelSelection:
         import types
         import translate_engines as te
         fake = types.ModuleType("anthropic")
-        fake.Anthropic = lambda api_key: types.SimpleNamespace(api_key=api_key)
+        fake.Anthropic = lambda api_key, **kw: types.SimpleNamespace(api_key=api_key, **kw)
         monkeypatch.setitem(sys.modules, "anthropic", fake)
         for model in te.CLAUDE_MODELS:
             eng = te.get_engine("claude", "fake-key", model)

@@ -184,6 +184,14 @@ def test_burned_video_runs_and_writes_artifact(client, drama, isolated_db, fake_
     assert client.get(f"/api/artifacts/dramas/{drama}/video").status_code == 200
 
 
+def test_burned_video_ffmpeg_has_a_timeout(client, drama, isolated_db, fake_ffmpeg):
+    """B-05 leftover: the burned-video ffmpeg run is bounded like the others."""
+    _add_video(isolated_db, drama)
+    client.post(f"/api/export/dramas/{drama}/burned-video", json={})
+    assert _wait(f"burned_video_{drama}")["status"] == "done"
+    assert fake_ffmpeg.calls[0][1]["timeout"] == media_export_service._VIDEO_TIMEOUT_S
+
+
 def test_burned_video_body_optional(client, drama, isolated_db):
     _add_video(isolated_db, drama)
     assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 200
