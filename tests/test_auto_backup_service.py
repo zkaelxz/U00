@@ -996,7 +996,8 @@ class TestSnapshotInfoAndDelete:
         assert copy == {"name": os.path.basename(_default_path()),
                         "created_at": info["created_at"], "size": info["size"],
                         "readable": True, "kind": "db-only", "drama_count": 1,
-                        "kept_as": "daily"}
+                        "kept_as": "daily", "managed": True, "sequence": 1}
+        assert info["default_copy"] == copy["name"] and info["choose_copy"] is False
         assert db.LIBRARY_DIR not in json.dumps(abs_.settings_overview())
         assert abs_.settings_overview()["copies"] == info["copies"]
 
@@ -1008,7 +1009,8 @@ class TestSnapshotInfoAndDelete:
         info = abs_.snapshot_info()
         assert info == {"exists": True, "readable": False, "copies": [
             {"name": name, "created_at": "2026-03-01T12:00:00+00:00", "size": 9,
-             "readable": False, "kind": None, "drama_count": None, "kept_as": None}]}
+             "readable": False, "kind": None, "drama_count": None, "kept_as": None,
+             "managed": False, "sequence": None}]}
         with pytest.raises(InvalidInputError):
             abs_.list_snapshot_dramas()
         with pytest.raises(InvalidInputError):
@@ -1056,7 +1058,7 @@ class TestSnapshotInfoAndDelete:
         _snap()
         _snap()
         assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True) == \
-            {"deleted": True, "count": 2}
+            {"deleted": True, "count": 2, "kept_unmanaged": 0}
         assert _default_path() is None
         assert abs_.snapshot_info() == {"exists": False, "copies": []}
 
@@ -1069,7 +1071,7 @@ class TestSnapshotInfoAndDelete:
             fh.write(b"mine")
         assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE",
                                     snapshot=os.path.basename(older)) == \
-            {"deleted": True, "count": 1}
+            {"deleted": True, "count": 1, "kept_unmanaged": 0}
         assert not os.path.exists(older) and os.path.isfile(newer)
         with pytest.raises(NotFoundError):     # already gone
             abs_.delete_snapshot(confirm=True, confirm_text="DELETE",
@@ -1117,11 +1119,28 @@ def _name(when):
     return f"baihe_snapshot-{when:%Y%m%d-%H%M%S}.zip"
 
 
+def _untag(path, when):
+    """Rewrites the copy as an app from before copies carried a library id
+    wrote it: no library_id or sequence, created_at `when`."""
+    with zipfile.ZipFile(path) as zf:
+        members = {i.filename: zf.read(i) for i in zf.infolist()}
+    manifest = json.loads(members["manifest.json"])
+    manifest.pop("library_id")
+    manifest.pop("sequence")
+    manifest["created_at"] = abs_._iso(when)
+    members["manifest.json"] = json.dumps(manifest).encode()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+
 def _make_legacy(when):
-    """A pre-rotation baihe_snapshot.zip (a real snapshot) dated `when`."""
+    """A pre-rotation baihe_snapshot.zip (a real snapshot, as the app wrote
+    it before copies carried a library id) dated `when`."""
     path = _snap()
     legacy = os.path.join(os.path.dirname(path), abs_.LEGACY_SNAPSHOT_NAME)
     os.replace(path, legacy)
+    _untag(legacy, when)
     ts = when.timestamp()
     os.utime(legacy, (ts, ts))
     return legacy
@@ -1223,10 +1242,11 @@ class TestRotation:
         assert kept == {abs_.LEGACY_SNAPSHOT_NAME: None, _name(_at(5)): "daily",
                         _name(_at(4)): "daily", _name(_at(2)): "weekly"}
 
-    def test_future_dated_copy_is_not_the_default_pick(self, isolated_db, monkeypatch):
-        """A copy written while the clock ran ahead is never the default
-        restore pick or the 'newest' label while a copy dated up to now can
-        be read, and the rotation never deletes it."""
+    def test_future_dated_copy_is_never_silently_picked(self, isolated_db, monkeypatch):
+        """A copy written while the clock ran far ahead: the sequence says
+        the later runs are newer, but the dates disagree by far more than a
+        clock slip, so no copy is picked without the owner choosing; the
+        rotation never deletes the future-dated one."""
         db.create_drama(title_en="A")
         future = datetime.datetime(2099, 1, 1, tzinfo=UTC)
         _run_at(monkeypatch, future)
@@ -1235,10 +1255,13 @@ class TestRotation:
         assert os.path.isfile(os.path.join(_default_dir(), _name(future)))
         info = abs_.snapshot_info()
         assert info["copies"][0]["name"] == _name(future)     # listed newest first
-        assert info["created_at"] == abs_._iso(_at(19))
-        assert abs_.list_snapshot_dramas()["name"] == _name(_at(19))
-        with abs_._snapshot_lock:
-            assert abs_._pick_copy()[0]["name"] == _name(_at(19))
+        assert info["choose_copy"] is True and info["default_copy"] is None
+        assert "created_at" not in info
+        with pytest.raises(ConflictError) as e:
+            abs_.list_snapshot_dramas()
+        assert e.value.details["reason"] == "choose_copy"
+        assert _name(_at(19)) in [c["name"] for c in e.value.details["candidates"]]
+        assert abs_.list_snapshot_dramas(_name(_at(19)))["name"] == _name(_at(19))
 
     def test_future_dated_copy_used_when_nothing_else_reads(self, isolated_db, monkeypatch):
         db.create_drama(title_en="A")
@@ -1382,7 +1405,13 @@ class TestRotation:
         info = abs_.snapshot_info()
         assert info["exists"] and info["readable"]
         assert [c["name"] for c in info["copies"]] == [abs_.LEGACY_SNAPSHOT_NAME]
-        assert [d["id"] for d in abs_.list_snapshot_dramas()["dramas"]] == [a]
+        assert info["copies"][0]["managed"] is True
+        # no copy numbered by this library yet: the owner names one
+        assert info["choose_copy"] is True
+        with pytest.raises(ConflictError):
+            abs_.list_snapshot_dramas()
+        assert [d["id"] for d in abs_.list_snapshot_dramas(
+            abs_.LEGACY_SNAPSHOT_NAME)["dramas"]] == [a]
         # upgrading loses nothing: the first rotating run keeps it
         _run_at(monkeypatch, _at(2))
         _run_at(monkeypatch, _at(3))
@@ -1429,25 +1458,37 @@ class TestRotation:
         os.symlink(outside, link)
 
         _run_at(monkeypatch, _at(4))
-        # readable copies 4, 3 (daily) and 2 (week 10's first) are kept; the
-        # unreadable one from 3 March 12:00 is newer than copy 2, so it stays
-        # (and took no slot); the one from January is older than every kept
-        # copy, so it goes. Nothing else is touched.
-        assert not os.path.exists(older_bad)
-        for p in (newer_bad, other, partial, link):
+        # readable copies 4, 3 (daily) and 2 (week 10's first) are kept; a
+        # damaged file proves no owner, so the rotation never deletes it,
+        # however old, and it takes no slot. Nothing else is touched.
+        for p in (newer_bad, older_bad, other, partial, link):
             assert os.path.lexists(p), p
         assert os.path.isdir(os.path.join(folder, "baihe_snapshot-20250101-000000.zip"))
         assert os.path.islink(link) and outside.read_bytes()
         info = abs_.snapshot_info()
         assert [c["name"] for c in info["copies"]] == [
-            _name(_at(4)), _name(_at(3, hour=12)), _name(_at(3)), _name(_at(2))]
-        assert [c["readable"] for c in info["copies"]] == [True, False, True, True]
+            _name(_at(4)), _name(_at(3, hour=12)), _name(_at(3)), _name(_at(2)),
+            "baihe_snapshot-20260101-000000.zip"]
+        assert [c["readable"] for c in info["copies"]] == [True, False, True, True, False]
+        assert [c["managed"] for c in info["copies"]] == [True, False, True, True, False]
         assert info["created_at"] == abs_._iso(_at(4))
-        # the default for a restore skips an unreadable newest file
-        put(_name(_at(5)))
+        # a damaged file dated before the default doesn't matter; one dated
+        # after it may have been the newest copy, so the owner chooses
         assert abs_.list_snapshot_dramas()["name"] == _name(_at(4))
-        # delete-all removes the copies (readable or not) and nothing else
-        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)["count"] == 5
+        put(_name(_at(5)))
+        with pytest.raises(ConflictError) as e:
+            abs_.list_snapshot_dramas()
+        assert e.value.details["reason"] == "choose_copy"
+        assert _name(_at(5)) not in [c["name"] for c in e.value.details["candidates"]]
+        assert abs_.snapshot_info()["choose_copy"] is True
+        # delete-all removes this library's copies only
+        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True) == \
+            {"deleted": True, "count": 3, "kept_unmanaged": 3}
+        assert os.path.lexists(newer_bad) and os.path.lexists(older_bad)
+        # asked to include the unmanaged ones, the damaged copies go too,
+        # and still nothing else
+        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True,
+                                    include_unmanaged=True)["count"] == 3
         assert sorted(os.listdir(folder)) == sorted([
             ".baihe_snapshot.partial-abcd.zip", "baihe_snapshot-20240101-000000.zip",
             "baihe_snapshot-20250101-000000.zip", "other.zip"])
@@ -2316,7 +2357,15 @@ class TestFolderMove:
         name = os.path.basename(_default_path())
         out = tmp_path / "ext"
         out.mkdir()
+        # a file of that name this library didn't make is never replaced
         (out / name).write_bytes(b"stale file")
+        with pytest.raises(ConflictError) as e:
+            abs_.set_settings(folder=str(out))
+        assert str(out) not in str(e.value) and name in str(e.value)
+        assert (out / name).read_bytes() == b"stale file"
+        assert _read(_default_path()) == data and abs_.get_settings()["folder"] == ""
+        # this library's own copy of that name (left from an earlier move) is
+        (out / name).write_bytes(data)
         abs_.set_settings(folder=str(out))
         assert (out / name).read_bytes() == data
         assert sorted(os.listdir(out)) == [name]
@@ -2334,6 +2383,7 @@ class TestFolderMove:
         legacy = os.path.join(_default_dir(), abs_.LEGACY_SNAPSHOT_NAME)
         with open(_newest(), "rb") as src, open(legacy, "wb") as dst:
             dst.write(src.read())
+        _untag(legacy, _at(1))
         old = _at(1).timestamp()        # older than every copy
         os.utime(legacy, (old, old))
         with open(os.path.join(_default_dir(), "notes.txt"), "w") as fh:
@@ -2839,14 +2889,12 @@ class TestLeadReviewFollowUps:
             return real_remove(path, *args, **kw)
         monkeypatch.setattr(abs_.os, "replace", cross_device)
         monkeypatch.setattr(abs_.os, "remove", locked)
-        name = os.path.basename(src)
-        (tmp_path / name).write_bytes(b"older file already there")
         with pytest.raises(ServiceError):
             abs_.set_settings(folder=str(tmp_path))
         monkeypatch.undo()
         # The original is only removed once its copy is in place; when that
-        # removal fails the copy is taken out again (it replaced the stale
-        # file of the same name), so the copy is in exactly one folder.
+        # removal fails the copy is taken out again, so the copy is in
+        # exactly one folder.
         assert os.listdir(tmp_path) == []
         assert _read(src) == data
         assert abs_.get_settings()["folder"] == ""

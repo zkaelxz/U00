@@ -9,9 +9,11 @@ loopback gate) and with auth on (even for an admin), allowed for the owner at
 the PC in both modes.
 """
 
+import json
 import os
 import threading
 import time
+import zipfile
 
 import pytest
 
@@ -256,7 +258,8 @@ class TestLocal:
         first = info["copies"][0]["name"]
         assert [c["name"] for c in info["copies"]] == [first]
         assert set(info["copies"][0]) == {"name", "created_at", "size", "kind", "drama_count",
-                                          "readable", "kept_as"}
+                                          "readable", "kept_as", "managed", "sequence"}
+        assert info["default_copy"] == first and info["choose_copy"] is False
         assert "/" not in first and "\\" not in first
         settings = _clean(client.get(f"{BASE}/settings")).json()
         assert settings["copies"] == info["copies"]
@@ -297,14 +300,17 @@ class TestLocal:
                                     params={"snapshot": first})).json()
         assert listing["name"] == first and listing["kind"] == "db-only"
         r = _clean(client.post(f"{BASE}/snapshot/delete", json={**DELETE_OK, "snapshot": first}))
-        assert r.status_code == 200 and r.json() == {"deleted": True, "count": 1}
+        assert r.status_code == 200
+        assert r.json() == {"deleted": True, "count": 1, "kept_unmanaged": 0}
         info = client.get(f"{BASE}/snapshot").json()
         assert [c["kind"] for c in info["copies"]] == ["full"]
 
         r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
-        assert r.status_code == 200 and r.json() == {"deleted": True, "count": 1}
+        assert r.status_code == 200
+        assert r.json() == {"deleted": True, "count": 1, "kept_unmanaged": 0}
         assert client.get(f"{BASE}/snapshot").json() == {
-            "exists": False, "readable": None, "created_at": None, "kind": None, "size": None,
+            "exists": False, "readable": None, "choose_copy": None, "default_copy": None,
+            "created_at": None, "kind": None, "size": None,
             "app_version": None, "drama_count": None, "copies": []}
         assert not os.path.exists(_snap_path())
 
@@ -479,3 +485,60 @@ class TestConflicts:
         r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
                                json={"drama_id": b + 100, **RESTORE_OK}))
         assert r.status_code == 404
+
+
+# ---- ownership: choose_copy and unmanaged copies ------------------------------
+
+def _foreign(path):
+    """Rewrites the copy's manifest as another library's."""
+    with zipfile.ZipFile(path) as zf:
+        members = {i.filename: zf.read(i) for i in zf.infolist()}
+    manifest = json.loads(members["manifest.json"])
+    manifest["library_id"] = "f" * 32
+    members["manifest.json"] = json.dumps(manifest).encode()
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+
+class TestOwnership:
+    def test_no_clear_default_is_409_choose_copy(self, client):
+        a, _ = _world()
+        path = _snap_path()
+        name = os.path.basename(path)
+        _foreign(path)
+        info = _clean(client.get(f"{BASE}/snapshot")).json()
+        assert info["choose_copy"] is True and info["default_copy"] is None
+        assert info["copies"][0]["managed"] is False
+        for r in (client.get(f"{BASE}/snapshot/dramas"),
+                  client.post(f"{BASE}/snapshot/restore-drama",
+                              json={"drama_id": a, **RESTORE_OK})):
+            _clean(r)
+            assert r.status_code == 409, r.text
+            err = r.json()["error"]
+            assert err["code"] == "conflict" and err["details"]["reason"] == "choose_copy"
+            [cand] = err["details"]["candidates"]
+            assert cand["name"] == name and cand["managed"] is False
+            assert set(cand) == {"name", "created_at", "sequence", "size", "managed"}
+        assert db.get_drama(a) is None
+        r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
+                               json={"drama_id": a, "snapshot": name, **RESTORE_OK}))
+        assert r.status_code == 200 and r.json()["snapshot"] == name
+
+    def test_unmanaged_copy_needs_include_unmanaged(self, client):
+        _world()
+        path = _snap_path()
+        name = os.path.basename(path)
+        _foreign(path)
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
+        assert r.status_code == 404 and os.path.exists(path)
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json={**DELETE_OK, "snapshot": name}))
+        assert r.status_code == 409 and r.json()["error"]["details"] == {"reason": "unmanaged"}
+        assert os.path.exists(path)
+        assert client.post(f"{BASE}/snapshot/delete",
+                           json={**DELETE_ALL, "include_unmanaged": "yes"}).status_code == 422
+        r = _clean(client.post(f"{BASE}/snapshot/delete",
+                               json={**DELETE_ALL, "include_unmanaged": True}))
+        assert r.status_code == 200
+        assert r.json() == {"deleted": True, "count": 1, "kept_unmanaged": 0}
+        assert not os.path.exists(path)
