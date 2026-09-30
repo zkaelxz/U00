@@ -5,7 +5,9 @@ import type { DramaSummary } from '../../api/types'
 import { safeDetail } from '../../components/errorMessages'
 import type { DramaCreateRequest } from '../../types/library'
 import type { SeriesChapter } from '../../types/sources'
-import type { ChapterImportResult, ChapterImportRow, UrlImportResult, UrlPreview } from '../../types/sourcesImport'
+import type {
+  ChapterImportResult, ChapterImportRow, ImportState, UrlImportResult, UrlPreview,
+} from '../../types/sourcesImport'
 
 // Remote viewers may not import from sources yet (docs/remote-access-decision.md:
 // S-3..S-6 stay off non-local clients), same as searching (SEARCH_REMOTE_ALLOWED).
@@ -145,6 +147,8 @@ export function outcomeSummary(r: ChapterImportResult): string {
   if (r.failed_count) parts.push(`${r.failed_count} failed`)
   const missing = r.chapters.filter((c) => c.outcome === 'not_found').length
   if (missing) parts.push(`${missing} not found`)
+  const notTried = r.not_attempted_count ?? r.chapters.filter((c) => c.outcome === 'not_attempted').length
+  if (notTried) parts.push(`${notTried} not attempted`)
   return (r.cancelled ? 'Stopped. ' : '') + parts.join(' · ')
 }
 
@@ -156,6 +160,7 @@ export function outcomeText(c: ChapterImportRow): string {
   }
   if (c.outcome === 'skipped') return 'Already imported'
   if (c.outcome === 'not_found') return 'No longer on the site'
+  if (c.outcome === 'not_attempted') return 'Not attempted'
   if (c.outcome === 'failed') {
     const why = c.error ? safeDetail(c.error) : null
     return why ? `Failed: ${why}` : 'Failed'
@@ -164,7 +169,9 @@ export function outcomeText(c: ChapterImportRow): string {
 }
 
 export const outcomeTone = (outcome: string) =>
-  outcome === 'imported' ? 'ok' : outcome === 'failed' ? 'bad' : outcome === 'not_found' ? 'warn' : 'muted'
+  outcome === 'imported' ? 'ok'
+    : outcome === 'failed' ? 'bad'
+      : outcome === 'not_found' || outcome === 'not_attempted' ? 'warn' : 'muted'
 
 /** Comic imports: pages are stored, but React has no page viewer yet. */
 export function comicNote(r: ChapterImportResult): string | null {
@@ -179,6 +186,47 @@ export function urlImportText(r: UrlImportResult): string {
   }
   return `Added ${plural(r.char_count, 'character')} to the drama’s novel text.`
 }
+
+// ---------------------------------------------------------------- import state (Step 107)
+
+export type ChapterMark = { label: string; tone: 'ok' | 'bad' | 'warn'; note: string | null }
+
+/** Picker marks per chapter id: already imported, or left failed / not attempted by an earlier run. */
+export function chapterMarks(state: ImportState | null): Map<string, ChapterMark> {
+  const marks = new Map<string, ChapterMark>()
+  if (!state) return marks
+  for (const id of state.imported_chapter_ids) marks.set(id, { label: 'Imported', tone: 'ok', note: null })
+  for (const r of state.retry) {
+    if (marks.has(r.chapter_id)) continue
+    const failed = r.status === 'failed'
+    const why = failed && r.error ? safeDetail(r.error) : null
+    marks.set(r.chapter_id, { label: failed ? 'Failed' : 'Not attempted', tone: failed ? 'bad' : 'warn', note: why })
+  }
+  return marks
+}
+
+/** What Select all ticks: every chapter not already imported into the drama. */
+export function selectableChapters(chapters: SeriesChapter[], state: ImportState | null): SeriesChapter[] {
+  if (!state?.imported_chapter_ids.length) return chapters
+  const done = new Set(state.imported_chapter_ids)
+  return chapters.filter((c) => !done.has(c.chapter_id))
+}
+
+export function selectAllLabel(selectable: number, total: number): string {
+  return selectable === total ? `Select all ${total}` : `Select all ${selectable} not yet imported`
+}
+
+/** The retry set: the drama's saved import state, else the run that just finished. */
+export function retryIds(state: ImportState | null, result: ChapterImportResult | null): string[] {
+  if (state) return state.retry.map((r) => r.chapter_id)
+  return result?.retry_chapter_ids ?? []
+}
+
+export const retryLabel = (n: number) => `Retry failed chapters (${n.toLocaleString('en-US')})`
+
+/** Said next to Retry when the set is over the per-request cap. */
+export const retryNote = (n: number) =>
+  n > MAX_CHAPTERS ? `Retries the first ${MAX_CHAPTERS} of ${n.toLocaleString('en-US')}; run it again for the rest.` : null
 
 // ---------------------------------------------------------------- URL download
 

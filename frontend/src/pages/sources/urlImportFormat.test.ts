@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import type { SeriesChapter } from '../../types/sources'
-import type { ChapterImportResult, UrlPreview } from '../../types/sourcesImport'
+import type { ChapterImportResult, ImportState, UrlPreview } from '../../types/sourcesImport'
 import {
   MAX_CHAPTERS,
   allSelected,
   canTakeMedia,
   chapterImportDramas,
+  chapterMarks,
   checkUrl,
   comicNote,
   contentTypeLabel,
@@ -20,8 +21,14 @@ import {
   newDramaRequest,
   outcomeSummary,
   outcomeText,
+  outcomeTone,
   previewAction,
   previewFacts,
+  retryIds,
+  retryLabel,
+  retryNote,
+  selectAllLabel,
+  selectableChapters,
   toggleId,
   urlImportText,
   videoDramas,
@@ -138,7 +145,8 @@ describe('outcomes', () => {
       { chapter_id: 'c4', title: 'Four', outcome: 'failed', error: 'The site timed out.' },
       { chapter_id: 'c5', title: 'Five', outcome: 'not_found' },
     ],
-    imported_count: 2, skipped_count: 1, failed_count: 1, cancelled: false, handoff: null,
+    imported_count: 2, skipped_count: 1, failed_count: 1, not_attempted_count: 0, retry_chapter_ids: ['c4'], partial: true,
+    cancelled: false, handoff: null,
   }
   it('summarises and describes each chapter', () => {
     expect(outcomeSummary(result)).toBe('2 imported · 1 already there · 1 failed · 1 not found')
@@ -147,6 +155,24 @@ describe('outcomes', () => {
       'Imported · 12 pages', 'Imported · 1 page', 'Already imported', 'Failed: The site timed out.', 'No longer on the site',
     ])
     expect(outcomeText({ chapter_id: 'x', title: '', outcome: 'imported', chars: 3400 })).toBe('Imported · 3,400 characters')
+  })
+  it('shows chapters a stopped run never reached', () => {
+    const stopped: ChapterImportResult = {
+      ...result,
+      chapters: [
+        { chapter_id: 'c1', title: 'One', outcome: 'imported', chars: 10 },
+        { chapter_id: 'c2', title: 'Two', outcome: 'not_attempted', error: 'Not attempted: the import stopped before this chapter.' },
+        { chapter_id: 'c3', title: 'Three', outcome: 'not_attempted', error: 'Not attempted: the import stopped before this chapter.' },
+      ],
+      imported_count: 1, skipped_count: 0, failed_count: 0, not_attempted_count: 2, retry_chapter_ids: ['c2', 'c3'],
+      cancelled: true,
+    }
+    expect(outcomeSummary(stopped)).toBe('Stopped. 1 imported · 2 not attempted')
+    expect(outcomeText(stopped.chapters[1])).toBe('Not attempted')
+    expect(outcomeTone('not_attempted')).toBe('warn')
+    expect(outcomeTone('failed')).toBe('bad')
+    expect(outcomeTone('imported')).toBe('ok')
+    expect(outcomeTone('skipped')).toBe('muted')
   })
   it('never shows a path or key from a failure', () => {
     expect(outcomeText({ chapter_id: 'x', title: '', outcome: 'failed', error: 'open /home/kae/lib/x failed' })).toBe('Failed')
@@ -168,5 +194,47 @@ describe('downloadReason', () => {
     expect(downloadReason('https://v.example/x', true, false)).toMatch(/Replace the current audio/)
     expect(downloadReason('https://v.example/x', true, true)).toBeNull()
     expect(downloadReason('https://v.example/x', false, false)).toBeNull()
+  })
+})
+
+describe('import state (Step 107)', () => {
+  const state = (over: Partial<ImportState> = {}): ImportState => ({
+    source: 'alpha', series_id: 'a0', drama_id: 12, imported_chapter_ids: ['c1', 'c2'],
+    retry: [
+      { chapter_id: 'c3', title: 'Three', status: 'failed', error: 'The site took too long to answer.' },
+      { chapter_id: 'c4', title: 'Four', status: 'not_attempted', error: 'Not attempted: the import stopped before this chapter.' },
+      { chapter_id: 'c5', title: 'Five', status: 'failed', error: 'open /home/kae/lib/x failed' },
+    ],
+    retry_count: 3, ...over,
+  })
+  const chapters = ['c1', 'c2', 'c3', 'c4', 'c5'].map(ch)
+  const done: ChapterImportResult = {
+    kind: 'chapter_import', chapters: [], imported_count: 0, skipped_count: 0, failed_count: 1, not_attempted_count: 1,
+    retry_chapter_ids: ['c9', 'c8'], partial: true, cancelled: false, handoff: null,
+  }
+
+  it('marks imported, failed and not attempted chapters, without paths', () => {
+    const marks = chapterMarks(state())
+    expect(marks.get('c1')).toEqual({ label: 'Imported', tone: 'ok', note: null })
+    expect(marks.get('c3')).toEqual({ label: 'Failed', tone: 'bad', note: 'The site took too long to answer.' })
+    expect(marks.get('c4')).toEqual({ label: 'Not attempted', tone: 'warn', note: null })
+    expect(marks.get('c5')).toEqual({ label: 'Failed', tone: 'bad', note: null })
+    expect(marks.has('c9')).toBe(false)
+    expect(chapterMarks(null).size).toBe(0)
+  })
+  it('select all leaves out chapters already imported', () => {
+    expect(selectableChapters(chapters, state()).map((c) => c.chapter_id)).toEqual(['c3', 'c4', 'c5'])
+    expect(selectableChapters(chapters, null)).toBe(chapters)
+    expect(selectAllLabel(3, 5)).toBe('Select all 3 not yet imported')
+    expect(selectAllLabel(124, 124)).toBe('Select all 124')
+  })
+  it('retries the saved set, else the run that just finished', () => {
+    expect(retryIds(state(), done)).toEqual(['c3', 'c4', 'c5'])
+    expect(retryIds(state({ retry: [], retry_count: 0 }), done)).toEqual([])
+    expect(retryIds(null, done)).toEqual(['c9', 'c8'])
+    expect(retryIds(null, null)).toEqual([])
+    expect(retryLabel(3)).toBe('Retry failed chapters (3)')
+    expect(retryNote(3)).toBeNull()
+    expect(retryNote(MAX_CHAPTERS + 50)).toBe('Retries the first 200 of 250; run it again for the rest.')
   })
 })
