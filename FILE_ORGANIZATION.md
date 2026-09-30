@@ -214,7 +214,8 @@ baihe-subtitler/
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
 │   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
 │   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
-│   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
+│   │                             Model Arena compare, CER/WER for ASR/OCR (jiwer when installed, else built-in;
+│   │                             scorer recorded per result), cost estimate + monthly cap
 
 │   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
 │   │                             from a static table: allowlisted https hops, timeouts, byte cap,
