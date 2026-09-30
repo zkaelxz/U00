@@ -332,13 +332,13 @@ def test_comic_private_address_refused(client, env, comic, monkeypatch):
 
 
 def test_comic_download_caps_and_content_type(client, env, comic, monkeypatch):
-    from services import sources_import_service as imp
     env["fetch"].pages[COMIC_URL] = comic_page_html(6)
     comic.files["https://img.comic.example/77/5/002.png"] = ("text/html", b"<html>not an image</html>")
     one = max(len(comic.files[f"https://img.comic.example/77/5/{i:03d}.png"][1]) for i in (1, 3, 4))
     icon = len(comic.files["https://comic.example/icon.png"][1])
-    monkeypatch.setattr(imp, "MAX_COMIC_TOTAL_BYTES", icon + one * 3 + 10)   # icon + 3 pages
-    monkeypatch.setattr(imp, "MAX_COMIC_IMAGES", 6)
+    from services import page_import_limits as limits
+    monkeypatch.setattr(limits, "MAX_IMPORT_BYTES", icon + one * 3 + 10)   # icon + 3 pages
+    monkeypatch.setattr(limits, "MAX_FILES_PER_IMPORT", 6)                 # attempts
     did = _comic_drama()
     res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
     res = res.json()["result"]
@@ -589,7 +589,8 @@ def test_comic_review_roles_order_thumbnails_and_import(client, env, comic):
     assert r.status_code == 200
     _wait(f"sourceimport_{did}")
     res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
-    assert res == {"kind": "review_import", "content_type": "comic", "pages_added": 2}
+    assert res == {"kind": "review_import", "content_type": "comic", "pages_added": 2,
+                   "skipped": [], "skipped_count": 0}
     import hashlib
     import os
     pages = db.list_pages(did)
@@ -712,3 +713,178 @@ def test_signed_paths_are_blanked():
     from services import sources_extraction_service as svc
     shown = svc.display_url("https://cdn.example/token/abcdefghijklmnopqrstuv/001.png?sig=1")
     assert shown == "https://cdn.example/token/[REDACTED]/001.png"
+
+
+# ---------------------------------------------------------------------------
+# Shared page-upload rules (services/page_import_limits.py; lead request)
+# ---------------------------------------------------------------------------
+
+def _img(fmt, w, h, shade=40, exif_orientation=None):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    im = Image.new("RGB", (w, h), (shade, shade, shade))
+    kw = {}
+    if exif_orientation:
+        exif = Image.Exif()
+        exif[0x0112] = exif_orientation
+        kw["exif"] = exif
+    im.save(buf, fmt, **kw)
+    return buf.getvalue()
+
+
+def _set_page(comic, n, ctype, body):
+    comic.files[f"https://img.comic.example/77/5/{n:03d}.png"] = (ctype, body)
+
+
+def _skipped_reasons(res):
+    return {s["display_url"].rsplit("/", 1)[-1]: s["reason"] for s in res["skipped"]}
+
+
+def test_limits_accepted_types_and_caps(monkeypatch):
+    from services import page_import_limits as limits
+    assert limits.check_image(_img("PNG", 20, 30))[0] == "PNG"
+    assert limits.check_image(_img("JPEG", 20, 30))[0] == "JPEG"
+    assert limits.check_image(_img("WEBP", 20, 30))[0] == "WEBP"
+    for fmt in ("GIF", "BMP", "TIFF"):
+        with pytest.raises(limits.ImageRejected, match="not an accepted image type"):
+            limits.check_image(_img(fmt, 20, 30))
+    with pytest.raises(limits.ImageRejected):
+        limits.check_image(b"<svg xmlns='http://www.w3.org/2000/svg'/>")
+    monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 500)
+    with pytest.raises(limits.ImageRejected, match="megapixel limit"):
+        limits.check_image(_img("PNG", 20, 30))           # 600 px
+    monkeypatch.setattr(limits, "MAX_IMAGE_BYTES", 10)
+    with pytest.raises(limits.ImageRejected, match="per-image limit"):
+        limits.check_image(_img("PNG", 2, 2))
+
+
+def test_pixel_cap_is_checked_before_any_decode(monkeypatch):
+    from PIL import ImageFile
+    from services import page_import_limits as limits
+    big = _img("PNG", 20, 30)
+    monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 500)
+    loads = []
+    real = ImageFile.ImageFile.load
+    monkeypatch.setattr(ImageFile.ImageFile, "load", lambda self: loads.append(1) or real(self))
+    with pytest.raises(limits.ImageRejected):
+        limits.prepare_page(big)
+    assert loads == []
+    monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 10_000)
+    limits.prepare_page(big)
+    assert loads                     # an accepted image is decoded, after the check
+
+
+def test_exif_orientation_applied_and_strips_sliced(monkeypatch):
+    import io
+    from PIL import Image
+    from services import page_import_limits as limits
+    [(body, ext)] = limits.prepare_page(_img("JPEG", 40, 20, exif_orientation=6))
+    assert ext == ".png" and Image.open(io.BytesIO(body)).size == (20, 40)
+    [(body, ext)] = limits.prepare_page(_img("JPEG", 40, 20))
+    assert ext == ".jpg"                                  # untouched
+    import scanlate
+    calls = []
+
+    def fake_slices(path, out_dir, *a, **k):
+        calls.append(Image.open(path).size)
+        out = []
+        for i in range(3):
+            p = f"{out_dir}/s{i}.png"
+            Image.new("RGB", (100, 100)).save(p)
+            out.append(p)
+        return out
+    monkeypatch.setattr(scanlate, "slice_webtoon_to_files", fake_slices)
+    pages = limits.prepare_page(_img("PNG", 100, 301))    # taller than 3x its width
+    assert calls == [(100, 301)] and len(pages) == 3 and all(e == ".png" for _b, e in pages)
+    assert len(limits.prepare_page(_img("PNG", 100, 300))) == 1   # exactly 3x: not a strip
+    assert len(limits.prepare_page(_img("PNG", 100, 301), slice_strips=False)) == 1
+
+
+def test_comic_import_skips_over_cap_images_without_failing(client, env, comic, monkeypatch):
+    from services import page_import_limits as limits
+    env["fetch"].pages[COMIC_URL] = comic_page_html(5)
+    _set_page(comic, 2, "image/gif", _img("GIF", 800, 1200))
+    _set_page(comic, 3, "image/tiff", _img("TIFF", 800, 1200))
+    _set_page(comic, 4, "image/png", _img("PNG", 810, 1210, 99))      # over the patched cap
+    monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 800 * 1200)
+    did = _comic_drama()
+    res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    res = res.json()["result"]
+    why = _skipped_reasons(res)
+    assert "not an accepted image type" in why["002.png"] and "not an accepted" in why["003.png"]
+    assert "megapixel limit" in why["004.png"]
+    assert res["pages_added"] == len(db.list_pages(did)) == 2       # 001 and 005
+
+
+def test_comic_per_image_byte_cap_is_the_clients(env, comic, monkeypatch):
+    from services import page_import_limits as limits
+    from services import sources_import_service as imp
+    seen = []
+    real = imp.adaptive.import_comic
+
+    def spy(url, engine=None, client=None, **kw):
+        seen.append((client.max_image_bytes, kw.get("remember"), kw["budget"]))
+        return real(url, engine=engine, client=client, **kw)
+    monkeypatch.setattr(imp.adaptive, "import_comic", spy)
+    did = _comic_drama()
+    imp.start_comic_url_import(COMIC_URL, did, local=True)
+    _wait(f"sourceimport_{did}")
+    cap, remember, budget = seen[0]
+    assert cap == limits.MAX_IMAGE_BYTES and remember is True
+    assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
+                                                           limits.MAX_IMPORT_BYTES)
+    assert budget.max_image_pixels == limits.MAX_IMAGE_PIXELS
+    did2 = _comic_drama()
+    imp.start_comic_url_import(COMIC_URL, did2, local=False)
+    _wait(f"sourceimport_{did2}")
+    assert seen[1][1] is False       # a remote run doesn't write the shared image memory
+
+
+def test_failed_downloads_count_against_the_budget():
+    from sources.generic_import import DownloadBudget, ImageCandidate, download_candidates
+    from sources.models import FailureReason, FetchFailed
+
+    class Timeouts:
+        def __init__(self):
+            self.n = 0
+
+        def get(self, url, **kw):
+            self.n += 1
+            raise FetchFailed("timed out", FailureReason.TIMEOUT)
+    client = Timeouts()
+    cands = [ImageCandidate(f"https://a.example/{i}.png", i) for i in range(10)]
+    download_candidates(cands, "https://a.example/", client, DownloadBudget(3, 10**9))
+    assert client.n == 3
+    assert sum("too many images" in c.reject_reason for c in cands) == 7
+
+
+def test_page_index_is_max_plus_one_not_the_row_count(isolated_db):
+    import os
+    from sources import pipeline
+    did = db.create_drama(title_en="C", media_type="manhua")
+    pages_dir = os.path.join(db.drama_dir(did), "pages")
+    os.makedirs(pages_dir, exist_ok=True)
+    db.create_page(did, 7, "pages/page_0007.png", 10, 10)     # a gap below 7
+    assert pipeline.add_page_images(did, [(_img("PNG", 10, 10), ".png")]) == 1
+    assert sorted(p["idx"] for p in db.list_pages(did)) == [7, 8]
+
+
+def test_review_closes_once_its_import_starts_and_approve_is_idempotent(client, env):
+    from services import sources_extraction_service as svc
+    from sources import profiles
+    did, rv = _novel_review(client, env, review=True)
+    live = svc._REVIEWS[did]
+    live.report.pending_profile = {"domain": "novel.example", "kind": "novel", "origin": "llm",
+                                   "rules": profiles.infer_novel_rules(live.page, live.data),
+                                   "validation": live.data}
+    url = f"/api/sources/dramas/{did}/extraction/approve-profile"
+    assert client.post(url, json={"revision": rv["revision"]}).status_code == 200
+    assert client.post(url, json={"revision": rv["revision"]}).status_code == 422
+    assert len(profiles.versions("novel.example", "novel")) == 1
+    r = client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    assert r.status_code == 200
+    assert client.post(f"/api/sources/dramas/{did}/extraction/import",
+                       json={"revision": rv["revision"]}).status_code in (404, 409)
+    _wait(f"sourceimport_{did}")
+    assert _raw(did).count("第12章第0段") == 1

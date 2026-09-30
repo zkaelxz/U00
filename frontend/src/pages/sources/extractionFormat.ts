@@ -157,7 +157,8 @@ export function canImport(r: ExtractionReview): boolean {
 
 export function reviewImportText(r: ReviewImportResult): string {
   if (r.content_type === 'novel') return `Added ${plural(r.char_count ?? 0, 'character')} to the drama’s novel text.`
-  return `Added ${plural(r.pages_added ?? 0, 'page')} to the drama.`
+  const skipped = r.skipped_count ? ` ${plural(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
+  return `Added ${plural(r.pages_added ?? 0, 'page')} to the drama.${skipped}`
 }
 
 export const profileSavedText = (p: ProfileSaved) =>

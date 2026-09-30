@@ -347,12 +347,17 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
 @dataclass
 class DownloadBudget:
     """Optional caps for download_candidates, shared across every call for
-    one page: how many images may be fetched and how many bytes may be
-    kept in total (the per-image cap is the client's own). With a budget,
-    a response that says it is neither an image nor a generic binary is
-    refused as well. Used by the API's pasted-URL comic import."""
+    one page: how many downloads may be attempted (a failed or timed-out
+    one counts too) and how many bytes may be kept in total (the per-image
+    byte cap is the client's own). With a budget, a response that says it
+    is neither an image nor a generic binary is refused, and so is one
+    whose header (read without decoding) shows a type outside
+    `allowed_formats` or more than `max_image_pixels`. Used by the API's
+    pasted-URL comic import (services/page_import_limits.py)."""
     max_images: int
     max_total_bytes: int
+    max_image_pixels: int = 0            # 0 = no pixel check
+    allowed_formats: tuple = ()          # Pillow format names; () = any
     images: int = 0
     total_bytes: int = 0
 
@@ -367,6 +372,18 @@ def _refused_by_budget(c: ImageCandidate, resp, budget: DownloadBudget) -> str:
         return "couldn't download (the server didn't send an image)"
     if budget.total_bytes + len(resp.content) > budget.max_total_bytes:
         return "not downloaded (the page's images are over the total size limit)"
+    if budget.allowed_formats or budget.max_image_pixels:
+        from PIL import Image
+        try:
+            with Image.open(io.BytesIO(resp.content)) as im:   # header only
+                fmt, (w, h) = (im.format or "").upper(), im.size
+        except Exception:
+            return "not a readable image of an accepted image type"
+        if budget.allowed_formats and fmt not in budget.allowed_formats:
+            return f"{fmt or 'this'} is not an accepted image type"
+        if budget.max_image_pixels and w * h > budget.max_image_pixels:
+            return (f"over the {budget.max_image_pixels // 1_000_000} megapixel limit "
+                    f"({w}x{h})")
     return ""
 
 
@@ -376,9 +393,11 @@ def download_candidates(candidates, page_url: str, client, budget: DownloadBudge
     for c in candidates:
         if c.content or c.reject_reason:
             continue
-        if budget is not None and budget.images >= budget.max_images:
-            c.reject_reason = "not downloaded (too many images on the page)"
-            continue
+        if budget is not None:
+            if budget.images >= budget.max_images:
+                c.reject_reason = "not downloaded (too many images on the page)"
+                continue
+            budget.images += 1                  # every attempt counts, even a failed one
         try:
             resp = client.get(c.url, classify_body=False, headers={"Referer": page_url},
                               action=f"Checking image {c.order + 1}/{len(candidates)}")
@@ -386,7 +405,6 @@ def download_candidates(candidates, page_url: str, client, budget: DownloadBudge
             c.reject_reason = f"couldn't download ({e.reason.value})"
             continue
         if budget is not None:
-            budget.images += 1
             refused = _refused_by_budget(c, resp, budget)
             if refused:
                 c.reject_reason = refused

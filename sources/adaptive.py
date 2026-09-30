@@ -42,7 +42,8 @@ EXTRACTION_TIER_LABELS = {
     "none": "Nothing usable found",
 }
 
-_HARD_REJECTS = ("readable", "download", "too small")
+# "over the" and "accepted image type": the API page rules (services/page_import_limits.py).
+_HARD_REJECTS = ("readable", "download", "too small", "over the", "accepted image type")
 
 
 @dataclass

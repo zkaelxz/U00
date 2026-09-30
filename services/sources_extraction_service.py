@@ -57,6 +57,7 @@ from typing import Optional
 
 import background_jobs
 import translate_engines
+from services import page_import_limits as limits
 from services import settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -366,9 +367,26 @@ def _comic_items(rv: _Review) -> list:
 
 
 def _usable(c) -> bool:
-    """Downloaded, read by Pillow as a raster type, with a size: only such
-    an image can become a page."""
-    return bool(c.content) and _image_type(c) is not None and c.width > 0 and c.height > 0
+    """Downloaded, an accepted type (PNG/JPEG/WebP) with a size within the
+    page rules (services/page_import_limits.py, header only): only such an
+    image can become a page."""
+    return (bool(c.content) and _image_type(c) is not None and c.width > 0 and c.height > 0
+            and c.width * c.height <= limits.MAX_IMAGE_PIXELS
+            and len(c.content) <= limits.MAX_IMAGE_BYTES)
+
+
+def prepare_pages(candidates) -> tuple:
+    """([(bytes, ext)] page files in order, [skipped candidates]) under the
+    page rules: EXIF orientation applied, webtoon strips cut into pages; an
+    image over a cap is skipped with its reason set, never failing the rest."""
+    pages, skipped = [], []
+    for c in candidates:
+        try:
+            pages.extend(limits.prepare_page(c.content))
+        except limits.ImageRejected as e:
+            c.reject_reason = str(e)
+            skipped.append(c)
+    return pages, skipped
 
 
 def _kept_count(rv: _Review) -> int:
@@ -521,15 +539,18 @@ def approve_profile(drama_id: int, revision: str, principal=None) -> dict:
     """Saves the profile candidate the extraction held for approval."""
     _require_drama(drama_id, principal)
     rv = _get(drama_id, revision)
-    pending = getattr(rv.report, "pending_profile", None)
+    with _LOCK:                       # taken once: a second approve finds nothing
+        pending = getattr(rv.report, "pending_profile", None)
+        if pending:
+            rv.report.pending_profile = None
     if not pending:
         raise InvalidInputError("There's no suggested profile waiting for approval.")
     try:
         v = adaptive.approve_pending(pending)
     except profiles.ProfileRejected as e:
+        with _LOCK:
+            rv.report.pending_profile = pending
         raise InvalidInputError(_scrub(str(e))) from None
-    with _LOCK:
-        rv.report.pending_profile = None
     return {"domain": profiles.domain_of(rv.url), "kind": rv.kind, "version": int(v["version"]),
             "replaces": v.get("replaces")}
 
@@ -545,12 +566,11 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, revision
         pipeline.save_novel_text(drama_id, text, append=True, heading=heading)
         result = {"kind": "review_import", "content_type": "novel", "char_count": len(text)}
     else:
-        n = pipeline.add_page_images(drama_id, snapshot)
-        result = {"kind": "review_import", "content_type": "comic", "pages_added": n}
-    with _LOCK:
-        rv = _REVIEWS.get(drama_id)
-        if rv is not None and rv.revision == revision:
-            _REVIEWS.pop(drama_id, None)
+        from services import sources_import_service as imp
+        pages, skipped = prepare_pages(snapshot)
+        n = pipeline.add_page_images(drama_id, pages)
+        result = {"kind": "review_import", "content_type": "comic", "pages_added": n,
+                  "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped)}
     background_jobs.set_result(job_id, result)
 
 
@@ -558,8 +578,9 @@ def start_review_import(drama_id: int, revision: str, principal=None,
                         local: bool = True) -> dict:
     """Starts `sourceimport_<drama_id>`: writes the reviewed result (novel
     text appended to the raw-novel text, or the content images, in page
-    order, added as pages). 422 nothing to import or the drama's media type
-    no longer fits; 409 stale revision or a job running for the drama."""
+    order, added as pages under the page rules). The review closes once its
+    import starts. 422 nothing to import or the drama's media type no
+    longer fits; 409 stale revision or a job running for the drama."""
     from services import sources_import_service as imp
     drama = _require_drama(drama_id, principal)
     rv = _get(drama_id, revision, local)
@@ -583,17 +604,22 @@ def start_review_import(drama_id: int, revision: str, principal=None,
         kept = [c for c in kept if _usable(c)]
         if not kept:
             raise InvalidInputError("No image is marked as a page.")
-        snapshot = [(c.content, c.ext) for c in kept]
+        snapshot = kept
     imp._require_idle(drama_id)
     job_id = imp.import_job_id(drama_id)
-    return imp._start(job_id, _review_import_job, job_id, int(drama_id), rv.kind, snapshot,
-                      revision, description="Import a reviewed extraction")
+    started = imp._start(job_id, _review_import_job, job_id, int(drama_id), rv.kind, snapshot,
+                         revision, description="Import a reviewed extraction")
+    # The review ends with its import: it can't be imported (appended) twice.
+    with _LOCK:
+        if _REVIEWS.get(int(drama_id)) is rv:
+            _REVIEWS.pop(int(drama_id), None)
+    return started
 
 
 # ----- image previews ------------------------------------------------------
 
-_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif",
-                ".webp": "image/webp"}
+# The accepted page types (limits.ALLOWED_IMAGE_TYPES), as _measure names them.
+_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
 
 
 def _image_type(c):

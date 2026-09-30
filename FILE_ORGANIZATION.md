@@ -304,6 +304,8 @@ baihe-subtitler/
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text and SO06 comic pages from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
+│   ├── page_import_limits.py     the comic page-upload rules (types, per-image bytes/pixels, per-import files/bytes,
+│   │                             strip slicing, EXIF orientation); used by the SO06 import, later the Scanlate upload
 │   ├── sources_extraction_service.py Sources parity SO09/SO10 -- the pasted-URL AI fallback engine (opt-in, key
 │   │                             on the PC) and Review extraction (per-drama in-memory review, corrections, profile save)
 │   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler

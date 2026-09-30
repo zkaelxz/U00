@@ -33,12 +33,18 @@ are off.
 `start_comic_url_import` (parity SO06) is the comic counterpart: the job
 runs adaptive.import_comic (same opt-in LLM fallback) and adds the kept
 pages to a manhua/manga/manhwa drama through pipeline.add_page_images, the
-Scanlate upload path. Image downloads go through the same paced, guarded
-client (every redirect hop re-checked) under the pasted-URL per-image cap,
-plus a per-page budget (generic_import.DownloadBudget: at most
-MAX_COMIC_IMAGES images and MAX_COMIC_TOTAL_BYTES in all, image or generic
-binary content types only); PIL must read each one. The result lists the
-images left out and why (the Streamlit "skipped as page furniture" list).
+Scanlate upload path, under the shared page-upload rules
+(services/page_import_limits.py): downloads go through the same paced,
+guarded client (every redirect hop re-checked) with the per-image byte cap,
+and a per-import budget (generic_import.DownloadBudget: at most
+MAX_FILES_PER_IMPORT download attempts and MAX_IMPORT_BYTES in all; image or
+generic binary content types; PNG/JPEG/WebP only and at most
+MAX_IMAGE_PIXELS, both read from the header before any decode). Each kept
+image then has its EXIF orientation applied and a webtoon strip is cut into
+pages. An image over a cap is skipped with a reason, never failing the
+chapter. The result lists the images left out and why (the Streamlit
+"skipped as page furniture" list). A run from another device doesn't write
+the site's shared "seen on other chapters" image memory (`remember`).
 When the extraction needs review nothing is written (a review opens, as
 for novel text).
 
@@ -50,6 +56,7 @@ Text is scrubbed, URLs reduced to scheme+host+path.
 import background_jobs
 import db
 from services import drama_service, ownership_service
+from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -65,11 +72,6 @@ from sources.http import Cancelled
 from sources.models import AccessTier
 
 MAX_CHAPTERS = 200
-# One pasted comic page (parity SO06): how many images it may download and
-# how many bytes of them may be held at once (each is also capped by
-# sources_url_service.PASTED_MAX_IMAGE_BYTES).
-MAX_COMIC_IMAGES = 300
-MAX_COMIC_TOTAL_BYTES = 150_000_000
 MAX_SKIPPED_LISTED = 100
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
@@ -318,11 +320,16 @@ def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=Fa
 def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
                           review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
-    budget = DownloadBudget(MAX_COMIC_IMAGES, MAX_COMIC_TOTAL_BYTES)
+    budget = DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES,
+                            max_image_pixels=limits.MAX_IMAGE_PIXELS,
+                            allowed_formats=limits.ALLOWED_IMAGE_TYPES)
+    client = source_client(url, job_id)
+    client.max_image_bytes = limits.MAX_IMAGE_BYTES
     try:
-        res, report = adaptive.import_comic(url, engine=engine, client=source_client(url, job_id),
+        res, report = adaptive.import_comic(url, engine=engine, client=client,
                                             allow_signed_in=local, allow_browser=local,
-                                            budget=budget, hold_profiles=not local)
+                                            budget=budget, hold_profiles=not local,
+                                            remember=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -345,8 +352,9 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
     extraction.drop_review(drama_id)
-    n = pipeline.add_page_images(drama_id, [(c.content, c.ext) for c in res.images])
-    background_jobs.set_result(job_id, _comic_result(False, n, res.rejected))
+    pages, skipped = extraction.prepare_pages(res.images)
+    n = pipeline.add_page_images(drama_id, pages)
+    background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
 
 
 def start_comic_url_import(url, drama_id, local: bool = True, principal=None,

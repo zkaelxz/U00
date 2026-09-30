@@ -141,4 +141,7 @@ export interface ReviewImportResult {
   content_type: 'novel' | 'comic'
   char_count?: number
   pages_added?: number
+  // Comic: images skipped by the page rules (type, size, pixels).
+  skipped?: SkippedImage[]
+  skipped_count?: number
 }
