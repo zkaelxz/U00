@@ -121,3 +121,30 @@ test('Notion: the settings card and Export to Notion fit a phone', async ({ page
   await expectTall(page, '[aria-label="Export to Notion"] .btn-primary')
   await expectTall(page, '[aria-label="Export to Notion"] a.button-link')
 })
+
+test('Jellyfin: the settings card fits a phone (labels on one line, full-width fields)', async ({ page }, info) => {
+  // Mocked: connector on and set up, so every field and button is shown.
+  await page.route('**/api/jellyfin/config', (route) =>
+    route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
+  await page.goto('/#/settings')
+  const card = page.getByRole('region', { name: 'Jellyfin' })
+  await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
+  await expectNoHorizontalOverflow(page)
+  await card.screenshot({ path: info.outputPath('jellyfin-phone.png') })
+  const labels = await card.locator('.field-label-row label').evaluateAll((els) =>
+    els.map((e) => {
+      const lh = parseFloat(getComputedStyle(e).lineHeight) || 20
+      return { text: e.textContent ?? '', lines: Math.round(e.getBoundingClientRect().height / lh) }
+    }),
+  )
+  expect(labels.length).toBeGreaterThanOrEqual(4)
+  for (const { text, lines } of labels) expect(lines, `label "${text}" wraps`).toBeLessThanOrEqual(1)
+  for (const input of await card.locator('input[type="url"], input[type="text"], input[type="password"], select').all()) {
+    const box = await input.boundingBox()
+    expect(box?.width ?? 0, 'field too narrow').toBeGreaterThanOrEqual(250)
+  }
+  for (const name of ['Save', 'Save key', 'Remove key', 'Test connection', 'Scan library']) {
+    const box = await card.getByRole('button', { name, exact: true }).boundingBox()
+    expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(44)
+  }
+})

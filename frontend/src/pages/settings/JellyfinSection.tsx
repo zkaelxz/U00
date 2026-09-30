@@ -126,78 +126,92 @@ function JellyfinControls() {
       {!cfg ? (
         !error && <p className="muted">Loading…</p>
       ) : (
-        <div className="setting-list">
-          <Field label="Server address" help="For example http://localhost:8096 or http://192.168.1.20:8096. Changing it works only on the Baihe PC with key writes on (it decides where the key is sent).">
-            <input type="url" value={url} placeholder="http://localhost:8096" onChange={(e) => setUrl(e.target.value)} />
-          </Field>
-          <Field label="Library folder" help="The folder on this PC that Jellyfin reads (the same one set in Jellyfin's library). Files are only ever written inside it.">
-            <input type="text" value={folder} placeholder="D:\Media\Dramas" onChange={(e) => setFolder(e.target.value)} />
-          </Field>
-          <div>
-            <button type="button" className={buttonClass('primary', 'sm')} disabled={busy || !dirty} onClick={save}>
-              Save
-            </button>
-          </div>
-          <div className="status-row">
-            <span className="status-row-name">API key</span>
-            <span data-testid="jellyfin-key">
-              <Badge tone={cfg.key_configured ? 'ok' : 'neutral'}>{cfg.key_configured ? 'Set' : 'Missing'}</Badge>
-            </span>
-            {cfg.key_configured && (
-              <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy}
-                onClick={() => call(clearJellyfinKey(), load, true)}>
-                Remove key
-              </button>
-            )}
-          </div>
-          <Field label={cfg.key_configured ? 'Replace API key' : 'API key'} help="In Jellyfin: Dashboard, API Keys, add one for Baihe. It is saved to .env on this PC and never shown again.">
-            <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} />
-          </Field>
-          <div>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !key.trim()} onClick={saveKey}>
-              Save key
-            </button>
-          </div>
-          <div className="source-file">
-            <button type="button" className={buttonClass('secondary', 'sm')}
-              disabled={busy || !cfg.server_url || !cfg.key_configured} onClick={test}>
-              Test connection
-            </button>
-          </div>
-          {cfg.enabled && (
-            <>
-              <Field label="Subtitle language" help="Scan counts the videos that have no subtitle in this language.">
-                <select value={lang} onChange={(e) => setLang(e.target.value as JellyfinLanguage)}>
-                  {LANGS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-                </select>
+        <ul className="status-list" aria-label="Jellyfin setup">
+          <li>
+            <div className="status-row">
+              <span className="status-row-name">Server</span>
+            </div>
+            <div className="status-form">
+              <Field label="Server address" help="For example http://localhost:8096 or http://192.168.1.20:8096. Changing it works only on the Baihe PC with key writes on (it decides where the key is sent).">
+                <input type="url" value={url} placeholder="http://localhost:8096" onChange={(e) => setUrl(e.target.value)} />
               </Field>
-              <div>
+              <Field label="Library folder" help="The folder on this PC that Jellyfin reads (the same one set in Jellyfin's library). Files are only ever written inside it.">
+                <input type="text" value={folder} placeholder="D:\Media\Dramas" onChange={(e) => setFolder(e.target.value)} />
+              </Field>
+              <div className="settings-actions">
+                <button type="button" className={buttonClass('primary', 'sm')} disabled={busy || !dirty} onClick={save}>
+                  Save
+                </button>
                 <button type="button" className={buttonClass('secondary', 'sm')}
-                  disabled={busy || !cfg.server_url || !cfg.key_configured} onClick={scan}>
-                  {busy && !report ? 'Scanning…' : 'Scan library'}
+                  disabled={busy || !cfg.server_url || !cfg.key_configured} onClick={test}>
+                  Test connection
                 </button>
               </div>
-            </>
-          )}
-          {report && (
-            <div data-testid="jellyfin-report">
-              <p>{scanSummary(report)} Nothing was changed.</p>
-              {report.items.length > 0 && (
-                <ul aria-label="Missing subtitles" className="jellyfin-missing">
-                  {report.items.slice(0, 50).map((i) => (
-                    <li key={i.id}>
-                      {itemLabel(i)}
-                      {!i.writable && <span className="muted"> · outside the library folder</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {report.items.length > 50 && <p className="muted">…and {report.items.length - 50} more.</p>}
-              <p className="settings-note">
-                To add subtitles, open the matching drama in Baihe and use Export, Send to Jellyfin.
-              </p>
             </div>
+          </li>
+          <li>
+            <div className="status-row">
+              <span className="status-row-name">API key</span>
+              <span data-testid="jellyfin-key">
+                <Badge tone={cfg.key_configured ? 'ok' : 'neutral'}>{cfg.key_configured ? 'Set' : 'Missing'}</Badge>
+              </span>
+            </div>
+            <div className="status-form">
+              <Field label={cfg.key_configured ? 'Replace API key' : 'API key'} help="In Jellyfin: Dashboard, API Keys, add one for Baihe. It is saved to .env on this PC and never shown again.">
+                <input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} />
+              </Field>
+              <div className="settings-actions">
+                <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !key.trim()} onClick={saveKey}>
+                  Save key
+                </button>
+                {cfg.key_configured && (
+                  <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy}
+                    onClick={() => call(clearJellyfinKey(), load, true)}>
+                    Remove key
+                  </button>
+                )}
+              </div>
+            </div>
+          </li>
+          {cfg.enabled && (
+            <li>
+              <div className="status-row">
+                <span className="status-row-name">Library scan</span>
+              </div>
+              <div className="status-form">
+                <Field label="Subtitle language" help="Scan counts the videos that have no subtitle in this language.">
+                  <select value={lang} onChange={(e) => setLang(e.target.value as JellyfinLanguage)}>
+                    {LANGS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                  </select>
+                </Field>
+                <div className="settings-actions">
+                  <button type="button" className={buttonClass('secondary', 'sm')}
+                    disabled={busy || !cfg.server_url || !cfg.key_configured} onClick={scan}>
+                    {busy && !report ? 'Scanning…' : 'Scan library'}
+                  </button>
+                </div>
+              </div>
+            </li>
           )}
+        </ul>
+      )}
+      {cfg && report && (
+        <div data-testid="jellyfin-report">
+          <p>{scanSummary(report)} Nothing was changed.</p>
+          {report.items.length > 0 && (
+            <ul aria-label="Missing subtitles" className="jellyfin-missing">
+              {report.items.slice(0, 50).map((i) => (
+                <li key={i.id}>
+                  {itemLabel(i)}
+                  {!i.writable && <span className="muted"> · outside the library folder</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {report.items.length > 50 && <p className="muted">…and {report.items.length - 50} more.</p>}
+          <p className="settings-note">
+            To add subtitles, open the matching drama in Baihe and use Export, Send to Jellyfin.
+          </p>
         </div>
       )}
       {note && <p role="status">{note}</p>}
