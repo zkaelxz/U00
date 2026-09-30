@@ -8,8 +8,10 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 2. Read the change: `git diff installer/wheels.lock.txt`. Only the packages you meant to change should move.
 3. Commit `installer/wheels.lock.txt` with the dependency change.
 4. On GitHub: Actions -> "Windows Installer" -> Run workflow (set the version). The installer is the uploaded artifact.
+5. To publish a version: push a tag such as `v0.1.0` (`git tag v0.1.0 && git push origin v0.1.0`). The workflow builds the installer, runs every smoke test, and only then attaches the `.exe` and its `.sha256` to a GitHub Release named after the tag (a version with a `-` is marked pre-release). Download it from the repository's Releases page. Check the download with `Get-FileHash <file> -Algorithm SHA256` against the `.sha256` file. The installer is not code-signed, so Windows SmartScreen warns on first run.
 - The build fails if a wheel's hash is missing or different from the lock. That is the check working.
 - This proves the files match the lock. It does not prove the upstream packages are safe.
+- Before bumping one package, test it in a throwaway venv: `python scripts/dependency_canary.py <package>` (runs the offline suite; `--write-pin` caps `constraints.txt` on FAIL; see `docs/testing-and-ci.md`).
 
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`

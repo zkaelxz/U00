@@ -15,7 +15,7 @@ Caddy never forwards to 8600 (the PC's admin listener) or 8756 (the extension br
 
 1. **Two-port setup** ("Migrating from single-port sign-in" in the decision doc): `BAIHE_API_AUTH=off`, `BAIHE_API_HOUSEHOLD_PORT=8610` (or any free loopback port other than 8600, 8601 and 8756). `BAIHE_API_*` values are read from the environment, not `.env`, so set it with `setx BAIHE_API_HOUSEHOLD_PORT 8610` and restart Baihe.
 2. **Sign-in configured:** `BAIHE_GOOGLE_CLIENT_ID`, `BAIHE_GOOGLE_CLIENT_SECRET` and `BAIHE_PUBLIC_URL=https://baihe.<your-domain>` (environment or `.env`). Allowlist people at the PC: `python -m api grant-admin <you>`, then `python -m api add-user <email>` for each member.
-3. **Hardening merged (work package WP2):** the Host allowlist, the app's security headers, refusing the household listener without sign-in, and admin write permissions removed on the household listener (admin viewing of users and the audit log stays). Only the last is built (2026-09-30). Don't forward any router port, not even for the first certificate, before the rest lands. Per-device sign-out (WP3) and monitoring (WP5) should land before anyone relies on this over mobile data.
+3. **Hardening (work packages WP2 and WP3), merged:** the Host allowlist, the app's security headers, refusing to start the household listener without sign-in configured (WP2, #539), per-device sign-out (WP3, #543), and on the household listener an admin keeps viewing but loses every admin write and override (this branch). Monitoring (WP5) is not built yet and should land before anyone relies on this over mobile data.
 
 ## Steps only you can do, before the LAN test
 
@@ -62,7 +62,7 @@ From outside the LAN (a phone on mobile data, Wi-Fi off), after the router port 
 
 - [ ] `https://baihe.<your-domain>` loads with a valid padlock; `http://` redirects to `https://`.
 - [ ] Google sign-in works for an allowlisted member and is refused for any other account.
-- [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees no admin sections.
+- [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees Users and Audit log in Diagnostics without any buttons ("Account changes are made on the main PC."), and no other admin section works.
 - [ ] `http://<your-public-ip>:8600`, `:8610` and `:8756` don't connect.
 - [ ] After a sign-in, Caddy's access log (`BAIHE_CADDY_LOG_DIR\baihe-access.log`) holds no `?code=` or `state=`: its filter drops the query string from the logged URI, and Baihe's household listener writes no access log of its own. That covers these two logs only, so read any other log before sharing it.
 

@@ -138,7 +138,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         if not new_series_name:
             raise InvalidInputError("new_series_name must not be blank.")
         taken = db.get_series_id_by_name(new_series_name)
-        if taken is not None and not ownership_service.can_see_series(principal, taken):
+        if taken is not None and not ownership_service.can_edit(principal, "series", taken):
             raise ConflictError("That series name is taken")
 
     preset = None
@@ -157,7 +157,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Settings > Defaults for new dramas (the column's own default is
         # claude, so an unstamped drama would never see the setting).
         fields["translation_engine"] = settings_service.get_default_engine()
-    new_id = db.create_drama(**fields)
+    try:
+        new_id = db.create_drama(**fields)
+    except db.DramaFolderConflict as exc:
+        raise ConflictError(str(exc)) from None
     # Hardening H1: a NEW series is created only after the drama row exists
     # (as the Streamlit form does), so a failed create can't leave a stray
     # series behind (db has no delete_series to clean one up).

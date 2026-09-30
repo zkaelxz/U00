@@ -10,7 +10,9 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
     dependencies=[local_only()]                          # PC-only (loopback), see below
     dependencies=[authenticated()]                       # any signed-in user; only for
                                                          # routes on the caller's own
-                                                         # session (/api/auth/logout)
+                                                         # sessions (/api/auth/logout
+                                                         # and the three
+                                                         # /api/auth/sessions routes)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -96,22 +98,28 @@ def _never_local(app) -> bool:
     return getattr(settings, "listener", None) != "admin"
 
 
+_SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
 def listener_principal(app, principal):
     """The principal as this listener lets it act. On the household listener
     an admin account keeps its household permissions and the admin view
-    permissions (user list, audit log) but no admin write permission: admin
-    changes are PC-only (D5), and a remote admin session has no second
-    factor. Default-deny: any `admin.*` permission not listed as view is
-    dropped. None stays None."""
+    permissions (user list, audit log) but no admin write permission, and
+    loses the admin override: it still sees every item and job, but changes
+    only what a member could (`ownership_service`). Admin changes are
+    PC-only (D5), and a remote admin session has no second factor.
+    Default-deny: any `admin.*` permission not listed as view is dropped.
+    None stays None."""
     if principal is None or not _never_local(app):
         return principal
-    return dict(principal, permissions=[
+    return dict(principal, admin_override=False, permissions=[
         p for p in principal["permissions"]
         if not p.startswith("admin.") or p in auth_service.ADMIN_VIEW_PERMISSIONS])
 
 
 def local_owner_principal() -> dict:
     return {"user_id": None, "email": None, "is_admin": True, "is_local_owner": True,
+            "admin_override": True,
             "permissions": list(auth_service.PERMISSIONS)}
 
 
@@ -128,7 +136,7 @@ def _authenticate(request: Request) -> dict:
     principal = listener_principal(request.app, auth_service.resolve_session(token))
     if principal is None:
         raise UnauthenticatedError(_GENERIC_401)
-    if request.method.upper() not in ("GET", "HEAD", "OPTIONS") and not auth_service.verify_csrf(
+    if request.method.upper() not in _SAFE_METHODS and not auth_service.verify_csrf(
             token, request.headers.get(CSRF_HEADER)):
         raise CsrfFailedError(_GENERIC_403)
     return principal
@@ -172,17 +180,24 @@ def require_path_visible(request: Request, principal) -> None:
     """404 (never 403, so a private item's existence isn't revealed) when a
     `{drama_id}`/`{series_id}` path parameter names an item the principal
     can't see. Runs after the permission check, so a caller without the
-    permission still gets a plain 403. Editing is visibility-based
-    (ownership_service.can_edit_drama), so reads and writes share it."""
+    permission still gets a plain 403. Any other method also needs the item
+    to be editable (ownership_service.require_editable): the same for
+    everyone except an admin on the household listener, who sees every
+    item but may change only what a member could (403)."""
+    check = (ownership_service.require_visible if request.method.upper() in _SAFE_METHODS
+             else ownership_service.require_editable)
     for name, kind in OWNED_PATH_PARAMS.items():
         if name in request.path_params:
-            ownership_service.require_visible(principal, kind, request.path_params[name])
+            check(principal, kind, request.path_params[name])
 
 
 def authenticated():
     """Any signed-in user, no permission needed; unsafe methods still need
-    the CSRF token. Only for routes that act on the caller's own session
-    (`POST /api/auth/logout`); the static test keeps it under /api/auth/.
+    the CSRF token. Only for routes that act on the caller's own sessions
+    (`POST /api/auth/logout`, `GET /api/auth/sessions`,
+    `POST /api/auth/sessions/revoke-others` and
+    `POST /api/auth/sessions/{auth_session_id}/revoke`); the static test
+    keeps it under /api/auth/.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
         if not _auth_enabled(request.app):

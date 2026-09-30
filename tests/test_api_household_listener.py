@@ -327,7 +327,9 @@ class TestNoAdminPermissionsOnHousehold:
         assert db.auth_list_sessions(member["id"])
         assert len(auth_service.list_audit(500)) == before
 
-    def test_view_routes_served_with_emails_masked(self, isolated_db):
+    def test_view_routes_served_audit_emails_masked(self, isolated_db):
+        """The user list shows each account's email in full (the admin needs
+        to know whose account it is); audit details mask addresses (#522)."""
         app = _household_app()
         views = [(m, p) for methods, p, perm in self._admin_routes(app)
                  if perm in auth_service.ADMIN_VIEW_PERMISSIONS for m in methods]
@@ -373,9 +375,67 @@ class TestNoAdminPermissionsOnHousehold:
         # Default-deny: an admin.* permission not listed as view is dropped.
         assert set(household["permissions"]) == (set(auth_service.PERMISSIONS)
                                                  - set(auth_service.ADMIN_WRITE_PERMISSIONS))
+        assert household["admin_override"] is False
         assert "admin.unlisted" in principal["permissions"]   # not mutated
+        assert "admin_override" not in principal
         assert api_auth.listener_principal(_admin_app(), principal) is principal
         assert api_auth.listener_principal(_household_app(), None) is None
+
+
+class TestAdminOverrideIsPcOnly:
+    """On the household listener an admin still sees every item and job but
+    changes only what a member of their account could: no flipping another
+    member's private flag, no stopping a PC job, no editing another member's
+    private drama. The PC and the single-port sign-in setup are unchanged."""
+
+    def _world(self):
+        s = _admin_session()
+        member = auth_service.add_user("kid@example.com")
+        private = db.create_drama(title_zh="p", owner_user_id=member["id"], is_private=1)
+        db.save_job_record("sources_search", "running", started_at=time.time(),
+                           owner_user_id=None)
+        return s, private
+
+    def _single_port(self):
+        return _client(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                       "http://127.0.0.1:8600")
+
+    def test_views_everything(self, isolated_db):
+        s, private = self._world()
+        h = _household_client()
+        assert h.get(f"/api/library/dramas/{private}", headers=_h(s)).status_code == 200
+        assert [j["job_id"] for j in h.get("/api/jobs", headers=_h(s)).json()["items"]] == [
+            "sources_search"]
+
+    def test_cannot_flip_another_members_private_drama(self, isolated_db):
+        s, private = self._world()
+        r = _household_client().post(f"/api/sharing/dramas/{private}/private", headers=_h(s),
+                                     json={"private": False})
+        assert r.status_code == 403
+        assert db.get_item_ownership("drama", private)["is_private"] == 1
+
+    def test_cannot_cancel_a_pc_job(self, isolated_db):
+        s, _private = self._world()
+        r = _household_client().post("/api/jobs/sources_search/cancel", headers=_h(s))
+        assert r.status_code == 403
+        assert not db.get_job_record("sources_search").get("cancel_requested")
+
+    def test_cannot_edit_another_members_private_drama(self, isolated_db):
+        s, private = self._world()
+        r = _household_client().post(f"/api/export/dramas/{private}/flag-overlaps", headers=_h(s))
+        assert r.status_code == 403
+
+    @pytest.mark.parametrize("where", ["admin", "single_port"])
+    def test_pc_and_single_port_unchanged(self, isolated_db, where):
+        s, private = self._world()
+        c = _admin_client() if where == "admin" else self._single_port()
+        h = {} if where == "admin" else _h(s)
+        post = {"X-Baihe-Local": "1"} if where == "admin" else {}
+        assert c.post(f"/api/export/dramas/{private}/flag-overlaps",
+                      headers={**h, **post}).status_code == 200
+        assert c.post(f"/api/sharing/dramas/{private}/private", headers={**h, **post},
+                      json={"private": False}).status_code == 200
+        assert c.post("/api/jobs/sources_search/cancel", headers={**h, **post}).status_code == 200
 
 
 # --- docs, admin unchanged ------------------------------------------------------
@@ -406,7 +466,9 @@ class TestDocsAndAdmin:
         assert h.get("/api/library/dramas", headers=_h(_admin_session())).status_code == 200
 
     def test_disabled_household_leaves_admin_as_today(self):
-        today, now = create_app(ApiSettings()), _admin_app()
+        # serve_frontend as in ADMIN: otherwise a built frontend/dist adds the
+        # catch-all to one side only.
+        today, now = create_app(ApiSettings(serve_frontend=False)), _admin_app()
         assert ([m.cls.__name__ for m in today.user_middleware]
                 == [m.cls.__name__ for m in now.user_middleware])
         assert ({p for _r, p, _m, _d in api_auth.iter_route_declarations(today)}

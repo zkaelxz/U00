@@ -364,7 +364,7 @@ class SignIn:
         if presented_session:
             old = auth_service.resolve_session(presented_session)
             if old:
-                auth_service.revoke_session(old["session_id"])
+                auth_service.revoke_session(old["session_id"], old["user_id"])
         session = auth_service.create_session(user["id"], user_agent, client_ip)
         auth_service.write_audit(user["id"], "login.success", f"user {user['id']} ip {ip}")
         return {"session_token": session["session_token"], "csrf_token": session["csrf_token"],

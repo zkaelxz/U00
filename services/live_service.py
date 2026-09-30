@@ -282,6 +282,9 @@ def stop_session(session_id, principal=None) -> dict:
     discarded), then cancels: cancel_queued if still queued, else
     request_cancel. Idempotent on a finished session."""
     job = _require(session_id, principal)
+    with _lock:
+        entry = _sessions.get(session_id) or {}
+    ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
     live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
         _remove_dir(session_id)
