@@ -191,7 +191,7 @@ class TestStartServer:
         assert launcher.record_pid(_Proc(111, exited=True)) is False
         assert not pid_file.exists()
         assert launcher.record_pid(_Proc(222)) is True
-        assert pid_file.read_text() == "222"
+        assert pid_file.read_text().split() == ["222", "8600"]
 
 
 class TestStartLock:
@@ -225,7 +225,7 @@ class TestStartLock:
         monkeypatch.setattr(launcher, "start_server", lambda py, env, headless: _Proc(4321))
         monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc=None: True)
         assert launcher.launch(headless=True) == 0
-        assert (data_dir / "launcher" / launcher.PID_FILE_NAME).read_text() == "4321"
+        assert (data_dir / "launcher" / launcher.PID_FILE_NAME).read_text().split() == ["4321", "8600"]
         assert not (data_dir / "launcher" / launcher.START_LOCK_NAME).exists()
 
     def test_headless_errors_go_to_stderr(self, capsys):
@@ -325,7 +325,8 @@ class TestRun:
         def runner(cmd, log, env, cwd):
             cmds.append(cmd)
             return 0
-        assert postinstall.run(wheels, str(data), python_exe="py", app_dir=app, runner=runner) == 0
+        assert postinstall.run(wheels, str(data), python_exe="py", app_dir=app, runner=runner,
+                               restrict=lambda *a: False) == 0
         assert (app / "INSTALLED").read_text(encoding="utf-8-sig").splitlines()[0] == str(data)
         log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
         assert "Install finished OK." in log
@@ -375,3 +376,204 @@ class TestRun:
     def test_main_bad_data_dir(self, tmp_path, capsys):
         assert postinstall.main(["--wheels", str(tmp_path), "--data-dir", "relative"]) == 2
         assert "full path" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------- Step 80b stop/clean
+
+
+class TestStopSequence:
+    def _setup(self, data_dir, pid="4242", port="8600", token="t" * 43):
+        d = data_dir / "launcher"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / launcher.PID_FILE_NAME).write_text(f"{pid}\n{port}\n")
+        if token is not None:
+            (d / launcher.TOKEN_FILE_NAME).write_text(token)
+        return d
+
+    def test_clean_shutdown_first(self, data_dir, tmp_path):
+        d = self._setup(data_dir, port="8601")
+        py = str(tmp_path / "python.exe")
+        alive = {4242: py}
+        asked, killed, ended = [], [], []
+
+        def shutdown(port, token):
+            asked.append((port, token))
+            alive.pop(4242)      # the server exits by itself
+            return True
+        msg = launcher.stop_server(py, image_of=alive.get, kill=killed.append, sleep=lambda s: None,
+                                   shutdown=shutdown, end_group=lambda n: ended.append(n) or False)
+        assert asked == [(8601, "t" * 43)]
+        assert killed == []
+        assert ended == [launcher.group_name()]      # leftover sweep always runs
+        assert "clean shutdown" in msg
+        assert not (d / launcher.PID_FILE_NAME).exists()
+        assert not (d / launcher.TOKEN_FILE_NAME).exists()
+
+    def test_forced_when_the_server_doesnt_stop_in_time(self, data_dir, tmp_path):
+        self._setup(data_dir)
+        py = str(tmp_path / "python.exe")
+        alive = {4242: py}
+        killed = []
+
+        def kill(pid):
+            killed.append(pid)
+            alive.pop(pid)
+        msg = launcher.stop_server(py, image_of=alive.get, kill=kill, sleep=lambda s: None,
+                                   shutdown=lambda port, token: True, end_group=lambda n: False,
+                                   grace=1)
+        assert killed == [4242]
+        assert "ended" in msg
+
+    def test_forced_without_a_token(self, data_dir, tmp_path):
+        self._setup(data_dir, token=None)
+        py = str(tmp_path / "python.exe")
+        alive = {4242: py}
+        asked, killed = [], []
+        launcher.stop_server(py, image_of=alive.get, kill=lambda p: (killed.append(p), alive.pop(p)),
+                             sleep=lambda s: None, shutdown=lambda *a: asked.append(a) or True,
+                             end_group=lambda n: False)
+        assert asked == [] and killed == [4242]
+
+    def test_never_signals_a_process_that_isnt_ours(self, data_dir, tmp_path):
+        self._setup(data_dir)
+        asked, killed = [], []
+        msg = launcher.stop_server(str(tmp_path / "python.exe"),
+                                   image_of=lambda pid: r"C:\Windows\notepad.exe",
+                                   kill=killed.append, shutdown=lambda *a: asked.append(a) or True,
+                                   end_group=lambda n: False)
+        assert asked == [] and killed == []
+        assert "isn't running" in msg
+
+    def test_leftovers_are_ended_even_without_a_server(self, data_dir, tmp_path):
+        msg = launcher.stop_server(str(tmp_path / "python.exe"), image_of=lambda p: None,
+                                   kill=lambda p: pytest.fail("killed"), end_group=lambda n: True)
+        assert "left running" in msg
+
+
+class TestShutdownRequest:
+    def test_posts_token_as_json_with_the_local_header(self, monkeypatch):
+        seen = {}
+
+        class Resp:
+            status = 202
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout):
+            seen["url"], seen["headers"], seen["data"] = req.full_url, dict(req.header_items()), req.data
+            seen["method"], seen["timeout"] = req.get_method(), timeout
+            return Resp()
+        monkeypatch.setattr(launcher.urllib.request, "urlopen", fake_urlopen)
+        assert launcher.request_clean_shutdown(8601, "tok") is True
+        assert seen["url"] == "http://127.0.0.1:8601/api/system/shutdown"
+        assert seen["method"] == "POST" and seen["data"] == b"{}" and seen["timeout"] == 5.0
+        headers = {k.lower(): v for k, v in seen["headers"].items()}
+        assert headers["x-baihe-shutdown-token"] == "tok"
+        assert headers["x-baihe-local"] == "1"
+        assert headers["content-type"] == "application/json"
+
+    def test_failure_is_false(self, monkeypatch):
+        def boom(*a, **k):
+            raise OSError("refused")
+        monkeypatch.setattr(launcher.urllib.request, "urlopen", boom)
+        assert launcher.request_clean_shutdown(8600, "tok") is False
+
+
+class TestServerStartToken:
+    def test_fresh_token_passed_to_the_server_and_kept_privately(self, data_dir, monkeypatch):
+        seen = {}
+
+        def fake_popen(cmd, **kwargs):
+            seen["env"] = kwargs["env"]
+            return _Proc()
+        monkeypatch.setattr(launcher.subprocess, "Popen", fake_popen)
+        launcher.start_server("py", {"A": "1"}, headless=True)
+        token = (data_dir / "launcher" / launcher.TOKEN_FILE_NAME).read_text()
+        assert len(token) >= 32 and seen["env"][launcher.SHUTDOWN_TOKEN_ENV] == token
+        assert seen["env"]["A"] == "1"
+        if os.name != "nt":
+            assert oct((data_dir / "launcher" / launcher.TOKEN_FILE_NAME).stat().st_mode & 0o777) == "0o600"
+        launcher.start_server("py", {}, headless=True)
+        assert (data_dir / "launcher" / launcher.TOKEN_FILE_NAME).read_text() != token
+
+    def test_server_env_names_this_installs_process_group(self):
+        import process_guard
+        env = launcher.server_env({})
+        assert env[process_guard.GROUP_NAME_ENV] == launcher.group_name()
+        assert env[process_guard.GROUP_NAME_ENV].startswith("Local\\BaiheStudio-")
+
+    def test_console_title_is_best_effort(self):
+        # Off Windows (or with no console to attach to) it just says no.
+        assert launcher.set_console_title(1, "x", tries=1, sleep=lambda s: None) in (True, False)
+
+
+class TestDataDirLockdown:
+    class _Log:
+        def __init__(self):
+            self.text = ""
+
+        def write(self, s):
+            self.text += s
+
+    def _run(self, calls, sid_out='"pc\\\\kae","S-1-5-21-1-2-3-1001"\r\n', rc=0):
+        class R:
+            def __init__(self, out="", code=0):
+                self.stdout, self.returncode = out, code
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            return R(sid_out) if cmd[0] == "whoami" else R(code=rc)
+        return run
+
+    def test_new_folder_outside_the_profile_is_limited_to_this_account(self, tmp_path):
+        calls, log = [], self._Log()
+        ok = postinstall.restrict_new_data_dir(tmp_path / "D-Baihe", True, log, run=self._run(calls),
+                                               profile=str(tmp_path / "Users" / "kae"), is_windows=True)
+        assert ok is True
+        icacls = calls[-1]
+        assert icacls[:3] == ["icacls", str(tmp_path / "D-Baihe"), "/inheritance:r"]
+        assert "*S-1-5-21-1-2-3-1001:(OI)(CI)F" in icacls
+        assert "*S-1-5-18:(OI)(CI)F" in icacls and "*S-1-5-32-544:(OI)(CI)F" in icacls
+        assert "Limited the data folder" in log.text
+
+    @pytest.mark.parametrize("created,inside,windows", [(False, False, True), (True, True, True),
+                                                        (True, False, False)])
+    def test_left_alone(self, tmp_path, created, inside, windows):
+        calls = []
+        profile = tmp_path / "Users" / "kae"
+        data = profile / "AppData" / "Local" / "Baihe Studio" if inside else tmp_path / "D-Baihe"
+        assert postinstall.restrict_new_data_dir(data, created, self._Log(), run=self._run(calls),
+                                                 profile=str(profile), is_windows=windows) is False
+        assert calls == []
+
+    def test_no_sid_means_no_change(self, tmp_path):
+        calls, log = [], self._Log()
+        assert postinstall.restrict_new_data_dir(tmp_path / "D", True, log, run=self._run(calls, sid_out=""),
+                                                 profile=str(tmp_path / "P"), is_windows=True) is False
+        assert [c[0] for c in calls] == ["whoami"]
+
+
+class TestCreatedFlag:
+    def test_marker_records_a_setup_created_folder(self, tmp_path, monkeypatch):
+        app = tmp_path / "app"
+        app.mkdir()
+        m = postinstall.write_marker(app, tmp_path / "data", created=True)
+        lines = m.read_text(encoding="utf-8-sig").splitlines()
+        assert lines[0] == str(tmp_path / "data")
+        assert postinstall.CREATED_FLAG_LINE in lines
+        # portable.py still reads the path from it.
+        monkeypatch.setattr(portable, "_INSTALLED_MARKER_PATH", str(m))
+        monkeypatch.delenv(portable.DATA_DIR_ENV, raising=False)
+        assert portable.data_dir() == str(tmp_path / "data")
+        assert postinstall.CREATED_FLAG_LINE not in postinstall.write_marker(app, tmp_path / "d").read_text(
+            encoding="utf-8-sig")
+
+    def test_main_passes_the_flag(self, monkeypatch, tmp_path):
+        seen = {}
+        monkeypatch.setattr(postinstall, "run", lambda w, d, created=False: seen.update(created=created) or 0)
+        assert postinstall.main(["--wheels", "w", "--data-dir", str(tmp_path), "--data-dir-created"]) == 0
+        assert seen["created"] is True

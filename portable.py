@@ -79,14 +79,23 @@ def is_portable() -> bool:
 def is_installed() -> bool:
     """True for a copy the Windows installer put on disk: it has the
     INSTALLED marker, or (should an interrupted upgrade have removed the
-    marker) the installed layout itself -- the bundled interpreter at
-    ..\\python\\python.exe next to installer\\launcher.py. Either way an
-    installed copy never falls back to keeping its library in the program
-    folder, which upgrades replace. A source checkout has neither."""
+    marker) the installed layout itself -- the bundled embeddable Python's
+    ..\\python\\python3XX._pth and the installer's ..\\manifest.json next to
+    this app folder. A source checkout has neither: a portable Python that
+    merely sits next to a checkout has no ._pth-plus-manifest pair, so it
+    isn't mistaken for an install. Either way an installed copy never falls
+    back to keeping its library in the program folder, which upgrades
+    replace."""
     if os.path.isfile(_INSTALLED_MARKER_PATH):
         return True
-    return (os.path.isfile(os.path.join(os.path.dirname(_APP_DIR), "python", "python.exe"))
-            and os.path.isfile(os.path.join(_APP_DIR, "installer", "launcher.py")))
+    install_root = os.path.dirname(_APP_DIR)
+    python_dir = os.path.join(install_root, "python")
+    try:
+        has_pth = any(name.startswith("python") and name.endswith("._pth")
+                      for name in os.listdir(python_dir))
+    except OSError:
+        return False
+    return has_pth and os.path.isfile(os.path.join(install_root, "manifest.json"))
 
 
 def default_installed_data_dir() -> str:

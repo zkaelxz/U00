@@ -3928,3 +3928,9 @@ class SourcesProxyRequest(BaseModel):
     """"" clears it. Never returned: settings carry `proxy_configured` only."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field("", max_length=500)
+
+
+# Step 80b: clean stop for the installed app (POST /api/system/shutdown).
+class ShutdownResponse(BaseModel):
+    status: str = Field(description="`stopping`: jobs were asked to stop and the server exits shortly.")
+    cancelled_jobs: int = Field(description="How many running or queued jobs were asked to stop.")

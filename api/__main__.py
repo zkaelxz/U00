@@ -32,8 +32,19 @@ def _serve():
         check_bind_safety(settings)
     except ValueError as e:
         raise SystemExit(f"ERROR: {e}")
-    uvicorn.run("api.server:app", host=settings.host, port=settings.port,
-                reload=settings.is_development)
+    if settings.is_development:
+        uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True)
+        return
+    # Step 80b: when the installed launcher started us, every child process
+    # (ffmpeg, Chromium, pip...) ends with this one (process_guard), and its
+    # clean-stop route can make the server exit (shutdown_service).
+    import process_guard
+    from services import shutdown_service
+    process_guard.contain_children()
+    server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
+                                           port=settings.port))
+    shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
+    server.run()
 
 
 def _grant_admin(email: str) -> int:

@@ -207,7 +207,7 @@ def check_payload(app_dest) -> None:
             problems.append(rel + "/")
         elif path.is_file() and path.name in ("INSTALLED", "PORTABLE"):
             problems.append(rel)
-    for required in ("frontend/dist/index.html", "api/__main__.py", "portable.py",
+    for required in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                      "requirements-core.txt", "constraints.txt", "check_setup.py",
                      "installer/launcher.py", "installer/postinstall.py"):
         if not (app_dest / required).is_file():

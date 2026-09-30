@@ -67,16 +67,77 @@ def validate_data_dir(data_dir: str, app_root: Path) -> Path:
     return path
 
 
-def write_marker(app_dir: Path, data_dir: Path) -> Path:
+CREATED_FLAG_LINE = "# created-by-setup"   # read by the uninstaller (baihe.iss)
+
+
+def write_marker(app_dir: Path, data_dir: Path, created: bool = False) -> Path:
     """utf-8 with a BOM, so both portable.py (utf-8-sig) and the
-    uninstaller's LoadStringsFromFile read a non-ASCII path correctly."""
+    uninstaller's LoadStringsFromFile read a non-ASCII path correctly
+    (checked against Inno Setup 6.7.3). `created`: Setup made the data
+    folder, so a clean uninstall may remove the folder itself; otherwise
+    it removes only the items Baihe Studio made inside it."""
     marker = app_dir / MARKER_NAME
     marker.write_text(
         f"{data_dir}\n"
         "# Written by the Baihe Studio installer: the line above is where this\n"
-        "# copy keeps its library, settings/API keys and downloaded models.\n",
+        "# copy keeps its library, settings/API keys and downloaded models.\n"
+        + (CREATED_FLAG_LINE + "\n" if created else ""),
         encoding="utf-8-sig")
     return marker
+
+
+def _inside(path: Path, parent) -> bool:
+    if not parent:
+        return False
+    p = os.path.normcase(os.path.abspath(str(path)))
+    q = os.path.normcase(os.path.abspath(str(parent)))
+    return p == q or p.startswith(q.rstrip("\\/") + os.sep)
+
+
+def current_user_sid(run=subprocess.run):
+    """This account's SID (`whoami /user`), or None."""
+    try:
+        out = run(["whoami", "/user", "/fo", "csv", "/nh"], capture_output=True,
+                  text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sid = out.strip().rsplit(",", 1)[-1].strip().strip('"')
+    return sid if sid.startswith("S-1-") else None
+
+
+def lockdown_command(data_dir: Path, sid: str) -> list:
+    """icacls: no inherited permissions; full control for this account,
+    SYSTEM and Administrators only (by SID, so it works on any language of
+    Windows)."""
+    return ["icacls", str(data_dir), "/inheritance:r",
+            "/grant:r", f"*{sid}:(OI)(CI)F",
+            "/grant:r", "*S-1-5-18:(OI)(CI)F",
+            "/grant:r", "*S-1-5-32-544:(OI)(CI)F"]
+
+
+def restrict_new_data_dir(data_dir: Path, created: bool, log, run=subprocess.run,
+                          profile=None, is_windows=None) -> bool:
+    """A data folder Setup created outside the user's profile (say
+    D:\\Baihe) would otherwise inherit that drive's permissions, which
+    often let every account on the PC read it -- and .env holds the API
+    keys. Limits it to this account. A folder that already existed keeps
+    its permissions (Setup warned about that on its data-folder page); one
+    inside the profile is already private. Never fails the install."""
+    is_windows = (os.name == "nt") if is_windows is None else is_windows
+    profile = os.environ.get("USERPROFILE", "") if profile is None else profile
+    if not is_windows or not created or _inside(data_dir, profile):
+        return False
+    sid = current_user_sid(run)
+    if not sid:
+        log.write("Couldn't read this account's SID; the data folder keeps its permissions.\n")
+        return False
+    try:
+        result = run(lockdown_command(data_dir, sid), capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        log.write(f"Couldn't limit the data folder to this account: {e}\n")
+        return False
+    log.write(f"Limited the data folder to this account (icacls exit code {result.returncode}).\n")
+    return result.returncode == 0
 
 
 def pip_env(base=None) -> dict:
@@ -140,12 +201,13 @@ def _run(cmd, log, env, cwd):
     return result.returncode
 
 
-def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run) -> int:
+def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
+        created: bool = False, restrict=restrict_new_data_dir) -> int:
     python_exe = python_exe or sys.executable
     wheels_dir = Path(wheels_dir)
     data = validate_data_dir(data_dir, app_dir.parent)
     # The marker first, before anything that can fail on the data folder.
-    write_marker(app_dir, data)
+    write_marker(app_dir, data, created)
     log_dir = data / "launcher"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -155,6 +217,7 @@ def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run) -> 
     with open(log_dir / LOG_NAME, "a", encoding="utf-8", errors="replace") as log:
         log.write(f"\n=== Baihe Studio install step, {datetime.datetime.now().isoformat(timespec='seconds')} ===\n")
         log.write(f"app: {app_dir}\ndata: {data}\npython: {python_exe}\n")
+        restrict(data, created, log)
         steps = (
             (bootstrap_pip_command(python_exe, wheels_dir), 3, "Setting up pip failed."),
             (core_install_command(python_exe, wheels_dir, app_dir), 4,
@@ -175,9 +238,11 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Baihe Studio's post-install step.")
     parser.add_argument("--wheels", required=True, help="folder with the bundled wheels")
     parser.add_argument("--data-dir", required=True, help="the per-user data folder")
+    parser.add_argument("--data-dir-created", action="store_true",
+                        help="Setup created the data folder (it's Baihe Studio's own)")
     args = parser.parse_args(argv)
     try:
-        return run(args.wheels, args.data_dir)
+        return run(args.wheels, args.data_dir, created=args.data_dir_created)
     except OSError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2

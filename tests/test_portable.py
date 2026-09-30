@@ -134,8 +134,21 @@ class TestDataDir:
         # the library must not fall back to the program folder meanwhile.
         self._setup(monkeypatch, tmp_path)
         (tmp_path / "python").mkdir()
+        (tmp_path / "python" / "python312._pth").write_text("")
+        (tmp_path / "manifest.json").write_text("{}")
+        assert portable.is_installed() is True
+        assert portable.data_dir() == str(tmp_path / "Local" / "Baihe Studio")
+
+    def test_a_checkout_next_to_a_portable_python_is_not_an_install(self, monkeypatch, tmp_path):
+        # A source checkout (which tracks installer/launcher.py) beside a
+        # portable ..\python\python.exe keeps its data next to the code.
+        self._setup(monkeypatch, tmp_path)
+        (tmp_path / "python").mkdir()
         (tmp_path / "python" / "python.exe").write_text("")
         (tmp_path / "app" / "installer").mkdir()
         (tmp_path / "app" / "installer" / "launcher.py").write_text("")
-        assert portable.is_installed() is True
-        assert portable.data_dir() == str(tmp_path / "Local" / "Baihe Studio")
+        assert portable.is_installed() is False
+        assert portable.data_dir() == str(tmp_path / "app")
+        # A ._pth alone (no installer manifest) isn't enough either.
+        (tmp_path / "python" / "python312._pth").write_text("")
+        assert portable.is_installed() is False

@@ -923,6 +923,14 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
 )
 
 
+def active_job_ids() -> list:
+    """Ids of this process's jobs that are running or queued, for a
+    clean shutdown that cancels them all (services/shutdown_service.py)."""
+    with _lock:
+        return sorted(jid for jid, job in _jobs.items()
+                      if job["status"] in ("running", "queued"))
+
+
 def count_active_jobs(prefix: str) -> int:
     """How many jobs whose id starts with `prefix` are running or queued,
     for a server-wide cap on one kind of job."""

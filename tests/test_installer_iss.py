@@ -111,37 +111,87 @@ class TestDataFolder:
         assert "postinstall.py" in iss and "--data-dir" in iss and "--wheels" in iss
 
 
+def _func(iss, name):
+    return re.search(rf"(?:function|procedure) {name}\b.*?^end;", iss, re.M | re.S).group(0)
+
+
 class TestUninstall:
-    def test_program_folders_only(self, iss):
-        entries = _entries(iss, "UninstallDelete")
-        assert entries
-        for entry in entries:
-            name = re.search(r'Name:\s*"([^"]+)"', entry).group(1)
-            assert name.startswith("{app}"), name
-        assert not re.search(r"(?i)localappdata|DataDir", _section(iss, "UninstallDelete"))
+    def test_program_folders_only_when_baihe_put_them_there(self, iss):
+        # No [UninstallDelete]: the program folders are removed in code, and
+        # only when this install owns them (L5).
+        assert "[UninstallDelete]" not in iss
+        init = _func(iss, "InitializeUninstall")
+        assert "ProgramOwned := FileExists(ExpandConstant('{app}\\manifest.json'))" in init
+        step = _func(iss, "CurUninstallStepChanged")
+        owned = step[step.index("if ProgramOwned then"):step.index("RemoveDir(ExpandConstant('{app}'))")]
+        assert "{app}\\python" in owned and "{app}\\app" in owned
+
+    def test_setup_refuses_a_foreign_python_or_app_folder(self, iss):
+        problem = _func(iss, "InstallDirProblem")
+        assert "manifest.json" in problem and "'python'" in problem and "'app'" in problem
+        assert "InstallDirProblem(" in _func(iss, "PrepareToInstall")
+        assert "InstallDirProblem(" in _func(iss, "NextButtonClick")
 
     def test_data_deletion_is_opt_in_and_defaults_off(self, iss):
-        add_box = re.search(r"function AddCheckBox.*?^end;", iss, re.M | re.S).group(0)
-        assert "Result.Checked := False;" in add_box
-        init = re.search(r"function InitializeUninstall.*?^end;", iss, re.M | re.S).group(0)
-        for flag in ("DeleteLibrary", "DeleteSettings", "DeleteModels"):
+        assert "Result.Checked := False;" in _func(iss, "AddCheckBox")
+        init = _func(iss, "InitializeUninstall")
+        for flag in ("DeleteLibrary", "DeleteSettings", "DeleteModels", "CleanAll"):
             assert f"{flag} := False;" in init
-        # A silent uninstall never asks, so never deletes.
-        assert "not UninstallSilent()" in init
+        # Silent: nothing is deleted unless /CLEAN is passed.
+        silent = init[init.index("if UninstallSilent() then"):init.index("else if (UninstDataDir")]
+        assert "if HasCleanSwitch() then" in silent
+        assert "CompareText(ParamStr(I), '/CLEAN') = 0" in _func(iss, "HasCleanSwitch")
 
-    def test_each_deletion_is_guarded_by_its_box(self, iss):
-        step = re.search(r"procedure CurUninstallStepChanged.*?^end;", iss, re.M | re.S).group(0)
-        assert re.search(r"if DeleteLibrary then\s+DelTree\(UninstDataDir \+ '\\library'", step)
-        assert re.search(r"if DeleteSettings then\s+DeleteFile\(UninstDataDir \+ '\\\.env'\)", step)
-        assert re.search(r"if DeleteModels then\s+DelTree\(UninstDataDir \+ '\\model_cache'", step)
-        # The data folder itself, and the launcher folder, are only ever
-        # removed when empty; the launcher's own files go by name.
-        assert "RemoveDir(UninstDataDir)" in step
-        assert "RemoveDir(UninstDataDir + '\\launcher')" in step
-        assert not re.search(r"DelTree\(UninstDataDir\s*,", step)
-        assert "\\launcher'," not in step
-        deltrees = re.findall(r"DelTree\(([^,]+),", step)
-        assert deltrees == ["UninstDataDir + '\\library'", "UninstDataDir + '\\model_cache'"]
+    def test_clean_uninstall_needs_a_second_confirmation(self, iss):
+        ask = _func(iss, "AskWhatToDelete")
+        assert "Remove everything (clean uninstall)" in ask
+        assert "MB_YESNO or MB_DEFBUTTON2" in ask and "UninstDataDir" in ask
+        assert "CleanBox.OnClick := @CleanBoxClick;" in ask
+        click = _func(iss, "CleanBoxClick")
+        for box in ("LibraryBox", "SettingsBox", "ModelsBox"):
+            assert f"{box}.Checked := True;" in click
+
+    def test_each_deletion_is_guarded(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        assert re.search(r"if DeleteLibrary then\s+DeleteTree\(UninstDataDir \+ '\\library'", step)
+        assert re.search(r"if DeleteSettings and FileExists\(UninstDataDir \+ '\\\.env'\) then\s+"
+                         r"if DeleteFile\(UninstDataDir \+ '\\\.env'\)", step)
+        assert re.search(r"if DeleteModels then\s+DeleteTree\(UninstDataDir \+ '\\model_cache'", step)
+        # The whole data folder only on a clean uninstall of a folder Setup created.
+        assert re.search(r"if CleanAll and UninstDataDirCreated then\s+begin\s+(//[^\n]*\s+)*"
+                         r"DeleteTree\(UninstDataDir,", step)
+        whole = [m.start() for m in re.finditer(r"DeleteTree\(UninstDataDir,", step)]
+        assert len(whole) == 1
+        # Otherwise the folder and launcher\ go only when empty; the launcher's
+        # own files by name.
+        assert "RemoveDir(UninstDataDir);" in step
+        assert "RemoveDir(UninstDataDir + '\\launcher');" in step
+        for name in ("server.pid", "shutdown.token", "starting.lock", "server.log", "install.log"):
+            assert f"DeleteFile(UninstDataDir + '\\launcher\\{name}');" in step
+        assert "DelTree(UninstDataDir" not in step
+
+    def test_clean_uninstall_keeps_shared_caches_and_lists_them(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        for shared in ("ms-playwright", "pip\\cache", ".cache\\huggingface"):
+            assert shared in step
+        assert "NoteShared(" in step and "Left in place:" in step
+        temp = _func(iss, "DeleteOwnTempFolders")
+        assert "'baihe_*'" in temp and "FILE_ATTRIBUTE_DIRECTORY" in temp
+
+    def test_created_flag_round_trip(self, iss):
+        assert "CreatedFlagLine = '# created-by-setup';" in iss
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import postinstall
+        assert postinstall.CREATED_FLAG_LINE == "# created-by-setup"
+        prepare = _func(iss, "PrepareToInstall")
+        # Decided before Setup creates the folder (DataDirWriteProblem makes it).
+        assert prepare.index("DataDirCreatedBySetup :=") < prepare.index("DataDirWriteProblem(")
+        assert "--data-dir-created" in _func(iss, "RunPostInstall")
+
+    def test_existing_folder_outside_the_profile_is_warned_about(self, iss):
+        nxt = _func(iss, "NextButtonClick")
+        assert "{%USERPROFILE}" in nxt and "API keys" in nxt and "MB_DEFBUTTON2" in nxt
 
     def test_stops_the_server_first(self, iss):
         assert any("--stop" in e for e in _entries(iss, "UninstallRun"))
@@ -190,6 +240,13 @@ class TestWorkflow:
     def test_windows_with_a_timeout(self, wf):
         assert "runs-on: windows-latest" in wf
         assert re.search(r"timeout-minutes: \d+", wf)
+
+    def test_actions_pinned_by_commit_and_no_persisted_token(self, wf):
+        uses = re.findall(r"uses:\s*(\S+)", wf)
+        assert uses
+        for ref in uses:
+            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref), ref
+        assert "persist-credentials: false" in wf
 
     def test_inno_setup_is_pinned_by_hash(self, wf):
         assert re.search(r'INNO_SHA256: "[0-9a-f]{64}"', wf)

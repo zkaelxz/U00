@@ -64,8 +64,10 @@ baihe-subtitler/
 │   │                             tests), pinned embeddable Python, core wheels, manifest; runs ISCC
 │   ├── launcher.py               runtime (ships as app\installer\): the Start-menu shortcut --
 │   │                             starts `python -m api` on loopback, opens the window; --stop
-│   └── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
-│                                 pip from its wheel, installs requirements-core offline
+│   ├── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
+│   │                             pip from its wheel, installs requirements-core offline
+│   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
+│                                 workflow's "Stop ends every child" check
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -247,6 +249,8 @@ baihe-subtitler/
 │   │                             must resolve inside the voice-bank folder, symlinks refused
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   ├── shutdown_service.py       Step 80b -- the installed app's clean stop: cancels this process's
+│   │                             jobs, then makes uvicorn exit (POST /api/system/shutdown, token-gated)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
@@ -755,6 +759,7 @@ baihe-subtitler/
 | `applog.py` | a single rotating log file for the whole app |
 | `diagnostics.py` | environment self-check: which optional dependencies/models are available |
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
+| `process_guard.py` | Windows Job Object that ends every child process (ffmpeg, Chromium, pip...) with the installed app's server; `launcher.py --stop` can end the whole group (Step 80b) |
 | `portable.py` | lets the whole app folder be copied/moved and still work; `data_dir()` is where library/, .env and (installed copies) model caches live -- the app folder for a source checkout, the per-user data folder for an installed copy (Step 80b) |
 | `ui_theme.py` | design system (CSS, layout primitives) |
 | `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |

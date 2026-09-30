@@ -65,13 +65,25 @@ page, and again in `PrepareToInstall` because silent installs skip the page;
 unplugged drive or an unwritable folder stops Setup before anything is replaced).
 `postinstall.py` checks the same rules as a backstop.
 
+**Data folder permissions.** A folder inside the user's profile is already
+private. A **new** folder Setup creates elsewhere (say `D:\Baihe`) would
+inherit that drive's permissions, which often let every account on the PC
+read it, and `.env` holds the API keys. So the install step limits it to this
+account, SYSTEM and Administrators (`icacls /inheritance:r`, by SID). An
+**existing** folder outside the profile keeps its permissions; the data-folder
+page warns that other accounts may be able to read it and asks before using it.
+Setup records in the marker (`# created-by-setup`) whether it created the
+folder, which is what lets a clean uninstall remove the folder itself (§8).
+
 **How the app finds its data**: `portable.data_dir()`:
 
 1. `BAIHE_DATA_DIR`, if set (an override for anyone).
 2. Otherwise, for an installed copy (an `app\INSTALLED` marker exists, or the
-   installed layout itself, `..\python\python.exe` next to
-   `installer\launcher.py`, so an interrupted upgrade that removed the marker
-   still never falls back to the program folder), the
+   installed layout itself: the bundled Python's `..\python\python3XX._pth`
+   plus the installer's `..\manifest.json`, so an interrupted upgrade that
+   removed the marker still never falls back to the program folder, while a
+   source checkout that merely sits next to a portable Python isn't taken for
+   an install), the
    first non-comment line of that marker (an absolute path; UTF-8 with BOM, so
    non-ASCII user names work), falling back to `%LOCALAPPDATA%\Baihe Studio`.
 3. Otherwise, the app folder, which is exactly what a source checkout always did.
@@ -132,24 +144,31 @@ same as `start.bat`.
 
 1. Wizard: install folder (default `%LOCALAPPDATA%\Programs\Baihe Studio`),
    then the data folder page, then an optional desktop shortcut.
-   Free-space check.
-2. `PrepareToInstall`: validate the data folder, and stop a server a previous
-   install started (`launcher.py --stop`) so its files can be replaced.
+   Free-space check. Setup refuses an install folder that already holds a
+   `python\` or `app\` folder Baihe Studio didn't put there (its own installs
+   carry `manifest.json`): an update would overwrite it and an uninstall would
+   delete it.
+2. `PrepareToInstall`: check both folders again, note whether the data folder
+   is new, check it can be written, and stop a server a previous install
+   started (`launcher.py --stop`) so its files can be replaced.
 3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
 4. `postinstall.py`, run by the bundled `python.exe -s`:
    1. Writes `app\INSTALLED` with the data folder, then creates the folder.
       The marker comes first, and `data_dir()` also recognises the installed
       layout without it, so even a failed install never puts the library in
       the program folder.
-   2. Bootstraps pip by running pip straight from its wheel (`python -s pip.whl\pip install --no-index ... pip`).
+   2. Bootstraps pip by running it as a module from its own wheel (`runpy`,
+      the equivalent of `python -m pip`; running `pip.whl\pip` directly fails
+      on Windows, where pip refuses to modify itself unless run as `-m pip`).
       No network is needed, and nothing is fetched from bootstrap.pypa.io.
    3. `pip install --no-index --find-links <wheels> -r requirements-core.txt -c <constraints>`.
       `PIP_USER`, `PIP_REQUIRE_VIRTUALENV`, `PIP_INDEX_URL` and similar variables
       from the user's environment are dropped first, and `-s` keeps the user's
       own site-packages out (research notes §1, the ComfyUI `-s` lesson).
-   4. Checks that the core packages import, then runs `check_setup.py`
+   4. Limits a new data folder outside the profile to this account (§2).
+   5. Checks that the core packages import, then runs `check_setup.py`
       (ffmpeg, JS runtime, CUDA) for the log only.
-   5. Logs everything to `<data>\launcher\install.log`.
+   6. Logs everything to `<data>\launcher\install.log`.
    If this step fails, Setup shows a plain-words error with the log path.
    It exits with **code 100** (outside Inno's own 1-8) so a silent install can detect the failure, and the
    "Start Baihe Studio now" option is skipped.
@@ -165,8 +184,9 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 - If something else holds the port, it shows a message box saying so and how
   to choose another port (`BAIHE_API_PORT`).
 - Otherwise it starts `python.exe -s -m api` in its own minimized console
-  window titled "Baihe Studio (server -- closing this window stops the app)",
-  and waits up to 90 s for `/api/health`. If the server exits early, it stops
+  window titled "Baihe Studio (server -- closing this window stops the app)"
+  (set by briefly attaching to that console: CPython ignores
+  `STARTUPINFO.lpTitle`), and waits up to 90 s for `/api/health`. If the server exits early, it stops
   waiting at once. Once its own server is healthy and still running, it
   records the pid in `<data>\launcher\server.pid`. A start lock
   (`starting.lock`) makes a second click during a slow first start wait for
@@ -179,9 +199,33 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
   run can't hang on a box.
 - `--no-browser`: start with no window, log to `<data>\launcher\server.log`,
   exit 0 once healthy (for CI).
-- `--stop`: kills the recorded pid, but only if that process's image is this
-  install's own `python.exe`. A stale pid that Windows has reused for another
-  program is left alone.
+- `--stop` (the "Stop Baihe Studio" shortcut, the uninstaller, and an upgrade):
+  see "Stopping" below.
+
+**Stopping stops everything.**
+
+- **Job Object.** The launcher starts the server with a per-install name in
+  `BAIHE_PROCESS_GROUP_NAME`. `python -m api` then puts itself into a named
+  Windows Job Object with "kill on job close" (`process_guard.py`). Every
+  process it starts joins the job: ffmpeg, yt-dlp, Playwright's Chromium,
+  lncrawl, pip. When the server ends for any reason, Windows ends them all,
+  including when you just close its window.
+- **Shutdown token.** The launcher also gives the server a fresh one-time
+  token (`BAIHE_SHUTDOWN_TOKEN`, kept in `<data>\launcher\shutdown.token`).
+- **What `--stop` does:**
+  1. **Clean shutdown.** It sends `POST /api/system/shutdown` with that token.
+     The server cancels its running and queued jobs through the normal cancel
+     path, gives them up to 8 s, and exits. The launcher waits up to 15 s.
+  2. **Forced stop.** If the server is still running, the launcher ends it and
+     its process tree (`taskkill /T /F`). This happens only after checking
+     that the recorded pid really is this install's own `python.exe`; a stale
+     pid that Windows has reused is never touched.
+  3. **Sweep.** Whatever happened, it then ends this install's Job Object by
+     name, which catches any leftover child. Nothing outside this install's
+     job or pid is ever signalled.
+- **Routes.** The shutdown route is `local_only()` and needs the token. A
+  server not started by the installed launcher has no token, so the route is
+  a 404 there, and `start.bat` behaves as before.
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
@@ -239,19 +283,41 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
 Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 
 1. `[UninstallRun]` stops the server (`launcher.py --stop`).
-2. A dialog lists the data folder with three boxes, **all unticked by default**:
+2. A dialog lists the data folder with four boxes, **all unticked by default**:
    delete my library; delete my saved settings and API keys (`.env`); delete
-   downloaded AI models (`model_cache`). Cancel aborts the uninstall.
-3. The program is removed: `{app}\python` (including pip-installed packages),
-   `{app}\app`, the shortcuts and the uninstall entry. `{app}` itself is removed
-   if it is empty.
+   downloaded AI models (`model_cache`); and **Remove everything (clean
+   uninstall)**, which ticks the other three and asks a second time, naming
+   the data folder, before going ahead. Cancel aborts the uninstall.
+3. The program is removed: `{app}\python` (including pip-installed packages)
+   and `{app}\app`, but only when Baihe Studio put them there (the install
+   has its `manifest.json`); then the shortcuts and the uninstall entry.
+   `{app}` itself is removed if it is empty.
 4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
    `<data>\model_cache`). The data folder's other contents are never touched,
    since it may be a folder the user picked and shares with other files. The
    launcher's own files (`launcher\server.pid`, `starting.lock`, `server.log`,
    `install.log`) are always removed by name, then `launcher\` if it is empty.
    The data folder itself is removed only if it is then empty.
-5. **A silent uninstall (`/VERYSILENT`) never deletes user data.**
+5. **A silent uninstall (`/VERYSILENT`) never deletes user data**, unless
+   `/CLEAN` is also passed.
+
+**Clean uninstall** ("Remove everything", or `/VERYSILENT /CLEAN`):
+
+- **The data folder.** If Setup created it (the marker's `# created-by-setup`
+  line), the whole folder goes: library (projects, backups including
+  `backups\auto`, logs, `source_cache`, browser profiles,
+  `extension_token.txt`, Piper voices), `.env`, `model_cache`, and the
+  launcher's files. If the user picked an existing folder, only those named
+  items go, and the folder is removed only if that leaves it empty.
+- **Temporary folders.** Baihe Studio's own work folders in `%TEMP%`
+  (`baihe_*`) are removed; nothing else in `%TEMP%` is.
+- **Shared, left in place and listed as such:**
+  - Playwright's browsers (`%LOCALAPPDATA%\ms-playwright`);
+  - pip's download cache;
+  - Hugging Face's default cache in `%USERPROFILE%\.cache`;
+  - automatic backups pointed at a folder outside the data folder.
+- **Summary.** A summary of what was removed and what was left is shown, and
+  written to the uninstall log.
 
 If the marker can't be read or names an invalid folder, no user data is
 deleted. Out of scope, as with `uninstall.bat`: system-wide ffmpeg, Ollama,
@@ -277,6 +343,15 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   `/api/library/dramas` creates `library.db` in the data folder, not the
   program folder. Then it runs `--stop`, a silent uninstall, confirms the
   program is gone, and confirms the library and `.env` survived.
+  - **Stop check.** Before stopping, `installer/smoke_child.py` puts a
+    long-running stand-in child (`ping`) into the server's Job Object. The
+    smoke test asserts that `--stop` reports a clean shutdown, the child is
+    gone, and no process from the install folder is left.
+  - **Clean-uninstall check.** A second install into new folders is
+    clean-uninstalled with `/CLEAN`. The smoke test asserts that the install
+    folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
+    asserts that a non-Baihe `%TEMP%` folder, a file next to the folders, and
+    the first install's data folder are untouched.
 - Still owed, from a person: a real install on the user's PC (steps in the PR),
   the interactive wizard and uninstall dialog, SmartScreen, Edge app window, and
   the research notes' clean-Windows GPU matrix once a GPU tier is added through

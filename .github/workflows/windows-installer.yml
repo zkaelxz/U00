@@ -41,16 +41,20 @@ jobs:
       INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
     steps:
-      - uses: actions/checkout@v4
+      # Actions pinned by commit (tag in the comment). No token left on disk:
+      # npm ci runs package install scripts.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
 
       # Same minor version as the bundled Python (installer/build_installer.py
       # PYTHON_VERSION): pip evaluates python_version markers for the build
       # interpreter when it downloads the wheels.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -86,7 +90,7 @@ jobs:
         shell: pwsh
         run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: BaiheStudio-Setup-${{ env.APP_VERSION }}
           path: |
@@ -136,6 +140,25 @@ jobs:
           if (Test-Path "$env:APP_DIR\app\library") { Write-Error "a library folder appeared in the program folder"; exit 1 }
           Write-Host "Installed app answers; library is in $env:DATA_DIR"
 
+      # Stop stops everything: a clean shutdown, and a long-running child of
+      # the server (a stand-in for ffmpeg/Chromium, put into the server's Job
+      # Object) doesn't outlive it; no process from the install folder is left.
+      - name: Smoke test -- stop ends the server and its children
+        shell: pwsh
+        run: |
+          $child = python installer/smoke_child.py "$env:APP_DIR"
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't start the stand-in child"; exit 1 }
+          $child = [int]($child | Select-Object -Last 1)
+          if (-not (Get-Process -Id $child -ErrorAction SilentlyContinue)) { Write-Error "stand-in child isn't running"; exit 1 }
+          $out = & "$env:APP_DIR\python\python.exe" -s "$env:APP_DIR\app\installer\launcher.py" --stop
+          Write-Host $out
+          if ("$out" -notlike "*clean shutdown*") { Write-Error "expected a clean shutdown, got: $out"; exit 1 }
+          Start-Sleep -Seconds 3
+          if (Get-Process -Id $child -ErrorAction SilentlyContinue) { Write-Error "the server's child process outlived Stop"; exit 1 }
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:APP_DIR, [StringComparison]::OrdinalIgnoreCase) }
+          if ($left) { $left | Format-Table ProcessId, ExecutablePath; Write-Error "processes from the install folder are still running"; exit 1 }
+          Write-Host "Stop ended the server and its children."
+
       - name: Smoke test -- stop and silent uninstall
         shell: pwsh
         run: |
@@ -153,10 +176,44 @@ jobs:
           if (-not (Test-Path "$env:DATA_DIR\.env")) { Write-Error "uninstall removed .env"; exit 1 }
           Write-Host "Uninstalled; the data folder was kept."
 
+      # Clean uninstall (/CLEAN): a second install into new folders, then
+      # everything Baihe made goes -- and nothing outside it is touched.
+      - name: Smoke test -- clean uninstall
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $app2 = Join-Path $env:RUNNER_TEMP "baihe-app2"
+          $data2 = Join-Path $env:RUNNER_TEMP "baihe-data2"
+          $log2 = Join-Path $env:RUNNER_TEMP "setup2.log"
+          "DATA_DIR2=$data2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app2`"","/DATADIR=`"$data2`"","/LOG=`"$log2`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
+          & "$app2\python\python.exe" -s "$app2\app\installer\launcher.py" --no-browser
+          if ($LASTEXITCODE -ne 0) { Write-Error "launcher --no-browser exited $LASTEXITCODE"; exit 1 }
+          Invoke-WebRequest -Uri http://127.0.0.1:8600/api/library/dramas -UseBasicParsing -TimeoutSec 30 | Out-Null
+          Set-Content -Path "$data2\.env" -Value "BAIHE_SMOKE_TEST=1"
+          # Baihe's own temp folder goes; anything else in %TEMP% and the
+          # runner's other files stay.
+          $ownTemp = Join-Path $env:TEMP "baihe_smoke_clean"
+          $otherTemp = Join-Path $env:TEMP "notbaihe_smoke_clean"
+          New-Item -ItemType Directory -Force -Path $ownTemp, $otherTemp | Out-Null
+          $sentinel = Join-Path $env:RUNNER_TEMP "sentinel.txt"
+          Set-Content -Path $sentinel -Value "keep"
+          $p = Start-Process -FilePath "$app2\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLEAN" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
+          for ($i = 0; $i -lt 120 -and (Test-Path $app2); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $app2) { Get-ChildItem -Recurse $app2 | Select-Object -First 20 FullName; Write-Error "the install folder is still there"; exit 1 }
+          if (Test-Path $data2) { Get-ChildItem -Recurse $data2 | Select-Object -First 20 FullName; Write-Error "the data folder is still there"; exit 1 }
+          if (Test-Path $ownTemp) { Write-Error "Baihe's temp folder is still there"; exit 1 }
+          if (-not (Test-Path $otherTemp)) { Write-Error "clean uninstall removed a temp folder that isn't Baihe's"; exit 1 }
+          if (-not (Test-Path $sentinel)) { Write-Error "clean uninstall removed a file outside its folders"; exit 1 }
+          if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "clean uninstall touched the first install's data folder"; exit 1 }
+          Write-Host "Clean uninstall removed everything Baihe made and nothing else."
+
       - name: Logs on failure
         if: failure() || cancelled()
         shell: pwsh
         run: |
-          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log")) {
+          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log")) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
           }

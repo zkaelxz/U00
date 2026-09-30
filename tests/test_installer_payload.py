@@ -88,7 +88,7 @@ class TestStageApp:
     def test_passes_its_own_safety_check(self, fake_repo, tmp_path):
         dest = tmp_path / "app"
         bi.stage_app(fake_repo, dest)
-        _touch(dest, "api/server.py")   # check_payload only needs the key files present
+        _touch(dest, "process_guard.py")   # check_payload only needs the key files present
         bi.check_payload(dest)
 
     def test_needs_a_built_frontend(self, fake_repo, tmp_path):
@@ -160,7 +160,7 @@ class TestIsExcluded:
 class TestCheckPayload:
     def _good(self, tmp_path):
         dest = tmp_path / "app"
-        for rel in ("frontend/dist/index.html", "api/__main__.py", "portable.py",
+        for rel in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                     "requirements-core.txt", "constraints.txt", "check_setup.py",
                     "installer/launcher.py", "installer/postinstall.py"):
             _touch(dest, rel)
