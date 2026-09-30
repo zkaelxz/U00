@@ -251,3 +251,93 @@ def test_default_capture_uses_page_fetchs_guarded_session(monkeypatch):
     a = fanjiao.FanjiaoSource(client=make_client("fanjiao"))
     assert a.get_series(ALBUM).title == "一目余生"
     assert seen == {"url": SHARE, "pattern": fanjiao.API_PATTERN}
+
+
+def test_no_browser_for_a_request_not_from_this_pc():
+    cap = FakeCapture()
+    a = _adapter(cap)
+    a.allow_browser = False
+    with pytest.raises(SourceError) as e:
+        a.get_series(ALBUM)
+    assert e.value.reason == FailureReason.JAVASCRIPT_REQUIRED
+    with pytest.raises(SourceError):
+        a.get_chapters(ALBUM)
+    assert cap.urls == []
+
+
+def test_front_door_preview_passes_allow_browser(monkeypatch):
+    from sources import front_door
+    cap = FakeCapture()
+    monkeypatch.setattr(registry, "find_for_url", lambda url, **kw: _adapter(cap))
+    remote = front_door.preview(SHARE, allow_browser=False)
+    assert cap.urls == [] and remote.series_id == ALBUM
+    assert any("JAVASCRIPT_REQUIRED" in n for n in remote.notes)
+    local = front_door.preview(SHARE, allow_browser=True)
+    assert cap.urls == [SHARE]
+    assert local.title == "一目余生" and local.chapter_count == 3
+
+
+@pytest.mark.parametrize("exc,reason", [
+    (ImportError("pip install playwright"), FailureReason.NOT_INSTALLED),
+    (RuntimeError("proxy bypassed"), FailureReason.UNKNOWN),
+    (TimeoutError("nav"), FailureReason.UNKNOWN),
+])
+def test_browser_failures_become_source_errors(monkeypatch, exc, reason):
+    import contextlib
+    import page_fetch
+
+    @contextlib.contextmanager
+    def broken(url, url_pattern, **kw):
+        raise exc
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(page_fetch, "api_capture_session", broken)
+    a = fanjiao.FanjiaoSource(client=make_client("fanjiao"))
+    with pytest.raises(SourceError) as e:
+        a.get_series(ALBUM)
+    assert e.value.reason == reason
+
+
+@pytest.mark.parametrize("freq,status", [("已完结", "completed"), ("未完结", "unknown"),
+                                         ("暂未完结", "unknown"), ("每周五更新", "unknown"),
+                                         (None, "unknown"), (5, "unknown")])
+def test_status_from_update_frequency(freq, status):
+    info = {"data": {**ALBUM_INFO["data"], "update_frequency": freq}}
+    assert _adapter(FakeCapture(captured=_captured(info=info))).get_series(ALBUM).status == status
+
+
+@pytest.mark.parametrize("path,call", [("/album/audio", "get_chapters"),
+                                       ("album/album_info", "get_series")])
+def test_refused_page_call_is_content_hidden(path, call):
+    captured = [_entry(path, {"code": 403}, status=403)]
+    a = _adapter(FakeCapture(html=EMPTY_TEMPLATE, captured=captured))
+    with pytest.raises(ContentHidden) as e:
+        getattr(a, call)(ALBUM)
+    assert e.value.reason == FailureReason.PURCHASE_REQUIRED
+
+
+def test_odd_field_types_are_treated_as_missing():
+    info = {"data": {"name": 12345, "description": ["x"], "cover": {"a": 1},
+                     "author_name": None}}
+    cvs = {"data": [{"name": "list, not dict"}]}
+    audio = {"data": {"audios_list": [{"audio_id": 7, "name": 3}, {"audio_id": {"x": 1}},
+                                      "junk", {"audio_id": True}]}}
+    a = _adapter(FakeCapture(captured=_captured(info=info, cvs=cvs, audio=audio)))
+    s = a.get_series(ALBUM)
+    assert s.title == "12345" and s.cover_url == "https://fanjiao-media.fanjiao.co/Fdom"
+    assert s.description == "DOM 简介\n\n参演CV: CV甲、CV乙" and s.authors == []
+    assert [(c.chapter_id, c.title) for c in a.get_chapters(ALBUM)] == [("7", "3")]
+
+
+def test_full_width_digits_are_not_an_album_id():
+    cap = FakeCapture()
+    with pytest.raises(SourceError):
+        _adapter(cap).get_series("１２３")
+    assert cap.urls == []
+
+
+def test_site_terms_carries_technical_protection():
+    caps = site_terms.capabilities_for(SHARE)
+    assert caps.technical_protection == TechnicalProtection.DETECTED.value
+    other = site_terms.capabilities_for("https://www.jjwxc.net/")
+    assert other.technical_protection == TechnicalProtection.UNKNOWN.value

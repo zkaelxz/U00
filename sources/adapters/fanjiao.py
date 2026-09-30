@@ -52,9 +52,14 @@ Could NOT be verified this pass (recorded honestly rather than guessed):
     and labels matching episodes `付费 / paid (app only)` in the
     chapter's `group`. It never tries to unlock them.
   - What the page's API returns for a paid, 18+ or removed album. If the
-    page's own episode call answers without an episode list, that list is
-    withheld from the public page, and get_chapters() raises
-    ContentHidden with a plain message rather than an empty list.
+    page's own album or episode call is refused (non-200) or answers
+    without a list, it's treated as withheld from the public page and
+    ContentHidden (PURCHASE_REQUIRED) is raised with a plain message
+    rather than an empty list.
+
+No browser for a request not from this PC (docs/remote-access-decision.md):
+the API sets `allow_browser` from that, and `_render` refuses when it's
+off.
 """
 
 import html as html_mod
@@ -76,7 +81,7 @@ SHARE_URL = "https://" + SHARE_HOST + "/pages/share.html?album_id={}"
 # Only the page's own responses for these three endpoints are kept.
 API_PATTERN = re.compile(r"^https://api\.fanjiao\.co/walkman/api/+album/"
                          r"(?:album_info|actor_cvs|audio)\?")
-_ALBUM_ID = re.compile(r"^\d{1,12}$")
+_ALBUM_ID = re.compile(r"^[0-9]{1,12}$")
 PAID_GROUP = "付费 / paid (app only)"
 
 
@@ -125,13 +130,38 @@ def _text(node) -> str:
     return node.get_text(" ", strip=True) if node is not None else ""
 
 
+def _str(value) -> str:
+    """A field from the site's JSON as text; anything that isn't a
+    string or a number counts as missing."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return ""
+
+
+def _data(resp) -> dict:
+    data = resp.get("data") if isinstance(resp, dict) else None
+    return data if isinstance(data, dict) else {}
+
+
 def _default_capture(url: str):
     """Opens the share page in page_fetch's guarded browser and returns
-    (rendered html, the page's own matching responses)."""
+    (rendered html, the page's own matching responses). Browser failures
+    come back as a plain SourceError, like mangaz.py's reader."""
     from page_fetch import api_capture_session
-    with api_capture_session(url, API_PATTERN, timeout=30, wait_ms=5000) as (page, captured):
-        html = page.content()
-        return html, list(captured)
+    try:
+        with api_capture_session(url, API_PATTERN, timeout=30, wait_ms=5000) as (page,
+                                                                                 captured):
+            html = page.content()
+            return html, list(captured)
+    except ImportError as e:
+        raise SourceError(str(e), FailureReason.NOT_INSTALLED) from None
+    except SourceError:
+        raise
+    except Exception as e:
+        raise SourceError(f"Fanjiao's share page couldn't be opened in the browser "
+                          f"({type(e).__name__}).", FailureReason.UNKNOWN) from None
 
 
 @register
@@ -161,17 +191,26 @@ class FanjiaoSource(SourceAdapter):
                               FailureReason.UNKNOWN)
         if series_id in self._renders:
             return self._renders[series_id]
+        if not self.allow_browser:
+            # docs/remote-access-decision.md: no browser for a request not
+            # from this PC, and this source has nothing without one.
+            raise SourceError("Fanjiao needs the browser, which only runs for requests from "
+                              "this PC. Open it there.", FailureReason.JAVASCRIPT_REQUIRED)
         url = SHARE_URL.format(series_id)
         html, captured = self.client.paced(self._capture, url, "Rendered browser",
                                            action=f"Loading Fanjiao album {series_id}")
-        responses = {}
+        responses, refused = {}, {}
         for entry in captured or []:
-            if entry.get("status") != 200 or _album_of(entry.get("url", "")) != series_id:
+            if _album_of(entry.get("url", "")) != series_id:
+                continue
+            if entry.get("status") != 200:
+                # The site's own call was refused (paid, 18+, removed...).
+                refused.setdefault(_endpoint(entry["url"]), entry.get("status"))
                 continue
             data = _body_json(entry)
             if data is not None:
                 responses.setdefault(_endpoint(entry["url"]), data)
-        result = {"url": url, "html": html or "", "responses": responses}
+        result = {"url": url, "html": html or "", "responses": responses, "refused": refused}
         self._renders[series_id] = result
         return result
 
@@ -179,15 +218,16 @@ class FanjiaoSource(SourceAdapter):
 
     def get_series(self, series_id):
         r = self._render(series_id)
-        info = (r["responses"].get("album_info") or {}).get("data")
-        info = info if isinstance(info, dict) else {}
+        info = _data(r["responses"].get("album_info"))
         soup = BeautifulSoup(r["html"], "html.parser")
 
-        title = (info.get("name") or _text(soup.select_one(".title"))).strip()
+        title = (_str(info.get("name")) or _text(soup.select_one(".title"))).strip()
         if not title:
+            if "album_info" in r["refused"] and "album_info" not in r["responses"]:
+                raise self._withheld("album")
             raise LayoutChanged("the album title (the page showed nothing without the app)")
-        description = info.get("description") or _text(soup.select_one(".brieftext"))
-        cover = info.get("cover") or ""
+        description = _str(info.get("description")) or _text(soup.select_one(".brieftext"))
+        cover = _str(info.get("cover"))
         if not cover:
             img = soup.select_one(".titleimg img")
             cover = (img.get("src") or "") if img is not None else ""
@@ -195,9 +235,9 @@ class FanjiaoSource(SourceAdapter):
         cvs = self._cv_names(r, soup)
         if cvs:
             description = (description + "\n\n" if description else "") + "参演CV: " + "、".join(cvs)
-        authors = [a for a in (info.get("author_name"),) if a]
-        freq = str(info.get("update_frequency") or "")
-        status = "completed" if "完结" in freq else "unknown"
+        authors = [a for a in (_str(info.get("author_name")),) if a]
+        freq = _str(info.get("update_frequency"))
+        status = "completed" if "完结" in freq and "未完结" not in freq else "unknown"
         return SeriesInfo(self.name, str(series_id), html_mod.unescape(title), r["url"], cover,
                           authors=authors, description=html_mod.unescape(description).strip(),
                           status=status, content_type=ContentType.AUDIO_DRAMA.value,
@@ -205,13 +245,14 @@ class FanjiaoSource(SourceAdapter):
 
     @staticmethod
     def _cv_names(r: dict, soup) -> list:
-        cv_list = ((r["responses"].get("actor_cvs") or {}).get("data") or {}).get("cv_list")
+        cv_list = _data(r["responses"].get("actor_cvs")).get("cv_list")
         if isinstance(cv_list, list):
             names = []
             for cv in cv_list:
-                if isinstance(cv, dict) and cv.get("name"):
-                    role = cv.get("role_name")
-                    names.append(f"{cv['name']}（{role}）" if role else cv["name"])
+                name = _str(cv.get("name")) if isinstance(cv, dict) else ""
+                if name:
+                    role = _str(cv.get("role_name"))
+                    names.append(f"{name}（{role}）" if role else name)
             return names
         return [_text(n) for n in soup.select(".cvdiv .cvname") if _text(n)]
 
@@ -219,26 +260,30 @@ class FanjiaoSource(SourceAdapter):
         r = self._render(series_id)
         resp = r["responses"].get("audio")
         if resp is None:
+            if "audio" in r["refused"]:
+                raise self._withheld("album's episode list")
             raise LayoutChanged("the episode list (the page's own episode request never "
                                 "came back)")
-        episodes = (resp.get("data") or {}).get("audios_list") if isinstance(
-            resp.get("data"), dict) else None
+        episodes = _data(resp).get("audios_list")
         if not isinstance(episodes, list) or not episodes:
-            raise ContentHidden(
-                f"{self.display_name}'s public share page doesn't show this album's episode "
-                "list -- it may be paid, 18+ or app-only. Open it in the Fanjiao app.",
-                FailureReason.PURCHASE_REQUIRED)
+            raise self._withheld("album's episode list")
         chapters = []
         for ep in episodes:
-            if not isinstance(ep, dict) or ep.get("audio_id") in (None, ""):
+            audio_id = _str(ep.get("audio_id")) if isinstance(ep, dict) else ""
+            if not audio_id:
                 continue
-            audio_id = str(ep["audio_id"])
-            title = html_mod.unescape(str(ep.get("name") or ep.get("title") or audio_id))
+            title = html_mod.unescape(_str(ep.get("name")) or _str(ep.get("title")) or audio_id)
             chapters.append(ChapterInfo(self.name, str(series_id), audio_id, title, r["url"],
                                         group=PAID_GROUP if _is_locked(ep) else ""))
         if not chapters:
             raise LayoutChanged("an audio_id on any episode")
         return chapters
+
+    def _withheld(self, what: str) -> ContentHidden:
+        return ContentHidden(
+            f"{self.display_name}'s public share page doesn't show this {what} -- it may be "
+            "paid, 18+, removed or app-only. Open it in the Fanjiao app.",
+            FailureReason.PURCHASE_REQUIRED)
 
     def parse_url(self, url: str):
         parts = urlsplit(url or "")

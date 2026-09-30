@@ -31,8 +31,8 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 from services.sources_registry_service import _require_source, _scrub, _scrub_any, safe_url
 from sources import chapter_order, ladder, registry
 from sources.http import Cancelled, ResponseRefused
-from sources.models import (ChallengeDetected, ContentHidden, NotSupportedError, SourceError,
-                            SourceUnavailable, TermsProhibited)
+from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
+                            SourceError, SourceUnavailable, TermsProhibited)
 
 SEARCH_JOB_ID = "sources_search"
 SERIES_JOB_PREFIX = "sources_series_"
@@ -59,6 +59,10 @@ def _error_view(exc, source: str = None) -> dict:
     if isinstance(exc, TermsProhibited):
         return {"status": 400, "code": UnsupportedOperationError.code, "message": msg,
                 "details": {"reason": "TOS_PROHIBITED"}}
+    if isinstance(exc, ContentHidden) and exc.reason == FailureReason.PURCHASE_REQUIRED:
+        # Paid/app-only (e.g. Fanjiao), not the adult switch: the message says what to do.
+        return {"status": 400, "code": UnsupportedOperationError.code, "message": msg,
+                "details": {"reason": "PURCHASE_REQUIRED"}}
     if isinstance(exc, ContentHidden):
         return {"status": 400, "code": UnsupportedOperationError.code, "message": msg,
                 "details": {"reason": "CONTENT_HIDDEN", "hint": "adult_toggle", "source": source}}
@@ -224,9 +228,10 @@ def start_search(query, sources=None) -> dict:
 # Series and chapters
 # ---------------------------------------------------------------------------
 
-def _series_job(job_id: str, name: str, series_id: str):
+def _series_job(job_id: str, name: str, series_id: str, local: bool = True):
     cancelled = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     adapter = registry.get_adapter(name, cancel_check=cancelled)
+    adapter.allow_browser = local  # no browser for a request not from this PC
     try:
         ladder.check_terms(name, adapter.capabilities())
         background_jobs.update_progress(job_id, 0.2, "Loading the series...")
@@ -254,9 +259,10 @@ def _series_job(job_id: str, name: str, series_id: str):
     })
 
 
-def start_series(name, series_id) -> dict:
+def start_series(name, series_id, local: bool = True) -> dict:
     """Starts `sources_series_<name>`: the series info plus its chapters in
-    chapter_order.sort_chapters_grouped order."""
+    chapter_order.sort_chapters_grouped order. `local` False (a request not
+    from this PC) keeps an adapter from opening a browser."""
     name = str(name or "")
     cls = _enabled_source(name)
     series_id = _series_id(series_id)
@@ -267,7 +273,7 @@ def start_series(name, series_id) -> dict:
     # Start and record together, so a poll never pairs this run with the
     # previous run's series.
     with _IDENTITY_LOCK:
-        started = _start(job_id, _series_job, job_id, name, series_id,
+        started = _start(job_id, _series_job, job_id, name, series_id, bool(local),
                          description=f"Sources series ({name})")
         _SERIES_IDENTITY[job_id] = (name, series_id)
     return started

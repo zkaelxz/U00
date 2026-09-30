@@ -19,7 +19,7 @@ Add a site only with a directly-read finding, quoted where possible.
 
 from urllib.parse import urlsplit
 
-from .models import AiMlUse, AutomationPermission, SourceCapabilities
+from .models import AiMlUse, AutomationPermission, SourceCapabilities, TechnicalProtection
 
 SITE_TERMS = [
     {
@@ -199,6 +199,7 @@ SITE_TERMS = [
         "platform": "饭角 Fanjiao (深圳热蓝科技有限公司)",
         "automation_permission": AutomationPermission.UNKNOWN.value,
         "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "technical_protection": TechnicalProtection.DETECTED.value,
         "terms": {
             "read": "The user agreement is only viewable inside the app. The public "
                     "www.fanjiao.co/pages/useragree.html is the privacy policy, read directly "
@@ -235,5 +236,7 @@ def capabilities_for(url: str):
     caps = SourceCapabilities(platform=entry["platform"],
                               automation_permission=entry["automation_permission"],
                               ai_ml_use=entry["ai_ml_use"], terms=dict(entry["terms"]))
+    caps.technical_protection = entry.get("technical_protection",
+                                          TechnicalProtection.UNKNOWN.value)
     caps.terms["tos_prohibited"] = bool(caps.terms_restrictions())
     return caps
