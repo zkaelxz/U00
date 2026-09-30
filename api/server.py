@@ -59,6 +59,7 @@ from api.routers import (
     lines_routes,
     live_routes,
     media_routes,
+    metadata_research_routes,
     metadata_routes,
     narration_routes,
     notification_center_routes,
@@ -181,6 +182,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(media_routes.router)
     app.include_router(narration_routes.router)
     app.include_router(metadata_routes.router)
+    app.include_router(metadata_research_routes.router)
     app.include_router(jellyfin_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
