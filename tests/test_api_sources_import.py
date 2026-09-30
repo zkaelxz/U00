@@ -210,8 +210,9 @@ def test_handoff_in_result(client, fakes):
     _, b = _result(client, f"sourceimport_{did}")
     h = b["result"]["handoff"]
     assert h["handoff"] is True and h["open_url"] == f"{HOST}/v" and h["chapter_id"] == "c1"
-    # stopped at the challenge: c2 was never reached, so it isn't listed
-    assert [c["chapter_id"] for c in b["result"]["chapters"]] == ["c1"]
+    # stopped at the challenge: c2 was never reached, so it is "not_attempted" (Step 107)
+    assert [(c["chapter_id"], c["outcome"]) for c in b["result"]["chapters"]] == [
+        ("c1", "failed"), ("c2", "not_attempted")]
 
 
 def test_series_list_challenge_is_409(client, fakes):

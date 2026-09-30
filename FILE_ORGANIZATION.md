@@ -407,6 +407,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
 │   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
 │   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
@@ -505,7 +506,7 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
-│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import, GET /{name}/import-state
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
 │       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)

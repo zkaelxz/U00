@@ -15,7 +15,9 @@ import {
   type SeriesView,
 } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
-import { IMPORT_REMOTE_ALLOWED, allSelected, toggleId } from './urlImportFormat'
+import {
+  IMPORT_REMOTE_ALLOWED, allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleId, type ChapterMark,
+} from './urlImportFormat'
 
 type Props = {
   open: OpenSeries
@@ -93,6 +95,8 @@ export function SeriesPanel({
   const importing = !!result && chapters.length > 0 && canImport
   // Tracking (R4) works for any source, not only those with import; same remote rule.
   const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
+  // Step 107: chapters already in the chosen drama are marked and left out of Select all.
+  const selectable = selectableChapters(chapters, imp.importState.state)
 
   return (
     <section className="card sources-series" aria-label="Series">
@@ -226,17 +230,18 @@ export function SeriesPanel({
             <label className="sources-select-all">
               <input
                 type="checkbox"
-                checked={allSelected(selected, chapters)}
+                checked={allSelected(selected, selectable)}
                 disabled={imp.running}
-                onChange={(e) => setSelected(e.target.checked ? chapters.map((c) => c.chapter_id) : [])}
+                onChange={(e) => setSelected(e.target.checked ? selectable.map((c) => c.chapter_id) : [])}
               />
-              Select all {chapters.length}
+              {selectAllLabel(selectable.length, chapters.length)}
             </label>
           )}
           <ChapterList
             groups={groups}
             shown={shown}
             selected={importing ? selected : undefined}
+            marks={importing ? chapterMarks(imp.importState.state) : undefined}
             disabled={imp.running}
             onToggle={(id, on) => setSelected((cur) => toggleId(cur, id, on))}
           />
@@ -257,11 +262,13 @@ export function SeriesPanel({
   )
 }
 
-function ChapterList({ groups, shown, selected, disabled, onToggle }: {
+function ChapterList({ groups, shown, selected, marks, disabled, onToggle }: {
   groups: ReturnType<typeof groupChapters>
   shown: number
   // Import: tick boxes when given.
   selected?: string[]
+  // Import: Imported / Failed / Not attempted in the chosen drama.
+  marks?: Map<string, ChapterMark>
   disabled?: boolean
   onToggle?: (id: string, on: boolean) => void
 }) {
@@ -287,11 +294,21 @@ function ChapterList({ groups, shown, selected, disabled, onToggle }: {
                 ) : (
                   c.title || c.chapter_id
                 )}
+                {marks?.has(c.chapter_id) && <MarkTag mark={marks.get(c.chapter_id)!} />}
               </li>
             ))}
           </ul>
         </div>
       ))}
     </div>
+  )
+}
+
+function MarkTag({ mark }: { mark: ChapterMark }) {
+  return (
+    <>
+      <Badge tone={mark.tone}>{mark.label}</Badge>
+      {mark.note && <span className="sources-mark-note">{mark.note}</span>}
+    </>
   )
 }

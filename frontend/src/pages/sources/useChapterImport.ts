@@ -2,8 +2,9 @@ import { sourceImportJobId, startChapterImport } from '../../api/sourcesImport'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { SeriesChapter } from '../../types/sources'
 import type { ChapterImportResult } from '../../types/sourcesImport'
-import { chapterImportDramas, importIds, importReason } from './urlImportFormat'
+import { MAX_CHAPTERS, chapterImportDramas, importIds, importReason, retryIds } from './urlImportFormat'
 import { useDramaList } from './useDramaList'
+import { useImportState } from './useImportState'
 import { useSourcesJob } from './useSourcesJob'
 
 // The chapter import for one open series: the drama list, the remembered
@@ -31,8 +32,18 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
     if (!dramaId || importReason(ids.length, dramaId) || running) return
     job.start(() => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId }))
   }
+  // Step 107: what's already in the drama, and "Retry failed chapters (N)":
+  // exactly the retry ids (the server re-reads the list), at most 200 a run.
+  const importState = useImportState(source, seriesId, dramaId, enabled, running)
+  const retry = retryIds(importState.state, shownResult)
+  const startRetry = () => {
+    if (!dramaId || running || !retry.length) return
+    const ids = retry.slice(0, MAX_CHAPTERS)
+    job.start(() => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId }))
+  }
   return {
     dramas, choices, dramaId, setDramaId: (id: number | null) => setStored(id ?? 0), job, running, shownResult, start,
+    importState, retry, startRetry,
   }
 }
 
