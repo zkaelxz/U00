@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { Section } from '../../components/Section'
@@ -10,12 +12,14 @@ import { engineRow, setupRows, setupSummary } from './diagnosticsAdmin'
  * files, library folder) as a row with an OK/Problem badge, always open.
  * Problems sort first; Model engines stays a fold.
  */
-export function SetupSection({ checks, gpu, engines, checking, onRecheck }: {
+export function SetupSection({ checks, gpu, engines, checking, onRecheck, children }: {
   checks: DiagnosticsSetupChecks
   gpu: GpuStatus | null
   engines: ModelEngineVersion[]
   checking: boolean
   onRecheck: () => void
+  // Fixes shown under the rows (the Deno install).
+  children?: ReactNode
 }) {
   const rows = setupRows(checks, gpu)
   const sorted = [...rows.filter((r) => r.problem), ...rows.filter((r) => !r.problem)]
@@ -39,6 +43,7 @@ export function SetupSection({ checks, gpu, engines, checking, onRecheck }: {
           </li>
         ))}
       </ul>
+      {children}
       {engines.length > 0 && (
         <Section title="Model engines" count={engines.length} storageKey="diagnostics.setupEngines"
           summary={`${engines.filter((m) => m.installed).length} installed`}>

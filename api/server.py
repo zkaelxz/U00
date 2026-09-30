@@ -40,6 +40,7 @@ from api.routers import (
     comic_routes,
     delete_routes,
     diagnostics_gaps_routes,
+    diagnostics_installs_routes,
     diagnostics_routes,
     diarization_routes,
     discover_lookup_routes,
@@ -80,6 +81,7 @@ from api.routers import (
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    voice_bank_audio_routes,
     voice_clone_routes,
     workflow_routes,
 )
@@ -201,6 +203,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
+    app.include_router(diagnostics_installs_routes.router)
+    app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
     app.include_router(assistant_routes.router)
     if settings.serve_frontend:
