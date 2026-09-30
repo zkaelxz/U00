@@ -239,6 +239,29 @@ def test_series_result_sorted_and_redacted(fakes):
     assert svc.known_chapter_ids(r) == ["c1", "c2", "c10"]
 
 
+def test_series_download_links_are_listed_without_their_query(fakes):
+    fake = _make("alpha")
+    base_series = fake.get_series
+
+    def get_series(self, series_id):
+        info = base_series(self, series_id)
+        info.links = [{"label": "百度网盘 (Baidu Pan)", "url": f"https://pan.baidu.com/s/1abc?pwd=roh1&t={SECRET}",
+                       "password": "roh1"},
+                      {"label": "bad", "url": "javascript:alert(1)", "password": ""},
+                      {"label": "bad2", "url": "javascript://pan.baidu.com/%0aalert(1)", "password": ""},
+                      "not a dict"]
+        return info
+
+    fake.get_series = get_series
+    fakes["alpha"] = fake
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    out = svc.get_job_result("sources_series_alpha")
+    assert out["result"]["info"]["links"] == [
+        {"label": "百度网盘 (Baidu Pan)", "url": "https://pan.baidu.com/s/1abc", "password": "roh1"}]
+    assert SECRET not in json.dumps(out, ensure_ascii=False)
+
+
 def test_search_result_has_no_query_strings_or_secrets(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")

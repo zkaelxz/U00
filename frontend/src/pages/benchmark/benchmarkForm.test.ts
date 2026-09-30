@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../api/benchmark'
 import {
-  arenaGroups, arenaRunNames, casesInSelection, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
-  formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, plainError, restoreConfigs,
+  arenaGroups, arenaRunNames, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
+  formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   runRequestBody, selectionProblems, setOptions, startState, tierLabel, toggleCompare, type RunSelection,
 } from './benchmarkForm'
 
@@ -82,6 +82,19 @@ describe('formatting', () => {
     expect(metricNote('ocr')).not.toMatch(/translation/i)
     expect(metricNote('transcription')).toMatch(/WER/)
     expect(metricNote('transcription')).not.toMatch(/translation/i)
+  })
+
+  it('flags CER/WER scores from different scorers side by side', () => {
+    const cell = (metric: string, scorer?: string | null) => ({ metric, scorer })
+    expect(mixedScorerNote([{ results: [cell('cer', 'jiwer'), cell('cer', null)] }])).toMatch(/jiwer/)
+    // One run's per-case fallback is not a mix: each case matches across runs.
+    expect(mixedScorerNote([{ results: [cell('wer', 'jiwer'), cell('wer', 'jiwer')] },
+      { results: [cell('wer', 'builtin'), cell('wer', 'builtin')] }])).toBe('')
+    // Older results (no scorer recorded) were built-in: same scorer, no note.
+    expect(mixedScorerNote([{ results: [cell('cer', null), cell('cer', 'builtin'), null] }])).toBe('')
+    expect(mixedScorerNote([{ results: [cell('cer', 'jiwer'), cell('cer', 'jiwer')] }])).toBe('')
+    // Translation similarity is never compared across scorers.
+    expect(mixedScorerNote([{ results: [cell('similarity', 'builtin'), cell('cer', 'jiwer')] }])).toBe('')
   })
 })
 
@@ -226,5 +239,39 @@ describe('plainError', () => {
     expect(plainError(new ApiError(503, { code: 'dependency_unavailable', message: 'Bad key sk-abcdef123456' }))).toMatch(/tool or package/)
     expect(plainError(new ApiError(500, { code: 'internal_error', message: 'at /home/user/x.py' }))).toMatch(/Something went wrong/)
     expect(plainError(new ApiError(403, { code: 'forbidden', message: 'x' }), { pcOnly: true })).toBe('This only works on the main PC.')
+  })
+})
+
+describe('compare links (Model health -> Benchmark Lab)', () => {
+  it('builds and reads engine:model pairs, keeping ":" and "/" inside a model', () => {
+    const configs = [{ engine: 'ollama', model: 'qwen3:8b' }, { engine: 'nllb', model: 'facebook/nllb-200-distilled-600M' }, { engine: 'test_offline' }]
+    const raw = compareParam(configs)
+    expect(raw).toBe('ollama:qwen3%3A8b,nllb:facebook%2Fnllb-200-distilled-600M,test_offline')
+    expect(parseCompareParam(raw)).toEqual(configs)
+    expect(parseCompareParam('claude:claude-sonnet-4-6,claude:claude-sonnet-5')).toEqual([
+      { engine: 'claude', model: 'claude-sonnet-4-6' }, { engine: 'claude', model: 'claude-sonnet-5' },
+    ])
+  })
+
+  it('skips empty and malformed parts', () => {
+    expect(parseCompareParam(null)).toEqual([])
+    expect(parseCompareParam('')).toEqual([])
+    expect(parseCompareParam(',claude:,:x,%E0%A4%A:y,nllb:small')).toEqual([{ engine: 'claude' }, { engine: 'nllb', model: 'small' }])
+  })
+
+  it('prefills offered configs and says what it left out', () => {
+    const p = comparePrefill(parseCompareParam('claude:gone-model,claude:haiku,nope:x,test_offline:some-model,claude:haiku'), options)
+    expect(p.configs).toEqual([{ engine: 'claude', model: 'haiku' }, { engine: 'test_offline' }])
+    expect(p.notes).toEqual([
+      "Claude · gone-model isn't offered in this app any more, so it was left out.",
+      "Nope · x isn't an engine the Benchmark Lab can run, so it was left out.",
+      'Offline test has no model choice here, so it runs its built-in model.',
+    ])
+  })
+
+  it('stops at the most engines a run may have', () => {
+    const p = comparePrefill(parseCompareParam('claude:sonnet,claude:haiku,nllb:small,test_offline,claude'), { ...options, max_configs: 4 })
+    expect(p.configs).toHaveLength(4)
+    expect(p.notes).toEqual(['Claude was left out: at most 4 engines at once.'])
   })
 })

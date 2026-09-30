@@ -202,6 +202,34 @@ def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch)
             proc.kill()
 
 
+def test_job_record_says_when_a_running_record_is_stale(client):
+    """The record's `stale` flag uses the server's clock: a running record
+    with no heartbeat for STALE_JOB_SECONDS reads stale (a viewer's own
+    clock is never consulted); a fresh one, an in-process one and a
+    finished one do not."""
+    db.save_job_record("dead", "running")
+    _age("dead", 3600)
+    db.save_job_record("alive", "running")
+    _age("alive", 60)
+    db.save_job_record("mine", "running")
+    _age("mine", 3600)
+    _own("mine")
+    db.save_job_record("finished", "done")
+    _age("finished", 3600)
+    try:
+        assert client.get("/api/jobs/dead").json()["stale"] is True
+        assert client.get("/api/jobs/alive").json()["stale"] is False
+        assert client.get("/api/jobs/mine").json()["stale"] is False
+        assert client.get("/api/jobs/finished").json()["stale"] is False
+        # listing sweeps dead owners' records first, so "dead" is closed
+        # (not merely stale) by the time it is listed
+        items = {j["job_id"]: j for j in client.get("/api/jobs").json()["items"]}
+        assert items["dead"]["status"] == "cancelled"
+        assert items["alive"]["stale"] is False
+    finally:
+        _disown("mine")
+
+
 def test_listing_jobs_sweeps_dead_owners_records(client):
     """B-04 leftover: a dead owner's record is closed without anyone
     cancelling it -- listing jobs sweeps it; fresh and in-process ones stay."""

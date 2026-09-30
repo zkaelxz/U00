@@ -40,7 +40,7 @@ def _isolate_library_for_setup_method():
     outside pytest's own fixture resolution, so isolated_db can't be
     requested there the normal way. Same isolate/restore logic as
     conftest.py's isolated_db fixture, inlined for setup_method use."""
-    previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+    previous = db.LIBRARY_DIR
     temp_dir = tempfile.mkdtemp(prefix="baihe_test_wt_")
     db.configure_library_dir(temp_dir)
     db.init_db()
@@ -48,7 +48,7 @@ def _isolate_library_for_setup_method():
 
 
 def _restore_library_for_teardown_method(previous, temp_dir):
-    db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+    db.configure_library_dir(previous)
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 

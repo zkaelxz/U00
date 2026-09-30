@@ -154,6 +154,8 @@ export interface BenchmarkResult {
   output_text: string
   score: number | null
   metric: string | null
+  /** 'jiwer' or 'builtin' for CER/WER; null on older results (built-in). */
+  scorer?: string | null
   passed: boolean | null
   duration_seconds: number | null
   cost_usd: number

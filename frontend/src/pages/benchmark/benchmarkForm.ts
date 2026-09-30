@@ -132,6 +132,24 @@ export function metricNote(stage: string | null | undefined): string {
   return ''
 }
 
+/** Set when an arena lines up one case's CER/WER scores from both scorers
+ * (jiwer and the built-in one): their numbers can differ for the same
+ * output. Checked per case, since jiwer runs fall back to the built-in
+ * scorer for a case with nothing left to score after normalisation (every
+ * run does the same for that case). Results with no scorer recorded
+ * predate jiwer and are built-in. */
+export function mixedScorerNote(rows: { results: ({ metric: string | null; scorer?: string | null } | null)[] }[]): string {
+  const mixed = rows.some((row) => {
+    const seen = new Set<string>()
+    for (const r of row.results)
+      if (r && (r.metric === 'cer' || r.metric === 'wer')) seen.add(r.scorer === 'jiwer' ? 'jiwer' : 'builtin')
+    return seen.size > 1
+  })
+  return mixed
+    ? 'Some of these runs were scored with jiwer and some with the built-in scorer, so their scores can differ for the same output. Re-run the older runs to compare like with like.'
+    : ''
+}
+
 // ---- the run form ----
 
 export interface RunSelection {
@@ -311,6 +329,76 @@ export function compareProblem(selected: number[], runs: BenchmarkRun[], max = 4
   const stages = new Set(selected.map((id) => runs.find((r) => r.id === id)?.stage ?? null))
   if (stages.size > 1) return 'Only runs of the same stage can be compared.'
   return null
+}
+
+// ---- "Compare in Benchmark Lab" links (Model health on Diagnostics, Step 40) ----
+
+/**
+ * The raw `compare` query value: "engine:model,engine:model". Each engine and
+ * model is URI-encoded, so a model with ":" or "/" in it ("qwen3:8b") stays
+ * one part; the separators are left literal.
+ */
+export function compareParam(configs: BenchmarkConfig[]): string {
+  const enc = encodeURIComponent
+  return configs.map((c) => (c.model ? `${enc(c.engine)}:${enc(c.model)}` : enc(c.engine))).join(',')
+}
+
+/** Reads compareParam's format back; malformed parts are skipped. */
+export function parseCompareParam(raw: string | null | undefined): BenchmarkConfig[] {
+  if (!raw) return []
+  const out: BenchmarkConfig[] = []
+  for (const part of raw.split(',').slice(0, 8)) {
+    const i = part.indexOf(':')
+    try {
+      const engine = decodeURIComponent(i < 0 ? part : part.slice(0, i)).trim()
+      const model = i < 0 ? '' : decodeURIComponent(part.slice(i + 1)).trim()
+      if (engine) out.push(model ? { engine, model } : { engine })
+    } catch {
+      // A bad %-escape: skip this part.
+    }
+  }
+  return out
+}
+
+export interface ComparePrefill {
+  configs: BenchmarkConfig[]
+  // Plain sentences about anything that couldn't be set up as asked.
+  notes: string[]
+}
+
+/**
+ * The translation configs a compare link asks for, checked against today's
+ * options: an unknown engine or a model the app doesn't offer is left out
+ * (with a note); an engine without a model choice runs its built-in model.
+ */
+export function comparePrefill(wanted: BenchmarkConfig[], options: BenchmarkOptions): ComparePrefill {
+  const configs: BenchmarkConfig[] = []
+  const notes: string[] = []
+  const seen = new Set<string>()
+  for (const c of wanted) {
+    const label = configLabel('translation', c.engine, c.model)
+    const engine = options.translation_engines.find((e) => e.name === c.engine)
+    if (!engine) {
+      notes.push(`${label} isn't an engine the Benchmark Lab can run, so it was left out.`)
+      continue
+    }
+    let next: BenchmarkConfig = { engine: c.engine }
+    if (c.model && engine.models === null) {
+      notes.push(`${humanize('engine', c.engine)} has no model choice here, so it runs its built-in model.`)
+    } else if (c.model && !engine.models?.includes(c.model)) {
+      notes.push(`${label} isn't offered in this app any more, so it was left out.`)
+      continue
+    } else if (c.model) next = { engine: c.engine, model: c.model }
+    const key = `${next.engine}|${next.model ?? ''}`
+    if (seen.has(key)) continue
+    if (configs.length >= options.max_configs) {
+      notes.push(`${label} was left out: at most ${options.max_configs} engines at once.`)
+      continue
+    }
+    seen.add(key)
+    configs.push(next)
+  }
+  return { configs, notes }
 }
 
 // ---- errors ----
