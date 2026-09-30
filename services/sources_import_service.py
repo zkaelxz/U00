@@ -68,7 +68,8 @@ from services import page_import_limits as limits
 from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.sources_registry_service import _import_supported, _scrub, safe_url
+from services.sources_registry_service import (_import_supported, _require_source, _scrub,
+                                              safe_url)
 from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, _enabled_source,
                                              _error_view, _JobFailed, _plain_text, _series_id,
                                              _start)
@@ -77,7 +78,7 @@ from services.sources_url_service import (check_public_url, fail_job, handoff_er
 from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
 from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
-from sources.models import AccessTier
+from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
 MAX_CHAPTERS = 200
 MAX_SKIPPED_LISTED = 100
@@ -173,13 +174,67 @@ def _outcome(row: dict) -> dict:
     return out
 
 
+_NOT_ATTEMPTED = "Not attempted: the import stopped before this chapter."
+_PARTLY = ("Stopped by an unexpected error while saving this chapter; it may be partly "
+           "imported -- check the drama before retrying it.")
+
+
 def _import_result(chapters: list, cancelled: bool, handoff) -> dict:
     counts = {k: sum(1 for c in chapters if c["outcome"] == k)
-              for k in ("imported", "skipped", "failed")}
+              for k in ("imported", "skipped", "failed", "not_attempted")}
+    retry = [c["chapter_id"] for c in chapters
+             if c["outcome"] in store.RETRY_STATUSES and c.get("retryable", True)]
     return {"kind": "chapter_import", "chapters": chapters,
             "imported_count": counts["imported"], "skipped_count": counts["skipped"],
-            "failed_count": counts["failed"], "partial": counts["failed"] > 0,
+            "failed_count": counts["failed"], "not_attempted_count": counts["not_attempted"],
+            "partial": counts["failed"] > 0 or counts["not_attempted"] > 0,
+            "retry_chapter_ids": retry,
             "cancelled": bool(cancelled), "handoff": handoff}
+
+
+def _save_manifest(name: str, series_id: str, drama_id: int, chapters: list):
+    """Step 107: remembers which chapters failed or were never attempted
+    (redacted text only, as shown in the result), so the retry survives a
+    reload or a restart. Best effort: the import itself already happened."""
+    try:
+        store.record_import_retry(
+            name, series_id, drama_id,
+            [(c["chapter_id"], c.get("title") or "",
+              c["outcome"] if c.get("retryable", True) else "partial", c.get("error") or "")
+             for c in chapters if c["outcome"] in store.RETRY_STATUSES],
+            # A chapter no longer on the site can't be retried either.
+            [c["chapter_id"] for c in chapters
+             if c["outcome"] in ("imported", "skipped", "not_found")])
+    except Exception:
+        import applog
+        applog.get_logger().warning("Could not save the import retry manifest", exc_info=True)
+
+
+def _chapter_outcomes(raw: dict, wanted: list, missing_ids: list, skip=(),
+                      crashed: bool = False) -> list:
+    """The pipeline's rows matched to the wanted chapters by chapter_id
+    (never by position). A wanted chapter with no row is "not_attempted":
+    the job stopped first (browser check, terms, cancel, an error). After an
+    unexpected error (`crashed`), the first such chapter that wasn't skipped
+    is the one it interrupted, possibly mid-write: "failed", not retryable."""
+    rows = {}
+    for row in raw.get("chapters") or []:
+        rows.setdefault(str(row.get("chapter_id")), row)
+    chapters = []
+    in_flight = crashed
+    for ch in wanted:
+        row = rows.get(str(ch.chapter_id))
+        if row is not None:
+            chapters.append(_outcome(row))
+        elif in_flight and str(ch.chapter_id) not in skip:
+            in_flight = False
+            chapters.append({"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
+                             "outcome": "failed", "error": _PARTLY, "retryable": False})
+        else:
+            chapters.append({"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
+                             "outcome": "not_attempted", "error": _NOT_ATTEMPTED})
+    return chapters + [{"chapter_id": c, "title": "", "outcome": "not_found"}
+                       for c in missing_ids]
 
 
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
@@ -194,6 +249,11 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
         background_jobs.set_result(job_id, _import_result([], True, None))
         return
     except Exception as e:
+        if isinstance(e, (ChallengeDetected, TermsProhibited)):
+            # Stopped before any chapter: every requested one is not attempted.
+            _save_manifest(name, series_id, drama_id,
+                           [{"chapter_id": c, "title": "", "outcome": "not_attempted",
+                             "error": _NOT_ATTEMPTED} for c in chapter_ids])
         err = _error_view(e, name)
         background_jobs.set_result(job_id, {"kind": "chapter_import", "error": err})
         raise _JobFailed(err["message"]) from None
@@ -205,24 +265,24 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
               if str(ch.chapter_id) in requested]
     already = store.imported_chapter_ids(name, series_id, drama_id)
     skip = {c for c in chapter_ids if c in already}
-    pipeline.run_import_job(job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip)
+    try:
+        pipeline.run_import_job(job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip)
+    except Exception:
+        # An unexpected error (e.g. an unreadable page image) still leaves
+        # the chapters that failed or never ran in the retry manifest.
+        raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
+        _save_manifest(name, series_id, drama_id,
+                       _chapter_outcomes(raw, wanted, [], skip=skip, crashed=True))
+        raise
     raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
-    rows = {}
-    for row in raw.get("chapters") or []:
-        rows.setdefault(str(row.get("chapter_id")), row)
-    chapters = []
-    for ch in wanted:  # matched by chapter_id; a chapter never reached is left out
-        row = rows.get(str(ch.chapter_id))
-        if row is not None:
-            chapters.append(_outcome(row))
-    chapters += [{"chapter_id": c, "title": "", "outcome": "not_found"}
-                 for c in chapter_ids if c not in by_id]
+    chapters = _chapter_outcomes(raw, wanted, [c for c in chapter_ids if c not in by_id])
     handoff = None
     if raw.get("handoff"):
         h = raw["handoff"]
         handoff = {"reason": str(h.get("reason") or ""), "handoff": True,
                    "open_url": safe_url(h.get("url")),
                    "chapter_id": str(h.get("chapter_id") or "") or None}
+    _save_manifest(name, series_id, drama_id, chapters)
     background_jobs.set_result(job_id, _import_result(chapters, raw.get("cancelled"), handoff))
 
 
@@ -252,6 +312,43 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None)
     job_id = import_job_id(drama_id)
     return _start(job_id, _chapter_import_job, job_id, name, series_id, ids, drama_id,
                   description=f"Import {len(ids)} chapter(s) from {name}")
+
+
+def _drama_created(drama: dict):
+    """The drama's created_at (UTC ISO text in library.db) as epoch
+    seconds, or None if missing or unreadable."""
+    import datetime
+    try:
+        dt = datetime.datetime.fromisoformat(str(drama.get("created_at") or ""))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.timestamp()
+
+
+def get_import_state(name, series_id, drama_id, principal=None) -> dict:
+    """Step 107: what the chapter picker marks before an import -- the
+    chapters of this series already imported into this drama, and the ones
+    the last imports left failed or not attempted (the "Retry failed
+    chapters (N)" set). Reads sources.db only; fetches nothing. 404 unknown
+    source or a drama the principal can't edit; 422 bad ids."""
+    name = str(name or "")
+    _require_source(name)
+    series_id = _series_id(series_id)
+    drama = _require_drama(drama_id, principal)
+    imported = sorted(store.imported_chapter_ids(name, series_id, drama_id))
+    # Rows older than the drama belong to an earlier library whose drama had
+    # the same id (a library reset starts ids at 1 again; sources.db stays).
+    born = _drama_created(drama)
+    retry = [{"chapter_id": r["chapter_id"], "title": _scrub(r["title"] or ""),
+              "status": r["status"], "error": _scrub(r["error"] or "")}
+             for r in store.import_retry_rows(name, series_id, drama_id)
+             if (born is None or float(r["updated_at"]) >= born)
+             and r["status"] in store.MANIFEST_STATUSES]
+    return {"source": name, "series_id": series_id, "drama_id": drama_id,
+            "imported_chapter_ids": imported, "retry": retry,
+            "retry_count": sum(1 for r in retry if r["status"] in store.RETRY_STATUSES)}
 
 
 # ---------------------------------------------------------------------------

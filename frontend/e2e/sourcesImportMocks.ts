@@ -46,7 +46,8 @@ export function chapterImportResult(over: Record<string, unknown> = {}) {
       { chapter_id: 'c2', title: 'Chapter 2', outcome: 'skipped' },
       { chapter_id: 'c3', title: 'Chapter 3', outcome: 'failed', error: 'The site took too long to answer.' },
     ],
-    imported_count: 1, skipped_count: 1, failed_count: 1, cancelled: false, handoff: null,
+    imported_count: 1, skipped_count: 1, failed_count: 1, not_attempted_count: 0, retry_chapter_ids: ['c3'], partial: true,
+    cancelled: false, handoff: null,
     ...over,
   }
 }
@@ -54,7 +55,7 @@ export function chapterImportResult(over: Record<string, unknown> = {}) {
 // What the server stores when a chapter import is cancelled after chapter 1.
 export const CANCELLED_IMPORT = chapterImportResult({
   chapters: [{ chapter_id: 'c1', title: 'Chapter 1', outcome: 'imported', pages: 20 }],
-  imported_count: 1, skipped_count: 0, failed_count: 0, cancelled: true,
+  imported_count: 1, skipped_count: 0, failed_count: 0, retry_chapter_ids: [], partial: false, cancelled: true,
 })
 
 export interface ImportMockState {
@@ -81,6 +82,8 @@ export interface ImportMockState {
   urlmedia: 'none' | 'running' | 'done'
   // POST download-url answers 403 (the viewer is not at the PC).
   downloadForbidden: boolean
+  // Step 107 GET /api/sources/{name}/import-state, for any series and drama.
+  importState: { imported_chapter_ids: string[]; retry: { chapter_id: string; title: string; status: string; error: string }[] }
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -92,7 +95,8 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
   const m: ImportMockState = {
     preview: 'none', previewBody: urlPreview(), previewHold: false, importJob: 'none', importKind: 'chapter',
     importCancelRequested: false, importBody: chapterImportResult(), cancelledBody: CANCELLED_IMPORT,
-    urlImportBody: { kind: 'url_import', needs_review: false, char_count: 5120 }, importHold: false, importStartConflict: null, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false, ...over,
+    urlImportBody: { kind: 'url_import', needs_review: false, char_count: 5120 }, importHold: false, importStartConflict: null, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false,
+    importState: { imported_chapter_ids: [], retry: [] }, ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -205,6 +209,17 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
     const url = record(route)
     if (m.importJob === 'running') m.importCancelRequested = true
     return json(route, { job_id: url.pathname.split('/')[3], cancel_requested: true })
+  })
+
+  // Step 107 import state: reads only.
+  await page.route(/\/api\/sources\/(alpha|beta)\/import-state\?.*$/, (route) => {
+    if (route.request().method() !== 'GET') return guard(route)
+    const url = record(route)
+    const { imported_chapter_ids, retry } = m.importState
+    return json(route, {
+      source: url.pathname.split('/')[3], series_id: url.searchParams.get('series_id'),
+      drama_id: Number(url.searchParams.get('drama_id')), imported_chapter_ids, retry, retry_count: retry.length,
+    })
   })
 
   // R4 Track (untrack stays guarded, as in mockSources).
