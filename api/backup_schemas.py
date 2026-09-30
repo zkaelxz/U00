@@ -133,3 +133,35 @@ class DeleteSnapshotRequest(BaseModel):
 class DeleteSnapshotDone(BaseModel):
     deleted: bool
     count: int = 0
+
+
+# -- import from a backup file ------------------------------------------------
+
+class BackupFileDrama(BaseModel):
+    id: int = Field(description="The drama's id inside the file.")
+    title: str
+    media_type: str
+    line_count: int
+    has_media: bool
+
+
+class BackupFileDramaList(BaseModel):
+    kind: Literal["zip", "database"]
+    media_available: bool
+    schema_differs: bool = Field(description="The file has columns this version doesn't know; "
+                                             "they are ignored.")
+    dramas: List[BackupFileDrama]
+
+
+class ImportedDrama(BaseModel):
+    source_id: int
+    drama_id: int
+    title: str
+    media_imported: bool
+
+
+class ImportDramasDone(BaseModel):
+    imported: List[ImportedDrama]
+    series_created: int
+    media_imported: int
+    counts: Dict[str, int]
