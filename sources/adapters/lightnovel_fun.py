@@ -8,12 +8,16 @@ Technique read directly from the live site while building this adapter
 
   search        GET /search?keyword=<q>&page=<n>   server-rendered Nuxt page
   series        GET /book/<bookId>                 title/author/cover/tags/summary
-                                                    and the volume catalog
+                                                    and the volume catalog, plus
+                                                    the first public chapter's
+                                                    reader page for the work's
+                                                    own notice and any posted
+                                                    download links
   chapters      the same /book page's catalog, plus /reader pages for any
                 volume the book page leaves unloaded (see below)
-  chapter body  GET /reader/<bookId>/<chapterId>   currentChapter.contentHtml,
-                                                    falling back to the
-                                                    rendered div.reader-text
+  chapter body  GET /reader/<bookId>/<chapterId>   currentChapter.contentHtml
+                                                    (refused without it: the
+                                                    lock flag lives there)
 
 Every page is server-rendered by Nuxt: the visible HTML is there, and so is
 the same data as a `<script id="__NUXT_DATA__">` JSON payload (Nuxt's
@@ -36,7 +40,9 @@ Never touched, by user decision (2026-09-30): the login API
 (`/api/pc-proxy/api/bff/auth-password-login-v1`), the paid 轻币 chapter
 unlock (`.../new-content-read/unlock-chapter`), and any EPUB / pan.baidu.com
 / lanzou file-locker link a work's text may carry (the dl-raw.si precedent in
-docs/known-working-sources.md). A locked chapter raises ContentHidden.
+docs/known-working-sources.md). A locked chapter raises ContentHidden. Such
+links (and their 提取码) are listed in SeriesInfo.links for the person to open
+themselves (user decision, 2026-09-30); nothing here ever requests them.
 
 robots.txt (fetched directly 2026-09-30): `User-agent: *` disallows only
 `/settings/` and `/publish_mgr/` -- neither path is used here. No
@@ -62,6 +68,17 @@ BASE_URL = "https://www.lightnovel.fun"
 SITE_NOTICE = ("轻之国度 works carry the uploaders' own notices: 仅供个人学习交流使用，禁作商业用途 "
                "(personal study only, no commercial use); 禁止转载 (no reposting); "
                "禁止二改二传 (no re-editing or re-uploading).")
+
+# ASCII digits only: str.isdigit() and \d also accept e.g. Arabic-Indic digits.
+_DIGITS = re.compile(r"[0-9]+")
+# Lines of a work's own uploader notice (in its summary or first chapter).
+_NOTICE_RE = re.compile(r"仅供|禁作商业|禁做商业|禁止转载|请勿转载|转载请|二改|二传|24小时内删除")
+_URL_RE = re.compile(r"https?://[^\s，。；、）)」】<>\"'\[\]]+")
+_CODE_RE = re.compile(r"(?:提取码|密码|访问码)\s*[：:]\s*([A-Za-z0-9]{3,8})")
+# File lockers uploaders post EPUBs to. Listed for the person, never fetched.
+_LOCKERS = {"pan.baidu.com": "百度网盘 (Baidu Pan)", "123pan.com": "123云盘",
+            "www.123pan.com": "123云盘", "www.aliyundrive.com": "阿里云盘",
+            "www.alipan.com": "阿里云盘", "pan.quark.cn": "夸克网盘"}
 
 # devalue's tagged entries: ["Tag", ...] in place of a plain value.
 _WRAPPERS = {"Reactive", "ShallowReactive", "Ref", "ShallowRef", "NuxtError", "Island"}
@@ -148,7 +165,7 @@ def _id(value) -> str:
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         return ""
     value = str(value)
-    return value if value.isdigit() else ""
+    return value if _DIGITS.fullmatch(value) else ""
 
 
 def _dict(value) -> dict:
@@ -185,6 +202,51 @@ def _chapter_rows(volume: dict) -> list:
     return [c for c in _list(volume.get("chapters")) if isinstance(c, dict) and _id(c.get("id"))]
 
 
+def _locker_label(url: str) -> str:
+    from urllib.parse import urlsplit
+    host = (urlsplit(url).hostname or "").lower()
+    if host in _LOCKERS:
+        return _LOCKERS[host]
+    if "lanzou" in host:
+        return "蓝奏云 (Lanzou)"
+    return ""
+
+
+def _download_links(lines) -> list:
+    """File-locker links in `lines` with their extraction code: the URL's own
+    pwd= value, else a 提取码/密码 on the same line or the next two."""
+    from urllib.parse import parse_qs, urlsplit
+    lines = list(lines)
+    out, seen = [], set()
+    for i, line in enumerate(lines):
+        for m in _URL_RE.finditer(line):
+            url = m.group(0)
+            label = _locker_label(url)
+            if not label or url in seen:
+                continue
+            seen.add(url)
+            password = (parse_qs(urlsplit(url).query).get("pwd") or [""])[0]
+            if not password:
+                for later in [line[m.end():]] + lines[i + 1:i + 3]:
+                    code = _CODE_RE.search(later)
+                    if code:
+                        password = code.group(1)
+                        break
+                    if _URL_RE.search(later):
+                        break
+            out.append({"label": label, "url": url, "password": password})
+    return out[:10]
+
+
+def _notice_lines(lines) -> list:
+    out = []
+    for line in lines:
+        line = line.strip()
+        if _NOTICE_RE.search(line) and line not in out and len(line) <= 200:
+            out.append(line)
+    return out[:6]
+
+
 def _locked(chapter: dict) -> bool:
     if chapter.get("locked"):
         return True
@@ -197,7 +259,7 @@ class LightnovelFunSource(SourceAdapter):
     display_name = "轻之国度 (lightnovel.fun)"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
-    url_patterns = [r"lightnovel\.fun/(?:book|reader)/\d+"]
+    url_patterns = [r"lightnovel\.fun/(?:book|reader)/[0-9]+"]
     default_headers = {"Referer": BASE_URL + "/"}
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
@@ -208,7 +270,16 @@ class LightnovelFunSource(SourceAdapter):
         return self.client.get(urljoin(self.base_url, path), action=action,
                                use_cache=use_cache).text
 
+    @staticmethod
+    def _check_id(value, what: str) -> str:
+        value = str(value or "")
+        if not _DIGITS.fullmatch(value):
+            raise SourceError(f"{value!r} isn't a 轻之国度 {what} id (they are all digits).",
+                              FailureReason.UNKNOWN)
+        return value
+
     def _book(self, series_id: str) -> dict:
+        series_id = self._check_id(series_id, "book")
         html = self._get(f"/book/{series_id}", f"Loading series {series_id}", use_cache=False)
         detail = _entry(_payload(html), f"pc-book-detail-{series_id}")
         if not detail or not isinstance(detail.get("book"), dict):
@@ -217,6 +288,8 @@ class LightnovelFunSource(SourceAdapter):
 
     def _reader(self, series_id: str, chapter_id: str, action: str, use_cache: bool = True):
         """(reader-bootstrap payload or None, raw html)."""
+        series_id = self._check_id(series_id, "book")
+        chapter_id = self._check_id(chapter_id, "chapter")
         html = self._get(f"/reader/{series_id}/{chapter_id}", action, use_cache=use_cache)
         return _entry(_payload(html), f"reader-bootstrap-{series_id}-{chapter_id}"), html
 
@@ -249,20 +322,49 @@ class LightnovelFunSource(SourceAdapter):
 
     # -- series ------------------------------------------------------------------
     def get_series(self, series_id: str):
-        book = self._book(series_id)["book"]
+        detail = self._book(series_id)
+        book = detail["book"]
         title = _text(book.get("title"))
         if not title:
             raise LayoutChanged("the series title")
         authors = [a for a in (_text(book.get("author")), _text(book.get("illustrator"))) if a]
         summary = _text(book.get("summary"))
         status = _text(book.get("status"))
+        # The work's own first chapter (制作信息, or an EPUB work's resource
+        # post) usually carries the uploader's notice and any download links.
+        lines = summary.split("\n") + self._first_chapter_lines(series_id, detail)
+        notice = _notice_lines(lines)
+        notice_text = ("Uploader's notice: " + " / ".join(notice)) if notice else SITE_NOTICE
         return SeriesInfo(
             self.name, series_id, title, urljoin(self.base_url, f"/book/{series_id}"),
             _text(book.get("cover")), authors=authors,
-            description=SITE_NOTICE + ("\n\n" + summary if summary else ""),
+            description=notice_text + ("\n\n" + summary if summary else ""),
+            links=_download_links(lines),
             genres=[t for t in _list(book.get("tags")) if isinstance(t, str)],
             status="completed" if "完结" in status else "ongoing" if "连载" in status else "unknown",
             content_type=ContentType.NOVEL.value, language="zh")
+
+    def _first_chapter_lines(self, series_id: str, detail: dict) -> list:
+        """Text lines of the book's first public chapter, [] if it is locked,
+        missing or can't be fetched. One extra page per series view."""
+        for vol in _list(detail.get("catalog")):
+            rows = _chapter_rows(vol) if isinstance(vol, dict) and vol.get("chaptersLoaded") else []
+            if not rows:
+                continue
+            if _locked(rows[0]):
+                return []
+            try:
+                boot, _ = self._reader(series_id, _id(rows[0]["id"]),
+                                       f"Loading the notes of book {series_id}")
+            except FetchFailed as e:
+                log.warning("lightnovel_fun: first chapter of book %s unavailable: %s", series_id, e)
+                return []
+            current = _dict(_dict(boot).get("currentChapter"))
+            content = current.get("contentHtml")
+            if _locked(current) or not isinstance(content, str):
+                return []
+            return _html_text(content).split("\n")
+        return []
 
     # -- chapters ----------------------------------------------------------------
     def get_chapters(self, series_id: str):
@@ -341,7 +443,7 @@ class LightnovelFunSource(SourceAdapter):
 
     # -- chapter text ------------------------------------------------------------
     def get_chapter_text(self, chapter) -> str:
-        boot, html = self._reader(chapter.series_id, chapter.chapter_id,
+        boot, _ = self._reader(chapter.series_id, chapter.chapter_id,
                                   f"Loading chapter {chapter.title}")
         current = (boot or {}).get("currentChapter") if boot else None
         if isinstance(current, dict):
@@ -357,18 +459,18 @@ class LightnovelFunSource(SourceAdapter):
             if isinstance(content, str):
                 # An illustrations-only chapter (彩页) has images and no text.
                 return _html_text(content)
-        container = _soup(html).select_one("div.reader-text")
-        if container is None:
-            raise LayoutChanged("the chapter text")
-        return _html_text(str(container))
+        # Without the page's own data there is no lock flag to check, and a
+        # locked chapter's page still renders its teaser -- so refuse rather
+        # than import a teaser as the chapter.
+        raise LayoutChanged("the chapter data (and with it, whether the chapter is locked)")
 
     # -- urls / capabilities -----------------------------------------------------
     def parse_url(self, url: str):
-        m = re.search(r"lightnovel\.fun/reader/(\d+)/(\d+)", url or "")
+        m = re.search(r"lightnovel\.fun/reader/([0-9]+)/([0-9]+)", url or "")
         if m:
             return ("chapter", ChapterInfo(self.name, m.group(1), m.group(2), m.group(2),
                                            urljoin(self.base_url, f"/reader/{m.group(1)}/{m.group(2)}")))
-        m = re.search(r"lightnovel\.fun/book/(\d+)", url or "")
+        m = re.search(r"lightnovel\.fun/book/([0-9]+)", url or "")
         return ("series", m.group(1)) if m else None
 
     def capabilities(self):
@@ -381,9 +483,10 @@ class LightnovelFunSource(SourceAdapter):
             "volumes": "A book page loads only its first volume's chapter list; the others "
                        "are reached through the public /reader pages' prev/next links "
                        "(two page loads per extra volume).",
-            "never_used": "The login API, the paid 轻币 chapter unlock, and EPUB / "
-                          "pan.baidu.com / lanzou file-locker links. Locked chapters are "
-                          "reported, not unlocked.",
+            "never_used": "The login API and the paid 轻币 chapter unlock. Locked chapters "
+                          "are reported, not unlocked.",
+            "download_links": "EPUB / pan.baidu.com / lanzou file-locker links a work posts are "
+                              "listed for the person to open, never downloaded or followed.",
             "challenge": "No Cloudflare challenge seen on lightnovel.fun (2026-09-30). One was "
                          "reported on lightnovel.us in 2023; if one appears it is a wall, "
                          "handed to the person, never solved.",

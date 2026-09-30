@@ -117,6 +117,21 @@ CHAPTER_323385_HTML = (
     "<p class=\"ln-paragraph\"><br /></p>\n"
     "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">难以理解。</p>")
 
+# Real 制作信息 chapter body of 第一卷 (/reader/33139/323383), trimmed: it
+# posts the translator's own EPUB on Lanzou, with the password on the next line.
+CHAPTER_323383_HTML = (
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">只有颜值是优点的同学，以猛烈攻势向我扑来的百合故事。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">富士见Fantasia文库 出品</p>\n<hr />\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">翻译：沐梓</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">校对、Epub：云淡</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">Epub获取：<a href=\"https://wwasa.lanzoue.com/b0188mxnyb\" "
+    "target=\"_blank\" rel=\"noopener noreferrer\">https://wwasa.lanzoue.com/b0188mxnyb</a></p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">密码:be3j</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">仅供个人学习交流使用，禁作商业用途。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">下载后请在24小时内删除，LK不负担任何责任。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">请尊重翻译、校对的辛勤劳动。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">如需转载请保留制作信息（及群号）。</p>\n<hr />")
+
 # Real 制作信息 chapter body (/reader/33139/323778), verbatim.
 CHAPTER_323778_HTML = (
     "<p class=\"ln-paragraph\">原作链接：<a href=\"https://kakuyomu.jp/works/1177354054919288428\" "
@@ -130,6 +145,8 @@ CHAPTER_323778_HTML = (
     "<p class=\"ln-paragraph\">文库版对应web1-40话，新合集从第41话开始翻译。</p>\n"
     "<p class=\"ln-paragraph\"><span style=\"color:#d14343\">原文已断更。</span>目前共有41-87话及两篇番外。</p>")
 
+READER_323383 = reader_page("323383", reader_chapter(
+    "323383", "制作信息", "50701", None, "323384", CHAPTER_323383_HTML), catalog())
 READER_323385 = reader_page("323385", reader_chapter(
     "323385", "第一话 我才不会输给矢来同学呢。", "50701", "323384", "323652", CHAPTER_323385_HTML),
     catalog())
@@ -149,13 +166,24 @@ READER_323384 = reader_page("323384", reader_chapter(
     "<p class=\"ln-paragraph\"><img class=\"reader-resource-image\" "
     "src=\"https://res.lightnovel.fun/a.jpg\" /></p>"), catalog())
 
-# A locked, paid chapter. The field names are the real ones (locked /
-# accessType / unlocked / coinPrice, as on every catalog entry); the
-# values are set to the locked state, since no locked chapter was
-# recorded. The body is empty, as the site sends no text for it.
-READER_LOCKED = reader_page("323829", reader_chapter(
-    "323829", "第42话", "50789", "323779", None, "", locked=True, access="coin", price=20),
-    catalog(first_loaded=False, web_loaded=True))
+# A real locked, paid chapter (/reader/31629/318181, recorded 2026-09-30):
+# locked, accessType "coin", 20 轻币, and a teaser body whose resource slots
+# read [资源解锁后可用]. Trimmed teaser, real values.
+READER_LOCKED = page({
+    "pc-auth-state": {"loggedIn": False, "user": None},
+    "reader-bootstrap-33139-323829-public": {
+        "book": BOOK, "catalog": catalog(first_loaded=False, web_loaded=True),
+        "currentChapter": {
+            "bookId": "33139", "chapterId": "323829", "locked": True, "accessType": "coin",
+            "coinPrice": 20, "volumeId": "50789", "title": "第42话", "subtitle": None,
+            "prevChapterId": "323779", "nextChapterId": None, "legacyResource": None,
+            "contentHtml": (
+                "<p><img src=\"%5B%E8%B5%84%E6%BA%90%E8%A7%A3%E9%94%81%E5%90%8E%E5%8F%AF%E7%94%A8%5D\" "
+                "img-width=\"797\" img-height=\"1200\" style=\"max-width:100%;height:auto;\"></p>\n"
+                "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">轻之国度×天使动漫录入组</p>\n"
+                "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">轻之国度：[资源解锁后可用]</p>\n"
+                "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">仅供个人学习交流使用，禁作商业用途</p>")}}},
+    "<div class=\"reader-body\"><div class=\"reader-text\"><p>轻之国度×天使动漫录入组</p></div></div>")
 
 SEARCH_ITEMS = [
     {"id": "993", "bookId": "993", "title": "将放言说不会输的高颜值女孩，全力征服的百合故事",
@@ -184,3 +212,33 @@ CLOUDFLARE_PAGE = ("<!DOCTYPE html><html><head><title>Just a moment...</title></
                    "<div id=\"challenge-running\">Checking your browser before accessing "
                    "www.lightnovel.fun.</div><script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/"
                    "chl_page/v1\"></script></body></html>")
+
+
+# An EPUB work (/book/642, /reader/642/262972, recorded 2026-09-30): its one
+# public chapter is a resource post with a Baidu Pan link and 提取码.
+BOOK_642 = {"id": "642", "bookId": "642", "title": "龙盘七朝 DRAGONBUSTER", "cover": "",
+            "author": "秋山瑞人", "illustrator": None, "summary": "作者：秋山瑞人\n译者：桂渚浮槎",
+            "tags": ["epub", "奇幻"], "status": "连载中", "chapterCount": 1, "epubReady": False,
+            "targetType": "book", "volumes": []}
+CATALOG_642 = [{"id": "24877", "title": "[01][日翻/简]", "cover": None,
+                "chapters": [_ch("262972", "[01][日翻/简]", 1)], "chapterCount": 1,
+                "chaptersLoaded": True}]
+BOOK_642_PAGE = page({"pc-book-detail-642": {"book": BOOK_642, "catalog": CATALOG_642}})
+CHAPTER_262972_HTML = (
+    "<p><img src=\"https://api.lightnovel.fun/upload-files/images/250223/497306e4f03e49b7f191007527e694a2.png\" /></p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">【翻译信息】</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">翻译：桂渚浮槎</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">轻之国度：https://www.lightnovel.fun</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">仅供个人学习交流使用，禁作商业用途。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">下载后请在24小时内删除，LK不负担任何责任。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">转发时请保留本帖所有信息。</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">【资源下载】</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">百度网盘</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">链接：https://pan.baidu.com/s/1UW8fzsl6WfJ1RRIXRt_MPw?pwd=roh1</p>\n"
+    "<p class=\"ln-paragraph ln-paragraph--indent\" style=\"text-indent:2em;\">提取码：roh1</p>")
+READER_262972 = page({"reader-bootstrap-642-262972-public": {
+    "book": BOOK_642, "catalog": CATALOG_642,
+    "currentChapter": {"bookId": "642", "chapterId": "262972", "locked": False,
+                       "accessType": "public", "coinPrice": 0, "volumeId": "24877",
+                       "title": "[01][日翻/简]", "contentHtml": CHAPTER_262972_HTML,
+                       "prevChapterId": None, "nextChapterId": None}}})

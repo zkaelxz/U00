@@ -29,6 +29,7 @@ import {
   searchSourcesParam,
   searchableSources,
   selectedSources,
+  seriesLinks,
   seriesMeta,
   settingsChanges,
   settingsSummary,
@@ -307,5 +308,29 @@ describe('seriesView (the job id is per source, so it may hold another series)',
     expect(safeHref('https://a.example/x')).toBe('https://a.example/x')
     expect(safeHref('javascript:alert(1)')).toBeNull()
     expect(safeHref(null)).toBeNull()
+  })
+})
+
+describe('seriesLinks', () => {
+  const base = {
+    title: 'T', url: null, cover_url: null, authors: [], description: null, genres: [],
+    status: null, content_type: null, language: null,
+  }
+  it('keeps http(s) links, labels empty ones with the URL, drops anything else', () => {
+    expect(seriesLinks({
+      ...base,
+      links: [
+        { label: '百度网盘 (Baidu Pan)', url: 'https://pan.baidu.com/s/1abc', password: 'roh1' },
+        { label: '', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
+        { label: 'bad', url: 'javascript:alert(1)', password: '' },
+      ],
+    })).toEqual([
+      { label: '百度网盘 (Baidu Pan)', url: 'https://pan.baidu.com/s/1abc', password: 'roh1' },
+      { label: 'https://wwasa.lanzoue.com/b0188mxnyb', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
+    ])
+  })
+  it('is empty without links or info', () => {
+    expect(seriesLinks({ ...base })).toEqual([])
+    expect(seriesLinks(null)).toEqual([])
   })
 })

@@ -7,7 +7,7 @@ import pytest
 
 from sources import registry
 from sources.adapters import lightnovel_fun
-from sources.models import ChallengeDetected, ChapterInfo, ContentHidden, FailureReason
+from sources.models import ChallengeDetected, ChapterInfo, ContentHidden, FailureReason, SourceError
 
 from . import lightnovel_fun_fixtures as fx
 from .sources_helpers import FakeClock, ScriptedTransport, html, make_client
@@ -229,14 +229,18 @@ class TestChapterText:
             a.get_chapter_text(_chapter("323829", "第42话"))
         assert e.value.reason == FailureReason.PURCHASE_REQUIRED
         assert "20 轻币" in str(e.value)
+        assert "资源解锁后可用" not in str(e.value)
         assert t.urls() == [_reader("323829")]
         assert all(c["method"] == "GET" for c in t.calls)
 
-    def test_falls_back_to_the_rendered_text_without_a_payload(self):
-        page = ("<html><body><div class='reader-text'><p>第一段。</p><p>第二段<ruby>漢<rt>kan</rt>"
-                "</ruby>。</p></div></body></html>")
+    def test_without_the_page_data_the_chapter_is_refused_not_guessed(self):
+        # The rendered text alone carries no lock flag; a locked chapter's
+        # page still renders its teaser, so it must not be imported.
+        page = ("<html><body><div class='reader-text'><p>轻之国度×天使动漫录入组</p>"
+                "</div></body></html>")
         a, _ = _adapter({_reader("1"): html(page)})
-        assert a.get_chapter_text(_chapter("1")) == "第一段。\n第二段漢。"
+        with pytest.raises(lightnovel_fun.LayoutChanged):
+            a.get_chapter_text(_chapter("1"))
 
     def test_markup_change_is_reported(self):
         a, _ = _adapter({_reader("1"): html("<html><body><div>nothing</div></body></html>")})
@@ -328,3 +332,71 @@ class TestHostilePayloads:
         assert lightnovel_fun._entry(data, "pc-book-detail-33") is None
         assert lightnovel_fun._entry({"reader-bootstrap-1-2-public": {"a": 1}},
                                      "reader-bootstrap-1-2") == {"a": 1}
+
+
+class TestIds:
+    def test_non_digit_ids_are_refused_before_any_request(self):
+        a, t = _adapter({})
+        for bad in ("33139%2F..%2Fsettings", "../settings", "33139/", "", "٣٣"):
+            with pytest.raises(SourceError):
+                a.get_series(bad)
+            with pytest.raises(SourceError):
+                a.get_chapter_text(ChapterInfo("lightnovel_fun", "33139", bad, "t"))
+        assert t.calls == []
+
+
+class TestSeriesNoticeAndLinks:
+    """Lead's review (2026-09-30): list EPUB links for the person to open
+    themselves; never fetch them. Show the work's own notice when it has one."""
+
+    def _series(self, routes, series_id="33139"):
+        a, t = _adapter(routes)
+        return a.get_series(series_id), t
+
+    def test_the_works_own_notice_replaces_the_generic_one(self):
+        s, _ = self._series({BOOK_URL: html(fx.BOOK_PAGE), _reader("323383"): html(fx.READER_323383)})
+        first = s.description.split("\n")[0]
+        assert first.startswith("Uploader's notice: 仅供个人学习交流使用，禁作商业用途。")
+        assert "如需转载请保留制作信息（及群号）。" in first
+        assert "她的优点可不止" in s.description
+
+    def test_lanzou_link_with_the_password_on_the_next_line(self):
+        s, t = self._series({BOOK_URL: html(fx.BOOK_PAGE), _reader("323383"): html(fx.READER_323383)})
+        assert s.links == [{"label": "蓝奏云 (Lanzou)", "url": "https://wwasa.lanzoue.com/b0188mxnyb",
+                            "password": "be3j"}]
+        assert t.urls() == [BOOK_URL, _reader("323383")]
+
+    def test_baidu_pan_link_and_code_are_listed_and_nothing_is_fetched_from_them(self):
+        s, t = self._series({f"{BASE}/book/642": html(fx.BOOK_642_PAGE),
+                             f"{BASE}/reader/642/262972": html(fx.READER_262972)}, "642")
+        assert s.links == [{"label": "百度网盘 (Baidu Pan)",
+                            "url": "https://pan.baidu.com/s/1UW8fzsl6WfJ1RRIXRt_MPw?pwd=roh1",
+                            "password": "roh1"}]
+        assert t.urls() == [f"{BASE}/book/642", f"{BASE}/reader/642/262972"]
+        assert all("baidu" not in u and "lanzou" not in u for u in t.urls())
+        assert s.description.startswith("Uploader's notice: 仅供个人学习交流使用，禁作商业用途。")
+
+    def test_a_locked_first_chapter_is_not_fetched(self):
+        cat = fx.catalog()
+        cat[0] = dict(cat[0], chapters=[fx._ch("323383", "制作信息", 1, locked=True, access="coin",
+                                               price=20)] + fx.VOLUME_1[1:])
+        book = fx.page({"pc-book-detail-33139": {"book": fx.BOOK, "catalog": cat}})
+        s, t = self._series({BOOK_URL: html(book)})
+        assert t.urls() == [BOOK_URL]
+        assert s.links == [] and s.description.startswith(lightnovel_fun.SITE_NOTICE)
+
+    def test_an_unreachable_first_chapter_falls_back_to_the_site_notice(self):
+        s, t = self._series({BOOK_URL: html(fx.BOOK_PAGE)})  # the reader page 404s
+        assert s.description.startswith(lightnovel_fun.SITE_NOTICE)
+        assert s.links == []
+
+    def test_only_file_lockers_are_listed(self):
+        lines = ["原作链接：https://kakuyomu.jp/works/1177354054919288428",
+                 "轻之国度：https://www.lightnovel.fun",
+                 "链接：https://pan.baidu.com/s/1abc 提取码：x1y2",
+                 "https://www.lanzoux.com/iAbc", "密码：zz99",
+                 "https://pan.quark.cn/s/q1", "https://pan.baidu.com/s/2def"]
+        links = lightnovel_fun._download_links(lines)
+        assert [(l["url"], l["password"]) for l in links] == [
+            ("https://pan.baidu.com/s/1abc", "x1y2"), ("https://www.lanzoux.com/iAbc", "zz99"),
+            ("https://pan.quark.cn/s/q1", ""), ("https://pan.baidu.com/s/2def", "")]

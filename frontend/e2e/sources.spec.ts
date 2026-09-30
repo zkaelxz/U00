@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { SETTINGS, mockSources, posted, searchResult } from './sourcesMocks'
+import { SERIES_LINKS, SETTINGS, mockSources, posted, searchResult } from './sourcesMocks'
 
 // Sources page (#/sources), desktop. Every search/series/job/settings write
 // is mocked (sourcesMocks.ts); nothing here reaches a real site.
@@ -86,6 +86,31 @@ test('search: running line, cancel, results, per-source errors, series', async (
   await panel.getByRole('button', { name: 'Close' }).click()
   await expect(panel).toHaveCount(0)
   await expect(opener).toBeFocused()
+  expect(s.unmocked).toEqual([])
+})
+
+test('series: posted download links are listed to open, never fetched', async ({ page }) => {
+  const s = await mockSources(page, { seriesLinks: SERIES_LINKS })
+  const lockers: string[] = []
+  page.on('request', (r) => {
+    if (/baidu|lanzou/.test(r.url())) lockers.push(r.url())
+  })
+  await page.goto('/#/sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
+  const links = page.getByRole('region', { name: 'Series' }).getByRole('group', { name: 'Download links' })
+  await expect(links.getByText('the app never downloads from them')).toBeVisible()
+  await expect(links.getByText('Workspace → Source → Novel text → Attach EPUB', { exact: false })).toBeVisible()
+  const baidu = links.getByRole('link', { name: '百度网盘 (Baidu Pan) ↗' })
+  await expect(baidu).toHaveAttribute('href', 'https://pan.baidu.com/s/1UW8fzsl6WfJ1RRIXRt_MPw')
+  await expect(baidu).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(baidu).toHaveAttribute('target', '_blank')
+  await expect(links.getByText('roh1')).toBeVisible()
+  await expect(links.getByRole('link', { name: '蓝奏云 (Lanzou) ↗' })).toBeVisible()
+  await expect(links.getByText('Code')).toHaveCount(1)
+  expect(lockers).toEqual([])
   expect(s.unmocked).toEqual([])
 })
 
