@@ -129,15 +129,15 @@ class TestDataDir:
             assert os.environ[var] == os.path.join(str(data), "model_cache", subdir)
         assert (data / "model_cache").is_dir()
 
-    def test_installed_layout_without_a_marker_still_counts_as_installed(self, monkeypatch, tmp_path):
-        # An interrupted upgrade removes app\INSTALLED before rewriting it:
-        # the library must not fall back to the program folder meanwhile.
+    def test_only_the_marker_makes_an_install(self, monkeypatch, tmp_path):
+        # The installed layout without app\INSTALLED (an interrupted
+        # upgrade) is not taken for an install; the launcher refuses to
+        # start it instead (test_installer_runtime).
         self._setup(monkeypatch, tmp_path)
         (tmp_path / "python").mkdir()
         (tmp_path / "python" / "python312._pth").write_text("")
         (tmp_path / "manifest.json").write_text("{}")
-        assert portable.is_installed() is True
-        assert portable.data_dir() == str(tmp_path / "Local" / "Baihe Studio")
+        assert portable.is_installed() is False
 
     def test_a_checkout_next_to_a_portable_python_is_not_an_install(self, monkeypatch, tmp_path):
         # A source checkout (which tracks installer/launcher.py) beside a

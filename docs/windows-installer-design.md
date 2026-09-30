@@ -81,14 +81,13 @@ for the folder the previous install already used.
 **How the app finds its data**: `portable.data_dir()`:
 
 1. `BAIHE_DATA_DIR`, if set (an override for anyone).
-2. Otherwise, for an installed copy (an `app\INSTALLED` marker exists, or the
-   installed layout itself: the bundled Python's `..\python\python3XX._pth`
-   plus the installer's `..\manifest.json`, so an interrupted upgrade that
-   removed the marker still never falls back to the program folder, while a
-   source checkout that merely sits next to a portable Python isn't taken for
-   an install), the
+2. Otherwise, for an installed copy (an `app\INSTALLED` marker exists; only
+   the marker counts, so a source checkout is never taken for an install), the
    first non-comment line of that marker (an absolute path; UTF-8 with BOM, so
    non-ASCII user names work), falling back to `%LOCALAPPDATA%\Baihe Studio`.
+   An install whose marker is missing (an interrupted upgrade) is refused by
+   the launcher ("run the installer again to repair it"), so it never falls
+   back to keeping its library in the program folder.
 3. Otherwise, the app folder, which is exactly what a source checkout always did.
 
 `db.LIBRARY_DIR`, `dictionary.CEDICT_PATH` and `settings_service`'s `.env` path
@@ -159,9 +158,9 @@ same as `start.bat`.
 3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
 4. `postinstall.py`, run by the bundled `python.exe -s`:
    1. Writes `app\INSTALLED` with the data folder, then creates the folder.
-      The marker comes first, and `data_dir()` also recognises the installed
-      layout without it, so even a failed install never puts the library in
-      the program folder.
+      The marker comes first, and the launcher refuses to start an install
+      without it, so even a failed install never puts the library in the
+      program folder.
    2. Bootstraps pip by running it as a module from its own wheel (`runpy`,
       the equivalent of `python -m pip`; running `pip.whl\pip` directly fails
       on Windows, where pip refuses to modify itself unless run as `-m pip`).
@@ -189,9 +188,8 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 - If something else holds the port, it shows a message box saying so and how
   to choose another port (`BAIHE_API_PORT`).
 - Otherwise it starts `python.exe -s -m api` in its own minimized console
-  window titled "Baihe Studio (server -- closing this window stops the app)"
-  (set by briefly attaching to that console: CPython ignores
-  `STARTUPINFO.lpTitle`), and waits up to 90 s for `/api/health`. If the server exits early, it stops
+  window (closing it stops the app; the window keeps the title Windows gives
+  it), and waits up to 90 s for `/api/health`. If the server exits early, it stops
   waiting at once. Once its own server is healthy and still running, it
   records the pid in `<data>\launcher\server.pid`. A start lock
   (`starting.lock`) makes a second click during a slow first start wait for

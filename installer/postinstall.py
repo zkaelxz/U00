@@ -7,9 +7,9 @@ copied:
 
 1. Writes app\\INSTALLED, whose first line is the per-user data folder
    (portable.data_dir() reads it), then creates that folder. The marker
-   comes first; portable.is_installed() also recognises the installed
-   layout without it, so even a half-finished install never puts the
-   library in the program folder.
+   comes first; the launcher refuses to start an install without it, so
+   even a half-finished install never puts the library in the program
+   folder.
 2. Bootstraps pip from the vendored pip wheel. The embeddable Python ships
    without pip; running pip as a module from its own wheel needs no network.
 3. Installs requirements-core.txt from the bundled wheels only

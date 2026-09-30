@@ -66,6 +66,16 @@ class TestLaunch:
         assert launcher.launch() == 0
         assert started == [] and opened == ["http://127.0.0.1:8600/"]
 
+    def test_refuses_an_install_without_its_marker(self, monkeypatch, tmp_path):
+        # No app\INSTALLED and no BAIHE_DATA_DIR: the library would land in
+        # the program folder, so nothing is started.
+        monkeypatch.delenv(portable.DATA_DIR_ENV, raising=False)
+        monkeypatch.setattr(portable, "_INSTALLED_MARKER_PATH", str(tmp_path / "INSTALLED"))
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "start_server", lambda *a: pytest.fail("started a server"))
+        with pytest.raises(launcher.LaunchError, match="install is incomplete"):
+            launcher.launch()
+
     def test_port_taken_by_something_else(self, data_dir, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
         monkeypatch.setattr(launcher, "port_open", lambda port: True)
@@ -524,10 +534,6 @@ class TestServerStartToken:
         env = launcher.server_env({})
         assert env[process_guard.GROUP_NAME_ENV] == launcher.group_name()
         assert env[process_guard.GROUP_NAME_ENV].startswith("Local\\BaiheStudio-")
-
-    @pytest.mark.skipif(os.name == "nt", reason="off Windows there's no console API")
-    def test_console_title_says_no_off_windows(self):
-        assert launcher.set_console_title(1, "x", tries=1, sleep=lambda s: None) is False
 
 
 class TestDataDirLockdown:

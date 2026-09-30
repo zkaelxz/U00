@@ -57,7 +57,6 @@ FORCE_WAIT_SECONDS = 10.0
 START_LOCK_NAME = "starting.lock"
 START_LOCK_STALE_SECONDS = HEALTH_TRIES + 30
 SERVER_LOG_NAME = "server.log"
-WINDOW_TITLE = "Baihe Studio (server -- closing this window stops the app)"
 
 # pip settings from the user's own environment that would make the
 # bundled interpreter's installs (Diagnostics' Install buttons run
@@ -188,29 +187,7 @@ def start_server(python_exe: str, env: dict, headless: bool):
     finally:
         if log is not None:
             log.close()
-    if os.name == "nt" and not headless:
-        set_console_title(proc.pid, WINDOW_TITLE)
     return proc
-
-
-def set_console_title(pid: int, title: str, tries: int = 20, sleep=time.sleep) -> bool:
-    """Titles the server's console window. CPython's STARTUPINFO ignores
-    lpTitle, so this attaches to the new console for a moment instead
-    (possible because the launcher runs under pythonw.exe, without a
-    console of its own). Cosmetic: False if it can't."""
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-    except Exception:
-        return False
-    for _ in range(tries):
-        if kernel32.AttachConsole(int(pid)):
-            try:
-                return bool(kernel32.SetConsoleTitleW(title))
-            finally:
-                kernel32.FreeConsole()
-        sleep(0.1)   # the console may not exist yet
-    return False
 
 
 def record_pid(proc, port: int = DEFAULT_PORT) -> bool:
@@ -452,6 +429,11 @@ def launch(headless: bool = False) -> int:
     port = port_from_env(env)
     url = app_url(port)
     if not health_ok(port):
+        if not portable.is_installed() and not os.environ.get(portable.DATA_DIR_ENV, "").strip():
+            # Without app\INSTALLED (an interrupted upgrade) the server would
+            # keep the library in the program folder, which Setup replaces.
+            raise LaunchError("Baihe Studio's install is incomplete. Run the installer again to "
+                              "repair it; your data is kept.")
         if acquire_start_lock():
             try:
                 if port_open(port):
