@@ -276,6 +276,8 @@ class TestRoutes:
         assert r.status_code == 503
 
     def test_writes_are_pc_only(self, isolated_db):
+        pytest.importorskip("fastapi")
+        pytest.importorskip("httpx")
         from fastapi.testclient import TestClient
         from api.api_config import ApiSettings
         from api.server import create_app
