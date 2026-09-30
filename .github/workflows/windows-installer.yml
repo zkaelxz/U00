@@ -307,7 +307,6 @@ jobs:
           if (Test-Path $admin) {
             Write-Host "--- admin folder"; Get-Item -Force $admin | Format-List FullName, Attributes, LastWriteTime
             Get-ChildItem -Force -Recurse $admin -ErrorAction SilentlyContinue | Select-Object -First 30 FullName | Format-Table -AutoSize | Out-String | Write-Host
-            Write-Host "--- cleanup log"; Get-Content "$env:SystemRoot\Temp\baihe-services-cleanup.log" -Tail 40 -ErrorAction SilentlyContinue | Write-Host
             Write-Host "--- processes mentioning Baihe"; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'Baihe' -or $_.ExecutablePath -match 'Baihe' } | Select-Object ProcessId, Name, CommandLine | Format-List | Out-String | Write-Host
             Write-Error "$admin is still there after uninstall"; exit 1 }
           foreach ($gone in @("unins000.exe", "python", "app", "service")) {

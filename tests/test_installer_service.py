@@ -340,22 +340,25 @@ class TestStopAndUninstall:
         assert not layout.admin.exists()
         assert (layout.data / "library" / "library.db").is_file()
 
-    def test_a_loaded_file_is_moved_aside_so_the_folder_goes(self, layout, source, tmp_path, monkeypatch):
+    def test_a_junction_data_folder_is_refused_before_anything_changes(self, layout, source, tmp_path):
         win = FakeWindows()
         _services(layout, win, source).install()
-        monkeypatch.setattr(service, "system_dir", lambda: str(tmp_path / "Windows" / "System32"))
-        (tmp_path / "Windows" / "Temp").mkdir(parents=True)
-        locked = layout.helper_python
-        real_unlink = Path.unlink
+        calls = len(win.calls)
+        real = tmp_path / "real"
+        real.mkdir()
+        layout.data.rename(tmp_path / "moved")
+        layout.data.symlink_to(real, target_is_directory=True)
+        with pytest.raises(service.ServiceError, match="link"):
+            _services(layout, win).uninstall()
+        assert len(win.calls) == calls and "BaiheStudio" in win.services and layout.admin.exists()
 
-        def unlink(self, *a, **k):
-            if self == locked:
-                raise PermissionError("in use")
-            return real_unlink(self, *a, **k)
-        monkeypatch.setattr(Path, "unlink", unlink)
-        monkeypatch.setattr(service, "_delete_on_reboot", lambda p: None)
-        _services(layout, win).uninstall()
-        assert not layout.admin.exists()
+    def test_a_failed_revoke_is_reported_after_the_rest_is_removed(self, layout, source):
+        win = FakeWindows()
+        _services(layout, win, source).install()
+        win.fail.add("icacls")
+        with pytest.raises(service.ServiceError, match="still on that folder"):
+            _services(layout, win).uninstall()
+        assert win.services == {} and not layout.admin.exists()
 
     def test_nothing_installed(self, layout):
         win = FakeWindows()
@@ -378,6 +381,77 @@ class TestStopAndUninstall:
             _services(layout, win).uninstall()
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
         assert not win.commands("icacls.exe")
+
+
+class TestRemoveAdminFolder:
+    def _folder(self, tmp_path):
+        folder = tmp_path / "Program Files" / "Baihe Studio Services"
+        (folder / "helper" / "python").mkdir(parents=True)
+        (folder / "helper" / "python" / "python.exe").write_text("x", encoding="utf-8")
+        (folder / "service.log").write_text("x", encoding="utf-8")
+        return folder
+
+    def _lock(self, monkeypatch, locked):
+        real_unlink = Path.unlink
+
+        def unlink(self, *a, **k):
+            if self == locked:
+                raise PermissionError("in use")
+            return real_unlink(self, *a, **k)
+        monkeypatch.setattr(Path, "unlink", unlink)
+        scheduled = []
+        monkeypatch.setattr(service, "_delete_on_reboot", scheduled.append)
+        return scheduled
+
+    def test_removes_everything(self, tmp_path):
+        folder = self._folder(tmp_path)
+        service.remove_admin_folder(folder)
+        assert list(folder.parent.iterdir()) == []
+
+    def test_a_loaded_file_is_parked_beside_the_folder_and_only_it_is_scheduled(self, tmp_path, monkeypatch):
+        folder = self._folder(tmp_path)
+        scheduled = self._lock(monkeypatch, folder / "helper" / "python" / "python.exe")
+        real_rmtree = service.shutil.rmtree
+
+        def rmtree(path, *a, **k):
+            # As on Windows, the parked (still loaded) file keeps its folder.
+            if ".baihe-removing-" in str(path):
+                return None
+            return real_rmtree(path, *a, **k)
+        monkeypatch.setattr(service.shutil, "rmtree", rmtree)
+        service.remove_admin_folder(folder)
+        assert not folder.exists()
+        park = [p for p in folder.parent.iterdir() if p.name.startswith(".baihe-removing-")]
+        assert len(park) == 1 and len(park[0].name) == len(".baihe-removing-") + 16
+        assert scheduled == [park[0] / "0-python.exe", park[0]]
+
+    def test_a_park_name_that_already_exists_is_refused(self, tmp_path, monkeypatch):
+        folder = self._folder(tmp_path)
+        (tmp_path / "evil").mkdir()
+        (folder.parent / ".baihe-removing-fixed").symlink_to(tmp_path / "evil", target_is_directory=True)
+        monkeypatch.setattr(service.secrets, "token_hex", lambda n: "fixed")
+        scheduled = self._lock(monkeypatch, folder / "service.log")
+        service.remove_admin_folder(folder)
+        assert list((tmp_path / "evil").iterdir()) == []       # nothing moved into it
+        assert scheduled == [folder / "service.log"]           # only the exact path
+
+
+class TestKnownFolders:
+    def test_the_admin_copy_must_be_where_windows_says(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(service, "program_files", lambda: tmp_path / "Program Files")
+        copy = tmp_path / "elsewhere" / "helper" / "lib"
+        (copy / "installer").mkdir(parents=True)
+        (tmp_path / "elsewhere" / "helper" / service.CONFIG_FILE_NAME).write_text(
+            '{"install_root": "C:\\\\a", "data_dir": "C:\\\\b"}', encoding="utf-8")
+        monkeypatch.setattr(service, "APP_DIR", copy)
+        args = type("A", (), {"command": "uninstall"})()
+        with pytest.raises(service.ServiceError, match="isn't in"):
+            service.build_services(args)
+
+    def test_windows_is_asked_not_the_environment(self):
+        src = (ROOT / "installer" / "service.py").read_text(encoding="utf-8")
+        code = src.split("def _known_folder", 1)[1].split("FOLDERID_PROGRAM_FILES =", 1)[0]
+        assert "SHGetKnownFolderPath" in code and code.count("os.environ") == 1
 
 
 class TestMain:

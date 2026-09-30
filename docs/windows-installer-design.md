@@ -476,15 +476,29 @@ per-user.
   `SeIncreaseWorkingSetPrivilege` (no `SeImpersonatePrivilege`).
 - **Permissions (`icacls`, by SID).** Read and run the install folder; change
   the data folder (refused unless it holds only Baihe Studio's own items).
-  Everything run with administrator rights (the script, its interpreter, the
-  wrapper) is copied to `%ProgramFiles%\Baihe Studio Services`, which only
-  administrators can change; the per-user folders are never run elevated.
-  Uninstall takes the account off both folders again.
-- **Environment.** Every `BAIHE_API_*` setting is written into the service, so
-  a machine-wide variable can't add a listener or change the port. The
-  engine-key form is **off** unless the data folder's `.env` sets
-  `BAIHE_API_ALLOW_KEY_WRITES=1`, because other accounts on the PC can reach
-  `127.0.0.1:8600` (the launcher turns it on by default).
+  Everything run with administrator rights after the install (the script,
+  its interpreter, the wrapper) is copied to `%ProgramFiles%\Baihe Studio
+  Services`, which only administrators can change, and the later commands
+  (`stop`, `uninstall`) run only from there, at the location Windows reports
+  for Program Files. **Known gap:** the first `install` (and an update's) is
+  run elevated by Setup from its own extraction, `{app}\service`, in the
+  user-writable program folder, before it is copied; a process running as the
+  user could replace those files in that window and have them run as
+  administrator. Fixing it needs Setup to be elevated or to extract
+  somewhere only administrators can write; not done.
+  Uninstall takes the account off both folders again and removes the admin
+  folder (files still loaded are moved aside, inside Program Files, and
+  deleted at the next restart).
+- **Environment and who can use it.** Every `BAIHE_API_*` setting is written
+  into the service, so a machine-wide variable can't add a listener or change
+  the port. **Any account on the PC can open `http://127.0.0.1:8600` while
+  the service runs:** sign-in is off there (the app treats every direct
+  loopback request as its owner), as it is when the launcher runs it, and the
+  service keeps running when nobody is signed in. So on a PC with other
+  Windows accounts, they can use the library and its actions. The engine-key
+  form is **off** unless the data folder's `.env` sets
+  `BAIHE_API_ALLOW_KEY_WRITES=1`, for that reason (the launcher turns it on
+  by default). Per-account sign-in for this listener is not done.
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing

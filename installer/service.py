@@ -41,6 +41,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import struct
@@ -148,9 +149,42 @@ ICACLS = _system32("icacls.exe")
 CMD = _system32("cmd.exe")
 
 
+def _known_folder(folder_id: str, fallback_env: str, fallback: str) -> Path:
+    """A Windows known folder, from Windows itself rather than from an
+    environment variable the caller could set (the environment is used only
+    where there is no Windows, i.e. the tests)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            import uuid
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                            ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+            u = uuid.UUID(folder_id)
+            guid = GUID(u.time_low, u.time_mid, u.time_hi_version,
+                        (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None,
+                                                          ctypes.byref(out)) == 0:
+                try:
+                    return Path(out.value)
+                finally:
+                    ctypes.windll.ole32.CoTaskMemFree(out)
+        except Exception:
+            pass
+        raise ServiceError("Windows didn't say where its program folder is.")
+    return Path(os.environ.get(fallback_env) or fallback)
+
+
+FOLDERID_PROGRAM_FILES = "905E63B6-C1BF-494E-B29C-65B732D3D21A"
+FOLDERID_PROGRAM_DATA = "62AB5D82-FDC1-4DC3-A9DD-070D1D495D97"
+FOLDERID_PROGRAM_FILES_X86 = "7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E"
+
+
 def program_files() -> Path:
-    return Path(os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
-                or r"C:\Program Files")
+    return _known_folder(FOLDERID_PROGRAM_FILES, "ProgramW6432", r"C:\Program Files")
 
 
 # ---------------------------------------------------------------- folders
@@ -189,10 +223,10 @@ def folder_problem(path, what: str, forbidden=()) -> str:
 
 
 def system_folders() -> list:
-    env = os.environ
     return [str(Path(system_dir()).parent), str(program_files()),
-            env.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-            env.get("ProgramData", r"C:\ProgramData")]
+            str(_known_folder(FOLDERID_PROGRAM_FILES_X86, "ProgramFiles(x86)",
+                              r"C:\Program Files (x86)")),
+            str(_known_folder(FOLDERID_PROGRAM_DATA, "ProgramData", r"C:\ProgramData"))]
 
 
 def data_folder_contents_problem(data) -> str:
@@ -532,27 +566,35 @@ def _delete_on_reboot(path) -> None:
 def remove_admin_folder(folder: Path) -> None:
     """Removes the admin folder, including the interpreter this script is
     running from. Windows won't delete a file that is loaded, but it does
-    let one be renamed, so a file that can't be deleted is moved into a
-    folder of its own in Windows' Temp folder (which only administrators
-    can change there) and deleted with the rest, or at the next restart if it
-    is still loaded. Only administrators can change the admin folder, so
-    nothing in it can have been swapped for a link."""
-    park = Path(system_dir()).parent / "Temp" / f"baihe-services-{os.getpid()}"
-    files = [p for p in folder.rglob("*") if not p.is_dir() or is_reparse_point(p)]
-    for path in sorted(files, key=lambda p: len(p.parts), reverse=True):
+    let one be renamed, so a file that can't be deleted is moved into a new
+    folder next to the admin folder in Program Files (only administrators
+    can create or change anything there), which is deleted with the rest, or
+    at the next restart for what is still loaded. Only the exact paths
+    parked here are ever scheduled for deletion."""
+    park = folder.parent / f".baihe-removing-{secrets.token_hex(8)}"
+    parked = []
+    # Bottom-up, so files go before the folders that hold them.
+    for path in sorted(folder.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if path.is_dir() and not is_reparse_point(path):
+            continue
         try:
             path.unlink()
         except OSError:
             try:
-                park.mkdir(parents=True, exist_ok=True)
-                path.rename(park / f"{len(list(park.iterdir()))}-{path.name}")
-            except OSError:
+                if not parked:
+                    os.mkdir(park)            # must be new; never an existing name
+                    refuse_reparse_point(park)
+                target = park / f"{len(parked)}-{path.name}"
+                path.rename(target)
+                parked.append(target)
+            except (OSError, ServiceError):
                 _delete_on_reboot(path)
     shutil.rmtree(folder, ignore_errors=True)
-    if park.exists():
+    if parked:
         shutil.rmtree(park, ignore_errors=True)
-        for left in park.rglob("*") if park.exists() else ():
-            _delete_on_reboot(left)
+        for target in parked:
+            if target.exists():
+                _delete_on_reboot(target)
         if park.exists():
             _delete_on_reboot(park)
 
@@ -708,6 +750,9 @@ class Services:
         stopped, nothing is changed; if it can't be removed, it is started
         again. The data folder's contents are left alone."""
         lay = self.layout
+        # Checked before anything changes, so a link is never found halfway.
+        for folder in (lay.root, lay.data):
+            refuse_reparse_point(folder)
         was_running = query_state(APP_SERVICE, self.run) == "RUNNING"
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         try:
@@ -719,12 +764,17 @@ class Services:
                 except ServiceError:
                     pass
             raise
+        problems = []
         for cmd, timeout in revoke_commands(lay):
             if Path(cmd[1]).exists():
-                refuse_reparse_point(cmd[1])
-                self.run(cmd, timeout=timeout)
+                result = self.run(cmd, timeout=timeout)
+                if result.returncode != 0:
+                    problems.append(f"taking the service off {cmd[1]} (exit code {result.returncode})")
         if lay.admin.exists():
             remove_admin_folder(lay.admin)
+        if problems:
+            raise ServiceError("The service is removed, but " + " and ".join(problems)
+                               + " failed; its permission is still on that folder.")
         return "Removed Baihe Studio's service."
 
     def status(self) -> str:
@@ -742,6 +792,8 @@ def build_services(args) -> Services:
     config_file = APP_DIR.parent / CONFIG_FILE_NAME
     running_from_admin = config_file.is_file()
     if running_from_admin:
+        if _norm(APP_DIR.parent.parent) != _norm(admin):
+            raise ServiceError(f"This copy isn't in {admin}; run Setup again.")
         if args.command == "install":
             raise ServiceError("`install` is run by Setup; run Setup again instead.")
         config = read_config(config_file)
