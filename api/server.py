@@ -80,6 +80,7 @@ from api.routers import (
     settings_routes,
     source_routes,
     sources_catalog_routes,
+    sources_extraction_routes,
     sources_import_routes,
     sources_local_routes,
     sources_search_routes,
@@ -201,6 +202,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)
+    app.include_router(sources_extraction_routes.router)
     app.include_router(sources_local_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
