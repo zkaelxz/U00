@@ -3,14 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 import {
   URL_PREVIEW_JOB_ID,
+  getImportState,
   sourceImportJobId,
   startChapterImport,
   startUrlDownload,
-  startUrlImport,
   startUrlPreview,
   trackSeries,
   urlMediaJobId,
 } from './sourcesImport'
+import { getAiEngines, startNovelUrlImport } from './sourcesExtraction'
 
 function reply(status: number, body: unknown) {
   const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }))
@@ -32,11 +33,19 @@ describe('sources import api', () => {
   it('preview and url import post only the url (and drama id)', async () => {
     const { mock, f } = reply(200, { job_id: 'x' })
     await startUrlPreview('https://a.example/b', f)
-    await startUrlImport('https://a.example/b', 3, f)
+    await startNovelUrlImport('https://a.example/b', 3, {}, f)
     expect(mock.mock.calls[0][0]).toBe('/api/sources/url/preview')
     expect(bodyOf(mock, 0)).toEqual({ url: 'https://a.example/b' })
     expect(mock.mock.calls[1][0]).toBe('/api/sources/url/import')
     expect(bodyOf(mock, 1)).toEqual({ url: 'https://a.example/b', drama_id: 3 })
+  })
+
+  it('url import adds the AI fallback fields only when asked; engines is a plain GET', async () => {
+    const { mock, f } = reply(200, { job_id: 'x' })
+    await startNovelUrlImport('https://a.example/b', 3, { use_ai: true, engine: 'ollama' }, f)
+    expect(bodyOf(mock, 0)).toEqual({ url: 'https://a.example/b', drama_id: 3, use_ai: true, engine: 'ollama' })
+    await getAiEngines(f)
+    expect(mock.mock.calls[1][0]).toBe('/api/sources/url/ai-engines')
   })
 
   it('chapter import posts ids only, to the encoded source', async () => {
@@ -44,6 +53,19 @@ describe('sources import api', () => {
     await startChapterImport('a b', { series_id: 's1', chapter_ids: ['c1', 'c2'], drama_id: 2 }, f)
     expect(mock.mock.calls[0][0]).toBe('/api/sources/a%20b/import')
     expect(bodyOf(mock)).toEqual({ series_id: 's1', chapter_ids: ['c1', 'c2'], drama_id: 2 })
+  })
+
+  it('import state is a GET with encoded source and query', async () => {
+    const state = { source: 'a b', series_id: 's/1&x', drama_id: 7, imported_chapter_ids: ['c1'], retry: [], retry_count: 0 }
+    const { mock, f } = reply(200, state)
+    await expect(getImportState('a b', 's/1&x', 7, f)).resolves.toEqual(state)
+    expect(mock.mock.calls[0][0]).toBe('/api/sources/a%20b/import-state?series_id=s%2F1%26x&drama_id=7')
+    expect(mock.mock.calls[0][1]?.method ?? 'GET').toBe('GET')
+  })
+
+  it('import state errors come back as ApiError', async () => {
+    const { f } = reply(404, { error: { code: 'not_found', message: 'No such drama.' } })
+    await expect(getImportState('alpha', 's1', 99, f)).rejects.toMatchObject({ status: 404, message: 'No such drama.' })
   })
 
   it('track sends drama_id only when given', async () => {

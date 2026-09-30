@@ -5,7 +5,7 @@ api/routers/diagnostics_routes.py -- read-only Diagnostics endpoint
 One route: the full overview `services.diagnostics_service` builds.
 No admin action (install/upgrade/delete a cached model, etc.) is
 exposed here -- those stay Streamlit-only per
-docs/migration-review.md's D5 (admin actions need explicit confirmation
+docs/archive/migration-review.md's D5 (admin actions need explicit confirmation
 and, for now, stay PC-local).
 """
 

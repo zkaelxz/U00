@@ -57,7 +57,8 @@ import bulk_translate
 import raw_transcript
 import dub as dub_module
 import background_jobs
-from services import settings_service, transcribe_service, translate_service, workspace_job_service
+from services import (engine_routing_service, line_provenance_service, narration_service,
+                      settings_service, transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
 
@@ -183,17 +184,25 @@ def cmd_narrate_prep(args):
         chunks = chunk_novel_text(text)
         lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
         known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
+        # Step 41: same resume as the API job (narration_service).
+        done, on_batch = narration_service.tagging_checkpoint(
+            d["id"], text, engine_name, getattr(engine, "model", args.model), known,
+            fresh=getattr(args, "fresh", False))
+        if done:
+            print(f"#{d['id']} resuming: {len(done)} of {len(lines)} chunks already tagged.")
         # Labels come back keyed by each chunk's idx; a chunk with no
         # label defaults to "Narrator" -- never paired by list position.
         by_idx = translate_engines.tag_speakers_by_id(
             {ln.idx: ln.zh for ln in lines}, engine, known,
             usage_cb=lambda inp, out, did=d["id"]: db.log_usage(
                 did, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
-                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            done=done, on_batch=on_batch)
         for ln in lines:
             ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
         if not _replace_drama_lines(d["id"], lines, "before chunk & tag speakers"):
             return
+        narration_service.finish_tagging_checkpoint(d["id"])
         # After the empty-result check, so an empty result changes nothing.
         for label in sorted({ln.speaker for ln in lines}) or ["Narrator"]:
             db.upsert_character(d["id"], label, character_name=label)
@@ -446,9 +455,11 @@ def cmd_translate(args):
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
-    # saved translation_engine, else the Settings default engine.
+    # saved translation_engine, else the Settings engine for everyday
+    # translation (Step 36 capability "translation.cheap").
     def _engine_name_for(d):
-        return args.engine or d.get("translation_engine") or settings_service.get_default_engine()
+        return (args.engine or d.get("translation_engine")
+                or engine_routing_service.resolve_capability("translation.cheap"))
     _engines = {}
 
     def _engine_for(name):
@@ -574,10 +585,20 @@ def cmd_translate(args):
                 db.heartbeat_gpu_lock(_gpu_holder)
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
+        style_note = (args.style_note if args.style_note is not None
+                      else settings_service.get_preference("default_style_note"))
+        # Same settings the Workspace job records with each line (Step 41).
+        provenance = line_provenance_service.translate_run_tracker(
+            d["id"], lines, engine, engine_name, glossary_terms,
+            locale=args.locale or settings_service.get_preference("default_locale"),
+            style_preset=style_preset, reflect=bool(getattr(args, "reflect", False)),
+            context_window=_flag_or(args, "context_window", tdefaults),
+            context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
+            batch_size=_flag_or(args, "batch_size", tdefaults),
+            style_note=style_note or "", style_guidelines=style_guidelines or "")
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
-            style_note=(args.style_note if args.style_note is not None
-                        else settings_service.get_preference("default_style_note")),
+            style_note=style_note,
             novel_reference=novel_reference, force_retranslate=args.force,
             locale=args.locale or settings_service.get_preference("default_locale"),
             glossary_terms=glossary_terms,
@@ -591,8 +612,10 @@ def cmd_translate(args):
             notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
                 did, notes, id_by_idx=_id_by_idx),
             progress_cb=_progress,
-            # Same as the Workspace Translate job: writes `en` only.
-            save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
+            # Same as the Workspace Translate job: writes `en` only, and
+            # records each translated line's provenance (Step 41).
+            save_cb=lambda lines, did=d["id"]: (db.save_lines(did, lines, fields=("en",)),
+                                               provenance(lines)),
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
                 did, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
                       else engine_name),
@@ -790,6 +813,8 @@ def main():
     p_narrate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
     p_narrate.add_argument("--api-key", default=None)
     p_narrate.add_argument("--model", default=None)
+    p_narrate.add_argument("--fresh", action="store_true",
+                           help="Ignore batches an interrupted run already tagged; start over.")
     p_narrate.add_argument("--ollama-url", default=None,
                            help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_narrate.set_defaults(func=cmd_narrate_prep)

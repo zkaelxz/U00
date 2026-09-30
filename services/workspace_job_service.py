@@ -2,7 +2,7 @@
 services/workspace_job_service.py -- the background-job runner functions
 started from the Workspace and Library tabs, moved out of
 `tabs/workspace_tab.py` and `tabs/library_tab.py` unchanged (Migration
-Slice 2, a pure move, zero logic change -- see `docs/migration-review.md`).
+Slice 2, a pure move, zero logic change -- see `docs/archive/migration-review.md`).
 
 These functions all share the same property that made them safe to run
 in a background thread in the first place: they touch nothing from
@@ -29,6 +29,7 @@ import bulk_translate
 import emotion
 import core as core_module
 from core import transcribe_for_timing
+from services import job_timing_service, line_provenance_service
 
 
 def _id_by_idx(lines):
@@ -128,6 +129,18 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     character_names = tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(_series_id) if _series_id else [])
+    # Step 41: what produced each line (item 4) and per-stage timing (item 5).
+    provenance = line_provenance_service.translate_run_tracker(
+        drama_id, lines, engine, engine_choice, glossary_terms, locale=locale,
+        style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
+        context_window_ahead=context_window_ahead, batch_size=batch_size,
+        style_note=style_note or "", style_guidelines=style_guidelines or "")
+
+    def _save(ls):
+        db.save_lines(drama_id, ls, fields=("en",))
+        provenance(ls)
+
+    job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_engines.translate_lines_with_engine(
         lines, engine, drama_meta=drama_meta, style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
@@ -144,7 +157,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
         # the user's own edits can run alongside without being overwritten.
-        save_cb=lambda ls: db.save_lines(drama_id, ls, fields=("en",)),
+        save_cb=_save,
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             drama_id, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
@@ -154,6 +167,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cache_read_tokens=cache_read),
     )
 
+    job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
     # Shared with `cli.py translate` (Step 25c): glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.

@@ -29,8 +29,10 @@ Streamlit (`apply_preset_to_session`), so create_drama returns them as
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
 
+import contextlib
 import logging
 import os
+import re
 import shutil
 import time
 import uuid
@@ -302,6 +304,11 @@ def _hard_delete_drama(drama_id) -> bool:
             # Nothing changed yet (row and folder intact); no paths in the message.
             raise ServiceError("The drama's files are in use, so it was not deleted. "
                                "Close anything using them and try again.") from e
+        # A rename keeps the folder's old mtime; stamp it now so the startup
+        # sweep (cleanup_stale_tombstones) never mistakes an in-flight delete
+        # for a leftover.
+        with contextlib.suppress(OSError):
+            os.utime(tomb, None)
     try:
         db.delete_drama(drama_id)
     except Exception as e:
@@ -327,6 +334,47 @@ def _hard_delete_drama(drama_id) -> bool:
                       drama_id, tomb)
         return True
     return False
+
+
+_TOMBSTONE_RE = re.compile(r"^\d+\.deleting-[0-9a-f]{8}$")
+TOMBSTONE_MAX_AGE_SECONDS = 24 * 3600
+
+
+def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float = None) -> int:
+    """B-14 leftover: removes `<id>.deleting-<hex>` folders in DRAMAS_DIR
+    that a delete renamed aside but could not remove, once they are older
+    than max_age (a day), so an in-flight delete is never touched. Symlinks,
+    anything else, and a tombstone whose drama row still exists (a failed
+    delete whose rename-back also failed) are left alone. Returns how many were removed; never
+    raises."""
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        names = os.listdir(db.DRAMAS_DIR)
+    except OSError:
+        return 0
+    for name in names:
+        if not _TOMBSTONE_RE.match(name):
+            continue
+        path = os.path.join(db.DRAMAS_DIR, name)
+        try:
+            if os.path.islink(path) or not os.path.isdir(path):
+                continue
+            # A delete whose row delete failed AND whose rename-back failed
+            # leaves a live drama's files here: keep them for manual recovery.
+            if db.get_drama(int(name.split(".", 1)[0])) is not None:
+                log.warning("A leftover deleted-drama folder belongs to a drama that still "
+                            "exists; it was kept")
+                continue
+            if now - os.path.getmtime(path) < max_age:
+                continue
+            shutil.rmtree(path)
+            removed += 1
+        except (OSError, ValueError, OverflowError):
+            # OverflowError: an absurdly long all-digit name can't be looked
+            # up; skip that folder and keep sweeping.
+            log.warning("Could not check or remove a leftover deleted-drama folder")
+    return removed
 
 
 def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:

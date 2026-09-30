@@ -5,6 +5,7 @@ import { api } from './api/client'
 import type { MetaResponse } from './api/types'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import { NotificationBell } from './components/NotificationBell'
 import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
@@ -141,6 +142,7 @@ export default function App() {
           ))}
         </nav>
         <div className="header-end">
+          <NotificationBell />
           <ReportProblemButton />
           <ApiStatus />
           {user && <UserMenu user={user} />}

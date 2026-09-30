@@ -200,7 +200,7 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
-def _notify_job_finished(description, status):
+def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -209,10 +209,13 @@ def _notify_job_finished(description, status):
     Step 44: also queues a Discord/ntfy push when a channel is configured
     (services/notification_service; its own opt-in is configuring a
     channel, independent of the desktop toggle). That call only queues --
-    the send happens on a timer thread -- and never raises."""
+    the send happens on a timer thread -- and never raises. It also keeps
+    the event for the in-app list, shown by `job_id`/`owner_user_id`
+    visibility."""
     try:
         from services import notification_service
-        notification_service.notify_job_finished(description, status)
+        notification_service.notify_job_finished(description, status, job_id=job_id,
+                                                 owner_user_id=owner_user_id)
     except Exception:
         pass
     if not get_notify_on_completion():
@@ -243,6 +246,27 @@ def _other_gpu_job_running_locked(exclude_job_id):
 # the busy job may be another user's private drama. Also what job_records
 # mirrors, so the persisted row doesn't carry it either.
 GPU_WAIT_MESSAGE = "Waiting for the GPU (another job is running)"
+
+
+def _queue_message(position: int) -> str:
+    """Step 41 item 6: the waiting message with the job's place in line
+    (first in line keeps the plain message). Never names another job."""
+    return GPU_WAIT_MESSAGE if position <= 1 else f"{GPU_WAIT_MESSAGE} - number {position} in line"
+
+
+def _refresh_queue_messages_locked():
+    """Caller holds _lock: rewrites each queued job's message to its
+    current place in _gpu_queue after the queue changed."""
+    position = 0
+    for entry in _gpu_queue:
+        job = _jobs.get(entry["job_id"])
+        if not job or job.get("status") != "queued":
+            continue
+        position += 1
+        message = _queue_message(position)
+        if job.get("message") != message:
+            job["message"] = message
+            _mirror_locked(entry["job_id"])
 
 
 def _gpu_slot_available_locked(job_id, description):
@@ -320,24 +344,51 @@ class JobCancelled(Exception):
     _spawn records the job as "cancelled" (never "done"/"error")."""
 
 
+def _timing_start(job_id, thread_job=True):
+    """Step 41 item 5 (services/job_timing_service): a job's per-stage
+    timing run starts when it actually runs. Never raises."""
+    try:
+        from services import job_timing_service
+        token = job_timing_service.start_run(job_id)
+        if thread_job:
+            job_timing_service.set_current_job(job_id)
+        return token
+    except Exception:
+        return None
+
+
+def _timing_finish(job_id, token, thread_job=True):
+    """`token` keeps a new run of the same job id, started the moment this
+    one was marked finished, from being closed by this one."""
+    try:
+        from services import job_timing_service
+        job_timing_service.finish_run(job_id, token=token)
+        if thread_job:
+            job_timing_service.set_current_job(None)
+    except Exception:
+        pass
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False):
     def runner():
         import applog
         from translate_engines import redact_secrets
         logger = applog.get_logger()
         logger.info(f"job {job_id} started")
+        _timing = _timing_start(job_id)
         try:
             target(*args, **kwargs)
-            _description = None
+            _description = _owner = None
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
+                    _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, "done")
+            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner)
         except JobCancelled:
             with _lock:
                 if job_id in _jobs:
@@ -348,7 +399,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
         except Exception as exc:
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
-            _description = None
+            _description = _owner = None
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "error"
@@ -356,10 +407,12 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _jobs[job_id]["traceback"] = tb
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
+                    _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
-            _notify_job_finished(_description, "error")
+            _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
+            _timing_finish(job_id, _timing)
             _release_gpu_slot(job_id, gpu_touching)
             _promote_next_queued_gpu_job()
 
@@ -395,6 +448,7 @@ def _promote_next_queued_gpu_job():
             if not _gpu_slot_available_locked(job_id, entry["description"]):
                 return
             _gpu_queue.pop(0)
+            _refresh_queue_messages_locked()
             if entry.get("kind") == "process":
                 proc, result_queue = _register_process_job(
                     job_id, entry["target"], entry["args"],
@@ -514,6 +568,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": kwargs, "description": description, "kind": "thread"})
+            _refresh_queue_messages_locked()
             return True
         _jobs[job_id] = {
             "status": "running", "progress": 0.0, "message": "Starting...",
@@ -585,6 +640,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done})
+            _refresh_queue_messages_locked()
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id)
@@ -654,6 +710,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     object, cleanup can be immediate and complete instead)."""
     import applog
     logger = applog.get_logger()
+    _timing = _timing_start(job_id, thread_job=False)
     try:
         outcome = None
         while True:
@@ -758,8 +815,10 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _mirror_locked(job_id)
             _final_status = _jobs[job_id]["status"]
             _description = _jobs[job_id].get("description")
-        _notify_job_finished(_description, _final_status)
+            _owner = _jobs[job_id].get("owner_user_id")
+        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
     finally:
+        _timing_finish(job_id, _timing, thread_job=False)
         _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()
 
@@ -1050,6 +1109,7 @@ def clear_job(job_id: str):
     with _lock:
         _jobs.pop(job_id, None)
         _gpu_queue[:] = [e for e in _gpu_queue if e["job_id"] != job_id]
+        _refresh_queue_messages_locked()
     try:
         import db
         db.delete_job_record(job_id)
