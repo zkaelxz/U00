@@ -151,7 +151,24 @@ def _isolated_background_jobs():
     before and after every test so no test depends on another's jobs."""
     _reset_background_jobs_memory()
     yield
+    _join_leftover_job_threads()
     _reset_background_jobs_memory()
+
+
+def _join_leftover_job_threads(timeout=5.0):
+    """Waits for job threads a test started but didn't wait for. Left
+    running, one finishes during the next test's setup in the same worker
+    and writes its job record while that test initialises its database
+    ("database is locked" in CI, 2026-09-30). Only job runner/watcher
+    threads are joined; the long-lived heartbeat thread is not."""
+    import threading
+    import time
+    deadline = time.monotonic() + timeout
+    for t in threading.enumerate():
+        if t is threading.current_thread():
+            continue
+        if t.name.startswith(("job:", "job-watcher:")):
+            t.join(max(0.0, deadline - time.monotonic()))
 
 
 @pytest.fixture
