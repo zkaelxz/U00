@@ -82,3 +82,26 @@ export function pacingRows(lines: DubPacingLine[]): DubPacingLine[] {
   const over = lines.filter((l) => l.status === 'overflow')
   return over.length ? over : lines
 }
+
+// Novel narration: an advisory note when some lines have no English yet
+// (U01). What it means depends on the narration language: "translation"
+// speaks the English, so those lines go silent; "original" speaks the source
+// text, so only the exported bilingual subtitles are incomplete. Null when
+// the count is 0, unknown, or the language is not one of the two.
+export function untranslatedNarrationWarning(
+  language: string,
+  count: number | null | undefined,
+): string | null {
+  if (typeof count !== 'number' || !Number.isFinite(count) || count <= 0) return null
+  const one = count === 1
+  const n = `${count} ${one ? 'line has' : 'lines have'}`
+  if (language === 'translation')
+    return `${n} no English yet and will be silent in the narration. Translate ${one ? 'it' : 'them'} first.`
+  if (language === 'original')
+    return (
+      `${n} no translation yet. Narration will still generate for ${one ? 'it' : 'them'} ` +
+      `(it speaks the source text), but ${one ? 'its' : 'their'} exported subtitles will be missing ` +
+      'the English half of the bilingual pair. Translate first if you want complete subtitles.'
+    )
+  return null
+}

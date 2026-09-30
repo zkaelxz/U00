@@ -125,7 +125,9 @@ def analyze_media(drama_id: int) -> dict:
                  "codec": str(t.codec)[:40],
                  "language": str(t.language)[:40] if t.language else None}
                 for t in info.subtitle_tracks] if info else [],
-            "suggested_pipeline": list(info.suggested_pipeline) if info else []}
+            "suggested_pipeline": list(info.suggested_pipeline) if info else [],
+            "content_type_guess": str(info.content_type_guess)[:40] if info else None,
+            "content_type_reason": str(info.content_type_reason)[:200] if info else None}
 
 
 def _positive_int(value):

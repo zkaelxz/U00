@@ -24,3 +24,6 @@
 .voice-clone .voice-job { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
 .voice-clone input[type='file'] { max-width: 100%; }
 .stage-dub .dub-check .field-control > :first-child { flex: 0 0 auto; }
+/* Narration: lines with no English yet (U01); the link wraps under the text on a phone. */
+.stage-dub .dub-untranslated { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.stage-dub .dub-untranslated > span { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }

@@ -51,6 +51,9 @@ export interface DramaDetail extends DramaSummary {
   genre: string | null
   publication_status: string | null
   chapter_count: number | null
+  source_url?: string | null
+  episode_number?: number | null
+  episode_summary?: string | null
   narration_language: string | null
   author_romanized: string | null
   studio_romanized: string | null

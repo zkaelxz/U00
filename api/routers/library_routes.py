@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/library", tags=["library"])
 _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields if f != "custom_tags")
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "has_audio", "has_novel_reference",
-                                    "has_cover_art"))
+                                    "has_cover_art", "source_url"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
@@ -39,6 +39,8 @@ def _to_summary(drama: dict) -> DramaSummary:
 def _to_detail(drama: dict) -> DramaDetail:
     return DramaDetail(**{f: drama.get(f) for f in _DETAIL_FIELDS},
                        custom_tags=library_service.split_custom_tags(drama),
+                       # Never the query: a pasted download link can carry a token.
+                       source_url=library_service.display_source_url(drama.get("source_url")) or None,
                        has_audio=bool(drama.get("audio_filename")),
                        has_novel_reference=bool(drama.get("novel_reference_filename")),
                        has_cover_art=bool(drama.get("cover_art_filename")))

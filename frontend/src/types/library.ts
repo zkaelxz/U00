@@ -138,8 +138,14 @@ export interface DramaMetadataUpdate {
   director?: string
   voice_actors?: string
   summary?: string
+  genre?: string
   custom_tags?: string
+  source_url?: string // '' clears; else must start with http:// or https://
+  episode_summary?: string
+  chapter_count?: number // 0 clears
+  episode_number?: number // 0 clears
   media_type?: string
+  publication_status?: string // unknown / ongoing / completed / hiatus
   series_id?: number // 0 takes the drama out of its series
   new_series_name?: string // not with series_id
 }

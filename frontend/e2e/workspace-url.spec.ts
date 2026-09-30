@@ -22,6 +22,10 @@ async function mockUrlDownload(page: Page, opts: { local?: boolean; hasAudio?: b
   await page.route(/\/api\/media\/dramas\/1\/status$/, (route) =>
     json(route, { drama_id: 1, has_audio: !!opts.hasAudio, has_source_video: false, upload_max_mb: 2048 }),
   )
+  // Read-only (ffprobe) for the Transcribe time estimate (D04); a POST, so mocked here.
+  await page.route(/\/api\/metadata\/dramas\/1\/analyze-media$/, (route) =>
+    json(route, { drama_id: 1, duration_seconds: 600, has_video: false, has_audio: true, audio_track_count: 1, sample_rate: 44100 }),
+  )
   await page.route(/\/api\/media\/dramas\/1\/download-url$/, (route) => {
     s.bodies.push(route.request().postDataJSON())
     s.job = 'running'
