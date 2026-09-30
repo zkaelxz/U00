@@ -224,3 +224,67 @@ def test_alias_listed_as_dated_snapshot_counts_as_listed(isolated_db, keys, monk
     status = svc.check_providers()
     item = next(i for i in status["items"] if i["model"] == "claude-sonnet-5" and i["kind"] == "preset")
     assert item["status"] == "current"
+
+
+class TestClaudeAliases:
+    """Anthropic's model list may return only dated snapshots; an undated or
+    "-latest" alias the app uses must not read as "no longer listed" just
+    because of that."""
+
+    def _app_claude_models(self):
+        models = set(translate_engines.CLAUDE_MODELS)
+        models |= {t["engine_model"] for t in translate_engines.WORKFLOW_TIERS.values()
+                   if t["translation_engine"] == "claude" and t.get("engine_model")}
+        models.add(svc._default_model("claude"))
+        return models
+
+    def _check(self, monkeypatch, ids):
+        import requests
+        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(
+            {"data": [{"id": i} for i in ids]}))
+        return svc.check_providers()
+
+    def test_every_app_alias_matches_its_dated_snapshot(self, isolated_db, keys, monkeypatch):
+        ids = [m if svc._DATED_SUFFIX.search(m) else m + "-20260101"
+               for m in self._app_claude_models()]
+        status = self._check(monkeypatch, ids)
+        claude = [i for i in status["items"] if i["engine"] == "claude"]
+        assert claude and all(i["status"] == "current" for i in claude), claude
+        assert all(i["listed_by_provider"] is True for i in claude)
+
+    def test_dated_only_list_without_a_match_is_cant_confirm(self, isolated_db, keys, monkeypatch):
+        status = self._check(monkeypatch, ["claude-other-9-20260101"])
+        claude = [i for i in status["items"] if i["engine"] == "claude"]
+        for i in claude:
+            if svc._DATED_SUFFIX.search(i["model"]):
+                # A dated id is either listed or gone.
+                assert i["status"] == "not_listed", i
+            else:
+                assert i["status"] == "unknown", i
+                assert "can't be confirmed" in i["message"]
+                assert i["listed_by_provider"] is None
+
+    def test_undated_ids_in_the_list_make_absence_meaningful(self, isolated_db, keys, monkeypatch):
+        status = self._check(monkeypatch, ["claude-sonnet-5", "claude-other-9-20260101"])
+        item = next(i for i in status["items"]
+                    if i["engine"] == "claude" and i["model"] == "claude-opus-4-8")
+        assert item["status"] == "not_listed"
+
+    @pytest.mark.parametrize("model,ids,expected", [
+        ("claude-sonnet-5", ["claude-sonnet-5"], True),
+        ("claude-sonnet-5", ["claude-sonnet-5-20260101"], True),
+        ("claude-3-5-sonnet-latest", ["claude-3-5-sonnet-20241022"], True),
+        ("claude-3-5-sonnet-latest", ["claude-3-5-sonnet"], True),
+        ("claude-3-5-sonnet-latest", ["claude-sonnet-5"], None),
+        # A longer model name sharing the prefix is not a snapshot of it.
+        ("claude-sonnet-4", ["claude-sonnet-4-6-20260101"], None),
+        ("claude-sonnet-4", ["claude-sonnet-4-6"], False),
+        ("claude-haiku-4-5-20251001", ["claude-sonnet-5-20260101"], False),
+        # Other engines: only "-latest" counts as an alias.
+        ("gemini-flash-latest", ["gemini-3.1-flash-lite"], None),
+        ("gemini-3.1-flash-lite", ["gemini-3.1-flash-lite-preview"], False),
+        ("gemini-3.1-flash-lite", ["gemini-3.1-flash-lite-001"], True),
+    ])
+    def test_listed(self, model, ids, expected):
+        engine = model.split("-", 1)[0]
+        assert svc._listed(engine, model, ids) is expected
