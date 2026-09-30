@@ -277,6 +277,68 @@ class TestLauncherWiring:
         assert "streamlit" not in iss.lower()
 
 
+class TestBootService:
+    """installer/service.py wired into Setup and the uninstaller
+    (docs/windows-installer-design.md, "Boot service")."""
+
+    def test_task_on_by_default_and_install_stays_per_user(self, iss):
+        task = [e for e in _entries(iss, "Tasks") if e.startswith('Name: "service"')]
+        assert len(task) == 1 and "unchecked" not in task[0]
+        assert "administrator permission" in task[0]
+        assert _setup_value(iss, "PrivilegesRequired") == "lowest"
+
+    def test_files_come_from_the_payload_and_update_replaces_them(self, iss):
+        sources = [re.search(r'Source:\s*"([^"]+)"', e).group(1) for e in _entries(iss, "Files")]
+        assert "{#PayloadDir}\\service\\*" in sources
+        assert any("{app}\\service" in e for e in _entries(iss, "InstallDelete"))
+
+    def test_only_the_service_step_is_elevated(self, iss):
+        helper = _func(iss, "RunServiceHelper")
+        assert "if IsAdmin() then" in helper and "ShellExec('runas'" in helper
+        assert "-I -S" in helper and "(ResultCode = 0)" in helper
+        assert iss.count("'runas'") == 1
+
+    def test_install_runs_from_setups_files_the_rest_from_the_admin_folder(self, iss):
+        conf = _func(iss, "ConfigureService")
+        assert "RunServiceHelper(ExpandConstant('{app}\\service')" in conf
+        assert "--install-root" in conf and "--data-dir" in conf
+        assert "RunServiceHelper(AdminDir(), 'uninstall')" in conf
+        assert "RunServiceHelper(AdminDir(), 'stop')" in _func(iss, "StopBackgroundService")
+        assert "'\\Baihe Studio Services'" in _func(iss, "AdminDir")
+
+    def test_set_up_after_the_packages_and_removed_when_unticked(self, iss):
+        step = _func(iss, "CurStepChanged")
+        assert re.search(r"RunPostInstall\(\);\s+if not PostInstallFailed then\s+ConfigureService\(\);", step)
+        assert "WizardIsTaskSelected('service')" in _func(iss, "ConfigureService")
+
+    def test_own_exit_code(self, iss):
+        code = _func(iss, "GetCustomSetupExitCode")
+        assert "Result := 101" in code and code.index("100") < code.index("101")
+
+    def test_update_stops_the_service_before_replacing_files(self, iss):
+        prepare = _func(iss, "PrepareToInstall")
+        assert (prepare.index("DataDirWriteProblem(") < prepare.index("StopBackgroundService(")
+                < prepare.index("StopRunningServer("))
+
+    def test_uninstall_removes_the_service_first_and_stops_if_it_cant(self, iss):
+        init = _func(iss, "InitializeUninstall")
+        assert init.rstrip().endswith("Result := RemoveService();\nend;")
+        remove = _func(iss, "RemoveService")
+        assert "RunServiceHelper(AdminDir(), 'uninstall')" in remove
+        assert "if not Result then" in remove
+
+    def test_uninstall_can_be_run_again_over_a_half_removed_service(self, iss):
+        present = _func(iss, "ServiceOrAdminDirPresent")
+        assert "ServiceInstalled()" in present and "\\helper\\python\\python.exe" in present
+        assert "if not ServiceOrAdminDirPresent() then" in _func(iss, "RemoveService")
+        assert "ServiceOrAdminDirPresent()" in _func(iss, "ConfigureService")
+
+    def test_nothing_but_the_service_is_added(self, iss):
+        # No firewall, router or second-listener step belongs to the installer.
+        for needle in ("netsh", "firewall", "caddy", "upnp"):
+            assert needle not in iss.lower(), needle
+
+
 class TestPascalPitfalls:
     """Two ways the [Code] section has broken the compile before."""
 
@@ -334,6 +396,22 @@ class TestWorkflow:
                        "notbaihe_smoke_clean", "sentinel.txt",
                        "touched the first install's data folder"):
             assert needle in wf, needle
+
+    def test_launcher_smoke_tests_opt_out_of_the_service(self, wf):
+        assert wf.count('"/MERGETASKS=!service"') == 2
+
+    def test_service_steps_cover_boot_start_restart_update_and_removal(self, wf):
+        for needle in (
+            "Get-Service BaiheStudio", "'Automatic'", "NT SERVICE\\BaiheStudio", "qprivs",
+            "SeImpersonatePrivilege", "qfailure", "http://127.0.0.1:8600/api/health",
+            "listening beyond 127.0.0.1:8600", "Stop-Process -Id $server.ProcessId",
+            "processes left after stopping the service",
+            "the update changed .env", "the BaiheStudio service is still installed",
+            "the BaiheStudio account still has access to the data folder",
+        ):
+            assert needle in wf, needle
+        for needle in ("caddy", "enable-remote", "New-NetFirewallRule", "netsh"):
+            assert needle not in wf.lower(), needle
 
     def test_dispatch_input_goes_through_env(self, wf):
         # Never pasted into a script (injection).

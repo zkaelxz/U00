@@ -18,6 +18,11 @@ Payload (build/installer/payload/):
     app/            the app's code (an allow-by-default copy with the
                     exclusions below), frontend/dist, and the two runtime
                     installer scripts (app/installer/launcher.py, postinstall.py)
+    service/        the boot service's files: helper/ (a second copy of the
+                    interpreter with no site-packages, and installer/service.py)
+                    and wrapper/ (WinSW, pinned by SHA-256, as BaiheStudio.exe
+                    with its licence). service.py copies both into an
+                    admin-only folder; nothing elevated runs from app/ or python/.
     wheels/         the wheels pinned in installer/wheels.lock.txt (SHA-256
                     hashes; requirements-core.txt plus pip and every
                     transitive dependency) and a copy of that lock, so the
@@ -70,6 +75,15 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 # The runtime half of installer/ that ships; the rest (this script, the
 # .iss) is build-only.
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py")
+
+# The Windows service wrapper (docs/windows-installer-design.md, "Boot
+# service"): WinSW, MIT licence, the .NET Framework 4.6.1 build, which runs
+# on the .NET Framework 4.8 that Windows 10 and 11 include. The hash was
+# taken from the GitHub release download (2026-09-30).
+WINSW_VERSION = "2.12.0"
+WINSW_URL = f"https://github.com/winsw/winsw/releases/download/v{WINSW_VERSION}/WinSW.NET461.exe"
+WINSW_SHA256 = "b5066b7bbdfba1293e5d15cda3caaea88fbeab35bd5b38c41c913d492aadfc4f"
+WINSW_LICENSE = INSTALLER_DIR / "licenses" / "WinSW-LICENSE.txt"
 
 # Excluded wherever they appear.
 EXCLUDED_DIR_NAMES = frozenset({
@@ -452,6 +466,28 @@ def numeric_version(version: str) -> str:
     return ".".join((nums + ["0", "0", "0", "0"])[:4])
 
 
+def stage_service(payload_dir, python_zip, winsw_exe) -> None:
+    """payload/service/: the files service.py copies into its admin-only
+    folder. helper/python is the embeddable interpreter again with a ._pth
+    that has no site-packages, no `import site` and no ../app, so the
+    elevated script imports nothing a user-writable folder could supply;
+    wrapper/ is WinSW under the service's name, checked against its pin."""
+    actual = sha256_of(winsw_exe)
+    if actual != WINSW_SHA256:
+        raise BuildError(f"{Path(winsw_exe).name}: SHA-256 {actual}, expected {WINSW_SHA256}.")
+    service = Path(payload_dir) / "service"
+    if service.exists():
+        shutil.rmtree(service)
+    helper_python = prepare_python(python_zip, service / "helper" / "python")
+    tag = "".join(PYTHON_VERSION.split(".")[:2])
+    (helper_python / f"python{tag}._pth").write_text(f"python{tag}.zip\n.\n", encoding="ascii",
+                                                   newline="\r\n")
+    shutil.rmtree(helper_python / "Lib")
+    _copy(INSTALLER_DIR / "service.py", service / "helper" / "lib" / "installer" / "service.py")
+    _copy(winsw_exe, service / "wrapper" / "BaiheStudio.exe")
+    _copy(WINSW_LICENSE, service / "wrapper" / "licenses" / "WinSW-LICENSE.txt")
+
+
 def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
                    python_sha256=PYTHON_EMBED_SHA256) -> Path:
     """What this payload contains, for the upgrade logic the design keeps
@@ -471,6 +507,7 @@ def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
         "requirements": "requirements-core.txt",
         "wheels": wheels,
         "installed_size_estimate_bytes": installed_size_estimate(wheels_dir),
+        "services": {"winsw": {"version": WINSW_VERSION, "sha256": WINSW_SHA256}},
     }
     path = payload_dir / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -526,6 +563,11 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
     _pip_platform_warnings(PYTHON_VERSION)
     wheels = download_wheels(REPO_ROOT, payload / "wheels")
     print(f"Downloaded {len(wheels)} wheels; all match installer/wheels.lock.txt.")
+    winsw = out_dir / f"WinSW-{WINSW_VERSION}.NET461.exe"
+    if not winsw.is_file() or sha256_of(winsw) != WINSW_SHA256:
+        print(f"Downloading {WINSW_URL} ...")
+        download(WINSW_URL, winsw)
+    stage_service(payload, python_zip, winsw)
     manifest = write_manifest(payload, version)
     extra = json.loads(manifest.read_text(encoding="utf-8"))["installed_size_estimate_bytes"]
     if not compile_exe:
