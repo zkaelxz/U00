@@ -87,7 +87,9 @@ describe('formatting', () => {
   it('flags CER/WER scores from different scorers side by side', () => {
     const cell = (metric: string, scorer?: string | null) => ({ metric, scorer })
     expect(mixedScorerNote([{ results: [cell('cer', 'jiwer'), cell('cer', null)] }])).toMatch(/jiwer/)
-    expect(mixedScorerNote([{ results: [cell('wer', 'jiwer')] }, { results: [cell('wer', 'builtin')] }])).not.toBe('')
+    // One run's per-case fallback is not a mix: each case matches across runs.
+    expect(mixedScorerNote([{ results: [cell('wer', 'jiwer'), cell('wer', 'jiwer')] },
+      { results: [cell('wer', 'builtin'), cell('wer', 'builtin')] }])).toBe('')
     // Older results (no scorer recorded) were built-in: same scorer, no note.
     expect(mixedScorerNote([{ results: [cell('cer', null), cell('cer', 'builtin'), null] }])).toBe('')
     expect(mixedScorerNote([{ results: [cell('cer', 'jiwer'), cell('cer', 'jiwer')] }])).toBe('')

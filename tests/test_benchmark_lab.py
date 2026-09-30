@@ -148,6 +148,13 @@ class TestJiwerScorer:
         assert svc.score_output("transcription", "The  cat, sat.", "the cat sat", "en")[0] == 1.0
         assert svc.score_output("transcription", "the cat sat", "The cat, sat!", "en")[0] == 1.0
         assert svc.score_output("ocr", "你好，世界", "你好 世界。")[0] == 1.0
+        # Non-ASCII spaces are dropped too, from both sides.
+        assert svc.score_output("ocr", "你好世", "你好\u3000世界")[0] == pytest.approx(0.75)
+        assert svc.score_output("ocr", "你好\u00a0世界", "你好世界")[0] == 1.0
+
+    def test_empty_output_is_all_deletions(self):
+        assert svc.score_output("ocr", "", "你好世界")[::2] == (0.0, "jiwer")
+        assert svc.score_output("transcription", "", "the cat", "en")[::2] == (0.0, "jiwer")
 
     def test_empty_after_normalisation_falls_back(self):
         # A punctuation-only reference has nothing left for jiwer to score.

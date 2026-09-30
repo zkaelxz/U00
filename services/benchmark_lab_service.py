@@ -120,8 +120,9 @@ def _jiwer_transform(jiwer, unit: str):
     if unit == "word":
         steps += [jiwer.RemoveMultipleSpaces(), jiwer.Strip(), jiwer.ReduceToListOfListOfWords()]
     else:
-        steps += [jiwer.RemoveWhiteSpace(replace_by_space=False), jiwer.Strip(),
-                  jiwer.ReduceToListOfListOfChars()]
+        # Every Unicode space (U+3000 in CJK text too), not only ASCII ones
+        # as jiwer.RemoveWhiteSpace does.
+        steps += [jiwer.SubstituteRegexes({r"\s+": ""}), jiwer.ReduceToListOfListOfChars()]
     return jiwer.Compose(steps)
 
 
