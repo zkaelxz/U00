@@ -24,7 +24,7 @@ _ERRORS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
 def start_consistency(body: ReviewJobStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
     return review_jobs_service.start_consistency_check(
-        drama_id, body.engine, body.model, body.gemini_free_tier)
+        drama_id, body.engine, body.model, body.gemini_free_tier, bulk=body.bulk)
 
 
 @router.post("/dramas/{drama_id}/emotion", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
@@ -32,7 +32,8 @@ def start_consistency(body: ReviewJobStart, request: Request, drama_id: int = Pa
 def start_emotion(body: EmotionJobStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
     return review_jobs_service.start_emotion_tagging(
-        drama_id, body.engine, body.model, body.gemini_free_tier, body.use_audio_cues)
+        drama_id, body.engine, body.model, body.gemini_free_tier, body.use_audio_cues,
+        bulk=body.bulk)
 
 
 @router.post("/dramas/{drama_id}/notes", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
@@ -40,7 +41,7 @@ def start_emotion(body: EmotionJobStart, request: Request, drama_id: int = Path(
 def start_notes(body: ReviewJobStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
     return review_jobs_service.start_translation_notes(
-        drama_id, body.engine, body.model, body.gemini_free_tier)
+        drama_id, body.engine, body.model, body.gemini_free_tier, bulk=body.bulk)
 
 
 @router.post("/dramas/{drama_id}/flag", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
@@ -48,7 +49,7 @@ def start_notes(body: ReviewJobStart, request: Request, drama_id: int = Path(ge=
 def start_flag(body: ReviewJobStart, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
     return review_jobs_service.start_flag_review(
-        drama_id, body.engine, body.model, body.gemini_free_tier)
+        drama_id, body.engine, body.model, body.gemini_free_tier, bulk=body.bulk)
 
 
 @router.post("/dramas/{drama_id}/fix-flagged", dependencies=[require_permission("jobs.start")], response_model=ReviewJobStarted,
