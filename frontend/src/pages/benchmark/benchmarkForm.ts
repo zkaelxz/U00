@@ -132,6 +132,24 @@ export function metricNote(stage: string | null | undefined): string {
   return ''
 }
 
+/** Set when an arena lines up one case's CER/WER scores from both scorers
+ * (jiwer and the built-in one): their numbers can differ for the same
+ * output. Checked per case, since jiwer runs fall back to the built-in
+ * scorer for a case with nothing left to score after normalisation (every
+ * run does the same for that case). Results with no scorer recorded
+ * predate jiwer and are built-in. */
+export function mixedScorerNote(rows: { results: ({ metric: string | null; scorer?: string | null } | null)[] }[]): string {
+  const mixed = rows.some((row) => {
+    const seen = new Set<string>()
+    for (const r of row.results)
+      if (r && (r.metric === 'cer' || r.metric === 'wer')) seen.add(r.scorer === 'jiwer' ? 'jiwer' : 'builtin')
+    return seen.size > 1
+  })
+  return mixed
+    ? 'Some of these runs were scored with jiwer and some with the built-in scorer, so their scores can differ for the same output. Re-run the older runs to compare like with like.'
+    : ''
+}
+
 // ---- the run form ----
 
 export interface RunSelection {

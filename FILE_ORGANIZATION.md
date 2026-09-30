@@ -218,7 +218,8 @@ baihe-subtitler/
 │   ├── vram_service.py           Step 41 -- free-VRAM fit check before a GPU model load (dub loaders)
 │   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
 │   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
-│   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
+│   │                             Model Arena compare, CER/WER for ASR/OCR (jiwer when installed, else built-in;
+│   │                             scorer recorded per result), cost estimate + monthly cap
 │   ├── model_registry_service.py Step 40 -- model deprecation assistant: configured models vs the shipped
 │   │                             registry (model_registry.json) and a manual, cached provider model-list
 │   │                             check; user-confirmed preset model switch (never automatic)
