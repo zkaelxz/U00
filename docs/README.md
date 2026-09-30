@@ -72,6 +72,9 @@ only on a side branch.
   CI-minutes notes.
 - **`remote-access-design.md`** — M8-H (Tailscale Serve access) design
   proposal; nothing built.
+- **`media-server-metadata-design.md`** — Step 116: how Baihe's title
+  metadata could reach or come from Jellyfin/Plex (NFO sidecars, pulling
+  Jellyfin's metadata, a provider endpoint); design only, nothing built.
 - **`windows-installer-design.md`** — Step 80's installer/uninstaller
   architecture; design only, nothing built.
 - **`windows-installer-research-notes.md`** — follow-up research

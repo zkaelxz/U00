@@ -104,7 +104,7 @@ The 13 false leads (pure keyword collisions, nothing to adopt): baihepailei, bai
 | 113 | YuriAudio2Notion | **Fanjiao (泛娱有声) audio-drama source adapter** for metadata/episodes | Adapter under `sources/` passing the ToS-check flow, registered like the MaoerFM work (Step 94) | Speculative; needs a ToS review first |
 | 114 | searxng-mcp | **General-web-search fallback in Discover** when a title is on none of the ~15 adapters (self-hosted SearXNG) | Optional fallback behind a setting, clearly labelled | From §8 "not dispatched" |
 | 115 | lightnovel_epub, NovelScraper | **New novel adapters**: lightnovel.us, wenku8.net; NovelFull/NovelBin/Novgo | One adapter per site through the existing ladder + ToS check | New-adapter scope; pick per pain point |
-| 116 | plex-anime-metadata-provider | **Plex/Jellyfin metadata-provider adjacency** for "Fetch & add to library" | Design note (relates to Step 39 Jellyfin) | Design-only |
+| 116 | plex-anime-metadata-provider | **Plex/Jellyfin metadata-provider adjacency** for "Fetch & add to library" | Design note (relates to Step 39 Jellyfin) | Design-only. **Design note written** (2026-09-30): `docs/media-server-metadata-design.md` (recommends opt-in NFO + poster sidecars on Send to Jellyfin; no plugin, no provider endpoint for now) |
 | 117 | toonkor-translate | Its one distinct idea (see roadmap §8) beyond what Scanlate already does | Compare and close, or spin out | Low |
 | 118 | apify/crawlee | One remembered idea only; do not adopt the library | Note kept, no build | Wrong-shaped dependency |
 | 119 | Yuri1st | Opt-in, local-only, advisory-not-authoritative pattern for any AI classification we add | Written into the AI-feature guidelines | Note only |

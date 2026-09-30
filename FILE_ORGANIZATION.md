@@ -95,6 +95,9 @@ baihe-subtitler/
 │   ├── remote-access-design.md   M8-H: Tailscale Serve access + Baihe permissions [design
 │   │                             proposal, nothing built yet; written for the planning session
 │   │                             to fold the decision into the roadmap]
+│   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
+│   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
+│   │                             [design proposal, nothing built]
 │   ├── migration-screenshots/    before/after screenshots referenced by migration-review.md
 │   ├── technical-notes.md        engineering changelog: real bugs found during development, how
 │   │                             they were diagnosed and fixed [audit record, append-only;
