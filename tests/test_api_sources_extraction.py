@@ -921,14 +921,16 @@ def test_direct_import_skips_an_image_that_fails_after_download(client, env, com
     assert res["pages_added"] == len(db.list_pages(did)) == 3
 
 
-def test_prepare_pages_stops_between_images_on_cancel():
+def test_write_pages_stops_between_images_on_cancel(isolated_db):
     from services import sources_extraction_service as svc
     from sources.generic_import import ImageCandidate
+    did = db.create_drama(title_en="C", media_type="manhua")
     background_jobs.start_job("sourceimport_990", lambda: time.sleep(0.3))
     background_jobs.request_cancel("sourceimport_990")
     items = [(ImageCandidate(f"https://a.example/{i}.png", i), _img("PNG", 10, 10)) for i in range(3)]
     with pytest.raises(background_jobs.JobCancelled):
-        svc.prepare_pages(items, "sourceimport_990")
+        svc.write_pages(did, items, "sourceimport_990")
+    assert db.list_pages(did) == []
     _wait("sourceimport_990")
 
 
@@ -991,3 +993,88 @@ def test_comic_review_images_live_on_disk_and_are_removed(client, env, comic, mo
     monkeypatch.setattr(svc, "REVIEW_TTL", -1)
     assert client.get(f"/api/sources/dramas/{did2}/extraction").status_code == 404
     assert not os.path.exists(folder)                           # expiry removes it too
+
+
+# ---------------------------------------------------------------------------
+# Lead re-review of a1318dc
+# ---------------------------------------------------------------------------
+
+def test_direct_import_writes_one_page_at_a_time(client, env, comic, monkeypatch):
+    from services import sources_import_service as imp
+    from sources import pipeline
+    env["fetch"].pages[COMIC_URL] = comic_page_html(4)
+    held = []
+    real_add = pipeline.add_page_images
+    real_import = imp.adaptive.import_comic
+    box = {}
+
+    def spy_import(*a, **kw):
+        res, report = real_import(*a, **kw)
+        box["images"] = list(res.images)
+        return res, report
+
+    def counting_add(drama_id, pages):
+        pages = list(pages)
+        # One image's pages per call; each written download is dropped at once,
+        # so only the ones not yet written are still held.
+        held.append((len(pages), sum(1 for c in box["images"] if c.content)))
+        return real_add(drama_id, pages)
+    monkeypatch.setattr(imp.adaptive, "import_comic", spy_import)
+    monkeypatch.setattr(pipeline, "add_page_images", counting_add)
+    did = _comic_drama()
+    res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    assert res.json()["result"]["pages_added"] == 4
+    assert [n for n, _left in held] == [1, 1, 1, 1]
+    assert [left for _n, left in held] == [3, 2, 1, 0]
+    assert all(not c.content for c in box["images"])
+
+
+def test_review_import_reads_one_image_at_a_time(client, env, comic, monkeypatch):
+    from services import sources_extraction_service as svc
+    from sources import pipeline
+    did, rv = _comic_review(client, env, comic)
+    reads, calls = [], []
+    real_read, real_add = svc._read, pipeline.add_page_images
+    monkeypatch.setattr(svc, "_read", lambda r, i: reads.append(i) or real_read(r, i))
+    monkeypatch.setattr(pipeline, "add_page_images",
+                        lambda d, pages: calls.append((len(reads), len(list(pages)))) or
+                        real_add(d, pages))
+    assert client.post(f"/api/sources/dramas/{did}/extraction/import",
+                       json={"revision": rv["revision"]}).status_code == 200
+    _wait(f"sourceimport_{did}")
+    assert calls == [(1, 1), (2, 1), (3, 1)]          # read, write, read, write...
+
+
+def test_a_failed_spill_leaves_no_folder(client, env, comic, monkeypatch):
+    import builtins
+    import os
+    from services import sources_extraction_service as svc
+    real_open = builtins.open
+
+    def full_disk(path, mode="r", *a, **kw):
+        if str(path).endswith(".img") and "w" in mode:
+            raise OSError(28, "No space left on device")
+        return real_open(path, mode, *a, **kw)
+    monkeypatch.setattr(builtins, "open", full_disk)
+    did = _comic_drama()
+    r = _run(client, "/api/sources/url/import-comic",
+             {"url": COMIC_URL, "drama_id": did, "review": True}, did)
+    res = r.json()["result"]
+    assert res["needs_review"] is True and res["review_open"] is False
+    monkeypatch.setattr(builtins, "open", real_open)
+    root = svc._tmp_root()
+    assert not os.path.isdir(root) or os.listdir(root) == []
+    assert db.list_pages(did) == []
+
+
+def test_sweep_removes_only_folders_older_than_the_expiry(isolated_db):
+    import os
+    from services import sources_extraction_service as svc
+    root = svc._tmp_root()
+    old, live = os.path.join(root, "1_old"), os.path.join(root, "2_live")
+    os.makedirs(old)
+    os.makedirs(live)
+    long_ago = time.time() - svc.REVIEW_TTL - 60
+    os.utime(old, (long_ago, long_ago))
+    svc._sweep_stale(time.time())
+    assert not os.path.exists(old) and os.path.isdir(live)   # another process's live review stays

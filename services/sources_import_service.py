@@ -46,9 +46,11 @@ chapter. The result lists the images left out and why (the Streamlit
 "skipped as page furniture" list). A run from another device reads the
 site's shared "seen on other chapters" image memory but doesn't add to it
 (`learn`). One comic import runs at a time in this process
-(`start_comic_job`, 409 otherwise), so at most one import's bytes are held
-in memory; a review's images are kept on disk
-(sources_extraction_service).
+(`start_comic_job`, 409 otherwise), and its pages are prepared and written
+one image at a time, each download dropped once written
+(sources_extraction_service.write_pages), so at most one import's download
+budget plus one image's prepared pages are held in memory; a review's
+images are kept on disk.
 When the extraction needs review nothing is written (a review opens, as
 for novel text).
 
@@ -378,8 +380,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
     extraction.drop_review(drama_id)
-    pages, skipped = extraction.prepare_pages(((c, c.content) for c in res.images), job_id)
-    n = pipeline.add_page_images(drama_id, pages)
+    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id)
     background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
 
 

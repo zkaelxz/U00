@@ -23,8 +23,11 @@ each dropped after REVIEW_TTL seconds or once imported). The review keeps
 the page the job already fetched; nothing here fetches anything. A comic
 review's downloaded images are moved out of memory into its own folder
 under the library (`<library>/source_review_tmp/`), removed when the review
-ends (expiry, replacement, or once its import job finishes or fails); the
-folder is emptied the first time a review opens in a new process. The person
+ends (expiry, replacement, or once its import job finishes or fails);
+folders older than the review expiry (left by an earlier process) are swept
+whenever a review opens. Pages are prepared and written one at a time
+(`write_pages`), so an import never holds more than one page's prepared
+bytes on top of what it downloaded. The person
 can then:
 
   * see the independent confidence per field (never the AI's own claim);
@@ -182,29 +185,47 @@ class _Review:
 
 _REVIEWS = {}
 _LOCK = threading.Lock()
-_TMP_CLEANED = False
 
 
 def _tmp_root() -> str:
     return os.path.join(db.LIBRARY_DIR, "source_review_tmp")
 
 
+def _sweep_stale(now: float) -> None:
+    """Removes review folders older than the review expiry: left by an
+    earlier process (or one sharing the library). A live review's folder is
+    never that old, so another process's open reviews are left alone."""
+    try:
+        names = os.listdir(_tmp_root())
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(_tmp_root(), name)
+        try:
+            if now - os.path.getmtime(path) > REVIEW_TTL:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            continue
+
+
 def _spill(rv) -> None:
     """Moves each candidate's downloaded bytes to a file in the review's
-    own folder, so an open review holds no image bytes in memory."""
-    global _TMP_CLEANED
-    with _LOCK:
-        if not _TMP_CLEANED:          # left over from an earlier process
-            shutil.rmtree(_tmp_root(), ignore_errors=True)
-            _TMP_CLEANED = True
+    own folder, so an open review holds no image bytes in memory. On a
+    failed write (disk full) the partly written folder is removed and the
+    error re-raised."""
+    _sweep_stale(time.time())
     rv.tmp_dir = os.path.join(_tmp_root(), f"{rv.drama_id}_{secrets.token_hex(6)}")
-    os.makedirs(rv.tmp_dir, exist_ok=True)
-    for i, c in enumerate(rv.candidates):
-        if c.content:
-            with open(os.path.join(rv.tmp_dir, f"{i}.img"), "wb") as f:
-                f.write(c.content)
-            rv.sizes[i] = len(c.content)
-        c.content = b""
+    try:
+        os.makedirs(rv.tmp_dir, exist_ok=True)
+        for i, c in enumerate(rv.candidates):
+            if c.content:
+                with open(os.path.join(rv.tmp_dir, f"{i}.img"), "wb") as f:
+                    f.write(c.content)
+                rv.sizes[i] = len(c.content)
+            c.content = b""
+    except Exception:
+        _discard(rv)
+        raise
 
 
 def _discard(rv) -> None:
@@ -255,7 +276,10 @@ def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, repor
     rv = _Review(int(drama_id), kind, url, ai_extract.PageModel(html or "", url), data, report,
                  why, list(candidates), None, _new_revision(), time.time(), bool(pc_only))
     if kind == "comic":
-        _spill(rv)
+        try:
+            _spill(rv)
+        except OSError:
+            return False              # nothing kept; the job reports needs_review
     with _LOCK:
         _discard(_REVIEWS.get(rv.drama_id))
         _REVIEWS[rv.drama_id] = rv
@@ -422,25 +446,35 @@ def _usable(rv: _Review, i: int) -> bool:
             and size <= limits.MAX_IMAGE_BYTES)
 
 
-def prepare_pages(items, job_id: str = None) -> tuple:
-    """([(bytes, ext)] page files in order, [skipped candidates]) under the
-    page rules: EXIF orientation applied, webtoon strips cut into pages; an
-    image over a cap, or damaged, is skipped with its reason set, never
-    failing the rest. `items`: (candidate, bytes or a callable returning
-    them). With `job_id`, a cancel is honoured between images."""
-    pages, skipped = [], []
+def write_pages(drama_id: int, items, job_id: str = None) -> tuple:
+    """Prepares and writes the pages one image at a time, in order, under
+    the page rules (EXIF orientation applied, webtoon strips cut into
+    pages): (pages added, [skipped candidates]). Each image's bytes are
+    dropped as soon as its pages are written, so no more than one image's
+    prepared pages are held at once. An image over a cap, or damaged, is
+    skipped with its reason set, never failing the rest. `items`:
+    (candidate, bytes or a callable returning them). With `job_id`, a
+    cancel is honoured between images (pages already written stay)."""
+    added, skipped = 0, []
     for c, content in items:
         if job_id and background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
         try:
-            pages.extend(limits.prepare_page(content() if callable(content) else content))
+            pages = limits.prepare_page(content() if callable(content) else content)
         except limits.ImageRejected as e:
             c.reject_reason = str(e)
             skipped.append(c)
+            continue
         except OSError:
             c.reject_reason = "couldn't be read back for import"
             skipped.append(c)
-    return pages, skipped
+            continue
+        finally:
+            c.content = b""          # the download is no longer needed
+            content = None
+        added += pipeline.add_page_images(drama_id, pages)
+        del pages
+    return added, skipped
 
 
 def _kept_ids(rv: _Review, data: dict) -> list:
@@ -628,9 +662,9 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
             result = {"kind": "review_import", "content_type": "novel", "char_count": len(text)}
         else:
             from services import sources_import_service as imp
-            pages, skipped = prepare_pages(
-                ((rv.candidates[i], (lambda i=i: _read(rv, i))) for i in snapshot), job_id)
-            n = pipeline.add_page_images(drama_id, pages)
+            n, skipped = write_pages(
+                drama_id, ((rv.candidates[i], (lambda i=i: _read(rv, i))) for i in snapshot),
+                job_id)
             result = {"kind": "review_import", "content_type": "comic", "pages_added": n,
                       "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped)}
         background_jobs.set_result(job_id, result)
