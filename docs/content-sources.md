@@ -291,6 +291,7 @@ work".
 | Not supported | 18+ works: the site keeps them on `novel18.syosetu.com` behind an over-18 switch. This adapter never sends an age cookie. The adapter has no login. |
 | Pacing | `host_min_interval` 2 s per host (robots.txt asks `Crawl-delay: 1`). |
 | Terms | robots.txt (both hosts, 2026-09-30): `User-agent: *`, `Crawl-delay: 1`, no Disallow lines. **The terms of service (https://syosetu.com/site/rule/, revision 令和8年6月9日) forbid automated access:** 第14条 23 bans "なろうデベロッパーで提供しているAPIを利用する以外の方法で、本サービスに自動化された手段を用いてアクセスしたり、データを収集したりすること". The official API (`api.syosetu.com/novelapi`) returns metadata, not episode text. Recorded as `EXPLICITLY_RESTRICTED` in `capabilities()` and in `sources/site_terms.py`; enforcement is off app-wide (Step 90), so the adapter works, but the finding is shown. |
+| Owner decision | 2026-09-30: ship the adapter although the terms forbid automated access; the owner accepts that. Use stays personal-scale and polite: one request at a time through the shared client (random 1-3 s gaps, occasional longer pauses, at least 2 s per host against the site's `Crawl-delay: 1`, retries only on 429/5xx honouring `Retry-After`), an honest User-Agent, no cookies, no login, no challenge solving, no 18+ age cookie, and a 200-page cap on chapter lists. |
 | Reference | Read directly from the live site; the selectors in lightnovel-crawler were only a starting hint, all re-checked. No code ported. |
 | Tests | `tests/test_sources_syosetu.py` (small invented fixtures shaped like the live pages; no network). |
 
