@@ -32,7 +32,8 @@ import diagnostics
 import translate_engines
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                      InvalidInputError, NotFoundError)
+                                      InvalidInputError, NotFoundError,
+                                      UnsupportedOperationError)
 
 _STORE_PREFIX = "capability."
 _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
@@ -41,7 +42,8 @@ _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
 # offered; "pref": an existing settings_service preference this capability
 # reads and writes instead of its own app setting; "default": the engine used
 # while unset (_DEFAULT_ENGINE = Settings' default engine); "choices": an
-# extra allow-list on top of "requires".
+# extra allow-list (or a function returning one) on top of "requires";
+# "exclude": engines never offered.
 CAPABILITIES = {
     "translation.cheap": {
         "label": "Everyday translation",
@@ -49,6 +51,7 @@ CAPABILITIES = {
                  "\"Default engine for new dramas\"."),
         "requires": translate_engines.CAP_TRANSLATE,
         "pref": "default_engine",
+        "choices": settings_service.engine_preference_choices,
     },
     "translation.high_quality": {
         "label": "Stronger translation for hard lines",
@@ -56,11 +59,13 @@ CAPABILITIES = {
                  "Only a suggestion: nothing runs until you choose it."),
         "requires": translate_engines.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
+        "exclude": ("test_offline",),  # fake output is never "stronger"
     },
     "llm.instructions": {
-        "label": "AI checks and line helpers",
-        "help": ("Improve, Why this?, Alternatives and Grammar on a line, when the drama "
-                 "has no engine of its own. Needs an engine that follows instructions."),
+        "label": "Line helpers for translation-only engines",
+        "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
+                 "For a drama translated with DeepL, Google, NLLB or LibreTranslate (which "
+                 "can't follow instructions), they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
     },
@@ -69,7 +74,7 @@ CAPABILITIES = {
         "help": "Writes the short summary that gives the next episode its context.",
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "pref": "episode_summary_engine",
-        "choices": settings_service.SUMMARY_ENGINE_CHOICES,
+        "choices": lambda: settings_service.SUMMARY_ENGINE_CHOICES,
     },
     "research.grounded_search": {
         "label": "Web-grounded research",
@@ -87,6 +92,8 @@ _MAX_TEST_ERROR = 300
 TEST_TIMEOUT_S = 45
 _testing = set()
 _testing_lock = threading.Lock()
+# Engines whose Test isn't offered: NLLB downloads a large model on first use.
+_NO_TEST = {"nllb": "NLLB downloads a large model on first use; check it in Diagnostics."}
 
 
 def _definition(capability: str) -> dict:
@@ -100,8 +107,9 @@ def engine_choices(capability: str) -> list:
     d = _definition(capability)
     names = translate_engines.engines_with_capability(d["requires"])
     if d.get("choices"):
-        names = [n for n in names if n in d["choices"]]
-    return names
+        allowed = d["choices"]()
+        names = [n for n in names if n in allowed]
+    return [n for n in names if n not in d.get("exclude", ())]
 
 
 def _stored(capability: str):
@@ -194,6 +202,7 @@ def engine_status(engine: str, key_status: dict = None) -> dict:
         status = "working" if last["ok"] else "failed"
     return {"engine": engine,
             "tags": sorted(translate_engines.engine_capabilities(engine)),
+            "test_blocked": _NO_TEST.get(engine),
             "needs_key": needs_key, "key_configured": configured,
             "status": status, "last_test": last}
 
@@ -215,31 +224,45 @@ def test_engine(engine: str, model: str = None) -> dict:
     api_key = translate_service.resolve_api_key(engine)
     if api_key is None and _needs_key(engine):
         raise DependencyUnavailableError(f"No {engine} key is configured. Add one first.")
+    if engine in _NO_TEST:
+        raise UnsupportedOperationError(_NO_TEST[engine])
     base_url = (settings_service.resolve_key("ollama_url") or None) if engine == "ollama" else None
+    generation = settings_service.engine_test_generation(engine)
     with _testing_lock:
         if engine in _testing:
             raise ConflictError("A test of this engine is already running.")
         _testing.add(engine)
+
+    def _release(_future=None):
+        with _testing_lock:
+            _testing.discard(engine)
+
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(diagnostics.check_engine_reachable, engine, api_key, model,
                              base_url=base_url)
-        try:
-            result = future.result(timeout=TEST_TIMEOUT_S)
-        except FutureTimeout:
-            result = {"ok": False, "error": f"No answer within {TEST_TIMEOUT_S} seconds."}
-    finally:
-        pool.shutdown(wait=False)
-        with _testing_lock:
-            _testing.discard(engine)
+    except Exception:
+        _release()
+        raise
+    # The engine stays "being tested" until its call really ends, so a click
+    # after a timeout can't stack a second real call on a hung one.
+    future.add_done_callback(_release)
+    pool.shutdown(wait=False)
+    try:
+        result = future.result(timeout=TEST_TIMEOUT_S)
+    except FutureTimeout:
+        result = {"ok": False, "error": f"No answer within {TEST_TIMEOUT_S} seconds."}
     error = None
     if not result.get("ok"):
         # Keys, then paths and URLs-with-paths (a local server's address)
         # come out: this text is shown later by an admin.settings read.
         error = diagnostics.redact_for_support(str(result.get("error") or "The test failed."))
         error = error[:_MAX_TEST_ERROR]
-    db.set_app_setting(ENGINE_TEST_PREFIX + engine, {
-        "ok": bool(result.get("ok")),
-        "tested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "error": error})
+    # A key or endpoint saved while the test ran makes this result stale:
+    # it tested the old one, so it isn't recorded.
+    if settings_service.engine_test_generation(engine) == generation:
+        db.set_app_setting(ENGINE_TEST_PREFIX + engine, {
+            "ok": bool(result.get("ok")),
+            "tested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "error": error})
     return engine_status(engine)

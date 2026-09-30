@@ -211,6 +211,11 @@ def _engine_choices() -> tuple:
     return tuple(k for k in translate_engines.ENGINES if k != "test_offline")
 
 
+def engine_preference_choices() -> tuple:
+    """Engines the "default engine for new dramas" preference accepts."""
+    return _engine_choices()
+
+
 def _ocr_choices() -> tuple:
     import ocr
     return tuple(ocr.OCR_BACKEND_OPTIONS)
@@ -612,9 +617,22 @@ def clear_engine_key(engine: str, env_path: str = None) -> dict:
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
 
 
+ENGINE_TEST_GENERATION_PREFIX = "engine_test_gen."
+
+
+def engine_test_generation(engine: str) -> int:
+    """Bumped on every key/endpoint write for `engine`, so a Test that was
+    already running when the key changed doesn't record its stale result."""
+    import db
+    value = db.get_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine, 0)
+    return value if isinstance(value, int) else 0
+
+
 def _forget_engine_test(name: str):
     """Drops the saved Test result for the engine a key or endpoint belongs
     to (Step 36), e.g. "ollama_url" -> "ollama"."""
     import db
     engine = name[:-len("_url")] if name.endswith("_url") else name
+    db.set_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine,
+                       engine_test_generation(engine) + 1)
     db.set_app_setting(ENGINE_TEST_PREFIX + engine, None)

@@ -65,6 +65,7 @@ describe('engine routing view', () => {
   it('blocks Test only when the key is missing', () => {
     expect(testBlockedReason(eng({ status: 'not_configured', key_configured: false }))).toMatch(/key/)
     expect(testBlockedReason(eng())).toBeNull()
+    expect(testBlockedReason(eng({ test_blocked: 'NLLB downloads a large model' }))).toMatch(/NLLB/)
     expect(testBlockedReason(eng({ status: 'failed' }))).toBeNull()
   })
 
