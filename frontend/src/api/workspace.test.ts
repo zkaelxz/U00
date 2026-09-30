@@ -4,6 +4,7 @@ import { ApiError } from './client'
 import {
   attachNovelEpub,
   attachNovelText,
+  getDiarizationConfig,
   startDiarization,
   startTranscribe,
   updateTranscribeConfig,
@@ -76,6 +77,25 @@ describe('workspace api', () => {
       '/api/diarization/dramas/4/run?expected_speakers=0',
       '/api/diarization/dramas/4/run',
     ])
+  })
+
+  it('sends overwrite_manual with confirm only when asked (D06)', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, { job_id: 'j' }, calls)
+    await startDiarization(4, { expectedSpeakers: 3, overwriteManual: true }, f)
+    await startDiarization(4, { overwriteManual: false }, f)
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/diarization/dramas/4/run?expected_speakers=3&overwrite_manual=true&confirm=true',
+      '/api/diarization/dramas/4/run',
+    ])
+  })
+
+  it('reads the diarization config (D03)', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, { drama_id: 4, expected_speakers: 3 }, calls)
+    const c = await getDiarizationConfig(4, f)
+    expect(c.expected_speakers).toBe(3)
+    expect(calls[0].url).toBe('/api/diarization/dramas/4/config')
   })
 
   it('passes a speaker range as min_speakers/max_speakers', async () => {

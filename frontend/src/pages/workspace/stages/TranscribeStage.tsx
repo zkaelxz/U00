@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { getSettings } from '../../../api/settings'
 import {
+  getDiarizationConfig,
   getTranscribeConfig,
   startDiarization,
   startTranscribe,
@@ -15,6 +16,7 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type {
+  DiarizationConfig,
   MediaStatus,
   TranscribeConfig,
   TranscribeConfigUpdate,
@@ -137,6 +139,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
+  // D03/D06: the last run's speaker count and the hand-corrected speakers.
+  const [diar, setDiar] = useState<DiarizationConfig | null>(null)
+  const [diarReloads, setDiarReloads] = useState(0)
+  const [overwriteManual, setOverwriteManual] = useState(false)
+  const [overwriteAck, setOverwriteAck] = useState(false)
+  // Only an untouched form (nothing kept for this drama) takes the last run's count.
+  const seedSpeakers = useRef(restored.speakers === undefined)
 
   useEffect(() => {
     let cancelled = false
@@ -152,6 +161,32 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       cancelled = true
     }
   }, [dramaId])
+
+  useEffect(() => {
+    let cancelled = false
+    getDiarizationConfig(dramaId).then(
+      (c) => {
+        if (cancelled) return
+        setDiar(c)
+        if (seedSpeakers.current) {
+          seedSpeakers.current = false
+          // 0 is "auto", the same as blank.
+          if (c.expected_speakers) setSpeakers((cur) => (cur.trim() ? cur : String(c.expected_speakers)))
+        }
+      },
+      () => undefined, // advisory: without it the speaker count stays blank and corrections are kept
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, diarReloads])
+
+  // A finished job may have changed the speakers: re-read the counts.
+  const wasBusy = useRef(busy)
+  useEffect(() => {
+    if (wasBusy.current && !busy) setDiarReloads((n) => n + 1)
+    wasBusy.current = busy
+  }, [busy])
 
   useEffect(() => {
     saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames })
@@ -268,11 +303,22 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       return
     }
     setProblem(null)
-    startDiarization(dramaId, { expectedSpeakers: hints.expected, minSpeakers: hints.min, maxSpeakers: hints.max }).then((r) => {
+    const overwrite = manualCount > 0 && overwriteManual && overwriteAck
+    startDiarization(dramaId, {
+      expectedSpeakers: hints.expected,
+      minSpeakers: hints.min,
+      maxSpeakers: hints.max,
+      ...(overwrite ? { overwriteManual: true } : {}),
+    }).then((r) => {
       setError(null)
+      setOverwriteManual(false)
+      setOverwriteAck(false)
       onJobStarted(r.job_id)
     }, setError)
   }
+  const manualCount = diar?.manual_speaker_count ?? 0
+  const needsAck = manualCount > 0 && overwriteManual && !overwriteAck
+  const corrections = `${manualCount} speaker correction${manualCount === 1 ? '' : 's'}`
 
   const select = (
     label: string,
@@ -404,10 +450,45 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} />
           </Field>
         </div>
+        {manualCount > 0 && (
+          <div className="source-manual" data-testid="manual-speakers">
+            <div className="setting-list">
+              <Field
+                label={`Replace my ${corrections}`}
+                help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
+              >
+                <Toggle
+                  checked={overwriteManual}
+                  onChange={(v) => {
+                    setOverwriteManual(v)
+                    setOverwriteAck(false)
+                  }}
+                />
+              </Field>
+            </div>
+            {overwriteManual ? (
+              <label className="inline stage-ack">
+                <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
+                I understand my {corrections} will be replaced
+              </label>
+            ) : (
+              <p className="muted">Your {corrections} {manualCount === 1 ? 'is' : 'are'} kept.</p>
+            )}
+          </div>
+        )}
         <div className="actions">
-          <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={diarize}>
+          <button
+            type="button"
+            className={buttonClass('ghost')}
+            disabled={busy || needsAck}
+            aria-describedby={needsAck ? 'diarize-needed' : undefined}
+            onClick={diarize}
+          >
             Detect speakers only
           </button>
+          {needsAck && (
+            <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
+          )}
         </div>
       </Section>
 

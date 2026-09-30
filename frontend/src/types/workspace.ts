@@ -70,6 +70,18 @@ export interface TranscribeRunRequest {
   tesseract_cmd?: string | null
 }
 
+// GET /api/diarization/dramas/{id}/config (api/schemas.py DiarizationConfig).
+export interface DiarizationConfig {
+  drama_id: number
+  hf_token_configured: boolean
+  expected_speakers: number | null // the last run's count (D03)
+  min_speakers: number | null
+  max_speakers: number | null
+  last_device: string | null
+  audio_available: boolean
+  manual_speaker_count?: number // lines whose speaker was corrected by hand (D06)
+}
+
 export interface JobStarted {
   job_id: string
 }
