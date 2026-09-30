@@ -7,9 +7,15 @@ export interface AssistantSettings {
   engine: string | null
   model: string | null
   engine_choices: string[]
+  // Step 60: implement -> independent review on a different engine. Off by default.
+  roles_enabled?: boolean
+  review_engine?: string | null
+  review_model?: string | null
 }
 
-export type AssistantSettingsPatch = Partial<Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model'>>
+export type AssistantSettingsPatch = Partial<
+  Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model'>
+>
 
 export interface AssistantTool {
   name: string
@@ -56,6 +62,17 @@ export interface ToolCall {
   summary: string
 }
 
+export type ReviewVerdict = 'agrees' | 'concerns' | 'unclear' | 'unavailable'
+
+// Step 60: the independent review role's view of the proposed fix.
+export interface AssistantReview {
+  engine: string | null
+  model: string | null
+  verdict: ReviewVerdict
+  notes: string
+  tool_calls: ToolCall[]
+}
+
 export interface AskResponse {
   answer: string
   proposed_patches: ProposedPatch[]
@@ -63,6 +80,7 @@ export interface AskResponse {
   tool_calls: ToolCall[]
   engine: string
   model: string | null
+  review?: AssistantReview | null
 }
 
 export interface ChangelogRequest {

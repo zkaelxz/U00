@@ -71,3 +71,11 @@
   .assistant-ask .btn-primary, .assistant-backlog-add .btn-primary, .assistant-changelog-form .btn-primary { width: 100%; }
   .assistant-backlog > li { padding-inline: var(--space-3); }
 }
+
+/* Step 60: the independent review next to a proposed fix. */
+.assistant-review {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+}

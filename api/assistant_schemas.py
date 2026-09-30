@@ -19,6 +19,9 @@ class AssistantSettings(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     engine_choices: List[str]
+    roles_enabled: bool = False
+    review_engine: Optional[str] = None
+    review_model: Optional[str] = None
 
 
 class AssistantSettingsUpdate(BaseModel):
@@ -26,6 +29,9 @@ class AssistantSettingsUpdate(BaseModel):
     developer_mode: Optional[bool] = None
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=100)
+    roles_enabled: Optional[bool] = None
+    review_engine: Optional[str] = Field(None, max_length=40)
+    review_model: Optional[str] = Field(None, max_length=100)
 
 
 class AssistantTool(BaseModel):
@@ -72,6 +78,15 @@ class AssistantToolCall(BaseModel):
     summary: str
 
 
+class AssistantReview(BaseModel):
+    """Step 60: the independent review role's view of a proposed fix."""
+    engine: Optional[str] = None
+    model: Optional[str] = None
+    verdict: Literal["agrees", "concerns", "unclear", "unavailable"]
+    notes: str
+    tool_calls: List[AssistantToolCall]
+
+
 class AssistantAnswer(BaseModel):
     answer: str
     proposed_patches: List[AssistantPatch]
@@ -79,6 +94,7 @@ class AssistantAnswer(BaseModel):
     tool_calls: List[AssistantToolCall]
     engine: str
     model: Optional[str] = None
+    review: Optional[AssistantReview] = None
 
 
 class AssistantChangelogRequest(BaseModel):

@@ -59,6 +59,10 @@ export interface AssistantMock {
   askGate: Promise<void> | null
   calls: Call[]
   unmocked: string[]
+  /** Step 60: the independent review settings and the review /ask returns. */
+  rolesEnabled: boolean
+  reviewEngine: string | null
+  review: unknown
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -70,7 +74,8 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
   const s: AssistantMock = {
     developerMode: false, local: true, engine: null, model: null,
     backlog: [{ id: 1, kind: 'note', text: 'Tidy the Export stage copy.', created_at: '2026-09-28T09:30:00' }],
-    askStatus: 200, askGate: null, calls: [], unmocked: [], ...over,
+    askStatus: 200, askGate: null, calls: [], unmocked: [],
+    rolesEnabled: false, reviewEngine: null, review: null, ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -84,7 +89,10 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     s.calls.push({ method: req.method(), path: url.pathname, body })
     return url
   }
-  const settings = () => ({ developer_mode: s.developerMode, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'] })
+  const settings = () => ({
+    developer_mode: s.developerMode, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'],
+    roles_enabled: s.rolesEnabled, review_engine: s.reviewEngine, review_model: null,
+  })
 
   // Guard first: later routes take precedence.
   await page.route(/\/api\/assistant\/.*/, (route) => {
@@ -105,6 +113,8 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
       if ('developer_mode' in b) s.developerMode = !!b.developer_mode
       if ('engine' in b) s.engine = b.engine ?? null
       if ('model' in b) s.model = b.model ?? null
+      if ('roles_enabled' in b) s.rolesEnabled = !!b.roles_enabled
+      if ('review_engine' in b) s.reviewEngine = b.review_engine ?? null
     }
     return json(route, settings())
   })
@@ -119,7 +129,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     if (s.askStatus !== 200) {
       return json(route, { error: { code: 'dependency_unavailable', message: 'No API key for this engine.' } }, s.askStatus)
     }
-    return json(route, ANSWER)
+    return json(route, { ...ANSWER, review: s.review })
   })
   await page.route(/\/api\/assistant\/changelog$/, (route) => {
     record(route)

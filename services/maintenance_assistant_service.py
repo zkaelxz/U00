@@ -167,12 +167,18 @@ def developer_mode_enabled() -> bool:
 def get_settings() -> dict:
     engine = _get("engine")
     model = _get("model")
+    review_engine = _get("review_engine")
+    review_model = _get("review_model")
     choices = _llm_engine_choices()
     return {
         "developer_mode": developer_mode_enabled(),
         "engine": engine if engine in choices else None,
         "model": model if isinstance(model, str) and model else None,
         "engine_choices": choices,
+        # Step 60: implement -> independent review, off by default.
+        "roles_enabled": _get("roles_enabled", False) is True,
+        "review_engine": review_engine if review_engine in choices else None,
+        "review_model": review_model if isinstance(review_model, str) and review_model else None,
     }
 
 
@@ -200,18 +206,20 @@ def set_settings(updates: dict) -> dict:
         raise InvalidInputError("Settings must be an object.")
     cleaned = {}
     for key, value in updates.items():
-        if key == "developer_mode":
+        if key in ("developer_mode", "roles_enabled"):
             if not isinstance(value, bool):
-                raise InvalidInputError("developer_mode must be true or false.")
+                raise InvalidInputError(f"{key} must be true or false.")
             cleaned[key] = value
-        elif key == "engine":
-            cleaned[key] = _check_engine_name(value)
-        elif key == "model":
-            cleaned[key] = _check_model(value)
+        elif key in ("engine", "review_engine"):
+            cleaned[key] = _check_engine_name(value, key)
+        elif key in ("model", "review_model"):
+            cleaned[key] = _check_model(value, key)
         else:
             raise InvalidInputError("Unknown assistant setting.")
-    if "engine" in cleaned and "model" not in cleaned and cleaned["engine"] != get_settings()["engine"]:
-        cleaned["model"] = None  # a model name belongs to the engine it was saved with
+    current = get_settings()
+    for eng, mod in (("engine", "model"), ("review_engine", "review_model")):
+        if eng in cleaned and mod not in cleaned and cleaned[eng] != current[eng]:
+            cleaned[mod] = None  # a model name belongs to the engine it was saved with
     for key, value in cleaned.items():
         db.set_app_setting(_SETTINGS_PREFIX + key, value)
     return get_settings()
@@ -642,22 +650,29 @@ _PATCH_RE = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.DOTALL)
 _PATCH_FILE_RE = re.compile(r"^\+\+\+ (?:b/)?(\S+)", re.MULTILINE)
 
 
-def _system_prompt() -> str:
+def tools_prompt() -> str:
+    """How to call the read-only tools; shared by every role (Step 60)."""
     tool_lines = "\n".join(f"- {name}: {desc} Example args: {example}"
                            for name, (_fn, desc, example) in READ_ONLY_TOOLS.items())
     return (
-        "You are the maintenance assistant inside Baihe, a subtitle/translation app, "
-        "helping its owner diagnose problems in the app itself. You can only READ: "
-        "there is no tool that edits files, runs a mutating git command, changes "
-        "settings or touches the user's library, and you must not claim to have "
-        "changed anything.\n\n"
         "To use a tool, reply with one or more lines of exactly this form and nothing "
         "else on those lines:\n"
         'TOOL: {"id": "t1", "name": "<tool>", "args": {...}}\n'
         f"Give each call a new id. At most {MAX_TOOL_CALLS_PER_ROUND} calls per reply. "
         "You will get each result back labelled with its id. When you have enough, "
         "reply with your final answer and no TOOL lines.\n\n"
-        f"Tools:\n{tool_lines}\n\n"
+        f"Tools:\n{tool_lines}"
+    )
+
+
+def _system_prompt() -> str:
+    return (
+        "You are the maintenance assistant inside Baihe, a subtitle/translation app, "
+        "helping its owner diagnose problems in the app itself. You can only READ: "
+        "there is no tool that edits files, runs a mutating git command, changes "
+        "settings or touches the user's library, and you must not claim to have "
+        "changed anything.\n\n"
+        + tools_prompt() + "\n\n"
         "Final answer rules: ground every claim in what the tools showed (name the "
         "file and line). If you can't tell, say so plainly instead of guessing. If you "
         "propose a code fix, put it in a ```diff fenced block as a unified diff "
@@ -782,12 +797,14 @@ def _shown_args(args: dict) -> dict:
     return shown
 
 
-def run_diagnosis(question: str, history: list, engine, chat=None) -> dict:
+def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt=None) -> dict:
     """The tool loop. `chat(system_prompt, messages, engine) -> str` is
     injectable for tests. Returns the final answer text and the tool
-    calls made (id, name, args, ok, summary)."""
+    calls made (id, name, args, ok, summary). `system_prompt` sets the
+    role (Step 60's reviewer); the tool table is the same read-only one
+    for every role."""
     chat = chat or _chat
-    system_prompt = _system_prompt()
+    system_prompt = system_prompt or _system_prompt()
     messages = list(history) + [{"role": "user", "content": question}]
     calls_made = []
     used_ids = set()
@@ -840,21 +857,69 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
         raise ConflictError("The assistant is already answering a question. Try again when it's done.")
     try:
         result = run_diagnosis(question, history, engine, chat=chat)
+        raw = _redact(result["answer"])
+        answer = _clean_answer(raw)
+        if raw.count("```") % 2:
+            answer += ("\n\n[The answer looks cut off (an unclosed code block); any fix in it "
+                       "is incomplete. Ask for just the patch.]")
+        patches = extract_patches(raw)
+        review = None
+        if patches and get_settings()["roles_enabled"]:
+            review = independent_review(question, answer, patches, engine_name, chat=chat)
     finally:
         _ASK_LOCK.release()
-    raw = _redact(result["answer"])
-    answer = _clean_answer(raw)
-    if raw.count("```") % 2:
-        answer += ("\n\n[The answer looks cut off (an unclosed code block); any fix in it "
-                   "is incomplete. Ask for just the patch.]")
     return {
         "answer": answer,
-        "proposed_patches": extract_patches(raw),
+        "proposed_patches": patches,
         "suggested_backlog": extract_backlog_suggestions(raw),
         "tool_calls": result["tool_calls"],
         "engine": engine_name,
         "model": model,
+        "review": review,
     }
+
+
+# ---------------------------------------------------------------------------
+# Step 60: independent cross-provider review of a proposed fix
+# ---------------------------------------------------------------------------
+
+def build_review_engine():
+    """The review role's engine: the saved review_engine only (never a
+    fallback to the implement engine). Returns (engine, name, model) or
+    raises ServiceError with a user-facing reason."""
+    from services import line_ai_service, reader_service, settings_service
+    settings = get_settings()
+    name = settings["review_engine"]
+    if not name:
+        raise ConflictError("No review engine is set. Pick one that differs from the "
+                            "implementing engine in the assistant's settings.")
+    model = settings["review_model"]
+    engine = reader_service._llm_engine(name, model)
+    line_ai_service.refuse_if_over_monthly_cap(name, settings_service.get_gemini_free_tier())
+    return engine, name, model
+
+
+def independent_review(question: str, answer: str, patches: list, implement_engine: str,
+                       chat=None) -> dict:
+    """Runs the review role on a DIFFERENT engine and returns
+    {engine, model, verdict, notes, tool_calls}. Never raises: a review
+    that can't run comes back as verdict "unavailable" with the reason,
+    and the proposed fix is still shown -- nothing is resolved silently."""
+    from services import assistant_roles_service as roles
+    try:
+        engine, name, model = build_review_engine()
+        if roles.same_backend(implement_engine, name):
+            return {"engine": name, "model": model, "verdict": "unavailable", "tool_calls": [],
+                    "notes": (f"The review engine ({name}) is the same as the implementing "
+                              "engine. Pick a different engine for an independent review.")}
+        result = run_diagnosis(roles.review_request(question, answer, patches), [], engine,
+                               chat=chat, system_prompt=roles.review_system_prompt(tools_prompt()))
+    except ServiceError as e:
+        return {"engine": get_settings()["review_engine"], "model": None, "verdict": "unavailable",
+                "notes": _redact(e.message)[:500], "tool_calls": []}
+    verdict, notes = roles.parse_verdict(_redact(result["answer"]))
+    return {"engine": name, "model": model, "verdict": verdict,
+            "notes": _clean_answer(notes), "tool_calls": result["tool_calls"]}
 
 
 # ---------------------------------------------------------------------------
