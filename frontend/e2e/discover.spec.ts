@@ -80,7 +80,7 @@ test('find on platforms translates an English title with the picked engine', asy
   expect(posts(s, '/translate-query')).toHaveLength(1)
 
   await page.getByLabel('Genre').selectOption('any')
-  await page.getByLabel('JJWXC tag').fill('言情')
+  await page.getByRole('textbox', { name: 'JJWXC tag' }).fill('言情')
   await page.getByRole('button', { name: 'Find', exact: true }).click()
   await expect.poll(() => s.calls.some((c) => c.path.includes('genre=any&tag=%E8%A8%80%E6%83%85'))).toBe(true)
 
