@@ -74,7 +74,11 @@ export function buildPersonCreate(f: PersonForm): SeriesPersonCreate {
 
 // ---- Bulk pronouns (parity X16) ----
 
-/** The bulk picker: '' (clear), a preset, or CUSTOM plus typed text. */
+/** The bulk picker: '' (nothing chosen yet), CLEAR_PRONOUNS, a preset, or
+ * CUSTOM plus typed text. Nothing is chosen at first, so one tap can't clear
+ * everyone's pronouns by accident. */
+export const CLEAR_PRONOUNS = 'clear'
+
 export interface BulkPronounsForm {
   choice: string
   custom: string
@@ -87,12 +91,14 @@ export const peopleCount = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}
 /** Why the bulk button is disabled, or null when it can run. */
 export function bulkPronounsProblem(selected: number, f: BulkPronounsForm): string | null {
   if (selected === 0) return 'Still needed: tick at least one person in the list.'
+  if (!f.choice) return 'Still needed: choose the pronouns to set.'
   if (f.choice === CUSTOM && !f.custom.trim()) return 'Still needed: type the custom pronouns.'
   return null
 }
 
 /** The pronoun text to set ('' clears). */
-export const bulkPronouns = (f: BulkPronounsForm) => (f.choice === CUSTOM ? f.custom.trim() : f.choice)
+export const bulkPronouns = (f: BulkPronounsForm) =>
+  f.choice === CUSTOM ? f.custom.trim() : f.choice === CLEAR_PRONOUNS ? '' : f.choice
 
 /** Who gets a request: people whose pronouns already match are skipped,
  * so only a change is sent. Order follows `people`, picked by id. */

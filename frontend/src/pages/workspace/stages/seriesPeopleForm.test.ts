@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { addSeriesPerson, updateSeriesPerson } from '../../../api/seriesPeople'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import {
+  CLEAR_PRONOUNS,
   CUSTOM,
   buildPersonCreate,
   buildPersonUpdate,
@@ -62,8 +63,9 @@ describe('bulk pronouns', () => {
     expect(bulkPronounsProblem(0, { choice: 'he/him', custom: '' })).toBe('Still needed: tick at least one person in the list.')
     expect(bulkPronounsProblem(2, { choice: CUSTOM, custom: '  ' })).toBe('Still needed: type the custom pronouns.')
     expect(bulkPronounsProblem(2, { choice: CUSTOM, custom: 'xe/xem' })).toBeNull()
-    // Unspecified clears, so it can run.
-    expect(bulkPronounsProblem(1, toBulkPronounsForm())).toBeNull()
+    // Nothing is chosen at first, so one tap can't clear everyone; Unspecified must be picked.
+    expect(bulkPronounsProblem(1, toBulkPronounsForm())).toBe('Still needed: choose the pronouns to set.')
+    expect(bulkPronounsProblem(1, { choice: CLEAR_PRONOUNS, custom: '' })).toBeNull()
   })
 
   it('sends only {pronouns}, picked by id, skipping people who already match', () => {
@@ -75,7 +77,7 @@ describe('bulk pronouns', () => {
   })
 
   it('clears with "" and trims a custom value', () => {
-    expect(planBulkPronouns(cast, new Set([11, 13]), toBulkPronounsForm())).toMatchObject({
+    expect(planBulkPronouns(cast, new Set([11, 13]), { choice: CLEAR_PRONOUNS, custom: '' })).toMatchObject({
       body: { pronouns: '' },
       send: [mei],
       unchanged: [lan],

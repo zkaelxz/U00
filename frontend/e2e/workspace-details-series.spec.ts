@@ -52,6 +52,12 @@ test('Edit details shows and saves genre, status, counts, source URL and episode
   await page.getByLabel('Chapter count', { exact: true }).fill('')
   await page.getByLabel('Episode number', { exact: true }).fill('3')
   await page.getByLabel('Running episode summary', { exact: true }).fill('After.')
+  // A malformed count is caught, never read as "" (which would clear it).
+  await page.getByLabel('Episode number', { exact: true }).fill('12e')
+  await page.getByRole('button', { name: 'Save details' }).click()
+  await expect(page.getByText('Enter a whole number, or leave it empty.')).toBeVisible()
+  expect(bodies).toEqual([])
+  await page.getByLabel('Episode number', { exact: true }).fill('3')
   await page.getByLabel('Source URL', { exact: true }).fill('ftp://nope')
   await page.getByRole('button', { name: 'Save details' }).click()
   await expect(page.getByText('Start the link with http:// or https://.')).toBeVisible()

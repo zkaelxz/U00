@@ -325,8 +325,16 @@ export function GlossaryPanel() {
         />
       ) : (
         <div className="actions">
-          <button type="button" className={buttonClass('secondary')} disabled={seriesId == null} onClick={() => setEditing(EMPTY)}>Add term</button>
-          {seriesId == null && <span className="muted">Still needed: a series (above).</span>}
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={seriesId == null}
+            aria-describedby={seriesId == null ? 'glossary-add-reason' : undefined}
+            onClick={() => setEditing(EMPTY)}
+          >
+            Add term
+          </button>
+          {seriesId == null && <span className="muted" id="glossary-add-reason">Still needed: a series (above).</span>}
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />

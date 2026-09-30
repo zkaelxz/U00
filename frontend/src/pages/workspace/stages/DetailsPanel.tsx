@@ -114,7 +114,8 @@ export function DetailsPanel() {
   )
   const count = (k: 'chapter_count' | 'episode_number', help: string) => (
     <Field label={FIELD_LABELS[k]} help={help} error={errors[k]}>
-      <input type="number" inputMode="numeric" min={0} step={1} value={form[k]} onChange={set(k)} />
+      {/* Text, not type=number: a malformed entry must reach the whole-number check, not read as "" (clear). */}
+      <input type="text" inputMode="numeric" value={form[k]} onChange={set(k)} />
     </Field>
   )
 

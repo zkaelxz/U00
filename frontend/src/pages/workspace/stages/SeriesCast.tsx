@@ -11,6 +11,7 @@ import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import {
+  CLEAR_PRONOUNS,
   CUSTOM,
   PRONOUN_PRESETS,
   buildPersonCreate,
@@ -239,7 +240,8 @@ function BulkPronouns({ seriesId, cast, selected, onSelect, onUpdated, onRunning
         <div className="series-person-grid">
           <Field label="Set pronouns to" help={PRONOUNS_HELP}>
             <select value={form.choice} disabled={running} onChange={(e) => setForm((f) => ({ ...f, choice: e.target.value }))}>
-              <option value="">Unspecified (clear them)</option>
+              <option value="">Choose…</option>
+              <option value={CLEAR_PRONOUNS}>Unspecified (clear them)</option>
               {PRONOUN_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
               <option value={CUSTOM}>Custom…</option>
             </select>
@@ -251,10 +253,16 @@ function BulkPronouns({ seriesId, cast, selected, onSelect, onUpdated, onRunning
           )}
         </div>
         <div className="actions">
-          <button type="button" className={buttonClass('primary')} disabled={running || reason !== null} onClick={() => void run()}>
+          <button
+            type="button"
+            className={buttonClass('primary')}
+            disabled={running || reason !== null}
+            aria-describedby={reason && !running ? `bulk-pronouns-reason-${seriesId}` : undefined}
+            onClick={() => void run()}
+          >
             {n ? `Set pronouns for ${n} selected` : 'Set pronouns for selected'}
           </button>
-          {reason && !running && <span className="muted">{reason}</span>}
+          {reason && !running && <span className="muted" id={`bulk-pronouns-reason-${seriesId}`}>{reason}</span>}
         </div>
         {progress && <p role="status">Updating {progress.done} of {progress.total}…</p>}
         {result && <p role="status">{result.summary}</p>}

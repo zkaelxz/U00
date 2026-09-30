@@ -234,7 +234,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     return () => {
       cancelled = true
     }
-  }, [dramaId, hasMedia])
+    // `media` is re-read after an upload or removal, so a replaced file is measured again.
+  }, [dramaId, hasMedia, media])
   // What the primary button still needs, in words (empty = ready).
   const needed = !config || !media
     ? ''

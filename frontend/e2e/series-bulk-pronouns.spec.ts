@@ -88,6 +88,8 @@ test.describe('Series cast bulk pronouns', () => {
 
     // Custom with nothing typed is refused.
     const pick = page.getByLabel('Set pronouns to', { exact: true })
+    // Nothing is chosen yet: the run waits for a choice.
+    await expect(page.getByText('Still needed: choose the pronouns to set.')).toBeVisible()
     await pick.selectOption({ label: 'Custom…' })
     await expect(run).toBeDisabled()
     await expect(page.getByText('Still needed: type the custom pronouns.')).toBeVisible()
