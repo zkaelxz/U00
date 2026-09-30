@@ -286,3 +286,16 @@ export interface RemoteHealth {
   ddns: RemoteHealthCheck & { configured: boolean }
   listener: RemoteHealthCheck
 }
+
+// Settings > Remote access: the public-address check (PC only). The address
+// is write-only: the API answers `configured` and, for Test, a state and a
+// fixed message, never the address.
+export interface RemoteIpCheckStatus {
+  configured: boolean
+}
+
+export interface RemoteIpCheckTestResult {
+  configured: boolean
+  state: RemoteCheckState
+  message: string
+}

@@ -74,6 +74,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/notifications': EMPTY,
   // The remote-access banner reads this on the PC only (these specs are remote); off here.
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
+  // Settings > Remote access (PC only, so not asked by these remote specs).
+  '/api/diagnostics/remote-health/ip-check': { configured: false },
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
   // Settings > Signed-in devices, for a signed-in person: just this device.

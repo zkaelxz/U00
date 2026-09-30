@@ -165,7 +165,10 @@ def start_remote_health_monitor(settings, interval: float = None,
             while not stop.wait(wait):
                 wait = interval
                 try:
-                    rhs.run_check(settings.public_url, settings.household_port, settings.host)
+                    # `stop` makes a running cycle give up at once, writing
+                    # and sending nothing, so it can't outlive the join below.
+                    rhs.run_check(settings.public_url, settings.household_port, settings.host,
+                                  stop=stop)
                 except Exception as exc:
                     _log("remote access health check failed: %s", type(exc).__name__)
 

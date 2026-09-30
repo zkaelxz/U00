@@ -200,7 +200,8 @@ baihe-subtitler/
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
 │   ├── remote_health_service.py  remote-access health: Caddy's certificate expiry (local TLS read), optional
 │   │                             public-name vs public-IP check, household listener up; scheduled by
-│   │                             api/background.py only while remote access is on; alerts once per change
+│   │                             api/background.py only while remote access is on; alerts once per change;
+│   │                             the check address is set from Settings (PC only, .env, never returned)
 │   ├── jellyfin_service.py       Step 39 -- optional Jellyfin connector (off by default): settings (key in .env),
 │   │                             test connection, read-only scan for items missing a subtitle language, send
 │   │                             subtitles (+ optional video) into the library folder in Jellyfin's naming, refresh
@@ -707,7 +708,9 @@ baihe-subtitler/
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
-│   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
+│   │                              src/api/notifications.ts. RemoteAccessSection + remoteIpCheck.ts (Settings >
+│   │                              Remote access: the public-address check, set/clear/test, PC only,
+│   │                              configured yes/no only); API in src/api/diagnostics.ts. PreferencesSections + preferences.ts (Settings >
 │   │                              Defaults for new dramas, Spending, OCR, Offline and performance,
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
 │   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,

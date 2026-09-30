@@ -20,6 +20,8 @@ import type {
   DiagnosticsSetupChecks,
   DiagnosticsSupportReport,
   RemoteHealth,
+  RemoteIpCheckStatus,
+  RemoteIpCheckTestResult,
 } from '../types/diagnostics'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -116,3 +118,18 @@ export const deleteBugBundle = (id: number, f?: Fetch) =>
 
 // The last scheduled remote-access check; reading it starts no check.
 export const getRemoteHealth = (f?: Fetch) => getJson<RemoteHealth>(`${BASE}/remote-health`, f)
+
+// Settings > Remote access (PC only). Set and clear sit behind the key-write
+// gate like the notification addresses, so they use a plain fetch (a 403 on
+// the PC means key writes are off, not "away from the PC"); Test goes through
+// pcOnlyFetch. The address goes in the body only and never comes back.
+const IP_CHECK = `${BASE}/remote-health/ip-check`
+
+export const getIpCheckStatus = (f?: Fetch) => getJson<RemoteIpCheckStatus>(IP_CHECK, f)
+
+export const setIpCheck = (value: string, f?: Fetch) =>
+  postJson<RemoteIpCheckStatus>(IP_CHECK, { value, confirm: true }, f)
+
+export const clearIpCheck = (f?: Fetch) => postJson<RemoteIpCheckStatus>(`${IP_CHECK}/clear`, { confirm: true }, f)
+
+export const testIpCheck = (f?: Fetch) => postJson<RemoteIpCheckTestResult>(`${IP_CHECK}/test`, {}, pcOnlyFetch(f))
