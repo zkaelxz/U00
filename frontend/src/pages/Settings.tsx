@@ -8,6 +8,7 @@ import { ApiKeysCard } from './settings/ApiKeysCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { NotionSection } from './settings/NotionSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
@@ -71,6 +72,7 @@ export default function SettingsPage() {
           <SpendingCard {...prefProps} />
           <NotificationsSection />
           <JellyfinSection />
+          <NotionSection />
           <ExtensionSection />
           <AppearanceCard />
           <AdvancedCard {...prefProps} />

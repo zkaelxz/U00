@@ -588,7 +588,11 @@ baihe-subtitler/
 │   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
 │   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
-│   │                              settings.css (the page's Card stack and status rows)
+│   │                              settings.css (the page's Card stack and status rows).
+│   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
+│   │                              target database/page link, test connection; PC only, unit-tested helpers);
+│   │                              API in src/api/notion.ts (types/notion.ts). Export > Export to Notion is
+│   │                              src/pages/workspace/stages/ExportNotion.tsx (job + "Open in Notion" link)
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
