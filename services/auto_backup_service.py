@@ -123,6 +123,10 @@ def _check_folder(value) -> str:
             real == backups or real.startswith(backups + os.sep)):
         raise InvalidInputError("The backup folder can't be inside the library (it would be "
                                 "copied into its own backups). Pick a folder outside it.")
+    artifact_dirs = {os.path.join(lib, *sub) for sub in las._ARTIFACT_SUBDIRS.values()}
+    if real in artifact_dirs:
+        raise InvalidInputError("That folder holds the manual backups and exports; pick a "
+                                "folder of its own (the default is fine).")
     if not os.path.isdir(real):
         raise InvalidInputError("That backup folder doesn't exist. Create it first.")
     return os.path.normpath(value)
