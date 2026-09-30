@@ -13,6 +13,8 @@ import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
+import { StrongerEngine } from './StrongerEngine'
+import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, CONFLICT_MESSAGE, formatTime, isToolMode, JOB_RUNNING_MESSAGE, type LineDraft, type PanelMode } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
@@ -79,6 +81,8 @@ interface Props {
   ai: PanelMode | null
   // A translation-memory suggestion for this line (R11), if any.
   tm: TmSuggestion | null
+  // Step 99: the stronger engine offered for this hard line, if any.
+  stronger?: StrongerOffer | null
   issue: RowIssue | null
   actions: RowActions
   // Shown as a search result: offers "Show on its page".
@@ -97,7 +101,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, issue, actions, searchHit, jumped }: Props) {
+function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped }: Props) {
   const draft = edit?.draft ?? null
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -292,6 +296,16 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             limited && <span className="muted review-reason">Merge works in the All lines view.</span>
           )}
         </div>
+      )}
+
+      {stronger && line.en && (
+        <StrongerEngine
+          dramaId={dramaId}
+          line={line}
+          offer={stronger}
+          active={active}
+          onUse={(text) => actions.useSuggestion(line.id, text)}
+        />
       )}
 
       {edit?.details && draft && (

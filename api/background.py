@@ -12,6 +12,15 @@ only renders them):
   port 8756): only while the Sources setting `page_server_enabled` is on,
   from the Settings sidebar. The API starts it under the same setting.
 
+Also at startup (Step 43): the automatic-backup due-check
+(`services/auto_backup_service.check_and_run`, a no-op unless the owner
+turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
+drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
+leftover partial snapshots and restore staging folders
+(`auto_backup_service.cleanup_stale_leftovers`).
+The due-check then repeats hourly from the GPU-queue poller thread below
+(`auto_backup_service.periodic_tick`), so no extra thread is added.
+
 Both `ensure_*` functions are once-per-process and safe to call again, so
 this is idempotent. Off when `ApiSettings.background_services` is False:
 the dataclass default (every test that builds `ApiSettings(...)`) and
@@ -58,6 +67,11 @@ def start_gpu_queue_poller(interval: float = None) -> bool:
                     background_jobs.recheck_gpu_queue()
                 except Exception as exc:
                     _log("GPU queue re-check failed: %s", exc)
+                try:
+                    from services import auto_backup_service
+                    auto_backup_service.periodic_tick()
+                except Exception as exc:
+                    _log("automatic backup check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
         _gpu_poller = (thread, stop)
@@ -75,13 +89,24 @@ def stop_gpu_queue_poller(timeout: float = 5.0) -> None:
 
 
 def start_background_services() -> dict:
-    """Starts what is due; returns {"chapter_scheduler": bool,
-    "page_server": bool} (True = running after this call). Never raises: a
+    """Starts what is due (and runs the startup sweeps above); returns
+    {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a
     failure is logged and the API still starts."""
     global _started
     if _started is not None:
         return dict(_started)
     state = {"chapter_scheduler": False, "page_server": False}
+    try:
+        from services import drama_service
+        drama_service.cleanup_stale_tombstones()
+    except Exception as exc:
+        _log("leftover deleted-drama folders were not swept: %s", exc)
+    try:
+        from services import auto_backup_service
+        auto_backup_service.cleanup_stale_leftovers()
+        auto_backup_service.periodic_tick()   # the startup due-check
+    except Exception as exc:
+        _log("automatic backup check failed: %s", exc)
     try:
         from sources import chapter_check
         chapter_check.ensure_scheduler_started()

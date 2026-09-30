@@ -33,6 +33,7 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     auth_routes,
+    backup_routes,
     benchmark_routes,
     blocked_retry_routes,
     bug_report_routes,
@@ -47,9 +48,12 @@ from api.routers import (
     discover_routes,
     drama_routes,
     dub_routes,
+    engine_routing_routes,
+    stronger_engine_routes,
     export_routes,
     extension_routes,
     glossary_routes,
+    jellyfin_routes,
     jobs_routes,
     library_admin_routes,
     library_routes,
@@ -57,8 +61,10 @@ from api.routers import (
     lines_routes,
     live_routes,
     media_routes,
+    metadata_research_routes,
     metadata_routes,
     narration_routes,
+    notification_center_routes,
     notification_routes,
     novel_files_routes,
     novel_routes,
@@ -177,6 +183,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(media_routes.router)
     app.include_router(narration_routes.router)
     app.include_router(metadata_routes.router)
+    app.include_router(metadata_research_routes.router)
+    app.include_router(jellyfin_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
@@ -193,11 +201,15 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
+    app.include_router(backup_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
+    app.include_router(notification_center_routes.router)
     app.include_router(comic_routes.router)
+    app.include_router(engine_routing_routes.router)
+    app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(voice_clone_routes.router)

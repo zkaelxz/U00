@@ -52,6 +52,7 @@ import {
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
+import { useStrongerOffers } from './useStrongerOffers'
 import type { SplitChoice } from './SplitDialog'
 import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
@@ -798,6 +799,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       cancelled = true
     }
   }, [dramaId, shownIds, reloads])
+  // Step 99: lines to offer the stronger engine for (no engine call).
+  const strongerByLine = useStrongerOffers(dramaId, reloads)
   const tmByLine = useMemo(() => {
     const m = new Map<number, TmSuggestion>()
     for (const s of visibleTm(tmList, tmDismissed)) if (s.line_id !== null) m.set(s.line_id, s)
@@ -1020,6 +1023,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               edit={edit?.lineId === l.id ? edit : null}
               ai={ai?.lineId === l.id ? ai.mode : null}
               tm={tmByLine.get(l.id) ?? null}
+              stronger={strongerByLine.get(l.id) ?? null}
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}
               searchHit={searching}
