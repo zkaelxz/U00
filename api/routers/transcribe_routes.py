@@ -69,6 +69,7 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,
         expected_speakers=payload.expected_speakers,
+        min_speakers=payload.min_speakers, max_speakers=payload.max_speakers,
         initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd,
         extra_names=payload.extra_names)
 

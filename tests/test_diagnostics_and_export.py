@@ -68,7 +68,7 @@ class TestDiagnostics:
         for name, info in results.items():
             assert "installed" in info
             assert "powers" in info
-            assert info["tier"] in ("required", "engine", "feature", "dev")
+            assert info["tier"] in ("required", "engine", "feature", "dev", "experimental")
 
     def test_step_6_optional_dependencies_are_registered(self):
         """CLAUDE.md: every optional dependency must be listed here, or

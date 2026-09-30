@@ -11,6 +11,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
 
@@ -99,6 +100,7 @@ export default function SettingsPage() {
           <NotificationsSection />
           <AutoBackupCard />
           <JellyfinSection />
+          <TranscriptionExperimentsCard />
           <ExtensionSection />
           <AppearanceCard />
           <AdvancedCard {...prefProps} />
