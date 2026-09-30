@@ -48,6 +48,7 @@ from api.routers import (
     discover_lookup_routes,
     discover_routes,
     drama_routes,
+    events_routes,
     dub_routes,
     engine_routing_routes,
     stronger_engine_routes,
@@ -175,6 +176,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(events_routes.router)
     app.include_router(job_stage_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(translate_routes.router)

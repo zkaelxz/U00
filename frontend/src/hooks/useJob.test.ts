@@ -25,6 +25,27 @@ describe('startJobPolling', () => {
     expect(onDone).toHaveBeenCalledTimes(1)
   })
 
+  it('once: one successful read, then stops (the push stream carries the rest)', async () => {
+    const fetchJob = vi.fn(async () => job('running'))
+    const onUpdate = vi.fn()
+    startJobPolling('j', { intervalMs: 100, fetchJob, onUpdate, onError: vi.fn(), once: true })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(fetchJob).toHaveBeenCalledTimes(1)
+    expect(onUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('once: still retries a transient failure', async () => {
+    let calls = 0
+    const fetchJob = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) throw new ApiError(503, { code: 'dependency_unavailable', message: 'busy' })
+      return job('running')
+    })
+    startJobPolling('j', { intervalMs: 100, fetchJob, onUpdate: vi.fn(), onError: vi.fn(), once: true })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(fetchJob).toHaveBeenCalledTimes(2)
+  })
+
   it.each(['error', 'cancelled'])('treats %s as terminal', async (s) => {
     const fetchJob = vi.fn(async () => job(s))
     const onDone = vi.fn()

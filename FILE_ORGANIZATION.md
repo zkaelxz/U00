@@ -237,6 +237,10 @@ baihe-subtitler/
 │   │                             must resolve inside the voice-bank folder, symlinks refused
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
+│   │                             hooks name what changed, each stream re-reads it through the GET routes'
+│   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
+│   │                             job_records sweep for other processes' jobs
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
@@ -458,6 +462,8 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
+│       ├── events_routes.py      GET /api/events (SSE, library.read): job / job_gone / notifications / live /
+│       │                         resync / ping events, 15 s heartbeat, session re-checked every <= 5 s (services/event_stream_service.py)
 │       ├── job_stage_routes.py   GET /api/jobs/{id}/stages (library.read, job visibility): per-stage timing (Step 41)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
@@ -612,6 +618,10 @@ baihe-subtitler/
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
+│   ├── src/hooks/                 useJob (push, polling fallback), useEventStream (the tab's shared SSE stream,
+│   │                              src/api/eventStream.ts: reconnect with backoff, resync, poll fallback),
+│   │                              useMediaQuery, useShortcut (list keyboard shortcuts),
+
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              useReattachJob (a stage revisited mid-job picks its job up again;
 │   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
