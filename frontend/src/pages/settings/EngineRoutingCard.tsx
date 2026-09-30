@@ -17,8 +17,8 @@ import { humanize } from '../../components/labels'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { CapabilityRoute, EngineRouting } from '../../types/engineRouting'
-import type { SettingsOverview } from '../../types/settings'
 import {
+  PREFERENCE_TASKS,
   choiceFromSelect,
   replaceCapability,
   replaceEngine,
@@ -33,18 +33,19 @@ import {
 
 const TITLE = 'Which engine does what'
 
-// Reload when a key or a mirrored preference changes elsewhere on the page.
-function refreshKey(s: SettingsOverview): string {
-  return JSON.stringify([s.engine_keys, s.preferences.default_engine, s.preferences.episode_summary_engine])
+interface Props {
+  // Bumped by the page after any key, endpoint or preference save: reload.
+  refreshToken: number
+  // Called after a task that mirrors a Defaults preference is saved.
+  onPreferencesChanged: () => void
 }
 
-export function EngineRoutingCard({ settings }: { settings: SettingsOverview }) {
+export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props) {
   const remote = usePcOnly() === 'remote'
   const [routing, setRouting] = useState<EngineRouting | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
   const [testing, setTesting] = useState<ReadonlySet<string>>(new Set())
-  const key = refreshKey(settings)
 
   useEffect(() => {
     let live = true
@@ -59,7 +60,7 @@ export function EngineRoutingCard({ settings }: { settings: SettingsOverview }) 
     return () => {
       live = false
     }
-  }, [key])
+  }, [refreshToken])
 
   async function choose(cap: CapabilityRoute, engine: string | null) {
     setError(null)
@@ -67,6 +68,7 @@ export function EngineRoutingCard({ settings }: { settings: SettingsOverview }) 
     try {
       const saved = await setCapabilityEngine(cap.id, engine)
       setRouting((cur) => (cur ? replaceCapability(cur, saved) : cur))
+      if (PREFERENCE_TASKS.has(cap.id)) onPreferencesChanged()
     } catch (e) {
       setRouting((cur) => (cur ? replaceCapability(cur, cap) : cur)) // roll back
       setError(e)

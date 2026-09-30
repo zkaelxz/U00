@@ -194,7 +194,6 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
 # validates (e.g. an engine that was removed) reads back as the default.
 
 _PREF_PREFIX = "pref."
-PREF_PREFIX = _PREF_PREFIX  # for services/engine_routing_service.py
 # Step 36: the last "Test" result per engine (engine_routing_service). A key
 # or endpoint write forgets it, so a stale "working" never outlives the key.
 ENGINE_TEST_PREFIX = "engine_test."
@@ -209,6 +208,11 @@ SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini")
 def _engine_choices() -> tuple:
     import translate_engines
     return tuple(k for k in translate_engines.ENGINES if k != "test_offline")
+
+
+def engine_preference_choices() -> tuple:
+    """Engines the "default engine for new dramas" preference accepts."""
+    return _engine_choices()
 
 
 def _ocr_choices() -> tuple:
@@ -612,9 +616,22 @@ def clear_engine_key(engine: str, env_path: str = None) -> dict:
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
 
 
+ENGINE_TEST_GENERATION_PREFIX = "engine_test_gen."
+
+
+def engine_test_generation(engine: str) -> int:
+    """Bumped on every key/endpoint write for `engine`, so a Test that was
+    already running when the key changed doesn't record its stale result."""
+    import db
+    value = db.get_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine, 0)
+    return value if isinstance(value, int) else 0
+
+
 def _forget_engine_test(name: str):
     """Drops the saved Test result for the engine a key or endpoint belongs
     to (Step 36), e.g. "ollama_url" -> "ollama"."""
     import db
     engine = name[:-len("_url")] if name.endswith("_url") else name
+    db.set_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine,
+                       engine_test_generation(engine) + 1)
     db.set_app_setting(ENGINE_TEST_PREFIX + engine, None)

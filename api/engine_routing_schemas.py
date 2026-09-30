@@ -31,6 +31,7 @@ class EngineTestOutcome(BaseModel):
 class EngineRouteStatus(BaseModel):
     engine: str
     tags: List[str]
+    test_blocked: Optional[str] = None  # why Test isn't offered for this engine
     needs_key: bool
     key_configured: bool
     status: str  # not_configured | untested | working | failed

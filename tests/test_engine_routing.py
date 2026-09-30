@@ -72,6 +72,13 @@ class TestResolve:
         with pytest.raises(NotFoundError):
             routing.resolve_capability("coding.strong")
 
+    def test_offered_choices_match_what_can_be_saved(self, isolated_db):
+        assert "test_offline" not in routing.engine_choices("translation.cheap")
+        assert "test_offline" not in routing.engine_choices("translation.high_quality")
+        for name in routing.engine_choices("translation.cheap"):
+            routing.set_capability_engine("translation.cheap", name)
+            assert settings_service.get_default_engine() == name
+
     def test_a_stale_stored_value_reads_back_as_the_default(self, isolated_db):
         db.set_app_setting("capability.llm.instructions", "deepl")  # not an LLM
         assert routing.resolve_capability("llm.instructions") == settings_service.get_default_engine()
@@ -106,6 +113,15 @@ class TestMigratedCallSites:
                             lambda cap: {"llm.instructions": "ollama"}[cap])
         assert line_ai_service.tool_engine_name(did) == "ollama"
         assert line_ai_service.tool_engine_name(did, "claude") == "claude"
+
+    def test_line_helpers_use_the_capability_for_a_translation_only_drama(
+            self, isolated_db, monkeypatch):
+        did = db.create_drama(title_zh="t", translation_engine="deepl")
+        monkeypatch.setattr(routing, "resolve_capability",
+                            lambda cap: {"llm.instructions": "gemini"}[cap])
+        assert line_ai_service.tool_engine_name(did) == "gemini"
+        did2 = db.create_drama(title_zh="u", translation_engine="deepseek")
+        assert line_ai_service.tool_engine_name(did2) == "deepseek"  # the drama's own wins
 
 
 class TestEngineTest:
@@ -164,6 +180,40 @@ class TestEngineTest:
         finally:
             release.set()
         assert out["status"] == "failed" and "No answer" in out["last_test"]["error"]
+
+    def test_a_timed_out_engine_stays_busy_until_its_call_ends(self, isolated_db, monkeypatch):
+        import threading
+        from services.service_errors import ConflictError
+        release = threading.Event()
+        monkeypatch.setattr(routing, "TEST_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+                            lambda *a, **k: release.wait(5) and {"ok": True})
+        try:
+            routing.test_engine("test_offline")
+            with pytest.raises(ConflictError):
+                routing.test_engine("test_offline")
+        finally:
+            release.set()
+
+    def test_a_key_saved_during_a_test_discards_its_result(self, isolated_db, tmp_path,
+                                                           monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: SECRET)
+        env = str(tmp_path / ".env")
+
+        def fake(*a, **k):
+            settings_service.set_engine_key("claude", "sk-new-value-123", env_path=env)
+            return {"ok": True, "error": None}
+        monkeypatch.setattr(diagnostics, "check_engine_reachable", fake)
+        routing.test_engine("claude")
+        assert routing._last_test("claude") is None
+
+    def test_nllb_is_not_tested(self, isolated_db, monkeypatch):
+        from services.service_errors import UnsupportedOperationError
+        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+                            lambda *a, **k: pytest.fail("would download a model"))
+        with pytest.raises(UnsupportedOperationError):
+            routing.test_engine("nllb")
+        assert routing.engine_status("nllb")["test_blocked"]
 
     def test_saving_a_key_forgets_the_last_test(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",

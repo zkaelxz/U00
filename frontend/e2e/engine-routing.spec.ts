@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 const SHOTS = process.env.SHOTS_DIR
 
 const card = (page: Page) => page.getByRole('region', { name: 'Which engine does what' })
-const task = (page: Page) => card(page).getByLabel('AI checks and line helpers', { exact: true })
+const task = (page: Page) => card(page).getByLabel('Line helpers for translation-only engines', { exact: true })
 const saved = (page: Page) =>
   page.waitForResponse((r) => r.url().includes('/api/settings/engine-routing/capabilities/') && r.request().method() === 'POST')
 
