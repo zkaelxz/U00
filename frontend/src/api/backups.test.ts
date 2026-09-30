@@ -24,9 +24,11 @@ describe('backups api', () => {
     const { mock, f } = reply(200, {})
     await getBackupSettings(f)
     await getSnapshot(f)
-    await getSnapshotDramas(f)
+    await getSnapshotDramas(undefined, f)
+    await getSnapshotDramas('baihe_snapshot-20260930-080000.zip', f)
     expect(mock.mock.calls.map(([u]) => u)).toEqual([
       '/api/backups/settings', '/api/backups/snapshot', '/api/backups/snapshot/dramas',
+      '/api/backups/snapshot/dramas?snapshot=baihe_snapshot-20260930-080000.zip',
     ])
     for (const [, init] of mock.mock.calls) {
       expect(init.method ?? 'GET').toBe('GET')
@@ -45,20 +47,24 @@ describe('backups api', () => {
     expect(JSON.parse(init2.body)).toEqual({ folder: '' })
   })
 
-  it('back up now, restore and delete send the confirm fields', async () => {
+  it('back up now, restore and delete send the confirm fields and the chosen copy', async () => {
     const { mock, f } = reply(200, {})
-    await backUpNow(false, f)
-    await backUpNow(true, f)
-    await restoreSnapshotDrama(7, f)
-    await deleteSnapshot(f)
+    const copy = 'baihe_snapshot-20260929-080000.zip'
+    await backUpNow(f)
+    await restoreSnapshotDrama(7, undefined, f)
+    await restoreSnapshotDrama(7, copy, f)
+    await deleteSnapshot({ all: true }, f)
+    await deleteSnapshot({ snapshot: copy }, f)
     expect(mock.mock.calls.map(([u]) => u)).toEqual([
-      '/api/backups/now', '/api/backups/now', '/api/backups/snapshot/restore-drama', '/api/backups/snapshot/delete',
+      '/api/backups/now', '/api/backups/snapshot/restore-drama', '/api/backups/snapshot/restore-drama',
+      '/api/backups/snapshot/delete', '/api/backups/snapshot/delete',
     ])
     expect(mock.mock.calls.map(([, i]) => JSON.parse(i.body))).toEqual([
-      { replace: false },
-      { replace: true },
+      {},
       { drama_id: 7, confirm: true, confirm_text: 'RESTORE' },
-      { confirm: true, confirm_text: 'DELETE' },
+      { drama_id: 7, confirm: true, confirm_text: 'RESTORE', snapshot: copy },
+      { confirm: true, confirm_text: 'DELETE', all: true },
+      { confirm: true, confirm_text: 'DELETE', snapshot: copy },
     ])
   })
 

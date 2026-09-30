@@ -43,6 +43,8 @@ export interface LibraryCostRow {
 export interface LibrarySeries {
   id: number
   name: string
+  is_private?: boolean
+  owned_by_me?: boolean
   character_count: number
   glossary_term_count: number
   dramas: LibraryDramaRef[]
