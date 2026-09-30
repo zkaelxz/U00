@@ -13,6 +13,7 @@ import {
   hostOf, seenValues, usd,
 } from '../researchForm'
 import { useStage } from '../StageContext'
+import { ProvenanceNote } from './ProvenanceNote'
 import './preamble.css'
 import './research.css'
 
@@ -241,6 +242,7 @@ export function ResearchPanel() {
             </>
           )}
           {notice && <p role="status">{notice}</p>}
+          <ProvenanceNote dramaId={dramaId} reloadKey={notice} />
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </div>
       </Section>

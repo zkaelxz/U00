@@ -1,4 +1,5 @@
-import type { ResearchBudget, ResearchChoice, ResearchField, ResearchMode } from '../../types/research'
+import { historyTime } from '../translatePage'
+import type { ProvenanceRow, ResearchBudget, ResearchChoice, ResearchField, ResearchMode } from '../../types/research'
 
 // Pure logic for the Source stage's "Research online" panel (Step 37).
 
@@ -85,6 +86,26 @@ export function costLine(b: ResearchBudget, mode: ResearchMode, model: string, a
 
 // Google's grounding terms ask for the search suggestions to be shown.
 export const googleSearchUrl = (q: string) => `https://www.google.com/search?q=${encodeURIComponent(q)}`
+
+export interface ProvenanceNote { field: string; label: string; text: string }
+
+// One note per field, from its newest stored row. Only source titles are
+// named (never URLs), and the date is when the sources were checked.
+export function provenanceNotes(rows: ProvenanceRow[]): ProvenanceNote[] {
+  const newest = new Map<string, ProvenanceRow>()
+  for (const r of rows) {
+    const seen = newest.get(r.field)
+    if (!seen || r.id > seen.id) newest.set(r.field, r)
+  }
+  return [...newest.values()].sort((a, b) => a.id - b.id).map((r) => {
+    const titles = [...new Set(r.sources.map((s) => (s.title ?? '').trim()).filter(Boolean))].slice(0, 3)
+    const from = titles.length ? ` from ${titles.join(', ')}` : ''
+    const when = r.last_verified || r.retrieved_at
+    const on = when ? ` on ${historyTime(when)}` : ''
+    const verb = r.status === 'alternate' ? 'Saved beside the existing value' : r.status === 'verified' ? 'Confirmed' : 'Filled'
+    return { field: r.field, label: fieldLabel(r.field), text: `${verb}${from}${on}` }
+  })
+}
 
 export function hostOf(url: string): string {
   try {

@@ -1,6 +1,6 @@
 import { getJson, postJson } from './client'
 import type {
-  ResearchApplied, ResearchBudget, ResearchChoice, ResearchRequest, ResearchResult,
+  ProvenanceList, ResearchApplied, ResearchBudget, ResearchChoice, ResearchRequest, ResearchResult,
 } from '../types/research'
 
 type Fetch = typeof fetch
@@ -9,6 +9,10 @@ const base = (id: number) => `/api/metadata/dramas/${id}`
 
 export const getResearchBudget = (f: Fetch = fetch) =>
   getJson<ResearchBudget>('/api/metadata/research/budget', f)
+
+// Read-only: the sources stored when earlier research was applied.
+export const getResearchProvenance = (id: number, f: Fetch = fetch) =>
+  getJson<ProvenanceList>(`${base(id)}/provenance`, f)
 
 // Writes nothing: returns researched values with their sources.
 export const researchMetadata = (id: number, req: ResearchRequest, f: Fetch = fetch) =>

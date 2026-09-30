@@ -71,3 +71,27 @@ test('used-up free searches need the paid toggle before a lookup', async ({ page
   await expect(page.getByRole('list', { name: 'Researched metadata' })).toBeVisible()
   expect(calls).toBe(1)
 })
+
+test('stored sources show as a quiet note without URLs; a failed read shows nothing', async ({ page }) => {
+  await page.route('**/api/metadata/research/budget', (route) => route.fulfill({ json: budget }))
+  await page.route('**/api/metadata/dramas/1/provenance', (route) => route.fulfill({ json: { drama_id: 1, fields: [
+    { id: 1, field: 'studio', value: 'Mock Studio', source: 'applied', source_url: 'https://example.org/a', status: 'applied',
+      retrieved_at: '2026-09-29T10:00:00Z', last_verified: '2026-09-29T10:00:00Z', sources: [{ title: 'Example Wiki', url: 'https://example.org/a' }] },
+  ] } }))
+  await page.goto('/#/drama/1/source')
+  await page.locator('.section-title', { hasText: 'Research online' }).click()
+  await page.getByText('Where saved details came from (1)').click()
+  const list = page.getByRole('list', { name: 'Saved sources' })
+  await expect(list).toContainText('Studio: Filled from Example Wiki on')
+  await expect(list.getByRole('link')).toHaveCount(0)
+  await expect(list).not.toContainText('example.org')
+})
+
+test('a failed provenance read does not block research', async ({ page }) => {
+  await page.route('**/api/metadata/research/budget', (route) => route.fulfill({ json: budget }))
+  await page.route('**/api/metadata/dramas/1/provenance', (route) => route.fulfill({ status: 500, json: { detail: 'boom' } }))
+  await page.goto('/#/drama/1/source')
+  await page.locator('.section-title', { hasText: 'Research online' }).click()
+  await expect(page.getByRole('button', { name: 'Research online' })).toBeEnabled()
+  await expect(page.getByText('Where saved details came from')).toHaveCount(0)
+})

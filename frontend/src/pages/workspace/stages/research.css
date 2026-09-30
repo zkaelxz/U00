@@ -5,6 +5,9 @@
 .research-value { margin: var(--space-2) 0; overflow-wrap: anywhere; }
 .research-sources { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
 .research-choice { flex-wrap: wrap; }
+.research-provenance { overflow-wrap: anywhere; }
+.research-provenance summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.research-provenance ul { margin: 0; padding-left: var(--space-4); }
 @media (max-width: 640px) {
   .research-choice span { min-height: 44px; }
 }
