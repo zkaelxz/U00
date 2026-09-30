@@ -33,6 +33,7 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     auth_routes,
+    backup_routes,
     benchmark_routes,
     blocked_retry_routes,
     bug_report_routes,
@@ -48,9 +49,11 @@ from api.routers import (
     drama_routes,
     dub_routes,
     engine_routing_routes,
+    stronger_engine_routes,
     export_routes,
     extension_routes,
     glossary_routes,
+    job_stage_routes,
     jellyfin_routes,
     jobs_routes,
     library_admin_routes,
@@ -76,6 +79,7 @@ from api.routers import (
     settings_routes,
     source_routes,
     sources_catalog_routes,
+    sources_extraction_routes,
     sources_import_routes,
     sources_local_routes,
     sources_search_routes,
@@ -164,6 +168,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(job_stage_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)
@@ -197,10 +202,12 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)
+    app.include_router(sources_extraction_routes.router)
     app.include_router(sources_local_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
+    app.include_router(backup_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
@@ -208,6 +215,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(notification_center_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(engine_routing_routes.router)
+    app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(voice_clone_routes.router)
