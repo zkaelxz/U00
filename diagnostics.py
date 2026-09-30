@@ -131,6 +131,8 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
+                             "(line timing); best in its own Python 3.12 environment", "feature"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
                                      "decryption (Sources tab); Google sign-in token checks",
                      "feature"),
@@ -654,8 +656,8 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     row's own Install button, straight from the registry rather than
     re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
     use import-style names -- "faster_whisper", "manga_ocr" -- that don't
-    all match the real pip names here, and some registry packages, like
-    Qwen3-ASR's "qwen-asr", have no OPTIONAL_DEPENDENCIES entry at all).
+    all match the real pip names here, and some registry packages have no
+    OPTIONAL_DEPENDENCIES entry at all).
     "help" is a short plain-English description of what the row is and
     which app feature uses it, for a "?" affordance in the UI."""
     out = []
