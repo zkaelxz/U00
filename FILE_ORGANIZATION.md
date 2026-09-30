@@ -231,6 +231,9 @@ baihe-subtitler/
 │   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
 │   │                             -> the engine chosen in Settings (else a default; never switches on its own);
 │   │                             per-engine status + one-call Test (router: engine_routing_routes.py)
+│   ├── stronger_engine_service.py Step 99 -- suggest (never switch to) the "translation.high_quality" engine for a
+│   │                             hard line (QC flag, glossary conflict, ambiguous term); single-line try that
+│   │                             returns text only, cap-checked, spend logged (router: stronger_engine_routes.py)
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
@@ -409,7 +412,9 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
 │   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
+│   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
@@ -432,6 +437,8 @@ baihe-subtitler/
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
 │       │                         (admin.settings); PC-only POST capabilities/{capability}, engines/{engine}/test
+│       ├── stronger_engine_routes.py /api/stronger-engine/dramas/{id} (Step 99): GET suggestions (lines.read),
+│       │                         POST lines/{line_id}/try (review.use + paid-engine gate; writes nothing)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
@@ -504,7 +511,7 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
-│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import, GET /{name}/import-state
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
 │       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
