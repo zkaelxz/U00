@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { asrBackendOptions } from '../../../api/asrOptions'
+import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
+  getDiarizationConfig,
   getTranscribeConfig,
   startDiarization,
   startTranscribe,
@@ -17,6 +19,7 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useMossExperimental } from '../../../hooks/useMossExperimental'
 import type {
+  DiarizationConfig,
   MediaStatus,
   TranscribeConfig,
   TranscribeConfigUpdate,
@@ -36,6 +39,7 @@ import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { mediaFileInputId } from './stageBlockers'
+import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
@@ -142,6 +146,15 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
+  // D03/D06: the last run's speaker count and the hand-corrected speakers.
+  const [diar, setDiar] = useState<DiarizationConfig | null>(null)
+  const [diarReloads, setDiarReloads] = useState(0)
+  const [overwriteManual, setOverwriteManual] = useState(false)
+  const [overwriteAck, setOverwriteAck] = useState(false)
+  // Only an untouched form (nothing kept for this drama) takes the last run's count.
+  const seedSpeakers = useRef(restored.speakers === undefined)
+  // D04: the stored media's length, for the time estimates (null = unknown).
+  const [duration, setDuration] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -157,6 +170,32 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       cancelled = true
     }
   }, [dramaId])
+
+  useEffect(() => {
+    let cancelled = false
+    getDiarizationConfig(dramaId).then(
+      (c) => {
+        if (cancelled) return
+        setDiar(c)
+        if (seedSpeakers.current) {
+          seedSpeakers.current = false
+          // 0 is "auto", the same as blank.
+          if (c.expected_speakers) setSpeakers((cur) => (cur.trim() ? cur : String(c.expected_speakers)))
+        }
+      },
+      () => undefined, // advisory: without it the speaker count stays blank and corrections are kept
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, diarReloads])
+
+  // A finished job may have changed the speakers: re-read the counts.
+  const wasBusy = useRef(busy)
+  useEffect(() => {
+    if (wasBusy.current && !busy) setDiarReloads((n) => n + 1)
+    wasBusy.current = busy
+  }, [busy])
 
   useEffect(() => {
     saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames })
@@ -188,6 +227,20 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
 
   const haveTranscript = config?.transcript_mode === 'have_transcript'
   const hasMedia = !!media && (media.has_audio || media.has_source_video)
+
+  // ffprobe on the stored file (read-only); without it the captions say less.
+  useEffect(() => {
+    if (!hasMedia) return
+    let cancelled = false
+    analyzeMedia(dramaId).then(
+      (a) => !cancelled && setDuration(a.duration_seconds > 0 ? a.duration_seconds : null),
+      () => !cancelled && setDuration(null),
+    )
+    return () => {
+      cancelled = true
+    }
+    // `media` is re-read after an upload or removal, so a replaced file is measured again.
+  }, [dramaId, hasMedia, media])
   // What the primary button still needs, in words (empty = ready).
   const needed = !config || !media
     ? ''
@@ -273,11 +326,22 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       return
     }
     setProblem(null)
-    startDiarization(dramaId, { expectedSpeakers: hints.expected, minSpeakers: hints.min, maxSpeakers: hints.max }).then((r) => {
+    const overwrite = manualCount > 0 && overwriteManual && overwriteAck
+    startDiarization(dramaId, {
+      expectedSpeakers: hints.expected,
+      minSpeakers: hints.min,
+      maxSpeakers: hints.max,
+      ...(overwrite ? { overwriteManual: true } : {}),
+    }).then((r) => {
       setError(null)
+      setOverwriteManual(false)
+      setOverwriteAck(false)
       onJobStarted(r.job_id)
     }, setError)
   }
+  const manualCount = diar?.manual_speaker_count ?? 0
+  const needsAck = manualCount > 0 && overwriteManual && !overwriteAck
+  const corrections = `${manualCount} speaker correction${manualCount === 1 ? '' : 's'}`
 
   const select = (
     label: string,
@@ -320,6 +384,21 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }
 
   const turboWarning = cf ? whisperModelWarning(cf.whisper_size, language) : ''
+  // Only runs that go through Whisper (plain ASR, or aligning a pasted
+  // transcript with whisper_diff); a file picked but not uploaded yet has no
+  // known length.
+  const whisperRun = !!cf && (config?.transcript_mode === 'whisper'
+    ? cf.asr_backend_choice === 'whisper'
+    : config?.transcript_mode === 'have_transcript' && cf.alignment_method === 'whisper_diff')
+  const estimate = cf && whisperRun && !file && hasMedia
+    ? transcribeEstimate({
+        durationSeconds: duration,
+        whisperSize: cf.whisper_size,
+        useGpu,
+        useGroq: cf.use_groq,
+        detectSpeakers: runDiarize,
+      })
+    : null
 
   return (
     <section className="panel source-panel" aria-label="Transcribe">
@@ -335,6 +414,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         >
           Transcribe
         </button>
+        {estimate && !busy && <span className="muted" data-testid="transcribe-estimate">{estimate}</span>}
       </div>
       {needed && !busy && (
         <p className="muted source-needed" id="transcribe-needed">
@@ -409,10 +489,47 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} />
           </Field>
         </div>
+        {manualCount > 0 && (
+          <div className="source-manual" data-testid="manual-speakers">
+            <div className="setting-list">
+              <Field
+                label={`Replace my ${corrections}`}
+                help="Off keeps your corrections: detection only changes the lines you haven't corrected. On replaces them with what detection finds."
+              >
+                <Toggle
+                  checked={overwriteManual}
+                  onChange={(v) => {
+                    setOverwriteManual(v)
+                    setOverwriteAck(false)
+                  }}
+                />
+              </Field>
+            </div>
+            {overwriteManual ? (
+              <label className="inline stage-ack">
+                <input type="checkbox" checked={overwriteAck} onChange={(e) => setOverwriteAck(e.target.checked)} />{' '}
+                I understand my {corrections} will be replaced
+              </label>
+            ) : (
+              <p className="muted">Your {corrections} {manualCount === 1 ? 'is' : 'are'} kept.</p>
+            )}
+          </div>
+        )}
         <div className="actions">
-          <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={diarize}>
+          <button
+            type="button"
+            className={buttonClass('ghost')}
+            disabled={busy || needsAck}
+            aria-describedby={needsAck ? 'diarize-needed' : undefined}
+            onClick={diarize}
+          >
             Detect speakers only
           </button>
+          {needsAck ? (
+            <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
+          ) : (
+            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration)}</span>
+          )}
         </div>
         <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
       </Section>

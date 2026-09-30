@@ -34,6 +34,7 @@ from api.routers import (
     artifact_routes,
     asr_options_routes,
     auth_routes,
+    benchmark_routes,
     blocked_retry_routes,
     bug_report_routes,
     characters_routes,
@@ -50,6 +51,7 @@ from api.routers import (
     export_routes,
     extension_routes,
     glossary_routes,
+    jellyfin_routes,
     jobs_routes,
     library_admin_routes,
     library_routes,
@@ -59,6 +61,7 @@ from api.routers import (
     media_routes,
     metadata_routes,
     narration_routes,
+    notification_center_routes,
     notification_routes,
     novel_files_routes,
     novel_routes,
@@ -177,6 +180,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(media_routes.router)
     app.include_router(narration_routes.router)
     app.include_router(metadata_routes.router)
+    app.include_router(jellyfin_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
@@ -197,6 +201,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
+    app.include_router(notification_center_routes.router)
     app.include_router(asr_options_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(series_people_routes.router)
@@ -204,6 +209,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
+    app.include_router(benchmark_routes.router)
+
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)

@@ -6,6 +6,7 @@ import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
 import { ExtensionSection } from './settings/ExtensionSection'
+import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -70,6 +71,7 @@ export default function SettingsPage() {
           <DefaultsCard {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
+          <JellyfinSection />
           <TranscriptionExperimentsCard />
           <ExtensionSection />
           <AppearanceCard />
