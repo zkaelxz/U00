@@ -283,6 +283,12 @@ baihe-subtitler/
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
 │   ├── comic_view_service.py     comic viewer: page list, contained page-image lookup (magic-byte type,
 │   │                             no symlinks, 50 MB cap, no PIL), visible text regions, page progress
+│   ├── scanlate_pages_service.py Scanlate S1/S2: panel config, page detail by stable region id, run notes,
+│   │                             add_page_images (upload + link imports; the import limits live here), the
+│   │                             scanlate_<id> job id, upload claim, shared pipeline lock, note cleaner
+│   ├── scanlate_run_service.py   Scanlate S5: detect + OCR + id-keyed translate + render as one job per drama
+│   │                             (modes missing/page/all), conditional per-page writes, predecessor context
+│   ├── scanlate_render_service.py Scanlate S6/S8: typeset one page from DB regions; render and ZIP/PDF export jobs
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
@@ -379,6 +385,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── scanlate_schemas.py       automatic Scanlate request/response models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -447,6 +454,8 @@ baihe-subtitler/
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
+│       ├── scanlate_routes.py    /api/scanlate/dramas/{id}/config, run-notes, pages/{pid} (GET); pages (upload, PC-only),
+│       │                         run, render, export (jobs.start) -- tests/test_api_scanlate_auto.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
