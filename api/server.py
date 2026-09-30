@@ -32,6 +32,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSi
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    assistant_routes,
     asr_options_routes,
     auth_routes,
     backup_routes,
@@ -248,6 +249,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
+    app.include_router(assistant_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

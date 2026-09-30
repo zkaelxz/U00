@@ -235,6 +235,12 @@ baihe-subtitler/
 │   │                             background jobs (deno_install, upgrade_check) behind the install guard
 │   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
 │   │                             must resolve inside the voice-bank folder, symlinks refused
+│   ├── maintenance_assistant_service.py  Step 42 -- in-app AI maintenance assistant, read-only v1: a fixed
+│   │                             table of read-only tools (list/read/search code, git status/log/diff, redacted
+│   │                             log, job history, support report, dependency/model checks, one test file),
+│   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
+│   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
+│   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
@@ -457,6 +463,8 @@ baihe-subtitler/
 
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
+
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
@@ -569,6 +577,8 @@ baihe-subtitler/
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
+│       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;
