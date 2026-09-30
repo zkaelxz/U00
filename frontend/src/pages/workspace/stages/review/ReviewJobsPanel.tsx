@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { startReviewJob } from '../../../../api/review'
 import { getTranslateConfig } from '../../../../api/translateStage'
@@ -11,14 +11,24 @@ import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { useStage } from '../../StageContext'
+import { BulkBatchesPanel } from '../BulkBatchesPanel'
 import { JobPanel } from '../JobPanel'
 import { EngineModelFields } from './EngineModelFields'
 import { ReviewFindings } from './ReviewFindings'
 import {
+  BULK_HELP,
+  bulkBlocker,
+  bulkStartedText,
+  effectiveEngine,
+  reviewBulkAvailable,
+  reviewStartBody,
+  type BulkChoice,
+  type BulkKind,
+} from './reviewBulk'
+import {
   EMPTY_CHECK_FORM,
   EMPTY_FIX_FORM,
   checkFormSummary,
-  checkJobBody,
   fixFlaggedBody,
   fixFormSummary,
   spendText,
@@ -27,12 +37,46 @@ import {
   type GoToLine,
 } from './reviewResults'
 
-const KINDS: { kind: ReviewJobKind; label: string }[] = [
-  { kind: 'consistency', label: 'Check consistency' },
-  { kind: 'emotion', label: 'Tag emotion' },
-  { kind: 'notes', label: 'Generate notes' },
-  { kind: 'flag', label: 'Flag lines for a second look' },
+const KINDS: { kind: BulkKind; label: string; what: string }[] = [
+  { kind: 'consistency', label: 'Check consistency', what: 'Consistency check' },
+  { kind: 'emotion', label: 'Tag emotion', what: 'Emotion tags' },
+  { kind: 'notes', label: 'Generate notes', what: 'Translator notes' },
+  { kind: 'flag', label: 'Flag lines for a second look', what: 'Second-look flags' },
 ]
+
+// A bulk job waits on the provider for up to 24 hours; its status changes
+// rarely (the server checks the batch every minute), so poll it slowly.
+const BULK_POLL_MS = 10_000
+
+interface BulkRunInfo {
+  kind: BulkKind
+  jobId: string
+  runKey: number
+  label: string
+  text: string
+}
+
+// One submitted bulk batch's background job (bulk_<kind>_<drama>): its own
+// JobPanel and notice, so it never locks the other jobs' buttons while it
+// waits. onSubmitted runs when the job's message changes (the batch now
+// exists), so the batch list can be re-read.
+function BulkRun({ run, onDone, onSubmitted }: { run: BulkRunInfo; onDone: () => void; onSubmitted: () => void }) {
+  const { job, done, error } = useJob(run.jobId, { runKey: run.runKey, intervalMs: BULK_POLL_MS, onDone })
+  const message = job?.message ?? ''
+  useEffect(() => {
+    if (message) onSubmitted()
+  }, [message, onSubmitted])
+  return (
+    <div role="group" aria-label={`Bulk: ${run.label}`} className="review-ai" data-testid="bulk-run">
+      <JobPanel job={job} pollError={error} />
+      {!done && !error && (
+        <p className="muted" role="status">
+          {run.text}
+        </p>
+      )}
+    </div>
+  )
+}
 
 interface Props {
   dramaId: number
@@ -57,6 +101,12 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   const [jobsDone, setJobsDone] = useState(0)
   // Engine and model choices for every AI job; without them only the defaults are offered.
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
+  // R49: Bulk per check (not remembered: a slow run should be a fresh choice).
+  const [bulkOn, setBulkOn] = useState<BulkChoice>({})
+  const [bulkRuns, setBulkRuns] = useState<BulkRunInfo[]>([])
+  const [batchReload, setBatchReload] = useState(0)
+  const runSeq = useRef(0)
+  const reloadBatches = useCallback(() => setBatchReload((n) => n + 1), [])
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
     onDone: () => {
@@ -76,14 +126,35 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
     }
   }, [dramaId])
 
-  const start = (kind: ReviewJobKind, body?: ReviewJobBody) =>
+  const start = (kind: ReviewJobKind, body?: ReviewJobBody, label = '') =>
     startReviewJob(dramaId, kind, body).then(
       (r) => {
         setError(null)
-        setJobId(r.job_id)
+        if (!r.bulk) {
+          setJobId(r.job_id)
+          return
+        }
+        runSeq.current += 1
+        const run: BulkRunInfo = {
+          kind: kind as BulkKind,
+          jobId: r.job_id,
+          runKey: runSeq.current,
+          label,
+          text: bulkStartedText(label, r.line_count),
+        }
+        setBulkRuns((cur) => [...cur.filter((x) => x.kind !== run.kind), run])
+        reloadBatches()
       },
       setError,
     )
+
+  // A bulk batch applied: results, lines and the batch list are all stale.
+  const bulkDone = () => {
+    setJobsDone((n) => n + 1)
+    onJobDone()
+    onChanged()
+    reloadBatches()
+  }
 
   const startFix = () => {
     const body = fixFlaggedBody(fix)
@@ -98,6 +169,11 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   const defaultEngine = config?.translation_engine ?? ''
   const engines = config?.engines ?? []
   const cuesOn = checks.audioCues ?? drama.has_audio
+  const bulkEngines = config?.bulk_supported_engines ?? []
+  const engineNow = effectiveEngine(checks, defaultEngine)
+  const bulkOk = config !== null && reviewBulkAvailable(engineNow, bulkEngines)
+  const bulkReason = config ? bulkBlocker(engineNow, bulkEngines) : null
+  const anyBulk = bulkOk && KINDS.some(({ kind }) => bulkOn[kind])
   const capHelp =
     'Stops the fix at this many dollars; blank means no per-job cap.' +
     (config ? ` ${spendText(config.month_spend, config.monthly_cap_usd)}` : '')
@@ -108,14 +184,42 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
     <div aria-label="AI checks" role="group" className="review-ai">
       {jobId && <JobPanel job={job} pollError={pollError} />}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {bulkRuns.map((r) => (
+        <BulkRun key={r.kind} run={r} onDone={bulkDone} onSubmitted={reloadBatches} />
+      ))}
       <Section storageKey="review.ai" title="AI review" summary="consistency, emotion, notes, flag, fix flagged">
-        <div className="review-actions review-ai-actions">
-          {KINDS.map(({ kind, label }) => (
-            <button key={kind} type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => void start(kind, checkJobBody(kind, checks))}>
-              {label}
-            </button>
+        {/* One row per check: the Bulk switch sits with its Start button. */}
+        <div role="list" aria-label="AI checks to run" className="stack">
+          {KINDS.map(({ kind, label, what }) => (
+            <div key={kind} role="listitem" className="review-actions" data-testid={`review-job-${kind}`}>
+              <div className="setting-list review-toggles">
+                <Field label="Bulk" help={BULK_HELP}>
+                  <Toggle
+                    aria-label={`Bulk: ${label}`}
+                    checked={bulkOk && !!bulkOn[kind]}
+                    disabled={!bulkOk}
+                    onChange={(on) => setBulkOn((c) => ({ ...c, [kind]: on }))}
+                  />
+                </Field>
+              </div>
+              <button
+                type="button"
+                className={buttonClass('secondary')}
+                disabled={busy}
+                onClick={() => void start(kind, reviewStartBody(kind, checks, bulkOn, defaultEngine, bulkEngines), what)}
+              >
+                {label}
+              </button>
+            </div>
           ))}
         </div>
+        {bulkReason && <p className="muted">{bulkReason}{engineNow === 'gemini' && <> <a href="#/settings">Open Settings</a></>}</p>}
+        {anyBulk && (
+          <p className="muted" data-testid="bulk-warning">
+            Bulk is half price but slow: results can take up to 24 hours. Until they arrive, structural edits (add, delete, merge, split,
+            re-segment, restore a version, delete the drama) are refused.
+          </p>
+        )}
         <Section storageKey="review.ai.options" title="Check options" summary={checkFormSummary(checks, defaultEngine, drama.has_audio)}>
           <div className="review-edit-row">
             <EngineModelFields
@@ -175,6 +279,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
           </Section>
         </fieldset>
       </Section>
+      <BulkBatchesPanel reloadKey={batchReload} />
       <ReviewFindings dramaId={dramaId} jobsDone={jobsDone} reloads={reloads} onGoTo={onGoTo} />
     </div>
   )
