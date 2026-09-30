@@ -42,7 +42,7 @@ Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldr
 ## Next
 - Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership and the D5 listeners are merged; left: the Caddy config, LAN test with a real certificate, router port last (140).
 - Step 141: spec only (migration-architect) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
-- Step 142 and 143 are both merged (#546 exports one person's items, #534 imports). Open owner decisions for the export: whether tracked series and the voice bank should travel, and whether a remote admin may run it (today it is PC only).
+- Step 142 and 143 are both merged (#546 exports one person's items, #534 imports). Decided by the owner (2026-09-30): tracked series and the voice bank do not travel (the person re-tracks; no dubbing planned), and the export stays PC only.
 
 ## Open bugs
 - B-20, B-23, B-24: fixed in #466 (merged); B-23's music level still needs the user's listening check.
