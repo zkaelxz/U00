@@ -13,6 +13,9 @@
  * browser's own auto-reconnect is not used: an HTTP error (401, 429) would
  * stop it for good, and the backoff should be ours.
  *
+ * A stream silent for SILENCE_MS (the server pings every 15 s) counts as
+ * dropped, so a stalled one falls back like any other failure.
+ *
  * While the tab is hidden the stream is closed (no polling either) and it
  * reopens, with a sync, when the tab is shown: a background tab never keeps
  * an idle sign-in alive, and a hidden job page catches up on return.
@@ -26,10 +29,13 @@ import { apiUrl } from './client'
 export type StreamMode = 'connecting' | 'push' | 'poll'
 
 export const EVENTS_PATH = '/api/events?topics=jobs,notifications,live'
-export const STREAM_EVENTS = ['job', 'job_gone', 'notifications', 'live', 'resync'] as const
+export const STREAM_EVENTS = ['job', 'job_gone', 'notifications', 'live', 'resync', 'ping'] as const
 export const FALLBACK_AFTER = 2
 export const BASE_BACKOFF_MS = 500
 export const MAX_BACKOFF_MS = 30_000
+// The server sends a 'ping' after 15 s of silence; this long with nothing at
+// all means the stream stalled (a proxy holding it open): treat it as dropped.
+export const SILENCE_MS = 45_000
 
 export interface StreamState {
   mode: StreamMode
@@ -112,9 +118,24 @@ export function createEventHub(deps: HubDeps = {}): EventHub {
     }
   }
 
+  // Watchdog: restarted by the open and by every event, fires after SILENCE_MS.
+  let watchdog: unknown = null
+  const clearWatchdog = () => {
+    if (watchdog !== null) clearTimer(watchdog)
+    watchdog = null
+  }
+  const armWatchdog = (es: EventSourceLike) => {
+    clearWatchdog()
+    watchdog = setTimer(() => {
+      watchdog = null
+      if (source === es) es.onerror?.(new Event('error'))
+    }, SILENCE_MS)
+  }
+
   const stop = () => {
     if (timer !== null) clearTimer(timer)
     timer = null
+    clearWatchdog()
     if (source) {
       source.onopen = null
       source.onerror = null
@@ -137,11 +158,13 @@ export function createEventHub(deps: HubDeps = {}): EventHub {
     es.onopen = () => {
       if (source !== es) return
       failures = 0
+      armWatchdog(es)
       // Every open is a sync: anything that changed before it was missed.
       setState({ mode: 'push', syncs: state.syncs + 1 })
     }
     es.onerror = () => {
       if (source !== es) return
+      clearWatchdog()
       es.onopen = null
       es.onerror = null
       es.close()
@@ -151,6 +174,8 @@ export function createEventHub(deps: HubDeps = {}): EventHub {
     for (const type of STREAM_EVENTS) {
       es.addEventListener(type, (ev: MessageEvent) => {
         if (source !== es) return
+        armWatchdog(es)
+        if (type === 'ping') return
         let data: unknown
         try {
           data = JSON.parse(String(ev.data))

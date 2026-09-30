@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  BASE_BACKOFF_MS, FALLBACK_AFTER, MAX_BACKOFF_MS, backoffMs, createEventHub,
+  BASE_BACKOFF_MS, FALLBACK_AFTER, MAX_BACKOFF_MS, SILENCE_MS, backoffMs, createEventHub,
   type EventSourceLike, type StreamState,
 } from './eventStream'
 
@@ -178,6 +178,20 @@ describe('createEventHub', () => {
     hub.subscribe({})
     expect(create).not.toHaveBeenCalled()
     expect(hub.state().mode).toBe('connecting')
+  })
+
+  it('treats SILENCE_MS without any event as a dropped stream; a ping keeps it alive', () => {
+    const { hub, sources, timers } = setup()
+    const onEvent = vi.fn()
+    hub.subscribe({ onEvent })
+    sources[0].open()
+    expect(timers.map((t) => t.ms)).toEqual([SILENCE_MS])
+    sources[0].send('ping', {})
+    expect(onEvent).not.toHaveBeenCalled()
+    expect(timers.map((t) => t.ms)).toEqual([SILENCE_MS]) // re-armed, not stacked
+    timers.shift()!.fn() // silence
+    expect(sources[0].closed).toBe(true)
+    expect(timers.map((t) => t.ms)).toEqual([BASE_BACKOFF_MS]) // reconnect scheduled
   })
 
   it('polls from the start when EventSource is unavailable', () => {

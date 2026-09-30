@@ -80,7 +80,7 @@ Next (React and API gaps): metadata auto-fill and media-analysis UI; OCR/EPUB im
 Small bug/cleanup steps 121-132: see `docs/baihe-roadmap-master.md` section 2 (bug tracker).
 Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);
 transcribe/narration docs and docstrings that still say chunk_and_tag or audiobook/auto-fill are out of scope are stale (cosmetic cleanup step).
-Held-roadmap fold-ins: Step 43 (soft-delete) stays held (plug into `_hard_delete_drama`); Steps 100-105, 40b, 42, 60, 72 stay held.
+Held-roadmap fold-ins: Step 43 was redefined by the user (2026-09-29) from soft-delete to automatic backups + single-drama restore (`services/auto_backup_service.py`, branch `step-43-auto-backups`); Steps 100-105, 40b, 42, 60, 72 stay held.
 After the service queue: frontend (React) slices and Streamlit retirement -- not yet planned in this repo; ask the migration-architect.
 
 ## Remote access (decided 2026-09-29)

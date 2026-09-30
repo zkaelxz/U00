@@ -16,12 +16,15 @@ permission of all three GET routes it replaces). Events:
                   /api/live/sessions/{id}`; the client fetches new cues
                   itself when `next_index` moves.
 - `resync`        {"topics": [...]}: too much changed at once; re-read.
-- `: ping`        a comment every ~15 s so proxies (Caddy) keep it open.
+- `ping`          {} every ~15 s of silence, so proxies (Caddy) keep it open
+                  and the client's watchdog can tell a stalled stream.
 
 Every payload is re-read per event through the GET route's own service
 call with this stream's principal (services/event_stream_service.py), and
-with auth on the session is re-checked before every batch and heartbeat,
-so a sign-out or a revoked permission ends the stream. EventSource sends
+with auth on the session is re-checked at most every AUTH_RECHECK_SECONDS
+(before a batch or heartbeat), so a sign-out or a revoked permission ends
+the stream within seconds. A batch that fails goes out as a `resync`.
+EventSource sends
 the session cookie and no custom headers; GET needs no CSRF token. A cap
 (per user and in total) answers 429, and the client falls back to polling.
 """
@@ -83,14 +86,36 @@ def _revalidator(request: Request, principal):
     return check
 
 
-async def _stream(sub, revalidate):
+class _Auth:
+    """The stream's principal, re-checked at most every AUTH_RECHECK_SECONDS
+    (a fast-ticking job wakes the stream several times a second; each wake
+    must not re-resolve the session). None once it may no longer read."""
+
+    def __init__(self, principal, revalidate, now):
+        self.principal = principal
+        self._revalidate = revalidate
+        self._checked = now
+
+    async def current(self, now):
+        if now - self._checked >= events.AUTH_RECHECK_SECONDS:
+            self.principal = await run_in_threadpool(self._revalidate)
+            self._checked = now
+        return self.principal
+
+
+async def _stream(request, sub, principal, revalidate):
     loop = asyncio.get_running_loop()
     try:
         yield "retry: 3000\n\n"
         yield _frame("ready", {"topics": list(sub.topics)})
         started = last_write = loop.time()
+        auth = _Auth(principal, revalidate, started)
         next_sweep = started
         while loop.time() - started < events.MAX_STREAM_SECONDS:
+            # Not only Starlette's own disconnect watch (ASGI < 2.4): a dead
+            # stream must give its slot back within one loop.
+            if await request.is_disconnected():
+                return
             if loop.time() >= next_sweep:
                 try:
                     await run_in_threadpool(events.sweep_jobs)
@@ -102,22 +127,40 @@ async def _stream(sub, revalidate):
             got = await sub.wait(max(0.0, deadline - loop.time()))
             if got:
                 batch = sub.drain()
-                principal = await run_in_threadpool(revalidate)
-                if principal is None:
+                current = await auth.current(loop.time())
+                if current is None:
                     return
-                out = await run_in_threadpool(events.build_events, sub, batch, principal)
-                for name, data in out:
-                    yield _frame(name, _serialize(name, data))
-                if out:
+                try:
+                    out = await run_in_threadpool(events.build_events, sub, batch, current)
+                    frames = [_frame(name, _serialize(name, data)) for name, data in out]
+                except Exception as exc:
+                    # e.g. "database is locked": the client re-reads instead
+                    # of losing the stream.
+                    _log("event batch failed, sending resync: %s", exc)
+                    frames = [_frame("resync", {"topics": list(sub.topics)})]
+                for frame in frames:
+                    yield frame
+                if frames:
                     last_write = loop.time()
                 await asyncio.sleep(events.MIN_BATCH_SECONDS)
             if loop.time() - last_write >= events.HEARTBEAT_SECONDS:
-                if await run_in_threadpool(revalidate) is None:
+                if await auth.current(loop.time()) is None:
                     return
-                yield ": ping\n\n"
+                # A named event, not a comment, so the client's watchdog
+                # sees it (EventSource hides comments).
+                yield _frame("ping", {})
                 last_write = loop.time()
     finally:
         events.close_subscription(sub)
+
+
+def _log(fmt, *args):
+    try:
+        from applog import get_logger
+        from translate_engines import redact_secrets
+        get_logger().warning(fmt, *(redact_secrets(str(a)) for a in args))
+    except Exception:
+        pass
 
 
 @router.get("", dependencies=[require_permission(PERMISSION)],
@@ -136,5 +179,5 @@ async def stream_events(request: Request,
         sub = events.open_subscription(principal, wanted, loop=asyncio.get_running_loop())
     except events.TooManyStreams as exc:
         raise RateLimitedError(str(exc))
-    return StreamingResponse(_stream(sub, _revalidator(request, principal)),
+    return StreamingResponse(_stream(request, sub, principal, _revalidator(request, principal)),
                              media_type="text/event-stream", headers=SSE_HEADERS)

@@ -58,7 +58,7 @@ async function sseServer() {
     push: (name: string, data: unknown) => {
       for (const c of clients) c.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`)
     },
-    ping: () => clients.forEach((c) => c.write(': ping\n\n')),
+    ping: () => clients.forEach((c) => c.write('event: ping\ndata: {}\n\n')),
     close: () => new Promise<void>((r) => {
       clients.forEach((c) => c.end())
       server.close(() => r())

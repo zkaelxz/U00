@@ -34,6 +34,7 @@ def fast(monkeypatch):
     monkeypatch.setattr(ev, "HEARTBEAT_SECONDS", 0.3)
     monkeypatch.setattr(ev, "JOB_SWEEP_SECONDS", 0.2)
     monkeypatch.setattr(ev, "MIN_BATCH_SECONDS", 0.01)
+    monkeypatch.setattr(ev, "AUTH_RECHECK_SECONDS", 0.0)
     monkeypatch.setattr(ns, "_recent", ns.collections.deque(maxlen=ns.RECENT_KEEP))
     monkeypatch.setattr(ns, "_schedule_flush", lambda: None)
     yield
@@ -41,7 +42,7 @@ def fast(monkeypatch):
 
 
 def _parse(text):
-    """[(event, data)] plus ("ping", None) for heartbeat comments."""
+    """[(event, data)], with the heartbeat as ("ping", None)."""
     out = []
     for block in text.split("\n\n"):
         if block.startswith(": ping"):
@@ -54,7 +55,7 @@ def _parse(text):
             elif line.startswith("data: "):
                 data = json.loads(line[len("data: "):])
         if name:
-            out.append((name, data))
+            out.append((name, None if name == "ping" else data))
     return out
 
 
@@ -381,3 +382,54 @@ def test_one_sweep_per_process(isolated_db, monkeypatch):
     ev.sweep_jobs(now=100.1)
     ev.sweep_jobs(now=100.0 + ev.JOB_SWEEP_SECONDS + 0.1)
     assert len(calls) == 2
+
+
+def test_session_rechecked_at_most_every_few_seconds(world, monkeypatch):
+    """A fast-ticking job must not re-resolve the session on every wake."""
+    monkeypatch.setattr(ev, "AUTH_RECHECK_SECONDS", 5.0)
+    calls = []
+    real = auth_service.resolve_session
+    monkeypatch.setattr(auth_service, "resolve_session",
+                        lambda *a, **k: (calls.append(k.get("touch", True)), real(*a, **k))[1])
+    job = f"translate_{world['shared']}"
+
+    def fire():
+        for i in range(20):
+            _job_row(job, progress=i / 20)
+            background_jobs._emit_change(job)
+            time.sleep(0.03)
+    _after_open(fire)
+    r = _remote(create_app(ApiSettings(auth_mode="on"))).get("/api/events",
+                                                             headers=_cookie(world["b"]))
+    assert len([n for n, _ in _parse(r.text) if n == "job"]) >= 2
+    assert calls.count(False) == 0   # only the request's own checks (touch=True)
+
+
+def test_a_failing_batch_becomes_a_resync(isolated_db, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(ev, "build_events", boom)
+    _after_open(lambda: background_jobs._emit_change("translate_1"))
+    r = _local(create_app(ApiSettings(auth_mode="off"))).get("/api/events")
+    events = _parse(r.text)
+    assert ("resync", {"topics": list(ev.TOPICS)}) in events
+    assert ("ping", None) in events   # the stream carried on
+
+
+def test_disconnected_client_frees_its_slot_without_server_help(isolated_db):
+    """Not relying on Starlette's disconnect watch (ASGI 2.4 servers skip it)."""
+    import asyncio
+    from api.routers import events_routes
+
+    class GoneRequest:
+        async def is_disconnected(self):
+            return True
+
+    async def run():
+        sub = ev.open_subscription(None, ev.TOPICS, loop=asyncio.get_running_loop())
+        frames = [f async for f in events_routes._stream(
+            GoneRequest(), sub, api_auth.local_owner_principal(), lambda: None)]
+        return frames
+    frames = asyncio.run(run())
+    assert frames[1].startswith("event: ready") and len(frames) == 2
+    assert ev.open_count() == 0

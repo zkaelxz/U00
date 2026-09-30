@@ -40,6 +40,7 @@ HEARTBEAT_SECONDS = 15.0
 JOB_SWEEP_SECONDS = 5.0
 MIN_BATCH_SECONDS = 0.25    # coalesce bursts (progress ticks) per connection
 MAX_STREAM_SECONDS = 30 * 60  # then the client reconnects and resyncs
+AUTH_RECHECK_SECONDS = 5.0  # session/permission re-check, at most this often
 
 _lock = threading.Lock()
 # Weak, so a stream whose generator never ran (the client left before the
