@@ -10,7 +10,9 @@ import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
-import { reviewJobIds } from '../../stageJobIds'
+import { isBulkJobId, reviewJobIds } from '../../stageJobIds'
+import { routeHref } from '../../../../router'
+import { ButtonLink } from '../../../../components/Button'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
@@ -191,7 +193,16 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
             </div>
           </div>
         </Section>
-        {busy && <p className="muted review-ai-busy">A review job is running.</p>}
+        {busy && !isBulkJobId(jobId) && <p className="muted review-ai-busy">A review job is running.</p>}
+        {busy && isBulkJobId(jobId) && (
+          <p className="muted review-ai-busy" data-testid="review-bulk-pending">
+            A bulk batch is waiting on the provider, which can take hours. To run a normal check now, cancel it
+            under Bulk batches on the Translate stage.{' '}
+            <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate' })}>
+              Open Bulk batches
+            </ButtonLink>
+          </p>
+        )}
         <fieldset className="review-fix" aria-label="Fix flagged lines">
           <legend>Fix flagged lines</legend>
           <p className="muted review-fix-hint">Redoes the source and English of every flagged line.</p>

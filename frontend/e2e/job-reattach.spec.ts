@@ -44,6 +44,28 @@ test('a translate job keeps showing after leaving the stage and coming back', as
   expect(starts).toHaveLength(1)
 })
 
+test('a pending bulk batch keeps Start disabled and points to Bulk batches', async ({ page }) => {
+  await page.route('**/api/jobs/bulk_translate_1', (route) => route.fulfill({ json: job('bulk_translate_1', 'running') }))
+  // The batch itself, as the Bulk batches panel lists it.
+  await page.route('**/api/translate-run/dramas/1/bulk', (route) => route.fulfill({
+    json: {
+      drama_id: 1,
+      jobs: [{
+        bulk_job_id: 12, engine: 'claude', model: 'm', kind: 'translate', stage: null, pipeline_id: null,
+        status: 'submitted', pending: true, cancellable: true, line_count: 3, scheduled_for: null,
+        result_summary: null, last_error: null, submitted_at: '2026-09-29T09:00:00', updated_at: '2026-09-29T09:05:00',
+      }],
+    },
+  }))
+  await withTranslateLines(page)
+  await page.goto('/#/drama/1/translate')
+  const primary = page.getByRole('region', { name: 'Translate run' }).getByRole('button', { name: /^Translate \d+ lines?$/ })
+  await expect(primary).toBeDisabled()
+  await expect(primary).toHaveAccessibleDescription(/cancel it under Bulk batches below/)
+  // The section the reason points to is on the same page, open, with its Cancel.
+  await expect(page.getByRole('region', { name: 'Bulk batches' }).getByRole('button', { name: 'Cancel batch 12' })).toBeVisible()
+})
+
 test('a finished or missing translate job does not block Start on a fresh visit', async ({ page }) => {
   await page.route('**/api/jobs/translate_1', (route) =>
     route.fulfill({ json: { ...job('translate_1', 'done'), finished_at: 2 } }))

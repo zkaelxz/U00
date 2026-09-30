@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { dubJobIds, mediaExportJobId, reviewJobIds, translateJobIds, voiceCloneJobId } from './stageJobIds'
+import { dubJobIds, isBulkJobId, mediaExportJobId, reviewJobIds, translateJobIds, voiceCloneJobId } from './stageJobIds'
 
 describe('stage job ids', () => {
   it('match the server-side per-drama job ids', () => {
@@ -15,5 +15,11 @@ describe('stage job ids', () => {
     expect(mediaExportJobId(3, 'softsub_video')).toBe('softsub_video_3')
     expect(mediaExportJobId(3, 'dubbed_video')).toBe('dubbed_video_3')
     expect(voiceCloneJobId(3)).toBe('voiceref_3')
+  })
+  it('tells bulk batches from normal runs', () => {
+    expect(isBulkJobId('bulk_translate_3')).toBe(true)
+    expect(isBulkJobId('bulk_flag_3')).toBe(true)
+    expect(isBulkJobId('translate_3')).toBe(false)
+    expect(isBulkJobId(null)).toBe(false)
   })
 })

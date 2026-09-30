@@ -5,6 +5,10 @@ import type { ReviewJobKind } from '../../types/review'
 // background_jobs.DRAMA_JOB_PREFIXES), for useReattachJob: a stage revisited
 // while one of these runs picks it up again. Source's list is sourceJobIds.
 
+// A bulk batch waits on the provider, often for hours; it is listed (and can
+// be cancelled) under Bulk batches on the Translate stage.
+export const isBulkJobId = (id: string | null) => !!id && id.startsWith('bulk_')
+
 export const translateJobIds = (dramaId: number) => [`translate_${dramaId}`, `bulk_translate_${dramaId}`]
 
 export const dubJobIds = (dramaId: number) => [`dub_${dramaId}`, `narration_${dramaId}`]
