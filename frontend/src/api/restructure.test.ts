@@ -55,10 +55,49 @@ describe('restructure api', () => {
   it('sends engine and model only when AI re-segmentation is on', async () => {
     const calls: Call[] = []
     const f = fakeFetch([ok({ job_id: 'resegment_3', drama_id: 3 })], calls)
-    await rs.startResegment(3, { expected_line_ids: [1], confirm: true, use_llm: false, engine: 'x', model: 'y' }, f)
+    await rs.startResegment(3, { expected_line_ids: [1], confirm: true }, f)
     expect(body(calls[0])).toEqual({ expected_line_ids: [1], confirm: true, use_llm: false })
-    await rs.startResegment(3, { expected_line_ids: [1], confirm: true, use_llm: true, engine: 'x', model: '' }, f)
-    expect(body(calls[1])).toEqual({ expected_line_ids: [1], confirm: true, use_llm: true, engine: 'x' })
+  })
+
+  it('starts the AI preview with only the engine and model that are set', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch([ok({ job_id: 'resegpreview_3', drama_id: 3 })], calls)
+    const r = await rs.startLlmResegmentPreview(3, {}, f)
+    expect(r.job_id).toBe('resegpreview_3')
+    expect(calls[0].url).toBe('/api/restructure/dramas/3/resegment/preview-llm')
+    expect(calls[0].init?.method).toBe('POST')
+    expect(body(calls[0])).toEqual({})
+    await rs.startLlmResegmentPreview(3, { engine: ' claude ', model: '' }, f)
+    expect(body(calls[1])).toEqual({ engine: 'claude' })
+    await rs.startLlmResegmentPreview(3, { engine: 'gemini', model: 'flash' }, f)
+    expect(body(calls[2])).toEqual({ engine: 'gemini', model: 'flash' })
+  })
+
+  it('reads the AI preview back with GET', async () => {
+    const calls: Call[] = []
+    const preview = { drama_id: 3, source_line_ids: [1], line_count_before: 1, line_count_after: 2, changed: [], translated: 0, flagged: 0, notes: 0, needs_confirm: false, engine: 'claude' }
+    const got = await rs.getLlmResegmentPreview(3, fakeFetch([ok(preview)], calls))
+    expect(calls[0].url).toBe('/api/restructure/dramas/3/resegment/preview-llm')
+    expect(calls[0].init?.method ?? 'GET').toBe('GET')
+    expect(got.engine).toBe('claude')
+  })
+
+  it('a missing AI preview is a 404 ApiError', async () => {
+    await expect(rs.getLlmResegmentPreview(3, fakeFetch([{ status: 404, body: { error: { code: 'not_found', message: 'none' } } }]))).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('applies the AI preview with use_preview and never use_llm, engine or model', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch([ok({ job_id: 'resegment_3', drama_id: 3 })], calls)
+    await rs.applyLlmResegmentPreview(3, [1, 2, 3], true, f)
+    expect(calls[0].url).toBe('/api/restructure/dramas/3/resegment')
+    expect(body(calls[0])).toEqual({ expected_line_ids: [1, 2, 3], use_preview: true, confirm: true })
+    await rs.applyLlmResegmentPreview(3, [1, 2, 3], false, f)
+    const sent = body(calls[1])
+    expect(sent).toEqual({ expected_line_ids: [1, 2, 3], use_preview: true, confirm: false })
+    expect(sent).not.toHaveProperty('use_llm')
+    expect(sent).not.toHaveProperty('engine')
+    expect(sent).not.toHaveProperty('model')
   })
 
   it('reads the preview and restores a snapshot', async () => {

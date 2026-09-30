@@ -2,7 +2,7 @@
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
 Stage one of the React + FastAPI migration (see
-`docs/migration-react-fastapi.md`). This runs *alongside* the Streamlit
+`docs/archive/migration-react-fastapi.md`). This runs *alongside* the Streamlit
 app, not instead of it: both import the same modules and read the same
 `library/` folder, and neither calls the other over HTTP. Streamlit
 still owns every feature; this API exposes only what has been moved
@@ -32,6 +32,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSi
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    asr_options_routes,
     auth_routes,
     backup_routes,
     benchmark_routes,
@@ -80,6 +81,7 @@ from api.routers import (
     settings_routes,
     source_routes,
     sources_catalog_routes,
+    sources_extraction_routes,
     sources_import_routes,
     sources_local_routes,
     sources_search_routes,
@@ -200,6 +202,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)
+    app.include_router(sources_extraction_routes.router)
     app.include_router(sources_local_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
@@ -210,6 +213,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
     app.include_router(notification_center_routes.router)
+    app.include_router(asr_options_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(engine_routing_routes.router)
     app.include_router(stronger_engine_routes.router)
