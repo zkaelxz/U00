@@ -17,7 +17,9 @@ Checkpoints (item 2's pattern, for any job with countable units):
 The scope folds in the input, the model and the settings, so a run over
 different text or with a different engine never reuses another run's
 units. A crash, a cancel or a failed save leaves the units in place, and
-the next run over the same input picks up where that one stopped. The
+the next run over the same input picks up where that one stopped.
+Checkpoints nobody resumed are dropped after CHECKPOINT_MAX_AGE_DAYS, and a
+deleted drama's go with it (db.delete_drama). The
 user still starts the re-run (nothing restarts by itself on launch).
 
 Result cache (item 1): `cache_get(kind, input_hash, model, settings)` /
@@ -38,6 +40,7 @@ import time
 import db
 
 CACHE_MAX_PER_KIND = 5000
+CHECKPOINT_MAX_AGE_DAYS = 30
 
 
 @contextlib.contextmanager
@@ -75,8 +78,18 @@ def record_unit(scope: str, unit_id, payload) -> None:
             (scope, str(unit_id), json.dumps(payload, ensure_ascii=False), time.time()))
 
 
+def sweep_old(max_age_days=CHECKPOINT_MAX_AGE_DAYS, now=None) -> int:
+    """Drops checkpoints older than `max_age_days` (a run nobody resumed)."""
+    cutoff = (time.time() if now is None else now) - max_age_days * 86400
+    with _conn() as conn:
+        return conn.execute("DELETE FROM job_checkpoints WHERE created_at < ?",
+                            (cutoff,)).rowcount
+
+
 def done_units(scope: str) -> dict:
-    """{unit_id (str): payload} recorded for this scope so far."""
+    """{unit_id (str): payload} recorded for this scope so far. Sweeps
+    checkpoints older than CHECKPOINT_MAX_AGE_DAYS first."""
+    sweep_old()
     with _conn() as conn:
         rows = conn.execute("SELECT unit_id, payload_json FROM job_checkpoints WHERE scope = ?",
                             (scope,)).fetchall()

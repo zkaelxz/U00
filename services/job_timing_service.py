@@ -105,12 +105,12 @@ def mark_stage(job_id, stage, now=None):
     try:
         now = time.time() if now is None else now
         name = " ".join(str(stage or "").split())[:MAX_STAGE_LEN] or WHOLE_JOB
-        with _lock:
+        with _lock:   # close + write under one lock: a reader never sees a gap
             if job_id not in _open:
                 return
             row = _close_stage_locked(job_id, now)
             _open[job_id]["stage"] = name
-        _insert([row])
+            _insert([row])
     except Exception:
         pass
 
@@ -120,12 +120,12 @@ def finish_run(job_id, now=None, token=None):
     of the same job id that started meanwhile is left alone."""
     try:
         now = time.time() if now is None else now
-        with _lock:
+        with _lock:   # the last row is written before the run stops being live
             if token is not None and (_open.get(job_id) or {}).get("run") != token:
                 return
             row = _close_stage_locked(job_id, now, final=True)
+            _insert([row])
             run = _open.pop(job_id, None)
-        _insert([row])
         if run is not None:
             _prune(job_id)
     except Exception:
@@ -144,18 +144,18 @@ def list_runs(job_id, limit=RUNS_KEPT_PER_JOB) -> list:
     """Newest run first: {run_started_at, running, total_seconds, cost_usd,
     stages: [{stage, started_at, duration_seconds, cost_usd}]}. A run still
     going shows its finished stages plus the open one so far."""
-    with _conn() as conn:
-        rows = conn.execute(
-            "SELECT run_started_at, stage, started_at, duration_s, cost_usd "
-            "FROM job_stage_timings WHERE job_id = ? ORDER BY run_started_at DESC, started_at",
-            (job_id,)).fetchall()
+    with _lock:   # rows and the live run from the same moment
+        with _conn() as conn:
+            rows = conn.execute(
+                "SELECT run_started_at, stage, started_at, duration_s, cost_usd "
+                "FROM job_stage_timings WHERE job_id = ? "
+                "ORDER BY run_started_at DESC, started_at", (job_id,)).fetchall()
+        live = dict(_open.get(job_id) or {})
     runs = {}
     for run_started, stage, started, duration, cost in rows:
         runs.setdefault(run_started, []).append(
             {"stage": stage, "started_at": started, "duration_seconds": round(duration, 3),
              "cost_usd": round(cost or 0.0, 6)})
-    with _lock:
-        live = dict(_open.get(job_id) or {})
     if live:
         now = time.time()
         runs.setdefault(live["run"], []).append(

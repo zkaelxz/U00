@@ -474,3 +474,220 @@ def test_a_broken_cache_never_fails_the_run(isolated_db, monkeypatch):
 
 def _proc_ok(result_queue):
     result_queue.put(("ok", None))
+
+
+# --- lead review fixes ------------------------------------------------------------
+
+def test_fresh_glossary_run_ignores_the_cache_but_refreshes_it(isolated_db, monkeypatch):
+    replies = iter(["A", "B", "C"])
+    calls = []
+
+    def fake_llm(engine, prompt, **kw):
+        calls.append(1)
+        return json.dumps([{"term": next(replies), "suggested_translation": "x"}])
+
+    monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
+    text = "林" * 2000
+    first = tguide.extract_glossary_from_novel(
+        text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
+    n = len(calls)
+    assert n == 1 and [t["term"] for t in first] == ["A"]
+    again = tguide.extract_glossary_from_novel(
+        text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
+    assert len(calls) == 1 and [t["term"] for t in again] == ["A"]        # cached
+    fresh = tguide.extract_glossary_from_novel(
+        text, _Engine(),
+        response_cache=glossary_service._novel_glossary_cache(_Engine(), "c", fresh=True))
+    assert len(calls) == 2 and [t["term"] for t in fresh] == ["B"]        # asked again
+    later = tguide.extract_glossary_from_novel(
+        text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
+    assert [t["term"] for t in later] == ["B"]                            # new reply cached
+
+
+def test_fresh_route_parameter_reaches_the_services(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from api.server import ApiSettings, create_app
+    seen = {}
+    monkeypatch.setattr(glossary_service, "novel_glossary_engine", lambda d: "ollama")
+    monkeypatch.setattr(glossary_service, "start_novel_glossary_run",
+                        lambda d, engine_name=None, fresh=False: seen.update(g=fresh) or
+                        {"job_id": "novel_glossary_1", "engine": "ollama", "paired": False})
+    monkeypatch.setattr(narration_service, "start_narration_run",
+                        lambda d, engine_name=None, model=None, fresh=False:
+                        seen.update(n=fresh) or {"job_id": "narration_1"})
+    did = isolated_db.create_drama(title_en="F")
+    c = TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
+                   client=("127.0.0.1", 50000), raise_server_exceptions=False)
+    r = c.post(f"/api/glossary/dramas/{did}/from-novel?fresh=true", json={})
+    assert r.status_code == 200, r.text
+    assert c.post(f"/api/narration/dramas/{did}/run?fresh=true",
+                  json={"engine": "ollama"}).status_code == 200
+    assert seen == {"g": True, "n": True}
+
+
+def test_narration_start_over_drops_the_saved_batches(isolated_db, monkeypatch):
+    did = _narration_setup(isolated_db, monkeypatch)
+    calls, state = [], {"fail": True}
+
+    def fake_batch(batch_ids, build, call_model):
+        calls.append(batch_ids[0])
+        if state["fail"] and len(calls) == 2:
+            raise RuntimeError("killed")
+        return {str(i): "A" for i in batch_ids}
+
+    monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", fake_batch)
+    with pytest.raises(RuntimeError):
+        narration_service._run_narration_job("j", did, "novel", "claude", "k", None)
+    calls.clear()
+    state["fail"] = False
+    narration_service._run_narration_job("j", did, "novel", "claude", "k", None, fresh=True)
+    assert calls == [0, 15, 30]
+
+
+def test_changed_characters_or_prompt_version_invalidate_narration_checkpoints(
+        isolated_db, monkeypatch):
+    done, on_batch = narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])
+    on_batch({0: "Ann"})
+    assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])[0] == {0: "Ann"}
+    assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann", "Bo"])[0] == {}
+    monkeypatch.setattr(translate_engines, "TAG_SPEAKERS_PROMPT_VERSION", "2")
+    assert narration_service.tagging_checkpoint(1, "t", "claude", "m", ["Ann"])[0] == {}
+
+
+def test_deleting_a_drama_drops_its_checkpoints_and_provenance(isolated_db):
+    keep = isolated_db.create_drama(title_en="Keep")
+    gone = isolated_db.create_drama(title_en="Gone")
+    for did in (keep, gone):
+        narration_service.tagging_checkpoint(did, "t", "c", "m", [])[1]({0: "A"})
+        line_provenance_service.record(did, {7: ("zh", "en")}, "claude", "m", "1", "")
+    isolated_db.delete_drama(gone)
+    assert narration_service.tagging_checkpoint(gone, "t", "c", "m", [])[0] == {}
+    assert line_provenance_service.get(gone, 7) is None
+    assert narration_service.tagging_checkpoint(keep, "t", "c", "m", [])[0] == {0: "A"}
+    assert line_provenance_service.get(keep, 7)["engine"] == "claude"
+
+
+def test_checkpoints_older_than_30_days_are_swept(isolated_db):
+    scope = cp.checkpoint_scope("k", 1, "h", "m")
+    cp.record_unit(scope, 1, "old")
+    assert cp.sweep_old(now=time.time() + 29 * 86400) == 0
+    assert cp.sweep_old(now=time.time() + 31 * 86400) == 1
+    assert cp.done_units(scope) == {}
+
+
+def test_provenance_sentence_leaves_out_the_baihe_commit(isolated_db):
+    line_provenance_service.record(1, {3: ("zh", "en")}, "claude", "m", "1", "")
+    prov = line_provenance_service.get(1, 3)
+    assert prov["software_version"]                                  # kept in the row
+    assert prov["software_version"] not in line_provenance_service.describe(prov)
+    assert "Baihe" not in line_provenance_service.describe(prov)
+
+
+def test_nllb_pipeline_survives_a_release_between_check_and_read(monkeypatch):
+    engine = translate_engines.NLLBEngine.__new__(translate_engines.NLLBEngine)
+    engine.model_name = "fake-nllb"
+    made = []
+    fake = types.ModuleType("transformers")
+    fake.pipeline = lambda *a, **k: made.append(1) or "PIPE"
+    monkeypatch.setitem(sys.modules, "transformers", fake)
+
+    class Vanishing(dict):   # release_gpu_models() clears it right after the check
+        def get(self, key, default=None):
+            value = dict.get(self, key, default)
+            self.clear()
+            return value
+
+    cache = Vanishing({("fake-nllb", "zh", "en"): "OLD"})
+    monkeypatch.setattr(translate_engines, "_nllb_pipeline_cache", cache)
+    assert engine._get_pipeline("zh") == "OLD" and made == []
+
+
+def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
+    import argparse
+    import os
+    import cli
+    import dub
+    did = _narration_setup(isolated_db, monkeypatch)
+    with open(os.path.join(isolated_db.drama_dir(did), dub.NOVEL_SOURCE_FILENAME), "w",
+              encoding="utf-8") as f:
+        f.write("novel")
+    monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [f"段落{i}" for i in range(40)])
+    calls, state = [], {"fail": True}
+
+    def fake_batch(batch_ids, build, call_model):
+        calls.append(batch_ids[0])
+        if state["fail"] and len(calls) == 2:
+            raise RuntimeError("killed")
+        return {str(i): "A" for i in batch_ids}
+
+    monkeypatch.setattr(translate_engines, "_id_keyed_batch_request", fake_batch)
+    args = argparse.Namespace(id=did, engine="claude", api_key="k", model=None,
+                              ollama_url=None, fresh=False)
+    try:
+        cli.cmd_narrate_prep(args)
+    except (RuntimeError, SystemExit):
+        pass
+    calls.clear()
+    state["fail"] = False
+    cli.cmd_narrate_prep(args)
+    assert calls == [15, 30]                       # resumed, like the API job
+    assert len(isolated_db.load_line_objects(did)) == 40
+
+
+def test_cli_translate_records_provenance(isolated_db, monkeypatch):
+    on_save = line_provenance_service.translate_run_tracker(
+        1, [Line(idx=0, start=0, end=1, zh="你好", en="")], _Engine(), "claude", [],
+        locale="en-US")
+    ln = Line(idx=0, start=0, end=1, zh="你好", en="hello")
+    ln.id = None
+    on_save([ln])   # no permanent id yet: nothing recorded, no error
+    import inspect
+    import cli
+    src = inspect.getsource(cli.cmd_translate)
+    assert "line_provenance_service.translate_run_tracker" in src and "provenance(lines)" in src
+
+
+# --- stages route with auth on (security review) --------------------------------
+
+def _session(auth_service, email, *perms):
+    u = auth_service.add_user(email)
+    for p in perms:
+        auth_service.grant_permission(u["id"], p)
+    return u["id"], auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+
+
+def test_stages_route_with_auth_on_hides_other_users_jobs_and_runs(isolated_db):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.server import ApiSettings, create_app
+    from services import auth_service
+    kid_id, kid = _session(auth_service, "kid@example.com", "library.read")
+    other_id, _ = _session(auth_service, "other@example.com", "library.read")
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={kid['session_token']}",
+         api_auth.CSRF_HEADER: kid["csrf_token"]}
+
+    def run(job_id, start, owner):
+        job_timing_service.start_run(job_id, now=start)
+        job_timing_service.finish_run(job_id, now=start + 2)
+        # As background_jobs mirrors a run: running (takes the owner), then done.
+        isolated_db.save_job_record(job_id, status="running", description="j",
+                                    started_at=start, owner_user_id=owner)
+        isolated_db.save_job_record(job_id, status="done", progress=1.0, description="j",
+                                    started_at=start, finished_at=start + 2,
+                                    owner_user_id=owner)
+
+    run("discover_other", 100.0, other_id)                 # another user's non-drama job
+    private = isolated_db.create_drama(title_en="P", owner_user_id=other_id, is_private=1)
+    run(f"translate_{private}", 100.0, other_id)           # a drama the kid can't see
+    run("sources_search", 100.0, other_id)                 # shared id: the other user's run...
+    run("sources_search", 200.0, kid_id)                   # ...then the kid's own
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                   raise_server_exceptions=False)
+    assert c.get("/api/jobs/discover_other/stages", headers=h).status_code == 404
+    assert c.get(f"/api/jobs/translate_{private}/stages", headers=h).status_code == 404
+    r = c.get("/api/jobs/sources_search/stages", headers=h)
+    assert r.status_code == 200
+    assert [x["run_started_at"] for x in r.json()["runs"]] == [200.0]
+    assert c.get("/api/jobs/sources_search/stages").status_code == 401

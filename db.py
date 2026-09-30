@@ -1340,6 +1340,10 @@ def update_drama(drama_id: int, **fields):
 def delete_drama(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         conn.execute("DELETE FROM dramas WHERE id = ?", (drama_id,))
+        # Step 41 tables keyed by drama (no foreign key): a checkpoint scope
+        # is "<kind>:<drama_id>:<digest>".
+        conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
+        conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
         conn.commit()
     import shutil
     d = os.path.join(DRAMAS_DIR, str(drama_id))

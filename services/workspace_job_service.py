@@ -116,19 +116,11 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(_series_id) if _series_id else [])
     # Step 41: what produced each line (item 4) and per-stage timing (item 5).
-    def _engine_info():
-        # A FallbackEngine's active engine can change mid-run.
-        name = (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
-                else engine_choice)
-        return name, getattr(engine, "model", None) or name
-
-    provenance = line_provenance_service.tracker(
-        drama_id, lines, _engine_info,
-        translate_engines.TRANSLATE_PROMPT_VERSION, glossary_terms,
-        settings={"locale": locale, "style_preset": style_preset, "reflect": bool(reflect),
-                  "context_window": context_window, "context_window_ahead": context_window_ahead,
-                  "batch_size": batch_size, "style_note": style_note or "",
-                  "style_guidelines": style_guidelines or ""})
+    provenance = line_provenance_service.translate_run_tracker(
+        drama_id, lines, engine, engine_choice, glossary_terms, locale=locale,
+        style_preset=style_preset, reflect=bool(reflect), context_window=context_window,
+        context_window_ahead=context_window_ahead, batch_size=batch_size,
+        style_note=style_note or "", style_guidelines=style_guidelines or "")
 
     def _save(ls):
         db.save_lines(drama_id, ls, fields=("en",))

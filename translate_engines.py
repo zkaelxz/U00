@@ -1331,19 +1331,27 @@ class NLLBEngine:
 
     def _get_pipeline(self, source_language: str, target_language: str = "en"):
         cache_key = (self.model_name, source_language, target_language)
-        if cache_key not in _nllb_pipeline_cache:
+        # One .get(): release_gpu_models() may clear the cache at any moment.
+        pipe = _nllb_pipeline_cache.get(cache_key)
+        if pipe is None:
             from transformers import pipeline
             src_lang = _NLLB_LANG_CODES.get(source_language, "zho_Hans")
             tgt_lang = _NLLB_LANG_CODES.get(target_language, "eng_Latn")
-            _nllb_pipeline_cache[cache_key] = pipeline(
+            pipe = pipeline(
                 "translation", model=self.model_name, src_lang=src_lang, tgt_lang=tgt_lang)
-        return _nllb_pipeline_cache[cache_key]
+            _nllb_pipeline_cache[cache_key] = pipe
+        return pipe
 
     def translate_batch(self, zh_lines, context: dict):
         pipe = self._get_pipeline(context.get("source_language", "zh"),
                                   context.get("target_language", "en"))
         results = pipe(list(zh_lines))
         return [r["translation_text"] for r in results]
+
+
+# Step 41: part of narration tagging's checkpoint key -- bump it when the
+# prompt below changes, so labels from the old prompt aren't reused.
+TAG_SPEAKERS_PROMPT_VERSION = "1"
 
 
 def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size: int = 15,

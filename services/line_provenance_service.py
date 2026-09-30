@@ -111,7 +111,9 @@ def get(drama_id, line_id, current_en=None):
 
 
 def describe(prov) -> str:
-    """One plain sentence for the "What happened here?" view."""
+    """One plain sentence for the "What happened here?" view. Leaves out the
+    Baihe commit: that stays in the row, since any lines.read caller gets
+    this sentence and the commit is admin.diagnostics-only."""
     if not prov:
         return ("No per-line record for this translation: it was made before Baihe "
                 "started recording them, or changed since by an edit, an activated "
@@ -121,7 +123,7 @@ def describe(prov) -> str:
                 else "no glossary")
     return (f"Translated {when} by {prov.get('engine') or 'an unknown engine'}"
             f"{' (' + prov['model'] + ')' if prov.get('model') else ''}, prompt version "
-            f"{prov.get('prompt_version') or '?'}, {glossary}, Baihe {prov.get('software_version')}.")
+            f"{prov.get('prompt_version') or '?'}, {glossary}.")
 
 
 def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settings=None):
@@ -150,3 +152,19 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
         except Exception:
             pass
     return on_save
+
+
+def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms, **options):
+    """The tracker for one translate run, shared by the Workspace job and
+    `cli.py translate`. A FallbackEngine's active engine is read at every
+    save; `options` are the run's plain settings (locale, style...)."""
+    import translate_engines
+
+    def engine_info():
+        name = (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+                else engine_choice)
+        return name, getattr(engine, "model", None) or name
+
+    return tracker(drama_id, lines, engine_info, translate_engines.TRANSLATE_PROMPT_VERSION,
+                   glossary_terms, settings={k: (v if v is not None else "")
+                                             for k, v in options.items()})
