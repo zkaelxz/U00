@@ -226,7 +226,7 @@ def test_fetch_page_tiers_follow_the_flags(isolated_db, monkeypatch):
 def _fake_import(monkeypatch, text="正文" * 300, needs_review=False, exc=None, handoff=None,
                  calls=None):
     def fake(url, engine=None, client=None, rendered_fetch=None, user_html=None,
-             use_cache=True, allow_signed_in=True, allow_browser=True):
+             use_cache=True, allow_signed_in=True, allow_browser=True, hold_profiles=False):
         if calls is not None:
             calls.append({"url": url, "engine": engine, "signed_in": allow_signed_in,
                           "browser": allow_browser})
@@ -235,7 +235,7 @@ def _fake_import(monkeypatch, text="正文" * 300, needs_review=False, exc=None,
         lr = LadderResult(url)
         lr.handoff = handoff
         return (NovelImportResult(url, "第2章", "" if handoff else text, "heuristic", ladder=lr),
-                SimpleNamespace(needs_review=needs_review))
+                SimpleNamespace(needs_review=needs_review, data=None))
     monkeypatch.setattr(imp.adaptive, "import_novel", fake)
 
 
@@ -257,7 +257,8 @@ def test_url_import_appends_text(client, env, monkeypatch):
     did = db.create_drama(title_en="N", media_type="novel")
     r = _import(client, did)
     _no_leak(r)
-    assert r.json()["result"] == {"kind": "url_import", "needs_review": False, "char_count": 600}
+    assert r.json()["result"] == {"kind": "url_import", "needs_review": False, "char_count": 600,
+                                  "review_open": False}
     assert calls == [{"url": PAGE, "engine": None, "signed_in": True, "browser": True}]
     assert "第2章" in _raw(did) and _raw(did).count("正文") == 300
     _import(client, did)

@@ -347,28 +347,86 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
     return result
 
 
-def download_candidates(candidates, page_url: str, client) -> None:
+@dataclass
+class DownloadBudget:
+    """Optional caps for download_candidates, shared across every call for
+    one page: how many downloads may be attempted (a failed or timed-out
+    one counts too) and how many bytes may be kept in total (the per-image
+    byte cap is the client's own). With a budget, a response that says it
+    is neither an image nor a generic binary is refused, and so is one
+    whose header (read without decoding) shows a type outside
+    `allowed_formats` or more than `max_image_pixels`. Used by the API's
+    pasted-URL comic import (services/page_import_limits.py)."""
+    max_images: int
+    max_total_bytes: int
+    max_image_pixels: int = 0            # 0 = no pixel check
+    allowed_formats: tuple = ()          # Pillow format names; () = any
+    images: int = 0
+    total_bytes: int = 0
+
+
+_BINARY_TYPES = ("", "application/octet-stream", "binary/octet-stream")
+
+
+def _refused_by_budget(c: ImageCandidate, resp, budget: DownloadBudget) -> str:
+    ctype = next((str(v) for k, v in (resp.headers or {}).items()
+                  if k.lower() == "content-type"), "").split(";")[0].strip().lower()
+    if not ctype.startswith("image/") and ctype not in _BINARY_TYPES:
+        return "couldn't download (the server didn't send an image)"
+    if budget.total_bytes + len(resp.content) > budget.max_total_bytes:
+        return "not downloaded (the page's images are over the total size limit)"
+    if budget.allowed_formats or budget.max_image_pixels:
+        from PIL import Image
+        try:
+            with Image.open(io.BytesIO(resp.content)) as im:   # header only
+                fmt, (w, h) = (im.format or "").upper(), im.size
+        except Exception:
+            return "not a readable image of an accepted image type"
+        if budget.allowed_formats and fmt not in budget.allowed_formats:
+            return f"{fmt or 'this'} is not an accepted image type"
+        if budget.max_image_pixels and w * h > budget.max_image_pixels:
+            return (f"over the {budget.max_image_pixels // 1_000_000} megapixel limit "
+                    f"({w}x{h})")
+    return ""
+
+
+def download_candidates(candidates, page_url: str, client, budget: DownloadBudget = None) -> None:
     """The resource downloader: fetches and measures each candidate not
-    fetched yet, through the paced client."""
+    fetched yet, through the paced client (and within `budget`, if given)."""
     for c in candidates:
         if c.content or c.reject_reason:
             continue
+        if budget is not None:
+            if budget.images >= budget.max_images:
+                c.reject_reason = "not downloaded (too many images on the page)"
+                continue
+            budget.images += 1                  # every attempt counts, even a failed one
         try:
             resp = client.get(c.url, classify_body=False, headers={"Referer": page_url},
                               action=f"Checking image {c.order + 1}/{len(candidates)}")
-            c.content = resp.content
-            _measure(c)
         except SourceError as e:
             c.reject_reason = f"couldn't download ({e.reason.value})"
+            continue
+        if budget is not None:
+            refused = _refused_by_budget(c, resp, budget)
+            if refused:
+                c.reject_reason = refused
+                continue
+            budget.total_bytes += len(resp.content)
+        c.content = resp.content
+        _measure(c)
 
 
-def filter_candidates(candidates, page_url: str, remember: bool = True) -> tuple:
-    """filter_page_images plus this site's cross-chapter image memory."""
+def filter_candidates(candidates, page_url: str, remember: bool = True,
+                      learn: bool = True) -> tuple:
+    """filter_page_images plus this site's cross-chapter image memory:
+    read when `remember`, and also written when `learn` (the API reads it
+    for every import but writes it only for one started at this PC)."""
     domain = _domain(page_url)
     hashes = [c.sha256 for c in candidates if c.sha256]
     seen = store.hashes_seen_elsewhere(domain, page_url, hashes) if remember else set()
     kept, rejected = filter_page_images(candidates, page_url, seen)
-    if remember:
+    if remember and learn:
         store.remember_images(domain, page_url, hashes)
     return kept, rejected
 

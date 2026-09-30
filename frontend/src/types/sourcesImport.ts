@@ -58,6 +58,8 @@ export interface UrlImportResult {
   kind: 'url_import'
   needs_review: boolean
   char_count: number
+  // A Review extraction was opened for the drama (parity SO10).
+  review_open?: boolean
 }
 
 export type SourceImportResult = ChapterImportResult | UrlImportResult

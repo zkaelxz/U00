@@ -340,10 +340,14 @@ baihe-subtitler/
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
-│   │                             S-5 novel text from a pasted URL
+│   │                             S-5 novel text and SO06 comic pages from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
 │   ├── sources_tools_service.py  Sources SO02/SO03/SO08/SO16 -- site check job, pasted page source preview and
 │   │                              import, identify-media job (+ PC-only full resource URL), pasted-URL diagnostics
+│   ├── page_import_limits.py     the comic page-upload rules (types, per-image bytes/pixels, per-import files/bytes,
+│   │                             strip slicing, EXIF orientation); used by the SO06 import, later the Scanlate upload
+│   ├── sources_extraction_service.py Sources parity SO09/SO10 -- the pasted-URL AI fallback engine (opt-in, key
+│   │                             on the PC) and Review extraction (per-drama in-memory review, corrections, profile save)
 │   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler
 │   │                             also uses) and which drama a tracked series auto-imports into
 │   ├── sources_signin_service.py Sources S-6/SO17 (PC only) -- sign-in window job, forget the saved profile,
@@ -430,6 +434,7 @@ baihe-subtitler/
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -527,6 +532,8 @@ baihe-subtitler/
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
 │       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
+│       ├── sources_extraction_routes.py GET /api/sources/url/ai-engines, POST /url/import-comic, Review
+│       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -647,7 +654,10 @@ baihe-subtitler/
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
 │   │                              sourcesFormat.ts (pure, unit-tested), sources.css; Sources tools:
 │   │                              SiteCheck, PastedSource, IdentifyMedia, RecentExtractions,
-│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts)
+│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts);
+│   │                              AiFallback + useAiEngines (SO09 AI fallback picker), NovelUrlImport,
+│   │                              ComicUrlImport (SO06), ExtractionReview (SO10), extractionFormat.ts
+│   │                              (pure, unit-tested), extraction.css
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),

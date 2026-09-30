@@ -13,6 +13,10 @@ POST /api/jobs/{job_id}/cancel.
 /url/preview and /url/import are declared BEFORE /{name}/import, so
 "/url/import" is never read as a source named "url".
 
+The novel URL import takes an opt-in AI fallback (`use_ai`, `engine`;
+parity SO09): the engine name is checked and `engines.paid` required for a
+paid one before the job starts.
+
 GET /{name}/import-state (Step 107) reads sources.db only: which chapters
 of a series are already in a drama, and which the last imports left
 failed or not attempted, so the picker can mark them and offer a retry.
@@ -24,10 +28,12 @@ HTTP only: no signed-in profile and no browser.
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import is_local_request, require_permission
+from api.auth import is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, SourcesChapterImportRequest, SourcesJobStarted,
-                         SourcesUrlImportRequest, SourcesUrlPreviewRequest)
+                         SourcesUrlPreviewRequest)
+from api.sources_extraction_schemas import SourcesUrlImportAiRequest
 from api.sources_import_schemas import SourcesImportState
+from services import sources_extraction_service as extraction
 from services import sources_import_service as svc
 from services import sources_url_service as url_svc
 
@@ -50,9 +56,13 @@ def post_url_preview(body: SourcesUrlPreviewRequest, request: Request):
              response_model=SourcesJobStarted,
              summary="Job: append a pasted URL's novel text to a novel drama",
              responses=_ERRS)
-def post_url_import(body: SourcesUrlImportRequest, request: Request):
+def post_url_import(body: SourcesUrlImportAiRequest, request: Request):
+    engine = extraction.resolve_ai_engine_name(body.use_ai, body.engine)
+    if engine is not None:
+        require_engines_allowed(request, engine)
     return svc.start_url_import(body.url, body.drama_id, local=is_local_request(request),
-                                principal=request.state.principal)
+                                principal=request.state.principal, ai_engine=engine,
+                                review=body.review)
 
 
 @router.post("/{name}/import", dependencies=[require_permission("sources.import")],

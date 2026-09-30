@@ -28,6 +28,7 @@ Rules the module enforces, not just documents:
 import json
 import os
 import re
+import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
@@ -36,6 +37,11 @@ import db
 from . import ai_extract as ax
 
 FORMAT_VERSION = 1
+
+
+# Serializes each load-modify-write of a domain's profile file in this
+# process (save, rollback, record_use).
+_WRITE_LOCK = threading.RLock()
 
 
 class ProfileRejected(Exception):
@@ -102,63 +108,66 @@ def save_version(domain: str, kind: str, rules: dict, validation: dict, origin: 
     of re-running these rules on a real page (validate_* output).
     Raises ProfileRejected rather than saving something unvalidated, or a
     below-HIGH profile nobody approved."""
-    if not rules:
-        raise ProfileRejected("There's no profile to save.")
-    if not validation or not validation.get("valid"):
-        why = "; ".join((validation or {}).get("problems") or []) or "it didn't validate"
-        raise ProfileRejected(f"Not saved -- re-running this profile on the page failed its checks: {why}")
-    bucket = (validation.get("overall") or {}).get("bucket")
-    if bucket != ax.HIGH and not approved:
-        raise ProfileRejected(f"Confidence is {bucket} -- saving needs your approval.")
-    rec = load(domain)
-    number = max((v["version"] for v in rec["versions"]), default=0) + 1
-    previous = rec["active"].get(kind)
-    for v in rec["versions"]:
-        if v["kind"] == kind and v["version"] == previous:
-            v["status"] = "superseded"
-    entry = {"version": number, "kind": kind, "rules": rules, "origin": origin,
-             "created_at": time.time(), "status": "active", "approved": bool(approved),
-             "replaces": previous, "note": note, "failures": 0, "last_failure": None,
-             "last_used": None,
-             "validation": {"overall": validation.get("overall"),
-                            "problems": validation.get("problems") or [],
-                            "fields": {k: f["bucket"] for k, f in
-                                       (validation.get("confidence") or {}).items()}}}
-    rec["versions"].append(entry)
-    rec["active"][kind] = number
-    _write(rec)
-    return entry
+    with _WRITE_LOCK:
+        if not rules:
+            raise ProfileRejected("There's no profile to save.")
+        if not validation or not validation.get("valid"):
+            why = "; ".join((validation or {}).get("problems") or []) or "it didn't validate"
+            raise ProfileRejected(f"Not saved -- re-running this profile on the page failed its checks: {why}")
+        bucket = (validation.get("overall") or {}).get("bucket")
+        if bucket != ax.HIGH and not approved:
+            raise ProfileRejected(f"Confidence is {bucket} -- saving needs your approval.")
+        rec = load(domain)
+        number = max((v["version"] for v in rec["versions"]), default=0) + 1
+        previous = rec["active"].get(kind)
+        for v in rec["versions"]:
+            if v["kind"] == kind and v["version"] == previous:
+                v["status"] = "superseded"
+        entry = {"version": number, "kind": kind, "rules": rules, "origin": origin,
+                 "created_at": time.time(), "status": "active", "approved": bool(approved),
+                 "replaces": previous, "note": note, "failures": 0, "last_failure": None,
+                 "last_used": None,
+                 "validation": {"overall": validation.get("overall"),
+                                "problems": validation.get("problems") or [],
+                                "fields": {k: f["bucket"] for k, f in
+                                           (validation.get("confidence") or {}).items()}}}
+        rec["versions"].append(entry)
+        rec["active"][kind] = number
+        _write(rec)
+        return entry
 
 
 def rollback(domain: str, kind: str, version: int) -> dict:
     """Makes an earlier version active again. Nothing is deleted."""
-    rec = load(domain)
-    target = next((v for v in rec["versions"] if v["kind"] == kind and v["version"] == version), None)
-    if target is None:
-        raise ProfileRejected(f"{domain} has no {kind} profile version {version}.")
-    for v in rec["versions"]:
-        if v["kind"] == kind and v["status"] == "active":
-            v["status"] = "superseded"
-    target["status"] = "active"
-    rec["active"][kind] = version
-    _write(rec)
-    return target
+    with _WRITE_LOCK:
+        rec = load(domain)
+        target = next((v for v in rec["versions"] if v["kind"] == kind and v["version"] == version), None)
+        if target is None:
+            raise ProfileRejected(f"{domain} has no {kind} profile version {version}.")
+        for v in rec["versions"]:
+            if v["kind"] == kind and v["status"] == "active":
+                v["status"] = "superseded"
+        target["status"] = "active"
+        rec["active"][kind] = version
+        _write(rec)
+        return target
 
 
 def record_use(domain: str, kind: str, version: int, ok: bool, reason: str = ""):
     """Notes a success or a failed validation on a version. A failing
     version stays on disk (and stays active until a validated replacement
     exists) -- the person can see it failed and roll back or forward."""
-    rec = load(domain)
-    for v in rec["versions"]:
-        if v["kind"] == kind and v["version"] == version:
-            v["last_used"] = time.time()
-            if ok:
-                v["failures"] = 0
-            else:
-                v["failures"] = v.get("failures", 0) + 1
-                v["last_failure"] = {"at": time.time(), "reason": reason}
-    _write(rec)
+    with _WRITE_LOCK:
+        rec = load(domain)
+        for v in rec["versions"]:
+            if v["kind"] == kind and v["version"] == version:
+                v["last_used"] = time.time()
+                if ok:
+                    v["failures"] = 0
+                else:
+                    v["failures"] = v.get("failures", 0) + 1
+                    v["last_failure"] = {"at": time.time(), "reason": reason}
+        _write(rec)
 
 
 # ---------------------------------------------------------------------------

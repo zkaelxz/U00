@@ -42,7 +42,8 @@ EXTRACTION_TIER_LABELS = {
     "none": "Nothing usable found",
 }
 
-_HARD_REJECTS = ("readable", "download", "too small")
+# "over the" and "accepted image type": the API page rules (services/page_import_limits.py).
+_HARD_REJECTS = ("readable", "download", "too small", "over the", "accepted image type")
 
 
 @dataclass
@@ -62,6 +63,10 @@ class ExtractionReport:
     lines: list = field(default_factory=list)
     needs_review: bool = False
     pending_profile: dict = None
+    # Hold even a HIGH-confidence profile candidate for approval instead of
+    # saving it (a run the owner at the PC didn't start: profile writes are
+    # PC-only in the API).
+    hold_profiles: bool = False
     data: dict = None
     access: dict = field(default_factory=dict)          # Step 23k: ladder.access_facts()
     resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
@@ -222,7 +227,7 @@ def _offer(report, domain, kind, rules, validation, origin):
                     + "; ".join(validation.get("problems") or ["no usable result"]))
         return
     bucket = validation["overall"]["bucket"]
-    if bucket == ax.HIGH:
+    if bucket == ax.HIGH and not report.hold_profiles:
         entry = profiles.save_version(domain, kind, rules, validation, origin=origin)
         report.profile["saved"] = entry["version"]
         report.note(f"Saved site profile v{entry['version']} for {domain} -- the next chapter "
@@ -352,12 +357,14 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
 
 def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
                  use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, remember: bool = True):
+                 allow_browser: bool = True, remember: bool = True,
+                 hold_profiles: bool = False):
     """The generic novel import with the Step 23g ladder. Returns
     (NovelImportResult, report); raises NoContentFound (with `.report`).
     `remember=False`: see extract_novel; the ladder result is not recorded
-    on the source's capability record either."""
-    report = ExtractionReport(url, "novel")
+    on the source's capability record either. `hold_profiles`: never
+    auto-save a generated site profile."""
+    report = ExtractionReport(url, "novel", hold_profiles=hold_profiles)
     lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html,
                                    allow_signed_in=allow_signed_in, allow_browser=allow_browser,
                                    record=remember)
@@ -456,6 +463,7 @@ def classify_comic_page(html: str, url: str, engine=None, use_cache: bool = True
 
 
 def extract_comic(page, candidates, engine=None, download=None, remember: bool = True,
+                  learn: bool = True,
                   use_cache: bool = True, report: ExtractionReport = None):
     """Runs the ladder on the candidates the deterministic pass surfaced.
     `download(candidates)` is the existing resource downloader
@@ -500,11 +508,11 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
     # unrelated covers, and each download is a paced request.
     pool = [c for c in candidates if c.attr != "manifest"]
     download(pool)
-    kept, rejected = generic_import.filter_candidates(pool, url, remember)
+    kept, rejected = generic_import.filter_candidates(pool, url, remember, learn)
     if not kept and len(pool) < len(candidates):
         pool = candidates
         download(pool)
-        kept, rejected = generic_import.filter_candidates(pool, url, remember)
+        kept, rejected = generic_import.filter_candidates(pool, url, remember, learn)
     det = ax.comic_from_filter(page, pool, kept, rejected)
     ax.validate_comic(det, page, measured(pool))
     ambiguous = ax.comic_needs_review(det, pool)
@@ -537,12 +545,18 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
 
 
 def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
-                 remember: bool = True, use_cache: bool = True):
+                 remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
+                 allow_browser: bool = True, budget=None, hold_profiles: bool = False,
+                 learn: bool = True):
     """The generic comic import with the Step 23g ladder. Returns
-    (ComicImportResult, report); raises NoContentFound (with `.report`)."""
-    report = ExtractionReport(url, "comic")
+    (ComicImportResult, report); raises NoContentFound (with `.report`).
+    `budget` (generic_import.DownloadBudget) caps the image downloads;
+    `hold_profiles`: never auto-save a generated site profile; `learn=False`
+    reads the site's cross-chapter image memory but doesn't add to it."""
+    report = ExtractionReport(url, "comic", hold_profiles=hold_profiles)
     client = generic_import._client(client, url)
-    lr = generic_import.fetch_page(url, client, rendered_fetch, user_html)
+    lr = generic_import.fetch_page(url, client, rendered_fetch, user_html,
+                                   allow_signed_in=allow_signed_in, allow_browser=allow_browser)
     _note_access(report, lr)
     out = ComicImportResult(page_url=url, ladder=lr)
     if lr.handoff:
@@ -562,8 +576,8 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
     page = ax.PageModel(lr.html, url)
     data, report = extract_comic(
         page, candidates, engine,
-        download=lambda cs: generic_import.download_candidates(cs, url, client),
-        remember=remember, use_cache=use_cache, report=report)
+        download=lambda cs: generic_import.download_candidates(cs, url, client, budget),
+        remember=remember, learn=learn, use_cache=use_cache, report=report)
     _log(report)
     if data is None:
         raise _no_content(report.reason, report)

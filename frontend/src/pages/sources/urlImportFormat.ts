@@ -67,8 +67,11 @@ export function previewAction(p: UrlPreview): PreviewAction {
   return 'unknown'
 }
 
-export const PREVIEW_NOTES: Record<'comic' | 'unknown', string> = {
-  comic: 'Comic pages from a single link can’t be imported here yet. If this site is a source, search for the series instead.',
+// Comic pages are downloaded from the site itself, so pasted page source can't bring them in.
+export const PASTED_COMIC_NOTE =
+  'Comic pages can’t be imported from pasted page source. Once the site lets Baihe in again, press Preview and import the pages.'
+
+export const PREVIEW_NOTES: Record<'unknown', string> = {
   unknown: 'Baihe couldn’t tell what this page is. Try the series or chapter page itself, or a different link.',
 }
 
@@ -181,6 +184,7 @@ export function comicNote(r: ChapterImportResult): string | null {
 }
 
 export function urlImportText(r: UrlImportResult): string {
+  if (r.needs_review && r.review_open) return 'Nothing was saved yet. Check what Baihe found below, then import it.'
   if (r.needs_review) {
     return 'Baihe couldn’t be sure it found the chapter text, so nothing was saved. Paste the text in the Workspace’s Novel panel instead.'
   }
