@@ -131,6 +131,12 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    # Step 104: not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
+    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
+    "moss-transcribe-diarize": ("moss_transcribe_diarize",
+                                "experimental one-pass transcription + speaker labels "
+                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
+                                "can't share an install with Qwen3-ASR)", "experimental"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
                                      "decryption (Sources tab); Google sign-in token checks",
                      "feature"),
@@ -212,9 +218,32 @@ def pypi_url(name: str):
     return f"https://pypi.org/project/{canonical_dist(dist)}/"
 
 
+# Packages that aren't on PyPI: Diagnostics links to their real source
+# instead of a PyPI page someone else could register (canonical dist -> URL).
+NON_PYPI_SOURCES = {
+    "moss-transcribe-diarize": "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize",
+}
+
+
+def package_source_url(name: str):
+    """Where Diagnostics links a package: its real repository for a non-PyPI
+    one, nothing for any other "experimental" entry, else pypi_url()."""
+    dist = canonical_dist(pip_install_name(name))
+    if dist in NON_PYPI_SOURCES:
+        return NON_PYPI_SOURCES[dist]
+    dep = OPTIONAL_DEPENDENCIES.get(name)
+    if dep and dep[2] == "experimental":
+        return None
+    return pypi_url(name)
+
+
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
+    "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
+                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
+                               "environment, and it upgrades Transformers to 5.x, which stops "
+                               "Qwen3-ASR and Qwen3 forced alignment working.",
     "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
                                  "Streamlit, and the Scanlate brush that uses it is deferred "
                                  "until Scanlate moves to the new interface.",
@@ -859,6 +888,8 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
+# "experimental" (Step 104's MOSS) is listed but never installed from here:
+# it isn't on PyPI.
 INSTALLABLE_TIERS = ("feature", "engine")
 
 # Added to every install: pip's wheel cache can be unwritable or locked on
@@ -1068,7 +1099,9 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     never automatically."""
     results = {}
     for name, info in deps.items():
-        if not info.get("installed"):
+        # "experimental" entries aren't on PyPI: a lookup by their name could
+        # hit an unrelated package registered under it.
+        if not info.get("installed") or info.get("tier") == "experimental":
             continue
         installed_version = get_installed_version(pip_install_name(name))
         latest_version = get_latest_pypi_version(pip_install_name(name), timeout=timeout)

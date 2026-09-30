@@ -32,6 +32,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSi
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    asr_options_routes,
     auth_routes,
     backup_routes,
     benchmark_routes,
@@ -213,6 +214,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
     app.include_router(notification_center_routes.router)
+    app.include_router(asr_options_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(engine_routing_routes.router)
     app.include_router(stronger_engine_routes.router)
