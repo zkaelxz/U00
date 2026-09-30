@@ -29,9 +29,9 @@ afterEach(() => resetPcModeForTests())
 
 describe('notification text helpers', () => {
   it('summarises which channels are on', () => {
-    expect(notificationSummary({ discord_configured: false, ntfy_configured: false, ntfy_allow_local: false, send_jobs: true, send_chapters: true })).toBe('Off')
+    expect(notificationSummary({ discord_configured: false, ntfy_configured: false, ntfy_allow_local: false, send_jobs: true, send_chapters: true, send_remote: true })).toBe('Off')
     expect(
-      notificationSummary({ discord_configured: true, ntfy_configured: true, ntfy_allow_local: false, send_jobs: false, send_chapters: false }),
+      notificationSummary({ discord_configured: true, ntfy_configured: true, ntfy_allow_local: false, send_jobs: false, send_chapters: false, send_remote: false }),
     ).toBe(
       'On: Discord, ntfy',
     )
@@ -51,7 +51,8 @@ describe('notification text helpers', () => {
   it('a category switch sends only its own field', () => {
     expect(categoryChange('send_jobs', false)).toEqual({ jobs: false })
     expect(categoryChange('send_chapters', true)).toEqual({ chapters: true })
-    expect(CATEGORIES.map((c) => c.label)).toEqual(['Jobs finished or failed', 'New chapters found'])
+    expect(categoryChange('send_remote', false)).toEqual({ remote: false })
+    expect(CATEGORIES.map((c) => c.label)).toEqual(['Jobs finished or failed', 'New chapters found', 'Remote access problems'])
   })
 
   it('describes test results, skipping channels that are not set up', () => {

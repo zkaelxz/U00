@@ -31,6 +31,7 @@ from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.schemas import ErrorResponse, SourcesJobStarted
 from api.sources_extraction_schemas import (ExtractionComicRerunRequest,
+                                            ExtractionImportRequest,
                                             ExtractionNovelRerunRequest,
                                             ExtractionProfileSaved, ExtractionReview,
                                             ExtractionRevisionRequest, SourcesAiEngines,
@@ -124,11 +125,11 @@ def post_approve_profile(body: ExtractionRevisionRequest, request: Request,
 
 @router.post(_REVIEW + "/import", dependencies=[require_permission("sources.import")],
              response_model=SourcesJobStarted, responses=_ERRS,
-             summary="Job: write the reviewed text or pages into the drama")
-def post_review_import(body: ExtractionRevisionRequest, request: Request,
+             summary="Job: write the reviewed text (the chosen pages) or pages into the drama")
+def post_review_import(body: ExtractionImportRequest, request: Request,
                        drama_id: int = Path(ge=1)):
     return svc.start_review_import(drama_id, body.revision, principal=request.state.principal,
-                                   local=is_local_request(request))
+                                   local=is_local_request(request), pages=body.pages)
 
 
 @router.get(_REVIEW + "/images/{candidate_id}",

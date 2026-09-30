@@ -1,6 +1,6 @@
 import { expect as baseExpect, test, type Page } from '@playwright/test'
 
-import { COMIC_PAGE_PREVIEW, comicReview, mockExtraction, novelReview } from './sourcesExtractionMocks'
+import { COMIC_PAGE_PREVIEW, comicReview, followReview, mockExtraction, novelReview } from './sourcesExtractionMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { mockSources } from './sourcesMocks'
 
@@ -50,6 +50,28 @@ test('phone: novel review with the AI option fits and has 44 px targets', async 
   await card.getByRole('button', { name: 'Import text' }).click()
   const review = card.getByRole('region', { name: 'Review extraction' })
   await expect(review.getByRole('button', { name: 'Re-run with these corrections' })).toBeVisible()
+  await noSideways(page)
+  await tallTargets(page)
+  expect(s.unmocked).toEqual([])
+})
+
+test('phone: following next chapters and the page list fit and have 44 px targets', async ({ page }) => {
+  const s = await mockSources(page)
+  const m = await mockImports(page, s, {
+    previewBody: NOVEL_PREVIEW,
+    urlImportBody: { kind: 'url_import', needs_review: true, char_count: 14920, review_open: true, pages_found: 3, follow_stop: 'cap' },
+  })
+  await mockExtraction(page, s, m, { review: followReview() })
+  const card = await paste(page, 'https://novels.example/book/5')
+  await card.getByRole('combobox', { name: 'Import into' }).selectOption({ label: 'Heaven Novel' })
+  await card.getByRole('switch', { name: 'Follow next chapters' }).click()
+  await expect(card.getByRole('spinbutton', { name: 'Pages in all' })).toBeVisible()
+  await noSideways(page)
+  await tallTargets(page)
+  await card.getByRole('button', { name: 'Import text' }).click()
+  const pages = card.getByRole('group', { name: 'Pages read' })
+  await expect(pages.getByRole('checkbox')).toHaveCount(3)
+  await pages.scrollIntoViewIfNeeded()
   await noSideways(page)
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
