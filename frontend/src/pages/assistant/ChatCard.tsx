@@ -1,16 +1,19 @@
 // The chat: question box, Ask, and the answers so far. Each answer is plain
-// text (never HTML), with the tools it used, any proposed patch (not applied)
-// and backlog suggestions the viewer can add by hand.
-import { useRef, useState } from 'react'
+// text (never HTML), with the tier and engine that gave it, the tools it
+// used, any proposed patch (not applied) and backlog suggestions the viewer
+// can add by hand. After each answer the user may ask the next tier (after
+// confirming exactly what is sent) or prepare a report for a developer.
+import { useEffect, useRef, useState } from 'react'
 
-import { MAX_QUESTION, askAssistant, saveAssistantSettings } from '../../api/assistant'
+import { MAX_QUESTION, askAssistant, prepareDeveloperReport, saveAssistantSettings, type Escalation } from '../../api/assistant'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { Section } from '../../components/Section'
+import { Sheet } from '../../components/Sheet'
 import { buttonClass } from '../../components/uiClasses'
-import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, GithubStatus, SuggestedBacklogItem } from '../../types/assistant'
+import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, ChatTurn, GithubStatus, SuggestedBacklogItem } from '../../types/assistant'
 import { CloudConsent } from './CloudConsent'
 import { CopyButton } from './CopyButton'
 import { DeliverPr } from './DeliverPr'
@@ -26,6 +29,18 @@ import {
   kindLabel,
   type Exchange,
 } from './assistantFormat'
+import {
+  engineName,
+  escalationPlan,
+  failureText,
+  nextTierOf,
+  privacyNote,
+  reportRequest,
+  sendSummary,
+  tierFailureOf,
+  tierLabel,
+  type EscalationPlan,
+} from './escalation'
 
 type AddToBacklog = (kind: BacklogKind, text: string) => Promise<BacklogItem>
 
@@ -46,28 +61,41 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
+  // The escalation the user is being asked to confirm, and the open developer report.
+  const [offer, setOffer] = useState<Offer | null>(null)
+  const [reportFor, setReportFor] = useState<number | null>(null)
   const nextId = useRef(1)
 
-  const ask = () => {
-    const q = question.trim()
-    if (!q || asking) return
+  const send = (q: string, history: ChatTurn[], eng: string, escalation?: Escalation) => {
     const id = nextId.current++
-    const history = historyOf(exchanges)
     setExchanges((xs) => [...xs, { id, question: q, response: null, error: null }])
-    setQuestion('')
     setAsking(true)
-    askAssistant(q, history, engine, model).then(
+    // A typed model name belongs to the picked engine, not to another tier.
+    askAssistant(q, history, eng, eng === engine ? model : '', undefined, escalation).then(
       (response) => {
         setExchanges((xs) => xs.map((x) => (x.id === id ? { ...x, response } : x)))
         setAsking(false)
       },
       (e: unknown) => {
-        const text = assistantErrorText(e)
-        setExchanges((xs) => xs.map((x) => (x.id === id ? { ...x, error: text } : x)))
+        const failure = tierFailureOf(e)
+        const text = failure ? failureText(failure) : assistantErrorText(e)
+        setExchanges((xs) => xs.map((x) => (x.id === id ? { ...x, error: text, failure } : x)))
         setAsking(false)
-        if (text === MODE_OFF_TEXT) onModeOff()
+        if (!failure && text === MODE_OFF_TEXT) onModeOff()
       },
     )
+  }
+
+  const ask = () => {
+    const q = question.trim()
+    if (!q || asking) return
+    setQuestion('')
+    send(q, historyOf(exchanges), engine)
+  }
+
+  const escalate = (index: number, next: string) => {
+    const x = exchanges[index]
+    setOffer({ plan: escalationPlan(exchanges, index), engine: next, from: x.response?.engine ?? x.failure?.engine ?? null })
   }
 
   return (
@@ -80,7 +108,10 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
           type="button"
           className={buttonClass('ghost', 'sm')}
           disabled={asking || exchanges.length === 0}
-          onClick={() => setExchanges([])}
+          onClick={() => {
+            setExchanges([])
+            setOffer(null)
+          }}
         >
           New chat
         </button>
@@ -88,7 +119,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
     >
       {exchanges.length > 0 && (
         <ol className="assistant-chat" aria-label="Conversation" aria-busy={asking || undefined}>
-          {exchanges.map((x) => (
+          {exchanges.map((x, i) => (
             <li key={x.id} className="assistant-turn">
               <p className="assistant-question">
                 <span className="visually-hidden">You asked: </span>
@@ -104,6 +135,9 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
                 <p className="muted" role="status">
                   Working on it. This can take a minute.
                 </p>
+              )}
+              {(x.response || x.error) && !asking && (
+                <TurnActions next={nextTierOf(x)} onEscalate={(next) => escalate(i, next)} onReport={() => setReportFor(i)} />
               )}
             </li>
           ))}
@@ -145,8 +179,206 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
         onModel={onModel}
         onSettings={onSettings}
       />
+      <LadderSection settings={settings} onSettings={onSettings} />
       <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={onSettings} />
+      {offer && (
+        <EscalateDialog
+          offer={offer}
+          settings={settings}
+          onSettings={onSettings}
+          onClose={() => setOffer(null)}
+          onSend={() => {
+            const { plan, engine: next } = offer
+            setOffer(null)
+            send(plan.question, plan.history, next, { consent: true, evidence: plan.evidence })
+          }}
+        />
+      )}
+      {reportFor !== null && <ReportSheet exchanges={exchanges.slice(0, reportFor + 1)} onClose={() => setReportFor(null)} />}
     </Card>
+  )
+}
+
+type Offer = { plan: EscalationPlan; engine: string; from: string | null }
+
+function TurnActions({ next, onEscalate, onReport }: { next: string | null; onEscalate: (next: string) => void; onReport: () => void }) {
+  return (
+    <div className="assistant-actions" data-testid="assistant-turn-actions">
+      {next && (
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => onEscalate(next)}>
+          {`Ask a stronger model (${engineName(next)})`}
+        </button>
+      )}
+      <button type="button" className={buttonClass('ghost', 'sm')} onClick={onReport}>
+        Prepare a report for a developer
+      </button>
+    </div>
+  )
+}
+
+type EscalateProps = {
+  offer: Offer
+  settings: AssistantSettings
+  onSettings: (s: AssistantSettings) => void
+  onClose: () => void
+  onSend: () => void
+}
+
+function EscalateDialog({ offer, settings, onSettings, onClose, onSend }: EscalateProps) {
+  const { plan, engine, from } = offer
+  const tier = (settings.tiers ?? []).find((t) => t.engine === engine)
+  const local = tier?.local ?? (settings.local_engines ?? []).includes(engine)
+  // The server also refuses without the saved per-provider consent.
+  const allowed = local || settings.cloud_consent?.[engine] === true
+  const name = engineName(engine)
+  return (
+    <Sheet open title={`Ask ${name}?`} onClose={onClose}>
+      <div className="assistant-sheet" data-testid="assistant-escalate">
+        <p>{privacyNote(engine, local)}</p>
+        <p>{local ? `${name} gets:` : `What will be sent to ${name}:`}</p>
+        <ul>
+          {sendSummary(plan, from).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        <p className="assistant-question">{plan.question}</p>
+        {plan.evidence && (
+          <details>
+            <summary>Show the tool output that will be sent</summary>
+            <pre className="assistant-pre">{plan.evidence}</pre>
+          </details>
+        )}
+        {!allowed && (
+          <>
+            <p className="muted">{`First allow sending code and logs to ${name}. This is saved for ${name}; you can turn it off in the Engine section.`}</p>
+            <CloudConsent settings={settings} onSettings={onSettings} only={[engine]} />
+          </>
+        )}
+        <div className="assistant-actions">
+          <button type="button" className={buttonClass('primary')} disabled={!allowed} onClick={onSend}>
+            {local ? `Ask ${name}` : `Send to ${name}`}
+          </button>
+          <button type="button" className={buttonClass('ghost')} onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  )
+}
+
+function ReportSheet({ exchanges, onClose }: { exchanges: Exchange[]; onClose: () => void }) {
+  const [report, setReport] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Built once when the sheet opens, from the chat as it was then.
+  const [request] = useState(() => reportRequest(exchanges))
+  useEffect(() => {
+    let live = true
+    prepareDeveloperReport(request).then(
+      (r) => live && setReport(r.report),
+      (e: unknown) => live && setError(assistantErrorText(e)),
+    )
+    return () => {
+      live = false
+    }
+  }, [request])
+  return (
+    <Sheet open title="Report for a developer" onClose={onClose}>
+      <div className="assistant-sheet" data-testid="assistant-report">
+        <p className="muted">
+          This chat, what the tools found and the Diagnostics support report, with keys, tokens and this PC’s folder names removed. Nothing is uploaded: read it, copy it and send it to a developer yourself.
+        </p>
+        {report !== null ? (
+          <>
+            <pre className="assistant-pre assistant-report-text">{report}</pre>
+            <CopyButton text={report} label="Copy report" />
+          </>
+        ) : error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : (
+          <p className="muted" role="status">
+            Preparing the report…
+          </p>
+        )}
+      </div>
+    </Sheet>
+  )
+}
+
+const TIER_SLOTS = 3
+
+function orderOf(s: AssistantSettings): string[] {
+  const order = s.tier_order ?? (s.tiers ?? []).map((t) => t.engine)
+  return Array.from({ length: TIER_SLOTS }, (_, i) => order[i] ?? '')
+}
+
+function LadderSection({ settings, onSettings }: { settings: AssistantSettings; onSettings: (s: AssistantSettings) => void }) {
+  const [slots, setSlots] = useState<string[]>(() => orderOf(settings))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const tiers = settings.tiers ?? []
+  const summary = tiers.length ? tiers.map((t) => `${t.tier}. ${engineName(t.engine)}`).join(' → ') : 'None'
+  const keys = settings.engine_keys ?? {}
+  const picked = slots.filter(Boolean)
+  const duplicate = new Set(picked).size !== picked.length
+
+  const save = (order: string[] | null) => {
+    setBusy(true)
+    setError(null)
+    saveAssistantSettings({ tiers: order }).then(
+      (s) => {
+        setBusy(false)
+        setSlots(orderOf(s))
+        onSettings(s)
+      },
+      (e: unknown) => {
+        setBusy(false)
+        setError(assistantErrorText(e))
+      },
+    )
+  }
+
+  return (
+    <Section title="Escalation order" summary={summary} storageKey="assistant.tiers">
+      <p className="muted">
+        When an answer isn’t enough, you can ask the next tier, one step at a time and only when you choose. Keep tier 1 on Ollama so questions start on this PC. Engines with no key are skipped. After the last tier, prepare a report for a developer.
+      </p>
+      <ol className="assistant-tier-list" aria-label="Tiers in use">
+        {tiers.map((t) => (
+          <li key={t.engine}>{tierLabel(t.tier, t.engine, t.local)}</li>
+        ))}
+      </ol>
+      <div className="assistant-engine">
+        {slots.map((value, i) => (
+          <Field key={i} label={`Tier ${i + 1}`}>
+            <select value={value} onChange={(e) => setSlots((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}>
+              <option value="">None</option>
+              {settings.engine_choices.map((c) => (
+                <option key={c} value={c}>
+                  {keys[c] === false ? `${engineName(c)} (no key)` : engineName(c)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ))}
+      </div>
+      <div className="assistant-actions">
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || duplicate || picked.length === 0} onClick={() => save(picked)}>
+          {busy ? 'Saving…' : 'Save order'}
+        </button>
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy || !settings.tier_order} onClick={() => save(null)}>
+          Use the default order
+        </button>
+        {duplicate && <span className="muted">Each engine can be one tier only.</span>}
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </Section>
   )
 }
 
@@ -159,8 +391,8 @@ function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
       <div className="assistant-answer" data-testid="assistant-answer">
         {response.answer}
       </div>
-      <p className="assistant-by muted">
-        {humanize('engine', response.engine)}
+      <p className="assistant-by muted" data-testid="assistant-tier">
+        {tierLabel(response.tier, response.engine, response.local)}
         {response.model ? ` · ${response.model}` : ''}
       </p>
       {calls.length > 0 && (

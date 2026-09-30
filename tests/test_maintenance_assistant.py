@@ -549,3 +549,241 @@ def test_remote_ollama_consent_is_saved_and_shown(isolated_db, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
     s = svc.get_settings()
     assert "ollama" in s["local_engines"] and "ollama" not in s["cloud_consent"]
+
+
+# --- tiered escalation: user-triggered, consented, redacted --------------------------
+
+@pytest.fixture
+def keys(monkeypatch):
+    """Which engines have a key; Ollama and the offline engine always do."""
+    have = {"ollama", "test_offline"}
+    monkeypatch.setattr(svc, "_key_set", lambda name: name in have)
+    return have
+
+
+def _ladder():
+    return [t["engine"] for t in svc.tier_ladder()]
+
+
+def test_default_ladder_order_skips_engines_without_keys(isolated_db, keys):
+    assert _ladder() == ["ollama"]
+    keys.update({"claude", "deepseek"})
+    assert _ladder() == ["ollama", "claude"]
+    keys.add("gemini")
+    assert _ladder() == ["ollama", "gemini", "claude"]
+    svc.set_settings({"engine": "deepseek"})  # the saved hosted engine is the last tier
+    assert _ladder() == ["ollama", "gemini", "deepseek"]
+    tiers = svc.get_settings()["tiers"]
+    assert [t["tier"] for t in tiers] == [1, 2, 3]
+    assert tiers[0]["local"] is True and tiers[1]["local"] is False and tiers[1]["consent"] is False
+
+
+def test_saved_ladder_order_is_kept_and_skips_missing_keys(isolated_db, keys):
+    keys.add("claude")
+    s = svc.set_settings({"tiers": ["claude", "gemini", "ollama"]})
+    assert s["tier_order"] == ["claude", "gemini", "ollama"]
+    assert [t["engine"] for t in s["tiers"]] == ["claude", "ollama"]  # no Gemini key: skipped
+    assert s["engine_keys"]["gemini"] is False and s["engine_keys"]["claude"] is True
+    assert svc.set_settings({"tiers": None})["tier_order"] is None
+    assert _ladder() == ["ollama", "claude"]
+
+
+@pytest.mark.parametrize("bad", [["ollama", "ollama"], ["ollama", "gemini", "claude", "deepseek"],
+                                 ["deepl"], [None], "ollama", [1]])
+def test_tier_order_is_validated(isolated_db, bad):
+    with pytest.raises(svc.InvalidInputError):
+        svc.set_settings({"tiers": bad})
+
+
+def test_settings_carry_key_booleans_never_key_values(isolated_db, monkeypatch):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda k, *a, **kw: FAKE_KEY if k == "claude" else None)
+    r = _client().get("/api/assistant/settings")
+    assert r.status_code == 200 and FAKE_KEY not in r.text
+    assert r.json()["engine_keys"]["claude"] is True
+    assert [t["engine"] for t in r.json()["tiers"]] == ["ollama", "claude"]
+
+
+def test_escalating_to_a_cloud_tier_needs_the_consent_flag(dev_mode, real_build, keys):
+    keys.add("gemini")
+    svc.set_settings({"cloud_consent": {"gemini": True}})
+    chat = ScriptedChat("fine")
+    with pytest.raises(svc.ConflictError) as e:
+        svc.ask("x", engine_name="gemini", escalate=True, chat=chat)
+    assert e.value.details == {"reason": "escalation_consent_required", "engine": "gemini"}
+    assert real_build == [] and chat.seen == []  # nothing was built or sent
+    out = svc.ask("x", engine_name="gemini", escalate=True, consent=True, chat=chat)
+    assert out["engine"] == "gemini" and out["tier"] == 2 and out["local"] is False
+    assert out["next_engine"] is None
+
+
+def test_escalation_still_needs_the_saved_provider_consent(dev_mode, real_build, keys):
+    keys.add("gemini")
+    with pytest.raises(svc.ConflictError) as e:
+        svc.ask("x", engine_name="gemini", escalate=True, consent=True, chat=ScriptedChat("y"))
+    assert e.value.details["reason"] == "cloud_consent_required" and real_build == []
+
+
+def test_escalation_only_to_a_tier_of_the_ladder(dev_mode, real_build, keys):
+    svc.set_settings({"cloud_consent": {"claude": True}})
+    for kw in ({"engine_name": "claude"}, {}):  # claude has no key here: not a tier
+        with pytest.raises(svc.InvalidInputError):
+            svc.ask("x", escalate=True, consent=True, chat=ScriptedChat("y"), **kw)
+    with pytest.raises(svc.InvalidInputError):  # evidence only travels with an escalation
+        svc.ask("x", evidence="RESULT t1", chat=ScriptedChat("y"))
+    assert real_build == []
+
+
+def test_answer_names_its_tier_and_hands_on_redacted_evidence(dev_mode, real_build, keys,
+                                                              monkeypatch):
+    keys.add("gemini")
+    monkeypatch.setattr(svc.diagnostics_gaps_service, "get_log_tail",
+                        lambda n, kw: [f"ERROR boom key={FAKE_KEY}"])
+    chat = ScriptedChat('TOOL: {"id": "t1", "name": "inspect_logs", "args": {}}', "It's the key.")
+    out = svc.ask("why?", chat=chat)
+    assert (out["engine"], out["tier"], out["local"], out["next_engine"]) == ("ollama", 1, True, "gemini")
+    assert "RESULT t1 (inspect_logs, ok)" in out["evidence"] and "ERROR boom" in out["evidence"]
+    assert FAKE_KEY not in json.dumps(out)
+    assert len(out["evidence"]) < svc.MAX_EVIDENCE_CHARS
+
+
+def test_escalation_sends_the_redacted_thread_and_evidence(dev_mode, real_build, keys):
+    keys.add("gemini")
+    svc.set_settings({"cloud_consent": {"gemini": True}})
+    root = os.path.realpath(svc.repo_root())
+    history = [{"role": "user", "content": f"it failed at {root}/db.py with {FAKE_KEY}"},
+               {"role": "assistant", "content": "Look at db.py."}]
+    chat = ScriptedChat("Deeper answer.")
+    out = svc.ask(f"still broken {FAKE_KEY}", history, engine_name="gemini", escalate=True,
+                  consent=True, evidence=f"RESULT t1 (inspect_logs, ok):\nkey {FAKE_KEY}", chat=chat)
+    sent = json.dumps(chat.seen)
+    assert FAKE_KEY not in sent and root not in sent and "db.py" in sent
+    last = chat.seen[0][1][-1]["content"]
+    assert last.startswith("still broken") and "RESULT t1 (inspect_logs, ok)" in last
+    assert len(chat.seen[0][1]) == 3  # two thread turns + the question
+    assert out["tier"] == 2 and "RESULT t1" in out["evidence"]
+
+
+def test_thread_and_evidence_are_bounded(dev_mode, keys):
+    too_many = [{"role": "user", "content": "x"}] * (svc.MAX_CHAT_TURNS + 1)
+    with pytest.raises(svc.InvalidInputError):
+        svc.ask("x", too_many, chat=ScriptedChat("y"))
+    with pytest.raises(svc.InvalidInputError):
+        svc.ask("x", escalate=True, engine_name="ollama", evidence="e" * (svc.MAX_EVIDENCE_CHARS + 1),
+                chat=ScriptedChat("y"))
+    r = _client().post("/api/assistant/ask", json={"question": "x", "escalate": True,
+                                                   "evidence": "e" * (svc.MAX_EVIDENCE_CHARS + 1)})
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize("raised, reason", [
+    (RuntimeError(f"429 Client Error: Too Many Requests key={FAKE_KEY}"), "rate_limited"),
+    (RuntimeError("HTTPConnectionPool: Max retries exceeded (Connection refused)"), "unreachable"),
+    (RuntimeError(f"bad gateway {FAKE_KEY}"), "failed"),
+])
+def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, keys, monkeypatch,
+                                                          raised, reason):
+    import qa
+    keys.add("gemini")
+    engines = []
+
+    def boom(system_prompt, messages, engine, max_tokens=0):
+        engines.append(engine)
+        raise raised
+
+    monkeypatch.setattr(qa, "_dispatch_chat", boom)
+    with pytest.raises(svc.ServiceError) as e:
+        svc.ask("x")
+    assert e.value.details == {"reason": reason, "engine": "ollama", "tier": 1,
+                               "next_engine": "gemini"}
+    assert FAKE_KEY not in e.value.message
+    assert len(engines) == 1 and real_build == ["ollama"]  # Gemini was never built or called
+
+
+def test_a_tier_with_no_key_is_reported_with_the_next_tier(dev_mode, keys, monkeypatch):
+    from services import line_ai_service, translate_service
+    monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
+    keys.add("claude")
+    svc.set_settings({"tiers": ["claude", "ollama"], "cloud_consent": {"claude": True}})
+    # The key disappears between loading the page and asking.
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: None)
+    with pytest.raises(svc.DependencyUnavailableError) as e:
+        svc.ask("x", engine_name="claude", chat=ScriptedChat("y"))
+    assert e.value.details["reason"] == "unavailable" and e.value.details["next_engine"] == "ollama"
+
+
+def test_a_used_up_spending_cap_is_reported_and_nothing_is_sent(dev_mode, keys, monkeypatch):
+    from services import line_ai_service, reader_service
+
+    def capped(*a):
+        raise svc.UnsupportedOperationError("This month's spending cap ($5.00) is already used up.")
+
+    monkeypatch.setattr(reader_service, "_llm_engine", lambda name, model: object())
+    monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", capped)
+    chat = ScriptedChat("y")
+    with pytest.raises(svc.UnsupportedOperationError) as e:
+        svc.ask("x", chat=chat)
+    assert e.value.details["reason"] == "spend_cap" and chat.seen == []
+
+
+def test_api_escalation_consent_and_errors_carry_no_key(isolated_db, real_build, keys, monkeypatch):
+    import qa
+    keys.add("gemini")
+    c = _client()
+    c.post("/api/assistant/settings", json={"developer_mode": True, "cloud_consent": {"gemini": True}})
+    real_chat = svc._chat
+    monkeypatch.setattr(svc, "_chat", ScriptedChat("fine"))
+    body = {"question": "x", "engine": "gemini", "escalate": True}
+    r = c.post("/api/assistant/ask", json=body)
+    assert r.status_code == 409
+    assert r.json()["error"]["details"]["reason"] == "escalation_consent_required"
+    assert c.post("/api/assistant/ask", json=body | {"consent": "yes"}).status_code == 422
+    r = c.post("/api/assistant/ask", json=body | {"consent": True})
+    assert r.status_code == 200 and r.json()["tier"] == 2 and r.json()["engine"] == "gemini"
+    monkeypatch.setattr(svc, "_chat", real_chat)
+
+    def rate_limited(*a, **k):
+        raise RuntimeError(f"429 Too Many Requests {FAKE_KEY}")
+
+    monkeypatch.setattr(qa, "_dispatch_chat", rate_limited)
+    r = c.post("/api/assistant/ask", json={"question": "x"})
+    assert r.status_code == 500 and FAKE_KEY not in r.text
+    assert r.json()["error"]["details"] == {"reason": "rate_limited", "engine": "ollama", "tier": 1,
+                                            "next_engine": "gemini"}
+
+
+def test_escalated_tier_is_still_read_only(dev_mode, real_build, keys):
+    keys.add("gemini")
+    svc.set_settings({"cloud_consent": {"gemini": True}})
+    chat = ScriptedChat('TOOL: {"id": "w", "name": "write_file", "args": {"path": "db.py"}}', "ok")
+    out = svc.ask("fix it", engine_name="gemini", escalate=True, consent=True, chat=chat)
+    assert out["tool_calls"][0]["ok"] is False
+    assert "No such tool" in chat.seen[1][1][-1]["content"]
+    assert svc.list_tools()["write_tools"] == []
+
+
+def test_developer_report_is_redacted_and_local(dev_mode, monkeypatch):
+    root = os.path.realpath(svc.repo_root())
+    monkeypatch.setattr(svc.diagnostics_gaps_service, "build_support_report",
+                        lambda: "Python 3.x\nRecent errors: none")
+    history = [{"role": "user", "content": f"crash in {root}/api/x.py key {FAKE_KEY}"},
+               {"role": "assistant", "content": f"token ghp_{'a' * 36} looks wrong"}]
+    out = svc.developer_report(history, question="and now?", evidence=f"RESULT t1:\n{FAKE_KEY}")
+    text = out["report"]
+    assert FAKE_KEY not in text and root not in text and "ghp_" not in text
+    assert "api/x.py" in text and "You (not answered yet): and now?" in text
+    assert "RESULT t1" in text and "Recent errors: none" in text and "not sent anywhere" in text
+
+
+def test_developer_report_api_needs_developer_mode_and_the_pc(isolated_db, monkeypatch):
+    monkeypatch.setattr(svc.diagnostics_gaps_service, "build_support_report", lambda: "ok")
+    c = _client()
+    assert c.post("/api/assistant/report", json={"chat_history": []}).status_code == 409
+    c.post("/api/assistant/settings", json={"developer_mode": True})
+    r = c.post("/api/assistant/report", json={"chat_history": [{"role": "user", "content": FAKE_KEY}]})
+    assert r.status_code == 200 and FAKE_KEY not in r.text
+    assert "== Support report ==" in r.json()["report"]
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                        raise_server_exceptions=False)
+    assert remote.post("/api/assistant/report", json={}).status_code in (401, 403)
