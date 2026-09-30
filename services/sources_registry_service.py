@@ -470,5 +470,6 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
                        (title or "").strip() or info.get("title") or series_id,
                        safe_url(info.get("url")), drama_id,
                        known_chapters=[SimpleNamespace(chapter_id=i, title=titles.get(i, ""))
-                                       for i in ids])
+                                       for i in ids],
+                       linked_by_user_id=(principal or {}).get("user_id"))
     return list_tracked(principal)
