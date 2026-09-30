@@ -33,6 +33,7 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     auth_routes,
+    benchmark_routes,
     blocked_retry_routes,
     bug_report_routes,
     characters_routes,
@@ -58,6 +59,7 @@ from api.routers import (
     media_routes,
     metadata_routes,
     narration_routes,
+    notification_center_routes,
     notification_routes,
     novel_files_routes,
     novel_routes,
@@ -196,12 +198,15 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
+    app.include_router(notification_center_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
+    app.include_router(benchmark_routes.router)
+
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)

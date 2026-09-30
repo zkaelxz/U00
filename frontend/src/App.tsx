@@ -5,7 +5,9 @@ import { api } from './api/client'
 import type { MetaResponse } from './api/types'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import { NotificationBell } from './components/NotificationBell'
 import ComicPage from './pages/Comic'
+import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
 import LibraryPage from './pages/Library'
@@ -104,7 +106,7 @@ const NAV: [string, Route, Route['name'][]][] = [
   ['Discover', { name: 'discover' }, ['discover']],
   ['Live', { name: 'live' }, ['live']],
   ['Settings', { name: 'settings' }, ['settings']],
-  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
+  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics', 'benchmark']],
 ]
 
 export default function App() {
@@ -140,6 +142,7 @@ export default function App() {
           ))}
         </nav>
         <div className="header-end">
+          <NotificationBell />
           <ReportProblemButton />
           <ApiStatus />
           {user && <UserMenu user={user} />}
@@ -157,6 +160,7 @@ export default function App() {
         {route.name === 'discover' && <DiscoverPage />}
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
+        {route.name === 'benchmark' && <BenchmarkPage />}
       </RouteErrorBoundary>
     </>
   )
