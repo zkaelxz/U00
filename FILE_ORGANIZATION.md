@@ -67,6 +67,8 @@ baihe-subtitler/
 │   │                             pip from its wheel, installs requirements-core offline
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
+├── scripts/dependency_canary.py  tests one package upgrade in a throwaway venv against the offline suite;
+│                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -335,6 +337,10 @@ baihe-subtitler/
 │   │                             read-only option catalogues; glossary proposals from the novel
 │   │                             or (parity X10) the source lines, as jobs; apply by term text
 │   │                             with optional per-term edits
+│   ├── glossary_retranslate_service.py Lines a glossary change affects (term/alias in the
+│   │                             source, or a banned translation in the English), with a
+│   │                             hand-edited flag from line provenance; re-translates only the
+│   │                             chosen ones through the normal translate job (stale preview 409)
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)

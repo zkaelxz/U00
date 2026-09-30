@@ -11,20 +11,24 @@ needs overwrite=true, else 409, and overwrite is PC-only like other
 deletes: refused with 403 from a non-loopback client when auth is on).
 Parity X03 adds "Apply a preset" to an existing drama (lines.edit, like
 "Apply tier": it saves only the engine on the drama and starts nothing).
+The glossary-affected preview (`lines.read`: it carries line text) and its
+run (`jobs.start`, engine-checked like the run above) re-translate only
+the lines a glossary change affects; see services/glossary_retranslate_service.py.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (_auth_enabled, holds_paid_engines, is_local_request,
                       require_engines_allowed, require_permission)
-from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulkList,
+from api.schemas import (ErrorResponse, GlossaryAffectedPreview, GlossaryAffectedRunStart,
+                         GlossaryAffectedRunStarted, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
                          TranslatePresetApplied, TranslatePresetApply,
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply)
-from services import ownership_service, translate_run_service
+from services import glossary_retranslate_service, ownership_service, translate_run_service
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -78,6 +82,47 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         include_genre_notes=body.include_genre_notes,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
+        allow_paid_summary=holds_paid_engines(request))
+
+
+@router.get("/dramas/{drama_id}/glossary-affected", dependencies=[require_permission("lines.read")],
+            response_model=GlossaryAffectedPreview,
+            summary="Preview the translated lines the glossary affects, with a cost estimate",
+            responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                       422: {"model": ErrorResponse}})
+def get_glossary_affected(drama_id: int = Path(ge=1),
+                          term_ids: Optional[List[int]] = Query(None, max_length=10000),
+                          engine: Optional[str] = Query(None, max_length=40),
+                          model: Optional[str] = Query(None, max_length=200),
+                          reflect: bool = False,
+                          gemini_free_tier: Optional[bool] = None,
+                          job_cost_cap_usd: Optional[float] = Query(None, ge=0)):
+    return glossary_retranslate_service.find_glossary_affected_lines(
+        drama_id, term_ids=term_ids, engine_name=engine, model=model, reflect=reflect,
+        gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd)
+
+
+@router.post("/dramas/{drama_id}/glossary-affected/run", dependencies=[require_permission("jobs.start")],
+             response_model=GlossaryAffectedRunStarted,
+             summary="Re-translate only the chosen lines the glossary affects",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                        503: {"model": ErrorResponse}})
+def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request,
+                                drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, body.engine,
+                            *[f.engine for f in (body.fallback_chain or ())])
+    return glossary_retranslate_service.start_affected_retranslate(
+        drama_id, body.line_ids, body.preview_hash,
+        include_hand_edited=body.include_hand_edited, term_ids=body.term_ids,
+        engine_name=body.engine, model=body.model, style_preset=body.style_preset,
+        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
+        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
+        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
+        fallback_chain=[f.model_dump() for f in body.fallback_chain]
+        if body.fallback_chain else None,
+        reflect=body.reflect, default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes,
         allow_paid_summary=holds_paid_engines(request))
 
 

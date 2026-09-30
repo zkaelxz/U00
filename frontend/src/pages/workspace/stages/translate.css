@@ -59,3 +59,14 @@
 .stage-translate .translate-ollama { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0 0 var(--space-3); min-width: 0; }
 .stage-translate .translate-ollama > .warn { overflow-wrap: anywhere; }
 .stage-translate .translate-ollama > .error-banner { flex-basis: 100%; }
+.stage-translate .glossary-retranslate-open { white-space: normal; max-width: 100%; text-align: start; }
+.stage-translate .glossary-retranslate { display: grid; gap: var(--space-2); min-width: 0; margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.stage-translate .glossary-retranslate h4, .stage-translate .glossary-retranslate p { margin: 0; }
+.stage-translate .glossary-retranslate fieldset { display: grid; gap: var(--space-1); border: 0; padding: 0; margin: var(--space-1) 0; }
+.stage-translate .glossary-retranslate-terms > summary { cursor: pointer; }
+.stage-translate .glossary-retranslate-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); max-height: 28rem; overflow-y: auto; }
+.stage-translate .glossary-retranslate-list li { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.stage-translate .glossary-retranslate-list .badge { white-space: nowrap; }
+@media (pointer: coarse), (max-width: 640px) {
+  .stage-translate .glossary-retranslate-pick, .stage-translate .glossary-retranslate fieldset label { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
+}
