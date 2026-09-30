@@ -51,6 +51,10 @@ export const startExport = (drama_ids?: number[], f?: Fetch) =>
 export const startBackup = (database_only: boolean, f?: Fetch) =>
   postJson<LibraryJobStarted>(`${BASE}/backup`, { database_only }, pcOnlyFetch(f))
 
+// One person's dramas and series; null: the items owned at the PC.
+export const startUserBackup = (user_id: number | null, f?: Fetch) =>
+  postJson<LibraryJobStarted>(`${BASE}/backup/user`, user_id === null ? {} : { user_id }, pcOnlyFetch(f))
+
 export const getArtifactInfo = (kind: ArtifactKind, f?: Fetch) =>
   getJson<LibraryArtifactInfo>(`${BASE}/artifacts/${kind}/info`, f)
 
