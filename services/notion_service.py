@@ -20,8 +20,11 @@ them under these exact names ("Original title", "Lines", "Translated",
 "Source language", "Exported"; see OPTIONAL_PROPERTIES), and one toggle
 heading block titled "Baihe transcript" that holds the details and the
 lines. Anything else on the page, the user's own notes included, is left
-alone. The new transcript block is written completely before the old one is
-deleted, so a failed export never leaves the page without a transcript. A
+alone. The new transcript block is inserted right after the old one (the
+append's `after`), written completely, and only then is the old one deleted,
+so the transcript keeps its place on the page and a failed export never
+leaves the page without one. A first export (or one whose old block the user
+deleted) appends at the end. A
 stored page that is gone, in the trash, or under a different target than the
 one set now is not touched: a new page is created instead.
 
@@ -597,9 +600,14 @@ def _run_export(job_id: str, drama_id: int, field: str):
     heading = {"object": "block", "type": "heading_2",
                "heading_2": {"rich_text": _rt(HEADING_TEXT), "is_toggleable": True,
                              "children": chunks[0]}}
+    append = {"children": [heading]}
+    if old:  # in the old transcript's place, so it stays where the user left it
+        append["after"] = _block_id(old[0])
     reply = _target_request("PATCH", f"/blocks/{page_id}/children", token, write=True,
-                            job_id=job_id, body={"children": [heading]})
-    new_ids = [b.get("id") for b in (reply.get("results") or []) if _is_baihe_heading(b)]
+                            job_id=job_id, body=append)
+    old_hex = {str(o).replace("-", "").lower() for o in old}
+    new_ids = [b.get("id") for b in (reply.get("results") or []) if _is_baihe_heading(b)
+               and str(b.get("id") or "").replace("-", "").lower() not in old_hex]
     if len(new_ids) != 1:
         raise DependencyUnavailableError(_BAD_REPLY)
     new_id = _block_id(new_ids[0])

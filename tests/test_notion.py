@@ -79,7 +79,7 @@ class FakeNotion:
     def headings(self, page_id):
         return [b for b in self.page_blocks(page_id) if ns._is_baihe_heading(b)]
 
-    def _add_block(self, parent, block, depth=1):
+    def _add_block(self, parent, block, depth=1, after=None):
         assert len(json.dumps(block)) < 500_000
         bid = str(uuid.uuid4())
         kids = (block.get(block["type"]) or {}).pop("children", None)
@@ -90,7 +90,12 @@ class FakeNotion:
             assert len(item["text"]["content"].encode("utf-16-le")) // 2 <= 2000
             item["plain_text"] = item["text"]["content"]
         self.blocks[bid] = stored
-        self.children.setdefault(parent, []).append(bid)
+        siblings = self.children.setdefault(parent, [])
+        if after is None:
+            siblings.append(bid)
+        else:
+            assert after in siblings  # Notion refuses an `after` that isn't a child here
+            siblings.insert(siblings.index(after) + 1, bid)
         self.children.setdefault(bid, [])
         if kids:
             assert len(kids) <= 100 and depth < 3  # Notion: two levels per request
@@ -151,7 +156,10 @@ class FakeNotion:
                                   "next_cursor": str(start + size) if more else None})
             if parts[2:] == ["children"] and method == "PATCH":
                 assert len(body["children"]) <= 100
-                made = [self._add_block(bid, b) for b in body["children"]]
+                after, made = body.get("after"), []
+                for b in body["children"]:
+                    made.append(self._add_block(bid, b, after=after))
+                    after = made[-1]["id"] if after else None
                 return Resp(200, {"results": made})
         return Resp(400, {"message": f"unhandled {method} {path}"})
 
@@ -428,6 +436,46 @@ def test_reexport_updates_the_same_page_in_place(notion, drama):
     assert "00:00:00  Mo Ran: Edited line" in _texts(notion, heading["id"])
     assert "my own note" in _texts(notion, page_id)
     assert notion.pages[page_id]["properties"]["Rating"] == {"number": 5}
+
+
+def _note(notion, page_id, text):
+    notion._add_block(page_id, {"type": "paragraph", "paragraph": {"rich_text": [
+        {"type": "text", "text": {"content": text}}]}})
+
+
+def test_reexport_keeps_the_transcript_where_it_was(notion, drama):
+    _export(drama)
+    page_id = db.get_drama(drama)["notion_page_id"]
+    _note(notion, page_id, "notes above")
+    kids = notion.children[page_id]
+    kids.insert(0, kids.pop())  # the user's note sits above the transcript...
+    _note(notion, page_id, "notes after")  # ...and another one below it
+    before = _texts(notion, page_id)
+    assert before == ["notes above", ns.HEADING_TEXT, "notes after"]
+    _export(drama)
+    assert _texts(notion, page_id) == before
+    appends = [json.loads(c["data"]) for c in notion.calls
+               if c["method"] == "PATCH" and c["url"].endswith(f"/blocks/{page_id}/children")]
+    assert "after" not in appends[0] and "after" in appends[-1]
+
+
+def test_new_block_is_found_even_if_the_reply_lists_the_old_one(notion, drama):
+    _export(drama)
+    page_id = db.get_drama(drama)["notion_page_id"]
+    old = notion.headings(page_id)[0]
+    real = notion.handle
+
+    def noisy(method, path, params, body):
+        resp = real(method, path, params, body)
+        if method == "PATCH" and path == f"/blocks/{page_id}/children":
+            data = json.loads(resp._body)
+            data["results"] = [notion.blocks[old["id"]]] + data["results"]
+            resp._body = json.dumps(data).encode()
+        return resp
+    notion.handle = noisy
+    _export(drama)
+    [heading] = notion.headings(page_id)
+    assert heading["id"] != old["id"]
 
 
 def test_export_does_not_bump_updated_at(notion, drama):
