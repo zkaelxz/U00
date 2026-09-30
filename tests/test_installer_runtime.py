@@ -144,7 +144,7 @@ class TestLaunch:
         shown = []
         monkeypatch.setattr(launcher, "launch", lambda headless: (_ for _ in ()).throw(
             launcher.LaunchError("nope")))
-        monkeypatch.setattr(launcher, "show_message", shown.append)
+        monkeypatch.setattr(launcher, "show_message", lambda text, headless=False: shown.append(text))
         assert launcher.main([]) == 1
         assert shown == ["nope"]
 
@@ -166,21 +166,71 @@ class TestWaitForHealth:
         assert launcher.wait_for_health(8600, None, tries=5, sleep=lambda s: None) is True
 
 
-class TestStartServer:
-    def test_records_the_pid_and_runs_python_m_api(self, data_dir, monkeypatch):
-        seen = {}
+class _Proc:
+    def __init__(self, pid=999, exited=False):
+        self.pid, self._exited = pid, exited
 
-        class P:
-            pid = 999
+    def poll(self):
+        return 1 if self._exited else None
+
+
+class TestStartServer:
+    def test_runs_python_m_api_from_the_app_dir(self, data_dir, monkeypatch):
+        seen = {}
 
         def fake_popen(cmd, **kwargs):
             seen["cmd"], seen["kwargs"] = cmd, kwargs
-            return P()
+            return _Proc()
         monkeypatch.setattr(launcher.subprocess, "Popen", fake_popen)
         launcher.start_server("py", {"BAIHE_API_HOST": "127.0.0.1"}, headless=True)
         assert seen["cmd"] == ["py", "-s", "-m", "api"]
         assert seen["kwargs"]["cwd"] == str(launcher.APP_DIR)
-        assert (data_dir / "launcher" / launcher.PID_FILE_NAME).read_text() == "999"
+
+    def test_records_the_pid_only_of_a_running_server(self, data_dir):
+        pid_file = data_dir / "launcher" / launcher.PID_FILE_NAME
+        assert launcher.record_pid(_Proc(111, exited=True)) is False
+        assert not pid_file.exists()
+        assert launcher.record_pid(_Proc(222)) is True
+        assert pid_file.read_text() == "222"
+
+
+class TestStartLock:
+    def test_second_launcher_waits_instead_of_starting(self, data_dir):
+        assert launcher.acquire_start_lock() is True
+        assert launcher.acquire_start_lock() is False
+        launcher.release_start_lock()
+        assert launcher.acquire_start_lock() is True
+        launcher.release_start_lock()
+
+    def test_a_stale_lock_is_taken_over(self, data_dir):
+        assert launcher.acquire_start_lock() is True
+        future = lambda: 10 ** 12  # noqa: E731
+        assert launcher.acquire_start_lock(now=future) is True
+        launcher.release_start_lock()
+
+    def test_launch_while_another_start_is_in_progress(self, data_dir, monkeypatch):
+        assert launcher.acquire_start_lock() is True
+        waited, opened = [], []
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: True)   # the first server binding
+        monkeypatch.setattr(launcher, "start_server", lambda *a: pytest.fail("started a second server"))
+        monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc=None: waited.append(proc) or True)
+        monkeypatch.setattr(launcher, "open_window", opened.append)
+        assert launcher.launch() == 0
+        assert waited == [None] and opened
+
+    def test_launch_records_pid_and_releases_the_lock(self, data_dir, monkeypatch):
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: False)
+        monkeypatch.setattr(launcher, "start_server", lambda py, env, headless: _Proc(4321))
+        monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc=None: True)
+        assert launcher.launch(headless=True) == 0
+        assert (data_dir / "launcher" / launcher.PID_FILE_NAME).read_text() == "4321"
+        assert not (data_dir / "launcher" / launcher.START_LOCK_NAME).exists()
+
+    def test_headless_errors_go_to_stderr(self, capsys):
+        launcher.show_message("boom", headless=True)
+        assert "boom" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------- postinstall
@@ -223,11 +273,13 @@ class TestMarker:
 
 
 class TestPipEnvAndCommands:
-    def test_pip_env_drops_redirecting_settings(self):
+    def test_pip_env_drops_every_pip_setting_and_config_file(self):
         env = postinstall.pip_env({"PIP_INDEX_URL": "https://evil", "PIP_USER": "1",
-                                   "PIP_REQUIRE_VIRTUALENV": "1", "PATH": "x"})
-        for name in ("PIP_INDEX_URL", "PIP_USER", "PIP_REQUIRE_VIRTUALENV"):
-            assert name not in env
+                                   "PIP_REQUIRE_VIRTUALENV": "1", "pip_no_binary": ":all:",
+                                   "PIP_CONFIG_FILE": r"C:\pip.ini", "PATH": "x"})
+        assert not [k for k in env if k.upper().startswith("PIP_")
+                    and k not in ("PIP_CONFIG_FILE", "PIP_DISABLE_PIP_VERSION_CHECK")]
+        assert env["PIP_CONFIG_FILE"] == os.devnull
         assert env["PYTHONNOUSERSITE"] == "1" and env["PATH"] == "x"
 
     def test_commands_are_offline_and_isolated(self, tmp_path):
@@ -295,6 +347,21 @@ class TestRun:
         assert count["n"] == fail_at + 1
         # The marker is written first, so a half-finished install still
         # never puts the library in the program folder.
+        assert (app / "INSTALLED").is_file()
+
+    def test_marker_is_written_even_if_the_data_folder_cant_be_created(self, tmp_path, monkeypatch):
+        app, wheels, data = self._layout(tmp_path)
+        real_mkdir = Path.mkdir
+
+        def failing_mkdir(self, *a, **k):
+            if str(self).startswith(str(data)):
+                raise PermissionError("denied")
+            return real_mkdir(self, *a, **k)
+        monkeypatch.setattr(Path, "mkdir", failing_mkdir)
+        with pytest.raises(postinstall.PostInstallError) as e:
+            postinstall.run(wheels, str(data), python_exe="py", app_dir=app,
+                            runner=lambda *a: pytest.fail("ran pip"))
+        assert e.value.code == 2
         assert (app / "INSTALLED").is_file()
 
     def test_check_setup_failure_is_not_fatal(self, tmp_path):

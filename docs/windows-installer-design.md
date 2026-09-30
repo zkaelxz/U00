@@ -60,13 +60,18 @@ Why a separate data folder: the program folder is replaced on every upgrade
 and removed on uninstall, and a multi-GB growing library doesn't belong next
 to code. The user can choose another drive for the data folder. The installer
 refuses a folder inside the install folder or a whole drive (it checks on the
-page, and again in `PrepareToInstall` because silent installs skip the page).
+page, and again in `PrepareToInstall` because silent installs skip the page;
+`PrepareToInstall` also creates the folder and writes a probe file, so an
+unplugged drive or an unwritable folder stops Setup before anything is replaced).
 `postinstall.py` checks the same rules as a backstop.
 
 **How the app finds its data**: `portable.data_dir()`:
 
 1. `BAIHE_DATA_DIR`, if set (an override for anyone).
-2. Otherwise, for an installed copy (an `app\INSTALLED` marker exists), the
+2. Otherwise, for an installed copy (an `app\INSTALLED` marker exists, or the
+   installed layout itself, `..\python\python.exe` next to
+   `installer\launcher.py`, so an interrupted upgrade that removed the marker
+   still never falls back to the program folder), the
    first non-comment line of that marker (an absolute path; UTF-8 with BOM, so
    non-ASCII user names work), falling back to `%LOCALAPPDATA%\Baihe Studio`.
 3. Otherwise, the app folder, which is exactly what a source checkout always did.
@@ -91,10 +96,12 @@ same as `start.bat`.
 
 1. Builds `frontend/dist` (`npm ci && npm run build`, reusing
    `scripts/build_release.py`), unless `--skip-frontend-build` is passed.
-2. Stages the app into `build/installer/payload/app/`. `is_excluded()` is the
+2. Stages the app into `build/installer/payload/app/` from the **tracked** files
+   (`git ls-files`; a tree with no git metadata falls back to a walk), so an
+   untracked file in a developer's checkout never ships. `is_excluded()` is the
    one rule; then `check_payload()` re-checks the staged tree and fails the
    build if anything below slipped through, or if a key file is missing.
-   - **Never shipped**: `.env` and `.env.*` anywhere, `cookies*.txt`,
+   - **Never shipped**: `.env` and `.env.*` anywhere (files or folders), `cookies*.txt`,
      `*.key`/`*.pem`/`*.pfx`/`*.p12`/`*.crt`, `library/` and `model_cache/`
      anywhere, `venv`/`.venv`, `__pycache__`/`*.pyc`, logs and database files,
      `tests/`, `docs/`, `scripts/`, `frontend/` (except `frontend/dist`),
@@ -102,6 +109,7 @@ same as `start.bat`.
      `.streamlit`, `build`/`dist`, the source-checkout launchers (`start.bat`,
      `start.ps1`, `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
      the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
+     (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
 3. Downloads the embeddable Python zip, checks its pinned SHA-256, extracts it,
    and rewrites the `._pth` (research notes §2).
 4. Runs `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12`
@@ -129,8 +137,9 @@ same as `start.bat`.
    install started (`launcher.py --stop`) so its files can be replaced.
 3. Copy files. The wheels go to `{tmp}` and are deleted afterwards.
 4. `postinstall.py`, run by the bundled `python.exe -s`:
-   1. Writes `app\INSTALLED` with the data folder, and creates the folder.
-      This comes first, so even a failed install never puts the library in
+   1. Writes `app\INSTALLED` with the data folder, then creates the folder.
+      The marker comes first, and `data_dir()` also recognises the installed
+      layout without it, so even a failed install never puts the library in
       the program folder.
    2. Bootstraps pip by running pip straight from its wheel (`python -s pip.whl\pip install --no-index ... pip`).
       No network is needed, and nothing is fetched from bootstrap.pypa.io.
@@ -142,7 +151,7 @@ same as `start.bat`.
       (ffmpeg, JS runtime, CUDA) for the log only.
    5. Logs everything to `<data>\launcher\install.log`.
    If this step fails, Setup shows a plain-words error with the log path.
-   It exits with **code 8** so a silent install can detect the failure, and the
+   It exits with **code 100** (outside Inno's own 1-8) so a silent install can detect the failure, and the
    "Start Baihe Studio now" option is skipped.
 5. Shortcuts: Start menu → Baihe Studio → **Baihe Studio** (runs
    `pythonw.exe -s app\installer\launcher.py`) and **Stop Baihe Studio**
@@ -157,11 +166,17 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
   to choose another port (`BAIHE_API_PORT`).
 - Otherwise it starts `python.exe -s -m api` in its own minimized console
   window titled "Baihe Studio (server -- closing this window stops the app)",
-  records the pid in `<data>\launcher\server.pid`, and waits up to 90 s for
-  `/api/health`. If the server exits early, it stops waiting at once.
+  and waits up to 90 s for `/api/health`. If the server exits early, it stops
+  waiting at once. Once its own server is healthy and still running, it
+  records the pid in `<data>\launcher\server.pid`. A start lock
+  (`starting.lock`) makes a second click during a slow first start wait for
+  the first server instead of starting another one that would lose the port
+  and leave `--stop` pointing at the wrong pid.
 - It opens the app in its own window: Edge `--app`, then Chrome `--app`, then
   the default browser.
-- Errors appear in a message box (under `pythonw.exe` there is no console).
+- Errors appear in a message box (under `pythonw.exe` there is no console),
+  except with `--no-browser`, which always prints to stderr so an unattended
+  run can't hang on a box.
 - `--no-browser`: start with no window, log to `<data>\launcher\server.log`,
   exit 0 once healthy (for CI).
 - `--stop`: kills the recorded pid, but only if that process's image is this
@@ -233,8 +248,9 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 4. Only the ticked items are deleted, by name (`<data>\library`, `<data>\.env`,
    `<data>\model_cache`). The data folder's other contents are never touched,
    since it may be a folder the user picked and shares with other files. The
-   `launcher\` subfolder (pid, logs) is always removed. The data folder itself
-   is removed only if it is then empty.
+   launcher's own files (`launcher\server.pid`, `starting.lock`, `server.log`,
+   `install.log`) are always removed by name, then `launcher\` if it is empty.
+   The data folder itself is removed only if it is then empty.
 5. **A silent uninstall (`/VERYSILENT`) never deletes user data.**
 
 If the marker can't be read or names an invalid folder, no user data is

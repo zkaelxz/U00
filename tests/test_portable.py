@@ -128,3 +128,14 @@ class TestDataDir:
         for var, subdir in portable._REDIRECTS.items():
             assert os.environ[var] == os.path.join(str(data), "model_cache", subdir)
         assert (data / "model_cache").is_dir()
+
+    def test_installed_layout_without_a_marker_still_counts_as_installed(self, monkeypatch, tmp_path):
+        # An interrupted upgrade removes app\INSTALLED before rewriting it:
+        # the library must not fall back to the program folder meanwhile.
+        self._setup(monkeypatch, tmp_path)
+        (tmp_path / "python").mkdir()
+        (tmp_path / "python" / "python.exe").write_text("")
+        (tmp_path / "app" / "installer").mkdir()
+        (tmp_path / "app" / "installer" / "launcher.py").write_text("")
+        assert portable.is_installed() is True
+        assert portable.data_dir() == str(tmp_path / "Local" / "Baihe Studio")

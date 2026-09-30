@@ -5,6 +5,8 @@ network, npm or Inno Setup: those are mocked or pointed at fake files."""
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -33,7 +35,7 @@ def fake_repo(tmp_path):
         "api/__init__.py", "api/__main__.py", "services/settings_service.py",
         "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json",
         "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
-        "installer/launcher.py", "installer/postinstall.py",
+        "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
         # Never ships
         ".env", ".env.local", ".env.example", "services/.env",
         "library/library.db", "library/dramas/1/audio.mp3",
@@ -44,7 +46,8 @@ def fake_repo(tmp_path):
         "installer/baihe.iss", "installer/build_installer.py",
         ".github/workflows/x.yml", ".claude/settings.json", ".streamlit/config.toml",
         "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
-        "make_shortcut.bat", "make_lock.bat", "run_tests.py", "pytest.ini", "conftest.py",
+        "make_shortcut.bat", "make_lock.bat", "pytest.ini", "conftest.py",
+        "tools/.env/pip.ini", ".env.venv/Scripts/python.exe",
         "CLAUDE.md", "FILE_ORGANIZATION.md", ".gitignore",
         "PORTABLE", "PYTHON_VERSION", "INSTALLED",
         "api/__pycache__/server.cpython-312.pyc", "services/x.pyc",
@@ -61,7 +64,7 @@ SHIPS = {
     "api/__init__.py", "api/__main__.py", "services/settings_service.py",
     "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json",
     "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
-    "installer/launcher.py", "installer/postinstall.py",
+    "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
 }
 
 
@@ -104,6 +107,28 @@ class TestStageApp:
         bi.stage_app(fake_repo, dest)
         assert not (dest / "stale_module.py").exists()
 
+    def test_git_checkout_ships_only_tracked_files(self, fake_repo, tmp_path):
+        if not shutil.which("git"):
+            pytest.skip("git not available")
+        _touch(fake_repo, "client_secret_123.json")    # untracked: never ships
+        _touch(fake_repo, "hf_token.txt")
+        run = lambda *a: subprocess.run(["git", "-C", str(fake_repo), *a], check=True,  # noqa: E731
+                                        capture_output=True, timeout=60)
+        run("init", "-q")
+        # Everything except the two stray files and the built frontend.
+        tracked = [p.relative_to(fake_repo).as_posix() for p in fake_repo.rglob("*")
+                   if p.is_file() and ".git" not in p.parts
+                   and p.name not in ("client_secret_123.json", "hf_token.txt")
+                   and "frontend/dist" not in p.relative_to(fake_repo).as_posix()]
+        run("add", "-f", "--", *tracked)
+        assert bi.tracked_files(fake_repo) == sorted(tracked)
+        staged = set(bi.stage_app(fake_repo, tmp_path / "app"))
+        assert staged == SHIPS
+        assert "client_secret_123.json" not in staged and "hf_token.txt" not in staged
+
+    def test_not_a_git_checkout(self, fake_repo):
+        assert bi.tracked_files(fake_repo) is None
+
     @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
     def test_symlinks_are_skipped(self, fake_repo, tmp_path):
         outside = _touch(tmp_path, "outside/secret.txt")
@@ -116,7 +141,7 @@ class TestStageApp:
 
 class TestIsExcluded:
     @pytest.mark.parametrize("rel", [
-        ".env", "api/.env", ".env.production", ".ENV", "library/x", "a/library/b",
+        ".env", "api/.env", ".env.production", ".ENV", ".env/pip.ini", "a/.env.venv/x", "library/x", "a/library/b",
         "model_cache/x", "tests/test_a.py", "docs/a.md", "frontend/src/a.ts",
         "venv/x", "x/__pycache__/y.pyc", "start.bat", "INSTALLED", "cookies.txt",
         "a.pem", "a.log", "library.db", "installer/baihe.iss", "installer\\build_installer.py",

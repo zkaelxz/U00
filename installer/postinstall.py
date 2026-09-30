@@ -6,9 +6,10 @@ copied:
     python\\python.exe -s app\\installer\\postinstall.py --wheels <dir> --data-dir <dir>
 
 1. Writes app\\INSTALLED, whose first line is the per-user data folder
-   (portable.data_dir() reads it), and creates that folder. This comes
-   first so that even a half-finished install never puts the library in
-   the program folder.
+   (portable.data_dir() reads it), then creates that folder. The marker
+   comes first; portable.is_installed() also recognises the installed
+   layout without it, so even a half-finished install never puts the
+   library in the program folder.
 2. Bootstraps pip from the vendored pip wheel. The embeddable Python ships
    without pip; running pip straight from its wheel needs no network.
 3. Installs requirements-core.txt from the bundled wheels only
@@ -40,9 +41,6 @@ LOG_NAME = "install.log"
 # the same list; this adds the sign-in packages core also carries).
 CORE_IMPORTS = ("streamlit", "pandas", "requests", "urllib3", "bs4", "anthropic",
                 "fastapi", "starlette", "multipart", "uvicorn", "authlib", "httpx")
-_PIP_ENV_TO_DROP = ("PIP_USER", "PIP_REQUIRE_VIRTUALENV", "PIP_TARGET", "PIP_PREFIX",
-                    "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_FIND_LINKS",
-                    "PIP_CONSTRAINT", "PIP_REQUIREMENT")
 
 
 class PostInstallError(Exception):
@@ -82,9 +80,13 @@ def write_marker(app_dir: Path, data_dir: Path) -> Path:
 
 
 def pip_env(base=None) -> dict:
-    env = dict(os.environ if base is None else base)
-    for name in _PIP_ENV_TO_DROP:
-        env.pop(name, None)
+    """The install must use the bundled wheels and nothing else: every
+    PIP_* setting from the user's environment is dropped, and pip.ini
+    files are ignored (PIP_CONFIG_FILE=devnull), so a machine-wide
+    find-links, user=true or target= can't redirect it."""
+    env = {k: v for k, v in (os.environ if base is None else base).items()
+           if not k.upper().startswith("PIP_")}
+    env["PIP_CONFIG_FILE"] = os.devnull
     env["PYTHONNOUSERSITE"] = "1"
     env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     return env
@@ -133,9 +135,13 @@ def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run) -> 
     python_exe = python_exe or sys.executable
     wheels_dir = Path(wheels_dir)
     data = validate_data_dir(data_dir, app_dir.parent)
-    log_dir = data / "launcher"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    # The marker first, before anything that can fail on the data folder.
     write_marker(app_dir, data)
+    log_dir = data / "launcher"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise PostInstallError(f"Couldn't create the data folder {data}: {e}", 2)
     env = pip_env()
     with open(log_dir / LOG_NAME, "a", encoding="utf-8", errors="replace") as log:
         log.write(f"\n=== Baihe Studio install step, {datetime.datetime.now().isoformat(timespec='seconds')} ===\n")
@@ -163,6 +169,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return run(args.wheels, args.data_dir)
+    except OSError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
     except PostInstallError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return e.code

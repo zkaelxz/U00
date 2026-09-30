@@ -44,6 +44,8 @@ import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 DEFAULT_PORT = 8600
 HEALTH_TRIES = 90          # seconds; a first start compiles every .pyc
 PID_FILE_NAME = "server.pid"
+START_LOCK_NAME = "starting.lock"
+START_LOCK_STALE_SECONDS = HEALTH_TRIES + 30
 SERVER_LOG_NAME = "server.log"
 WINDOW_TITLE = "Baihe Studio (server -- closing this window stops the app)"
 
@@ -58,8 +60,8 @@ class LaunchError(Exception):
 
 
 def launcher_dir() -> Path:
-    """`<data>\\launcher`: the pid file and the headless server log. Not
-    user data, so the uninstaller always removes it."""
+    """`<data>\\launcher`: the pid file, start lock and logs. Not user
+    data; the uninstaller removes those files by name."""
     return Path(portable.data_dir()) / "launcher"
 
 
@@ -147,12 +149,53 @@ def start_server(python_exe: str, env: dict, headless: bool):
         kwargs["stderr"] = subprocess.STDOUT
         kwargs["stdin"] = subprocess.DEVNULL
     try:
-        proc = subprocess.Popen(server_command(python_exe), **kwargs)
+        return subprocess.Popen(server_command(python_exe), **kwargs)
     finally:
         if log is not None:
             log.close()
+
+
+def record_pid(proc) -> bool:
+    """Records `proc`'s pid for --stop, but only while it's still running:
+    if it already exited (another server won the port), the pid file keeps
+    pointing at the server that's actually answering."""
+    if proc is None or proc.poll() is not None:
+        return False
+    ldir = launcher_dir()
+    ldir.mkdir(parents=True, exist_ok=True)
     (ldir / PID_FILE_NAME).write_text(str(proc.pid), encoding="ascii")
-    return proc
+    return True
+
+
+def acquire_start_lock(now=time.time) -> bool:
+    """True if this launcher may start the server. A second click while a
+    first start is still compiling gets False and just waits for health,
+    rather than starting a second server that loses the port and leaves
+    --stop pointing at the wrong pid. A lock older than the health wait is
+    stale (a launcher that crashed) and is taken over."""
+    ldir = launcher_dir()
+    ldir.mkdir(parents=True, exist_ok=True)
+    lock = ldir / START_LOCK_NAME
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                if now() - lock.stat().st_mtime < START_LOCK_STALE_SECONDS:
+                    return False
+                lock.unlink()
+            except FileNotFoundError:
+                pass
+    return False
+
+
+def release_start_lock() -> None:
+    try:
+        (launcher_dir() / START_LOCK_NAME).unlink()
+    except FileNotFoundError:
+        pass
 
 
 def wait_for_health(port: int, proc=None, tries: int = HEALTH_TRIES, sleep=time.sleep) -> bool:
@@ -251,11 +294,13 @@ def stop_server(python_exe=None, image_of=_process_image, kill=None, sleep=time.
     return "Stopped Baihe Studio's server."
 
 
-def show_message(text: str, error: bool = True) -> None:
+def show_message(text: str, error: bool = True, headless: bool = False) -> None:
     """A message box under pythonw.exe (no console to print to); stderr
-    otherwise."""
-    if sys.stderr is not None and getattr(sys.stderr, "isatty", lambda: False)():
-        print(text, file=sys.stderr)
+    otherwise, and always when headless (a box nobody can click would
+    hang an unattended run)."""
+    if headless or (sys.stderr is not None and getattr(sys.stderr, "isatty", lambda: False)()):
+        if sys.stderr is not None:
+            print(text, file=sys.stderr)
         return
     if os.name == "nt":
         try:
@@ -274,13 +319,23 @@ def launch(headless: bool = False) -> int:
     port = port_from_env(env)
     url = app_url(port)
     if not health_ok(port):
-        if port_open(port):
-            raise LaunchError(
-                f"Something else is already using port {port}, and it isn't Baihe Studio "
-                f"({url}api/health doesn't answer). Close that program, or set "
-                "BAIHE_API_PORT to another port (for example 8601) and try again.")
-        proc = start_server(console_python(), env, headless)
-        if not wait_for_health(port, proc):
+        if acquire_start_lock():
+            try:
+                if port_open(port):
+                    raise LaunchError(
+                        f"Something else is already using port {port}, and it isn't Baihe Studio "
+                        f"({url}api/health doesn't answer). Close that program, or set "
+                        "BAIHE_API_PORT to another port (for example 8601) and try again.")
+                proc = start_server(console_python(), env, headless)
+                healthy = wait_for_health(port, proc)
+                if healthy:
+                    record_pid(proc)
+            finally:
+                release_start_lock()
+        else:
+            # Another click is already starting it; wait for that one.
+            healthy = wait_for_health(port)
+        if not healthy:
             where = (launcher_dir() / SERVER_LOG_NAME) if headless else "the minimized server window"
             raise LaunchError(
                 f"Baihe Studio's server didn't answer at {url}api/health. "
@@ -306,7 +361,7 @@ def main(argv=None) -> int:
     try:
         return launch(headless=args.no_browser)
     except LaunchError as e:
-        show_message(str(e))
+        show_message(str(e), headless=args.no_browser)
         return 1
 
 

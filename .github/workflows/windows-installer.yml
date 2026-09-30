@@ -100,6 +100,9 @@ jobs:
           $app = Join-Path $env:RUNNER_TEMP "baihe-app"
           $data = Join-Path $env:RUNNER_TEMP "baihe-data"
           $log = Join-Path $env:RUNNER_TEMP "setup.log"
+          # Exported first, so the log step can find install.log if Setup fails.
+          "APP_DIR=$app" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DATA_DIR=$data" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app`"","/DATADIR=`"$data`"","/LOG=`"$log`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
           $marker = Join-Path $app "app\INSTALLED"
@@ -110,8 +113,6 @@ jobs:
             if (Test-Path (Join-Path $app $bad)) { Write-Error "$bad must not be installed"; exit 1 }
           }
           if (-not (Test-Path (Join-Path $app "app\frontend\dist\index.html"))) { Write-Error "frontend\dist missing"; exit 1 }
-          "APP_DIR=$app" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "DATA_DIR=$data" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Smoke test -- start the installed app
         shell: pwsh
@@ -152,7 +153,7 @@ jobs:
           Write-Host "Uninstalled; the data folder was kept."
 
       - name: Logs on failure
-        if: failure()
+        if: failure() || cancelled()
         shell: pwsh
         run: |
           foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log")) {

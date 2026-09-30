@@ -16,7 +16,7 @@
 ;
 ; Silent install (CI, power users):
 ;   BaiheStudio-Setup-<v>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="..." /DATADIR="..."
-; Setup exits with code 8 if the files were copied but the Python packages
+; Setup exits with code 100 if the files were copied but the Python packages
 ; didn't install (details in <data>\launcher\install.log).
 ; Silent uninstall ({app}\unins000.exe /VERYSILENT) keeps all user data.
 
@@ -202,10 +202,29 @@ begin
       AppDir + '\app', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+// '' if Setup can create the data folder and write to it (an unplugged
+// drive or a folder this user can't write is caught before any file is
+// replaced, not after).
+function DataDirWriteProblem(const Dir: String): String;
+var
+  Probe: String;
+begin
+  Result := '';
+  Probe := AddBackslash(Dir) + 'baihe-setup-write-check.tmp';
+  if not ForceDirectories(Dir) then
+    Result := 'Setup couldn''t create your data folder ' + Dir + '. Choose a folder you can write to.'
+  else if not SaveStringToFile(Probe, 'ok', False) then
+    Result := 'Setup can''t write to your data folder ' + Dir + '. Choose a folder you can write to.'
+  else
+    DeleteFile(Probe);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   // Checked here too: NextButtonClick doesn't run for a silent install.
   Result := DataDirProblem(DataDir(), ExpandConstant('{app}'));
+  if Result = '' then
+    Result := DataDirWriteProblem(DataDir());
   if Result = '' then
     StopRunningServer(ExpandConstant('{app}'));
 end;
@@ -247,8 +266,9 @@ end;
 
 function GetCustomSetupExitCode(): Integer;
 begin
+  // 100: outside the codes Inno Setup itself uses (1-8).
   if PostInstallFailed then
-    Result := 8
+    Result := 100
   else
     Result := 0;
 end;
@@ -375,8 +395,13 @@ begin
     DeleteFile(UninstDataDir + '\.env');
   if DeleteModels then
     DelTree(UninstDataDir + '\model_cache', True, True, True);
-  // The launcher's pid file and logs: not user data.
-  DelTree(UninstDataDir + '\launcher', True, True, True);
+  // The launcher's own files (not user data), by name, then its folder
+  // only if that leaves it empty.
+  DeleteFile(UninstDataDir + '\launcher\server.pid');
+  DeleteFile(UninstDataDir + '\launcher\starting.lock');
+  DeleteFile(UninstDataDir + '\launcher\server.log');
+  DeleteFile(UninstDataDir + '\launcher\install.log');
+  RemoveDir(UninstDataDir + '\launcher');
   // Removed only if nothing else is left in it.
   RemoveDir(UninstDataDir);
 end;

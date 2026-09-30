@@ -97,6 +97,16 @@ class TestDataFolder:
         assert "inside the install folder" in problem
         assert "not a whole drive" in problem
 
+    def test_writability_checked_before_anything_is_replaced(self, iss):
+        prepare = re.search(r"function PrepareToInstall.*?^end;", iss, re.M | re.S).group(0)
+        assert "DataDirWriteProblem(" in prepare
+        assert prepare.index("DataDirWriteProblem(") < prepare.index("StopRunningServer(")
+
+    def test_failed_package_step_has_its_own_exit_code(self, iss):
+        # Not one of Inno Setup's own codes (1-8).
+        code = re.search(r"function GetCustomSetupExitCode.*?^end;", iss, re.M | re.S).group(0)
+        assert "Result := 100" in code
+
     def test_install_step_gets_the_data_dir(self, iss):
         assert "postinstall.py" in iss and "--data-dir" in iss and "--wheels" in iss
 
@@ -124,9 +134,14 @@ class TestUninstall:
         assert re.search(r"if DeleteLibrary then\s+DelTree\(UninstDataDir \+ '\\library'", step)
         assert re.search(r"if DeleteSettings then\s+DeleteFile\(UninstDataDir \+ '\\\.env'\)", step)
         assert re.search(r"if DeleteModels then\s+DelTree\(UninstDataDir \+ '\\model_cache'", step)
-        # The data folder itself is only ever removed when empty.
+        # The data folder itself, and the launcher folder, are only ever
+        # removed when empty; the launcher's own files go by name.
         assert "RemoveDir(UninstDataDir)" in step
+        assert "RemoveDir(UninstDataDir + '\\launcher')" in step
         assert not re.search(r"DelTree\(UninstDataDir\s*,", step)
+        assert "\\launcher'," not in step
+        deltrees = re.findall(r"DelTree\(([^,]+),", step)
+        assert deltrees == ["UninstDataDir + '\\library'", "UninstDataDir + '\\model_cache'"]
 
     def test_stops_the_server_first(self, iss):
         assert any("--stop" in e for e in _entries(iss, "UninstallRun"))

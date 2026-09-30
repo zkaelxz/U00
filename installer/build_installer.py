@@ -19,9 +19,10 @@ Payload (build/installer/payload/):
                     install step never needs the network
     manifest.json   versions, the wheel list with hashes, and the size estimate
 
-Never in the payload: .env and any other secrets, library/, model caches,
-venvs, tests/, docs/, developer scripts and the source-checkout launchers
-(start.bat and friends). is_excluded() is the single rule, and
+Only tracked files ship (git ls-files; untracked files in a working tree
+never do), and of those never: .env and any other secrets, library/, model
+caches, venvs, tests/, docs/, developer scripts and the source-checkout
+launchers (start.bat and friends). is_excluded() is the single rule, and
 check_payload() re-checks the staged tree before anything is compiled.
 
 Wheels must be downloaded on Windows: `pip download --platform` still
@@ -76,8 +77,9 @@ EXCLUDED_FILE_NAMES = frozenset({
     # The source-checkout launchers; the installed app has its own.
     "start.bat", "start.ps1", "uninstall.bat", "uninstall_path_cleanup.ps1",
     "make_shortcut.bat", "make_lock.bat",
-    # Developer-only files.
-    "run_tests.py", "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
+    # Developer-only files. (run_tests.py ships: Diagnostics' file check
+    # expects it, diagnostics.EXPECTED_TOP_LEVEL_FILES.)
+    "pytest.ini", "conftest.py", "CLAUDE.md", "FILE_ORGANIZATION.md",
     ".gitignore", ".gitattributes", "Thumbs.db", ".DS_Store",
 })
 EXCLUDED_SUFFIXES = frozenset({
@@ -101,10 +103,11 @@ def is_excluded(rel_path) -> bool:
         return True
     if any(p in EXCLUDED_DIR_NAMES for p in parts):
         return True
+    # .env / .env.* as a file or a folder (a venv named .env) anywhere.
+    if any(p.lower() == ".env" or p.lower().startswith(".env.") for p in parts):
+        return True
     name = parts[-1]
     lower = name.lower()
-    if lower == ".env" or lower.startswith(".env."):
-        return True
     if lower.startswith("cookies") and lower.endswith(".txt"):
         return True
     if name in EXCLUDED_FILE_NAMES:
@@ -117,11 +120,43 @@ def _copy(src: Path, dest: Path):
     shutil.copy2(src, dest)
 
 
-def stage_app(repo_root, app_dest) -> list:
-    """Copies the app into `app_dest`: every regular file not excluded by
-    is_excluded(), then frontend/dist (which must be built) and the
-    runtime installer scripts. Symlinks are skipped. Returns the staged
-    paths, relative to app_dest, as posix strings (sorted)."""
+def tracked_files(repo_root):
+    """`git ls-files` for a git checkout (posix paths), or None if this
+    isn't one or git isn't available. Staging from it means an untracked
+    file in a developer's working tree (a client_secret_*.json, a token
+    file) can never ship, whatever its name."""
+    git = shutil.which("git")
+    if not git or not (Path(repo_root) / ".git").exists():
+        return None
+    try:
+        out = subprocess.run([git, "-C", str(repo_root), "ls-files", "-z"],
+                             capture_output=True, timeout=120, check=True).stdout
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return sorted(p for p in out.decode("utf-8").split("\0") if p)
+
+
+def _walk_files(repo_root: Path) -> list:
+    """Every regular file under repo_root, pruning excluded folders --
+    the fallback for a source tree with no git metadata."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        here = Path(dirpath)
+        rel_dir = here.relative_to(repo_root)
+        dirnames[:] = sorted(d for d in dirnames
+                             if not (here / d).is_symlink()
+                             and not is_excluded((rel_dir / d).as_posix() + "/x"))
+        found.extend((rel_dir / name).as_posix() for name in sorted(filenames))
+    return found
+
+
+def stage_app(repo_root, app_dest, files=None) -> list:
+    """Copies the app into `app_dest`: the tracked files (tracked_files(),
+    or every file when there's no git metadata) not excluded by
+    is_excluded(), then frontend/dist (which must be built, and is
+    untracked) and the runtime installer scripts. Symlinks are skipped.
+    Returns the staged paths, relative to app_dest, as posix strings
+    (sorted)."""
     repo_root = Path(repo_root)
     app_dest = Path(app_dest)
     dist = repo_root / "frontend" / "dist"
@@ -130,21 +165,20 @@ def stage_app(repo_root, app_dest) -> list:
                          "(cd frontend && npm ci && npm run build), or drop --skip-frontend-build.")
     if app_dest.exists():
         shutil.rmtree(app_dest)
+    if files is None:
+        files = tracked_files(repo_root)
+    if files is None:
+        files = _walk_files(repo_root)
     staged = []
-    for dirpath, dirnames, filenames in os.walk(repo_root):
-        here = Path(dirpath)
-        rel_dir = here.relative_to(repo_root)
-        # Prune excluded directories so os.walk never descends into them.
-        dirnames[:] = sorted(d for d in dirnames
-                             if not (here / d).is_symlink()
-                             and not is_excluded((rel_dir / d).as_posix() + "/x"))
-        for name in sorted(filenames):
-            src = here / name
-            rel = (rel_dir / name).as_posix()
-            if src.is_symlink() or not src.is_file() or is_excluded(rel):
-                continue
-            _copy(src, app_dest / rel)
-            staged.append(rel)
+    for rel in files:
+        src = repo_root / rel
+        if is_excluded(rel) or any((repo_root / Path(*PurePosixPath(rel).parts[:i])).is_symlink()
+                                   for i in range(1, len(PurePosixPath(rel).parts))):
+            continue
+        if src.is_symlink() or not src.is_file():
+            continue
+        _copy(src, app_dest / rel)
+        staged.append(rel)
     for src in sorted(dist.rglob("*")):
         if src.is_file() and not src.is_symlink():
             rel = src.relative_to(repo_root).as_posix()
@@ -167,7 +201,7 @@ def check_payload(app_dest) -> None:
     for path in app_dest.rglob("*"):
         rel = path.relative_to(app_dest).as_posix()
         lower = path.name.lower()
-        if path.is_file() and (lower == ".env" or lower.startswith(".env.")):
+        if lower == ".env" or lower.startswith(".env."):
             problems.append(rel)
         elif path.is_dir() and path.name in ("library", "model_cache", "venv", ".venv", "tests"):
             problems.append(rel + "/")

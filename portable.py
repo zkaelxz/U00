@@ -77,9 +77,16 @@ def is_portable() -> bool:
 
 
 def is_installed() -> bool:
-    """True for a copy the Windows installer put on disk (it writes the
-    INSTALLED marker; a source checkout never has one)."""
-    return os.path.isfile(_INSTALLED_MARKER_PATH)
+    """True for a copy the Windows installer put on disk: it has the
+    INSTALLED marker, or (should an interrupted upgrade have removed the
+    marker) the installed layout itself -- the bundled interpreter at
+    ..\\python\\python.exe next to installer\\launcher.py. Either way an
+    installed copy never falls back to keeping its library in the program
+    folder, which upgrades replace. A source checkout has neither."""
+    if os.path.isfile(_INSTALLED_MARKER_PATH):
+        return True
+    return (os.path.isfile(os.path.join(os.path.dirname(_APP_DIR), "python", "python.exe"))
+            and os.path.isfile(os.path.join(_APP_DIR, "installer", "launcher.py")))
 
 
 def default_installed_data_dir() -> str:
