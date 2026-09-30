@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { getJob } from '../api/jobs'
 import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
+import { useEventStream } from './useEventStream'
 
 export interface PollOptions {
   intervalMs?: number
@@ -14,6 +15,8 @@ export interface PollOptions {
   maxFailures?: number
   // Cap for the retry backoff (default 15000).
   maxBackoffMs?: number
+  // One successful read, then stop (the push stream carries the rest).
+  once?: boolean
 }
 
 // Network errors (status 0) and 5xx are worth retrying; 4xx (e.g. 404, the
@@ -43,6 +46,7 @@ export function startJobPolling(id: string, opts: PollOptions): () => void {
         opts.onDone?.(job)
         return
       }
+      if (opts.once) return
     } catch (e) {
       if (stopped) return
       failures += 1
@@ -93,21 +97,62 @@ export function useJob(
   // the previous job's data without needing a synchronous reset in the effect.
   const [state, setState] = useState<{ id: string; runKey?: number; job?: JobRecord; error?: ApiError } | null>(null)
   const onDoneRef = useRef(opts.onDone)
+  // The run (id + runKey) that already finished: its later events and
+  // resyncs are ignored, the way polling stopped at a terminal status.
+  const finished = useRef<string | null>(null)
   const { intervalMs, runKey } = opts
 
   useEffect(() => {
     onDoneRef.current = opts.onDone
   })
 
+  // Pushed updates (GET /api/events). A job's record arrives as its GET
+  // returns it; a job that disappears is a 404, as a poll would see.
+  const stream = useEventStream((type, data) => {
+    if (!jobId) return
+    const tag = runTag(jobId, runKey)
+    if (finished.current === tag) return
+    const pushed = data as Partial<JobRecord> | null
+    if (pushed?.job_id !== jobId) return
+    if (type === 'job') {
+      const job = pushed as JobRecord
+      setState({ id: jobId, runKey, job })
+      if (TERMINAL_STATUSES.includes(job.status)) {
+        finished.current = tag
+        onDoneRef.current?.(job)
+      }
+    } else if (type === 'job_gone') {
+      finished.current = tag
+      const error = new ApiError(404, { code: 'not_found', message: 'No such job.' })
+      setState((s) => ({ ...(s?.id === jobId && s.runKey === runKey ? s : { id: jobId, runKey }), error }))
+    }
+  })
+  const polling = stream.mode === 'poll'
+
+  // A new id or run starts unfinished (declared before the effect below,
+  // so it runs first).
+  useEffect(() => {
+    finished.current = null
+  }, [jobId, runKey])
+
+  // One GET at start and after every (re)connect; the old polling loop only
+  // while the stream is down.
   useEffect(() => {
     if (!jobId) return
+    const tag = runTag(jobId, runKey)
+    if (finished.current === tag) return
     return startJobPolling(jobId, {
       intervalMs,
+      once: !polling,
       onUpdate: (job) => setState({ id: jobId, runKey, job }),
       onError: (error) => setState((s) => ({ ...(s?.id === jobId && s.runKey === runKey ? s : { id: jobId, runKey }), error })),
-      onDone: (j) => onDoneRef.current?.(j),
+      onDone: (j) => {
+        if (finished.current === tag) return
+        finished.current = tag
+        onDoneRef.current?.(j)
+      },
     })
-  }, [jobId, intervalMs, runKey])
+  }, [jobId, intervalMs, runKey, polling, stream.syncs])
 
   const cur = pickRunState(state, jobId, runKey)
   const job = cur?.job ?? null
@@ -119,3 +164,5 @@ export function useJob(
     done: status !== null && TERMINAL_STATUSES.includes(status),
   }
 }
+
+const runTag = (id: string, runKey: number | undefined) => `${id}\u0000${runKey ?? ''}`

@@ -47,6 +47,33 @@ def _acting_user_id():
     return ownership_service.acting_user_id()
 
 
+# Push hook (SSE, services/event_stream_service.py): listeners are told a
+# job id changed (None: every job, e.g. clear_all_jobs) and fetch what they
+# need themselves. A listener must not block; one that raises is ignored,
+# so a listener can never break the job it is told about.
+_change_listeners = []
+
+
+def add_change_listener(fn) -> None:
+    if fn not in _change_listeners:
+        _change_listeners.append(fn)
+
+
+def remove_change_listener(fn) -> None:
+    try:
+        _change_listeners.remove(fn)
+    except ValueError:
+        pass
+
+
+def _emit_change(job_id) -> None:
+    for fn in list(_change_listeners):
+        try:
+            fn(job_id)
+        except Exception:
+            pass
+
+
 def _mirror_locked(job_id):
     """Caller must already hold _lock. Writes this job's current
     status-transition fields (Migration Slice 7) to the cross-process
@@ -77,6 +104,7 @@ def _mirror_locked(job_id):
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
                                     exc_info=True)
+    _emit_change(job_id)
     _ensure_heartbeat()
 
 
@@ -799,6 +827,7 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             if message:
                 _jobs[job_id]["message"] = message
             _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
+            _emit_change(job_id)
     if _gpu_touching:
         # Step 25w: refreshes this job's cross-process GPU lock (see
         # _gpu_slot_available_locked) so a long-running job's own regular
@@ -823,6 +852,8 @@ def set_result(job_id: str, result, mirror: bool = False):
             _jobs[job_id]["result"] = result
             if mirror:
                 _mirror_locked(job_id)
+            else:
+                _emit_change(job_id)
 
 
 def get_status(job_id: str):
@@ -1046,6 +1077,7 @@ def clear_job(job_id: str):
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)
+    _emit_change(job_id)
 
 
 def clear_all_jobs():
@@ -1061,6 +1093,7 @@ def clear_all_jobs():
     except Exception:
         import applog
         applog.get_logger().warning("failed to clear job_records", exc_info=True)
+    _emit_change(None)
 
 
 def list_running_jobs():
