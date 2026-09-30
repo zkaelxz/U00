@@ -14,10 +14,19 @@
 ; Per-user install (no admin rights): {autopf} is %LOCALAPPDATA%\Programs here,
 ; so Diagnostics' Install buttons can add optional packages to {app}\python.
 ;
+; Boot services (the "service" task, on by default): Setup asks for
+; administrator permission once, after the files are copied, and
+; app\installer\service.py creates the BaiheStudio service (python -m api on
+; 127.0.0.1:8600, started with Windows) and the BaiheCaddy service
+; (installed disabled; only "service.py enable-remote" turns it on). An
+; update stops them first, and uninstalling removes them. Unticking the task
+; (or /MERGETASKS="!service") keeps the Start-menu launcher only.
+;
 ; Silent install (CI, power users):
 ;   BaiheStudio-Setup-<v>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="..." /DATADIR="..."
 ; Setup exits with code 100 if the files were copied but the Python packages
-; didn't install (details in <data>\launcher\install.log).
+; didn't install (details in <data>\launcher\install.log), and 101 if the
+; background service couldn't be set up (<data>\launcher\service.log).
 ; Silent uninstall ({app}\unins000.exe /VERYSILENT) keeps all user data; add /CLEAN
 ; to remove everything Baihe Studio made (clean uninstall).
 
@@ -73,6 +82,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "service"; Description: "Run Baihe Studio in the &background from startup (a Windows service; Setup asks for administrator permission)"; GroupDescription: "Startup:"
 
 [InstallDelete]
 ; An upgrade replaces the code wholesale (so a deleted module can't linger)
@@ -82,6 +92,8 @@ Type: filesandordirs; Name: "{app}\app"
 [Files]
 Source: "{#PayloadDir}\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\app\*"; DestDir: "{app}\app"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\service\*"; DestDir: "{app}\service"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\caddy\*"; DestDir: "{app}\caddy"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\manifest.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion deleteafterinstall
 
@@ -99,7 +111,7 @@ Filename: "{app}\python\python.exe"; Parameters: "-s ""{app}\app\installer\launc
 [Code]
 var
   DataDirPage: TInputDirWizardPage;
-  PostInstallFailed: Boolean;
+  PostInstallFailed, ServiceFailed: Boolean;
   DataDirCreatedBySetup, DataDirIsNew: Boolean;
   // Uninstall state, read in InitializeUninstall while the files still exist.
   UninstDataDir: String;
@@ -112,6 +124,9 @@ var
 const
   CreatedFlagLine = '# created-by-setup';
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{973BDBB4-4ADC-4E54-973B-682E2A04362F}_is1';
+  // installer/service.py's two services.
+  AppServiceName = 'BaiheStudio';
+  CaddyServiceName = 'BaiheCaddy';
 
 function DefaultDataDir(): String;
 begin
@@ -324,6 +339,54 @@ begin
       AppDir + '\app', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
+// True if the named Windows service exists. Reading that needs no
+// administrator rights; sc.exe exits 1060 when there's no such service.
+function ServiceInstalled(const Name: String): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(ExpandConstant('{sys}\sc.exe'), 'query ' + Name, '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+end;
+
+function AnyServiceInstalled(): Boolean;
+begin
+  Result := ServiceInstalled(AppServiceName) or ServiceInstalled(CaddyServiceName);
+end;
+
+// Runs installer\service.py with administrator rights: directly when
+// Setup already has them, otherwise through the Windows permission prompt
+// (only this step is elevated; the install itself stays per-user). False
+// if it couldn't run or didn't succeed.
+function RunServiceHelper(const AppDir, Args: String): Boolean;
+var
+  Exe, Params: String;
+  ResultCode: Integer;
+begin
+  Exe := AppDir + '\python\python.exe';
+  Params := '-s "' + AppDir + '\app\installer\service.py" ' + Args;
+  Log('Running the service step: python.exe ' + Params);
+  if IsAdmin() then
+    Result := Exec(Exe, Params, AppDir + '\app', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+  else
+    Result := ShellExec('runas', Exe, Params, AppDir + '\app', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('Service step result: ' + IntToStr(ResultCode));
+  Result := Result and (ResultCode = 0);
+end;
+
+// An update replaces files the services hold open, so both stop first,
+// through the helper of the install being replaced. '' when done or when
+// there's nothing to stop.
+function StopServices(const AppDir: String): String;
+begin
+  Result := '';
+  if AnyServiceInstalled() and FileExists(AppDir + '\app\installer\service.py') then
+    if not RunServiceHelper(AppDir, 'stop') then
+      Result := 'Setup couldn''t stop Baihe Studio''s background service, so its files can''t be ' +
+        'replaced. Allow the administrator prompt, or stop the "Baihe Studio" service in ' +
+        'Services, then run Setup again.';
+end;
+
 // '' if Setup can create the data folder and write to it (an unplugged
 // drive or a folder this user can't write is caught before any file is
 // replaced, not after).
@@ -360,6 +423,8 @@ begin
   DataDirCreatedBySetup := DataDirIsNew or
     (OldCreated and (NormDir(OldDir) = NormDir(DataDir())));
   Result := DataDirWriteProblem(DataDir());
+  if Result = '' then
+    Result := StopServices(ExpandConstant('{app}'));
   if Result = '' then
     StopRunningServer(ExpandConstant('{app}'));
 end;
@@ -399,17 +464,45 @@ begin
   end;
 end;
 
+// With the "service" task: create or refresh the services and start
+// Baihe Studio's. Without it: remove services an earlier install made.
+// The app still works either way, from the Start menu.
+procedure ConfigureService();
+var
+  AppDir: String;
+begin
+  AppDir := ExpandConstant('{app}');
+  if WizardIsTaskSelected('service') then
+  begin
+    WizardForm.StatusLabel.Caption := 'Setting up Baihe Studio''s background service...';
+    ServiceFailed := not RunServiceHelper(AppDir, 'install');
+  end
+  else if AnyServiceInstalled() then
+    ServiceFailed := not RunServiceHelper(AppDir, 'uninstall');
+  if ServiceFailed then
+    SuppressibleMsgBox('Baihe Studio is installed, but its background service couldn''t be set up ' +
+      'or removed (the administrator prompt may have been declined).' + #13#10#13#10 +
+      'You can still start Baihe Studio from the Start menu. Run Setup again to retry; details ' +
+      'are in ' + DataDir() + '\launcher\service.log.', mbError, MB_OK, IDOK);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
     RunPostInstall();
+    if not PostInstallFailed then
+      ConfigureService();
+  end;
 end;
 
 function GetCustomSetupExitCode(): Integer;
 begin
-  // 100: outside the codes Inno Setup itself uses (1-8).
+  // 100 and 101: outside the codes Inno Setup itself uses (1-8).
   if PostInstallFailed then
     Result := 100
+  else if ServiceFailed then
+    Result := 101
   else
     Result := 0;
 end;
@@ -560,6 +653,35 @@ begin
       Result := True;
 end;
 
+// The services run from the program folder, so they go before it does,
+// with the firewall rule remote access added and the service accounts'
+// folder permissions (administrator rights, through service.py). A clean
+// uninstall also deletes Caddy's certificates and logs, which only
+// administrators and the Caddy service can open. If that can't be done the
+// uninstall stops, rather than leave services pointing at deleted files.
+function RemoveServices(): Boolean;
+var
+  Args: String;
+begin
+  Result := True;
+  if not AnyServiceInstalled() then
+    Exit;
+  Args := 'uninstall';
+  if CleanAll then
+    Args := Args + ' --purge-caddy-data';
+  Result := FileExists(ExpandConstant('{app}\app\installer\service.py')) and
+    RunServiceHelper(ExpandConstant('{app}'), Args);
+  if not Result then
+  begin
+    Log('Couldn''t remove the Baihe Studio services; uninstall stopped.');
+    if not UninstallSilent() then
+      MsgBox('Baihe Studio''s background services couldn''t be removed (the administrator ' +
+        'prompt may have been declined), so nothing was uninstalled.' + #13#10#13#10 +
+        'Run the uninstaller again and allow the prompt. If the program files are damaged, ' +
+        'run Setup again first to repair them.', mbError, MB_OK);
+  end;
+end;
+
 function InitializeUninstall(): Boolean;
 begin
   Result := True;
@@ -585,6 +707,8 @@ begin
   end
   else if (UninstDataDir <> '') and DirExists(UninstDataDir) then
     Result := AskWhatToDelete();
+  if Result then
+    Result := RemoveServices();
 end;
 
 procedure AddLine(var List: String; const Line: String);
@@ -668,6 +792,9 @@ begin
   begin
     DeleteTree(ExpandConstant('{app}\python'), 'the bundled Python and its packages', Removed, Left);
     DeleteTree(ExpandConstant('{app}\app'), 'the program files', Removed, Left);
+    // Also what service.py wrote next to the service wrappers.
+    DeleteTree(ExpandConstant('{app}\service'), 'the background service''s files', Removed, Left);
+    DeleteTree(ExpandConstant('{app}\caddy'), 'the bundled Caddy', Removed, Left);
   end;
   RemoveDir(ExpandConstant('{app}'));
 
@@ -696,6 +823,7 @@ begin
       DeleteFile(UninstDataDir + '\launcher\starting.lock');
       DeleteFile(UninstDataDir + '\launcher\server.log');
       DeleteFile(UninstDataDir + '\launcher\install.log');
+      DeleteFile(UninstDataDir + '\launcher\service.log');
       RemoveDir(UninstDataDir + '\launcher');
       // Removed only if nothing else is left in it.
       RemoveDir(UninstDataDir);

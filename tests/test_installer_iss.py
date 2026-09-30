@@ -271,6 +271,60 @@ class TestLauncherWiring:
         assert "streamlit" not in iss.lower()
 
 
+class TestBootService:
+    """installer/service.py wired into Setup and the uninstaller
+    (docs/windows-installer-design.md, "Boot services")."""
+
+    def test_task_on_by_default_and_install_stays_per_user(self, iss):
+        task = [e for e in _entries(iss, "Tasks") if e.startswith('Name: "service"')]
+        assert len(task) == 1 and "unchecked" not in task[0]
+        assert "administrator permission" in task[0]
+        assert _setup_value(iss, "PrivilegesRequired") == "lowest"
+
+    def test_binaries_come_from_the_payload(self, iss):
+        sources = [re.search(r'Source:\s*"([^"]+)"', e).group(1) for e in _entries(iss, "Files")]
+        assert "{#PayloadDir}\\service\\*" in sources and "{#PayloadDir}\\caddy\\*" in sources
+
+    def test_only_the_service_step_is_elevated(self, iss):
+        helper = _func(iss, "RunServiceHelper")
+        assert "if IsAdmin() then" in helper and "ShellExec('runas'" in helper
+        assert "service.py" in helper and "(ResultCode = 0)" in helper
+        assert iss.count("'runas'") == 1
+
+    def test_set_up_after_the_packages_and_removed_when_unticked(self, iss):
+        step = _func(iss, "CurStepChanged")
+        assert re.search(r"RunPostInstall\(\);\s+if not PostInstallFailed then\s+ConfigureService\(\);", step)
+        conf = _func(iss, "ConfigureService")
+        assert "WizardIsTaskSelected('service')" in conf
+        assert "RunServiceHelper(AppDir, 'install')" in conf
+        assert "RunServiceHelper(AppDir, 'uninstall')" in conf
+
+    def test_own_exit_code(self, iss):
+        code = _func(iss, "GetCustomSetupExitCode")
+        assert "Result := 101" in code and code.index("100") < code.index("101")
+
+    def test_update_stops_the_services_before_replacing_files(self, iss):
+        prepare = _func(iss, "PrepareToInstall")
+        assert (prepare.index("DataDirWriteProblem(") < prepare.index("StopServices(")
+                < prepare.index("StopRunningServer("))
+        assert "RunServiceHelper(AppDir, 'stop')" in _func(iss, "StopServices")
+
+    def test_uninstall_removes_services_before_the_program(self, iss):
+        init = _func(iss, "InitializeUninstall")
+        assert init.rstrip().endswith("Result := RemoveServices();\nend;")
+        remove = _func(iss, "RemoveServices")
+        assert "if CleanAll then" in remove and "--purge-caddy-data" in remove
+        assert "RunServiceHelper(ExpandConstant('{app}'), Args)" in remove
+        # A failure stops the uninstall instead of leaving services behind.
+        assert "if not Result then" in remove
+
+    def test_generated_files_are_removed(self, iss):
+        step = _func(iss, "CurUninstallStepChanged")
+        owned = step.split("if ProgramOwned then", 1)[1].split("RemoveDir(ExpandConstant('{app}'))", 1)[0]
+        assert "{app}\\service" in owned and "{app}\\caddy" in owned
+        assert "DeleteFile(UninstDataDir + '\\launcher\\service.log');" in step
+
+
 class TestPascalPitfalls:
     """Two ways the [Code] section has broken the compile before."""
 
@@ -325,6 +379,31 @@ class TestWorkflow:
         for needle in ("--stop", "smoke_child.py", "outlived Stop", '"/CLEAN"',
                        "notbaihe_smoke_clean", "sentinel.txt",
                        "touched the first install's data folder"):
+            assert needle in wf, needle
+
+    def test_go_is_pinned_by_hash(self, wf):
+        assert re.search(r'GO_SHA256: "[0-9a-f]{64}"', wf)
+        assert re.search(r'GO_URL: "https://go\.dev/dl/go[0-9.]+\.windows-amd64\.zip"', wf)
+        assert '--go "$env:GO_EXE"' in wf
+
+    def test_launcher_smoke_tests_opt_out_of_the_service(self, wf):
+        assert wf.count('"/MERGETASKS=!service"') == 2
+
+    def test_service_steps_cover_boot_start_remote_access_and_removal(self, wf):
+        for needle in (
+            # the default install: a running, automatic, least-privilege service, loopback only
+            "Get-Service BaiheStudio", "'Automatic'", '"NT SERVICE\\$name"', "qprivs",
+            "SeImpersonatePrivilege", "http://127.0.0.1:8600/api/health",
+            "-notin @('127.0.0.1', '::1')", "'Disabled'",
+            # an update keeps the data and the service
+            "the update changed .env",
+            # remote access: refused without settings, then on and off
+            "enable-remote", "-ne 2", "disable-remote", "Get-NetFirewallRule",
+            "Get-NetFirewallPortFilter", "'443'", "-match 'Public'", "kept-out-of-logs",
+            # uninstall and clean uninstall remove both services and the rule
+            "the $name service is still installed", "uninstall left the firewall rule",
+            "clean uninstall left the firewall rule",
+        ):
             assert needle in wf, needle
 
     def test_dispatch_input_goes_through_env(self, wf):

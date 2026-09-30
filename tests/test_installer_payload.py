@@ -35,8 +35,10 @@ def fake_repo(tmp_path):
         "api/__init__.py", "api/__main__.py", "services/settings_service.py",
         "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json",
         "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
-        "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
+        "installer/launcher.py", "installer/postinstall.py", "installer/service.py",
+        "deploy/caddy/Caddyfile.template", "run_tests.py",
         # Never ships
+        "installer/caddy/go.mod", "installer/caddy/main.go", "installer/licenses/WinSW-LICENSE.txt",
         ".env", ".env.local", ".env.example", "services/.env",
         "library/library.db", "library/dramas/1/audio.mp3",
         "sources/library/cache.json",
@@ -64,7 +66,8 @@ SHIPS = {
     "api/__init__.py", "api/__main__.py", "services/settings_service.py",
     "sources/adapters/site.py", "assets/app_icon.ico", "extension/manifest.json",
     "frontend/dist/index.html", "frontend/dist/assets/index-abc.js",
-    "installer/launcher.py", "installer/postinstall.py", "run_tests.py",
+    "installer/launcher.py", "installer/postinstall.py", "installer/service.py",
+    "deploy/caddy/Caddyfile.template", "run_tests.py",
 }
 
 
@@ -162,7 +165,8 @@ class TestCheckPayload:
         dest = tmp_path / "app"
         for rel in ("frontend/dist/index.html", "api/__main__.py", "portable.py", "process_guard.py",
                     "requirements-core.txt", "constraints.txt", "check_setup.py",
-                    "installer/launcher.py", "installer/postinstall.py"):
+                    "installer/launcher.py", "installer/postinstall.py", "installer/service.py",
+                    "deploy/caddy/Caddyfile.template"):
             _touch(dest, rel)
         return dest
 
@@ -181,6 +185,13 @@ class TestCheckPayload:
         dest = self._good(tmp_path)
         (dest / "portable.py").unlink()
         with pytest.raises(bi.BuildError, match="missing: portable.py"):
+            bi.check_payload(dest)
+
+    @pytest.mark.parametrize("rel", ["installer/service.py", "deploy/caddy/Caddyfile.template"])
+    def test_the_service_helper_and_caddy_template_are_required(self, tmp_path, rel):
+        dest = self._good(tmp_path)
+        (dest / rel).unlink()
+        with pytest.raises(bi.BuildError, match=f"missing: {rel}"):
             bi.check_payload(dest)
 
 
@@ -350,6 +361,9 @@ class TestWheels:
                                                             "pip-26-py3-none-any.whl"]
         assert all(len(w["sha256"]) == 64 for w in manifest["wheels"])
         assert manifest["installed_size_estimate_bytes"] == 1234
+        assert manifest["services"]["winsw"] == {"version": bi.WINSW_VERSION,
+                                                 "sha256": bi.WINSW_SHA256}
+        assert manifest["services"]["caddy"]["sha256"] == bi.CADDY_SHA256
 
 
 class TestVersionAndIscc:
@@ -450,3 +464,104 @@ class TestWheelHashVerifier:
         lock.write_text(f"a==1 --hash=sha256:{_sha(b'x')}\n")
         with pytest.raises(bi.BuildError, match="a-1-py3-none-any.whl"):
             bi.verify_wheel_hashes(d, lock)
+
+
+class TestServiceBinaries:
+    """WinSW and the bundled Caddy (docs/windows-installer-design.md, "Boot
+    services"): pinned by hash, Caddy built reproducibly from the pinned
+    module set, both staged under their service names with their licences."""
+
+    def test_pins_are_sha256(self):
+        for value in (bi.WINSW_SHA256, bi.CADDY_SHA256):
+            assert len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+        assert bi.WINSW_URL.startswith("https://") and bi.WINSW_VERSION in bi.WINSW_URL
+        assert bi.WINSW_LICENSE.is_file() and "MIT License" in bi.WINSW_LICENSE.read_text()
+
+    def test_go_module_pins_caddy_and_the_rate_limit_module(self):
+        go_mod = (bi.CADDY_SOURCE_DIR / "go.mod").read_text()
+        go_sum = (bi.CADDY_SOURCE_DIR / "go.sum").read_text()
+        assert f"module {bi.CADDY_MODULE}\n" in go_mod
+        assert f"toolchain {bi.CADDY_GO_VERSION}\n" in go_mod
+        assert f"github.com/caddyserver/caddy/v2 v{bi.CADDY_VERSION}\n" in go_mod
+        assert "github.com/mholt/caddy-ratelimit v" in go_mod
+        # Every required module has its hash in go.sum (-mod=readonly needs it).
+        for line in go_mod.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 2 and "." in parts[0] and parts[1].startswith("v"):
+                assert f"{parts[0]} {parts[1]} h1:" in go_sum, parts[0]
+        main = (bi.CADDY_SOURCE_DIR / "main.go").read_text()
+        assert '_ "github.com/mholt/caddy-ratelimit"' in main
+
+    def test_build_is_windows_static_pinned_and_reproducible(self):
+        env = bi.caddy_build_env({"PATH": "x", "GOFLAGS": "-mod=mod"})
+        assert env["GOOS"] == "windows" and env["GOARCH"] == "amd64"
+        assert env["CGO_ENABLED"] == "0" and env["GOFLAGS"] == "-mod=readonly"
+        assert env["GOTOOLCHAIN"] == bi.CADDY_GO_VERSION and env["PATH"] == "x"
+        cmd = bi.caddy_build_command("go", "out.exe")
+        assert cmd[:2] == ["go", "build"]
+        for flag in ("-trimpath", "-buildvcs=false", "-ldflags=-s -w"):
+            assert flag in cmd
+
+    def test_workflow_go_matches_the_pinned_toolchain(self):
+        wf = (Path(bi.REPO_ROOT) / ".github" / "workflows" / "windows-installer.yml").read_text()
+        assert f"/{bi.CADDY_GO_VERSION}.windows-amd64.zip" in wf
+
+    def _fake_go(self, exe_bytes, listing="", goroot=""):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if cmd[1] == "build":
+                Path(cmd[cmd.index("-o") + 1]).write_bytes(exe_bytes)
+                return subprocess.CompletedProcess(cmd, 0)
+            if cmd[1] == "list":
+                return subprocess.CompletedProcess(cmd, 0, listing, "")
+            return subprocess.CompletedProcess(cmd, 0, goroot + "\n", "")
+        return run, calls
+
+    def test_build_caddy_checks_the_hash_and_collects_licences(self, tmp_path, monkeypatch):
+        mod = tmp_path / "mod"
+        _touch(mod, "LICENSE", "Apache")
+        _touch(mod, "NOTICE.md", "notice")
+        _touch(mod, "README.md", "not a licence")
+        goroot = tmp_path / "goroot"
+        _touch(goroot, "LICENSE", "BSD")
+        listing = (f"github.com/a/mod\t{mod}\n{bi.CADDY_MODULE}\t{bi.CADDY_SOURCE_DIR}\n"
+                   f"github.com/a/mod\t{mod}\n")
+        run, calls = self._fake_go(b"caddy", listing, str(goroot))
+        monkeypatch.setattr(bi, "CADDY_SHA256", _sha(b"caddy"))
+        exe, licenses = bi.build_caddy(tmp_path / "out", go="go", run=run)
+        assert exe.read_bytes() == b"caddy"
+        assert calls[0][1]["cwd"] == str(bi.CADDY_SOURCE_DIR)
+        assert calls[0][1]["env"]["GOOS"] == "windows"
+        found = sorted(p.relative_to(licenses).as_posix() for p in licenses.rglob("*") if p.is_file())
+        assert found == ["github.com_a_mod/LICENSE", "github.com_a_mod/NOTICE.md", "go/LICENSE"]
+
+    def test_build_caddy_refuses_a_different_binary(self, tmp_path):
+        run, _ = self._fake_go(b"not the pinned build")
+        with pytest.raises(bi.BuildError, match="not the pinned"):
+            bi.build_caddy(tmp_path / "out", go="go", run=run)
+
+    def test_stage_services(self, tmp_path, monkeypatch):
+        winsw = tmp_path / "winsw.exe"
+        winsw.write_bytes(b"winsw")
+        caddy = tmp_path / "caddy.exe"
+        caddy.write_bytes(b"caddy")
+        licenses = tmp_path / "licenses"
+        _touch(licenses, "go/LICENSE", "BSD")
+        monkeypatch.setattr(bi, "WINSW_SHA256", _sha(b"winsw"))
+        monkeypatch.setattr(bi, "CADDY_SHA256", _sha(b"caddy"))
+        payload = tmp_path / "payload"
+        bi.stage_services(payload, winsw, caddy, licenses)
+        assert (payload / "service" / "BaiheStudio.exe").read_bytes() == b"winsw"
+        assert (payload / "caddy" / "BaiheCaddy.exe").read_bytes() == b"winsw"
+        assert (payload / "caddy" / "caddy.exe").read_bytes() == b"caddy"
+        assert (payload / "caddy" / "licenses" / "go" / "LICENSE").is_file()
+        for folder in ("service", "caddy"):
+            assert (payload / folder / "licenses" / "WinSW-LICENSE.txt").is_file()
+
+    def test_stage_services_refuses_an_unpinned_binary(self, tmp_path):
+        winsw = tmp_path / "winsw.exe"
+        winsw.write_bytes(b"something else")
+        with pytest.raises(bi.BuildError, match="winsw.exe: SHA-256"):
+            bi.stage_services(tmp_path / "payload", winsw, winsw, tmp_path)

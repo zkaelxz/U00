@@ -9,8 +9,8 @@ the API and the prebuilt React screens from one process on
 [`archive/windows-installer-research-notes.md`](archive/windows-installer-research-notes.md),
 whose 2026-09-28 decisions are folded in below.
 
-Code: [`installer/`](../installer/) (Inno Setup script, payload builder, and
-the two runtime scripts), [`portable.py`](../portable.py) (`data_dir()`),
+Code: [`installer/`](../installer/) (Inno Setup script, payload builder, the
+runtime scripts, and the pinned Caddy build in `installer/caddy/`), [`portable.py`](../portable.py) (`data_dir()`),
 and [`.github/workflows/windows-installer.yml`](../.github/workflows/windows-installer.yml).
 
 **Not verified on a real Windows PC yet.** The script compiles with Inno
@@ -53,8 +53,10 @@ Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 |---|---|---|---|
 | `%LOCALAPPDATA%\Programs\Baihe Studio\python\` | Official embeddable Python 3.12.10 x64 (pinned by SHA-256), with `python312._pth` set to: stdlib zip, `.`, `Lib\site-packages`, `..\app`, `import site`. pip and everything pip installs live in its `Lib\site-packages`. | Installer + pip | Interpreter files: yes. Installed packages: kept, and core is upgraded in place by pip. |
 | `...\Baihe Studio\app\` | The app's code (allow-by-default copy minus the exclusions in §3), `frontend\dist`, `installer\launcher.py`, `installer\postinstall.py`, and the `INSTALLED` marker | Installer | Yes, wholesale (`[InstallDelete]`), so a module deleted upstream can't linger |
-| `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
-| **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `launcher\` (server pid, server log, install log) | The app at runtime | **Never** |
+| `...\Baihe Studio\service\` | WinSW as `BaiheStudio.exe` (the boot service's wrapper), its generated `BaiheStudio.xml`, and `remote-access.json` while remote access is on (§11) | Installer + `service.py` | The wrapper: yes. The generated files: rewritten by `service.py install` |
+| `...\Baihe Studio\caddy\` | WinSW as `BaiheCaddy.exe`, the bundled `caddy.exe`, the licence files of everything in them, and the generated `BaiheCaddy.xml` and `Caddyfile` (§11) | Installer + `service.py` | Same as above |
+| `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, service binaries' versions and hashes, installed-size estimate | Installer | Yes |
+| **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs; the boot service's own log in `library\logs\service\`), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `launcher\` (server pid, server log, install log, `service.log`), `caddy\` (made by the service install, used only while remote access is on: Caddy's logs and, in `caddy\data`, its certificates and ACME account key) | The app at runtime | **Never** |
 
 Why a separate data folder: the program folder is replaced on every upgrade
 and removed on uninstall, and a multi-GB growing library doesn't belong next
@@ -119,7 +121,8 @@ same as `start.bat`.
      `*.key`/`*.pem`/`*.pfx`/`*.p12`/`*.crt`, `library/` and `model_cache/`
      anywhere, `venv`/`.venv`, `__pycache__`/`*.pyc`, logs and database files,
      `tests/`, `docs/`, `scripts/`, `frontend/` (except `frontend/dist`),
-     `installer/` (except the two runtime scripts), `.github`, `.claude`,
+     `installer/` (except the runtime scripts `launcher.py`, `postinstall.py`
+     and `service.py`), `.github`, `.claude`,
      `.streamlit`, `build`/`dist`, the source-checkout launchers (`start.bat`,
      `start.ps1`, `uninstall.bat`, `make_*.bat`, `uninstall_path_cleanup.ps1`),
      the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
@@ -224,6 +227,10 @@ machine's network path can't swap in different bytes unnoticed.
 5. Shortcuts: Start menu → Baihe Studio → **Baihe Studio** (runs
    `pythonw.exe -s app\installer\launcher.py`) and **Stop Baihe Studio**
    (`… --stop`).
+6. With the **"Run Baihe Studio in the background from startup"** task (on
+   by default): the boot services (§11). Setup asks for administrator
+   permission for this one step. Declined or failed: Setup says so, exits
+   with **code 101**, and the app still starts from the Start menu.
 
 ## 5. Launching (installer/launcher.py)
 
@@ -327,7 +334,10 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
   `GetPreviousData('DataDir')` (`/DATADIR=` overrides it).
 - It stops the running server first (`PrepareToInstall` → `launcher.py --stop`).
   Inno's Restart Manager (`CloseApplications=yes`) covers anything else holding
-  files.
+  files. If the boot services exist, the old install's `service.py stop` stops
+  them before that (an administrator prompt), and after the copy
+  `service.py install` refreshes and restarts them (a second prompt). Remote
+  access stays on across an update if it's still configured (§11).
 - `app\` is replaced wholesale. The `python\` interpreter files are overwritten,
   and its `site-packages` is kept, so optional packages added through
   Diagnostics survive. Then `postinstall.py` runs `pip install` again against
@@ -346,7 +356,12 @@ Running a newer `BaiheStudio-Setup-<v>.exe`:
 
 Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
 
-1. `[UninstallRun]` stops the server (`launcher.py --stop`).
+1. If the boot services exist, `service.py uninstall` (an administrator
+   prompt) stops and removes both services, the firewall rule and the
+   service accounts' folder permissions, and gives Caddy's folder back the
+   data folder's own permissions. If that can't be done, nothing is
+   uninstalled (services must not be left pointing at deleted files).
+   Then `[UninstallRun]` stops the server (`launcher.py --stop`).
 2. A dialog lists the data folder with four boxes, **all unticked by default**:
    delete my library; delete my saved settings and API keys (`.env`); delete
    downloaded AI models (`model_cache`); and **Remove everything (clean
@@ -376,6 +391,9 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
   `extension_token.txt`, Piper voices), `.env`, `model_cache`, and the
   launcher's files. If the user picked an existing folder, only those named
   items go, and the folder is removed only if that leaves it empty.
+- **Caddy's folder** (`<data>\caddy`, certificates included) goes too, deleted
+  by `service.py uninstall --purge-caddy-data`, since only administrators and
+  the Caddy service can open its certificate folder.
 - **Temporary items.** Baihe Studio's own named items in `%TEMP%` are removed:
   `baihe_*` work folders, `baihe_page_*` files and `baihe-torch-pins-*` files.
   Nothing else in `%TEMP%` is removed. Temporary folders Python names itself
@@ -428,6 +446,23 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
     folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
     asserts that a non-Baihe `%TEMP%` folder, a file next to the folders, and
     the first install's data folder are untouched.
+  - Those two installs opt out of the boot service (`/MERGETASKS=!service`).
+    The **service checks** then test the default install, into the default
+    folders inside the runner account's profile (§11): the
+    BaiheStudio service is Running, starts Automatic, runs as
+    `NT SERVICE\BaiheStudio` without SeImpersonatePrivilege, answers
+    `/api/health`, and keeps its library and log in the data folder; the
+    BaiheCaddy service is Stopped and Disabled; nothing from the install
+    listens beyond 127.0.0.1 and there is no firewall rule. An update over it
+    keeps `.env`, the library and the running service. `enable-remote`
+    without sign-in settings exits 2 and changes nothing; with placeholder
+    settings (`https://baihe.invalid`, which never resolves) it starts Caddy
+    and adds exactly the one rule (inbound TCP 443, `caddy.exe`, private and
+    domain profiles), the household listener is loopback-only, and the client
+    secret appears in no file outside `.env`; `disable-remote` undoes it all.
+    A silent uninstall removes both services and the rule, keeps the data and
+    takes the service account off the data folder; a `/CLEAN` uninstall with
+    remote access on removes everything, Caddy's certificate folder included.
 - Only the Windows job proves that pip accepts `installer/wheels.lock.txt` for
   the real win_amd64 downloads and installs, and that the pinned wheels are the
   ones the Windows pip picks.
@@ -450,3 +485,187 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   users get the screens inside the installer (2026-09-30), whether that zip
   keeps being published for source checkouts is a planning decision (the
   alternative is `start.bat --build-frontend`).
+
+## 11. Boot services
+
+Owner decisions (2026-09-30): the app runs as a **Windows service started at
+boot**, installed and removed by this installer; **Caddy is bundled**; both
+are tested by the Windows Installer workflow. Code:
+[`installer/service.py`](../installer/service.py) (standard library only; it
+ships as `app\installer\service.py`), the `service` task and the service
+steps in `baihe.iss`, and the WinSW/Caddy staging in `build_installer.py`.
+**Not run on Windows yet:** everything below is checked on Linux with a fake
+`sc`/`icacls`/`netsh` (`tests/test_installer_service.py`); only the Windows
+Installer workflow's service steps (§9) prove it on Windows.
+
+### The two services
+
+| | BaiheStudio | BaiheCaddy |
+|---|---|---|
+| Runs | `python\python.exe -s -m api` in `app\` | `caddy\caddy.exe run --config caddy\Caddyfile --adapter caddyfile` |
+| Listens | 127.0.0.1:8600 only (`BAIHE_API_HOST=127.0.0.1` forced, as the launcher does); plus 127.0.0.1:`<household port>` while remote access is on | 443 and 80 on every interface, only while remote access is on |
+| Start | Automatic (at boot, no sign-in needed) | **Disabled** until `enable-remote`; then Automatic |
+| Account | `NT SERVICE\BaiheStudio` | `NT SERVICE\BaiheCaddy` |
+| Logs | `<data>\library\logs\service\` (WinSW: the server's output and its own log, rolled at 10 MB, 5 kept) | `<data>\caddy\logs\` (the same, plus Caddy's filtered access log) |
+| Stop | Ctrl+C to python first (`stopparentprocessfirst`), 15 s: the server's clean stop runs (§5), then its Job Object ends every child | Ctrl+C, 10 s |
+| After a failure | Restart after 10 s, 30 s, then every 60 s (`sc failure`, also on an error exit: `sc failureflag`); the count resets after a day | Same |
+
+BaiheStudio gets the environment the launcher gives the server (§5), set in
+the generated `BaiheStudio.xml`; `.env` is still read by the app itself, from
+the data folder. One difference: the service can't see a user's own
+variables, so the PC-only key form is always on there
+(`BAIHE_API_ALLOW_KEY_WRITES=1`; key writes still need a direct loopback
+request from the PC), where the launcher lets an explicit `0` opt out. Opening the Start-menu shortcut while the service runs just opens
+a window on it (`launcher.py` sees `/api/health` answer).
+
+### Wrapper: WinSW 2.12.0
+
+`python -m api` is a console program, not a service, so something must answer
+the Service Control Manager for it. Compared against this installer's stack
+(Inno Setup, embeddable Python, hash-pinned downloads from #514):
+
+- **WinSW 2.12.0, chosen.** MIT licence; one 640 KB file (`WinSW.NET461.exe`,
+  on the .NET Framework 4.8 that Windows 10 and 11 include), downloaded at
+  build time and refused unless its SHA-256 is `WINSW_SHA256`; configured by
+  an XML file next to it, which `service.py` writes; stops the child with
+  Ctrl+C, rolls its logs by size, and needs nothing installed into Python. 2.12
+  is the last stable release (3.x is still alpha). The same binary is staged
+  twice, as `BaiheStudio.exe` and `BaiheCaddy.exe` (WinSW reads the `.xml`
+  named like itself).
+- **NSSM**, not chosen: public domain and similar in function, but its last
+  release is 2.24 (2014, a 2017 pre-release), its download site is often
+  unreachable, and antivirus products flag it because malware reuses it.
+- **pywin32** (`win32serviceutil`), not chosen: it would add a wheel to the
+  lock, and its service host (`pythonservice.exe`) needs a post-install DLL
+  registration that is known to be fragile with the embeddable Python.
+
+### Least-privilege accounts
+
+Each service runs as its own **virtual account** (`NT SERVICE\<name>`): no
+password, nothing to manage, a SID of its own (`service.service_sid`, derived
+from the name, so permissions are granted by SID in any Windows language),
+and none of LocalSystem's rights. `sc privs` then cuts each one's privileges
+to `SeChangeNotifyPrivilege` (passing through folders it can't list, since
+the data folder is usually inside a user profile), `SeCreateGlobalPrivilege`
+and `SeIncreaseWorkingSetPrivilege`. SeImpersonatePrivilege, which service
+accounts otherwise get and which lets code turn itself into LocalSystem, is
+dropped.
+
+Folder permissions (`icacls`, by SID; removed again on uninstall):
+
+- BaiheStudio: read and run the install folder; change `python\Lib\site-packages`
+  and `python\Scripts` (Diagnostics' Install buttons run pip inside the
+  server); change the data folder (library, `.env`, model cache, logs).
+- BaiheCaddy: read and run `caddy\`; change `<data>\caddy`. Nothing else in
+  the data folder, so not `.env`. Its certificates and ACME account key are in
+  `<data>\caddy\data`, which inherits nothing: only Caddy, SYSTEM and
+  Administrators.
+
+The trade-off, recorded: the install stays per-user (§2), so the program
+folder the services run from can be changed by the signed-in user. Anyone who
+can do that can already read the data folder and `.env`, and a changed file
+runs as the low-privilege service account without SeImpersonatePrivilege,
+not as LocalSystem, so no rights are gained. A machine-wide install in
+`Program Files` would close that, at the cost of every existing per-user
+install (a different uninstall entry) and of the `PrivilegesRequired=lowest`
+design; not chosen for now.
+
+Behaviour that changes because the server runs as its own account, not as the
+signed-in user:
+
+- It sees the machine's `PATH`, not the user's: a program installed for one
+  user only (for example ffmpeg through a per-user winget install) isn't
+  found. Diagnostics shows what's missing; install it for all users.
+- Per-user caches outside the data folder (Playwright's browsers in
+  `%LOCALAPPDATA%\ms-playwright`, Deno in `%USERPROFILE%\.deno`) are the
+  service account's, not the user's; Diagnostics installs them again there.
+  The clean uninstall's `%TEMP%` sweep covers the user's `%TEMP%` only.
+- Files the service creates are owned by `NT SERVICE\BaiheStudio`; the user
+  keeps full access through the data folder's inherited permissions.
+
+### Elevation
+
+Setup stays per-user (`PrivilegesRequired=lowest`). Only `service.py` runs
+elevated: directly when Setup already is (`IsAdmin()`, as on CI runners),
+otherwise through the Windows prompt (`ShellExec('runas', …)`). One prompt on
+a first install, two on an update (stop before the copy, install after), one
+on uninstall. Declined on install: exit code 101, Start-menu mode. Declined on
+uninstall: nothing is uninstalled. Unticking the task on an update removes the
+services.
+
+### Caddy: bundled, pinned, off by default
+
+- **Which Caddy.** The template needs Caddy's `rate_limit` module
+  (`github.com/mholt/caddy-ratelimit`), which the official release binaries
+  don't include, and caddyserver.com's custom-build download isn't
+  reproducible (it builds the plugin's latest commit). So the installer builds
+  it: [`installer/caddy/`](../installer/caddy/) is a three-file Go module
+  (Caddy 2.11.4 and the rate-limit module at a pinned commit; `go.sum` holds
+  the hash of every module, as `wheels.lock.txt` does for the wheels).
+  `build_installer.py` builds it for windows/amd64 with Go 1.26.8 (the
+  workflow downloads that Go pinned by SHA-256), `-mod=readonly`, `-trimpath`,
+  `-buildvcs=false`, no cgo, and **refuses the result unless its SHA-256 is
+  `CADDY_SHA256`**. The build is reproducible (measured 2026-09-30: the same
+  bytes from different folders and caches), so the hash pins the binary as
+  well as its sources. The licence and notice files of every module compiled
+  in, and Go's, ship in `caddy\licenses\`, with WinSW's.
+- **Off by default.** The BaiheCaddy service is installed **Disabled** and
+  nothing is written for it but its XML. A default install listens on nothing
+  beyond 127.0.0.1, has no firewall rule, and no Caddyfile.
+- **`enable-remote`** (at the PC, from an administrator prompt; no API route):
+
+  ```
+  "%LOCALAPPDATA%\Programs\Baihe Studio\python\python.exe" -s "%LOCALAPPDATA%\Programs\Baihe Studio\app\installer\service.py" enable-remote [--household-port 8610]
+  ```
+
+  It first checks everything and **changes nothing, exit code 2, if remote
+  access isn't configured**: `BAIHE_GOOGLE_CLIENT_ID`,
+  `BAIHE_GOOGLE_CLIENT_SECRET` and `BAIHE_PUBLIC_URL` must be in the data
+  folder's `.env` (the service can't see variables set with `setx`), and the
+  household listener's own startup checks must pass (`api_config`:
+  https, a loopback port that isn't 8600 or 8756, punycode names); then
+  Caddy's: the public URL must be a DNS name (not an IP or localhost) on the
+  default https port, and the household port can't be 80 or 443. Only then it
+  writes `caddy\Caddyfile` from `deploy/caddy/Caddyfile.template` (the three
+  `{$…}` settings written in; it refuses a template that no longer says
+  `admin off` or that needs any other setting), restarts BaiheStudio with
+  `BAIHE_API_HOUSEHOLD_PORT`, sets BaiheCaddy to Automatic, adds the firewall
+  rule and starts Caddy, checking that 443 answers. If a step fails, it undoes
+  them all. `disable-remote` stops and disables Caddy, removes the rule, and
+  restarts BaiheStudio without the household listener. `status` shows both
+  services, remote access and the rule (no administrator rights needed).
+- **Firewall.** One rule, **"Baihe Studio remote access - Caddy HTTPS"**:
+  inbound, allow, TCP **443** only, for the bundled `caddy.exe` only, on the
+  **private and domain** profiles only (a home network marked Public gets no
+  access; mark it Private). Added by `enable-remote`, removed by
+  `disable-remote` and by uninstall. There is no rule for port 80 (Caddy then
+  gets its certificate with the TLS-ALPN challenge on 443, and outside
+  `http://` doesn't redirect), for 8600, the household port, 8756 or python.
+- **Never the router.** Nothing in `service.py` or the installer opens a
+  router port or uses UPnP, NAT-PMP or any other way to be reachable from
+  outside (`tests/test_installer_service.py` checks the source for them).
+  Forwarding 443 on the router stays the owner's own last step
+  ([`household-access.md`](household-access.md)).
+- **Secrets.** Caddy needs none: Google sign-in is Baihe's. The client secret
+  stays in `<data>\.env` (this user, SYSTEM, Administrators and
+  BaiheStudio); it is never written to the Caddyfile, the service XML, a
+  command line or `service.log` (checked by the tests and by the workflow).
+  Caddy's only secrets, its certificate keys and ACME account key, are in
+  `<data>\caddy\data` (Caddy, SYSTEM and Administrators only). A DNS-challenge
+  token would go there too, not in the Caddyfile; no DNS-challenge build is
+  bundled.
+- **Admin endpoint.** `admin off` is in the template, and `service.py` refuses
+  to render a template without it.
+- An update keeps remote access on if it is still configured (the Caddyfile is
+  rendered again from the new template); if it no longer is, the update turns
+  it off and says so.
+
+### Still open
+
+- A real install on the owner's PC (prompts, a reboot, a Windows update
+  restart), and the first certificate through the router.
+- The "Stop Baihe Studio" shortcut stops only a server the launcher started;
+  with the service it does nothing (stop the "Baihe Studio" service in
+  Services instead). Service control from the shortcut would need the user to
+  be granted stop and start rights on the service.
+- Health monitoring and a banner are separate work (WP5 monitoring).

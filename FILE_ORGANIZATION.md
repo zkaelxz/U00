@@ -43,7 +43,8 @@ baihe-subtitler/
 │   ├── pull_request_template.md
 │   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check),
 │                                 windows-installer.yml (on demand / installer-v* tags: builds the
-│                                 Setup .exe and smoke-tests a silent install + uninstall)
+│                                 Setup .exe and smoke-tests a silent install + uninstall, the boot
+│                                 services, remote access on/off and the firewall rule)
 │
 ├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
 │
@@ -54,11 +55,18 @@ baihe-subtitler/
 │   ├── baihe.iss                 Inno Setup 6 script: per-user install, data-folder page,
 │   │                             shortcuts, uninstaller (user data kept unless a box is ticked)
 │   ├── build_installer.py        build-time: stages the app + frontend/dist (no .env/library/
-│   │                             tests), pinned embeddable Python, core wheels, manifest; runs ISCC
+│   │                             tests), pinned embeddable Python, core wheels, WinSW and the
+│   │                             pinned Caddy build (hash-checked), manifest; runs ISCC
+│   ├── caddy/                    build-time: go.mod/go.sum/main.go for the bundled Caddy (stock +
+│   │                             rate_limit), every module pinned; the binary is pinned by SHA-256
+│   ├── licenses/WinSW-LICENSE.txt   MIT licence shipped next to the WinSW service wrapper
 │   ├── launcher.py               runtime (ships as app\installer\): the Start-menu shortcut --
 │   │                             starts `python -m api` on loopback, opens the window; --stop
 │   ├── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
 │   │                             pip from its wheel, installs requirements-core offline
+│   ├── service.py                runtime (elevated): the BaiheStudio boot service and the disabled
+│   │                             BaiheCaddy service (WinSW, virtual accounts); enable-remote /
+│   │                             disable-remote (Caddyfile, firewall rule 443); uninstall
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
 ├── deploy/caddy/Caddyfile.template   Caddy config template for household access: TLS, proxy to the

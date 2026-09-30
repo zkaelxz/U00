@@ -13,6 +13,14 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 - This proves the files match the lock. It does not prove the upstream packages are safe.
 - Before bumping one package, test it in a throwaway venv: `python scripts/dependency_canary.py <package>` (runs the offline suite; `--write-pin` caps `constraints.txt` on FAIL; see `docs/testing-and-ci.md`).
 
+## 1b. Update the bundled Caddy or WinSW (installer boot services)
+Only on purpose (a security release, or a module the template needs). Design: `docs/windows-installer-design.md` §11.
+1. Caddy, with Go and internet: in `installer/caddy`, `go get github.com/caddyserver/caddy/v2@vX.Y.Z` (and the rate-limit module if needed), then `go mod tidy`. To change Go, edit the `toolchain` line in `go.mod`, `CADDY_GO_VERSION` in `installer/build_installer.py`, and `GO_URL`/`GO_SHA256` in `.github/workflows/windows-installer.yml` (the SHA-256 from https://go.dev/dl/?mode=json).
+2. Build it once: `GOOS=windows GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 GOFLAGS=-mod=readonly GOTOOLCHAIN=<go version> go build -trimpath -buildvcs=false -ldflags="-s -w" -o caddy.exe .` twice, from two different folders; both SHA-256s must match. Put that hash in `CADDY_SHA256` and `CADDY_VERSION` in `build_installer.py`.
+3. Read `git diff installer/caddy/go.mod installer/caddy/go.sum`: only the modules you meant to change should move. Commit with the hash.
+4. WinSW: change `WINSW_VERSION`, `WINSW_URL` and `WINSW_SHA256` together (the hash of the downloaded `WinSW.NET461.exe`), and `installer/licenses/WinSW-LICENSE.txt` if its licence changed.
+5. Run the Windows Installer workflow: it rebuilds Caddy on Windows and fails if the hash differs. That is the check working.
+
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
 - Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (takes 10+ minutes)
@@ -61,5 +69,6 @@ Close other work first: a restore is refused while any job runs. Restores are PC
 
 ## Logs, support report, locked-out admin
 - Log: `logs/app.log` in the library folder (installed default: `%LOCALAPPDATA%\Baihe Studio\library\logs`). Diagnostics -> "Log" shows recent lines.
+- Installed app running as a service: its console output is in `library\logs\service\` (rolled at 10 MB), Caddy's in `caddy\logs\` in the data folder, and the service steps' own record in `launcher\service.log`. State: `...\app\installer\service.py status`.
 - Diagnostics -> "Copy a report for a bug" copies or downloads a support report (secrets are removed).
 - Break glass, on the PC: `python -m api grant-admin <email>` (make or reactivate an admin), `python -m api deactivate <email>` (block a user and end their sessions).

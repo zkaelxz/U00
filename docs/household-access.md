@@ -11,6 +11,14 @@ the PC's own window -----------------------------------------> 127.0.0.1:8600 (a
 
 Caddy never forwards to 8600 (the PC's admin listener) or 8756 (the extension bridge), and the router never forwards those ports or the household port. Baihe enforces the household rules itself: the household listener refuses every PC-only route, and an admin signed in there holds the household permissions plus viewing the user list and the audit log, never an admin write (admin changes stay at the PC). The template's refusals are defence in depth on top of that; the only admin routes it passes are `GET`/`HEAD` `/api/admin/users` and `/api/admin/audit`.
 
+**Installed app (Windows installer):** Caddy is bundled and installed as the "Baihe Studio remote access (Caddy)" service, **disabled**. After the prerequisites below (sign-in settings in the data folder's `.env`; the household port is set for you), one command at the PC, in an administrator prompt, turns everything on: the household listener, the Caddyfile (rendered from the template), the Caddy service and one Windows Firewall rule (inbound TCP 443 for Caddy, private and domain networks only):
+
+```
+"%LOCALAPPDATA%\Programs\Baihe Studio\python\python.exe" -s "%LOCALAPPDATA%\Programs\Baihe Studio\app\installer\service.py" enable-remote
+```
+
+It refuses, and changes nothing, until sign-in is configured. `... service.py disable-remote` turns it all off again, and `... service.py status` shows the state. Details: [`windows-installer-design.md`](windows-installer-design.md) §11. The manual steps below (`setx`, your own `caddy.exe`, a hand-made firewall rule) are for a source checkout.
+
 ## Before you start (prerequisites)
 
 1. **Two-port setup** ("Migrating from single-port sign-in" in the decision doc): `BAIHE_API_AUTH=off`, `BAIHE_API_HOUSEHOLD_PORT=8610` (or any free loopback port other than 8600, 8601 and 8756). `BAIHE_API_*` values are read from the environment, not `.env`, so set it with `setx BAIHE_API_HOUSEHOLD_PORT 8610` and restart Baihe.
@@ -49,10 +57,10 @@ which sends the request to Caddy on this PC and checks it against Caddy's local 
 
 ## Going live (only after WP2 has landed and the LAN checklist passes)
 
-1. **Windows firewall rule**, in an administrator PowerShell, for Caddy only:
+1. **Windows firewall rule** (installed app: `enable-remote` already added it, for 443 only; skip this step), in an administrator PowerShell, for Caddy only:
    `New-NetFirewallRule -DisplayName "Caddy for Baihe" -Direction Inbound -Program "C:\caddy\caddy.exe" -Protocol TCP -LocalPort 80,443 -Action Allow`
    Add no rule for `python.exe` or for 8600, 8610 or 8756.
-2. **Router port forward:** TCP 443 and 80 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Never forward 8600, 8601, the household port, 8756 or 8501. With a DNS-challenge build you may forward 443 only.
+2. **Router port forward:** TCP 443 and 80 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Installed app: forward 443 only, since its firewall rule opens 443 only; Caddy then gets the certificate over 443 (TLS-ALPN challenge), and `http://` from outside doesn't redirect. Never forward 8600, 8601, the household port, 8756 or 8501. With a DNS-challenge build you may forward 443 only.
 3. **Certificate:** stop the LAN-test Caddy and run the template itself (`caddy run --config deploy\caddy\Caddyfile.template --adapter caddyfile`). Caddy gets the certificate for `BAIHE_DOMAIN` through the forward above (or by DNS challenge) and renews it by itself. There is no separate, earlier forward for the first issuance.
 4. Run the outside checklist.
 
@@ -60,7 +68,7 @@ which sends the request to Caddy on this PC and checks it against Caddy's local 
 
 From outside the LAN (a phone on mobile data, Wi-Fi off), after the router port is open:
 
-- [ ] `https://baihe.<your-domain>` loads with a valid padlock; `http://` redirects to `https://`.
+- [ ] `https://baihe.<your-domain>` loads with a valid padlock; `http://` redirects to `https://` (with port 80 forwarded; the installed app forwards 443 only, so `http://` doesn't connect).
 - [ ] Google sign-in works for an allowlisted member and is refused for any other account.
 - [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees Users and Audit log in Diagnostics without any buttons ("Account changes are made on the main PC."), and no other admin section works.
 - [ ] `http://<your-public-ip>:8600`, `:8610` and `:8756` don't connect.
@@ -73,7 +81,7 @@ Certificate renewal:
 ## Rollback
 
 1. **Close the router port forward (443 and 80) first.**
-2. Stop Caddy.
+2. Stop Caddy. Installed app: `service.py disable-remote` (administrator prompt) does steps 2, 3 and 5 at once.
 3. Remove the firewall rule, in an administrator PowerShell: `Remove-NetFirewallRule -DisplayName "Caddy for Baihe"`.
 4. Sign out every session issued remotely: at the PC, Diagnostics > Users > "Sign out everywhere..." for each user (every session was issued through the household listener; the PC's own window has none).
 5. Unset the household port (`setx BAIHE_API_HOUSEHOLD_PORT ""`, or remove it in System Properties > Environment Variables) and restart Baihe. The PC's window on 8600 is unaffected.
@@ -85,4 +93,4 @@ Certificate renewal:
 - Baihe's audit log (Diagnostics, at the PC or signed in as an admin from away) for sign-ins you don't recognise.
 - Certificate expiry and your public IP versus the DNS record (dynamic DNS drift).
 - Updates: you own patching Caddy and Baihe. After updating Baihe, restart Caddy so a changed template is loaded.
-- Windows restarts: Caddy and Baihe must come back after an update reboot (running both on boot is WP5).
+- Windows restarts: Caddy and Baihe must come back after an update reboot. The installed app runs both as services that start with Windows (Caddy only while remote access is on); their logs are in the data folder, `library\logs\service\` and `caddy\logs\`.

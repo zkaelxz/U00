@@ -5,7 +5,12 @@ name: Windows Installer
 # and smoke-tests it: silent install into a temp folder, start the server
 # with the installed launcher, GET /api/health and the React app, check the
 # library landed in the data folder (not the program folder), stop, silent
-# uninstall, and check the data folder survived.
+# uninstall, and check the data folder survived. Those installs opt out of
+# the boot service (/MERGETASKS=!service); the "Service --" steps then test
+# the default install: Baihe Studio as a Windows service (running, automatic
+# start, its own account, loopback only), an update over it, remote access
+# refused without its settings and turned on and off (Caddy service,
+# firewall rule), and uninstalls that remove both services and the rule.
 #
 # On demand only (Run workflow, or pushing a tag) -- never on every PR:
 # Actions minutes have run out before, and windows-latest bills at 2x. An
@@ -34,16 +39,22 @@ permissions:
 
 jobs:
   # Real observed duration (run 36667149394, 2026-09-30): 2m20s for the
-  # whole job, cold npm cache included. 20 minutes leaves room for slower
-  # runner provisioning and downloads without letting a hung step bill the
-  # 2x Windows rate for long.
+  # whole job, cold npm cache included, before the Caddy build and the
+  # service steps were added. Those are estimated, not yet measured, at
+  # 10-15 minutes more (Go fetches and compiles about 160 modules; three
+  # more installs). 40 minutes leaves room without letting a hung step bill
+  # the 2x Windows rate for long.
   installer:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       INNO_VERSION: "6.7.3"
       INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+      # Builds the bundled Caddy (installer/build_installer.py CADDY_GO_VERSION).
+      GO_URL: "https://go.dev/dl/go1.26.8.windows-amd64.zip"
+      GO_SHA256: "b92c3b2adae85a11ba71fe7216daf0d84e82af4c8ab6c5625807f28622043a59"
+      FW_RULE: "Baihe Studio remote access - Caddy HTTPS"
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.
@@ -76,6 +87,20 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "Inno Setup install exited $($p.ExitCode)"; exit 1 }
           "ISCC=$dir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      - name: Install Go (pinned)
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "go.zip"
+          Invoke-WebRequest -Uri $env:GO_URL -OutFile $zip -TimeoutSec 300
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:GO_SHA256) { Write-Error "Go hash $hash != $env:GO_SHA256"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP "go-dist"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          # Windows' own tar: much faster than Expand-Archive on Go's many files.
+          tar -xf $zip -C $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't unpack Go"; exit 1 }
+          "GO_EXE=$dir\go\bin\go.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Pick the version
         shell: pwsh
         env:
@@ -94,7 +119,7 @@ jobs:
 
       - name: Build the installer
         shell: pwsh
-        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC"
+        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC" --go "$env:GO_EXE"
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
@@ -114,7 +139,8 @@ jobs:
           # Exported first, so the log step can find install.log if Setup fails.
           "APP_DIR=$app" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "DATA_DIR=$data" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app`"","/DATADIR=`"$data`"","/LOG=`"$log`"" -Wait -PassThru
+          # Launcher mode (no boot service): these steps test the Start-menu path.
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/MERGETASKS=!service","/DIR=`"$app`"","/DATADIR=`"$data`"","/LOG=`"$log`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
           $marker = Join-Path $app "app\INSTALLED"
           if (-not (Test-Path $marker)) { Write-Error "No $marker"; exit 1 }
@@ -192,7 +218,7 @@ jobs:
           $data2 = Join-Path $env:RUNNER_TEMP "baihe-data2"
           $log2 = Join-Path $env:RUNNER_TEMP "setup2.log"
           "DATA_DIR2=$data2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app2`"","/DATADIR=`"$data2`"","/LOG=`"$log2`"" -Wait -PassThru
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/MERGETASKS=!service","/DIR=`"$app2`"","/DATADIR=`"$data2`"","/LOG=`"$log2`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
           & "$app2\python\python.exe" -s "$app2\app\installer\launcher.py" --no-browser
           if ($LASTEXITCODE -ne 0) { Write-Error "launcher --no-browser exited $LASTEXITCODE"; exit 1 }
@@ -218,12 +244,177 @@ jobs:
           if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "clean uninstall touched the first install's data folder"; exit 1 }
           Write-Host "Clean uninstall removed everything Baihe made and nothing else."
 
+      # The default install: Baihe Studio as a Windows service that starts
+      # with Windows (installer/service.py). Setup's service step needs
+      # administrator rights; hosted runners run elevated (checked here, so
+      # a prompt can never hang the job).
+      - name: Service -- the default install runs it at boot, loopback only
+        shell: pwsh
+        run: |
+          $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Error "the runner isn't elevated"; exit 1 }
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          # The default folders: inside the user's profile, which the service
+          # account passes through but can't list, and with a space in them.
+          $app3 = Join-Path $env:LOCALAPPDATA "Programs\Baihe Studio"
+          $data3 = Join-Path $env:LOCALAPPDATA "Baihe Studio"
+          if ((Test-Path $app3) -or (Test-Path $data3)) { Write-Error "the default folders already exist on this runner"; exit 1 }
+          $log3 = Join-Path $env:RUNNER_TEMP "setup3.log"
+          "APP_DIR3=$app3" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DATA_DIR3=$data3" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app3`"","/DATADIR=`"$data3`"","/LOG=`"$log3`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
+          foreach ($name in @("BaiheStudio", "BaiheCaddy")) {
+            $account = (Get-CimInstance Win32_Service -Filter "Name='$name'").StartName
+            if ($account -ne "NT SERVICE\$name") { Write-Error "$name runs as '$account'"; exit 1 }
+            $privs = (sc.exe qprivs $name 4096) | Out-String
+            if ($privs -match 'SeImpersonatePrivilege' -or $privs -notmatch 'SeChangeNotifyPrivilege') { Write-Error "$name privileges: $privs"; exit 1 }
+          }
+          $svc = Get-Service BaiheStudio
+          if ($svc.Status -ne 'Running' -or $svc.StartType -ne 'Automatic') { Write-Error "BaiheStudio is $($svc.Status), start $($svc.StartType)"; exit 1 }
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "BaiheCaddy is $($caddy.Status), start $($caddy.StartType)"; exit 1 }
+          if (Get-NetFirewallRule -DisplayName $env:FW_RULE -ErrorAction SilentlyContinue) { Write-Error "a firewall rule exists before remote access was enabled"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
+          Invoke-WebRequest -Uri http://127.0.0.1:8600/api/library/dramas -UseBasicParsing -TimeoutSec 30 | Out-Null
+          if (-not (Test-Path "$data3\library\library.db")) { Write-Error "the service's library.db is not in the data folder"; exit 1 }
+          if (-not (Get-ChildItem "$data3\library\logs\service" -Filter *.log -ErrorAction SilentlyContinue)) { Write-Error "no service log in library\logs\service"; exit 1 }
+          # Nothing from the install listens beyond loopback.
+          $pids = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($app3, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [int]$_.ProcessId })
+          $listen = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $pids -contains [int]$_.OwningProcess })
+          if (-not $listen) { Write-Error "no listening socket from the install"; exit 1 }
+          $open = @($listen | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') })
+          if ($open) { $open | Format-Table LocalAddress, LocalPort, OwningProcess; Write-Error "listening beyond loopback"; exit 1 }
+          Write-Host "BaiheStudio: Running, Automatic, NT SERVICE\BaiheStudio; BaiheCaddy: Stopped, Disabled; loopback only."
+
+      - name: Service -- an update over it keeps the data and the service
+        shell: pwsh
+        run: |
+          Set-Content -Path "$env:DATA_DIR3\.env" -Value "BAIHE_SMOKE_TEST=1"
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $log4 = Join-Path $env:RUNNER_TEMP "setup4.log"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$env:APP_DIR3`"","/LOG=`"$log4`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup (update) exited $($p.ExitCode)"; exit 1 }
+          $svc = Get-Service BaiheStudio
+          if ($svc.Status -ne 'Running' -or $svc.StartType -ne 'Automatic') { Write-Error "after the update BaiheStudio is $($svc.Status), start $($svc.StartType)"; exit 1 }
+          if ((Get-Service BaiheCaddy).StartType -ne 'Disabled') { Write-Error "the update enabled Caddy"; exit 1 }
+          if ((Get-Content "$env:DATA_DIR3\.env" -Raw) -notmatch 'BAIHE_SMOKE_TEST=1') { Write-Error "the update changed .env"; exit 1 }
+          if (-not (Test-Path "$env:DATA_DIR3\library\library.db")) { Write-Error "the update lost library.db"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
+          Write-Host "The update kept the data folder and the running service."
+
+      # Remote access is refused without its settings and changes nothing;
+      # with them it starts Caddy and adds the one firewall rule, and turning
+      # it off undoes both. The sign-in values are placeholders, and .invalid
+      # can never resolve, so no certificate is ever issued.
+      - name: Service -- remote access refuses without config, then turns on and off
+        shell: pwsh
+        run: |
+          $py = "$env:APP_DIR3\python\python.exe"
+          $helper = "$env:APP_DIR3\app\installer\service.py"
+          & $py -s $helper enable-remote
+          if ($LASTEXITCODE -ne 2) { Write-Error "enable-remote without settings exited $LASTEXITCODE, expected 2 (refused)"; exit 1 }
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "a refused enable-remote changed Caddy"; exit 1 }
+          if (Get-NetFirewallRule -DisplayName $env:FW_RULE -ErrorAction SilentlyContinue) { Write-Error "a refused enable-remote added a firewall rule"; exit 1 }
+          if (Test-Path "$env:APP_DIR3\caddy\Caddyfile") { Write-Error "a refused enable-remote wrote a Caddyfile"; exit 1 }
+          Add-Content -Path "$env:DATA_DIR3\.env" -Value "BAIHE_GOOGLE_CLIENT_ID=ci-placeholder.apps.googleusercontent.com", "BAIHE_GOOGLE_CLIENT_SECRET=ci-placeholder-value-kept-out-of-logs", "BAIHE_PUBLIC_URL=https://baihe.invalid"
+          & $py -s $helper enable-remote --household-port 8610
+          if ($LASTEXITCODE -ne 0) { Write-Error "enable-remote exited $LASTEXITCODE"; exit 1 }
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Running' -or $caddy.StartType -ne 'Automatic') { Write-Error "BaiheCaddy is $($caddy.Status), start $($caddy.StartType)"; exit 1 }
+          $rule = Get-NetFirewallRule -DisplayName $env:FW_RULE
+          if (@($rule).Count -ne 1 -or $rule.Direction -ne 'Inbound' -or $rule.Action -ne 'Allow') { Write-Error "unexpected firewall rule"; exit 1 }
+          $profiles = $rule.Profile.ToString()
+          if ($profiles -match 'Public' -or $profiles -notmatch 'Private' -or $profiles -notmatch 'Domain') { Write-Error "firewall rule profiles: $profiles"; exit 1 }
+          $ports = $rule | Get-NetFirewallPortFilter
+          if ($ports.Protocol -ne 'TCP' -or "$($ports.LocalPort)" -ne '443') { Write-Error "firewall rule ports: $($ports.Protocol) $($ports.LocalPort)"; exit 1 }
+          $program = ($rule | Get-NetFirewallApplicationFilter).Program
+          if ($program -ne "$env:APP_DIR3\caddy\caddy.exe") { Write-Error "firewall rule program: $program"; exit 1 }
+          $household = @(Get-NetTCPConnection -State Listen -LocalPort 8610 -ErrorAction SilentlyContinue)
+          if (-not $household -or @($household | Where-Object { $_.LocalAddress -ne '127.0.0.1' })) { Write-Error "the household listener isn't loopback-only on 8610"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
+          # The client secret stays in .env: never in the Caddyfile or a log.
+          $places = @("$env:APP_DIR3\caddy", "$env:APP_DIR3\service", "$env:DATA_DIR3\launcher", "$env:DATA_DIR3\library\logs", "$env:DATA_DIR3\caddy\logs")
+          $leaks = @(Get-ChildItem $places -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne '.exe' } | Select-String -SimpleMatch "ci-placeholder-value-kept-out-of-logs" -List)
+          if ($leaks) { $leaks | ForEach-Object { Write-Host $_.Path }; Write-Error "the client secret was written outside .env"; exit 1 }
+          & $py -s $helper disable-remote
+          if ($LASTEXITCODE -ne 0) { Write-Error "disable-remote exited $LASTEXITCODE"; exit 1 }
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "after disable-remote BaiheCaddy is $($caddy.Status), start $($caddy.StartType)"; exit 1 }
+          if (Get-NetFirewallRule -DisplayName $env:FW_RULE -ErrorAction SilentlyContinue) { Write-Error "disable-remote left the firewall rule"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8610 -ErrorAction SilentlyContinue) { Write-Error "the household listener is still open"; exit 1 }
+          # On again, so the uninstall below has both services and the rule to remove.
+          & $py -s $helper enable-remote --household-port 8610
+          if ($LASTEXITCODE -ne 0) { Write-Error "enable-remote (again) exited $LASTEXITCODE"; exit 1 }
+          Write-Host "Remote access: refused without settings; on and off as asked."
+
+      - name: Service -- uninstall removes both services and the firewall rule
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "$env:APP_DIR3\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
+          for ($i = 0; $i -lt 120 -and (Test-Path "$env:APP_DIR3\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
+          foreach ($name in @("BaiheStudio", "BaiheCaddy")) {
+            if (Get-Service $name -ErrorAction SilentlyContinue) { Write-Error "the $name service is still installed"; exit 1 }
+          }
+          if (Get-NetFirewallRule -DisplayName $env:FW_RULE -ErrorAction SilentlyContinue) { Write-Error "uninstall left the firewall rule"; exit 1 }
+          foreach ($gone in @("unins000.exe", "python", "app", "service", "caddy")) {
+            if (Test-Path (Join-Path $env:APP_DIR3 $gone)) { Write-Error "$gone is still there after uninstall"; exit 1 }
+          }
+          foreach ($port in @(8600, 8610, 443)) {
+            if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) { Write-Error "port $port is still listening"; exit 1 }
+          }
+          if (-not (Test-Path "$env:DATA_DIR3\library\library.db")) { Write-Error "uninstall removed the library"; exit 1 }
+          if ((Get-Content "$env:DATA_DIR3\.env" -Raw) -notmatch 'BAIHE_SMOKE_TEST=1') { Write-Error "uninstall changed .env"; exit 1 }
+          # The service accounts' permissions on the kept data folder are gone.
+          $sddl = (Get-Acl $env:DATA_DIR3).Sddl
+          if ($sddl -match 'S-1-5-80-4252121618-3482907913-4101234667-1485393109-981756833') { Write-Error "the BaiheStudio account still has access to the data folder"; exit 1 }
+          Write-Host "Both services and the firewall rule are gone; the data folder was kept."
+
+      # A clean uninstall of a service install with remote access on: the
+      # whole data folder goes, Caddy's certificate folder (which only Caddy
+      # and administrators can open) included.
+      - name: Service -- clean uninstall with remote access on
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $app5 = Join-Path $env:RUNNER_TEMP "baihe-app5"
+          $data5 = Join-Path $env:RUNNER_TEMP "baihe-data5"
+          $log5 = Join-Path $env:RUNNER_TEMP "setup5.log"
+          "DATA_DIR5=$data5" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app5`"","/DATADIR=`"$data5`"","/LOG=`"$log5`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
+          Add-Content -Path "$data5\.env" -Value "BAIHE_GOOGLE_CLIENT_ID=ci-placeholder.apps.googleusercontent.com", "BAIHE_GOOGLE_CLIENT_SECRET=ci-placeholder-value-kept-out-of-logs", "BAIHE_PUBLIC_URL=https://baihe.invalid"
+          & "$app5\python\python.exe" -s "$app5\app\installer\service.py" enable-remote
+          if ($LASTEXITCODE -ne 0) { Write-Error "enable-remote exited $LASTEXITCODE"; exit 1 }
+          if (-not (Test-Path "$data5\caddy\data")) { Write-Error "no Caddy data folder"; exit 1 }
+          $p = Start-Process -FilePath "$app5\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLEAN" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
+          for ($i = 0; $i -lt 120 -and ((Test-Path $app5) -or (Test-Path $data5)); $i++) { Start-Sleep -Seconds 1 }
+          foreach ($name in @("BaiheStudio", "BaiheCaddy")) {
+            if (Get-Service $name -ErrorAction SilentlyContinue) { Write-Error "the $name service is still installed"; exit 1 }
+          }
+          if (Get-NetFirewallRule -DisplayName $env:FW_RULE -ErrorAction SilentlyContinue) { Write-Error "clean uninstall left the firewall rule"; exit 1 }
+          if (Test-Path $app5) { Get-ChildItem -Recurse $app5 | Select-Object -First 20 FullName; Write-Error "the install folder is still there"; exit 1 }
+          if (Test-Path $data5) { Get-ChildItem -Recurse $data5 -ErrorAction SilentlyContinue | Select-Object -First 20 FullName; Write-Error "the data folder is still there"; exit 1 }
+          if (-not (Test-Path "$env:DATA_DIR3\library\library.db")) { Write-Error "clean uninstall touched another install's data folder"; exit 1 }
+          Write-Host "Clean uninstall removed both services, the rule and every folder."
+
       - name: Logs on failure
         if: failure() || cancelled()
         shell: pwsh
         run: |
-          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log")) {
+          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log", "$env:RUNNER_TEMP\setup3.log", "$env:RUNNER_TEMP\setup4.log", "$env:RUNNER_TEMP\setup5.log", "$env:DATA_DIR3\launcher\install.log", "$env:DATA_DIR3\launcher\service.log", "$env:DATA_DIR3\library\logs\app.log", "$env:DATA_DIR5\launcher\service.log")) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
+          }
+          foreach ($dir in @("$env:DATA_DIR3\library\logs\service", "$env:DATA_DIR3\caddy\logs")) {
+            if ($dir -and (Test-Path $dir)) {
+              Get-ChildItem $dir -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "===== $($_.FullName)"; Get-Content $_.FullName -Tail 100 }
+            }
           }
 
   # Only for a v* tag, and only after every smoke test above has passed. The
