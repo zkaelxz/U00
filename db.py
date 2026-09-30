@@ -1802,7 +1802,7 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
-def save_lines(drama_id: int, lines, fields=None):
+def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=()):
     """Saves a drama's lines by their permanent id (Line.id).
 
     Full sync (fields=None) -- the list IS the drama's lines now:
@@ -1824,7 +1824,24 @@ def save_lines(drama_id: int, lines, fields=None):
     changed by this caller, so whatever is in the database now (another
     writer's newer value) is kept. After saving, `orig` is updated.
 
+    only_if_unchanged (field-scoped only): a field is written only while
+    the database still holds this caller's `orig` value, so an edit saved
+    by someone else since the lines were loaded is kept, not overwritten.
+    A line without `orig` is then not written at all.
+
+    guard_fields (with only_if_unchanged): columns not written but whose
+    database value must still equal this Line's own value -- the text the
+    written fields were computed from (a flag from `en` and its timing).
+
+    Returns the ids only_if_unchanged left unwritten (an edit was kept);
+    empty otherwise.
+
     One transaction: on any error nothing is written."""
+    if only_if_unchanged and fields is None:
+        raise ValueError("only_if_unchanged needs field-scoped saving")
+    if guard_fields and not only_if_unchanged:
+        raise ValueError("guard_fields needs only_if_unchanged")
+    guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
@@ -1834,14 +1851,33 @@ def save_lines(drama_id: int, lines, fields=None):
         conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
-        kept = set()
+        kept, unwritten = set(), set()
         for ln in lines:
             lid = getattr(ln, "id", None)
             orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
                            if orig is None or _line_value(ln, f) != orig.get(f)]
-                if changed:
+                if changed and only_if_unchanged:
+                    if orig is None:
+                        unwritten.add(lid)
+                    else:
+                        # Compare-and-set: NULL and "" are the same empty text
+                        # to a Line, so a text field compares through COALESCE.
+                        expected = [(f, orig.get(f)) for f in changed]
+                        # A guard with no value is empty text, as NULL is to a Line.
+                        expected += [(f, "" if _line_value(ln, f) is None else _line_value(ln, f))
+                                     for f in guard_cols]
+                        guards = [f"COALESCE({f}, '') = ?" if isinstance(v, str)
+                                  else f"{f} IS ?" for f, v in expected]
+                        cur = conn.execute(
+                            f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
+                            f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
+                            [_line_value(ln, f) for f in changed] + [lid, drama_id]
+                            + [v for _f, v in expected])
+                        if cur.rowcount == 0:
+                            unwritten.add(lid)
+                elif changed:
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                         f"WHERE id = ? AND drama_id = ?",
@@ -1879,6 +1915,7 @@ def save_lines(drama_id: int, lines, fields=None):
         ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
         if fields is None:
             ln.merged_ids = []
+    return unwritten
 
 
 def _repoint_line_refs(conn, drama_id, from_id, to_id):
