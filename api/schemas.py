@@ -1304,6 +1304,77 @@ class TranslateFallbackEngine(BaseModel):
     model: Optional[str] = Field(None, max_length=200)
 
 
+class GlossaryAffectedTerm(BaseModel):
+    id: int
+    term_original: str
+    term_translation: str
+
+
+class GlossaryAffectedMatch(BaseModel):
+    term_id: int
+    term_original: str
+    term_translation: str
+    # "source": the term or an alias is in the source text; "banned": the
+    # English uses one of the term's banned translations.
+    reason: Literal["source", "banned"]
+
+
+class GlossaryAffectedLine(BaseModel):
+    id: int
+    idx: int
+    start: Optional[float] = None
+    end: Optional[float] = None
+    zh: str
+    en: str
+    # True unless the English is exactly what the last recorded translate
+    # run produced (unknown provenance counts as hand-edited).
+    hand_edited: bool
+    matched_terms: List[GlossaryAffectedMatch]
+
+
+class GlossaryAffectedPreview(BaseModel):
+    """Lines the glossary affects, for re-translating just those. No engine
+    call is made; the estimates are the Translate stage's own."""
+    drama_id: int
+    has_glossary: bool
+    terms: List[GlossaryAffectedTerm]
+    selected_term_ids: List[int]
+    lines: List[GlossaryAffectedLine]
+    hand_edited_count: int
+    preview_hash: str
+    estimate: TranslateRunEstimate
+    estimate_with_hand_edited: TranslateRunEstimate
+
+
+class GlossaryAffectedRunStart(BaseModel):
+    """Re-translate the chosen affected lines. line_ids and preview_hash come
+    from the preview; the server recomputes the set and refuses a stale one."""
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[int] = Field(min_length=1, max_length=100000)
+    preview_hash: str = Field(min_length=1, max_length=64)
+    include_hand_edited: bool = False
+    term_ids: Optional[List[int]] = Field(None, max_length=10000)
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    style_note: str = Field("", max_length=4000)
+    locale: str = Field("en-US", max_length=10)
+    context_window: Optional[int] = Field(None, ge=0, le=100)
+    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
+    batch_size: Optional[int] = Field(None, ge=1, le=200)
+    gemini_free_tier: Optional[bool] = None
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
+    reflect: bool = False
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
+
+
+class GlossaryAffectedRunStarted(TranslateRunStarted):
+    line_ids: List[int]
+    skipped_hand_edited_count: int
+
+
 TranslateRunStart.model_rebuild()
 
 

@@ -110,6 +110,39 @@ def get(drama_id, line_id, current_en=None):
     return prov
 
 
+def machine_made_ids(drama_id, en_by_id: dict) -> set:
+    """The ids (of {line id: current English}) whose English is exactly
+    what the last recorded translate run produced for that line. Only a
+    translate run records provenance, so any other writer (a person's
+    edit, find & replace, an import, a restore) leaves the line out: a
+    line not returned has to be treated as possibly hand-edited."""
+    if not en_by_id:
+        return set()
+    with _conn() as conn:
+        conn.row_factory = None
+        rows = conn.execute("SELECT line_id, output_hash FROM line_provenance WHERE drama_id = ?",
+                            (drama_id,)).fetchall()
+    recorded = {int(line_id): output_hash for line_id, output_hash in rows}
+    return {line_id for line_id, en in en_by_id.items()
+            if (en or "").strip() and recorded.get(line_id) == _short(en)}
+
+
+def carry_forward(drama_id, changes: dict) -> None:
+    """changes: {line id: (English before, English after)} for a mechanical
+    rewrite of machine output (the glossary's exact-term substitution).
+    A line whose record matched the English before now matches the
+    English after; a line with no matching record (possibly hand-edited)
+    stays without one."""
+    rows = [(_short(after), drama_id, int(line_id), _short(before))
+            for line_id, (before, after) in (changes or {}).items()
+            if line_id is not None and before != after]
+    if not rows:
+        return
+    with _conn() as conn:
+        conn.executemany("UPDATE line_provenance SET output_hash = ? WHERE drama_id = ? "
+                         "AND line_id = ? AND output_hash = ?", rows)
+
+
 def describe(prov) -> str:
     """One plain sentence for the "What happened here?" view. Leaves out the
     Baihe commit: that stays in the row, since any lines.read caller gets

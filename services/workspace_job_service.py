@@ -83,7 +83,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None):
+                       summary_monthly_cap_usd=None, own_lines_only=False):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -111,6 +111,11 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     target_ids: optional set of permanent line ids (Migration Slice 40's API
     start) -- only those lines are translated; None = every eligible line.
+
+    own_lines_only (with target_ids): English is written only on the target
+    lines and only where it still is what the job loaded -- a line edited
+    meanwhile keeps the edit -- and the glossary's exact-term substitution
+    touches only the target lines.
     """
     cap_reached = {}
     if isinstance(engine, translate_engines.FallbackEngine):
@@ -137,7 +142,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         style_note=style_note or "", style_guidelines=style_guidelines or "")
 
     def _save(ls):
-        db.save_lines(drama_id, ls, fields=("en",))
+        if own_lines_only:
+            db.save_lines(drama_id, ls, fields=("en",), only_if_unchanged=True)
+        else:
+            db.save_lines(drama_id, ls, fields=("en",))
         provenance(ls)
 
     job_timing_service.mark_stage(job_id, "Translate")
@@ -176,7 +184,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cancelled=background_jobs.is_cancel_requested(job_id),
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap_usd,
-            line_scoped=target_ids is not None):
+            line_scoped=target_ids is not None,
+            enforce_ids=set(target_ids) if own_lines_only and target_ids is not None else None):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})

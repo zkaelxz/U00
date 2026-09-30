@@ -1474,7 +1474,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            glossary_terms, errors, cancelled: bool = False,
                            summary_engine=None, summary_engine_choice: str = None,
                            line_scoped: bool = False,
-                           summary_monthly_cap_usd: float = None) -> bool:
+                           summary_monthly_cap_usd: float = None,
+                           enforce_ids=None) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
     so the two can't drift (the CLI used to skip most of it): applies
@@ -1508,7 +1509,10 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     Returns False, recording nothing, if every line this run translated
     has since been replaced (e.g. a new transcription finished meanwhile)
     -- its writes were no-ops, and a version or status would describe
-    lines that no longer exist."""
+    lines that no longer exist.
+
+    enforce_ids: when given, the exact-term substitution touches only
+    those line ids (a run that may write only its own lines' English)."""
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     if enforced:
         # Step 25d item 5: this used to substitute into `lines` -- the
@@ -1522,10 +1526,21 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         # and db.save_lines' own orig-comparison (see its docstring) then
         # skips writing any line the substitution didn't actually change.
         _fresh_lines = db.load_line_objects(drama_id)
+        if enforce_ids is not None:
+            _fresh_lines = [ln for ln in _fresh_lines if ln.id in enforce_ids]
+        substituted = {}
         for ln in _fresh_lines:
             if ln.en:
+                before = ln.en
                 ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
+                if ln.en != before:
+                    substituted[ln.id] = (before, ln.en)
         db.save_lines(drama_id, _fresh_lines, fields=("en",))
+        # The substitution is part of the machine translation: a line whose
+        # provenance matched before still matches, so it isn't mistaken for
+        # a hand-edited one.
+        from services import line_provenance_service
+        line_provenance_service.carry_forward(drama_id, substituted)
 
     # A translation too dense to read in the time it's on screen goes into
     # the review queue like any other flag (never replacing an existing one).

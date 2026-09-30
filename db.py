@@ -1790,7 +1790,7 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
-def save_lines(drama_id: int, lines, fields=None):
+def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False):
     """Saves a drama's lines by their permanent id (Line.id).
 
     Full sync (fields=None) -- the list IS the drama's lines now:
@@ -1812,7 +1812,14 @@ def save_lines(drama_id: int, lines, fields=None):
     changed by this caller, so whatever is in the database now (another
     writer's newer value) is kept. After saving, `orig` is updated.
 
+    only_if_unchanged (field-scoped only): a field is written only while
+    the database still holds this caller's `orig` value, so an edit saved
+    by someone else since the lines were loaded is kept, not overwritten.
+    A line without `orig` is then not written at all.
+
     One transaction: on any error nothing is written."""
+    if only_if_unchanged and fields is None:
+        raise ValueError("only_if_unchanged needs field-scoped saving")
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
@@ -1829,7 +1836,18 @@ def save_lines(drama_id: int, lines, fields=None):
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
                            if orig is None or _line_value(ln, f) != orig.get(f)]
-                if changed:
+                if changed and only_if_unchanged:
+                    if orig is not None:
+                        # Compare-and-set: NULL and "" are the same empty text
+                        # to a Line, so a text field compares through COALESCE.
+                        guards = [f"COALESCE({f}, '') = ?" if isinstance(orig.get(f), str)
+                                  else f"{f} IS ?" for f in changed]
+                        conn.execute(
+                            f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
+                            f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
+                            [_line_value(ln, f) for f in changed] + [lid, drama_id]
+                            + [orig.get(f) for f in changed])
+                elif changed:
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                         f"WHERE id = ? AND drama_id = ?",
