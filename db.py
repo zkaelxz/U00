@@ -954,6 +954,8 @@ def init_db():
             action TEXT NOT NULL,
             detail_redacted TEXT DEFAULT ''
         );
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
+        CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, id);
         """)
         # Lightweight migrations for DBs created before these columns existed
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
@@ -4912,9 +4914,11 @@ def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
     succeed. False when refused or the user doesn't exist."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
+            # Truthiness as auth_service reads the flags: NULL is off, any
+            # non-zero value is on.
             "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
             "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
-            "AND COALESCE(o.is_admin, 0) = 1 AND COALESCE(o.is_active, 0) = 1))",
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
             (user_id, user_id))
         conn.commit()
         return cur.rowcount > 0

@@ -55,6 +55,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _TOKENISH_RE = re.compile(r"[A-Za-z0-9_-]{32,}")
 _MAX_AUDIT_DETAIL = 500
 AUDIT_PAGE_MAX = 200
+_AUDIT_EMAIL_FIELD_RE = re.compile(r"(\bemail )(\S+)")
+_ADDRESS_RE = re.compile(r"[^\s@*]+@[^\s@]+")
 # A URL, a Windows drive path, a UNC path, or an absolute POSIX path of two
 # or more segments ("::/48" in an IPv6 prefix is not one: the slash follows
 # a colon).
@@ -103,13 +105,31 @@ def list_audit(limit: int = 100) -> list:
     return db.auth_list_audit(max(1, min(int(limit), 500)))
 
 
+def mask_email(value: str) -> str:
+    """"jane@gmail.com" -> "j***@gmail.com": the first character and the
+    domain only, never the whole address. A one-character local part is
+    hidden entirely; a value with no "@" becomes "***"."""
+    local, at, domain = str(value or "").rpartition("@")
+    if not at:
+        return "***"
+    return (local[0] if len(local) > 1 else "") + "***@" + domain
+
+
+def _mask_emails(text: str) -> str:
+    # The `email <value>` field of a refused sign-in (the value is whatever
+    # Google sent, so it may lack an "@"), then any other address-like run.
+    text = _AUDIT_EMAIL_FIELD_RE.sub(lambda m: m.group(1) + mask_email(m.group(2)), text)
+    return _ADDRESS_RE.sub(lambda m: mask_email(m.group(0)), text)
+
+
 def audit_page(limit: int = 50, before_id: int = None, action: str = None,
                user_id: int = None) -> dict:
     """The admin audit view: newest first, at most AUDIT_PAGE_MAX rows,
     `next_before_id` for the next (older) page or None at the end. Details
     are scrubbed again on the way out (rows written before a scrub rule
-    existed) and any path-like text is dropped. Coarse IP prefixes that the
-    sign-in audit stores (IPv4 /24, IPv6 /48) are kept."""
+    existed), path-like text is dropped and email addresses are masked
+    (mask_email; the stored row keeps the full address). Coarse IP prefixes
+    that the sign-in audit stores (IPv4 /24, IPv6 /48) are kept."""
     limit = max(1, min(int(limit), AUDIT_PAGE_MAX))
     rows = db.auth_list_audit(limit + 1, before_id=before_id, action=action or None,
                               user_id=user_id)
@@ -117,7 +137,8 @@ def audit_page(limit: int = 50, before_id: int = None, action: str = None,
     rows = rows[:limit]
     events = [{"id": r["id"], "ts": r["ts"], "user_id": r["user_id"],
                "action": r["action"],
-               "detail": _PATHISH_RE.sub("[hidden]", _scrub_detail(r["detail_redacted"]))}
+               "detail": _mask_emails(_PATHISH_RE.sub("[hidden]",
+                                                      _scrub_detail(r["detail_redacted"])))}
               for r in rows]
     return {"events": events, "next_before_id": rows[-1]["id"] if more and rows else None,
             "actions": db.auth_list_audit_actions()}

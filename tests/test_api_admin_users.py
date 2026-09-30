@@ -1,6 +1,10 @@
 """User administration and the read-only audit log view
 (api/routers/admin_users_routes.py, services/auth_service.py)."""
 
+import contextlib
+import threading
+import time
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -279,3 +283,109 @@ def test_audit_is_read_only(isolated_db):
     _a, s = _admin()
     for method in ("POST", "PUT", "PATCH", "DELETE"):
         assert c.request(method, "/api/admin/audit", headers=_h(s)).status_code == 405
+
+
+@pytest.mark.parametrize("stored, shown", [
+    ("jane.doe@gmail.com", "j***@gmail.com"),
+    ("a@example.com", "***@example.com"),            # one-character local part: nothing of it
+    ("ab@example.com", "a***@example.com"),
+    ("nobody-at-all", "***"),                         # no "@"
+    ("@example.com", "***@example.com"),
+    ("émile李@例え.jp", "é***@例え.jp"),                # unicode
+])
+def test_refused_sign_in_email_masked_on_read_but_stored_in_full(isolated_db, stored, shown):
+    db.auth_insert_audit(None, "login.denied", f"not_allowlisted ip 203.0.113 email {stored}")
+    detail = auth_service.audit_page(5)["events"][0]["detail"]
+    assert detail == f"not_allowlisted ip 203.0.113 email {shown}"
+    if stored.split("@")[0]:   # something before the "@" (or no "@"): never returned whole
+        assert stored not in detail
+    assert auth_service.list_audit(5)[0]["detail_redacted"].endswith(f"email {stored}")
+
+
+def test_masked_email_through_the_route_and_other_rows(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    db.auth_insert_audit(None, "login.denied", "not_allowlisted ip 198.51.100 email stranger@gmail.com")
+    db.auth_insert_audit(None, "note", "contact someone.else@example.org please")
+    r = c.get("/api/admin/audit", headers=_h(s))
+    assert r.status_code == 200
+    assert "stranger@gmail.com" not in r.text and "someone.else@example.org" not in r.text
+    details = [e["detail"] for e in r.json()["events"]]
+    assert "not_allowlisted ip 198.51.100 email s***@gmail.com" in details
+    assert "contact s***@example.org please" in details
+
+
+def test_signed_out_and_non_admin_cannot_read_the_audit(isolated_db):
+    c = _remote(_app())
+    db.auth_insert_audit(None, "login.denied", "not_allowlisted email stranger@gmail.com")
+    r = c.get("/api/admin/audit")
+    assert r.status_code == 401 and "stranger" not in r.text
+    _m, s = _member()
+    r = c.get("/api/admin/audit", headers=_h(s))
+    assert r.status_code == 403 and "stranger" not in r.text
+
+
+def test_every_user_id_route_is_admin_users_or_pc_only(isolated_db):
+    for auth in ("on", "off"):
+        found = [(p, d) for _r, p, _m, d in api_auth.iter_route_declarations(_app(auth))
+                 if "{user_id}" in p]
+        assert found
+        for path, decls in found:
+            assert decls in ([("permission", "admin.users")], [("local_only", None)]), path
+
+
+def _set_flags(user_id, **flags):
+    with contextlib.closing(db.get_conn()) as conn:
+        for k, v in flags.items():
+            conn.execute(f"UPDATE users SET {k} = ? WHERE id = ?", (v, user_id))
+        conn.commit()
+
+
+def test_guarded_write_reads_null_and_nonzero_flags_like_the_service(isolated_db):
+    a = auth_service.grant_admin_local("a@example.com")
+    b = auth_service.grant_admin_local("b@example.com")
+    # b's flags are 2/2: truthy, so the service treats b as an active admin, and so does the guard.
+    _set_flags(b["id"], is_admin=2, is_active=2)
+    assert auth_service.resolve_session(auth_service.create_session(b["id"])["session_token"])
+    assert db.auth_deactivate_user_keeping_an_admin(a["id"]) is True
+    assert db.auth_deactivate_user_keeping_an_admin(b["id"]) is False
+    # NULL flags are off: a NULL-admin is not an admin, a NULL-active admin is not active.
+    m = auth_service.add_user("m@example.com")
+    _set_flags(m["id"], is_admin=None)
+    assert db.auth_deactivate_user_keeping_an_admin(m["id"]) is True
+    _set_flags(a["id"], is_active=None)
+    assert db.auth_deactivate_user_keeping_an_admin(b["id"]) is False   # a doesn't count
+    _set_flags(a["id"], is_active=1)
+    assert db.auth_deactivate_user_keeping_an_admin(b["id"]) is True
+
+
+@pytest.mark.parametrize("action", ["deactivate", "revoke-sessions"])
+def test_deactivate_and_revoke_end_the_users_open_event_stream(isolated_db, monkeypatch, action):
+    from services import event_stream_service as ev
+    monkeypatch.setattr(ev, "MAX_STREAM_SECONDS", 30.0)
+    monkeypatch.setattr(ev, "HEARTBEAT_SECONDS", 0.3)
+    monkeypatch.setattr(ev, "JOB_SWEEP_SECONDS", 0.2)
+    monkeypatch.setattr(ev, "MIN_BATCH_SECONDS", 0.01)
+    monkeypatch.setattr(ev, "AUTH_RECHECK_SECONDS", 0.0)
+    _a, s = _admin()
+    m, ms = _member()
+    admin_client, member_client = _remote(_app()), _remote(_app())
+    answers, acted_at = [], []
+
+    def act():
+        deadline = time.time() + 20
+        while ev.open_count() < 1 and time.time() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)
+        answers.append(admin_client.post(f"/api/admin/users/{m['id']}/{action}",
+                                         headers=_h(s)).status_code)
+        acted_at.append(time.time())
+    t = threading.Thread(target=act, daemon=True)
+    t.start()
+    r = member_client.get("/api/events", headers=_h(ms, csrf=False))
+    ended = time.time()
+    t.join(20)
+    assert r.status_code == 200 and answers == [200]
+    # Ended by the action (the next session re-check), long before the 30 s cap.
+    assert -1 < ended - acted_at[0] < 10
+    assert ev.open_count() == 0
