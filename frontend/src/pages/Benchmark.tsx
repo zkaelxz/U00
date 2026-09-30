@@ -3,7 +3,9 @@
  * per-run results and the Model Arena. Reached from Diagnostics (its nav
  * item stays active here). Reads work anywhere the viewer may see
  * Diagnostics; importing, adding and deleting cases and starting a run are
- * PC only (the server enforces; the page hides them in remote mode).
+ * PC only (the server enforces; the page hides them in remote mode). The
+ * Model re-evaluation card (Step 40b) runs production against candidate
+ * models through the same benchmark_lab job.
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -24,6 +26,7 @@ import { routeHref } from '../router'
 import { jobFailed, jobOutcomeText } from '../types/jobs'
 import { ArenaView, type ArenaTarget } from './benchmark/ArenaView'
 import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
+import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { RunsCard } from './benchmark/RunsCard'
 import { isRunActive } from './benchmark/benchmarkForm'
@@ -116,6 +119,19 @@ export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
           onStarted={onStarted}
           onStop={stop}
           compare={compare}
+        />
+      )}
+      {options && sets && (
+        <ReevalCard
+          options={options}
+          sets={sets}
+          pc={pc}
+          phone={phone}
+          job={job}
+          running={running}
+          onStarted={onStarted}
+          onStop={stop}
+          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
         />
       )}
       {finishedText && (

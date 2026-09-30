@@ -224,6 +224,10 @@ baihe-subtitler/
 │   │                             registry (model_registry.json) and a manual, cached provider model-list
 │   │                             check; user-confirmed preset model switch (never automatic)
 │   ├── model_registry.json       Step 40 -- sourced lifecycle facts (current/legacy/deprecated/retired)
+│   ├── model_reeval_service.py   Step 40b -- scheduled model re-evaluation: user-added candidates vs the
+│   │                             production model through the Benchmark Lab, report, recorded decisions,
+│   │                             explicit promotion only (scheduler: api/background.py)
+
 
 │   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
 │   │                             from a static table: allowlisted https hops, timeouts, byte cap,
@@ -433,6 +437,8 @@ baihe-subtitler/
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
+│   ├── model_reeval_schemas.py   Step 40b re-evaluation models (kept apart from schemas.py)
+
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
@@ -517,6 +523,9 @@ baihe-subtitler/
 │       │                         admin.diagnostics; cases, import, regression, runs (POST) local_only (Step 38)
 │       ├── model_registry_routes.py /api/models/status (GET, admin.diagnostics), check and
 │       │                         presets/{id}/switch (POST, local_only; Step 40)
+│       ├── model_reeval_routes.py /api/models/reeval (GET), decisions (GET), estimate (POST) admin.diagnostics;
+│       │                         settings, candidates, reject/reopen/promote, run (POST) local_only (Step 40b)
+
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
