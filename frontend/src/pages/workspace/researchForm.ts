@@ -67,16 +67,20 @@ export function budgetLine(b: ResearchBudget): string {
   return `${b.free_remaining} free searches left today`
 }
 
+export const isPaidLookup = (b: ResearchBudget) => b.free_remaining < (b.free_lookup_min || 1)
+
 export const usd = (n: number) => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`)
 
 // What a lookup will cost, shown before it runs.
 export function costLine(b: ResearchBudget, mode: ResearchMode, model: string, allowPaid: boolean): string {
-  const paidSearch = b.free_remaining <= 0
+  const paidSearch = isPaidLookup(b)
   if (paidSearch && !allowPaid) return 'The free searches are used up for now.'
   if (b.free_tier_key) return 'Free (free-tier Gemini key).'
   const tokens = b.estimates_usd?.[mode]?.[model] ?? 0
-  const fee = paidSearch ? b.paid_price_per_search_usd : 0
-  return `About ${usd(tokens + fee)} on your paid Gemini key${fee ? ' (includes the search fee)' : ''}.`
+  if (!paidSearch) return `About ${usd(tokens)} on your paid Gemini key.`
+  // One lookup may run several searches, each billed once the free ones are used.
+  const fee = b.paid_price_per_search_usd * (b.free_lookup_min || 1)
+  return `Up to ${usd(tokens + fee)} on your paid Gemini key (includes the search fees).`
 }
 
 // Google's grounding terms ask for the search suggestions to be shown.

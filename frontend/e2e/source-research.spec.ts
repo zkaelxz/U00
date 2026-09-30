@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 
 const budget = {
   free_daily_limit: 500, used_today: 2, free_monthly_limit: 5000, used_this_month: 2,
-  free_remaining: 498, paid_price_per_search_usd: 0.035,
+  free_remaining: 498, paid_price_per_search_usd: 0.035, free_lookup_min: 5,
   free_tier_key: true, key_configured: true, monthly_cap_usd: 0, month_spend_usd: 0,
   models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], modes: ['quick', 'deep', 'verify'],
   estimates_usd: { quick: { 'gemini-flash-lite-latest': 0.002, 'gemini-flash-latest': 0.004 } },
@@ -65,7 +65,7 @@ test('used-up free searches need the paid toggle before a lookup', async ({ page
   const run = page.getByRole('button', { name: 'Research online' })
   await expect(run).toBeDisabled()
   await page.getByRole('switch', { name: 'Allow paid searches' }).click()
-  await expect(page.getByTestId('research-cost')).toContainText('includes the search fee')
+  await expect(page.getByTestId('research-cost')).toContainText('includes the search fees')
   await expect(run).toBeEnabled()
   await run.click()
   await expect(page.getByRole('list', { name: 'Researched metadata' })).toBeVisible()

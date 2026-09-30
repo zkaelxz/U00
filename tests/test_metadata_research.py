@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
+import translate_engines
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import metadata_research_service as mrs
@@ -100,7 +101,7 @@ def test_repeat_lookup_is_cached_and_does_not_respend(setup):
     second = mrs.research(drama)
     assert len(fake.calls) == 1
     assert second["cached"] is True and second["cost_usd"] == 0.0
-    assert second["research_id"] == first["research_id"]
+    assert second["research_id"] != first["research_id"]  # one id per lookup shown
     assert second["budget"]["used_today"] == 1
     # a different mode or model is a different lookup
     mrs.research(drama, mode="deep")
@@ -159,7 +160,8 @@ def test_failed_call_still_counts(setup, monkeypatch):
 
 def test_concurrent_lookups_cannot_share_the_last_free_search(setup, monkeypatch):
     drama, _ = setup
-    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD - 1,
+    start = mrs.GROUNDED_FREE_RPD - mrs.MAX_QUERIES_PER_LOOKUP  # enough for exactly one
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": start,
                                             "month": mrs._today()[:7], "month_count": 0})
     import threading
     results, barrier = [], threading.Barrier(2)
@@ -190,6 +192,59 @@ def test_concurrent_lookups_cannot_share_the_last_free_search(setup, monkeypatch
     for t in threads:
         t.join()
     assert sorted(results) == ["ok", "refused"]
+    assert mrs.budget_status()["used_today"] == start + 1  # the refused one counted nothing
+
+
+def test_apply_uses_the_lookup_that_was_shown(setup, monkeypatch):
+    drama, fake = setup
+    first = mrs.research(drama)
+    # another tab / user runs "Look up again" and gets different values
+    fake.data["candidates"][0]["content"]["parts"][0]["text"] = (
+        '{"fields": {"director": {"value": "Someone Else"}}}')
+    second = mrs.research(drama, refresh=True)
+    assert [f["value"] for f in second["fields"]] == ["Someone Else"]
+    mrs.apply_research(drama, first["research_id"], {"director": "replace"}, seen={"director": None})
+    assert db.get_drama(drama)["director"] == "Jane Doe"  # what the first user saw
+
+
+def test_research_id_is_bound_to_its_drama(setup):
+    drama, _ = setup
+    r = mrs.research(drama)
+    other = db.create_drama(title_en="Other", source_language="zh")
+    with pytest.raises(NotFoundError):
+        mrs.apply_research(other, r["research_id"], {"director": "replace"}, seen={"director": None})
+    assert db.get_drama(other)["director"] in (None, "")
+
+
+def test_near_the_free_limit_a_lookup_is_paid(setup):
+    drama, fake = setup
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(),
+                                            "count": mrs.GROUNDED_FREE_RPD - 2,
+                                            "month": mrs._today()[:7], "month_count": 0})
+    with pytest.raises(ConflictError) as e:  # 2 free left < worst-case queries
+        mrs.research(drama)
+    assert e.value.details["reason"] == "free_budget_used" and fake.calls == []
+    assert mrs.budget_status()["used_today"] == mrs.GROUNDED_FREE_RPD - 2  # nothing counted
+
+
+def test_cap_precheck_covers_worst_case_queries(setup, monkeypatch):
+    drama, fake = setup
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD,
+                                            "month": mrs._today()[:7], "month_count": 0})
+    # room for one paid query's fee, but not for the worst case
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd",
+                        lambda *a, **kw: mrs.GROUNDED_PAID_PRICE_USD * 2)
+    with pytest.raises(ConflictError) as e:
+        mrs.research(drama, allow_paid=True)
+    assert e.value.details["reason"] == "monthly_cap" and fake.calls == []
+
+
+def test_extra_queries_within_the_free_allowance_cost_no_fee(setup):
+    drama, fake = setup
+    fake.data["candidates"][0]["groundingMetadata"]["webSearchQueries"] = ["a", "b", "c"]
+    r = mrs.research(drama)
+    tokens_only = translate_engines.estimate_cost(mrs.DEFAULT_MODEL, 1000, 500)
+    assert r["cost_usd"] == pytest.approx(tokens_only, abs=1e-6)
 
 
 def test_refresh_spends_a_new_search(setup):

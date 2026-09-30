@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 import re
+import secrets
 import threading
 from typing import Optional
 from urllib.parse import urlsplit
@@ -63,6 +64,11 @@ CHOICES = ("keep", "replace", "save_both", "confirm")
 GROUNDED_FREE_RPD = 500
 GROUNDED_FREE_MONTHLY = 5000
 GROUNDED_PAID_PRICE_USD = 0.035
+# A grounded prompt may run several search queries (each billed on 3.x). A
+# lookup only counts as free while at least this many free searches are left;
+# otherwise it is a paid lookup (needs allow_paid) and the cap check assumes
+# this many paid queries.
+MAX_QUERIES_PER_LOOKUP = 5
 _DAY_OFFSET = datetime.timedelta(hours=8)
 # Rough per-lookup token sizes, only for the up-front cost estimate.
 EST_INPUT_TOKENS = {"quick": 800, "deep": 1200, "verify": 1200}
@@ -127,6 +133,7 @@ def budget_status() -> dict:
             "free_monthly_limit": GROUNDED_FREE_MONTHLY, "used_this_month": month,
             "free_remaining": _free_remaining(day, month),
             "paid_price_per_search_usd": GROUNDED_PAID_PRICE_USD,
+            "free_lookup_min": MAX_QUERIES_PER_LOOKUP,
             "free_tier_key": settings_service.get_gemini_free_tier(),
             "key_configured": bool(settings_service.resolve_key("gemini")),
             "monthly_cap_usd": cap, "month_spend_usd": round(db.get_month_spend(), 4),
@@ -313,7 +320,12 @@ def _rows(result: dict, drama: dict) -> list:
 
 
 def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool) -> dict:
-    return {"drama_id": drama_id, "research_id": key, "cached": cached,
+    # A fresh id per lookup shown, stored with this drama and a snapshot of
+    # exactly what was shown: a later "Look up again" (another tab, another
+    # user) rewrites the entity cache but never what this id applies.
+    research_id = secrets.token_hex(32)
+    db.put_research_result(research_id, drama_id, result)
+    return {"drama_id": drama_id, "research_id": research_id, "cached": cached,
             "mode": result["mode"], "model": result["model"],
             "retrieved_at": result["retrieved_at"], "fields": _rows(result, drama),
             "sources": result.get("sources") or [], "related": result.get("related") or [],
@@ -326,7 +338,8 @@ def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
     if settings_service.get_gemini_free_tier():
         return 0.0
     cost = translate_engines.estimate_cost(model, EST_INPUT_TOKENS[mode], EST_OUTPUT_TOKENS[mode])
-    return cost + (GROUNDED_PAID_PRICE_USD if paid_search else 0.0)
+    # Worst case: every query the model may run is a paid one.
+    return cost + (GROUNDED_PAID_PRICE_USD * MAX_QUERIES_PER_LOOKUP if paid_search else 0.0)
 
 
 def _refuse_paid(allow_paid: bool, free_tier: bool):
@@ -387,33 +400,23 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     if not api_key:
         raise DependencyUnavailableError("No Gemini key is configured. Set one in Settings first.")
     free_tier = settings_service.get_gemini_free_tier()
-    paid_search = _free_remaining(*_usage()) <= 0
-    if paid_search:
-        _refuse_paid(allow_paid, free_tier)
-    _check_cap(mode, model, paid_search)
-    # Take the search before the call (under a lock), so two lookups at once
-    # can't both use the last free one; a failed call still counts, since
-    # Google may have run the search anyway.
-    paid_search = _count_searches(1) <= 0
-    if paid_search:
-        _refuse_paid(allow_paid, free_tier)
+    paid_search, free_before = _reserve_search(mode, model, allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
     except Exception as e:  # never echo: the text could carry request details
         log.warning("Grounded research failed: %s",
                     translate_engines.redact_secrets(type(e).__name__))
         raise DependencyUnavailableError(_UNAVAILABLE) from None
-    extra = max(0, _search_query_count(data) - 1)
-    paid_extra = 0
-    if extra:  # the 3.x models bill every query the model ran
-        free_left = _count_searches(extra)
-        paid_extra = max(0, extra - free_left)
+    queries = max(1, _search_query_count(data))
+    if queries > 1:  # the 3.x models bill every query the model ran
+        _count_searches(queries - 1)
+    paid_queries = max(0, queries - free_before)
     usage = translate_engines.gemini_usage(data.get("usageMetadata"))
     cost = 0.0
     if not free_tier:
         cost = translate_engines.estimate_cost(model, usage["input_tokens"],
                                                usage["output_tokens"])
-        cost += GROUNDED_PAID_PRICE_USD * ((1 if paid_search else 0) + paid_extra)
+        cost += GROUNDED_PAID_PRICE_USD * paid_queries
     db.log_usage(drama_id, "gemini", model, "metadata_research", usage["input_tokens"],
                  usage["output_tokens"], cost)
     try:
@@ -426,6 +429,25 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     if parsed["fields"]:  # an empty answer is not cached, so it can be retried
         db.put_research_cache(key, result)
     return _response(drama_id, drama, key, result, cached=False)
+
+
+def _reserve_search(mode: str, model: str, allow_paid: bool, free_tier: bool) -> tuple:
+    """Decides free vs paid, checks the paid opt-in and the monthly cap, and
+    takes one search, all under one lock, so two lookups at once can't both
+    use the last free searches and a refused lookup counts nothing. A failed
+    call still counts (Google may have run the search). Returns (paid,
+    free searches left before this lookup)."""
+    with _budget_lock:
+        day, month = _usage()
+        free_before = _free_remaining(day, month)
+        paid = free_before < MAX_QUERIES_PER_LOOKUP
+        if paid:
+            _refuse_paid(allow_paid, free_tier)
+        _check_cap(mode, model, paid)
+        today = _today()
+        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day + 1,
+                                            "month": today[:7], "month_count": month + 1})
+        return paid, free_before
 
 
 def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optional[dict] = None,
@@ -443,7 +465,7 @@ def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optiona
         raise InvalidInputError("research_id is not valid.")
     if not isinstance(choices, dict) or not choices:
         raise InvalidInputError("Choose Keep, Replace or Save both for at least one field.")
-    result = db.get_research_cache(research_id)
+    result = db.get_research_result(research_id, drama_id)  # this drama's lookup only
     if not result:
         raise NotFoundError("That research result is no longer available. Run it again.")
     fields = result.get("fields") or {}

@@ -791,6 +791,16 @@ def init_db():
             created_at TEXT NOT NULL
         );
 
+        -- One row per lookup shown to a user (Step 37): apply reads the
+        -- snapshot by this id and drama, never the shared entity cache.
+        CREATE TABLE IF NOT EXISTS metadata_research_results (
+            research_id TEXT PRIMARY KEY,
+            drama_id INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS metadata_field_provenance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             drama_id INTEGER NOT NULL,
@@ -3347,6 +3357,30 @@ def put_research_cache(cache_key: str, result: dict):
                                                  created_at = excluded.created_at
         """, (cache_key, json.dumps(result), datetime.datetime.utcnow().isoformat()))
         conn.commit()
+
+
+RESEARCH_RESULT_TTL_DAYS = 7
+
+
+def put_research_result(research_id: str, drama_id: int, result: dict):
+    """Step 37: the snapshot a research_id applies; rows older than
+    RESEARCH_RESULT_TTL_DAYS are pruned on each insert."""
+    now = datetime.datetime.utcnow()
+    cutoff = (now - datetime.timedelta(days=RESEARCH_RESULT_TTL_DAYS)).isoformat()
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("DELETE FROM metadata_research_results WHERE created_at < ?", (cutoff,))
+        conn.execute("INSERT INTO metadata_research_results (research_id, drama_id, result_json, "
+                     "created_at) VALUES (?, ?, ?, ?)",
+                     (research_id, drama_id, json.dumps(result), now.isoformat()))
+        conn.commit()
+
+
+def get_research_result(research_id: str, drama_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT result_json FROM metadata_research_results "
+                           "WHERE research_id = ? AND drama_id = ?",
+                           (research_id, drama_id)).fetchone()
+    return json.loads(row["result_json"]) if row else None
 
 
 def add_field_provenance(drama_id: int, field: str, value: str, status: str, *,

@@ -9,7 +9,7 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { ResearchBudget, ResearchChoice, ResearchMode, ResearchResult } from '../../../types/research'
 import {
-  budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, googleSearchUrl,
+  budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, googleSearchUrl, isPaidLookup,
   hostOf, seenValues, usd,
 } from '../researchForm'
 import { useStage } from '../StageContext'
@@ -110,7 +110,7 @@ export function ResearchPanel() {
     )
   }
 
-  const needsPaid = !!budget && budget.free_remaining <= 0
+  const needsPaid = !!budget && isPaidLookup(budget)
   const blocked = !budget || !budget.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
 
   return (

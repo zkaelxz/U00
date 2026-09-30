@@ -11,7 +11,7 @@ const row = (field: string, status: ResearchField['status']): ResearchField =>
 
 const budget: ResearchBudget = {
   free_daily_limit: 500, used_today: 3, free_monthly_limit: 5000, used_this_month: 3,
-  free_remaining: 497, paid_price_per_search_usd: 0.035,
+  free_remaining: 497, paid_price_per_search_usd: 0.035, free_lookup_min: 5,
   free_tier_key: false, key_configured: true, monthly_cap_usd: 0, month_spend_usd: 0,
   models: ['gemini-flash-lite-latest'], modes: ['quick', 'deep', 'verify'],
   estimates_usd: { quick: { 'gemini-flash-lite-latest': 0.0022 } },
@@ -44,8 +44,9 @@ describe('researchForm', () => {
     expect(costLine({ ...budget, free_tier_key: true }, 'quick', m, false)).toBe('Free (free-tier Gemini key).')
     expect(costLine(budget, 'quick', m, false)).toBe('About $0.0022 on your paid Gemini key.')
     expect(costLine({ ...budget, free_remaining: 0 }, 'quick', m, false)).toMatch(/used up/)
+    expect(costLine({ ...budget, free_remaining: 4 }, 'quick', m, false)).toMatch(/used up/)
     expect(costLine({ ...budget, free_remaining: 0 }, 'quick', m, true)).toBe(
-      'About $0.04 on your paid Gemini key (includes the search fee).',
+      'Up to $0.18 on your paid Gemini key (includes the search fees).',
     )
   })
 

@@ -24,6 +24,8 @@ export interface ResearchBudget {
   used_this_month: number
   free_remaining: number
   paid_price_per_search_usd: number
+  // Below this many free searches left, a lookup counts as paid.
+  free_lookup_min: number
   free_tier_key: boolean
   key_configured: boolean
   monthly_cap_usd: number

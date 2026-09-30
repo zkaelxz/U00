@@ -43,6 +43,7 @@ class ResearchBudget(BaseModel):
     used_this_month: int
     free_remaining: int
     paid_price_per_search_usd: float
+    free_lookup_min: int  # below this many free searches left, a lookup is paid
     free_tier_key: bool
     key_configured: bool
     monthly_cap_usd: float
