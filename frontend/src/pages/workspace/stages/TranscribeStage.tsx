@@ -279,8 +279,10 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       setProblem('Expected speakers must be a whole number from 0 to 20.')
       return null
     }
-    if (runDiarize && (minSpeakers.trim() || maxSpeakers.trim())) {
-      setProblem('A speaker range works with "Detect speakers only". Clear Min/Max speakers, or use Expected speakers, to detect speakers after transcribing.')
+    // The Min/Max range goes with speaker detection after transcribing too.
+    const hints = runDiarize ? parseSpeakerHints(speakers, minSpeakers, maxSpeakers) : null
+    if (typeof hints === 'string') {
+      setProblem(hints)
       return null
     }
     if (haveTranscript && !transcriptText.trim()) {
@@ -294,6 +296,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       ...(haveTranscript ? { transcript_text: transcriptText } : {}),
       run_diarize: runDiarize,
       ...(expected !== undefined ? { expected_speakers: expected } : {}),
+      ...(hints?.min !== undefined ? { min_speakers: hints.min } : {}),
+      ...(hints?.max !== undefined ? { max_speakers: hints.max } : {}),
       ...promptFields(override, extraNames),
     }
   }
@@ -482,7 +486,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
             <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
           </Field>
-          <Field label="Min speakers" help="1-20. For Detect speakers only, when you know a range but not the exact count.">
+          <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
             <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} />
           </Field>
           <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">

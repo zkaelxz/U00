@@ -269,6 +269,19 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
+def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
+    """Step 105: (min_speakers, max_speakers) for the chained speaker
+    detection, each None when unset. Raises InvalidInputError for a bad
+    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
+    import diarize as diarize_module
+    try:
+        _num, lo, hi = diarize_module.validate_speaker_hints(
+            expected_speakers, min_speakers, max_speakers)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
+    return lo, hi
+
+
 _MOSS_OFF_MESSAGE = ("MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in "
                      "Settings > Transcription experiments first.")
 
@@ -306,7 +319,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           transcript_text: Optional[str] = None, run_diarize: bool = False,
                           expected_speakers: Optional[int] = None,
                           initial_prompt: str = "", tesseract_cmd: Optional[str] = None,
-                          extra_names: str = "") -> dict:
+                          extra_names: str = "", min_speakers: Optional[int] = None,
+                          max_speakers: Optional[int] = None) -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -347,6 +361,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    min_speakers, max_speakers = _speaker_range(expected_speakers, min_speakers, max_speakers)
 
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -423,6 +438,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         drama.get("hardsub_interval_sec") or 1.0,
         tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
         settings_service.get_use_gpu(), asr_backend_choice, alignment_method,
+        min_speakers=min_speakers, max_speakers=max_speakers,
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -431,7 +447,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
 def validate_transcribe_options(drama_id: int, source_language: Optional[str] = None,
                                 chinese_script: Optional[str] = None,
-                                transcript_text: Optional[str] = None, **_ignored) -> None:
+                                transcript_text: Optional[str] = None,
+                                expected_speakers: Optional[int] = None,
+                                min_speakers: Optional[int] = None,
+                                max_speakers: Optional[int] = None, **_ignored) -> None:
     """Validate-only pre-check for a run that starts after the audio exists
     (B-09: upload-and-transcribe with a video). Raises the same errors as
     start_transcribe_run for everything that doesn't depend on the audio or
@@ -440,6 +459,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    _speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
@@ -517,7 +537,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    initial_prompt="", video_path=None, hardsub_ocr_backend=None,
                                    hardsub_interval=1.0, tesseract_cmd=None,
                                    diarize_audio_path=None, use_gpu=False,
-                                   asr_backend_choice="whisper", alignment_method="whisper_diff"):
+                                   asr_backend_choice="whisper", alignment_method="whisper_diff",
+                                   min_speakers=None, max_speakers=None):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -530,6 +551,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     because that function stops after producing segments and leaves the
     apply step for Streamlit's own render loop -- see this module's
     docstring for why this slice can't reuse that split.
+
+    min_speakers/max_speakers (Step 105): a speaker-count range for the
+    chained speaker detection, already checked by start_transcribe_run.
 
     use_gpu is the persisted server-side toggle (db.app_settings, read via
     settings_service.get_use_gpu() in start_transcribe_run, default off).
@@ -789,9 +813,11 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
             args=(diarize_audio_path, hf_token, expected_speakers or None,
-                  diarization_service.worker_options()),
+                  diarization_service.worker_options(min_speakers, max_speakers)),
             gpu_touching=True, description=f"Diarization (drama #{drama_id})",
-            on_done=diarization_service.make_apply_on_done(drama_id, expected_speakers))
+            on_done=diarization_service.make_apply_on_done(
+                drama_id, expected_speakers, min_speakers=min_speakers,
+                max_speakers=max_speakers))
 
     background_jobs.set_result(job_id, {
         "line_count": len(lines),
