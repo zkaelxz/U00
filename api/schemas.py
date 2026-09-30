@@ -4056,8 +4056,11 @@ class UpdateStatus(BaseModel):
     downloaded_bytes: int
     download_error: Optional[str] = None
     verified: bool = Field(description="The downloaded installer matched the release's SHA-256.")
+    verified_version: Optional[str] = Field(None, description="The version Install would start.")
+    verified_name: Optional[str] = None
     can_install: bool
     auto_check: bool
+    custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -4073,6 +4076,7 @@ class UpdateInstallRequest(BaseModel):
 class UpdateInstallResponse(BaseModel):
     launched: bool
     installer_name: str
+    version: str
 
 
 # --- Step 115b: import with lightnovel-crawler (external program) -----------

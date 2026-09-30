@@ -70,8 +70,11 @@ def _hash_file(data=PAYLOAD, name=NAME):
 
 
 @pytest.fixture
-def http(isolated_db, monkeypatch):
+def http(isolated_db, monkeypatch, tmp_path):
     fake = FakeHttp()
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    monkeypatch.setattr(us.tempfile, "tempdir", str(temp))
     monkeypatch.setattr(us.requests, "get", fake.get)
     monkeypatch.setattr(us, "_state", dict(us._state, checked_at=None, check_error=None,
                                            latest=None, notes="", installer_name=None, size=None,
@@ -369,6 +372,11 @@ def verified(http, monkeypatch):
     return os.path.join(db.LIBRARY_DIR, "updates", NAME)
 
 
+def _setup_copies():
+    temp = us.tempfile.gettempdir()
+    return [n for n in os.listdir(temp) if n.startswith(us.SETUP_TEMP_PREFIX)]
+
+
 def test_install_refused_off_windows(verified, monkeypatch):
     monkeypatch.setattr(us, "_is_windows", lambda: False)
     with pytest.raises(UnsupportedOperationError, match="only possible on Windows"):
@@ -408,16 +416,152 @@ def test_install_refused_when_file_changed(verified, monkeypatch):
     with pytest.raises(ConflictError, match="changed or is missing"):
         us.install()
     assert FakePopen.calls == [] and us.status()["verified"] is False
+    assert _setup_copies() == []
 
 
-def test_install_starts_setup_with_fixed_args_outside_the_job(verified, monkeypatch):
+def test_install_refused_while_downloading(verified, monkeypatch):
     monkeypatch.setattr(us, "_is_windows", lambda: True)
+    us._state["download"] = "downloading"
+    assert us.status()["can_install"] is False
+    with pytest.raises(ConflictError, match="Wait for the download"):
+        us.install()
+    assert FakePopen.calls == []
+
+
+def test_install_starts_a_private_copy_with_fixed_args_outside_the_job(verified, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    for name, value in (("BAIHE_SHUTDOWN_TOKEN", "t" * 40), ("BAIHE_PROCESS_GROUP_NAME", "Local\\x"),
+                        ("BAIHE_API_ALLOW_KEY_WRITES", "1"), ("HF_HOME", "/cache"),
+                        ("ANTHROPIC_API_KEY", "sk-ant-secret"), ("BAIHE_DATA_DIR", "/data"),
+                        ("PATH", "/bin")):
+        monkeypatch.setenv(name, value)
     assert us.status()["can_install"] is True
     out = us.install()
-    assert out == {"launched": True, "installer_name": NAME}
+    assert out == {"launched": True, "installer_name": NAME, "version": "0.2.0"}
     (args, kw), = FakePopen.calls
-    assert args == [verified]
-    assert "shell" not in kw and kw["creationflags"] & us._CREATE_BREAKAWAY_FROM_JOB
+    (folder,) = _setup_copies()
+    copy = os.path.join(us.tempfile.gettempdir(), folder, NAME)
+    assert args == [copy] and kw["cwd"] == os.path.dirname(copy) and copy != verified
+    with open(copy, "rb") as fh:
+        assert fh.read() == PAYLOAD
+    assert "shell" not in kw and kw["close_fds"] is True
+    assert kw["creationflags"] & us._CREATE_BREAKAWAY_FROM_JOB
+    env = kw["env"]
+    assert env["BAIHE_DATA_DIR"] == "/data" and env["PATH"] == "/bin"
+    for gone in ("BAIHE_SHUTDOWN_TOKEN", "BAIHE_PROCESS_GROUP_NAME", "BAIHE_API_ALLOW_KEY_WRITES",
+                 "HF_HOME", "ANTHROPIC_API_KEY"):
+        assert gone not in env
+
+
+def test_install_never_stops_the_server(verified, monkeypatch):
+    # Setup stops the server itself, and only once the user clicks Install
+    # there; a cancelled Setup must leave Baihe running.
+    from services import shutdown_service
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    for name in ("request_shutdown", "clean_shutdown", "stop_new_work", "cancel_all_jobs"):
+        monkeypatch.setattr(shutdown_service, name, lambda *a, **k: pytest.fail("server stopped"))
+    us.install()
+    assert len(FakePopen.calls) == 1
+    s = us.status()
+    assert s["verified"] and s["can_install"]
+
+
+def test_a_failed_setup_launch_changes_nothing(verified, monkeypatch):
+    from services import shutdown_service
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    monkeypatch.setattr(shutdown_service, "request_shutdown",
+                        lambda *a, **k: pytest.fail("server stopped"))
+    before = us.status()
+
+    def refuse(*a, **kw):
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(us.subprocess, "Popen", refuse)
+    with pytest.raises(DependencyUnavailableError):
+        us.install()
+    assert us.status() == before and _setup_copies() == []
+    assert os.path.isfile(verified)
+
+
+def test_check_finding_another_version_forgets_the_verified_download(verified, http, monkeypatch):
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    assert us.status()["verified_version"] == "0.2.0"
+    us.check()                                   # same release: kept
+    assert us.status()["verified_version"] == "0.2.0"
+    http.add(API_URL, body=_release(tag="v0.3.0", exe_url=EXE_URL))
+    s = us.check()
+    assert s["latest"] == "0.3.0" and s["verified"] is False and s["verified_version"] is None
+    assert s["download"] == "idle" and s["can_install"] is False
+    with pytest.raises(ConflictError, match="Download and verify"):
+        us.install()
+    assert FakePopen.calls == []
+
+
+def test_download_finished_after_a_newer_check_is_not_kept(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    real = us._expected_hash
+
+    def and_a_newer_release_appears(release):
+        digest = real(release)
+        us._release = dict(release, version="0.3.0")
+        return digest
+    monkeypatch.setattr(us, "_expected_hash", and_a_newer_release_appears)
+    with pytest.raises(ConflictError, match="different version"):
+        us.download()
+    assert us.status()["verified"] is False
+
+
+def test_second_download_start_is_refused(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    monkeypatch.setattr(us.threading, "Thread", lambda **kw: type("T", (), {"start": lambda self: None})())
+    us.start_download()
+    with pytest.raises(ConflictError, match="already running"):
+        us.start_download()
+
+
+def test_slow_download_hits_the_deadline_and_can_be_retried(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    ticks = iter([0.0] + [us.DOWNLOAD_DEADLINE_SECONDS + 1.0] * 1000)
+    monkeypatch.setattr(us, "_monotonic", lambda: next(ticks))
+    us.start_download()
+    us._download_thread.join(10)
+    s = us.status()
+    assert s["download"] == "failed" and "took too long" in s["download_error"]
+    assert _no_installer_left()
+    monkeypatch.setattr(us, "_monotonic", lambda: 0.0)
+    us.start_download()
+    us._download_thread.join(10)
+    assert us.status()["verified"] is True
+
+
+def test_custom_source_flag(http, monkeypatch):
+    from services import settings_service
+    assert us.status()["custom_source"] is False
+    monkeypatch.setattr(settings_service, "resolve_env_names",
+                        lambda names, env_path=None: "someone/baihe-installers")
+    assert us.status()["custom_source"] is True
+    monkeypatch.setattr(settings_service, "resolve_env_names",
+                        lambda names, env_path=None: "not a repo")
+    assert us.status()["custom_source"] is True
+
+
+def test_cleanup_leftovers_after_an_upgrade(http, monkeypatch):
+    folder = us.updates_dir()
+    os.makedirs(folder)
+    for name in ("BaiheStudio-Setup-0.1.0.exe", "BaiheStudio-Setup-0.2.0.exe",
+                 "BaiheStudio-Setup-0.3.0.exe.part", "notes.txt"):
+        open(os.path.join(folder, name), "wb").close()
+    temp = us.tempfile.gettempdir()
+    os.makedirs(os.path.join(temp, us.SETUP_TEMP_PREFIX + "abc"))
+    os.makedirs(os.path.join(temp, "someone_else"))
+    us.cleanup_leftovers()                        # current is 0.1.0
+    assert sorted(os.listdir(folder)) == ["BaiheStudio-Setup-0.2.0.exe", "notes.txt"]
+    assert os.listdir(temp) == ["someone_else"]
+    monkeypatch.setattr(us, "current_version", lambda: "0.2.0")
+    us.cleanup_leftovers()                        # upgraded: 0.2.0 is not newer any more
+    assert os.listdir(folder) == ["notes.txt"]
 
 
 def test_install_launch_failure_names_the_file_only(verified, monkeypatch):

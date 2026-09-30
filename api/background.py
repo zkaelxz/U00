@@ -18,7 +18,8 @@ turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
 drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
-folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`).
+folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`), and
+update installers no longer needed (`update_service.cleanup_leftovers`).
 Also, only when the owner turned "Resume interrupted translation batches"
 on (`translate_run_service.resume_interrupted_at_startup`, off by default),
 pending bulk batches are resumed through the manual resume's code path.
@@ -171,6 +172,11 @@ def start_background_services() -> dict:
         auto_backup_service.periodic_tick()   # the startup due-check
     except Exception as exc:
         _log("automatic backup check failed: %s", exc)
+    try:
+        from services import update_service
+        update_service.cleanup_leftovers()
+    except Exception as exc:
+        _log("leftover update installers were not swept: %s", exc)
     try:
         from services import translate_run_service
         translate_run_service.resume_interrupted_at_startup()

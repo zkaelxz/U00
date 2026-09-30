@@ -83,7 +83,7 @@ def test_status_check_download_and_install_flow(client, http, monkeypatch):
     assert client.post("/api/system/update/install", json={"confirm": False}).status_code == 422
     assert FakePopen.calls == []
     r = _clean(client.post("/api/system/update/install", json={"confirm": True}))
-    assert r.status_code == 200 and r.json() == {"launched": True, "installer_name": NAME}
+    assert r.status_code == 200 and r.json() == {"launched": True, "installer_name": NAME, "version": "0.2.0"}
     assert len(FakePopen.calls) == 1
 
 

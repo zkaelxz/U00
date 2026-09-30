@@ -402,7 +402,10 @@ class TestProcessGuard:
         # No launcher, no name: the API process still goes into a job, so
         # closing start.bat's window ends ffmpeg, Node and Chromium with it.
         assert process_guard.contain_children() is True
-        assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, -1)]
+        # Kill on close, and breakaway allowed only for a child that asks
+        # (the update installer's Setup); never the silent kind.
+        assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000 | 0x0800),
+                               ("assign", 101, -1)]
         assert process_guard._job_handle == 101
         # Once per process; the handle stays open (closing it ends the job).
         assert process_guard.contain_children() is True
@@ -424,7 +427,7 @@ class TestProcessGuard:
 
     def test_one_childs_own_job(self, win32):
         # lncrawl_service's per-run job: the same kill-on-close job, holding
-        # that child (it nests inside the server's).
+        # that child (it nests inside the server's) and refuses breakaway.
         assert process_guard.create_kill_on_close_job(555) == 101
         assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, 555)]
         assert process_guard._job_handle is None

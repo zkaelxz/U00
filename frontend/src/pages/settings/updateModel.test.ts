@@ -3,12 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getPcMode, resetPcModeForTests } from '../../api/pcOnly'
 import { checkForUpdates, installUpdate, setUpdateAutoCheck } from '../../api/update'
 import type { UpdateStatus } from '../../types/update'
-import { canDownload, checkLine, downloadLine, isDownloading, versionLine } from './updateModel'
+import {
+  NO_RELEASE_LINE, SMARTSCREEN_NOTE, canDownload, checkLine, downloadLine, installTarget, isDownloading,
+  versionLine,
+} from './updateModel'
 
 const BASE: UpdateStatus = {
   current: '0.1.0', installed: true, latest: null, update_available: false, notes: '',
   installer_name: null, size: null, checked_at: null, check_error: null, download: 'idle',
-  downloaded_bytes: 0, download_error: null, verified: false, can_install: false, auto_check: false,
+  downloaded_bytes: 0, download_error: null, verified: false, verified_version: null, verified_name: null,
+  can_install: false, auto_check: false, custom_source: false,
 }
 const AVAILABLE: UpdateStatus = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
@@ -30,7 +34,9 @@ describe('updateModel', () => {
 
   it('says what the last check found', () => {
     expect(checkLine(BASE)).toBe('Not checked yet.')
-    expect(checkLine({ ...BASE, checked_at: 1 })).toBe('No release to offer yet.')
+    expect(checkLine({ ...BASE, checked_at: 1 })).toBe(NO_RELEASE_LINE)
+    // No cause is claimed; the manual, hash-checked route is named.
+    expect(NO_RELEASE_LINE).toMatch(/^No release found\. If .*by hand.*\.sha256/)
     expect(checkLine(AVAILABLE)).toBe('Version 0.2.0 is available (104.0 MB).')
     expect(checkLine({ ...AVAILABLE, update_available: false })).toBe('You have the latest version.')
     expect(checkLine({ ...AVAILABLE, current: null, update_available: false })).toBe('The latest release is 0.2.0.')
@@ -42,10 +48,22 @@ describe('updateModel', () => {
     expect(downloadLine({ ...AVAILABLE, download: 'downloading', downloaded_bytes: 52_000_000 })).toBe(
       'Downloading… 52.0 MB of 104.0 MB',
     )
-    expect(downloadLine({ ...AVAILABLE, download: 'verified', verified: true })).toBe(
-      'Downloaded and verified: BaiheStudio-Setup-0.2.0.exe.',
+    const verified = { ...AVAILABLE, download: 'verified' as const, verified: true,
+      verified_version: '0.2.0', verified_name: 'BaiheStudio-Setup-0.2.0.exe' }
+    expect(downloadLine(verified)).toBe('Downloaded and verified: BaiheStudio-Setup-0.2.0.exe.')
+    expect(downloadLine({ ...AVAILABLE, download: 'failed', download_error: 'Mismatch.' })).toBe(
+      'Mismatch. You can download it again.',
     )
-    expect(downloadLine({ ...AVAILABLE, download: 'failed', download_error: 'Mismatch.' })).toBe('Mismatch.')
+  })
+
+  it('Install names the verified version, not the last check', () => {
+    const s = { ...AVAILABLE, latest: '0.3.0', verified: true, verified_version: '0.2.0' }
+    expect(installTarget(s)).toBe('version 0.2.0')
+  })
+
+  it('promises no particular Windows prompt', () => {
+    expect(SMARTSCREEN_NOTE).toMatch(/not code-signed/)
+    expect(SMARTSCREEN_NOTE).not.toMatch(/Run anyway|More info/)
   })
 
   it('offers Download only for a newer version on an installed copy, once', () => {

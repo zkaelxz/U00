@@ -20,11 +20,17 @@ export interface UpdateStatus {
   downloaded_bytes: number
   download_error: string | null
   verified: boolean
+  // The version and file Install would start (the verified download).
+  verified_version: string | null
+  verified_name: string | null
   can_install: boolean
   auto_check: boolean
+  // BAIHE_UPDATE_REPO names another repository than the default.
+  custom_source: boolean
 }
 
 export interface UpdateInstallResponse {
   launched: boolean
   installer_name: string
+  version: string
 }

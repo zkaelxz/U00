@@ -18,8 +18,8 @@ import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
-  AUTO_CHECK_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE, SOURCE_CHECKOUT_NOTE, canDownload, checkLine,
-  downloadLine, isDownloading, versionLine,
+  AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE, SOURCE_CHECKOUT_NOTE, canDownload,
+  checkLine, downloadLine, installTarget, isDownloading, versionLine,
 } from './updateModel'
 
 const TITLE = 'App updates'
@@ -82,9 +82,11 @@ function AppUpdatesControls() {
     setError(null)
     try {
       const r = await installUpdate()
-      setLaunched(r.installer_name)
+      setLaunched(`${r.installer_name}, version ${r.version}`)
     } catch (e) {
       setError(e)
+      // A refused install may have dropped the verified download.
+      getUpdateStatus().then(setStatus, () => undefined)
     } finally {
       setBusy(false)
     }
@@ -99,6 +101,7 @@ function AppUpdatesControls() {
       ) : (
         <div className="setting-list">
           {!status.installed && <p className="muted">{SOURCE_CHECKOUT_NOTE}</p>}
+          {status.custom_source && <p className="muted" data-testid="update-custom-source">{CUSTOM_SOURCE_NOTE}</p>}
           <p data-testid="update-check-line">{checkLine(status)}</p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary')} disabled={busy || downloading}
@@ -112,8 +115,8 @@ function AppUpdatesControls() {
               </button>
             )}
             {status.can_install && (
-              <ConfirmButton name={`version ${status.latest ?? ''}`.trim()} label="Install and restart…"
-                confirmLabel="Open Setup now" verb="install" tone="primary" busy={busy}
+              <ConfirmButton name={installTarget(status)} label="Install and restart…"
+                confirmLabel={`Open Setup for ${installTarget(status)}`} verb="install" tone="primary" busy={busy}
                 onConfirm={() => void install()} />
             )}
           </div>

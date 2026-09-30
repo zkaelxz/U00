@@ -445,11 +445,23 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   (`BAIHE_UPDATE_REPO`, default `zkaelxz/U00`; no token) for a newer `v*`
   release, and on the user's clicks downloads the whole installer into
   `<data>\library\updates\`, checks it against the release's `.sha256` and
-  opens its normal Setup, which stops the server as in §7. That SHA-256 comes
+  opens its normal Setup from a private temp copy (hashed again, minimal
+  environment, allowed out of the server's Job Object). The app keeps running
+  until the user clicks Install in Setup, which stops the server as in §7; a
+  cancelled Setup changes nothing. That SHA-256 comes
   from the same release as the installer, so it detects a broken or truncated
   download, not a tampered release: it is not a signature. The version shown
   is `manifest.json`'s `app_version`. A daily check is a setting, off by
   default; nothing is ever downloaded or installed without a click.
+  Private releases: the app sends no credentials (no token, `~/.netrc`
+  ignored), so it can only read public releases. If the releases repository
+  goes private, GitHub answers the check with a 404 and the card says no
+  release was found. Keep in-app updates on public releases (a separate
+  public, installers-only repository set in `BAIHE_UPDATE_REPO` works), and
+  use the manual route for private ones: download the installer and its
+  `.sha256` from the releases page, check it with `Get-FileHash`, run Setup
+  (docs/runbook.md §1). Shipping a token in the app is not an option: every
+  installed copy would hold the same secret.
 - Code signing (§1).
 - Moving an existing source-checkout library into the installed app. For now,
   point the data folder at the checkout folder (it holds `library\` and `.env`),

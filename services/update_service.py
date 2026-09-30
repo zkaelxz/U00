@@ -12,11 +12,20 @@ Windows installer published on the project's public GitHub Releases.
   truncated download, not a tampered release: it is not a signature, and
   the installer is not code-signed.
 - Install: only on the user's click, only on Windows and only for an
-  installed copy. The verified file is hashed again and Setup is started
-  with a fixed argument list (no shell, no silent flags), outside the
-  server's kill-on-close Job Object so it outlives the server. The server
-  keeps running: when the user clicks Install in Setup, Setup's own upgrade
-  step (`launcher.py --stop`) stops it cleanly, cancelling running jobs.
+  installed copy. The verified file is copied into a new private temp
+  folder, the copy is hashed again and that copy is started with a fixed
+  argument list (no shell, no silent flags) and a minimal environment (no
+  shutdown token, job name or key-write flag), outside the server's
+  kill-on-close Job Object so it outlives the server (process_guard.py lets
+  only this launch break away). The server is never stopped from here: when
+  the user clicks Install in Setup, Setup's own upgrade step
+  (`launcher.py --stop`) stops it cleanly, cancelling running jobs; a
+  cancelled Setup leaves it running. The temp copy and installers that are
+  no longer newer are removed at the next start and the next download.
+- Private releases: nothing here authenticates. If the repository's
+  releases stop being public, GitHub answers the unauthenticated `latest`
+  with a 404, which reads as "no release found"; installers then have to be
+  downloaded and checked by hand (docs/runbook.md).
 
 Every request is https to an allowlisted host, redirects are followed by
 hand and each hop is checked, and no credentials are sent (not even from
@@ -29,8 +38,10 @@ import hmac
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from urllib.parse import urljoin, urlsplit
@@ -59,6 +70,23 @@ MAX_HASH_FILE_BYTES = 4096
 MAX_INSTALLER_BYTES = 600 * 1024 * 1024
 NOTES_MAX_CHARS = 2000
 CHUNK = 64 * 1024
+# The whole installer download, however slowly the bytes trickle in; the
+# per-read timeout alone would let a slow connection hold it for hours.
+DOWNLOAD_DEADLINE_SECONDS = 30 * 60
+# baihe_* in %TEMP% is also what a clean uninstall removes.
+SETUP_TEMP_PREFIX = "baihe_setup_"
+# What Setup and the `launcher.py --stop` / "Start Baihe Studio now" it runs
+# need: Windows' own variables, plus the two Baihe settings the launcher
+# reads to find the running server (data folder, port). Upper case: Windows
+# environment names are case-insensitive and os.environ upper-cases them.
+_SETUP_ENV = frozenset({
+    "ALLUSERSPROFILE", "APPDATA", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)",
+    "COMMONPROGRAMW6432", "COMPUTERNAME", "COMSPEC", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA",
+    "NUMBER_OF_PROCESSORS", "OS", "PATH", "PATHEXT", "PROCESSOR_ARCHITECTURE", "PROGRAMDATA",
+    "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PUBLIC", "SYSTEMDRIVE", "SYSTEMROOT",
+    "TEMP", "TMP", "USERDOMAIN", "USERNAME", "USERPROFILE", "WINDIR",
+    "BAIHE_DATA_DIR", "BAIHE_API_PORT",
+})
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$")
 _VERSION_RE = re.compile(r"^v?(\d{1,6})\.(\d{1,6})(?:\.(\d{1,6}))?(-[0-9A-Za-z.-]{1,40})?"
@@ -80,6 +108,7 @@ _state = {"checked_at": None, "check_error": None, "latest": None, "notes": "",
 _release = None     # internal: {"version", "exe_name", "exe_url", "exe_size", "hash_url"}
 _verified = None    # internal: {"version", "name", "path", "sha256"}
 _download_thread = None
+_monotonic = time.monotonic
 
 
 # --- versions -----------------------------------------------------------------
@@ -134,6 +163,15 @@ def releases_repo() -> str:
     if not _REPO_RE.match(repo) or ".." in repo:
         raise UnsupportedOperationError(f"{REPO_ENV} must look like owner/repository.")
     return repo
+
+
+def custom_source() -> bool:
+    """True when BAIHE_UPDATE_REPO names anything but the default repository
+    (an invalid value counts: it is not the default)."""
+    try:
+        return releases_repo() != DEFAULT_REPO
+    except UnsupportedOperationError:
+        return True
 
 
 def get_auto_check() -> bool:
@@ -255,8 +293,10 @@ def _parse_release(data):
 
 
 def check() -> dict:
-    """Asks GitHub for the latest release and records it. Never downloads."""
-    global _release
+    """Asks GitHub for the latest release and records it. Never downloads.
+    A verified download of any other version is forgotten, so Install can
+    only ever start the version the card names."""
+    global _release, _verified
     repo = releases_repo()
     try:
         resp = _open(f"https://api.github.com/repos/{repo}/releases/latest", API_HOSTS,
@@ -275,6 +315,11 @@ def check() -> dict:
     release = _parse_release(data)
     with _lock:
         _release = release
+        if _verified is not None and (release is None
+                                      or release["version"] != _verified["version"]):
+            _verified = None
+            if _state["download"] != "downloading":
+                _state.update(download="idle", downloaded_bytes=0, download_error=None)
         _state.update(checked_at=time.time(), check_error=None,
                       latest=release["version"] if release else None,
                       notes=release["notes"] if release else "",
@@ -309,6 +354,8 @@ def status() -> dict:
     with _lock:
         s = dict(_state)
         verified = _verified is not None
+        verified_version = _verified["version"] if verified else None
+        verified_name = _verified["name"] if verified else None
     installed = _is_installed()
     return {"current": current, "installed": installed, "latest": s["latest"],
             "update_available": bool(s["latest"] and current and is_newer(s["latest"], current)),
@@ -316,8 +363,10 @@ def status() -> dict:
             "checked_at": s["checked_at"], "check_error": s["check_error"],
             "download": s["download"], "downloaded_bytes": s["downloaded_bytes"],
             "download_error": s["download_error"], "verified": verified,
-            "can_install": verified and installed and _is_windows(),
-            "auto_check": get_auto_check()}
+            "verified_version": verified_version, "verified_name": verified_name,
+            "can_install": (verified and installed and _is_windows()
+                            and s["download"] != "downloading"),
+            "auto_check": get_auto_check(), "custom_source": custom_source()}
 
 
 # --- download -----------------------------------------------------------------
@@ -330,6 +379,39 @@ def _clear_old_files(folder):
     """Removes earlier installers and partial downloads (our names only)."""
     for name in os.listdir(folder):
         if name.startswith("BaiheStudio-Setup-") and name.endswith((".exe", ".part")):
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError:
+                pass
+
+
+def _clear_setup_copies():
+    """Removes the private temp copies Setup was started from. A Setup still
+    running keeps its file locked on Windows; that folder goes next time."""
+    temp = tempfile.gettempdir()
+    try:
+        names = os.listdir(temp)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(temp, name)
+        if name.startswith(SETUP_TEMP_PREFIX) and os.path.isdir(path) \
+                and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def cleanup_leftovers() -> None:
+    """At startup: the temp Setup copies, partial downloads, and every
+    downloaded installer once it is no longer newer than this copy (after
+    an upgrade)."""
+    _clear_setup_copies()
+    folder = updates_dir()
+    if not os.path.isdir(folder):
+        return
+    current = current_version()
+    for name in os.listdir(folder):
+        m = re.match(r"^BaiheStudio-Setup-(.+)\.exe(\.part)?$", name)
+        if m and (m.group(2) or not is_newer(m.group(1), current)):
             try:
                 os.remove(os.path.join(folder, name))
             except OSError:
@@ -370,10 +452,12 @@ def download() -> dict:
     folder = updates_dir()
     os.makedirs(folder, exist_ok=True)
     _clear_old_files(folder)
+    _clear_setup_copies()
     final = os.path.join(folder, release["exe_name"])
     part = final + ".part"
     cap = min(MAX_INSTALLER_BYTES, release["exe_size"] or MAX_INSTALLER_BYTES)
     sha, total = hashlib.sha256(), 0
+    deadline = _monotonic() + DOWNLOAD_DEADLINE_SECONDS
     resp = _open(release["exe_url"], DOWNLOAD_HOSTS, "application/octet-stream")
     try:
         declared = _declared_length(resp)
@@ -384,6 +468,9 @@ def download() -> dict:
                 total += len(chunk)
                 if total > cap:
                     raise _too_big()
+                if _monotonic() > deadline:
+                    raise DependencyUnavailableError("The download took too long, so it was "
+                                                     "stopped. Try again.")
                 sha.update(chunk)
                 fh.write(chunk)
                 _progress(total)
@@ -402,6 +489,9 @@ def download() -> dict:
     finally:
         resp.close()
     with _lock:
+        if _release is None or _release["version"] != release["version"]:
+            raise ConflictError("A different version was found while downloading. "
+                                "Download again.")
         _verified = {"version": release["version"], "name": release["exe_name"],
                      "path": final, "sha256": expected}
     return status()
@@ -423,13 +513,13 @@ def start_download() -> dict:
     if not _is_installed():
         raise UnsupportedOperationError("Updates are for the installed app. A source checkout "
                                         "updates with git.")
+    current = current_version()
+    # Checked and set under one lock: two clicks can't start two downloads.
     with _lock:
         if _state["download"] == "downloading":
             raise ConflictError("A download is already running.")
-        release = _release
-    if release is None or not is_newer(release["version"], current_version()):
-        raise ConflictError("There is no newer version to download. Check for updates first.")
-    with _lock:
+        if _release is None or not is_newer(_release["version"], current):
+            raise ConflictError("There is no newer version to download. Check for updates first.")
         _verified = None
         _state.update(download="downloading", downloaded_bytes=0, download_error=None)
         _download_thread = threading.Thread(target=_run_download, daemon=True,
@@ -448,10 +538,15 @@ def _file_sha256(path) -> str:
     return sha.hexdigest()
 
 
+def _setup_env() -> dict:
+    return {k: v for k, v in os.environ.items() if k.upper() in _SETUP_ENV}
+
+
 def install() -> dict:
-    """Starts the verified installer's normal (visible) Setup. Refused off
-    Windows, for a source checkout, without a verified download and while
-    jobs are running."""
+    """Starts the verified installer's normal (visible) Setup from a private
+    copy, and nothing else: the server keeps running. Refused off Windows,
+    for a source checkout, without a verified download, and while a
+    download or any job is running."""
     global _verified
     if not _is_windows():
         raise UnsupportedOperationError("Installing an update is only possible on Windows.")
@@ -460,28 +555,37 @@ def install() -> dict:
                                         "updates with git.")
     with _lock:
         verified = _verified
+        downloading = _state["download"] == "downloading"
+    if downloading:
+        raise ConflictError("Wait for the download to finish.")
     if verified is None:
         raise ConflictError("Download and verify the update first.")
     if background_jobs.active_job_ids():
         raise ConflictError("Finish or cancel the running jobs first: Setup stops the app.")
+    changed = "The downloaded installer changed or is missing. Download it again."
+    # The copy, in a new folder only this user can reach, is what gets hashed
+    # and started, so the file in the library can't be swapped in between.
+    folder = tempfile.mkdtemp(prefix=SETUP_TEMP_PREFIX)
+    copy = os.path.join(folder, verified["name"])
     try:
-        ok = hmac.compare_digest(_file_sha256(verified["path"]), verified["sha256"])
+        shutil.copyfile(verified["path"], copy)
+        ok = hmac.compare_digest(_file_sha256(copy), verified["sha256"])
     except OSError:
         ok = False
     if not ok:
+        shutil.rmtree(folder, ignore_errors=True)
         with _lock:
             _verified = None
-            _state.update(download="failed",
-                          download_error="The downloaded installer changed or is missing. "
-                                         "Download it again.")
-        raise ConflictError("The downloaded installer changed or is missing. Download it again.")
+            _state.update(download="failed", download_error=changed)
+        raise ConflictError(changed)
     try:
-        subprocess.Popen([verified["path"]], cwd=os.path.dirname(verified["path"]),
+        subprocess.Popen([copy], cwd=folder, env=_setup_env(),
                          creationflags=_CREATE_BREAKAWAY_FROM_JOB | _CREATE_NEW_PROCESS_GROUP,
                          close_fds=True)
     except (OSError, ValueError):
+        shutil.rmtree(folder, ignore_errors=True)
         raise DependencyUnavailableError(
             f"Windows didn't let Baihe start Setup. Run {verified['name']} from the library's "
             "updates folder yourself.") from None
-    return {"launched": True, "installer_name": verified["name"]}
-
+    return {"launched": True, "installer_name": verified["name"],
+            "version": verified["version"]}

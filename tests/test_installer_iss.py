@@ -321,8 +321,10 @@ class TestWorkflow:
 
     def test_smoke_test_covers_stop_and_clean_uninstall(self, wf):
         # Stop ends the server's children (smoke_child.py joins its job);
-        # a /CLEAN uninstall removes Baihe's folders and nothing else.
+        # a /CLEAN uninstall removes Baihe's folders and nothing else; only
+        # the Setup launch path (breakaway) leaves the server's job.
         for needle in ("--stop", "smoke_child.py", "outlived Stop", '"/CLEAN"',
+                       "smoke_child.py --breakaway-check", "breakaway check failed",
                        "notbaihe_smoke_clean", "sentinel.txt",
                        "touched the first install's data folder"):
             assert needle in wf, needle

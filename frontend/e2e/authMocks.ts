@@ -73,7 +73,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/system/update': {
     current: null, installed: false, latest: null, update_available: false, notes: '', installer_name: null,
     size: null, checked_at: null, check_error: null, download: 'idle', downloaded_bytes: 0, download_error: null,
-    verified: false, can_install: false, auto_check: false,
+    verified: false, verified_version: null, verified_name: null, can_install: false, auto_check: false,
+    custom_source: false,
   },
   // Settings > Signed-in devices, for a signed-in person: just this device.
   '/api/auth/sessions': {
