@@ -45,7 +45,9 @@ def loaded_models(monkeypatch):
     """Every model cache holding something, and a fake CUDA torch."""
     import asr_backend
     import forced_align
+    import translate_engines
     monkeypatch.setitem(core._whisper_model_cache, ("medium", "cuda"), object())
+    monkeypatch.setitem(translate_engines._nllb_pipeline_cache, ("nllb", "zh", "en"), object())
     monkeypatch.setitem(asr_backend._asr_model_cache, "qwen3-asr", object())
     monkeypatch.setitem(forced_align._aligner_model_cache, "aligner", object())
     emptied = []
@@ -54,7 +56,7 @@ def loaded_models(monkeypatch):
                                        empty_cache=lambda: emptied.append(True))
     monkeypatch.setitem(sys.modules, "torch", torch)
     return {"asr": asr_backend._asr_model_cache, "aligner": forced_align._aligner_model_cache,
-            "emptied": emptied}
+            "nllb": translate_engines._nllb_pipeline_cache, "emptied": emptied}
 
 
 class TestReleaseGpuModels:
@@ -62,6 +64,7 @@ class TestReleaseGpuModels:
         core.release_gpu_models()
         assert core._whisper_model_cache == {}
         assert loaded_models["asr"] == {} and loaded_models["aligner"] == {}
+        assert loaded_models["nllb"] == {}   # Step 41 item 8
         assert loaded_models["emptied"] == [True]
 
     def test_does_not_import_torch_just_to_clear_it(self, monkeypatch):

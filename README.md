@@ -72,13 +72,10 @@ URL you have the right to download from, only.
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
-[`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md)
-(migration design), [`docs/migration-handoff.md`](docs/migration-handoff.md)
-(current status and queue),
+[`docs/STATUS.md`](docs/STATUS.md) (current status and what's next),
 [`docs/migration-frontend-plan.md`](docs/migration-frontend-plan.md)
-(React phase plan) and
-[`docs/baihe-roadmap-master.md`](docs/baihe-roadmap-master.md) (bug
-tracker and to-do index).
+(React phase plan) and [`docs/archive/`](docs/archive/) (migration
+history, old bug tracker).
 
 ## Features
 
@@ -1437,8 +1434,9 @@ individually, so one failing to import doesn't stop the others loading.
 when a statement raises between opening and closing one, so a single
 failed call can't leave the database locked for the rest of the session.
 
-**Destructive writes.** `save_lines`, `save_bubbles`, and
-`save_line_history_snapshot` (which all delete existing rows before
+**Destructive writes.** `save_lines` (which updates lines in place by
+id and deletes only lines missing from the list), `save_bubbles` and
+`save_line_history_snapshot` (which delete existing rows before
 re-inserting) run inside explicit transactions with rollback on error,
 so a failure partway through can't destroy translation work that cost
 real money.

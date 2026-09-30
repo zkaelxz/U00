@@ -780,6 +780,64 @@ def init_db():
             value TEXT NOT NULL
         );
 
+        -- Step 41 (services/job_checkpoint_service.py): per-unit progress
+        -- of a long job, so a re-run after a crash or cancel skips the
+        -- units already done. `scope` already folds in the input, model
+        -- and settings, so a changed run never reuses stale units.
+        CREATE TABLE IF NOT EXISTS job_checkpoints (
+            scope TEXT NOT NULL,
+            unit_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (scope, unit_id)
+        );
+
+        -- Step 41 item 1: opt-in result cache keyed on
+        -- (kind, input_hash, model, settings_hash).
+        CREATE TABLE IF NOT EXISTS result_cache (
+            cache_key TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            input_hash TEXT NOT NULL,
+            model TEXT NOT NULL,
+            settings_hash TEXT NOT NULL,
+            value_json TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_result_cache_kind ON result_cache(kind, created_at);
+
+        -- Step 41 item 5 (services/job_timing_service.py): one row per
+        -- stage of a real job (duration and the estimated spend logged
+        -- while it ran). Job ids repeat across runs; `run_started_at`
+        -- tells runs apart.
+        CREATE TABLE IF NOT EXISTS job_stage_timings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            run_started_at REAL NOT NULL,
+            stage TEXT NOT NULL,
+            started_at REAL NOT NULL,
+            ended_at REAL NOT NULL,
+            duration_s REAL NOT NULL,
+            cost_usd REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_stage_timings_job ON job_stage_timings(job_id, run_started_at);
+
+        -- Step 41 item 4 (services/line_provenance_service.py): what
+        -- produced each line's current translation.
+        CREATE TABLE IF NOT EXISTS line_provenance (
+            drama_id INTEGER NOT NULL,
+            line_id INTEGER NOT NULL,
+            engine TEXT,
+            model TEXT,
+            prompt_version TEXT,
+            glossary_hash TEXT,
+            settings_hash TEXT,
+            input_hash TEXT,
+            output_hash TEXT,
+            software_version TEXT,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (drama_id, line_id)
+        );
+
         -- Step 37: grounded metadata research. The cache is keyed by the
         -- looked-up entity (not the drama), so a repeat lookup never
         -- re-spends the daily free-search budget; the provenance table
@@ -1376,6 +1434,10 @@ def update_drama(drama_id: int, **fields):
 def delete_drama(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         conn.execute("DELETE FROM dramas WHERE id = ?", (drama_id,))
+        # Step 41 tables keyed by drama (no foreign key): a checkpoint scope
+        # is "<kind>:<drama_id>:<digest>".
+        conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
+        conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
         conn.commit()
     import shutil
     d = os.path.join(DRAMAS_DIR, str(drama_id))
@@ -2679,7 +2741,9 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
     payload = [{"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
                 "zh": ln.zh, "en": ln.en,
                 "speaker": getattr(ln, "speaker", None),
-                "speaker_manual": bool(getattr(ln, "speaker_manual", False))} for ln in lines]
+                "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+                "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+                "sfx": bool(getattr(ln, "sfx", False))} for ln in lines]
     with contextlib.closing(get_conn()) as conn:
         if make_active:
             conn.execute("UPDATE translation_versions SET is_active = 0 WHERE drama_id = ?", (drama_id,))
@@ -3136,6 +3200,21 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
         return cur.lastrowid
 
 
+def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
+    """Step 40's guided switch: changes only a preset's model, and only if it
+    still holds expected_model (when given). False when nothing changed."""
+    with contextlib.closing(get_conn()) as conn:
+        if expected_model is None:
+            cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
+                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
+        else:
+            cur = conn.execute(
+                "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
+                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
+        conn.commit()
+    return cur.rowcount > 0
+
+
 def list_presets():
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
@@ -3175,7 +3254,9 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
-         "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
+         "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+         "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+         "sfx": bool(getattr(ln, "sfx", False))}
         for ln in lines
     ]
     conn = get_conn()
@@ -3292,6 +3373,13 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
         """, (drama_id, engine, model, operation, input_tokens, output_tokens,
               estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
         conn.commit()
+    try:
+        # Step 41 item 5: count the spend toward the running job's stage
+        # (a no-op outside a background job's own thread).
+        from services import job_timing_service
+        job_timing_service.add_cost(estimated_cost_usd)
+    except Exception:
+        pass
 
 
 def get_month_spend(now: datetime.datetime = None) -> float:
