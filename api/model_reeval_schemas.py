@@ -40,6 +40,7 @@ class ProductionModel(BaseModel):
     engine: str
     model: Optional[str] = None
     source: str
+    promoted_at: Optional[str] = None
 
 
 class ReevalSettings(BaseModel):
@@ -47,6 +48,7 @@ class ReevalSettings(BaseModel):
     interval_days: int
     tier: Optional[str] = None
     set_name: Optional[str] = None
+    max_cost_usd: Optional[float] = None
 
 
 class ReevalRow(BaseModel):
@@ -80,6 +82,7 @@ class ReevalReport(BaseModel):
     scheduled: bool = False
     arena_group: Optional[str] = None
     error: Optional[str] = None
+    error_at: Optional[str] = None
     rows: List[ReevalRow] = Field(default_factory=list)
 
 
@@ -101,6 +104,7 @@ class ReevalSettingsRequest(_Strict):
     interval_days: int = Field(ge=1, le=365)
     tier: Optional[str] = Field(default=None, max_length=20)
     set_name: Optional[str] = Field(default=None, max_length=60)
+    max_cost_usd: Optional[float] = Field(default=None, ge=0, le=10000)
 
 
 class CandidateAddRequest(_Strict):

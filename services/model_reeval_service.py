@@ -30,6 +30,7 @@ registry lands; the capability field is kept so it can grow.
 """
 import datetime
 import json
+import threading
 
 import db
 from services import benchmark_lab_service, settings_service, translate_service
@@ -42,6 +43,10 @@ MAX_OPEN_CANDIDATES = 3
 _SETTINGS_KEY = "model_reeval_settings"
 _PRODUCTION_KEY = "model_reeval_production"
 _LAST_RUN_KEY = "model_reeval_last_run"
+# A scheduled attempt that was refused is kept apart from the last good run,
+# so the report and later decisions keep that run's scores.
+_LAST_ATTEMPT_KEY = "model_reeval_last_attempt"
+_add_lock = threading.Lock()
 MAX_REASON_CHARS = 300
 
 
@@ -68,10 +73,13 @@ def get_production(capability: str = "translation") -> dict:
     """The model re-evaluations compare against: the recorded production
     model, or Settings' default engine with its built-in default model."""
     _check_capability(capability)
-    saved = _json_setting(_PRODUCTION_KEY, {}).get(capability)
-    if isinstance(saved, dict) and saved.get("engine"):
-        return {"engine": saved["engine"], "model": saved.get("model"), "source": "promoted"}
     engine = settings_service.get_default_engine()
+    saved = _json_setting(_PRODUCTION_KEY, {}).get(capability)
+    # The promoted record counts only while Settings still uses its engine: a
+    # later change of the default engine in Settings wins.
+    if isinstance(saved, dict) and saved.get("engine") == engine:
+        return {"engine": saved["engine"], "model": saved.get("model"), "source": "promoted",
+                "promoted_at": saved.get("promoted_at")}
     return {"engine": engine, "model": benchmark_lab_service._default_model(engine),
             "source": "settings"}
 
@@ -85,11 +93,14 @@ def get_settings() -> dict:
     s = _json_setting(_SETTINGS_KEY, {})
     return {"schedule_enabled": bool(s.get("schedule_enabled", False)),
             "interval_days": int(s.get("interval_days") or DEFAULT_INTERVAL_DAYS),
-            "tier": s.get("tier"), "set_name": s.get("set_name")}
+            "tier": s.get("tier"), "set_name": s.get("set_name"),
+            "max_cost_usd": s.get("max_cost_usd")}
 
 
 def set_settings(schedule_enabled: bool, interval_days: int, tier: str = None,
-                 set_name: str = None) -> dict:
+                 set_name: str = None, max_cost_usd: float = None) -> dict:
+    """max_cost_usd: a scheduled run whose estimate is above it is skipped
+    (None = only the monthly cap applies). "Run now" shows its own estimate."""
     if not isinstance(schedule_enabled, bool):
         raise InvalidInputError("schedule_enabled must be true or false.")
     if not isinstance(interval_days, int) or not 1 <= interval_days <= 365:
@@ -98,9 +109,14 @@ def set_settings(schedule_enabled: bool, interval_days: int, tier: str = None,
         raise InvalidInputError("Unknown tier.")
     if set_name is not None and (not isinstance(set_name, str) or len(set_name) > 60):
         raise InvalidInputError("set_name is invalid.")
+    if max_cost_usd is not None and (isinstance(max_cost_usd, bool)
+                                     or not isinstance(max_cost_usd, (int, float))
+                                     or not 0 <= max_cost_usd <= 10000):
+        raise InvalidInputError("max_cost_usd must be between 0 and 10000.")
     db.set_app_setting(_SETTINGS_KEY, json.dumps({
         "schedule_enabled": schedule_enabled, "interval_days": interval_days,
-        "tier": tier, "set_name": set_name or None}))
+        "tier": tier, "set_name": set_name or None,
+        "max_cost_usd": None if max_cost_usd is None else float(max_cost_usd)}))
     return get_overview()
 
 
@@ -112,13 +128,15 @@ def next_due_at():
     s = get_settings()
     if not s["schedule_enabled"]:
         return None
-    last = _last_run().get("started_at")
-    if not last:
+    stamps = []
+    for rec in (_last_run(), _json_setting(_LAST_ATTEMPT_KEY, {})):
+        try:
+            stamps.append(datetime.datetime.fromisoformat(rec["started_at"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+    if not stamps:
         return _now()
-    try:
-        started = datetime.datetime.fromisoformat(last)
-    except ValueError:
-        return _now()
+    started = max(stamps)
     return (started + datetime.timedelta(days=s["interval_days"])).isoformat()
 
 
@@ -178,6 +196,11 @@ def add_candidate(engine: str, model: str = None, note: str = "",
     cfg = benchmark_lab_service._check_config("translation", {"engine": engine, "model": model})
     model = cfg["model"] or benchmark_lab_service._default_model(cfg["engine"])
     note = (note or "").strip()[:200]
+    with _add_lock:
+        return _add_candidate_locked(capability, cfg, model, note)
+
+
+def _add_candidate_locked(capability, cfg, model, note) -> dict:
     prod = get_production(capability)
     if (prod["engine"], prod["model"]) == (cfg["engine"], model):
         raise InvalidInputError("That's the current production model.")
@@ -195,8 +218,8 @@ def reopen_candidate(candidate_id: int) -> dict:
     """Puts a rejected candidate back in the running, explicitly. Its
     earlier decision stays recorded."""
     c = _require_candidate(candidate_id)
-    if c["status"] != "rejected":
-        raise ConflictError("Only a rejected candidate can be reopened.")
+    if c["status"] not in ("rejected", "superseded"):
+        raise ConflictError("Only a rejected or superseded candidate can be reopened.")
     if len(open_candidates(c["capability"])) >= MAX_OPEN_CANDIDATES:
         raise UnsupportedOperationError(f"At most {MAX_OPEN_CANDIDATES} open candidates.")
     db.set_model_candidate_status(candidate_id, "candidate")
@@ -215,10 +238,12 @@ def _require_candidate(candidate_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 def _planned_configs(capability: str):
-    candidates = open_candidates(capability)
+    prod = get_production(capability)
+    # A candidate that has since become production (Settings changed) is left out.
+    candidates = [c for c in open_candidates(capability)
+                  if (c["engine"], c["model"]) != (prod["engine"], prod["model"])]
     if not candidates:
         raise UnsupportedOperationError("Add a candidate model first.")
-    prod = get_production(capability)
     configs = [{"engine": prod["engine"], "model": prod["model"]}] + [
         {"engine": c["engine"], "model": c["model"]} for c in candidates]
     return candidates, configs
@@ -257,14 +282,25 @@ def run_if_due() -> bool:
     the last attempt so the loop doesn't retry every tick."""
     if not is_due():
         return False
+    if benchmark_lab_service._job_active():
+        return False        # another run is going: try again next tick
     try:
+        s = get_settings()
+        if s["max_cost_usd"] is not None:
+            est = estimate_run()
+            if est["estimated_cost_usd"] > s["max_cost_usd"]:
+                raise UnsupportedOperationError(
+                    f"Skipped: estimated ${est['estimated_cost_usd']:.4f}, above the "
+                    f"${s['max_cost_usd']:.2f} limit set for scheduled runs.")
         run_now(scheduled=True)
+        db.set_app_setting(_LAST_ATTEMPT_KEY, json.dumps({}))
         return True
+    except ConflictError:
+        return False        # lost a race with a manual run: not an attempt
     except Exception as exc:
-        from translate_engines import redact_secrets
-        db.set_app_setting(_LAST_RUN_KEY, json.dumps({
+        db.set_app_setting(_LAST_ATTEMPT_KEY, json.dumps({
             "started_at": _now(), "scheduled": True,
-            "error": redact_secrets(str(exc))[:300]}))
+            "error": benchmark_lab_service._redact(str(exc))[:300]}))
         return False
 
 
@@ -275,7 +311,9 @@ def _delta(a, b):
 def report(capability: str = "translation") -> dict:
     """The latest re-evaluation: each candidate against production."""
     _check_capability(capability)
+    benchmark_lab_service._close_stale_runs()
     last = _last_run()
+    attempt = _json_setting(_LAST_ATTEMPT_KEY, {})
     prod_run = db.get_benchmark_session(last["production_run_id"]) \
         if last.get("production_run_id") else None
     rows = []
@@ -305,7 +343,8 @@ def report(capability: str = "translation") -> dict:
             "id", "status", "aggregate_score", "total_cost_usd", "avg_latency_seconds",
             "peak_vram_mb", "engine", "model")} if prod_run else None),
         "started_at": last.get("started_at"), "scheduled": bool(last.get("scheduled")),
-        "arena_group": last.get("arena_group"), "error": last.get("error"),
+        "arena_group": last.get("arena_group"), "error": attempt.get("error"),
+        "error_at": attempt.get("started_at"),
         "rows": rows,
     }
 
@@ -331,8 +370,11 @@ def _scores_for(candidate_id: int) -> dict:
     return {"run_id": run_id, "aggregate_score": run.get("aggregate_score"),
             "total_cost_usd": run.get("total_cost_usd"),
             "avg_latency_seconds": run.get("avg_latency_seconds"),
+            "peak_vram_mb": run.get("peak_vram_mb"),
             "production_run_id": prod["id"] if prod else None,
-            "production_score": prod.get("aggregate_score") if prod else None}
+            "production_score": prod.get("aggregate_score") if prod else None,
+            "production_cost_usd": prod.get("total_cost_usd") if prod else None,
+            "production_latency_seconds": prod.get("avg_latency_seconds") if prod else None}
 
 
 def _clean_reason(reason) -> str:
@@ -349,12 +391,16 @@ def promote(candidate_id: int, confirm: bool, reason: str = "") -> dict:
     if c["status"] != "candidate":
         raise ConflictError(f"This candidate is already {c['status']}.")
     previous = get_production(c["capability"])
+    engine_changed = previous["engine"] != c["engine"]
+    if engine_changed:
+        # Settings first: if it refuses the engine, nothing else is written.
+        settings_service.set_settings({"default_engine": c["engine"]})
     prod = _json_setting(_PRODUCTION_KEY, {})
     prod[c["capability"]] = {"engine": c["engine"], "model": c["model"], "promoted_at": _now()}
     db.set_app_setting(_PRODUCTION_KEY, json.dumps(prod))
-    engine_changed = previous["engine"] != c["engine"]
-    if engine_changed:
-        settings_service.set_settings({"default_engine": c["engine"]})
+    for other in db.list_model_candidates(c["capability"]):
+        if other["status"] == "promoted":
+            db.set_model_candidate_status(other["id"], "superseded")
     db.set_model_candidate_status(candidate_id, "promoted")
     db.record_model_decision(candidate_id, "promoted", _clean_reason(reason),
                              json.dumps({**_scores_for(candidate_id), "previous": previous}))

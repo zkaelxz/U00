@@ -80,6 +80,7 @@ def stop_gpu_queue_poller(timeout: float = 5.0) -> None:
 # itself is an ordinary Benchmark Lab run under the monthly cap, and nothing
 # is ever promoted by it.
 REEVAL_POLL_SECONDS = 3600.0
+REEVAL_FIRST_CHECK_SECONDS = 120.0
 _reeval_poller = None       # (thread, stop_event) while running
 
 
@@ -92,7 +93,11 @@ def start_reeval_scheduler(interval: float = None) -> bool:
         stop = threading.Event()
 
         def loop():
-            while not stop.wait(interval):
+            # First look soon after startup (a short desktop session would
+            # otherwise never reach the first hourly tick), then hourly.
+            wait = min(interval, REEVAL_FIRST_CHECK_SECONDS)
+            while not stop.wait(wait):
+                wait = interval
                 try:
                     from services import model_reeval_service
                     model_reeval_service.run_if_due()

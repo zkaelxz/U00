@@ -183,3 +183,83 @@ class TestScheduler:
         finally:
             background.stop_reeval_scheduler()
         assert calls
+
+
+class TestReviewFixes:
+    def test_failed_attempt_keeps_last_good_report(self, world):
+        c = svc.add_candidate("nllb")["candidate"]
+        _run_now()
+        svc.set_settings(True, 1, tier="public", set_name="nope")
+        db.set_app_setting(svc._LAST_RUN_KEY, __import__("json").dumps({
+            **svc._last_run(), "started_at": "2000-01-01T00:00:00"}))
+        assert svc.run_if_due() is False
+        rep = svc.report()
+        assert rep["error"] and rep["rows"] and rep["rows"][0]["candidate"]["id"] == c["id"]
+        svc.reject(c["id"], "no")
+        assert svc.list_decisions()["decisions"][0]["scores"]["aggregate_score"] is not None
+
+    def test_tick_while_a_run_is_going_is_not_an_attempt(self, world):
+        svc.add_candidate("nllb")
+        svc.set_settings(True, 30, tier="public", set_name="g")
+        with background_jobs._lock:
+            background_jobs._jobs[lab.JOB_ID] = {"status": "running"}
+        try:
+            assert svc.run_if_due() is False
+        finally:
+            with background_jobs._lock:
+                background_jobs._jobs.pop(lab.JOB_ID, None)
+        assert svc.report()["error"] is None
+        assert svc.is_due() is True
+
+    def test_scheduled_cost_limit(self, world, monkeypatch):
+        svc.add_candidate("nllb")
+        svc.set_settings(True, 30, tier="public", set_name="g", max_cost_usd=0.0)
+        monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": {"estimated_cost_usd": 1.0})
+        assert svc.run_if_due() is False
+        assert "limit set for scheduled runs" in svc.report()["error"]
+
+    def test_settings_change_wins_over_old_promotion(self, world):
+        c = svc.add_candidate("nllb")["candidate"]
+        _run_now()
+        svc.promote(c["id"], confirm=True)
+        assert svc.get_production()["source"] == "promoted"
+        settings_service.set_settings({"default_engine": "libretranslate"})
+        prod = svc.get_production()
+        assert (prod["engine"], prod["source"]) == ("libretranslate", "settings")
+
+    def test_candidate_equal_to_new_production_is_left_out(self, world):
+        svc.add_candidate("nllb")
+        settings_service.set_settings({"default_engine": "nllb"})
+        with pytest.raises(UnsupportedOperationError):
+            svc.estimate_run()
+
+    def test_promoting_b_supersedes_a_which_can_be_reopened(self, world, monkeypatch):
+        a = svc.add_candidate("nllb")["candidate"]
+        _run_now()
+        svc.promote(a["id"], confirm=True)
+        monkeypatch.setitem(translate_engines.ENGINES, "ollama", GoodEngine)
+        b = svc.add_candidate("ollama", "qwen3:8b")["candidate"]
+        _run_now()
+        svc.promote(b["id"], confirm=True)
+        assert db.get_model_candidate(a["id"])["status"] == "superseded"
+        assert svc.reopen_candidate(a["id"])["status"] == "candidate"
+
+    def test_engine_without_model_picker_as_production(self, world):
+        settings_service.set_settings({"default_engine": "deepseek"})
+        prod = svc.get_production()
+        cfg = lab._check_config("translation", {"engine": "deepseek", "model": prod["model"]})
+        assert cfg == {"engine": "deepseek", "model": None}
+
+    def test_first_scheduler_check_is_soon(self, monkeypatch):
+        from api import background
+        calls = []
+        monkeypatch.setattr(svc, "run_if_due", lambda: calls.append(1) or False)
+        monkeypatch.setattr(background, "REEVAL_FIRST_CHECK_SECONDS", 0.02)
+        background.start_reeval_scheduler(interval=3600)
+        try:
+            end = time.time() + 2
+            while not calls and time.time() < end:
+                time.sleep(0.02)
+        finally:
+            background.stop_reeval_scheduler()
+        assert calls

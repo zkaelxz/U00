@@ -51,7 +51,8 @@ def post_estimate():
 @router.post("/settings", dependencies=[local_only()], response_model=ReevalOverview,
              responses=_ERRS, summary="PC only: the re-evaluation schedule and golden set")
 def post_settings(body: ReevalSettingsRequest):
-    return svc.set_settings(body.schedule_enabled, body.interval_days, body.tier, body.set_name)
+    return svc.set_settings(body.schedule_enabled, body.interval_days, body.tier, body.set_name,
+                            body.max_cost_usd)
 
 
 @router.post("/candidates", dependencies=[local_only()], response_model=CandidateAddResult,
