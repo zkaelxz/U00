@@ -283,6 +283,17 @@ def check_household_bind_safety(settings: ApiSettings):
                          "BAIHE_GOOGLE_CLIENT_ID, BAIHE_GOOGLE_CLIENT_SECRET and "
                          "BAIHE_PUBLIC_URL (in .env). The household listener answers "
                          "only to the BAIHE_PUBLIC_URL host.")
+    # Python's "idna" codec is IDNA 2003 (it maps "ß" to "ss") while browsers
+    # use UTS 46, so a Unicode name could match a different Host from the one
+    # browsers send and lock everyone out.
+    try:
+        hostname = urlsplit(settings.public_url).hostname or ""
+    except ValueError:
+        hostname = ""
+    if not hostname.isascii():
+        raise ValueError("BAIHE_PUBLIC_URL has a non-ASCII host name: write it in its "
+                         "punycode (xn--) form, the one browsers send, e.g. "
+                         "https://xn--bcher-kva.example for bücher.example.")
 
 
 SINGLE_PORT_SIGN_IN_WARNING = (

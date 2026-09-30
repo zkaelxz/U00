@@ -564,8 +564,9 @@ HSTS_VALUE = "max-age=31536000"
 
 def _normal_host(name: str, port):
     """(name, port) with the name lowercased, one trailing dot dropped, an
-    IPv6 literal bracketed in its compressed form and anything else
-    IDNA-encoded (what a browser sends); None if the name is unusable."""
+    IPv6 literal bracketed in its compressed form; None if the name is
+    unusable. A non-ASCII name is unusable: browsers send the punycode (xn--)
+    form, and startup asks for BAIHE_PUBLIC_URL in that form."""
     name = (name or "").strip().lower()
     if name.startswith("[") and name.endswith("]"):
         name = name[1:-1]
@@ -576,10 +577,6 @@ def _normal_host(name: str, port):
             return None
     if name.endswith("."):
         name = name[:-1]
-    try:
-        name = name.encode("idna").decode("ascii")
-    except UnicodeError:
-        return None
     if not name or not _HOST_NAME_RE.fullmatch(name):
         return None
     return name, port
@@ -636,11 +633,13 @@ def _host_allowed(allowed, headers: list) -> bool:
 
 
 def _arrived_over_https(scope) -> bool:
-    """The reverse proxy on this PC (a loopback peer) says the browser used
-    https. Only a single `X-Forwarded-Proto: https` counts."""
-    from api.routers.settings_routes import _is_loopback_peer
-    client = scope.get("client")
-    if not _is_loopback_peer(client[0] if client else None):
+    """The reverse proxy on this PC says the browser used https: the scope's
+    scheme is https and there is exactly one `X-Forwarded-Proto: https`.
+    The peer can't be checked here: uvicorn's proxy headers handling has
+    already replaced it with the browser's address from X-Forwarded-For. It
+    sets the scheme from X-Forwarded-Proto only for a trusted (loopback)
+    peer, and the household listener binds loopback only."""
+    if scope.get("scheme") != "https":
         return False
     protos = [v for k, v in scope.get("headers", ()) if k.lower() == b"x-forwarded-proto"]
     return len(protos) == 1 and protos[0].decode("latin-1").strip().lower() == "https"
@@ -654,8 +653,8 @@ class HouseholdGate:
       a DNS-rebinding page or a stray name pointed at the proxy reaches
       nothing. X-Forwarded-Host is ignored; the proxy must pass the Host on.
     - Security headers on every reply (a header a route set itself, such as
-      a stricter CSP, is kept), and HSTS only when the request came through
-      the proxy on this PC over https (`_arrived_over_https`).
+      a stricter CSP, is kept), and HSTS only when the proxy on this PC says
+      the browser used https (`_arrived_over_https`).
     Unexpected-error (500) replies are written outside every middleware and
     don't get the headers; they carry no page content."""
 

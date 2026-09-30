@@ -116,6 +116,7 @@ class TestSettings:
         ApiSettings(household_port=8610, **{**SIGN_IN, "google_client_id": ""}),
         ApiSettings(household_port=8610, **{**SIGN_IN, "google_client_secret": ""}),
         ApiSettings(household_port=8610, **{**SIGN_IN, "public_url": ""}),
+        ApiSettings(household_port=8610, **{**SIGN_IN, "public_url": "https://faß.example"}),
     ])
     def test_bind_safety_refusals(self, settings):
         with pytest.raises(ValueError):
@@ -328,10 +329,10 @@ def _gate(public_url=f"https://{PUBLIC_HOST}"):
     return api_auth.HouseholdGate(inner, public_url=public_url), reached
 
 
-def _raw(app, headers, scope_type="http", client=("127.0.0.1", 5000)):
+def _raw(app, headers, scope_type="http", client=("127.0.0.1", 5000), scheme="http"):
     scope = {"type": scope_type, "method": "GET", "path": "/api/health",
              "raw_path": b"/api/health", "query_string": b"", "headers": headers,
-             "client": client, "server": ("127.0.0.1", HOUSEHOLD_PORT), "scheme": "http",
+             "client": client, "server": ("127.0.0.1", HOUSEHOLD_PORT), "scheme": scheme,
              "http_version": "1.1", "root_path": "", "asgi": {"version": "3.0"}}
     sent = []
 
@@ -411,7 +412,9 @@ class TestHostAllowlist:
         (f"https://{PUBLIC_HOST}:8443", [f"{PUBLIC_HOST}:8443", f"{PUBLIC_HOST}.:8443"],
          [PUBLIC_HOST, f"{PUBLIC_HOST}:443"]),
         ("https://Baihe.Example.com.", [PUBLIC_HOST, f"{PUBLIC_HOST}."], ["example.com"]),
-        ("https://bücher.example", ["xn--bcher-kva.example"], ["bucher.example"]),
+        ("https://xn--bcher-kva.example", ["xn--bcher-kva.example", "XN--BCHER-KVA.example."],
+         ["bucher.example", "bücher.example"]),
+        ("https://xn--fa-hia.example", ["xn--fa-hia.example"], ["fass.example", "faß.example"]),
     ])
     def test_public_url_forms(self, public_url, ok, bad):
         gate, _reached = _gate(public_url)
@@ -419,6 +422,22 @@ class TestHostAllowlist:
             assert _start_headers(_raw(gate, [(b"host", host.encode())]))[0] == 200, host
         for host in bad:
             assert _start_headers(_raw(gate, [(b"host", host.encode())]))[0] == 400, host
+
+    def test_non_ascii_public_url_refused_at_startup(self):
+        """Python's IDNA 2003 codec turns faß into fass, but browsers send
+        xn--fa-hia: a Unicode name must be given in its punycode form."""
+        unicode_url = ApiSettings(household_port=HOUSEHOLD_PORT,
+                                  **{**SIGN_IN, "public_url": "https://faß.example"})
+        with pytest.raises(ValueError, match="punycode"):
+            check_household_bind_safety(unicode_url)
+        check_household_bind_safety(ApiSettings(
+            household_port=HOUSEHOLD_PORT,
+            **{**SIGN_IN, "public_url": "https://xn--fa-hia.example"}))
+        # Reached without the startup check, the gate still answers no Host.
+        gate, reached = _gate("https://faß.example")
+        for host in ("fass.example", "xn--fa-hia.example", "faß.example"):
+            assert _start_headers(_raw(gate, [(b"host", host.encode())]))[0] == 400, host
+        assert reached == []
 
     def test_no_public_url_refuses_everything(self):
         gate, reached = _gate("")
@@ -466,21 +485,46 @@ class TestSecurityHeaders:
         assert headers["x-frame-options"] == "DENY"
 
     def test_hsts_only_over_https_from_the_proxy_on_this_pc(self, isolated_db):
-        c = _household_client()
-        r = c.get("/api/health", headers={"X-Forwarded-Proto": "https"})
+        """As served: uvicorn's proxy headers handling runs first and replaces
+        the loopback peer with the browser's address from X-Forwarded-For."""
+        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+        seen = []
+        app = _household_app()
+
+        @app.get("/api/test-peer", dependencies=[api_auth.public_route()])
+        def _peer(request: Request):
+            seen.append((request.client.host, api_auth.client_ip(request)))
+            return {}
+        served = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
+
+        def get(peer, headers, path="/api/health"):
+            return TestClient(served, base_url=f"http://{PUBLIC_HOST}", client=(peer, 5000),
+                              raise_server_exceptions=False).get(path, headers=headers)
+        caddy = {"X-Forwarded-For": "198.51.100.7", "X-Forwarded-Proto": "https"}
+        r = get("127.0.0.1", caddy)
+        assert r.status_code == 200
         assert r.headers["strict-transport-security"] == "max-age=31536000"
-        for proto in ("http", "HTTPS, http", ""):
-            r = c.get("/api/health", headers={"X-Forwarded-Proto": proto})
-            assert "strict-transport-security" not in r.headers, proto
+        get("127.0.0.1", caddy, "/api/test-peer")
+        assert seen == [("198.51.100.7", "198.51.100.7")]
+        for peer, headers in (("203.0.113.9", caddy),                         # not the proxy
+                              ("127.0.0.1", {"X-Forwarded-For": "198.51.100.7"}),
+                              ("127.0.0.1", {**caddy, "X-Forwarded-Proto": "http"}),
+                              ("127.0.0.1", {**caddy, "X-Forwarded-Proto": "HTTPS, http"})):
+            r = get(peer, headers)
+            assert r.status_code == 200
+            assert "strict-transport-security" not in r.headers, (peer, headers)
+        # Without the proxy headers handling the scheme stays http.
+        r = _household_client().get("/api/health", headers={"X-Forwarded-Proto": "https"})
+        assert "strict-transport-security" not in r.headers
         gate, _reached = _gate()
         host = (b"host", PUBLIC_HOST.encode())
         https = (b"x-forwarded-proto", b"https")
-        assert "strict-transport-security" in _start_headers(_raw(gate, [host, https]))[1]
-        for headers, client in (([host, https, https], ("127.0.0.1", 5000)),
-                                ([host, https], ("203.0.113.9", 5000)),
-                                ([host, https], None)):
-            got = _start_headers(_raw(gate, headers, client=client))[1]
-            assert "strict-transport-security" not in got
+        assert "strict-transport-security" in _start_headers(
+            _raw(gate, [host, https], scheme="https"))[1]
+        for headers, scheme in (([host, https, https], "https"), ([host], "https"),
+                                ([host, https], "http")):
+            got = _start_headers(_raw(gate, headers, scheme=scheme))[1]
+            assert "strict-transport-security" not in got, (headers, scheme)
 
     def test_admin_replies_unchanged(self, isolated_db, tmp_path):
         from dataclasses import replace
