@@ -294,21 +294,29 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
     always gets a dict back, never needing a None check of its own."""
     path = os.path.join(drama_dir, TURNS_FILE)
     os.makedirs(drama_dir, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
-                   "num_speakers": num_speakers, "min_speakers": min_speakers,
-                   "max_speakers": max_speakers, "device": device, "turns": list(turns),
-                   "embeddings": embeddings or {}}, f, indent=2)
+    from core import atomic_write
+    atomic_write(path, json.dumps(
+        {"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
+         "num_speakers": num_speakers, "min_speakers": min_speakers,
+         "max_speakers": max_speakers, "device": device, "turns": list(turns),
+         "embeddings": embeddings or {}}, indent=2))
     return path
+
+
+def _read_turns_file(drama_dir: str) -> dict:
+    """The parsed turns file, or {} if it is missing or corrupt."""
+    path = os.path.join(drama_dir, TURNS_FILE)
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def load_turns(drama_dir: str):
     """The stored turns list, or None if detection hasn't run for this drama."""
-    path = os.path.join(drama_dir, TURNS_FILE)
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f).get("turns")
+    return _read_turns_file(drama_dir).get("turns")
 
 
 def load_last_speaker_count(drama_dir: str):
@@ -317,21 +325,13 @@ def load_last_speaker_count(drama_dir: str):
     auto-detect, which is also stored as None) -- lets the UI default
     "Expected number of speakers" to whatever was actually used last
     time instead of always resetting to 0."""
-    path = os.path.join(drama_dir, TURNS_FILE)
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f).get("num_speakers")
+    return _read_turns_file(drama_dir).get("num_speakers")
 
 
 def load_last_run_info(drama_dir: str) -> dict:
     """{"min_speakers", "max_speakers", "device"} from the last detection
     run (Steps 101/105), each None if unset, no run yet, or an older file."""
-    path = os.path.join(drama_dir, TURNS_FILE)
-    data = {}
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+    data = _read_turns_file(drama_dir)
     return {k: data.get(k) for k in ("min_speakers", "max_speakers", "device")}
 
 
@@ -339,8 +339,4 @@ def load_embeddings(drama_dir: str) -> dict:
     """The stored {speaker_label: [float, ...]} voice fingerprints from
     the last detection run, or {} if there are none (no run yet, an
     older save from before Step 8, or pyannote 3.x with nothing to save)."""
-    path = os.path.join(drama_dir, TURNS_FILE)
-    if not os.path.exists(path):
-        return {}
-    with open(path, encoding="utf-8") as f:
-        return json.load(f).get("embeddings") or {}
+    return _read_turns_file(drama_dir).get("embeddings") or {}
