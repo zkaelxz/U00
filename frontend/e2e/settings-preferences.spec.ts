@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 // Settings > the persisted preferences (defaults for new dramas, spending,
-// OCR, offline, downloads, server addresses) and Appearance. GET/POST
+// OCR, offline, downloads, server addresses). GET/POST
 // /api/settings and the endpoint routes are mocked with a small stateful
 // fixture; a catch-all aborts (and records) any other non-GET /api call,
 // so nothing is written to the seeded library or its .env.
@@ -79,9 +79,9 @@ async function mockSettings(page: Page) {
   return { state, posts, unmocked }
 }
 
-// Appearance, Defaults and Spending are always-open Cards; the rest are
+// Defaults and Spending are always-open Cards; the rest are
 // Sections (folds) inside the Advanced Card.
-const CARDS = ['Appearance', 'Defaults for new dramas', 'Spending']
+const CARDS = ['Defaults for new dramas', 'Spending']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
     ? page.getByRole('region', { name: title, exact: true })
@@ -101,7 +101,7 @@ async function open(page: Page, title: string) {
 
 test.afterEach(async ({ page }) => {
   await page.evaluate(() => {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('baihe.section.settings.') || k === 'baihe.theme') localStorage.removeItem(k)
+    for (const k of Object.keys(localStorage)) if (k.startsWith('baihe.section.settings.')) localStorage.removeItem(k)
   })
 })
 
@@ -190,29 +190,16 @@ test('server addresses: a URL with a password is refused client-side; save and c
   expect(unmocked).toEqual([])
 })
 
-test('appearance: dark and light apply at once and survive a reload', async ({ page }) => {
+test('the theme is changed from the header button, not from Settings', async ({ page }) => {
   await mockSettings(page)
-  await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('/#/settings')
-  const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-  const light = await bg()
-  const s = await open(page, 'Appearance')
-  await s.getByLabel('Theme', { exact: true }).selectOption('dark')
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  expect(await bg()).not.toBe(light)
-  await page.reload()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-
-  // Light wins over a dark system setting.
-  await page.emulateMedia({ colorScheme: 'dark' })
-  await block(page, 'Appearance').getByLabel('Theme', { exact: true }).selectOption('light')
-  expect(await bg()).toBe(light)
-  await block(page, 'Appearance').getByLabel('Theme', { exact: true }).selectOption('system')
-  await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.*/)
-  expect(await bg()).not.toBe(light)
+  await expect(block(page, 'Defaults for new dramas')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Theme: / })).toBeVisible()
 })
 
-test('away from the PC the preference blocks say PC only; Appearance still works', async ({ page }) => {
+test('away from the PC the preference blocks say PC only', async ({ page }) => {
   const { unmocked } = await mockSettings(page)
   await page.route('**/api/meta', (route) =>
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
@@ -223,8 +210,5 @@ test('away from the PC the preference blocks say PC only; Appearance still works
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
       title === 'Server addresses' ? /^\d of 3 set · PC only$/ : 'PC only')
   }
-  const a = await open(page, 'Appearance')
-  await a.getByLabel('Theme', { exact: true }).selectOption('dark')
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   expect(unmocked).toEqual([])
 })

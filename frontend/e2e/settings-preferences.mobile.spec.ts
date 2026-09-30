@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // seeded API; any write is aborted and recorded.
 
 // Cards are always open; the Advanced Card's Sections are opened here.
-const CARDS = ['Appearance', 'Defaults for new dramas', 'Spending']
+const CARDS = ['Defaults for new dramas', 'Spending']
 const SECTIONS = ['OCR', 'Offline and performance', 'Downloads', 'Server addresses']
 
 test.afterEach(async ({ page }) => {
