@@ -89,7 +89,10 @@ def find_program() -> Optional[str]:
         if _is_program_name(path) and os.path.isfile(path):
             return path
         return None
-    for name in PROGRAM_NAMES:
+    # On Windows ask for the .exe by name, so an lncrawl.cmd earlier on PATH
+    # can't hide it.
+    names = [n + ".exe" for n in PROGRAM_NAMES] if os.name == "nt" else []
+    for name in names + list(PROGRAM_NAMES):
         found = shutil.which(name)
         if found and _is_program_name(found):     # skips an lncrawl.cmd/.bat shim
             return found
@@ -330,17 +333,22 @@ def _run_process(job_id: str, argv: list, work: str) -> str:
                 job_id, 0.1, f"lightnovel-crawler is downloading... ({minutes} min)")
             time.sleep(_POLL_SECONDS)
     finally:
-        if proc.poll() is None:
-            background_jobs._kill_tree(proc)
-            try:
-                proc.wait(timeout=_KILL_WAIT_SECONDS)
-            except subprocess.TimeoutExpired:
-                pass
-        reader.thread.join(timeout=_KILL_WAIT_SECONDS)
+        # Also after a normal exit: anything lncrawl left running in its
+        # process group would otherwise keep the pipe (and the job) open.
+        background_jobs._kill_tree(proc)
         try:
-            proc.stdout.close()
-        except Exception:
+            proc.wait(timeout=_KILL_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
             pass
+        reader.thread.join(timeout=_KILL_WAIT_SECONDS)
+        if not reader.thread.is_alive():
+            # close() would block on the reader's pending read otherwise
+            # (a surviving grandchild holding the pipe); then the daemon
+            # thread and the pipe are left to the process instead.
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
     output = redact_output(reader.text(), hide=((work, "<work folder>"), (argv[0], "lncrawl")))
     if stop_reason == "cancel":
         raise background_jobs.JobCancelled(job_id)

@@ -54,6 +54,8 @@ class FakeProc:
         FakeProc.instances.append(self)
 
     def poll(self):
+        if self.returncode is not None:     # like Popen: an exit status sticks
+            return self.returncode
         if self.killed:
             self.returncode = -9
         elif self._polls_left is not None:
@@ -322,6 +324,38 @@ class TestJob:
         assert s["status"] == "cancelled"
         assert fast == FakeProc.instances and FakeProc.instances[0].killed
         assert _drama_tmp_dirs(did) == []
+
+    def test_a_pipe_held_open_by_a_leftover_child_does_not_hang_the_job(
+            self, isolated_db, program, monkeypatch, fast):
+        import threading
+        release = threading.Event()
+
+        class HeldPipe:
+            """A grandchild still holds the write end: reads never return."""
+            closed = False
+
+            def read1(self, n):
+                release.wait(30)
+                return b""
+
+            def close(self):
+                self.closed = True
+        pipe = HeldPipe()
+        monkeypatch.setattr(svc, "_KILL_WAIT_SECONDS", 0.2)
+
+        def popen(argv, **kw):
+            proc = FakeProc(argv, on_start=_write_epub, **kw)
+            proc.stdout = pipe
+            return proc
+        monkeypatch.setattr(svc.subprocess, "Popen", popen)
+        did = db.create_drama(title_en="D")
+        try:
+            s = _wait(svc.start_import(did, URL)["job_id"], timeout=5)
+        finally:
+            release.set()
+        assert s["status"] == "done"
+        assert fast, "the process group is killed after a normal exit too"
+        assert pipe.closed is False     # never closed under a blocked read
 
     def test_timeout_kills_the_process(self, isolated_db, program, monkeypatch, fast):
         monkeypatch.setattr(svc, "TIMEOUT_SECONDS", 0.05)
