@@ -259,6 +259,11 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         cancelled = True
     finally:
         cache.release()
+        try:
+            cache.enforce_ceiling()
+        except Exception:   # a cache trim must never lose the import's result
+            import applog
+            applog.get_logger().warning("Could not trim the source cache", exc_info=True)
         background_jobs.set_result(job_id, {"stats": adapter.client.snapshot(),
                                             "chapters": results, "handoff": handoff,
                                             "cancelled": cancelled, "partial": False,

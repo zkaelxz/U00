@@ -342,6 +342,135 @@ class TestCache:
             cache_mod.RawCache("forever")
 
 
+class TestCacheCeiling:
+    """Roadmap 111: the keep modes' raw cache is trimmed to cache_max_mb,
+    least recently used content first."""
+    MB = 1024 * 1024
+
+    @pytest.fixture(autouse=True)
+    def ticking_clock(self, monkeypatch):
+        now = [1000.0]
+
+        def tick():
+            now[0] += 1
+            return now[0]
+        monkeypatch.setattr(cache_mod.time, "time", tick)
+
+    def _mb(self, n_bytes):
+        return n_bytes / self.MB
+
+    def _urls(self):
+        with store.connect() as conn:
+            return sorted(r["url"] for r in conn.execute("SELECT url FROM cache_index"))
+
+    def _files(self):
+        import os
+        return sorted(f for _, _, fs in os.walk(store.cache_dir()) for f in fs)
+
+    def test_oldest_used_goes_first(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert c.enforce_ceiling(max_mb=self._mb(200)) == 1
+        assert self._urls() == ["https://c.invalid/b", "https://c.invalid/c"]
+        assert len(self._files()) == 2
+
+    def test_a_hit_refreshes_recency(self, isolated_db):
+        c = cache_mod.RawCache("keep_both")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert c.get("https://c.invalid/a") == b"a" * 100
+        c.enforce_ceiling(max_mb=self._mb(200))
+        assert self._urls() == ["https://c.invalid/a", "https://c.invalid/c"]
+
+    def test_shared_content_counted_once_and_removed_with_all_its_urls(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://a.invalid/1", b"x" * 100)
+        c.put("https://b.invalid/1", b"x" * 100)
+        c.put("https://c.invalid/1", b"y" * 100)
+        assert c.stats()["bytes"] == 300            # per URL
+        assert c.enforce_ceiling(max_mb=self._mb(200)) == 0
+        assert len(self._urls()) == 3
+        assert c.enforce_ceiling(max_mb=self._mb(100)) == 1
+        assert self._urls() == ["https://c.invalid/1"]
+        assert c.get("https://a.invalid/1") is None
+
+    def test_content_an_import_still_holds_is_kept(self, isolated_db):
+        keep = cache_mod.RawCache("keep_originals")
+        keep.put("https://a.invalid/1", b"x" * 100)
+        cache_mod.RawCache("temporary").put("https://b.invalid/1", b"x" * 100)
+        keep.put("https://c.invalid/1", b"y" * 100)
+        assert keep.enforce_ceiling(max_mb=self._mb(1)) == 1
+        assert self._urls() == ["https://a.invalid/1", "https://b.invalid/1"]
+        assert keep.get("https://a.invalid/1") == b"x" * 100
+
+    def test_zero_means_no_limit(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert store.get_setting("cache_max_mb") == 0
+        assert c.enforce_ceiling() == 0
+        assert c.enforce_ceiling(max_mb=0) == 0
+        assert len(self._urls()) == 3
+
+    def test_setting_is_read_in_megabytes(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * (600 * 1024))
+        c.put("https://c.invalid/b", b"b" * (600 * 1024))
+        store.set_setting("cache_max_mb", 1)
+        assert c.enforce_ceiling() == 1
+        assert self._urls() == ["https://c.invalid/b"]
+
+    def test_temporary_mode_is_untouched(self, isolated_db):
+        c = cache_mod.RawCache("temporary")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert c.enforce_ceiling(max_mb=self._mb(1)) == 0
+        assert len(self._urls()) == 3
+        c.release()
+        assert self._urls() == []
+
+    def test_drama_pages_survive(self, isolated_db):
+        import os
+
+        import db
+        page = os.path.join(db.DRAMAS_DIR, "1", "pages", "0001.png")
+        os.makedirs(os.path.dirname(page), exist_ok=True)
+        with open(page, "wb") as f:
+            f.write(b"p" * 500)
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * 100)
+        c.enforce_ceiling(max_mb=self._mb(1))
+        assert self._urls() == [] and os.path.exists(page)
+
+    def test_stale_part_files_are_dropped(self, isolated_db, monkeypatch):
+        import os
+        import time as real_time
+        root = store.cache_dir()
+        os.makedirs(os.path.join(root, "ab"), exist_ok=True)
+        old = os.path.join(root, "ab", "old.part")
+        fresh = os.path.join(root, "ab", "fresh.part")
+        for p in (old, fresh):
+            with open(p, "wb") as f:
+                f.write(b"half")
+        stamp = real_time.time() - 2 * 86400
+        os.utime(old, (stamp, stamp))
+        now = real_time.time()
+        monkeypatch.setattr(cache_mod.time, "time", lambda: now)
+        cache_mod.RawCache("keep_originals").enforce_ceiling()
+        assert not os.path.exists(old) and os.path.exists(fresh)
+
+    def test_lowering_the_setting_trims_now(self, isolated_db, monkeypatch):
+        from services import sources_registry_service as svc
+        monkeypatch.setattr(svc.src_http, "reset_pacing_state", lambda: None)
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * (600 * 1024))
+        c.put("https://c.invalid/b", b"b" * (600 * 1024))
+        out = svc.update_settings({"cache_max_mb": 1})
+        assert out["cache_max_mb"] == 1
+        assert self._urls() == ["https://c.invalid/b"]
+
+
 # ---------------------------------------------------------------------------
 # The access ladder and diagnostics
 # ---------------------------------------------------------------------------

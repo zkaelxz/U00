@@ -39,7 +39,7 @@ SETTING_KEYS = (
     "pace_min_delay", "pace_max_delay", "max_concurrent", "max_retries",
     "session_break_min_requests", "session_break_max_requests",
     "session_break_min_delay", "session_break_max_delay",
-    "cache_mode", "check_interval_hours", "auto_queue_new_chapters",
+    "cache_mode", "cache_max_mb", "check_interval_hours", "auto_queue_new_chapters",
     "demo_source_enabled", "extraction_diagnostics",
 )
 
@@ -285,6 +285,7 @@ _RANGES = {
     "session_break_min_requests": (0, 200), "session_break_max_requests": (0, 200),
     "session_break_min_delay": (0.0, 600.0), "session_break_max_delay": (0.0, 900.0),
     "check_interval_hours": (0, 168),
+    "cache_max_mb": (0, 1_000_000),
 }
 _BOOLS = ("auto_queue_new_chapters", "demo_source_enabled", "extraction_diagnostics")
 
@@ -351,6 +352,10 @@ def update_settings(changes: dict) -> dict:
     for k, v in clean.items():
         store.set_setting(k, v)
     src_http.reset_pacing_state()
+    if clean.get("cache_max_mb"):
+        # A lowered ceiling applies now, not only after the next import
+        # (a raised one finds nothing to remove).
+        src_cache.RawCache().enforce_ceiling()
     return get_settings()
 
 

@@ -62,7 +62,14 @@ class RawCache:
             return None
         self.hits += 1
         with open(path, "rb") as f:
-            return f.read()
+            data = f.read()
+        # A hit counts as use for the size ceiling (enforce_ceiling):
+        # created_at doubles as "last used". put() already rewrites it on
+        # every store and nothing else reads it, so this needs no new
+        # column in a schema that has no migration path.
+        with store.connect() as conn:
+            conn.execute("UPDATE cache_index SET created_at=? WHERE url=?", (time.time(), url))
+        return data
 
     def put(self, url: str, content: bytes):
         if self.mode == "none" or content is None:
@@ -104,6 +111,61 @@ class RawCache:
                 os.remove(self._path(sha))
             except FileNotFoundError:
                 pass
+
+    def enforce_ceiling(self, max_mb: float = None):
+        """Roadmap 111: shrink what the keep modes retain to the
+        `cache_max_mb` setting (0 = no limit). Works per distinct content
+        (one file can back several URLs), least recently used first, and
+        only removes content every row of which is `keep` -- content an
+        import in progress holds as `temporary` is left alone. Also drops
+        `.part` files a crashed put() left behind more than a day ago.
+        Returns the number of files removed."""
+        self._drop_stale_parts()
+        if max_mb is None:
+            max_mb = store.get_setting("cache_max_mb") or 0
+        if max_mb <= 0:
+            return 0
+        ceiling = int(max_mb * 1024 * 1024)
+        with store.connect() as conn:
+            rows = conn.execute(
+                "SELECT sha256, MAX(size) AS size, MAX(created_at) AS used, "
+                "SUM(retention != 'keep') AS pinned FROM cache_index "
+                "GROUP BY sha256 ORDER BY used ASC").fetchall()
+            total = sum(r["size"] for r in rows)
+            doomed = []
+            for r in rows:
+                if total <= ceiling:
+                    break
+                if r["pinned"]:
+                    continue
+                doomed.append(r["sha256"])
+                total -= r["size"]
+            conn.executemany("DELETE FROM cache_index WHERE sha256=?", [(s,) for s in doomed])
+            still_used = {r["sha256"] for r in conn.execute(
+                "SELECT DISTINCT sha256 FROM cache_index")}
+        removed = 0
+        for sha in doomed:
+            if sha in still_used:   # re-stored by a concurrent put()
+                continue
+            try:
+                os.remove(self._path(sha))
+                removed += 1
+            except FileNotFoundError:
+                pass
+        return removed
+
+    def _drop_stale_parts(self, max_age: float = 86400):
+        cutoff = time.time() - max_age
+        for dirpath, _, files in os.walk(self.root):
+            for name in files:
+                if not name.endswith(".part"):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    if os.path.getmtime(path) < cutoff:
+                        os.remove(path)
+                except OSError:
+                    pass
 
     def stats(self) -> dict:
         with store.connect() as conn:
