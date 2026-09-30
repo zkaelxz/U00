@@ -43,7 +43,7 @@ MARKER_NAME = "INSTALLED"
 LOG_NAME = "install.log"
 # The imports that prove requirements-core.txt landed (start.bat checks
 # the same list; this adds the sign-in packages core also carries).
-CORE_IMPORTS = ("streamlit", "pandas", "requests", "urllib3", "bs4", "anthropic",
+CORE_IMPORTS = ("requests", "urllib3", "bs4", "anthropic",
                 "fastapi", "starlette", "multipart", "uvicorn", "authlib", "httpx")
 
 

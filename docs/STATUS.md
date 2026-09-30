@@ -9,8 +9,8 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 - Remote access: sign-in (Google OIDC, #412/#413), ownership (#414, #445) and deny-by-default permissions are merged.
   The route table in `docs/remote-access-decision.md` is enforced by `tests/test_api_permissions.py`.
   Don't expose the API beyond loopback until the Caddy/LAN checks (step 140) are done.
-- Streamlit (`app.py`, `tabs/`, `ui/`, `ui_theme.py`, `common.py`) is frozen and being deleted by 2026-10-30
-  (`docs/streamlit-retirement-plan.md`). Only crash/data-loss fixes that block the migration, deletions, and moves into `services/`.
+- Streamlit (`app.py`, `tabs/`, `ui/`, `ui_theme.py`, `common.py`, `app_help.py`) is deleted in the draft PR
+  `streamlit-removal` (not merged until the user approves; retirement plan, section 9).
 - Streamlit-only features, decided 2026-09-30 (user): learned-style opt-out is ported (#493 pins it);
   EPUB image placeholders are dropped, not ported. Auto-resume of pending batches is now an opt-in setting
   (`bulk.auto_resume`, off by default, Settings > Jobs; resumes at API startup through the manual resume path).
@@ -29,7 +29,7 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 
 ## Next
 1. Land the open PRs above (lead session merges once CI is green).
-2. Streamlit deletion: parity re-check, the user's go-ahead, `pre-streamlit-removal` tag + `legacy/streamlit` branch, then the deletion PRs (retirement plan, section 9).
+2. Streamlit deletion: the user's go-ahead, `pre-streamlit-removal` tag + `legacy/streamlit` branch (before merging the draft `streamlit-removal` PR), retirement plan section 9.
 3. Remote access, steps 133-140 (user needs this, 2026-09-30: other household members and phones use the PC's library). Sign-in (133-134) and ownership are merged; left: the D5 admin listener (PC-only admin, before anyone else logs in), Caddy config, LAN test with a real certificate, router port last (140).
 4. Step 141: spec only (migration-architect) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
 5. Steps 142-143 (proposed, not scheduled): move a library between the hosted setup and a standalone install (143 reuses Step 43's single-drama restore).

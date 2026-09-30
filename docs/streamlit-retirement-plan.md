@@ -145,23 +145,23 @@ Guardrail 4 is done for the `tabs` imports: every logic test that lived in a fil
 
 **Tests to edit, not delete:**
 
-- [ ] `tests/test_static_analysis.py`: delete the `tabs/`-scanning classes and their checker self-tests (triage section 3); keep the timeout, constraints and requirements classes. Re-check `TestConstraintsFile` once `streamlit` leaves `constraints.txt`.
-- [ ] `tests/test_diagnostics_and_export.py::test_expected_tabs_files_list_is_not_stale` and the file-completeness tests: update or drop with `EXPECTED_TABS_FILES`.
-- [ ] `tests/test_api_foundation.py:304` asserts `"streamlit" in body["dependencies"]`: use another required package.
-- [ ] `tests/test_diagnostics_gaps_service.py:222` uses `streamlit` as the example of a required-tier package: use another one.
+- [x] `tests/test_static_analysis.py`: delete the `tabs/`-scanning classes and their checker self-tests (triage section 3); keep the timeout, constraints and requirements classes. Re-check `TestConstraintsFile` once `streamlit` leaves `constraints.txt`.
+- [x] `tests/test_diagnostics_and_export.py::test_expected_tabs_files_list_is_not_stale` and the file-completeness tests: update or drop with `EXPECTED_TABS_FILES`.
+- [x] `tests/test_api_foundation.py:304` asserts `"streamlit" in body["dependencies"]`: use another required package.
+- [x] `tests/test_diagnostics_gaps_service.py:222` uses `streamlit` as the example of a required-tier package: use another one.
 
 **Dependencies and launchers** (line numbers at base `7da3ba3`):
 
-- [ ] `requirements-core.txt:6-9` (`streamlit>=1.56` and its comment) and `:10` (`pandas>=2.0`): remove.
-- [ ] `requirements-optional.txt:139-145`: remove `streamlit-drawable-canvas` and its comment block.
-- [ ] `constraints.txt:30` (`streamlit<2`): remove.
-- [ ] `start.bat:162` and `start.ps1:148`: drop `streamlit, pandas` from the "already installed?" import check; keep the rest of the list and the urllib3 `>= (2, 6)` assert (`test_static_analysis.py::test_urllib3_has_the_2_6_floor` checks it).
-- [ ] `diagnostics.py:61-62`: remove the `streamlit` and `pandas` entries (both marked "required") from `OPTIONAL_DEPENDENCIES`; the `streamlit_drawable_canvas` entry (currently around lines 114-117): remove it.
-- [ ] `diagnostics.py:30,37,40`: remove `app.py`, `common.py`, `ui_theme.py` and `app_help.py` from `EXPECTED_TOP_LEVEL_FILES`; `:51-56`: remove `EXPECTED_TABS_FILES` and its callers.
-- [ ] `check_setup.py:3-5`: the docstring still says it runs "before Streamlit starts" and refers to `app.py`; reword (no code change needed).
-- [ ] `.github/workflows/windows-bootstrap.yml`: no Streamlit step is left; its `paths:` filters list `requirements-core.txt` and `constraints.txt`, so the dependency PR triggers it (Actions minutes are exhausted, so run `start.bat --ci` locally instead).
-- [ ] Files to delete: `app.py`, `common.py`, `ui_theme.py`, `ui/`, `tabs/`, `.streamlit/config.toml`, `app_help.py`.
-- [ ] `FILE_ORGANIZATION.md`, `README.md` and `docs/STATUS.md`: remove the deleted modules and the Streamlit launch text.
+- [x] `requirements-core.txt:6-9` (`streamlit>=1.56` and its comment) and `:10` (`pandas>=2.0`): remove.
+- [x] `requirements-optional.txt:139-145`: remove `streamlit-drawable-canvas` and its comment block.
+- [x] `constraints.txt:30` (`streamlit<2`): remove.
+- [x] `start.bat:162` and `start.ps1:148`: drop `streamlit, pandas` from the "already installed?" import check; keep the rest of the list and the urllib3 `>= (2, 6)` assert (`test_static_analysis.py::test_urllib3_has_the_2_6_floor` checks it).
+- [x] `diagnostics.py:61-62`: remove the `streamlit` and `pandas` entries (both marked "required") from `OPTIONAL_DEPENDENCIES`; the `streamlit_drawable_canvas` entry (currently around lines 114-117): remove it.
+- [x] `diagnostics.py:30,37,40`: remove `app.py`, `common.py`, `ui_theme.py` and `app_help.py` from `EXPECTED_TOP_LEVEL_FILES`; `:51-56`: remove `EXPECTED_TABS_FILES` and its callers.
+- [x] `check_setup.py:3-5`: the docstring still says it runs "before Streamlit starts" and refers to `app.py`; reword (no code change needed).
+- [x] `.github/workflows/windows-bootstrap.yml`: no Streamlit step is left; its `paths:` filters list `requirements-core.txt` and `constraints.txt`, so the dependency PR triggers it (Actions minutes are exhausted, so run `start.bat --ci` locally instead).
+- [x] Files to delete: `app.py`, `common.py`, `ui_theme.py`, `ui/`, `tabs/`, `.streamlit/config.toml`, `app_help.py`.
+- [x] `FILE_ORGANIZATION.md`, `README.md` and `docs/STATUS.md`: remove the deleted modules and the Streamlit launch text.
 
 ## 10. Prune decisions (user, 2026-09-29)
 

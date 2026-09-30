@@ -3,11 +3,6 @@
 # If you add a package here, also add its import to start.bat's
 # dependency check (Step 53) -- that's what decides whether the
 # launcher skips reinstalling.
-streamlit>=1.56          # Step 73: the real minimum, not a guess -- st.iframe (Reader's line table,
-                         # Discover's embed) first exists in 1.56; Workspace's stage st.tabs(key=)
-                         # needs 1.55, st.button(shortcut=) 1.52, st.tabs(default=) 1.50. On the old
-                         # >=1.49 floor, 1.49 itself crashed Workspace and Read & Watch outright.
-pandas>=2.0
 requests>=2.32.2
 urllib3>=2.6             # requests pulls it in; the floor is for sources/http.py's raw read1
                          # (2.x only) and CVE-2025-66471 (unbounded decompression before 2.6).
@@ -23,3 +18,7 @@ uvicorn>=0.30           # the server that runs it
 authlib>=1.3,<2         # Google sign-in (services/oidc_service.py, BAIHE_API_AUTH=on); <2 because
                          # authlib.jose (used for the id_token check) is removed in 2.0
 httpx>=0.27             # Authlib's HTTP client for sign-in (also FastAPI's TestClient)
+numpy>=1.24              # imported at module level by scanlate.py and hardsub_ocr.py, which api.server
+                         # loads; it used to arrive only as a dependency of pandas
+pillow>=10.0             # scanlate.py imports PIL at module level, so api.server needs it (also in
+                         # requirements-media.txt)
