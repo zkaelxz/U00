@@ -621,7 +621,7 @@ def _render_series_browser():
             src_ladder.check_terms(source, adapter.capabilities())
             with st.spinner("Loading the series (paced like every other request)..."):
                 info = adapter.get_series(series_id) if adapter.supports("get_series") else None
-                chapters = chapter_order.sort_chapters_grouped(adapter.get_chapters(series_id))
+                chapters = chapter_order.reading_order(adapter, adapter.get_chapters(series_id))
         except ChallengeDetected as e:
             retry, cancel = _render_handoff({"url": e.url, "reason": e.reason.value}, "src_series")
             if cancel:
