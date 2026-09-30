@@ -12,6 +12,7 @@ capability record and a chapter check, leaves none of those values in any
 sources.db table, the raw-cache files, the client's attempts/stats or the
 log. Fakes only: no network, no browser."""
 import ast
+import re
 import dataclasses
 import json
 import logging
@@ -37,21 +38,42 @@ SET_COOKIE = "SETCOOKIESENTINEL44de"
 TICKET = "TICKETSENTINEL0a1b"
 SENTINELS = (REQ_COOKIE, AUTH, SET_COOKIE, TICKET)
 
-# Where `.cookies` may be read, and why (see the audit note).
+# Where `.cookies` may be read -- the exact expression, not the whole
+# function (so e.g. `session.cookies`, the process-wide jar http.py warns
+# against, is never allowed) -- and why (see the audit note).
 COOKIE_READS_ALLOWED = {
-    ("sources/http.py", "_requests_transport"):
+    ("sources/http.py", "_requests_transport", "hop.cookies"):
         "builds Response.cookies from each redirect hop's own jar; returned, never stored",
-    ("sources/adapters/mangaz.py", "_fetch_ticket"):
+    ("sources/adapters/mangaz.py", "_fetch_ticket", "resp.cookies"):
         "reads the virgo!__ticket cookie and returns it to its caller; never stored",
 }
 # Calls that write to sources.db, the capability record or a log.
 SINK_CALLS = {"log_attempt", "record_failure", "record_success", "mark_checked",
-              "put_extraction", "save_capabilities", "set_setting", "put",
+              "put_extraction", "save_capabilities", "set_setting", "put", "track_series",
+              "record_new_chapters", "remember_images", "save_version", "set_result",
+              "update_progress", "update_drama", "dump", "dumps", "write",
               "debug", "info", "warning", "error", "exception", "critical", "print"}
+# Names that hold (or wrap) request headers, cookies, a cookie-derived value,
+# or a yt-dlp info dict (which can carry a `cookies` field).
 SECRET_NAMES = {"headers", "hdrs", "cur_headers", "default_headers", "cookies", "cookie",
-                "cookies_file", "cookies_browser", "cookiefile", "cookiesfrombrowser"}
+                "cookies_file", "cookies_browser", "cookiefile", "cookiesfrombrowser",
+                "ticket", "sid", "session_cookie", "raw_metadata", "result_info",
+                "__dict__"}
+# Wrapping a whole object in one of these would carry Response.headers/cookies.
+SECRET_WRAPPERS = {"asdict", "vars"}
 # Browser-profile APIs that would read or export a signed-in session.
 PROFILE_READS = {"storage_state", "add_cookies", "cookies", "get_cookies", "clear_cookies"}
+# Names for a browser profile folder: opening or copying one reads the session.
+PROFILE_PATHS = {"profile_dir", "browser_profile_dir", "browser_profiles_root"}
+
+
+# Every consumer of the yt-dlp cookie setting, besides the sources layer.
+YTDLP_COOKIE_FILES = ("video_download.py", "live_translate.py", "services/url_media_service.py",
+                      "services/live_service.py", "services/settings_service.py",
+                      "api/routers/settings_routes.py", "api/routers/live_routes.py",
+                      "api/routers/media_routes.py")
+# Scripts that would read a signed-in session out of a page or a profile.
+SESSION_JS = re.compile(r"document\.cookie|localStorage|sessionStorage", re.I)
 
 
 def _scanned_files():
@@ -59,6 +81,7 @@ def _scanned_files():
     files += sorted((ROOT / "services").glob("sources_*.py"))
     files += sorted((ROOT / "api" / "routers").glob("sources_*.py"))
     files.append(ROOT / "page_fetch.py")
+    files += [ROOT / f for f in YTDLP_COOKIE_FILES]
     return [f for f in files if f.exists()]
 
 
@@ -72,8 +95,25 @@ def _functions(tree):
                 else fn
             out.append((child, name))
             walk(child, name)
+    _mark_docstrings(tree)
     walk(tree, None)
     return out
+
+
+_DOCSTRINGS = set()
+
+
+def _is_docstring(node) -> bool:
+    return id(node) in _DOCSTRINGS
+
+
+def _mark_docstrings(tree):
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+                and n.body and isinstance(n.body[0], ast.Expr) \
+                and isinstance(n.body[0].value, ast.Constant):
+            _DOCSTRINGS.add(id(n.body[0].value))
+    return tree
 
 
 def _rel(path):
@@ -89,6 +129,15 @@ def test_no_profile_cookie_or_storage_state_reads():
                 bad.append(f"{_rel(path)}:{node.lineno} {fn}: .{node.func.attr}(...)")
             if isinstance(node, ast.keyword) and node.arg == "storage_state":
                 bad.append(f"{_rel(path)}: storage_state= in {fn}")
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                    and SESSION_JS.search(node.value) and not _is_docstring(node):
+                bad.append(f"{_rel(path)}:{node.lineno} {fn}: script reads page storage")
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(
+                    node.func, "id", "")) in ("open", "connect", "copytree", "copy", "copy2") \
+                    and any(isinstance(sub, (ast.Name, ast.Attribute)) and
+                            getattr(sub, "id", getattr(sub, "attr", "")) in PROFILE_PATHS
+                            for a in node.args for sub in ast.walk(a)):
+                bad.append(f"{_rel(path)}:{node.lineno} {fn}: opens/copies a browser profile")
     assert bad == [], "A signed-in browser session must stay in its profile:\n" + "\n".join(bad)
 
 
@@ -99,7 +148,7 @@ def test_cookie_attribute_reads_only_where_allowed():
         for node, fn in _functions(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Attribute) and node.attr == "cookies" \
                     and isinstance(node.ctx, ast.Load):
-                key = (_rel(path), fn)
+                key = (_rel(path), fn, ast.unparse(node))
                 if key in COOKIE_READS_ALLOWED:
                     found.add(key)
                 else:
@@ -123,7 +172,13 @@ def test_no_headers_or_cookies_handed_to_a_store_or_log_call():
                 for sub in ast.walk(arg):
                     ident = sub.id if isinstance(sub, ast.Name) else \
                         sub.attr if isinstance(sub, ast.Attribute) else None
-                    if ident in SECRET_NAMES:
+                    if isinstance(sub, ast.Subscript) and isinstance(sub.slice, ast.Constant):
+                        ident = sub.slice.value   # result["raw_metadata"]
+                    if isinstance(sub, ast.Call) and getattr(
+                            sub.func, "attr", getattr(sub.func, "id", "")) in SECRET_WRAPPERS:
+                        ident = sub.func.attr if isinstance(sub.func, ast.Attribute) \
+                            else sub.func.id
+                    if ident in SECRET_NAMES or ident in SECRET_WRAPPERS:
                         bad.append(f"{_rel(path)}:{node.lineno} {fn}: {name}(... {ident} ...)")
     assert bad == [], "Headers/cookies must never reach sources.db or a log:\n" + "\n".join(bad)
 
@@ -197,7 +252,7 @@ def _client():
     return client
 
 
-def test_credentials_never_land_in_store_cache_attempts_or_logs(world, monkeypatch):
+def test_credentials_never_land_in_store_cache_attempts_or_logs(world, monkeypatch, capfd):
     caplog = world
     client = _client()
 
@@ -236,14 +291,14 @@ def test_credentials_never_land_in_store_cache_attempts_or_logs(world, monkeypat
     assert store.recent_attempts("credtest") and "credtest" in stored
     cached = _files_dump(store.cache_dir())
     kept = json.dumps([dataclasses.asdict(a) for a in client.attempts], default=str) + \
-        json.dumps(client.snapshot()) + caplog.text
+        json.dumps(client.snapshot()) + caplog.text + "".join(capfd.readouterr())
     for s in SENTINELS:
         assert s not in stored, f"{s} in sources.db"
         assert s.encode() not in cached, f"{s} in the raw cache"
         assert s not in kept, f"{s} in attempts/stats/log"
 
 
-def test_profile_dir_is_the_only_place_a_session_lives(isolated_db):
+def test_profile_folders_are_apart_from_the_cache_and_confined(isolated_db):
     """Profiles live under their own folder, outside the raw cache, so
     clearing the cache or a backup's cache handling never touches them."""
     prof = os.path.realpath(store.browser_profiles_root())
@@ -260,6 +315,11 @@ def test_url_tokens_are_not_stored(world):
     client = _client()
     with pytest.raises(SourceError):
         client.get(f"{BASE}/challenge/x?token=URLTOKENSENTINEL5e")
-    ladder.run_ladder(f"{BASE}/forbidden/y?sig=URLTOKENSENTINEL5e",
-                      {AccessTier.STATIC_HTTP: ladder.static_tier(client)}, source="credtest")
+    for path in ("/forbidden/y?sig=URLTOKENSENTINEL5e", "/challenge/z?sig=URLTOKENSENTINEL5e"):
+        result = ladder.run_ladder(f"{BASE}{path}",
+                                   {AccessTier.STATIC_HTTP: ladder.static_tier(client)},
+                                   source="credtest")
+        ladder.record_ladder_result("credtest", result)   # source_capabilities too
+    health.reset("credtest")
+    client.get(f"{BASE}/ok/c?token=URLTOKENSENTINEL5e")    # cache_index.url
     assert "URLTOKENSENTINEL5e" not in _db_dump()
