@@ -65,6 +65,9 @@ export interface TranscribeRunRequest {
   transcript_text?: string | null
   run_diarize?: boolean
   expected_speakers?: number | null
+  // Step 105: a speaker-count range for "Detect speakers after transcribing".
+  min_speakers?: number | null
+  max_speakers?: number | null
   initial_prompt?: string
   extra_names?: string
   tesseract_cmd?: string | null
