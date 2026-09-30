@@ -1,4 +1,5 @@
 import type {
+  DiarizationConfig,
   JobStarted,
   MediaStatus,
   MediaUploadResult,
@@ -63,13 +64,23 @@ export interface SpeakerHints {
   expectedSpeakers?: number | null
   minSpeakers?: number | null
   maxSpeakers?: number | null
+  // D06: replace hand-corrected speakers; the server also needs confirm.
+  overwriteManual?: boolean
 }
+
+// Last run's speaker counts and the hand-corrected speaker count (D03, D06).
+export const getDiarizationConfig = (id: number, f?: Fetch) =>
+  getJson<DiarizationConfig>(`/api/diarization/dramas/${id}/config`, f)
 
 export const startDiarization = (id: number, hints: SpeakerHints = {}, f?: Fetch) => {
   const params = new URLSearchParams()
   if (hints.expectedSpeakers != null) params.set('expected_speakers', String(hints.expectedSpeakers))
   if (hints.minSpeakers != null) params.set('min_speakers', String(hints.minSpeakers))
   if (hints.maxSpeakers != null) params.set('max_speakers', String(hints.maxSpeakers))
+  if (hints.overwriteManual) {
+    params.set('overwrite_manual', 'true')
+    params.set('confirm', 'true')
+  }
   const qs = params.toString() ? `?${params.toString()}` : ''
   return postJson<JobStarted>(`/api/diarization/dramas/${id}/run${qs}`, undefined, f)
 }

@@ -44,7 +44,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "notification_id": "source notifications: household-wide (decision 6)",
     "domain": "source profile domain (admin.settings)",
     "kind": "an artifact/profile kind, not an item",
-    "engine": "an engine name (PC-only key routes)",
+    "engine": "an engine name (PC-only key routes, engine Test)",
+    "capability": "a Step 36 task capability id, not an item (settings)",
     "package": "a Python package name (PC-only)",
     "preset_id": "presets: household-wide (decision 6)",
     "entry_id": "voice bank: household-wide (decision 6)",
@@ -54,6 +55,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "revision": "a Hugging Face model-cache revision, not an item (PC-only delete)",
     "voice": "a Piper voice in the model cache, not an item (PC-only delete)",
     "backlog_id": "maintenance-assistant backlog item: app-wide, PC-only (Step 42)",
+    "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
+    "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a
@@ -62,6 +65,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
 JOB_ROUTES = {
     ("GET", "/api/jobs/{job_id}"): "jobs_service.get_job -> can_see_job",
     ("POST", "/api/jobs/{job_id}/cancel"): "jobs_service.cancel_job -> can_see_job",
+    ("GET", "/api/jobs/{job_id}/stages"): "jobs_service.get_job_stages -> can_see_job",
     ("GET", "/api/sources/jobs/{job_id}/result"):
         "sources_search_service.get_job_result -> can_see_job",
     ("GET", "/api/live/sessions/{session_id}"): "live_service.get_session -> can_see_job",

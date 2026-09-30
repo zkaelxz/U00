@@ -289,6 +289,14 @@ export function withPresetEngine(c: TranslateRunConfig, p: TranslatePresetApplie
   return !e || c.translation_engine === e ? c : { ...c, translation_engine: e }
 }
 
+// Parity X24: warn that Ollama can't be reached, only when the engine in use
+// is Ollama and the server actually checked and got no answer. null/undefined
+// means not checked (the drama's saved engine isn't Ollama), so no warning.
+// A warning only: unlike Streamlit, Translate stays enabled.
+export function ollamaWarning(effEngine: string, reachable: boolean | null | undefined): boolean {
+  return effEngine === 'ollama' && reachable === false
+}
+
 // The guidance text for a style key ('' when the server sent none).
 export function styleGuidance(c: TranslateRunConfig, key: string): string {
   return c.style_presets.find((s) => s.key === key)?.guidance ?? ''

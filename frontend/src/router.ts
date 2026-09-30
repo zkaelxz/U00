@@ -6,6 +6,7 @@ export type Route =
   | { name: 'drama'; id: number; stage: string | null }
   | { name: 'settings' }
   | { name: 'diagnostics' }
+  | { name: 'benchmark' }
   | { name: 'translate' }
   | { name: 'sources' }
   | { name: 'discover' }
@@ -24,6 +25,7 @@ export function parseRoute(hash: string): Route {
   const [head, a, b] = parts
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
+  if (head === 'benchmark' && parts.length === 1) return { name: 'benchmark' }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }

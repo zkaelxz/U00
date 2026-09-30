@@ -790,11 +790,106 @@ def init_db():
             created_at TEXT NOT NULL
         );
 
+        -- Step 41 (services/job_checkpoint_service.py): per-unit progress
+        -- of a long job, so a re-run after a crash or cancel skips the
+        -- units already done. `scope` already folds in the input, model
+        -- and settings, so a changed run never reuses stale units.
+        CREATE TABLE IF NOT EXISTS job_checkpoints (
+            scope TEXT NOT NULL,
+            unit_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (scope, unit_id)
+        );
+
+        -- Step 41 item 1: opt-in result cache keyed on
+        -- (kind, input_hash, model, settings_hash).
+        CREATE TABLE IF NOT EXISTS result_cache (
+            cache_key TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            input_hash TEXT NOT NULL,
+            model TEXT NOT NULL,
+            settings_hash TEXT NOT NULL,
+            value_json TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_result_cache_kind ON result_cache(kind, created_at);
+
+        -- Step 41 item 5 (services/job_timing_service.py): one row per
+        -- stage of a real job (duration and the estimated spend logged
+        -- while it ran). Job ids repeat across runs; `run_started_at`
+        -- tells runs apart.
+        CREATE TABLE IF NOT EXISTS job_stage_timings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            run_started_at REAL NOT NULL,
+            stage TEXT NOT NULL,
+            started_at REAL NOT NULL,
+            ended_at REAL NOT NULL,
+            duration_s REAL NOT NULL,
+            cost_usd REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_stage_timings_job ON job_stage_timings(job_id, run_started_at);
+
+        -- Step 41 item 4 (services/line_provenance_service.py): what
+        -- produced each line's current translation.
+        CREATE TABLE IF NOT EXISTS line_provenance (
+            drama_id INTEGER NOT NULL,
+            line_id INTEGER NOT NULL,
+            engine TEXT,
+            model TEXT,
+            prompt_version TEXT,
+            glossary_hash TEXT,
+            settings_hash TEXT,
+            input_hash TEXT,
+            output_hash TEXT,
+            software_version TEXT,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (drama_id, line_id)
+        );
+
+        -- Step 37: grounded metadata research. The cache is keyed by the
+        -- looked-up entity (not the drama), so a repeat lookup never
+        -- re-spends the daily free-search budget; the provenance table
+        -- holds one row per researched field value the user accepted
+        -- ("applied") or kept beside the existing value ("alternate").
+        CREATE TABLE IF NOT EXISTS metadata_research_cache (
+            cache_key TEXT PRIMARY KEY,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        -- One row per lookup shown to a user (Step 37): apply reads the
+        -- snapshot by this id and drama, never the shared entity cache.
+        CREATE TABLE IF NOT EXISTS metadata_research_results (
+            research_id TEXT PRIMARY KEY,
+            drama_id INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS metadata_field_provenance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            field TEXT NOT NULL,
+            value TEXT NOT NULL,
+            source TEXT,
+            source_url TEXT,
+            sources_json TEXT,
+            retrieved_at TEXT,
+            confidence REAL,
+            last_verified TEXT,
+            status TEXT NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
         CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
         CREATE INDEX IF NOT EXISTS idx_bubbles_page ON bubbles(page_id);
         CREATE INDEX IF NOT EXISTS idx_known_titles_lang ON known_titles(language);
+        CREATE INDEX IF NOT EXISTS idx_field_provenance_drama ON metadata_field_provenance(drama_id);
         CREATE INDEX IF NOT EXISTS idx_glossary_series ON glossary_terms(series_id);
         CREATE INDEX IF NOT EXISTS idx_tm_series ON translation_memory(series_id);
         CREATE INDEX IF NOT EXISTS idx_series_characters_series ON series_characters(series_id);
@@ -1077,8 +1172,65 @@ def init_db():
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
         conn.commit()
+    _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
     _migrate_step26e_profiles()
+
+
+def _init_benchmark_lab_schema():
+    """Step 38 (Benchmark Lab): golden-set tiers on benchmark_cases, plus a
+    per-run record (benchmark_sessions: engine/model/prompt version/context,
+    aggregate score, latency, cost, VRAM) and its per-case results. Additive
+    only; the older benchmark_runs history is left as it was."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS benchmark_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT DEFAULT '',
+            stage TEXT,              -- 'translation', 'transcription', 'ocr'
+            engine TEXT,             -- translate engine, 'whisper', or an OCR backend
+            model TEXT,
+            prompt_version TEXT DEFAULT '',
+            context_settings TEXT,   -- JSON
+            case_filter TEXT,        -- JSON: which cases were selected
+            arena_group TEXT,        -- shared by runs started together (Model Arena)
+            status TEXT,             -- running / done / stopped_cap / cancelled / failed
+            case_count INTEGER DEFAULT 0,
+            scored_count INTEGER DEFAULT 0,
+            passed_count INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
+            aggregate_score REAL,
+            avg_latency_seconds REAL,
+            total_cost_usd REAL DEFAULT 0.0,
+            peak_vram_mb REAL,
+            note TEXT,
+            created_at TEXT,
+            finished_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS benchmark_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            case_id INTEGER,
+            case_label TEXT,
+            output_text TEXT,
+            score REAL,
+            metric TEXT,             -- 'similarity', 'cer', 'wer'
+            passed INTEGER,
+            duration_seconds REAL,
+            cost_usd REAL DEFAULT 0.0,
+            error TEXT,
+            created_at TEXT,
+            FOREIGN KEY (session_id) REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        """)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_cases)").fetchall()}
+        for col, coltype in (("tier", "TEXT DEFAULT 'application'"), ("set_name", "TEXT DEFAULT ''"),
+                             ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
+            if col not in cols:
+                _safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
+        conn.commit()
 
 
 _LINE_REF_TABLE_DDL = {
@@ -1292,6 +1444,10 @@ def update_drama(drama_id: int, **fields):
 def delete_drama(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         conn.execute("DELETE FROM dramas WHERE id = ?", (drama_id,))
+        # Step 41 tables keyed by drama (no foreign key): a checkpoint scope
+        # is "<kind>:<drama_id>:<digest>".
+        conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
+        conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
         conn.commit()
     import shutil
     d = os.path.join(DRAMAS_DIR, str(drama_id))
@@ -3208,6 +3364,13 @@ def log_usage(drama_id: int, engine: str, model: str, operation: str,
         """, (drama_id, engine, model, operation, input_tokens, output_tokens,
               estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
         conn.commit()
+    try:
+        # Step 41 item 5: count the spend toward the running job's stage
+        # (a no-op outside a background job's own thread).
+        from services import job_timing_service
+        job_timing_service.add_cost(estimated_cost_usd)
+    except Exception:
+        pass
 
 
 def get_month_spend(now: datetime.datetime = None) -> float:
@@ -3311,6 +3474,82 @@ def set_app_setting(key: str, value):
             ON CONFLICT(key) DO UPDATE SET value = excluded.value
         """, (key, json.dumps(value)))
         conn.commit()
+
+
+def get_research_cache(cache_key: str):
+    """Step 37: a cached grounded-research result (the decoded dict), or None."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT result_json FROM metadata_research_cache WHERE cache_key = ?",
+                           (cache_key,)).fetchone()
+    return json.loads(row["result_json"]) if row else None
+
+
+def put_research_cache(cache_key: str, result: dict):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("""
+            INSERT INTO metadata_research_cache (cache_key, result_json, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET result_json = excluded.result_json,
+                                                 created_at = excluded.created_at
+        """, (cache_key, json.dumps(result), datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+
+
+RESEARCH_RESULT_TTL_DAYS = 7
+
+
+def put_research_result(research_id: str, drama_id: int, result: dict):
+    """Step 37: the snapshot a research_id applies; rows older than
+    RESEARCH_RESULT_TTL_DAYS are pruned on each insert."""
+    now = datetime.datetime.utcnow()
+    cutoff = (now - datetime.timedelta(days=RESEARCH_RESULT_TTL_DAYS)).isoformat()
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("DELETE FROM metadata_research_results WHERE created_at < ?", (cutoff,))
+        conn.execute("INSERT INTO metadata_research_results (research_id, drama_id, result_json, "
+                     "created_at) VALUES (?, ?, ?, ?)",
+                     (research_id, drama_id, json.dumps(result), now.isoformat()))
+        conn.commit()
+
+
+def get_research_result(research_id: str, drama_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT result_json FROM metadata_research_results "
+                           "WHERE research_id = ? AND drama_id = ?",
+                           (research_id, drama_id)).fetchone()
+    return json.loads(row["result_json"]) if row else None
+
+
+def add_field_provenance(drama_id: int, field: str, value: str, status: str, *,
+                         sources=None, retrieved_at: str = None, confidence: float = None,
+                         last_verified: str = None):
+    """Step 37: one researched field value with its own evidence. `sources`
+    is a list of {"title", "url"}; the first is also stored as source /
+    source_url."""
+    sources = list(sources or [])
+    first = sources[0] if sources else {}
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("""
+            INSERT INTO metadata_field_provenance (drama_id, field, value, source, source_url,
+                sources_json, retrieved_at, confidence, last_verified, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (drama_id, field, value, first.get("title"), first.get("url"), json.dumps(sources),
+              retrieved_at, confidence, last_verified, status))
+        conn.commit()
+
+
+def list_field_provenance(drama_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("""
+            SELECT id, field, value, source, source_url, sources_json, retrieved_at, confidence,
+                   last_verified, status
+            FROM metadata_field_provenance WHERE drama_id = ? ORDER BY id
+        """, (drama_id,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["sources"] = json.loads(d.pop("sources_json") or "[]")
+        out.append(d)
+    return out
 
 
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
@@ -3884,6 +4123,128 @@ def latest_benchmark_run_per_case(stage: str = None):
     for r in rows:
         latest[r["case_id"]] = dict(r)  # later rows overwrite earlier ones -- id order
     return latest
+
+
+# ---------------------------------------------------------------------------
+# Step 38: Benchmark Lab -- golden-set cases and persistent per-run records.
+# services/benchmark_lab_service.py holds the logic; this is persistence.
+# ---------------------------------------------------------------------------
+
+def create_benchmark_lab_case(label: str, stage: str, source_language: str, source_text: str,
+                              reference_text: str, tier: str, set_name: str,
+                              content_type: str = "novel", origin_drama_id: int = None,
+                              origin_line_id: int = None) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO benchmark_cases (label, stage, content_type, source_language, source_text, "
+            "reference_text, tier, set_name, origin_drama_id, origin_line_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (label, stage, content_type, source_language, source_text, reference_text, tier,
+             set_name, origin_drama_id, origin_line_id, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def update_benchmark_case_texts(case_id: int, source_text: str, reference_text: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE benchmark_cases SET source_text = ?, reference_text = ? WHERE id = ?",
+                     (source_text, reference_text, case_id))
+        conn.commit()
+
+
+def get_benchmark_case(case_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM benchmark_cases WHERE id = ?", (case_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_benchmark_case(set_name: str, source_text: str, origin_line_id: int = None):
+    """An existing case in `set_name` with this source text (or, for a
+    regression case, from this line) -- so an import or "add as regression
+    test" run twice doesn't store the same example twice."""
+    with contextlib.closing(get_conn()) as conn:
+        if origin_line_id is not None:
+            row = conn.execute(
+                "SELECT * FROM benchmark_cases WHERE set_name = ? AND origin_line_id = ?",
+                (set_name, origin_line_id)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM benchmark_cases WHERE set_name = ? AND source_text = ?",
+                (set_name, source_text)).fetchone()
+    return dict(row) if row else None
+
+
+def create_benchmark_session(fields: dict) -> int:
+    cols = ("label", "stage", "engine", "model", "prompt_version", "context_settings",
+            "case_filter", "arena_group", "status", "case_count", "note")
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            f"INSERT INTO benchmark_sessions ({', '.join(cols)}, created_at) "
+            f"VALUES ({', '.join('?' for _ in cols)}, ?)",
+            tuple(fields.get(c) for c in cols) + (datetime.datetime.utcnow().isoformat(),))
+        conn.commit()
+        return cur.lastrowid
+
+
+_BENCHMARK_SESSION_UPDATABLE = {"status", "scored_count", "passed_count", "error_count",
+                                "aggregate_score", "avg_latency_seconds", "total_cost_usd",
+                                "peak_vram_mb", "note", "finished_at", "case_count"}
+
+
+def update_benchmark_session(session_id: int, **fields):
+    bad = set(fields) - _BENCHMARK_SESSION_UPDATABLE
+    if bad:
+        raise ValueError(f"not updatable: {sorted(bad)}")
+    if not fields:
+        return
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute(f"UPDATE benchmark_sessions SET {', '.join(f'{k} = ?' for k in fields)} "
+                     "WHERE id = ?", tuple(fields.values()) + (session_id,))
+        conn.commit()
+
+
+def delete_benchmark_sessions(session_ids):
+    with contextlib.closing(get_conn()) as conn:
+        conn.executemany("DELETE FROM benchmark_sessions WHERE id = ?", [(i,) for i in session_ids])
+        conn.commit()
+
+
+def get_benchmark_session(session_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_benchmark_sessions(limit: int = 50, stage: str = None):
+    with contextlib.closing(get_conn()) as conn:
+        if stage:
+            rows = conn.execute("SELECT * FROM benchmark_sessions WHERE stage = ? "
+                                "ORDER BY id DESC LIMIT ?", (stage, limit)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM benchmark_sessions ORDER BY id DESC LIMIT ?",
+                                (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_benchmark_result(session_id: int, case: dict, result: dict):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute(
+            "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
+            "metric, passed, duration_seconds, cost_usd, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
+             result.get("score"), result.get("metric"),
+             None if result.get("passed") is None else int(bool(result["passed"])),
+             result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
+             datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+
+
+def list_benchmark_results(session_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM benchmark_results WHERE session_id = ? ORDER BY id",
+                            (session_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
