@@ -192,9 +192,8 @@ SITE_TERMS = [
     },
     {
         # roadmap Step 115. Has an adapter (sources/adapters/lightnovel_fun.py),
-        # which carries the same notes; recorded here too so a pasted
-        # lightnovel.fun URL the adapter doesn't route (a /category/ page, a
-        # post) still shows what is known about the site's terms.
+        # whose own capability record carries the same notes; recorded here
+        # too as the directly-read finding for the domain as a whole.
         "domains": ("lightnovel.fun",),
         "platform": "轻之国度 (LightNovel)",
         "automation_permission": AutomationPermission.UNKNOWN.value,

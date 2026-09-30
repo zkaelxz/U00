@@ -49,7 +49,7 @@ from urllib.parse import quote, urljoin
 
 from ..base import SourceAdapter
 from ..models import (ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason,
-                      SearchResult, SeriesInfo, SourceError)
+                      FetchFailed, SearchResult, SeriesInfo, SourceError)
 from ..registry import register
 
 log = logging.getLogger(__name__)
@@ -103,8 +103,11 @@ def _devalue(arr):
                 out = [hydrate(x) for x in v[1:]]
             elif tag in ("Map", "null"):
                 pairs = v[1:]
-                out = {str(hydrate(pairs[j]) if tag == "Map" else pairs[j]): hydrate(pairs[j + 1])
-                       for j in range(0, len(pairs) - 1, 2)}
+                out = {}
+                for j in range(0, len(pairs) - 1, 2):
+                    key = hydrate(pairs[j]) if tag == "Map" else pairs[j]
+                    if isinstance(key, (str, int, float)):  # never str() a shared subgraph
+                        out[str(key)] = hydrate(pairs[j + 1])
             else:
                 out = None
         elif isinstance(v, list):
@@ -127,15 +130,40 @@ def _payload(html: str) -> dict:
         return {}
     try:
         root = _devalue(json.loads(tag.string))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return {}
     data = (root or {}).get("data") if isinstance(root, dict) else None
     return data if isinstance(data, dict) else {}
 
 
-def _entry(data: dict, prefix: str):
+def _text(value) -> str:
+    """A payload string field, or "" for anything else. Fields are read
+    through this (and _id) rather than str(): the decoded graph can share
+    nodes, and str() of a hostile shared subgraph grows exponentially."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _id(value) -> str:
+    """A numeric payload id as a string, or "" if it isn't one."""
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return ""
+    value = str(value)
+    return value if value.isdigit() else ""
+
+
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _entry(data: dict, name: str):
+    """The payload entry keyed `name` (optionally with a suffix such as
+    "-public") -- never a longer id that merely starts with the same digits."""
     for key, value in data.items():
-        if key.startswith(prefix) and isinstance(value, dict):
+        if (key == name or key.startswith(name + "-")) and isinstance(value, dict):
             return value
     return None
 
@@ -154,8 +182,7 @@ def _html_text(fragment: str) -> str:
 
 def _chapter_rows(volume: dict) -> list:
     """A catalog volume's chapter entries that carry a real numeric id."""
-    return [c for c in (volume.get("chapters") or [])
-            if isinstance(c, dict) and str(c.get("id") or "").isdigit()]
+    return [c for c in _list(volume.get("chapters")) if isinstance(c, dict) and _id(c.get("id"))]
 
 
 def _locked(chapter: dict) -> bool:
@@ -209,46 +236,50 @@ class LightnovelFunSource(SourceAdapter):
         for item in results:
             if not isinstance(item, dict) or item.get("targetType", "book") != "book":
                 continue
-            book_id = str(item.get("bookId") or item.get("id") or "")
-            title = (item.get("title") or "").strip()
-            if not book_id.isdigit() or not title:
+            book_id = _id(item.get("bookId")) or _id(item.get("id"))
+            title = _text(item.get("title"))
+            if not book_id or not title:
                 continue
-            extra = {k: item[k] for k in ("author", "status", "chapterCount") if item.get(k)}
+            extra = {k: item[k] for k in ("author", "status", "chapterCount")
+                     if isinstance(item.get(k), (str, int)) and not isinstance(item.get(k), bool)
+                     and item.get(k)}
             out.append(SearchResult(self.name, book_id, title, urljoin(self.base_url, f"/book/{book_id}"),
-                                    item.get("cover") or "", extra=extra))
+                                    _text(item.get("cover")), extra=extra))
         return out
 
     # -- series ------------------------------------------------------------------
     def get_series(self, series_id: str):
         book = self._book(series_id)["book"]
-        title = (book.get("title") or "").strip()
+        title = _text(book.get("title"))
         if not title:
             raise LayoutChanged("the series title")
-        authors = [a for a in (book.get("author"), book.get("illustrator")) if a]
-        summary = (book.get("summary") or "").strip()
-        status = book.get("status") or ""
+        authors = [a for a in (_text(book.get("author")), _text(book.get("illustrator"))) if a]
+        summary = _text(book.get("summary"))
+        status = _text(book.get("status"))
         return SeriesInfo(
             self.name, series_id, title, urljoin(self.base_url, f"/book/{series_id}"),
-            book.get("cover") or "", authors=authors,
-            description=(summary + "\n\n" if summary else "") + SITE_NOTICE,
-            genres=[t for t in (book.get("tags") or []) if isinstance(t, str)],
+            _text(book.get("cover")), authors=authors,
+            description=SITE_NOTICE + ("\n\n" + summary if summary else ""),
+            genres=[t for t in _list(book.get("tags")) if isinstance(t, str)],
             status="completed" if "完结" in status else "ongoing" if "连载" in status else "unknown",
             content_type=ContentType.NOVEL.value, language="zh")
 
     # -- chapters ----------------------------------------------------------------
     def get_chapters(self, series_id: str):
         detail = self._book(series_id)
-        catalog = [v for v in (detail.get("catalog") or []) if isinstance(v, dict)]
+        catalog = [v for v in _list(detail.get("catalog")) if isinstance(v, dict) and _id(v.get("id"))]
         if not catalog:
             raise LayoutChanged("the chapter list")
-        volumes = {str(v.get("id")): v for v in catalog}
+        volumes = {_id(v.get("id")): v for v in catalog}
         loaded = {vid: _chapter_rows(v) for vid, v in volumes.items() if v.get("chaptersLoaded")}
         loaded = {vid: rows for vid, rows in loaded.items() if rows}
-        order = [str(v.get("id")) for v in catalog]
+        order = list(volumes)
 
         # Walk into each unloaded volume from a loaded neighbour. Every step
         # fills a volume or gives up on one, so this ends after at most one
-        # pass per volume.
+        # pass per volume. Any volume a walked reader page happens to load is
+        # kept too: if a volume has no public chapter, the link skips over it
+        # into the next one, and the walk carries on from there.
         failed = set()
         progress = True
         while progress:
@@ -259,47 +290,54 @@ class LightnovelFunSource(SourceAdapter):
                 before = order[i - 1] if i > 0 else None
                 after = order[i + 1] if i + 1 < len(order) else None
                 if before in loaded:
-                    got = self._load_volume(series_id, vid, loaded[before][-1], "nextChapterId")
+                    seen = self._walk(series_id, loaded[before][-1], "nextChapterId")
                 elif after in loaded:
-                    got = self._load_volume(series_id, vid, loaded[after][0], "prevChapterId")
+                    seen = self._walk(series_id, loaded[after][0], "prevChapterId")
                 else:
                     continue
-                if got:
-                    loaded[vid] = got
-                else:
+                for other, rows in seen.items():
+                    if other in volumes and other not in loaded:
+                        loaded[other] = rows
+                if vid not in loaded:
                     failed.add(vid)
                     log.warning("lightnovel_fun: couldn't load volume %s of book %s",
-                                volumes[vid].get("title"), series_id)
+                                _text(volumes[vid].get("title")), series_id)
                 progress = True
 
         chapters = []
         for vid in order:
-            group = (volumes[vid].get("title") or "").strip()
+            group = _text(volumes[vid].get("title"))
             for ch in loaded.get(vid, []):
-                cid = str(ch["id"])
+                cid = _id(ch["id"])
                 chapters.append(ChapterInfo(
-                    self.name, series_id, cid, (ch.get("title") or "").strip() or cid,
+                    self.name, series_id, cid, _text(ch.get("title")) or cid,
                     urljoin(self.base_url, f"/reader/{series_id}/{cid}"), group=group))
         if not chapters:
             raise LayoutChanged("any chapter in the chapter list")
         return chapters
 
-    def _load_volume(self, series_id: str, volume_id: str, neighbour: dict, link: str):
-        """The chapters of `volume_id`, reached from `neighbour` (the chapter
-        next to it in an already-loaded volume) via its reader page's
-        prev/next link. [] if the chain doesn't lead there."""
-        nid = str(neighbour["id"])
-        boot, _ = self._reader(series_id, nid, f"Loading the chapter list of book {series_id}",
-                               use_cache=False)
-        target = str(((boot or {}).get("currentChapter") or {}).get(link) or "")
-        if not target.isdigit():
-            return []
-        boot, _ = self._reader(series_id, target, f"Loading the chapter list of book {series_id}",
-                               use_cache=False)
-        for vol in (boot or {}).get("catalog") or []:
-            if isinstance(vol, dict) and str(vol.get("id")) == volume_id and vol.get("chaptersLoaded"):
-                return _chapter_rows(vol)
-        return []
+    def _walk(self, series_id: str, neighbour: dict, link: str) -> dict:
+        """{volume id: chapters} for every volume loaded on the reader page
+        that `neighbour`'s prev/next link leads to. {} if there is no link,
+        or a page in the chain can't be fetched (a deleted chapter): that
+        volume is then left out rather than failing the whole list."""
+        action = f"Loading the chapter list of book {series_id}"
+        try:
+            boot, _ = self._reader(series_id, _id(neighbour["id"]), action, use_cache=False)
+            target = _id(_dict(_dict(boot).get("currentChapter")).get(link))
+            if not target:
+                return {}
+            boot, _ = self._reader(series_id, target, action, use_cache=False)
+        except FetchFailed as e:
+            log.warning("lightnovel_fun: volume walk for book %s stopped: %s", series_id, e)
+            return {}
+        out = {}
+        for vol in _list(_dict(boot).get("catalog")):
+            if isinstance(vol, dict) and vol.get("chaptersLoaded") and _id(vol.get("id")):
+                rows = _chapter_rows(vol)
+                if rows:
+                    out[_id(vol.get("id"))] = rows
+        return out
 
     # -- chapter text ------------------------------------------------------------
     def get_chapter_text(self, chapter) -> str:
@@ -309,7 +347,8 @@ class LightnovelFunSource(SourceAdapter):
         if isinstance(current, dict):
             if _locked(current):
                 price = current.get("coinPrice")
-                cost = f" ({price} 轻币)" if price else ""
+                cost = f" ({price} 轻币)" if isinstance(price, int) and not isinstance(price, bool) \
+                    and price > 0 else ""
                 raise ContentHidden(
                     f"\"{chapter.title}\" is a locked chapter on 轻之国度{cost}. The app never "
                     "signs in or spends 轻币 to unlock it -- read it on the site instead.",

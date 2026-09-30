@@ -94,7 +94,9 @@ class TestSeries:
     def test_series_description_carries_the_site_notice(self):
         a, _ = _adapter({BOOK_URL: html(fx.BOOK_PAGE)})
         s = a.get_series("33139")
-        assert s.description.startswith("她的优点可不止")
+        # First, so the 3-line clamp in the series panel doesn't hide it.
+        assert s.description.startswith("轻之国度 works carry the uploaders' own notices")
+        assert "她的优点可不止" in s.description
         for notice in ("仅供个人学习交流使用，禁作商业用途", "禁止转载", "禁止二改二传"):
             assert notice in s.description
 
@@ -147,11 +149,53 @@ class TestChapters:
         assert t.urls() == [BOOK_URL, _reader("323701")]
 
     def test_chapter_lists_are_never_served_from_cache(self):
-        a, t = _adapter({BOOK_URL: html(fx.BOOK_PAGE), _reader("323701"): html(fx.READER_323701),
+        a, _ = _adapter({BOOK_URL: html(fx.BOOK_PAGE), _reader("323701"): html(fx.READER_323701),
                          _reader("323778"): html(fx.READER_323778)})
+        seen = []
+        real_get = a.client.get
+
+        def spy(url, **kw):
+            seen.append(kw.get("use_cache", True))
+            return real_get(url, **kw)
+
+        a.client.get = spy
         a.get_chapters("33139")
-        a.get_chapters("33139")
-        assert t.urls().count(BOOK_URL) == 2
+        assert seen == [False, False, False]
+
+    def test_a_volume_skipped_by_the_links_does_not_drop_later_ones(self):
+        # 第一卷 -> (a volume with no public chapter) -> web版: the last chapter
+        # of 第一卷 links straight into web版, whose page loads web版.
+        cat = fx.catalog()
+        cat.insert(1, {"id": "50750", "title": "付费卷", "chapters": [], "chapterCount": 2,
+                       "chaptersLoaded": False})
+        cat.append({"id": "50800", "title": "web版2", "chapters": [], "chapterCount": 1,
+                    "chaptersLoaded": False})
+        book = fx.page({"pc-book-detail-33139": {"book": fx.BOOK, "catalog": cat}})
+        web_cat = [dict(v) for v in cat]
+        web_cat[0] = dict(web_cat[0], chapters=[], chaptersLoaded=False)
+        web_cat[2] = dict(web_cat[2], chapters=fx.VOLUME_WEB, chaptersLoaded=True)
+        last_web = fx.reader_page("323829", fx.reader_chapter(
+            "323829", "第42话", "50789", "323779", "400001", "<p>x</p>"), web_cat)
+        web2_cat = [dict(v) for v in web_cat]
+        web2_cat[2] = dict(web2_cat[2], chapters=[], chaptersLoaded=False)
+        web2_cat[3] = dict(web2_cat[3], chapters=[fx._ch("400001", "第43话", 1)], chaptersLoaded=True)
+        web2 = fx.reader_page("400001", fx.reader_chapter(
+            "400001", "第43话", "50800", "323829", None, "<p>x</p>"), web2_cat)
+        web_first = fx.reader_page("323778", fx.reader_chapter(
+            "323778", "制作信息", "50789", "323701", "323779", "<p>x</p>"), web_cat)
+        a, _ = _adapter({BOOK_URL: html(book), _reader("323701"): html(fx.READER_323701),
+                         _reader("323778"): html(web_first), _reader("323829"): html(last_web),
+                         _reader("400001"): html(web2)})
+        chapters = a.get_chapters("33139")
+        assert [c.group for c in chapters].count("web版") == 3
+        assert chapters[-1].chapter_id == "400001" and chapters[-1].group == "web版2"
+        assert "付费卷" not in {c.group for c in chapters}
+
+    def test_a_deleted_chapter_in_the_walk_drops_that_volume_only(self):
+        a, _ = _adapter({BOOK_URL: html(fx.BOOK_PAGE), _reader("323701"): html(fx.READER_323701),
+                         _reader("323778"): html("<html>gone</html>", status=404)})
+        chapters = a.get_chapters("33139")
+        assert len(chapters) == 10
 
     def test_markup_change_is_reported(self):
         a, _ = _adapter({BOOK_URL: html(fx.page({"pc-book-detail-33139": {"book": fx.BOOK,
@@ -237,3 +281,50 @@ class TestUrlsAndRegistry:
         assert caps.automation_permission == "UNKNOWN"
         assert not caps.terms_restrictions()
         assert "禁止转载" in caps.terms["notices"]
+
+
+class TestHostilePayloads:
+    """Security review (Step 115): the payload is third-party input."""
+
+    @staticmethod
+    def _dag(depth=60):
+        # arr[k] = [k+1, k+1]: linear to decode, 2**depth elements if str()'d.
+        return [[k + 1, k + 1] for k in range(depth)] + ["x"]
+
+    def _book_page(self, **book_fields):
+        import json
+        tail = self._dag()
+        base = 4
+        arr = [["ShallowReactive", 1], {"data": 2}, {"pc-book-detail-33139": 3},
+               {"book": base + len(tail)}]
+        arr += [[x + base for x in pair] if isinstance(pair, list) else pair for pair in tail]
+        book = {"id": len(arr) + 1, "title": len(arr) + 2}
+        for k in book_fields:
+            book[k] = base  # the root of the shared-node chain
+        arr.append(book)
+        arr += ["33139", "标题"]
+        return f"<script id='__NUXT_DATA__' type='application/json'>{json.dumps(arr)}</script>"
+
+    def test_a_shared_node_author_or_cover_is_ignored_not_stringified(self):
+        a, _ = _adapter({BOOK_URL: html(self._book_page(author=1, cover=1, status=1))})
+        s = a.get_series("33139")
+        assert s.title == "标题" and s.authors == [] and s.cover_url == ""
+
+    def test_a_shared_node_map_key_is_skipped(self):
+        arr = [["Map", 1, 3], [2, 2], [3, 3], "v"]
+        assert lightnovel_fun._devalue(arr) == {}
+
+    def test_deep_nesting_is_a_layout_change_not_a_recursion_error(self):
+        import json
+        depth = 5000
+        arr = [[k + 1] for k in range(depth)] + ["x"]
+        page = f"<script id='__NUXT_DATA__' type='application/json'>{json.dumps(arr)}</script>"
+        a, _ = _adapter({BOOK_URL: html(page)})
+        with pytest.raises(lightnovel_fun.LayoutChanged):
+            a.get_series("33139")
+
+    def test_entry_lookup_does_not_match_a_longer_id(self):
+        data = {"pc-book-detail-33139": {"book": {}}}
+        assert lightnovel_fun._entry(data, "pc-book-detail-33") is None
+        assert lightnovel_fun._entry({"reader-bootstrap-1-2-public": {"a": 1}},
+                                     "reader-bootstrap-1-2") == {"a": 1}
