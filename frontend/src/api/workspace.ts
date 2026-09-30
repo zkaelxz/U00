@@ -1,6 +1,8 @@
 import type {
   DiarizationConfig,
   JobStarted,
+  LncrawlImportRequest,
+  LncrawlStatus,
   MediaStatus,
   MediaUploadResult,
   NovelAttachResult,
@@ -18,6 +20,7 @@ import type {
   WorkflowProgress,
 } from '../types/workspace'
 import { getJson, postJson, postMultipart } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -122,6 +125,15 @@ export const startNovelOcr = (
   if (tesseractCmd?.trim()) form.append('tesseract_cmd', tesseractCmd.trim())
   return postMultipart<JobStarted>(`/api/novel/dramas/${id}/ocr-chapter`, form, f)
 }
+
+// Step 115b: the user-installed lightnovel-crawler program (PC only). The
+// import runs as job lncrawl_{id}; poll it with getJob, cancel with cancelJob.
+export const getLncrawlStatus = (f?: Fetch) => getJson<LncrawlStatus>('/api/novel/lncrawl', f)
+
+export const lncrawlJobId = (id: number) => `lncrawl_${id}`
+
+export const startLncrawlImport = (id: number, body: LncrawlImportRequest, f?: Fetch) =>
+  postJson<JobStarted>(`/api/novel/dramas/${id}/lncrawl`, body, pcOnlyFetch(f))
 
 // Parity audit B1 (R23): re-run Whisper on one line's audio window; the job
 // proposes text without writing. Poll GET /api/jobs/{job_id} for status (its

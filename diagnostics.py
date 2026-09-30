@@ -155,7 +155,25 @@ OPTIONAL_DEPENDENCIES = {
     "pytest": ("pytest", "running the test suite", "dev"),
     "httpx": ("httpx", "Google sign-in's HTTP client (with authlib); also the HTTP API's "
                        "tests (FastAPI TestClient)", "feature"),
+    # Step 115b: a separate program, not a library. GPL-3.0, so Baihe never
+    # imports or ships it: it only runs the user-installed `lncrawl` command
+    # (services/lncrawl_service.py). Detected by EXTERNAL_PROGRAMS below,
+    # never offered for one-click install (NOT_OFFERED_FOR_INSTALL).
+    "lightnovel-crawler": ("lncrawl", "Novel text: \"Import with lightnovel-crawler\" (a "
+                                      "separate GPL-3.0 program you install yourself; Baihe "
+                                      "only runs it and reads the EPUB it makes)", "feature"),
 }
+
+# Import-name slots in OPTIONAL_DEPENDENCIES that are really external
+# programs: check_dependency asks this function instead of importlib, so the
+# program is found where it will be run from (PATH or its Settings path) and
+# its Python code is never looked up or imported.
+def _lncrawl_installed() -> bool:
+    from services import lncrawl_service
+    return lncrawl_service.is_installed()
+
+
+EXTERNAL_PROGRAMS = {"lncrawl": _lncrawl_installed}
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +218,7 @@ APPROX_DOWNLOAD_MB = {
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
     "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
+    "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
     "jiwer": 3,
@@ -252,6 +271,11 @@ NOT_OFFERED_FOR_INSTALL = {
     "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
                                  "Streamlit, and the Scanlate brush that uses it is deferred "
                                  "until Scanlate moves to the new interface.",
+    "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
+                          "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
+                          "`pip install lightnovel-crawler` in its own environment). Baihe only "
+                          "runs it. If it isn't on PATH, set its program path in Settings > "
+                          "Advanced.",
 }
 
 # Exact pins a package declares on another one the app shares, for a
@@ -348,9 +372,9 @@ INSTALL_TASKS = [
      "recommended": ["ebooklib", "genanki"]},
     {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
      "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
-     "packages": ["bs4", "trafilatura", "playwright", "cryptography"],
+     "packages": ["bs4", "trafilatura", "playwright", "cryptography", "lightnovel-crawler"],
      "recommended": ["trafilatura"],
-     "optional": ["playwright", "cryptography"]},
+     "optional": ["playwright", "cryptography", "lightnovel-crawler"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
@@ -440,7 +464,13 @@ def check_cuda() -> dict:
 def check_dependency(module_name: str) -> bool:
     """Checks importability without actually importing (avoids side
     effects and is faster for modules with heavy import-time work,
-    like torch-backed packages)."""
+    like torch-backed packages). External programs (EXTERNAL_PROGRAMS)
+    are looked up as programs instead."""
+    if module_name in EXTERNAL_PROGRAMS:
+        try:
+            return bool(EXTERNAL_PROGRAMS[module_name]())
+        except Exception:
+            return False
     try:
         # dotted names (e.g. pyannote.audio) need the parent importable too
         parts = module_name.split(".")

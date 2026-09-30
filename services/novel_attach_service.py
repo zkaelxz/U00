@@ -254,6 +254,19 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace",
     _require_drama(drama_id)
     _check_mode(mode)
     _check_idle(drama_id)
+    return _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to)
+
+
+def attach_epub_from_job(drama_id: int, fileobj, mode: str = "replace") -> dict:
+    """attach_epub for a job that already holds this drama (the
+    lightnovel-crawler import, services/lncrawl_service.py): the same EPUB
+    limits, without the "a job is running" refusal its own job would hit."""
+    _require_drama(drama_id)
+    _check_mode(mode)
+    return _attach_epub_data(drama_id, fileobj, mode, None, None)
+
+
+def _attach_epub_data(drama_id, fileobj, mode, chapter_from, chapter_to) -> dict:
     data = fileobj.read(MAX_EPUB_BYTES + 1)
     if len(data) > MAX_EPUB_BYTES:
         raise InvalidInputError("The uploaded EPUB is too large.")

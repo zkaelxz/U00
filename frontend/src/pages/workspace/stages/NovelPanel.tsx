@@ -12,6 +12,7 @@ import type { NovelAttachResult, NovelMode, NovelStatus } from '../../../types/w
 import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { LncrawlPanel } from './LncrawlPanel'
 import { useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
 
@@ -152,6 +153,14 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
             <p className="muted">The original-language chapters saved for this drama (from Sources or Transcribe), using the Mode above.</p>
           </div>
         )}
+        <LncrawlPanel
+          mode={mode}
+          onImported={() => {
+            setError(null)
+            setReloads((n) => n + 1)
+            refetchDrama()
+          }}
+        />
         <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
           <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
             <input
