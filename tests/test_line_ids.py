@@ -262,9 +262,10 @@ class TestMigrationFromPositionKeys:
     line_id, with a backup first, and the whole thing safe to interrupt."""
 
     @pytest.fixture(autouse=True)
-    def _restore_db_paths(self, monkeypatch):
-        for name in ("LIBRARY_DIR", "DRAMAS_DIR", "DB_PATH", "BENCHMARK_DIR"):
-            monkeypatch.setattr(db, name, getattr(db, name))
+    def _restore_db_paths(self):
+        previous = db.LIBRARY_DIR
+        yield
+        db.configure_library_dir(previous)
 
     def _old_library(self, tmp_path):
         db.configure_library_dir(str(tmp_path))

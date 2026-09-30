@@ -16,6 +16,8 @@ import { TypedConfirm } from '../../../../components/TypedConfirm'
 import { humanize } from '../../../../components/labels'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { isResegmentPreviewJob, resegmentJobIds } from '../../stageJobIds'
 import { jobSucceeded, type JobRecord } from '../../../../types/jobs'
 import type { ResegmentLlmPreview as LlmPreview, ResegmentPreview } from '../../../../types/restructure'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
@@ -66,7 +68,9 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
   const [confirmAsked, setConfirmAsked] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('rules')
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  // A run left going when the stage was left: rules/AI apply (resegment_) or AI preview.
+  useReattachJob(resegmentJobIds(dramaId), adoptJob)
   const { job, done, error: pollError } = useJob(jobId, { runKey, onDone: (j) => jobDone(j) })
   const running = jobId !== null && !done && !pollError
   const blocked = jobRunning || running ? JOB_RUNNING_MESSAGE : null
@@ -104,11 +108,13 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
   const refreshConfig = () => getTranslateConfig(dramaId).then(setConfig, () => {})
 
   function jobDone(j: JobRecord) {
-    if (phase === 'rules') {
+    // A reattached run has no phase in memory; a preview job says so by its id.
+    const kind = isResegmentPreviewJob(j.job_id) ? 'ai-preview' : phase
+    if (kind === 'rules') {
       setPreview(null)
       onJobDone()
       onChanged()
-    } else if (phase === 'ai-preview') {
+    } else if (kind === 'ai-preview') {
       void refreshConfig()
       if (jobSucceeded(j)) void fetchAiPreview(false)
     } else if (jobSucceeded(j)) {
