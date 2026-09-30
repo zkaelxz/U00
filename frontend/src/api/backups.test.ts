@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  backUpNow, deleteSnapshot, getBackupSettings, getSnapshot, getSnapshotDramas, restoreSnapshotDrama,
+  backUpNow, deleteSnapshot, getBackupSettings, getSnapshot, getSnapshotDramas, importBackupFileDramas,
+  listBackupFileDramas, restoreSnapshotDrama,
   updateBackupSettings,
 } from './backups'
 import { ApiError } from './client'
@@ -91,5 +92,21 @@ describe('backups api', () => {
       status: 422, code: 'invalid_input', message: "That backup folder doesn't exist. Create it first.",
     })
     expect(getPcMode()).toBe('unknown')
+  })
+
+  it('import list and import are multipart with the PC header; ids repeat, confirmation is included', async () => {
+    const { mock, f } = reply(200, {})
+    await listBackupFileDramas(new Blob(['zip']), f)
+    await importBackupFileDramas(new Blob(['zip']), [7, 9], f)
+    const [[listUrl, listInit], [url, init]] = mock.mock.calls
+    expect(listUrl).toBe('/api/backups/import/list')
+    expect((listInit.body as FormData).get('file')).toBeInstanceOf(Blob)
+    expect(url).toBe('/api/backups/import')
+    const form = init.body as FormData
+    expect(form.getAll('drama_ids')).toEqual(['7', '9'])
+    expect(form.get('confirm')).toBe('true')
+    expect(form.get('confirm_text')).toBe('RESTORE')
+    expect(header(init, 'X-Baihe-Local')).toBe('1')
+    expect(header(init, 'Content-Type')).toBeNull()
   })
 })
