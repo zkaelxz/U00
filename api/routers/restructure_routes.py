@@ -4,22 +4,20 @@ api/routers/restructure_routes.py -- structural line changes for one drama
 (read-only preview + a job that re-segments and saves; parity R47 adds an
 LLM preview job, read back with GET .../resegment/preview-llm and applied
 as shown with `use_preview: true`), and Version
-history list/restore. Thin wrapper over services/restructure_service.py.
+history restore (the list is GET /api/review/dramas/{id}/history). Thin wrapper over services/restructure_service.py.
 
 Every write carries `expected_line_ids` (409 when the drama's lines changed),
 takes a history snapshot first, and is refused (409) while a job runs on the
 drama. Deleting a line needs confirm=true; re-segmentation needs it when
 translated/flagged/noted lines could be split.
 """
-from typing import List
-
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, ResegmentLlmPreview, ResegmentLlmPreviewStart,
                          ResegmentPreview, ResegmentStart, ResegmentStarted,
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
-                         RestructureSplit, ReviewRecordsHistoryItem)
+                         RestructureSplit)
 from services import restructure_service as svc
 
 router = APIRouter(prefix="/api/restructure", tags=["restructure"])
@@ -90,13 +88,6 @@ def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(
     return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
                                     use_llm=body.use_llm, engine=body.engine, model=body.model,
                                     use_preview=body.use_preview)
-
-
-@router.get("/dramas/{drama_id}/history", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsHistoryItem],
-            summary="Version-history snapshots, newest first",
-            responses={404: {"model": ErrorResponse}})
-def get_history(drama_id: int = Path(ge=1)):
-    return svc.list_versions(drama_id)
 
 
 @router.post("/dramas/{drama_id}/history/{history_id}/restore", dependencies=[require_permission("lines.edit")],

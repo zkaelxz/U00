@@ -9,7 +9,7 @@ on 2026-09-29):
 
 - reads (overview, notes, media availability, vocab list, wiki list):
   `library.read`;
-- caption tracks, the audio-only readout and every export (vocab CSV,
+- caption tracks and every export (vocab CSV,
   .apkg, wiki Markdown): `lines.read`;
 - reader-data writes (progress, notes, lookup, rich-export queue, clear
   wiki): `lines.edit`;
@@ -45,7 +45,7 @@ from api.llm_slots import LLM_MAX_IN_FLIGHT, _ACTIVE_CALLERS, _ACTIVE_LOCK, _SLO
 from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
                          ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability,
                          ReaderNotes, ReaderNotesRequest, ReaderOverview, ReaderPageResponse,
-                         ReaderProgress, ReaderProgressRequest, ReaderReadout, ReaderRecap,
+                         ReaderProgress, ReaderProgressRequest, ReaderRecap,
                          ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
@@ -154,13 +154,6 @@ def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
         raise NotFoundError(f"This drama has no {track} caption track.")
     return Response(content=tracks[track], media_type="text/vtt; charset=utf-8",
                     headers={"X-Content-Type-Options": "nosniff"})
-
-
-@router.get("/dramas/{drama_id}/captions/{track}/readout", dependencies=[require_permission("lines.read")], response_model=ReaderReadout,
-            summary="The caption text as an unsynced list (audio-only fallback)",
-            responses=_READ_ERRS)
-def get_caption_readout(track: Track, drama_id: int = Path(ge=1)):
-    return reader_service.get_caption_readout(drama_id, track)
 
 
 # --- click-to-define and vocab -------------------------------------------------

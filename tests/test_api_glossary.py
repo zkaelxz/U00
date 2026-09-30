@@ -66,18 +66,6 @@ class TestTerms:
         assert body["enforce_exact"] is True
         assert len(client.get(_url(did, "terms")).json()) == 1
 
-    def test_delete_needs_confirm(self, client, isolated_db):
-        did = _drama(isolated_db)
-        tid = client.post(_url(did, "terms"), json=FULL).json()["id"]
-        r = client.delete(_url(did, f"terms/{tid}"))
-        assert r.status_code == 422
-        assert _error(r)["code"] == "validation_error"
-        assert len(client.get(_url(did, "terms")).json()) == 1
-        r = client.delete(_url(did, f"terms/{tid}") + "?confirm=true")
-        assert r.status_code == 200
-        assert r.json() == {"deleted": True}
-        assert client.get(_url(did, "terms")).json() == []
-
     def test_no_series(self, client, isolated_db):
         did = _drama(isolated_db, series=False)
         assert client.get(_url(did, "terms")).json() == []
@@ -92,8 +80,8 @@ class TestTerms:
         assert client.get(_url(b, "terms")).json() == []
         r = client.post(_url(b, "terms"), json={"id": tid, "term_translation": "x"})
         assert r.status_code == 404
-        r = client.delete(_url(b, f"terms/{tid}") + "?confirm=true")
-        assert r.status_code == 404
+        r = client.post(_url(b, "terms/bulk-delete"), json={"term_ids": [tid], "confirm": True})
+        assert r.json() == {"deleted": [], "not_found": [tid]}
         assert client.get(_url(a, "terms")).json()[0]["term_translation"] == "Shen Qingyi"
 
     def test_conflict_on_rename(self, client, isolated_db):
@@ -134,7 +122,8 @@ class TestTerms:
     def test_unknown_drama(self, client):
         assert client.get(_url(999, "terms")).status_code == 404
         assert client.post(_url(999, "terms"), json=FULL).status_code == 404
-        assert client.delete(_url(999, "terms/1") + "?confirm=true").status_code == 404
+        assert client.post(_url(999, "terms/bulk-delete"),
+                           json={"term_ids": [1], "confirm": True}).status_code == 404
         assert client.get(_url(999, "instructions")).status_code == 404
         r = client.post(_url(999, "instructions/project"), json={"text": "x"})
         assert r.status_code == 404

@@ -19,8 +19,8 @@ No Streamlit import, no HTTP types: takes plain values, returns an HTML
 string, so `cli.py` or a script could call it too.
 
 M4 (Streamlit retirement): every other piece of logic the Reader tab
-renders now also lives here -- caption tracks, media availability, the
-series glossary view, reading progress, notes, click-to-define lookups
+renders now also lives here -- caption tracks, media availability,
+reading progress, notes, click-to-define lookups
 (an explicit action, never part of get_reader_page), the rich-Anki
 queue, vocab CSV/.apkg export, story tools, the universe wiki and Q&A.
 Conventions shared by all of them:
@@ -44,9 +44,9 @@ scoped to the current page's last line; a route or React caller that
 wants spoiler-free must pass that boundary explicitly.
 
 Permission contract for routes (user decision, 2026-09-29):
-  - reads (page, overview, notes, vocab list, wiki list, glossary,
+  - reads (page, overview, notes, vocab list, wiki list,
     media availability): `library.read`;
-  - caption tracks/readout, media streaming and every export
+  - caption tracks, media streaming and every export
     (CSV, .apkg, wiki Markdown): `lines.read`;
   - reader-data writes (progress, notes, rich-export queue, clear wiki):
     `lines.edit`;
@@ -313,30 +313,6 @@ def get_caption_tracks(drama_id: int) -> dict:
     return {"drama_id": drama_id, "tracks": caption_tracks(_lines(drama_id))}
 
 
-def caption_readout(lines, track: str = "Source") -> list:
-    """The audio-only fallback (Step 45): the same caption text as a
-    plain, playback-unsynced list, since an audio player can't overlay
-    timed captions. [{line_id, idx, start, timestamp, text}] for every
-    line with text on the chosen track; timestamp is "MM:SS" as the tab
-    shows it."""
-    field = CAPTION_TRACK_FIELDS.get(track)
-    if field is None:
-        raise InvalidInputError("track must be one of: " + ", ".join(CAPTION_TRACK_FIELDS))
-    out = []
-    for ln in lines:
-        text = f"{ln.en}  \n{ln.zh}" if field == "bilingual" else getattr(ln, field)
-        if text.strip():
-            out.append({"line_id": ln.id, "idx": ln.idx, "start": ln.start,
-                        "timestamp": core_module.fmt_ts(ln.start)[3:8], "text": text})
-    return out
-
-
-def get_caption_readout(drama_id: int, track: str = "Source") -> dict:
-    _require_drama(drama_id)
-    return {"drama_id": drama_id, "track": track,
-            "lines": caption_readout(_lines(drama_id), track)}
-
-
 def _confined_file(base: str, name, allowed: tuple):
     """The absolute path of `name` inside the drama folder `base`, or None.
     Same confinement as media_playback_service.resolve_media (realpath +
@@ -380,7 +356,7 @@ def get_media_availability(drama_id: int) -> dict:
     """What the Watch / listen panel can show, without any path:
     {drama_id, original: "video"|"audio"|None, dub, narration,
     caption_tracks: [labels], captions_overlay}. captions_overlay is
-    False for an audio-only original (use get_caption_readout instead)."""
+    False for an audio-only original."""
     drama = _require_drama(drama_id)
     media = _media_paths(drama_id, drama)
     original = media.get("original", (None, None))[0]
@@ -402,25 +378,6 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
     if found is None:
         raise NotFoundError(f"This drama has no {kind} media file.")
     return found
-
-
-# ---------------------------------------------------------------------------
-# Series glossary view
-# ---------------------------------------------------------------------------
-
-def get_series_glossary(drama_id: int) -> dict:
-    """{drama_id, series_id, terms: [{term_original, term_translation,
-    notes}]} -- read-only. series_id None (and no terms) for a drama not
-    in a series."""
-    drama = _require_drama(drama_id)
-    series_id = drama.get("series_id")
-    terms = []
-    if series_id:
-        terms = [{"term_original": t.get("term_original"),
-                  "term_translation": t.get("term_translation"),
-                  "notes": t.get("notes") or None}
-                 for t in db.list_glossary_terms(series_id)]
-    return {"drama_id": drama_id, "series_id": series_id, "terms": terms}
 
 
 # ---------------------------------------------------------------------------
