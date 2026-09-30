@@ -20,6 +20,11 @@ on:
   push:
     tags:
       - "installer-v*"
+    # TEMP (PR #498): first run from the PR branch, since workflow_dispatch
+    # needs the file on the default branch and this session can't push tags.
+    # Removed again once the run is green.
+    branches:
+      - step-80b-windows-installer
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
