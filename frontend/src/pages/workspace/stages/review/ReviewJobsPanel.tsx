@@ -5,15 +5,14 @@ import { getTranslateConfig } from '../../../../api/translateStage'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
-import { humanize } from '../../../../components/labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
-import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
+import { EngineModelFields } from './EngineModelFields'
 import { ReviewFindings } from './ReviewFindings'
 import {
   EMPTY_CHECK_FORM,
@@ -34,60 +33,6 @@ const KINDS: { kind: ReviewJobKind; label: string }[] = [
   { kind: 'notes', label: 'Generate notes' },
   { kind: 'flag', label: 'Flag lines for a second look' },
 ]
-
-// Engine and model pickers shared by the check jobs and fix-flagged. Paid
-// engines stay behind the server's engines.paid check; this only chooses.
-function EngineModelFields({
-  engines,
-  defaultEngine,
-  engine,
-  model,
-  help,
-  onChange,
-}: {
-  engines: TranslateEngine[]
-  defaultEngine: string
-  engine: string
-  model: string
-  help: string
-  onChange: (next: { engine: string; model: string }) => void
-}) {
-  const models = engines.find((e) => e.name === (engine || defaultEngine))?.models ?? null
-  const engineLabel = (name: string) => {
-    const e = engines.find((x) => x.name === name)
-    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : humanize('engine', name)
-  }
-  return (
-    <>
-      <Field label="Engine" help={help}>
-        <select value={engine} onChange={(e) => onChange({ engine: e.target.value, model: '' })}>
-          <option value="">Default{defaultEngine ? ` (${humanize('engine', defaultEngine)})` : ''}</option>
-          {engines.map((e) => (
-            <option key={e.name} value={e.name}>
-              {engineLabel(e.name)}
-            </option>
-          ))}
-        </select>
-      </Field>
-      {models && models.length > 0 ? (
-        <Field label="Model">
-          <select value={model} onChange={(e) => onChange({ engine, model: e.target.value })}>
-            <option value="">Engine default</option>
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : (
-        <Field label="Model" help="Blank uses the engine's default model.">
-          <input value={model} maxLength={200} onChange={(e) => onChange({ engine, model: e.target.value })} />
-        </Field>
-      )}
-    </>
-  )
-}
 
 interface Props {
   dramaId: number
