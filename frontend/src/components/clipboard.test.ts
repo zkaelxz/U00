@@ -6,13 +6,15 @@ import { copyText } from './clipboard'
 function fakeDocument(execResult: boolean | (() => boolean)) {
   const removed: unknown[] = []
   const ta = { value: '', style: {}, setAttribute: vi.fn(), select: vi.fn(), remove: vi.fn(() => removed.push(ta)) }
+  const button = { focus: vi.fn() }
   const doc = {
+    activeElement: button,
     createElement: vi.fn(() => ta),
     body: { appendChild: vi.fn() },
     execCommand: vi.fn(typeof execResult === 'function' ? execResult : () => execResult),
   }
   vi.stubGlobal('document', doc)
-  return { doc, ta, removed }
+  return { doc, ta, removed, button }
 }
 
 afterEach(() => {
@@ -36,6 +38,13 @@ describe('copyText', () => {
     expect(ta.value).toBe('hello')
     expect(doc.execCommand).toHaveBeenCalledWith('copy')
     expect(removed).toEqual([ta])
+  })
+
+  it('gives focus back to whatever had it (the Copy button) after the fallback', async () => {
+    vi.stubGlobal('navigator', {})
+    const { button } = fakeDocument(true)
+    await copyText('hello')
+    expect(button.focus).toHaveBeenCalled()
   })
 
   it('falls back when writeText rejects', async () => {

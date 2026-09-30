@@ -34,7 +34,7 @@ export function ExportTextResult({ text, filename, mime }: { text: string; filen
           Download {filename}
         </a>
         {status !== null && (
-          <span role="status">{status ? 'Copied.' : "Couldn't copy. Select the text and copy it instead."}</span>
+          <span role="status">{status ? 'Copied.' : "Couldn't copy automatically. The text below is selected: press Ctrl+C, or long-press on a phone."}</span>
         )}
       </div>
       <pre ref={preRef} className="export-text" data-testid="export-text" tabIndex={0}>{text}</pre>

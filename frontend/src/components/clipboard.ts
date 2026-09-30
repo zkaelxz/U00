@@ -12,7 +12,9 @@ export async function copyText(text: string): Promise<boolean> {
     // fall through to the textarea route
   }
   let ta: HTMLTextAreaElement | null = null
+  let focused: Element | null = null
   try {
+    focused = document.activeElement
     ta = document.createElement('textarea')
     ta.value = text
     ta.setAttribute('readonly', '')
@@ -25,5 +27,7 @@ export async function copyText(text: string): Promise<boolean> {
     return false
   } finally {
     ta?.remove()
+    // select() moved focus to the textarea: give it back (keyboard users).
+    ;(focused as HTMLElement | null)?.focus?.()
   }
 }

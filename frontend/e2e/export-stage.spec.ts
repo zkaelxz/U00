@@ -210,7 +210,7 @@ test('when nothing can copy, Copy selects the text and says so', async ({ page }
   page.on('pageerror', (e) => errors.push(e.message))
   await exportAss(page, true)
   await page.getByRole('button', { name: 'Copy', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: "Couldn't copy. Select the text and copy it instead." }))
+  await expect(page.getByRole('status').filter({ hasText: "Couldn't copy automatically. The text below is selected" }))
     .toBeVisible()
   const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
   expect(selected).toContain('[Script Info]')
