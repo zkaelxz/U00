@@ -352,6 +352,50 @@ class TestWheels:
         assert manifest["installed_size_estimate_bytes"] == 1234
 
 
+class TestStageService:
+    """payload/service/: the files service.py copies into its admin-only folder."""
+
+    def _stage(self, tmp_path, monkeypatch):
+        z = _fake_embed_zip(tmp_path)
+        real, digest = bi.prepare_python, hashlib.sha256(z.read_bytes()).hexdigest()
+        monkeypatch.setattr(bi, "prepare_python", lambda zp, dest: real(zp, dest, digest))
+        winsw = tmp_path / "winsw.exe"
+        winsw.write_bytes(b"winsw")
+        monkeypatch.setattr(bi, "WINSW_SHA256", hashlib.sha256(b"winsw").hexdigest())
+        payload = tmp_path / "payload"
+        bi.stage_service(payload, z, winsw)
+        return payload / "service"
+
+    def test_pins_are_sha256(self):
+        assert len(bi.WINSW_SHA256) == 64 and all(c in "0123456789abcdef" for c in bi.WINSW_SHA256)
+        assert bi.WINSW_URL.startswith("https://") and bi.WINSW_VERSION in bi.WINSW_URL
+        assert "MIT License" in bi.WINSW_LICENSE.read_text(encoding="utf-8")
+
+    def test_layout(self, tmp_path, monkeypatch):
+        service = self._stage(tmp_path, monkeypatch)
+        assert (service / "wrapper" / "BaiheStudio.exe").read_bytes() == b"winsw"
+        assert (service / "wrapper" / "licenses" / "WinSW-LICENSE.txt").is_file()
+        assert (service / "helper" / "python" / "python.exe").is_file()
+        assert ((service / "helper" / "lib" / "installer" / "service.py").read_bytes()
+                == (Path(bi.INSTALLER_DIR) / "service.py").read_bytes())
+
+    def test_helper_interpreter_loads_nothing_from_user_writable_folders(self, tmp_path, monkeypatch):
+        helper = self._stage(tmp_path, monkeypatch) / "helper" / "python"
+        pth = (helper / "python312._pth").read_bytes().decode("ascii")
+        assert pth.split("\r\n")[:2] == ["python312.zip", "."]
+        assert "import site" not in pth and "site-packages" not in pth and "app" not in pth
+        assert not (helper / "Lib").exists()
+
+    def test_service_script_ships_only_there(self):
+        assert "service.py" not in bi.RUNTIME_INSTALLER_FILES
+
+    def test_refuses_an_unpinned_wrapper(self, tmp_path):
+        winsw = tmp_path / "winsw.exe"
+        winsw.write_bytes(b"something else")
+        with pytest.raises(bi.BuildError, match="winsw.exe: SHA-256"):
+            bi.stage_service(tmp_path / "payload", tmp_path / "z.zip", winsw)
+
+
 class TestVersionAndIscc:
     @pytest.mark.parametrize("version,expected", [
         ("0.1.0", "0.1.0.0"), ("1.2", "1.2.0.0"), ("0.1.0-dev", "0.1.0.0"),

@@ -126,6 +126,17 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_installer_service_helper(self):
+        # installer/service.py's loopback health check goes through an
+        # opener's .open(), which the name-based check above doesn't match,
+        # so every .open( call is checked for a timeout here too.
+        path = os.path.join(PROJECT_ROOT, "installer", "service.py")
+        assert _find_requests_calls_missing_timeout(path) == []
+        src = open(path, encoding="utf-8").read()
+        opens = re.findall(r"\.open\([^)]*\)", src)
+        assert opens, "the check no longer sees the health call"
+        assert all("timeout=" in call for call in opens), opens
+
     def test_source_probe_script(self):
         # The manual reachability probe makes real GETs (session.request).
         problems = _find_requests_calls_missing_timeout(

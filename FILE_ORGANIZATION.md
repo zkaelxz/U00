@@ -54,11 +54,14 @@ baihe-subtitler/
 │   ├── baihe.iss                 Inno Setup 6 script: per-user install, data-folder page,
 │   │                             shortcuts, uninstaller (user data kept unless a box is ticked)
 │   ├── build_installer.py        build-time: stages the app + frontend/dist (no .env/library/
-│   │                             tests), pinned embeddable Python, core wheels, manifest; runs ISCC
+│   │                             tests), pinned embeddable Python, core wheels, WinSW, manifest; runs ISCC
 │   ├── launcher.py               runtime (ships as app\installer\): the Start-menu shortcut --
 │   │                             starts `python -m api` on loopback, opens the window; --stop
 │   ├── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
 │   │                             pip from its wheel, installs requirements-core offline
+│   ├── service.py                runtime (elevated; ships in the payload's service\helper\, not app\): the
+│   │                             BaiheStudio boot service (WinSW, virtual account, 127.0.0.1:8600 only)
+│   ├── licenses/WinSW-LICENSE.txt   MIT licence shipped with the WinSW wrapper
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
 ├── deploy/caddy/Caddyfile.template   Caddy config template for household access: TLS, proxy to the
