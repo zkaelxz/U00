@@ -434,6 +434,66 @@ class TestOwnLinesOnly:
         assert projected["flags_needing_recheck"] == [rows[1]["id"]]
         assert "recheck" in jobs_service.derive_outcome("done", None, projected)[1]
 
+    @pytest.mark.parametrize("edit,expected", [
+        ({"start": 40.0, "end": 44.5}, {"start": 5.0, "end": 9.0}),
+        ({"flag": "manual", "flag_note": "check"}, {"flag": "", "flag_note": ""}),
+    ], ids=["timing-only", "flag-changed"])
+    def test_timing_or_flag_change_after_the_read_skips_the_flag_and_reports(
+            self, isolated_db, monkeypatch, edit, expected):
+        did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
+
+        def flag_all(lines, field="en"):
+            for ln in lines:
+                ln.flag, ln.flag_note = "dense", "too fast"
+            return len(lines)
+        monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
+        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        edited = []
+
+        def load_then_edit(drama_id, *a, **kw):
+            out = real_load(drama_id, *a, **kw)
+            if not edited:
+                edited.append(db.update_line_fields_if(drama_id, rows[1]["id"], edit, expected))
+            return out
+
+        def finish(*a, **kw):
+            monkeypatch.setattr(db, "load_line_objects", load_then_edit)
+            return real_finish(*a, **kw)
+        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        p, ids = _preview_ids(did)
+        job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                                   engine_name="test_offline")["job_id"])
+        assert edited and edited[0]
+        after = {r["id"]: r for r in db.load_lines(did)}
+        assert after[rows[0]["id"]]["flag"] == "dense"
+        assert after[rows[1]["id"]]["flag"] != "dense"
+        if "flag" in edit:
+            assert after[rows[1]["id"]]["flag"] == "manual"
+        else:
+            assert (after[rows[1]["id"]]["start"], after[rows[1]["id"]]["end"]) == (40.0, 44.5)
+            assert not after[rows[1]["id"]]["flag"]
+        assert after[rows[1]["id"]]["en"] == "[TEST] 林晚二"
+        assert job["result"]["flags_needing_recheck"] == [rows[1]["id"]]
+
+    def test_flag_save_guards_the_lines_timing_as_well_as_its_text(self, isolated_db, monkeypatch):
+        # Dropping start/end from guard_fields would let a timing edit
+        # through; this fails then.
+        did, _sid, rows = _seed([("林晚一", "one")], terms=[LIN])
+        calls = []
+        real_save = db.save_lines
+
+        def spy(drama_id, lines, **kw):
+            calls.append(kw)
+            return real_save(drama_id, lines, **kw)
+        monkeypatch.setattr(db, "save_lines", spy)
+        lines = db.load_line_objects(did)
+        bulk_translate.finish_translation_run(
+            did, lines, None, "test_offline", "", [], [],
+            enforce_ids={rows[0]["id"]}, flags_needing_recheck=set())
+        guarded = [kw for kw in calls if kw.get("only_if_unchanged")
+                   and kw.get("fields") == ("flag", "flag_note")]
+        assert guarded and set(guarded[0]["guard_fields"]) >= {"en", "start", "end"}
+
     def test_flag_guard_treats_empty_and_missing_english_alike(self, isolated_db):
         # A content-blocked line has no English: its flag must still be saved.
         did, _sid, _rows = _seed([("一", "")], series=None)

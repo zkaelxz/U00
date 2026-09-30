@@ -758,8 +758,8 @@ def cmd_translate(args):
             line_scoped=target_ids is not None, enforce_ids=target_ids,
             flags_needing_recheck=recheck)
         if recheck:
-            print(f"\n#{d['id']} {len(recheck)} line(s) changed while their reading-speed flag "
-                  f"was being saved; the flag was not saved, recheck line id(s) "
+            print(f"\n#{d['id']} {len(recheck)} line(s) changed while the job ran, so their "
+                  f"review flags weren't saved; recheck line id(s) "
                   f"{', '.join(map(str, sorted(recheck)))}.")
         for ev in getattr(engine, "events", None) or []:
             print(f"\n#{d['id']} switched from {ev['from']} to {ev['to']} ({ev['reason']}).")
