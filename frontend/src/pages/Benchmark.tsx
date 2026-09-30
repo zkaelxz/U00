@@ -31,7 +31,8 @@ import './benchmark/benchmark.css'
 
 const RUNS_LIMIT = 50
 
-export default function BenchmarkPage() {
+/** compare: the raw ?compare= value of a Model health link; RunCard applies it once. */
+export default function BenchmarkPage({ compare }: { compare?: string } = {}) {
   const pc = usePcOnly()
   const phone = useMediaQuery('(max-width: 640px)')
   const [options, setOptions] = useState<BenchmarkOptions | null>(null)
@@ -114,6 +115,7 @@ export default function BenchmarkPage() {
           running={running}
           onStarted={onStarted}
           onStop={stop}
+          compare={compare}
         />
       )}
       {finishedText && (

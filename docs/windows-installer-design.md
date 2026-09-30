@@ -6,7 +6,7 @@ document predates the React + FastAPI migration and described a Streamlit
 app. This version describes the app as it is now: `python -m api` serves
 the API and the prebuilt React screens from one process on
 `http://127.0.0.1:8600/`. Read it with
-[`windows-installer-research-notes.md`](windows-installer-research-notes.md),
+[`archive/windows-installer-research-notes.md`](archive/windows-installer-research-notes.md),
 whose 2026-09-28 decisions are folded in below.
 
 Code: [`installer/`](../installer/) (Inno Setup script, payload builder, and

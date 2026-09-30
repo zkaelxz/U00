@@ -510,6 +510,27 @@ class TestChapterImport:
         assert result["cancelled"] and len(t.calls) == 1
         background_jobs.clear_job(job)
 
+    def test_import_trims_the_cache_after_release(self, isolated_db, monkeypatch):
+        """Roadmap 111: the size ceiling runs once the import's own
+        temporary rows are released, even when the import is cancelled."""
+        import background_jobs
+        from sources import cache as cache_mod
+        calls = []
+        monkeypatch.setattr(cache_mod.RawCache, "release", lambda self: calls.append("release"))
+        monkeypatch.setattr(cache_mod.RawCache, "enforce_ceiling",
+                            lambda self: calls.append("ceiling"))
+        clock = FakeClock()
+        t = ScriptedTransport({"https://img.fake.invalid/c1/0.png": image(600, 900, 0)}, clock)
+        adapter = FakeComicSource(make_client("fake_comic", t, clock), chapters=[("c1", "第1话")])
+        job = "source_import_ceiling"
+        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                      "cancel_requested": True, "result": None}
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        pipeline.run_import_job(job, "fake_comic", adapter.get_chapters("s"), drama_id,
+                                adapter=adapter)
+        assert calls == ["release", "ceiling"]
+        background_jobs.clear_job(job)
+
     def test_a_real_text_source_lands_in_the_novel_import_path_unchanged(self, isolated_db):
         """Step 23e's own manual-check pattern, run as a real automated
         test instead: a text-content adapter's get_chapter_text() output

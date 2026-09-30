@@ -48,7 +48,9 @@ export async function guard(page: Page): Promise<string[]> {
 
 export interface Mocks {
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
-  state: { entries: ReturnType<typeof character>[]; jobDone: boolean; extracted: boolean }
+  // started: an extraction job exists (set by the extract POST, or by a test
+  // that opens the panel while one is already running, to check reattach).
+  state: { entries: ReturnType<typeof character>[]; jobDone: boolean; extracted: boolean; started: boolean }
 }
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
@@ -60,6 +62,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
       entries: [character(), character({ speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan', clone_engine: 'omnivoice', voice_design: 'low, calm', line_count: 9 })],
       jobDone: false,
       extracted: false,
+      started: false,
     },
   }
   const record = (route: Route) => {
@@ -111,9 +114,12 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
     route.fulfill({ status: 200, contentType: 'audio/wav', body: Buffer.from('RIFF0000WAVE') }))
   await page.route('**/api/characters/dramas/1/reference-clips/extract', (route) => {
     record(route)
+    m.state.started = true
     return json(route, { job_id: 'voiceref_1' })
   })
   await page.route('**/api/jobs/voiceref_1', (route) => {
+    // No such job until one is started (the panel reads this id on mount).
+    if (!m.state.started) return json(route, { error: { code: 'not_found', message: 'No job.' } }, 404)
     const done = m.state.jobDone
     if (done) m.state.extracted = true
     return json(route, {
