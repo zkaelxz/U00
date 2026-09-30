@@ -122,21 +122,26 @@ def _extended_limit_info(flags):
     return info
 
 
-def create_kill_on_close_job(name=None, kernel32=None):
-    """A new Job Object (named, or anonymous if `name` is empty) whose
-    processes all end when its last handle closes. Returns the handle, or
-    None if Windows refused (or not on Windows). The caller owns it."""
+def create_kill_on_close_job(process_handle, name=None):
+    """A new Job Object (named, or anonymous if `name` is empty) holding
+    the process `process_handle` -- and so every process it starts from
+    then on -- whose processes all end when its last handle closes or it is
+    terminated. Returns the job handle (the caller owns it), or None if
+    Windows refused or not on Windows. Never raises. Also used for one
+    child's own job (services/lncrawl_service.py), which nests inside the
+    server's."""
     if not _is_windows():
         return None
     try:
         import ctypes
-        k = kernel32 or _kernel32()
+        k = _kernel32()
         job = k.CreateJobObjectW(None, name or None)
         if not job:
             return None
         info = _extended_limit_info(_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
-        if not k.SetInformationJobObject(job, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-                                         ctypes.byref(info), ctypes.sizeof(info)):
+        if not (k.SetInformationJobObject(job, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                                          ctypes.byref(info), ctypes.sizeof(info))
+                and k.AssignProcessToJobObject(job, process_handle)):
             k.CloseHandle(job)
             return None
         return job
@@ -155,17 +160,13 @@ def contain_children(name=None) -> bool:
         return _job_handle is not None
     name = name or os.environ.get(GROUP_NAME_ENV, "")
     try:
-        k = _kernel32()
-        job = create_kill_on_close_job(name, kernel32=k)
-        if not job:
-            return False
-        if not k.AssignProcessToJobObject(job, k.GetCurrentProcess()):
-            k.CloseHandle(job)
-            return False
-        _job_handle = job
-        return True
+        job = create_kill_on_close_job(_kernel32().GetCurrentProcess(), name)
     except Exception:
         return False
+    if not job:
+        return False
+    _job_handle = job
+    return True
 
 
 def handle_console_event(event, on_close) -> bool:

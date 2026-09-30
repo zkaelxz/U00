@@ -358,7 +358,7 @@ class TestProcessGuard:
         monkeypatch.setattr(process_guard, "_console_handler", None)
         monkeypatch.setenv(process_guard.GROUP_NAME_ENV, "Local\\BaiheStudio-test")
         assert process_guard.contain_children() is False
-        assert process_guard.create_kill_on_close_job() is None
+        assert process_guard.create_kill_on_close_job(555) is None
         assert process_guard.install_console_close_handler(lambda: None) is False
         assert process_guard.terminate_group("Local\\BaiheStudio-test") is False
         assert process_guard.add_process_to_group("Local\\BaiheStudio-test", os.getpid()) is False
@@ -392,6 +392,13 @@ class TestProcessGuard:
         if fail != "create":
             assert ("close", 101) in win32.calls
         assert not any(c[0] == "assign" for c in win32.calls) or fail == "assign"
+
+    def test_one_childs_own_job(self, win32):
+        # lncrawl_service's per-run job: the same kill-on-close job, holding
+        # that child (it nests inside the server's).
+        assert process_guard.create_kill_on_close_job(555) == 101
+        assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, 555)]
+        assert process_guard._job_handle is None
 
     def test_console_close_runs_the_clean_stop(self, win32):
         stops = []
