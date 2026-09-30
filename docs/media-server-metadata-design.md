@@ -133,8 +133,11 @@ A would be the first thing Baihe writes besides subtitles and video into the
 library folder, so it should keep Step 39's "never overwrite unless asked"
 rule for the `.nfo` and poster files as well.
 
-Open question for the user (product decision): whether A should list
-people as actors only (from `dramas.voice_actors`) or as actor plus
-character roles (from each drama's `characters` rows where `voice_actor` is
-set). Roles are richer but only as complete as the character list; the
-safer default is roles where known, plus any remaining names as actors.
+Decided by the user (2026-09-30): option A lists people as **character
+roles where known, plus the remaining names as plain actors**. Each drama's
+`characters` rows with a `voice_actor` become `<actor>` entries with a
+`<role>`; any other name in `dramas.voice_actors` becomes an `<actor>` with
+no role, so nobody already credited is dropped. A name listed both ways
+appears once, as the role: compare after trimming, and also against
+`voice_actors_romanized`, so the same person isn't listed twice in two
+spellings. That de-duplication gets its own test when A is built.
