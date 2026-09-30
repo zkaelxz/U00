@@ -668,11 +668,11 @@ def _ro_uri(path: str) -> str:
     return f"file:{quote(os.path.abspath(path))}?mode=ro"
 
 
-def _extract_db(zf: zipfile.ZipFile, dest_dir: str) -> str:
+def _extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
     (quick_check) before anything reads it."""
     dest = os.path.join(dest_dir, "library.db")
-    if zf.getinfo("library.db").file_size > _MAX_MEMBER_BYTES:
+    if zf.getinfo("library.db").file_size > (max_bytes or _MAX_MEMBER_BYTES):
         raise InvalidInputError(_BAD_SNAPSHOT)
     with zf.open("library.db") as src, open(dest, "wb") as out:
         shutil.copyfileobj(src, out, 1024 * 1024)
@@ -993,17 +993,18 @@ def _live_ids(dst, table: str) -> set:
     return {r[0] for r in dst.execute(f'SELECT id FROM "{table}"')}
 
 
-def _free_series_name(dst, name) -> str:
-    base = (name or "Series").strip() or "Series"
-    candidate = f"{base} (restored {datetime.date.today().isoformat()})"
+def _free_series_name(dst, name, label="restored") -> str:
+    base = (str(name) if name else "Series").strip() or "Series"
+    today = datetime.date.today().isoformat()
+    candidate = f"{base} ({label} {today})"
     n = 2
     while dst.execute("SELECT 1 FROM series WHERE name = ?", (candidate,)).fetchone():
-        candidate = f"{base} (restored {datetime.date.today().isoformat()}, {n})"
+        candidate = f"{base} ({label} {today}, {n})"
         n += 1
     return candidate
 
 
-def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
+def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=None) -> tuple:
     """(live series id or None, {old series_character id: live id},
     outcome "none" | "linked" | "recreated" | "dropped_private").
     A live series with the snapshot's id that is now someone else's
@@ -1017,13 +1018,24 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
     different one), and a name match alone never links. In every other case
     the series comes back from the snapshot as a new series (renamed
     "... (restored <date>)" if its name is taken) with its glossary,
-    characters and memory."""
+    characters and memory.
+    import_as (see _copy_drama) skips all of that: the series is always
+    created new, owned by the importing user, once per source series."""
     if series_id is None:
         return None, {}, "none"
     srows = _rows(src, "series", "id = ?", (series_id,))
     if not srows:
         return None, {}, "none"
     series = srows[0]
+    if import_as is not None:
+        if series_id not in import_as["series"]:
+            row = {k: v for k, v in series.items() if k != "id"}
+            row["owner_user_id"] = import_as["owner_user_id"]
+            row["is_private"] = import_as["is_private"]
+            row["name"] = _free_series_name(dst, row.get("name"), "imported")
+            import_as["series"][series_id] = _insert_series(src, dst, series_id, row, counts)
+        live_id, char_map = import_as["series"][series_id]
+        return live_id, char_map, "recreated"
     live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0), name FROM series "
                        "WHERE id = ?", (series_id,)).fetchone()
     if live is not None and live[2] and drama_owner is not None and drama_owner != live[1]:
@@ -1039,6 +1051,13 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
         row["owner_user_id"] = None
     if dst.execute("SELECT 1 FROM series WHERE name = ?", (row.get("name"),)).fetchone():
         row["name"] = _free_series_name(dst, row.get("name"))
+    live_id, char_map = _insert_series(src, dst, series_id, row, counts)
+    return live_id, char_map, "recreated"
+
+
+def _insert_series(src, dst, series_id, row, counts) -> tuple:
+    """Inserts the series row and its glossary, characters and memory;
+    (live series id, {old series_character id: live id})."""
     live_id = _insert(dst, "series", row, _columns(dst, "series"))
     counts["series"] = 1
     char_map = {}
@@ -1053,13 +1072,18 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
                 char_map[old] = new
             n += 1
         counts[table] = n
-    return live_id, char_map, "recreated"
+    return live_id, char_map
 
 
-def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
+def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
-    series outcome -- see _resolve_series)."""
+    series outcome -- see _resolve_series).
+    import_as (a backup from another library, see backup_import_service) =
+    {"owner_user_id", "is_private", "series": {}}: the owner and privacy
+    come from it and never from the file, the series is always new, the
+    Notion page link is dropped, and per-profile tables (profile ids mean
+    something else in this library) are not copied."""
     drama = _rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
@@ -1068,10 +1092,14 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     users = {r[0] for r in dst.execute("SELECT id FROM users")}
     profiles = _live_ids(dst, "profiles")
     row = dict(drama)
-    if row.get("owner_user_id") not in users:
+    if import_as is not None:
+        row["owner_user_id"] = import_as["owner_user_id"]
+        row["is_private"] = import_as["is_private"]
+        row["notion_page_id"] = None
+    elif row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
     series_id, char_map, series_outcome = _resolve_series(
-        src, dst, drama.get("series_id"), row["owner_user_id"], users, counts)
+        src, dst, drama.get("series_id"), row["owner_user_id"], users, counts, import_as)
     row["series_id"] = series_id
     if series_id is not None:
         row["is_private"] = 0   # a drama in a series follows the series (decision 4)
@@ -1089,6 +1117,9 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     line_map, page_map = {}, {}
     for table in _CHILD_TABLES:
         if not _has_table(dst, table):
+            continue
+        if import_as is not None and table in _PROFILE_TABLES:
+            counts[table] = 0
             continue
         live_cols = _columns(dst, table)
         n = 0

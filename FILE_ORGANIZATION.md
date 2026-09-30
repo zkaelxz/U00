@@ -186,6 +186,9 @@ baihe-subtitler/
 │   │                             each of the last 2 weeks), due-check (startup + hourly via
 │   │                             api/background.py), restore one drama from a chosen copy (same id,
 │   │                             or a new "(restored <date>)" copy); router: backup_routes.py
+│   ├── backup_import_service.py  Step 143: import chosen dramas from an uploaded backup file (snapshot
+│   │                             copy, manual backup zip or library.db) as new dramas owned by the acting
+│   │                             user; reuses auto_backup_service._copy_drama; router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
@@ -506,7 +509,7 @@ baihe-subtitler/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── backup_routes.py      /api/backups/* (Step 43): auto-backup settings, back up now, snapshot
-│       │                         info/dramas, restore one drama, delete snapshot; all local_only;
+│       │                         info/dramas, restore one drama, import from a backup file, delete snapshot; all local_only;
 │       │                         tests/test_api_backups.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
