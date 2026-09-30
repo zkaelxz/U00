@@ -74,6 +74,11 @@ class SourceAdapter:
     host_min_interval = {}
     #: Headers every request to this source carries (Referer etc.).
     default_headers = {}
+    #: A site that moves between domains: its known https origins, the
+    #: first being the default. Non-empty opts in to the persisted domain
+    #: list, failover and proposals of sources/domains.py (the adapter
+    #: fetches through a SiteDomains and implements verify_site).
+    base_urls = []
     #: Adapter-specific auth. `auth_required` seeds the capability
     #: record's `authentication_required` (REQUIRED if True, else UNKNOWN
     #: until a real attempt observes it).
@@ -166,6 +171,13 @@ class SourceAdapter:
         raise NotSupportedError(f"{self.display_name or self.name} has no session to refresh.")
 
     # -- helpers ---------------------------------------------------------------
+    @classmethod
+    def verify_site(cls, text: str) -> bool:
+        """True only if `text` (a page a listed domain redirected to another
+        host) is unmistakably this site. Strict: an unrelated or look-alike
+        site must fail, because a pass is what makes that host a proposal."""
+        return False
+
     def supports(self, method: str) -> bool:
         """True if this adapter overrides `method` -- lets the UI hide a
         button instead of offering one that can only fail."""

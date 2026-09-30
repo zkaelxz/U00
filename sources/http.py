@@ -727,6 +727,16 @@ def _is_timeout(exc) -> bool:
     return "timeout" in name
 
 
+def mirror_unreachable(exc) -> bool:
+    """True when a FetchFailed means "this mirror/domain can't be reached
+    right now" (network error, timeout, 5xx or 429 after retries), so the
+    next one may be tried. A 404, a refusal or a challenge is never this."""
+    return exc.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
+                          FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
+        (exc.attempt is None or not exc.attempt.http_status
+         or exc.attempt.http_status >= 500 or exc.attempt.http_status == 429)
+
+
 def _is_connection_error(exc) -> bool:
     try:
         import requests
@@ -1027,7 +1037,11 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
-                    if cacheable:
+                    # Content a redirect fetched from another host, or over a
+                    # downgraded scheme, is never stored under the URL that
+                    # was asked for.
+                    if cacheable and _host_key(resp.url or url) == _host_key(url) \
+                            and urlsplit(resp.url or url).scheme == urlsplit(url).scheme:
                         self.cache.put(url, resp.content)
                     if is_page and method.upper() == "GET":
                         self.last_page = (resp.url or url, body)
@@ -1133,10 +1147,7 @@ class SourceClient:
                 st["good_mirror"] = base
                 raise
             except FetchFailed as e:
-                if e.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
-                                FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
-                        (e.attempt is None or not e.attempt.http_status
-                         or e.attempt.http_status >= 500 or e.attempt.http_status == 429):
+                if mirror_unreachable(e):
                     errors.append(f"{base}: {e}")
                     continue
                 if e.reason != FailureReason.NOT_FOUND:

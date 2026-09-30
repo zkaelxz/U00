@@ -39,10 +39,13 @@ import re
 from urllib.parse import urljoin
 
 from ..base import SourceAdapter
+from ..domains import SiteDomains
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
 from ..registry import register
 
 BASE_URL = "https://www.xbanxia.cc"
+# A book page link, the shape every listing on the site uses.
+_BOOK_HREF = re.compile(r"/books/(\d+)\.html")
 SEARCH_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
     "Cookie": "jieqiUserCharset=utf-8",
@@ -84,19 +87,42 @@ class XbanxiaSource(SourceAdapter):
     languages = ["zh"]
     url_patterns = [r"xbanxia\.cc/books/\d+"]
     default_headers = {"Referer": BASE_URL + "/"}
+    # The bare domain 301-redirects to www: a search posted there ends on
+    # another host and counts as failed, so www (first) is the one used.
+    base_urls = [BASE_URL, "https://xbanxia.cc"]
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
-        self.base_url = base_url or BASE_URL
+        self.site = SiteDomains(self, base_url)
         self._series_pages = {}
 
+    @property
+    def base_url(self) -> str:
+        """The listed origin that last answered (links are resolved against it)."""
+        return self.site.base
+
+    @classmethod
+    def verify_site(cls, text: str) -> bool:
+        """A home-style page: 半夏 in the <title>, the search form this adapter
+        posts to (search_t.php with a searchkey field), and at least three
+        distinct /books/<id>.html links."""
+        soup = _soup(text)
+        title = soup.title.get_text() if soup.title is not None else ""
+        if "半夏" not in title:
+            return False
+        has_form = any(f.get("action", "").split("?", 1)[0].endswith("/modules/article/search_t.php")
+                       and f.select_one("input[name=searchkey]") is not None
+                       for f in soup.select("form"))
+        books = {m.group(1) for a in soup.select("a[href]")
+                 for m in [_BOOK_HREF.search(a.get("href", ""))] if m}
+        return has_form and len(books) >= 3
+
     def _get(self, path: str, action: str) -> str:
-        resp = self.client.get(urljoin(self.base_url, path), action=action)
-        return resp.text
+        return self.site.get(path, action=action).text
 
     def search(self, query: str, page: int = 1):
-        resp = self.client.post(
-            urljoin(self.base_url, "/modules/article/search_t.php"),
+        resp = self.site.post(
+            "/modules/article/search_t.php",
             data={"searchkey": query, "Submit": "搜索"},
             headers=SEARCH_HEADERS, action=f"Searching xbanxia for {query!r}")
         soup = _soup(resp.text)

@@ -61,6 +61,9 @@ class FailureReason(str, Enum):
     SIGNED_RESOURCE = "SIGNED_RESOURCE"
     NOT_INSTALLED = "NOT_INSTALLED"      # the tier's own tooling isn't set up here
     TOS_PROHIBITED = "TOS_PROHIBITED"    # refused before any request: the source's terms forbid it
+    # Every domain on the source's domain list failed to connect or kept erroring
+    # (sources/domains.py); a challenge on any of them is never this.
+    ALL_DOMAINS_UNREACHABLE = "ALL_DOMAINS_UNREACHABLE"
     UNKNOWN = "UNKNOWN"
 
 
