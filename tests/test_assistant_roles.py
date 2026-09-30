@@ -113,6 +113,8 @@ def test_roles_off_by_default(isolated_db):
 def test_missing_verdict_is_unclear_not_agreement():
     assert roles.parse_verdict("Seems fine I guess")[0] == "unclear"
     assert roles.parse_verdict("verdict: agrees\nok") == ("agrees", "ok")
+    # Only the first line counts: a quoted verdict further down doesn't.
+    assert roles.parse_verdict("I'm not sure.\nVERDICT: AGREES (quoted)")[0] == "unclear"
     assert roles.same_backend("Claude", "claude") and not roles.same_backend("claude", "ollama")
 
 
@@ -138,3 +140,30 @@ def test_api_settings_and_answer_carry_the_review(engines, monkeypatch):
     r = c.post("/api/assistant/ask", json={"question": "x"})
     assert r.status_code == 200 and r.json()["review"]["verdict"] == "agrees"
     assert c.post("/api/assistant/settings", json={"review_engine": "deepl"}).status_code == 422
+
+
+def test_an_unbuildable_review_engine_keeps_the_fix(engines, monkeypatch):
+    def broken():
+        raise ModuleNotFoundError("No module named 'openai'")
+    monkeypatch.setattr(svc, "build_review_engine", broken)
+    out = svc.ask("x", chat=EngineChat(claude=[PATCH]))
+    assert out["proposed_patches"] and out["review"]["verdict"] == "unavailable"
+    assert "openai" in out["review"]["notes"]
+
+
+def test_a_per_request_engine_equal_to_the_reviewer_is_not_independent(engines, monkeypatch):
+    monkeypatch.setattr(svc, "build_engine",
+                        lambda name=None, model=None: (FakeEngine("gemini"), "gemini", None))
+    chat = EngineChat(gemini=[PATCH])
+    out = svc.ask("x", engine_name="gemini", chat=chat)
+    assert len(chat.calls) == 1 and out["review"]["verdict"] == "unavailable"
+
+
+def test_the_reviewer_shares_the_one_test_run(engines, monkeypatch):
+    ran = []
+    monkeypatch.setitem(svc.READ_ONLY_TOOLS, "run_tests",
+                        (lambda a: ran.append(a) or "ok",) + svc.READ_ONLY_TOOLS["run_tests"][1:])
+    call = 'TOOL: {"id": "r", "name": "run_tests", "args": {"path": "tests/test_db.py"}}'
+    chat = EngineChat(claude=[call, PATCH], gemini=[call, "VERDICT: AGREES\nok"])
+    out = svc.ask("x", chat=chat)
+    assert len(ran) == 1 and out["review"]["tool_calls"][0]["ok"] is False

@@ -31,7 +31,7 @@ ROLES = {
 }
 
 VERDICTS = ("agrees", "concerns", "unclear", "unavailable")
-_VERDICT_RE = re.compile(r"^\s*VERDICT:\s*(AGREES|CONCERNS)\b[ \t]*\n?", re.IGNORECASE | re.MULTILINE)
+_VERDICT_RE = re.compile(r"^\s*VERDICT:\s*(AGREES|CONCERNS)\b[ \t]*", re.IGNORECASE)
 
 
 def review_system_prompt(tools_prompt: str) -> str:
@@ -61,13 +61,16 @@ def review_request(question: str, answer: str, patches: list) -> str:
 
 
 def parse_verdict(text: str) -> tuple:
-    """(verdict, notes). No verdict line -> 'unclear' (never silently
-    counted as agreement)."""
-    match = _VERDICT_RE.search(text or "")
+    """(verdict, notes). Only the FIRST non-blank line counts as the
+    verdict (a quoted "VERDICT: AGREES" further down doesn't). No verdict
+    line -> 'unclear', never silently counted as agreement."""
+    text = (text or "").strip()
+    first, _, rest = text.partition("\n")
+    match = _VERDICT_RE.match(first)
     if not match:
-        return "unclear", (text or "").strip()
+        return "unclear", text
     verdict = "agrees" if match.group(1).upper() == "AGREES" else "concerns"
-    notes = (text[:match.start()] + text[match.end():]).strip()
+    notes = (first[match.end():].strip() + "\n" + rest).strip()
     return verdict, notes
 
 

@@ -797,7 +797,8 @@ def _shown_args(args: dict) -> dict:
     return shown
 
 
-def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt=None) -> dict:
+def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt=None,
+                  tests_already_run: bool = False) -> dict:
     """The tool loop. `chat(system_prompt, messages, engine) -> str` is
     injectable for tests. Returns the final answer text and the tool
     calls made (id, name, args, ok, summary). `system_prompt` sets the
@@ -808,7 +809,7 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
     messages = list(history) + [{"role": "user", "content": question}]
     calls_made = []
     used_ids = set()
-    tests_run = False
+    tests_run = tests_already_run
     reply = ""
     for round_no in range(MAX_ROUNDS):
         reply = chat(system_prompt, messages, engine)
@@ -840,7 +841,7 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
             results.append(f"Only the first {MAX_TOOL_CALLS_PER_ROUND} calls ran.")
         messages.append({"role": "assistant", "content": reply})
         messages.append({"role": "user", "content": "\n\n".join(results)})
-    return {"answer": reply, "tool_calls": calls_made}
+    return {"answer": reply, "tool_calls": calls_made, "tests_run": tests_run}
 
 
 _ASK_LOCK = threading.Lock()
@@ -865,7 +866,8 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
         patches = extract_patches(raw)
         review = None
         if patches and get_settings()["roles_enabled"]:
-            review = independent_review(question, answer, patches, engine_name, chat=chat)
+            review = independent_review(question, answer, patches, engine_name, chat=chat,
+                                        tests_already_run=result["tests_run"])
     finally:
         _ASK_LOCK.release()
     return {
@@ -900,7 +902,7 @@ def build_review_engine():
 
 
 def independent_review(question: str, answer: str, patches: list, implement_engine: str,
-                       chat=None) -> dict:
+                       chat=None, tests_already_run: bool = False) -> dict:
     """Runs the review role on a DIFFERENT engine and returns
     {engine, model, verdict, notes, tool_calls}. Never raises: a review
     that can't run comes back as verdict "unavailable" with the reason,
@@ -913,10 +915,15 @@ def independent_review(question: str, answer: str, patches: list, implement_engi
                     "notes": (f"The review engine ({name}) is the same as the implementing "
                               "engine. Pick a different engine for an independent review.")}
         result = run_diagnosis(roles.review_request(question, answer, patches), [], engine,
-                               chat=chat, system_prompt=roles.review_system_prompt(tools_prompt()))
+                               chat=chat, system_prompt=roles.review_system_prompt(tools_prompt()),
+                               tests_already_run=tests_already_run)
     except ServiceError as e:
         return {"engine": get_settings()["review_engine"], "model": None, "verdict": "unavailable",
                 "notes": _redact(e.message)[:500], "tool_calls": []}
+    except Exception as e:  # e.g. an engine whose optional package isn't installed
+        return {"engine": get_settings()["review_engine"], "model": None, "verdict": "unavailable",
+                "notes": "The review engine couldn't run: " + _redact(str(e))[:300],
+                "tool_calls": []}
     verdict, notes = roles.parse_verdict(_redact(result["answer"]))
     return {"engine": name, "model": model, "verdict": verdict,
             "notes": _clean_answer(notes), "tool_calls": result["tool_calls"]}
