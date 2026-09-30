@@ -91,6 +91,68 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"  # no cached `huggingface-cli login` token
 
 
+# Test-only job hooks (frontend/e2e/running-job.spec.ts). The Diagnostics
+# cancel flow and the Library "delete refused while a job runs" flow need a
+# job that is genuinely running in this server process: a job_records row
+# alone has no owner to read the cancel flag, so a fresh one stays "running"
+# after Cancel until it goes stale (jobs_service.cancel_job). Starting a real,
+# cooperative background_jobs job here gives the real path: it mirrors itself
+# to job_records, heartbeats (so no stale sweep closes it), counts for
+# drama_service.job_running_for_drama and stops as "cancelled" when
+# POST /api/jobs/{id}/cancel sets its flag. A spec starts one for a drama it
+# created itself and removes it afterwards, so the shared seeded library
+# (and every spec that counts dramas or expects an empty job list) is
+# unchanged. Mounted only by this launcher, never by the real app.
+E2E_JOB_ID = r"^[a-z_]+_[0-9]+$"
+E2E_HOLD_MAX_SECONDS = 300.0
+
+
+def _hold_until_cancelled(job_id: str):
+    import time
+
+    import background_jobs
+    deadline = time.monotonic() + E2E_HOLD_MAX_SECONDS
+    background_jobs.update_progress(job_id, 0.1, "Held by the e2e test")
+    while time.monotonic() < deadline:
+        if background_jobs.is_cancel_requested(job_id):
+            raise background_jobs.JobCancelled()
+        time.sleep(0.1)
+
+
+def add_e2e_job_routes(app):
+    import background_jobs
+    from fastapi import Body
+    from services.service_errors import ConflictError, InvalidInputError
+
+    def _check(job_id: str):
+        import re
+        if not isinstance(job_id, str) or not re.match(E2E_JOB_ID, job_id):
+            raise InvalidInputError("job_id must look like prefix_123.")
+
+    def hold(job_id: str = Body(...), description: str = Body(...)):
+        _check(job_id)
+        if not background_jobs.start_job(job_id, _hold_until_cancelled, job_id,
+                                         description=description):
+            raise ConflictError("That job is already running.")
+        return {"job_id": job_id, "started": True}
+
+    def forget(job_id: str = Body(..., embed=True)):
+        _check(job_id)
+        job = background_jobs.get_status(job_id)
+        if job and job.get("status") in ("running", "queued"):
+            raise ConflictError("That job is still running; cancel it first.")
+        background_jobs.clear_job(job_id)   # drops the in-memory entry and its job_records row
+        return {"job_id": job_id, "forgotten": True}
+
+    app.add_api_route("/api/e2e/jobs/hold", hold, methods=["POST"])
+    app.add_api_route("/api/e2e/jobs/forget", forget, methods=["POST"])
+    # Ahead of any catch-all (the SPA fallback when the app serves the build).
+    new = app.router.routes[-2:]
+    del app.router.routes[-2:]
+    app.router.routes[0:0] = new
+    return app
+
+
 def main():
     import uvicorn
     from api.api_config import ApiSettings
@@ -105,7 +167,8 @@ def main():
     shutil.rmtree(library_dir, ignore_errors=True)
     os.makedirs(library_dir)
     seed(library_dir)
-    uvicorn.run(create_app(ApiSettings(port=port)), host="127.0.0.1", port=port,
+    app = add_e2e_job_routes(create_app(ApiSettings(port=port)))
+    uvicorn.run(app, host="127.0.0.1", port=port,
                 log_level="warning")
 
 
