@@ -107,6 +107,11 @@ def _mirror_locked(job_id):
 # process's stale-record sweep (jobs_service.cancel_job) can tell a live job
 # that is simply not changing status from one whose owner process died.
 HEARTBEAT_INTERVAL = 60.0
+# A queued/running job_records row not heartbeated for this long belongs to
+# a dead owner process (records have no resume). The one staleness cutoff:
+# the jobs list/startup sweep, cancel, and every "is a job running" check
+# (drama delete, novel files, library admin, voice clone) use it.
+STALE_JOB_SECONDS = 15 * 60
 _heartbeat_thread = None
 
 
@@ -117,8 +122,20 @@ def _heartbeat_once():
         try:
             import db
             db.touch_job_records(live)
-        except Exception:
-            pass   # best-effort; never breaks a job
+        except Exception as e:
+            # Best-effort; never breaks a job. Logged (redacted) because a
+            # live job whose heartbeat can't be written for
+            # STALE_JOB_SECONDS looks dead to another process's checks.
+            # This process's own checks and sweep still see it as live
+            # (jobs_service.sweep_stale_job_records skips in-process jobs).
+            try:
+                import applog
+                import translate_engines
+                applog.get_logger().warning(
+                    "job heartbeat write failed: "
+                    + translate_engines.redact_secrets(str(e))[:300])
+            except Exception:
+                pass
 
 
 def _heartbeat_loop():

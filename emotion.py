@@ -133,7 +133,7 @@ def parse_emotion_tags(text: str) -> dict:
 
 
 def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = False,
-                     progress_cb=None, usage_cb=None):
+                     progress_cb=None, usage_cb=None, cancel_check=None):
     """
     Tags each line with an emotional register and an intensity (0-1).
 
@@ -147,6 +147,9 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
     for a static spinner to look stuck, the same reasoning as
     transcribe_for_timing's progress_cb.
 
+    cancel_check: optional callable run before each batch; it raises to
+    stop the run (a background job's cancel), so no further batch is sent.
+
     Returns {line_idx: {"emotion": str, "intensity": float, "note": str}}.
     """
     if not getattr(engine, "supports_reference", False):
@@ -159,6 +162,8 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
     n_batches = (len(scoped) + batch_size - 1) // batch_size
 
     for bi, start in enumerate(range(0, len(scoped), batch_size)):
+        if cancel_check:
+            cancel_check()
         batch = scoped[start:start + batch_size]
         prompt = build_emotion_prompt(batch, use_audio_cues=use_audio_cues)
 

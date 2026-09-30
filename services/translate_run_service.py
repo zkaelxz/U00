@@ -35,12 +35,10 @@ import sqlite3
 from types import SimpleNamespace
 from typing import Optional
 
-import adaptive_style
 import background_jobs
 import bulk_translate
 import core
 import db
-import emotion
 import translate_engines
 import translation_guide
 from services import (engine_routing_service, library_service, settings_service,
@@ -388,16 +386,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
 
     chain = [{"engine": engine_name, "model": model}] + [
         {"engine": f["engine"], "model": f.get("model")} for f in (fallback_chain or [])]
-    if len({c["engine"] for c in chain}) != len(chain):
-        raise InvalidInputError("A fallback chain can't repeat an engine.")
-    if len(chain) > 1:
-        if any(c["engine"] not in translate_engines.ENGINES for c in chain):
-            raise InvalidInputError("Unknown translate engine.")
-        if len({c["engine"] in translate_engines.TRANSLATION_ONLY_ENGINES
-                for c in chain}) > 1:
-            raise InvalidInputError(
-                "A fallback chain can't mix instruction-following engines with "
-                "translation-only ones.")
+    chain_error = translate_engines.fallback_chain_error(c["engine"] for c in chain)
+    if chain_error:
+        raise InvalidInputError(chain_error)
     for c in chain:
         _require_offered_model(c["engine"], c["model"])
     monthly_cap = _monthly_cap()
@@ -451,20 +442,10 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         engine, cost_cap = engines[0], caps[0]
 
     series_id = drama.get("series_id")
-    glossary_terms = db.list_glossary_terms(series_id) if series_id else None
-    series_chars = db.list_series_characters(series_id) if series_id else []
-    drama_chars = db.list_characters_with_series_names(drama_id)
-    prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
-    learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {})) if prof else ""
-    emap = db.load_emotions(drama_id)
-    emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
-    style_guidelines = translation_guide.build_style_guidelines(
-        style_preset, glossary_terms=glossary_terms,
-        include_genre_notes=True if include_genre_notes is None else bool(include_genre_notes),
-        default_female_pronouns=bool(default_female_pronouns),
-        custom_notes="\n\n".join(b for b in (
-            learned, emotion_block,
-            translation_guide.build_character_gender_hints(series_chars, drama_chars)) if b))
+    glossary_terms, style_guidelines, _names = workspace_job_service.build_run_style_context(
+        drama_id, drama, lines, style_preset,
+        include_genre_notes=True if include_genre_notes is None else include_genre_notes,
+        default_female_pronouns=default_female_pronouns)
 
     if force_retranslate and any(ln.en for ln in lines):
         db.save_line_history_snapshot(drama_id, lines, "before force re-translate")

@@ -30,7 +30,7 @@ from services.service_errors import ConflictError, NotFoundError
 # A queued/running record whose owner has not heartbeated this long (see
 # background_jobs.HEARTBEAT_INTERVAL, far shorter) is treated as owned by a
 # dead process (records-only mirror, no resume).
-STALE_JOB_SECONDS = 15 * 60
+STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
 
 
 # Result projection: only these keys of a job's set_result dict are ever
@@ -416,10 +416,30 @@ def _visible(principal, record) -> bool:
                                          record.get("owner_user_id"))
 
 
+def sweep_stale_job_records() -> int:
+    """Closes (as cancelled) every queued/running job_records row whose
+    owner has not heartbeated for STALE_JOB_SECONDS and that is not live in
+    this process -- left behind by a crashed or killed process. Each close
+    is one conditional UPDATE (db.close_stale_job_record), so a live
+    owner's heartbeat or "done" always wins. Returns how many it closed."""
+    cutoff = time.time() - STALE_JOB_SECONDS
+    closed = 0
+    for rec in db.list_job_records():
+        job_id = rec.get("job_id")
+        if (rec.get("status") in ("queued", "running")
+                and (rec.get("updated_at") or 0) < cutoff
+                and background_jobs.get_status(job_id) is None
+                and db.close_stale_job_record(job_id, cutoff)):
+            closed += 1
+    return closed
+
+
 def list_jobs(principal=None) -> list:
     """Every job_records row `principal` may see (auth B2:
     ownership_service.can_see_job; None = auth off, all), newest-started
-    first, redacted for HTTP."""
+    first, redacted for HTTP. Stale rows of dead owners are closed first
+    (sweep_stale_job_records), so they don't list as running forever."""
+    sweep_stale_job_records()
     return [_redact(r) for r in db.list_job_records() if _visible(principal, r)]
 
 

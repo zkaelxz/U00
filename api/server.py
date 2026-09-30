@@ -21,6 +21,7 @@ only.
 import portable
 portable.activate_portable_mode()
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -110,8 +111,9 @@ async def _lifespan(app: FastAPI):
     """Starts the background pieces Streamlit used to start (chapter-check
     scheduler, extension endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
-    Idempotent. The GPU-queue re-check is stopped at shutdown, and any
-    running lightnovel-crawler import is cancelled and its program killed."""
+    Idempotent. The GPU-queue re-check is stopped at shutdown, any
+    running lightnovel-crawler import is cancelled and its program killed,
+    and job records left running by a dead process are closed (B-04)."""
     from services import lncrawl_service
     if not getattr(app.state.settings, "background_services", False):
         try:
@@ -119,6 +121,11 @@ async def _lifespan(app: FastAPI):
         finally:
             lncrawl_service.shutdown()
         return
+    from services import jobs_service
+    try:
+        jobs_service.sweep_stale_job_records()
+    except Exception:
+        logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 start_reeval_scheduler, stop_gpu_queue_poller,
                                 stop_reeval_scheduler)

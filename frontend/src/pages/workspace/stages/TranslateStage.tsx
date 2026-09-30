@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getPresets } from '../../../api/library'
@@ -38,7 +38,10 @@ import {
   buildRunBody,
   bulkAvailable,
   bulkReflectAvailable,
+  FALLBACK_KIND_MESSAGE,
   failedBatches,
+  fallbackKindMismatch,
+  fallbackOptions,
   initialForm,
   lineRanges,
   loadPresetStart,
@@ -332,6 +335,13 @@ function RunPanel({
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
   // "Re-translate existing…" unmounts itself; hand focus to the confirm box that replaces it.
   const focusAck = useRef(false)
+  // Fallbacks: same kind as the main engine, never with Reflect or Bulk.
+  const fallbackIds = useId()
+  const engineNames = config.engines.map((e) => e.name)
+  const fallbackOff = f.reflect || f.bulk
+  const fallbackMismatch = fallbackKindMismatch(effEngine, f.fallbacks)
+  const canAddFallback = f.fallbacks.length < MAX_FALLBACKS && !fallbackOff
+    && fallbackOptions(engineNames, effEngine, f.fallbacks, -1).length > f.fallbacks.filter((e) => !e).length
 
   const runEstimate = () => {
     const params = buildEstimateParams(f)
@@ -527,27 +537,47 @@ function RunPanel({
           >
             <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
           </Field>
-          <div className="advanced-wide">
+          <div
+            className="advanced-wide fallback-group"
+            role="group"
+            aria-labelledby={`${fallbackIds}-title`}
+            aria-describedby={`${fallbackIds}-rule`}
+            data-testid="fallback-engines"
+          >
             <div className="field-label-row">
-              <strong>Fallback engines</strong>
-              <span className="muted">tried in order if the engine fails, up to {MAX_FALLBACKS}</span>
+              <strong id={`${fallbackIds}-title`}>Fallback engines</strong>
             </div>
-            {f.fallbacks.map((fb, i) => (
-              <div className="fallback-row" key={i}>
-                <select
-                  aria-label={`Fallback engine ${i + 1}`}
-                  value={fb}
-                  onChange={(e) => set('fallbacks', f.fallbacks.map((x, j) => (j === i ? e.target.value : x)))}
-                >
-                  <option value="">Choose an engine</option>
-                  {config.engines.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
-                </select>
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => set('fallbacks', f.fallbacks.filter((_, j) => j !== i))}>
-                  Remove
-                </button>
-              </div>
-            ))}
-            {f.fallbacks.length < MAX_FALLBACKS && (
+            <p className="muted fallback-rule" id={`${fallbackIds}-rule`}>
+              Up to {MAX_FALLBACKS}, tried in order only after the main engine keeps failing (it retries first). Same kind
+              as the main engine: AI with AI, translation-only with translation-only. Not with Reflect or Bulk.
+            </p>
+            {fallbackOff && (
+              <p className="muted fallback-rule" role="status">
+                Off while {f.reflect ? 'Reflect' : 'Bulk'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
+              </p>
+            )}
+            {f.fallbacks.map((fb, i) => {
+              const options = fallbackOptions(engineNames, effEngine, f.fallbacks, i)
+              return (
+                <div className="fallback-row" key={i}>
+                  <select
+                    aria-label={`Fallback engine ${i + 1}`}
+                    value={fb}
+                    disabled={fallbackOff}
+                    onChange={(e) => set('fallbacks', f.fallbacks.map((x, j) => (j === i ? e.target.value : x)))}
+                  >
+                    <option value="">Choose an engine</option>
+                    {fb && !options.includes(fb) && <option value={fb}>{engineLabel(fb)} (can't be used here)</option>}
+                    {options.map((name) => <option key={name} value={name}>{engineLabel(name)}</option>)}
+                  </select>
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => set('fallbacks', f.fallbacks.filter((_, j) => j !== i))}>
+                    Remove
+                  </button>
+                </div>
+              )
+            })}
+            {fallbackMismatch && <p className="error" role="alert">{FALLBACK_KIND_MESSAGE}</p>}
+            {canAddFallback && (
               <div className="fallback-row">
                 <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => set('fallbacks', [...f.fallbacks, ''])}>Add fallback engine</button>
               </div>

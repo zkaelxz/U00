@@ -11,7 +11,7 @@ import type {
   WorkflowTierApplied,
 } from '../../types/translateStage'
 
-export const MAX_FALLBACKS = 3
+export const MAX_FALLBACKS = 2
 
 export interface RunForm {
   engine: string // '' = the drama's configured default engine
@@ -33,10 +33,37 @@ export interface RunForm {
 }
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
+// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
 const TRANSLATION_ONLY = ['deepl', 'google', 'nllb', 'libretranslate']
 
+export function isTranslationOnly(engine: string): boolean {
+  return TRANSLATION_ONLY.includes(engine)
+}
+
 export function reflectAvailable(engine: string): boolean {
-  return !TRANSLATION_ONLY.includes(engine)
+  return !isTranslationOnly(engine)
+}
+
+// A fallback chain can't mix AI (instruction-following) engines with
+// translation-only ones (services/translate_run_service.py refuses it).
+export function sameEngineKind(a: string, b: string): boolean {
+  return isTranslationOnly(a) === isTranslationOnly(b)
+}
+
+export const FALLBACK_KIND_MESSAGE =
+  'Fallback engines must be the same kind as the main engine: AI engines with AI engines, translation-only with translation-only.'
+
+// The engines fallback slot `slot` may offer: the same kind as the main
+// engine, not the main engine itself, and not one chosen in another slot.
+export function fallbackOptions(engines: string[], primary: string, fallbacks: string[], slot: number): string[] {
+  const taken = new Set(fallbacks.filter((e, i) => i !== slot && e))
+  return engines.filter((e) => e !== primary && !taken.has(e) && sameEngineKind(e, primary))
+}
+
+// True when a chosen fallback is a different kind from the main engine
+// (e.g. the main engine was switched after the fallbacks were picked).
+export function fallbackKindMismatch(primary: string, fallbacks: string[]): boolean {
+  return fallbacks.some((e) => e && !sameEngineKind(e, primary))
 }
 
 export function bulkAvailable(engine: string, supported: string[]): boolean {
@@ -172,8 +199,9 @@ export function validateRun(
   if (f.style_note.length > 4000) return 'Style note is too long (4000 characters at most).'
   if (f.fallbacks.length > MAX_FALLBACKS) return `At most ${MAX_FALLBACKS} fallback engines.`
   if (f.fallbacks.some((e) => !e)) return 'Choose an engine for every fallback slot or remove it.'
-  const chain = [f.engine || defaultEngine, ...f.fallbacks]
+  const chain = [eff, ...f.fallbacks]
   if (new Set(chain).size !== chain.length) return 'An engine cannot appear twice in the fallback chain.'
+  if (fallbackKindMismatch(eff, f.fallbacks)) return FALLBACK_KIND_MESSAGE
   if (f.force && !f.forceConfirmed) return 'Tick the confirmation box to replace existing English text.'
   return null
 }
