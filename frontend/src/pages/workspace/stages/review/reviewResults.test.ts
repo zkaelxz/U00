@@ -32,6 +32,11 @@ describe('AI check bodies (R50/R33)', () => {
     expect(checkJobBody('consistency', f)).toEqual({ engine: 'claude', model: 'm1' })
     expect(checkJobBody('emotion', { ...EMPTY_CHECK_FORM, audioCues: true })).toEqual({ use_audio_cues: true })
   })
+  it('adds bulk only when asked, and never for fix-flagged (R49)', () => {
+    expect(checkJobBody('flag', EMPTY_CHECK_FORM, true)).toEqual({ bulk: true })
+    expect(checkJobBody('flag', EMPTY_CHECK_FORM, false)).toEqual({})
+    expect(checkJobBody('fix-flagged', EMPTY_CHECK_FORM, true)).toEqual({})
+  })
   it('summarises the choices, with the audio default following the drama', () => {
     expect(checkFormSummary(EMPTY_CHECK_FORM, 'gemini', true)).toBe('Gemini engine · audio cues')
     expect(checkFormSummary(EMPTY_CHECK_FORM, '', false)).toBe('Default engine')
