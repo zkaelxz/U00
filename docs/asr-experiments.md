@@ -44,6 +44,33 @@ becomes a default is a later decision, made after the real comparison below.
   installed, Qwen3-ASR sends one line at a time whatever the saved batch size;
   the Settings card says which applies.
 
+### Remote-code check (lead security review, 2026-09-30)
+
+Checked what `trust_remote_code` and the package actually load:
+
+- **Hub repo `OpenMOSS-Team/MOSS-Transcribe-Diarize` at `704aa4a9c304e8520be88901e0d1960158ef5b15`:**
+  - `config.json` and `processor_config.json` `auto_map` entries all point at
+    modules in the same repo (`configuration_…`, `modeling_…`,
+    `processing_…_moss_transcribe_diarize.MossTranscribeDiarize*`). There is no
+    cross-repo `Org/repo--module.Class` entry.
+  - `tokenizer_config.json` uses the built-in `Qwen2Tokenizer`, and
+    `preprocessor_config.json` the built-in `WhisperFeatureExtractor`.
+  - The three `.py` files import only `torch`, `numpy` and `transformers`
+    (Qwen3/Whisper building blocks). None of them calls `from_pretrained`,
+    `snapshot_download`, `hf_hub_download` or anything network or subprocess.
+  - So everything that runs comes from the pinned revision.
+- **Package `moss_transcribe_diarize` at GitHub commit `61bc29c`:**
+  - Baihe imports only the top-level package, `inference_utils` and
+    `transcript_parser` (with `subtitle`). None of them downloads anything.
+  - The package's `app/` subpackage, its own CLI and web app, does call
+    `from_pretrained(..., trust_remote_code=True)` with no revision and does
+    network I/O (vLLM client). Baihe never imports `app/`.
+  - `inference_utils` uses `transformers.audio_utils.load_audio`, which would
+    fetch a URL if given one. Baihe only ever passes the drama's local audio
+    path.
+- **Moving either pin** (`MOSS_HF_REVISION`, or the install commit) needs this
+  check redone.
+
 ## Step 101 manual check: speaker detection on the GPU
 
 1. Settings: turn on "Use the GPU for transcription".
