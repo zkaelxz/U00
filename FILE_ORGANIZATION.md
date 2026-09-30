@@ -311,6 +311,8 @@ baihe-subtitler/
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
+│   ├── sources_tools_service.py  Sources SO02/SO03/SO08/SO16 -- site check job, pasted page source preview and
+│   │                              import, identify-media job (+ PC-only full resource URL), pasted-URL diagnostics
 │   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler
 │   │                             also uses) and which drama a tracked series auto-imports into
 │   ├── sources_signin_service.py Sources S-6/SO17 (PC only) -- sign-in window job, forget the saved profile,
@@ -388,6 +390,8 @@ baihe-subtitler/
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
+
+│   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -475,6 +479,8 @@ baihe-subtitler/
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
+│       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
+│       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -579,13 +585,15 @@ baihe-subtitler/
 │   ├── src/pages/sources/         FindModeSwitch (search | link), SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
-│   │                              sourcesFormat.ts (pure, unit-tested), sources.css
+│   │                              sourcesFormat.ts (pure, unit-tested), sources.css; Sources tools:
+│   │                              SiteCheck, PastedSource, IdentifyMedia, RecentExtractions,
+│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts)
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),
 │   │                              bulk import; api/discover.ts, types/discover.ts
 │   ├── src/pages/discover/        CatalogPanel, FindPanel (+ PlatformList), BaihehubPanel, NavigationHelp,
-│   │                              AddTitle, BulkImport, ExternalLink (http(s)-only links), useDiscoverJob
+│   │                              AddTitle, BulkImport (+ PastedListing), ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:

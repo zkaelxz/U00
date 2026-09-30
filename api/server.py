@@ -75,6 +75,7 @@ from api.routers import (
     sources_import_routes,
     sources_local_routes,
     sources_search_routes,
+    sources_tools_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
@@ -203,6 +204,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(novel_files_routes.router)
     app.include_router(benchmark_routes.router)
     app.include_router(model_registry_routes.router)
+
+    app.include_router(sources_tools_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app
