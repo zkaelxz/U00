@@ -38,7 +38,8 @@ test('cover upload checks the type, then saves and shows the cover', async ({ pa
   await expect(page.getByRole('status').filter({ hasText: 'Cover saved (2×3).' })).toBeVisible()
   const img = page.getByRole('img', { name: 'Cover of Signal' })
   await expect(img).toBeVisible()
-  expect(await img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(2)
+  // The image may still be decoding right after it becomes visible; poll rather than read once.
+  await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(2)
   await expect(page.getByRole('button', { name: 'Replace cover' })).toBeVisible()
 })
 
@@ -83,4 +84,30 @@ test('EPUB chapter range and chapters from Sources', async ({ page }) => {
   await novel.getByRole('button', { name: 'Use chapters imported in Sources' }).click()
   await expect(novel.getByRole('status')).toHaveText('Attached 10 characters.')
   expect(fromSources).toEqual([{ mode: 'replace' }])
+})
+
+test('Edit details can take a drama out of its series (series_id 0)', async ({ page }) => {
+  // The real drama, read once up front; the stubs below serve copies of it
+  // (in series 7 until the save, then in none) rather than proxying a live
+  // fetch per request, which broke once a handler ran again after its
+  // response was disposed.
+  const drama = await (await page.request.get('/api/library/dramas/2')).json()
+  let inSeries = true
+  const bodies: unknown[] = []
+  await page.route('**/api/library/dramas/2', (r) =>
+    r.fulfill({ json: { ...drama, series_id: inSeries ? 7 : null } }),
+  )
+  await page.route('**/api/dramas/2/metadata', (r) => {
+    bodies.push(r.request().postDataJSON())
+    inSeries = false
+    return r.fulfill({ json: { ...drama, series_id: null } })
+  })
+  await page.goto('/#/drama/2/source')
+  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  const series = page.getByLabel('Series', { exact: true })
+  await expect(series).toHaveValue('7')
+  await series.selectOption('')
+  await page.getByRole('button', { name: 'Save details' }).click()
+  await expect.poll(() => bodies).toEqual([{ series_id: 0 }])
+  await expect(series).toHaveValue('')
 })

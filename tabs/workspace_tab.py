@@ -18,6 +18,7 @@ from ui import project_header, project_state
 from ui import status as ui_status
 from services.transcribe_service import score_autotune_segments
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
+from services import review_jobs_service
 from services.media_playback_service import (line_audio_clip as _line_audio_clip, parse_timestamp,
                                              burn_preview_ass as _burn_preview_ass)
 from services.review_lines_service import (adjacent_flagged_idx as _adjacent_flagged_idx,
@@ -390,12 +391,6 @@ def _start_bulk_translation(drama_id, drama, engine, engine_choice, novel_refere
         return "error", f"Bulk submission failed: {translate_engines.redact_secrets(str(e))}"
 
 
-_BULK_GENERIC_SUBMIT = {
-    "flag": bulk_translate.submit_bulk_flag,
-    "consistency": bulk_translate.submit_bulk_consistency,
-    "emotion": bulk_translate.submit_bulk_emotion,
-    "translation_notes": bulk_translate.submit_bulk_translation_notes,
-}
 _BULK_GENERIC_LABELS = {
     "flag": "review-queue flagging", "consistency": "consistency check",
     "emotion": "emotion detection", "translation_notes": "translation notes",
@@ -408,11 +403,9 @@ def _start_bulk_generic(kind, drama_id, engine, engine_choice, **submit_kwargs):
     (Step 9), just for the four review/QA passes Step 9's own item 2
     named as in scope for bulk mode but didn't build. Returns (st method
     name, message)."""
-    lines = db.load_line_objects(drama_id)
     try:
-        provider = bulk_translate.make_provider(engine_choice, engine)
-        bulk_id = _BULK_GENERIC_SUBMIT[kind](drama_id, lines, engine, engine_choice,
-                                             provider=provider, **submit_kwargs)
+        bulk_id, provider = review_jobs_service.submit_bulk_review(
+            kind, drama_id, engine, engine_choice, **submit_kwargs)
         bulk_translate.start_poller(bulk_id, provider=provider, engine=engine)
         return "success", (f"Submitted the {_BULK_GENERIC_LABELS[kind]} as a bulk batch at half "
                            "price. Most finish within an hour (24 hours at most) -- track it "

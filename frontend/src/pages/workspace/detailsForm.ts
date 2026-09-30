@@ -79,7 +79,6 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
   if (normalizeTags(f.custom_tags).length > MAX_TAGS_LEN) e.custom_tags = `Too long (max ${MAX_TAGS_LEN} characters).`
   if (!SOURCE_LANGUAGES.includes(f.source_language)) e.source_language = 'Choose a source language.'
   if (f.media_type !== initial.media_type && !MEDIA_TYPES.includes(f.media_type)) e.media_type = 'Choose a media type.'
-  if (f.series_id === '' && initial.series_id !== '') e.series_id = 'Removing a series is not supported yet.'
   return e
 }
 
@@ -95,7 +94,8 @@ export function buildDetailsPayload(f: DetailsForm, initial: DetailsForm): Detai
   const tags = normalizeTags(f.custom_tags)
   if (tags !== normalizeTags(initial.custom_tags)) metadata.custom_tags = tags
   if (f.media_type !== initial.media_type) metadata.media_type = f.media_type
-  if (f.series_id !== initial.series_id && f.series_id !== '') metadata.series_id = Number(f.series_id)
+  // series_id 0 takes the drama out of its series.
+  if (f.series_id !== initial.series_id) metadata.series_id = f.series_id === '' ? 0 : Number(f.series_id)
   return {
     metadata,
     sourceLanguage: f.source_language !== initial.source_language ? f.source_language : null,
