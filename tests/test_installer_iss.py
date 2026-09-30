@@ -406,12 +406,17 @@ class TestWorkflow:
             "SeImpersonatePrivilege", "qfailure", "http://127.0.0.1:8600/api/health",
             "listening beyond 127.0.0.1:8600", "Stop-Process -Id $server.ProcessId",
             "processes left after stopping the service",
-            "the update changed .env", "the BaiheStudio service is still installed",
+            "the update changed .env", '"the $name service is still installed"',
             "the BaiheStudio account still has access to the data folder",
         ):
             assert needle in wf, needle
-        for needle in ("caddy", "enable-remote", "New-NetFirewallRule", "netsh"):
-            assert needle not in wf.lower(), needle
+        # Caddy is installed off. CI only checks that remote access is refused
+        # without settings; it never turns it on, opens a port or adds a rule.
+        for needle in ("New-NetFirewallRule", "netsh", "add rule", "--household-port"):
+            assert needle not in wf, needle
+        invocations = re.findall(r"^\s*& .*enable-remote.*$", wf, re.M)
+        assert len(invocations) == 1 and invocations[0].rstrip().endswith("enable-remote")
+        assert "expected 2 (refused)" in wf
 
     def test_dispatch_input_goes_through_env(self, wf):
         # Never pasted into a script (injection).
