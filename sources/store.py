@@ -316,12 +316,16 @@ def imported_chapter_ids(source: str, series_id: str, drama_id: int) -> set:
 
 
 RETRY_STATUSES = ("failed", "not_attempted")
+# "partial": the chapter an unexpected error interrupted mid-write -- some of
+# its pages or text may be in the drama already, so it is shown (check it
+# first) but never part of the automatic retry.
+MANIFEST_STATUSES = RETRY_STATUSES + ("partial",)
 
 
 def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):
     """Step 107's failed-chapter manifest for one (series, drama). `pending`
     is (chapter_id, title, status, error) per chapter that failed or was not
-    attempted (status in RETRY_STATUSES; title and error already redacted by
+    attempted (status in MANIFEST_STATUSES; title and error already redacted by
     the caller); `done_ids` are chapters this import imported or skipped,
     which leave the manifest."""
     now = time.time()
@@ -335,7 +339,7 @@ def record_import_retry(source: str, series_id: str, drama_id: int, pending, don
             "drama_id, chapter_id) DO UPDATE SET title=excluded.title, status=excluded.status, "
             "error=excluded.error, updated_at=excluded.updated_at",
             [(source, str(series_id), int(drama_id), str(cid), title or "", status, error or "",
-              now) for cid, title, status, error in pending if status in RETRY_STATUSES])
+              now) for cid, title, status, error in pending if status in MANIFEST_STATUSES])
 
 
 def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:

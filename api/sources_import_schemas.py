@@ -14,13 +14,15 @@ from pydantic import BaseModel
 class SourcesImportRetryRow(BaseModel):
     chapter_id: str
     title: str
-    status: Literal["failed", "not_attempted"]
+    status: Literal["failed", "not_attempted", "partial"]
     error: str
 
 
 class SourcesImportState(BaseModel):
     """Chapters of one series already imported into one drama, and the
-    ones the last imports left failed or not attempted."""
+    ones the last imports left failed or not attempted. `retry` also lists
+    "partial" chapters (interrupted mid-write: check before re-importing);
+    `retry_count` counts only the retryable ones."""
     source: str
     series_id: str
     drama_id: int

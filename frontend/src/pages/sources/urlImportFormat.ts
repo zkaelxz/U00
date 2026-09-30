@@ -198,6 +198,10 @@ export function chapterMarks(state: ImportState | null): Map<string, ChapterMark
   for (const id of state.imported_chapter_ids) marks.set(id, { label: 'Imported', tone: 'ok', note: null })
   for (const r of state.retry) {
     if (marks.has(r.chapter_id)) continue
+    if (r.status === 'partial') {
+      marks.set(r.chapter_id, { label: 'Check first', tone: 'bad', note: r.error ? safeDetail(r.error) : null })
+      continue
+    }
     const failed = r.status === 'failed'
     const why = failed && r.error ? safeDetail(r.error) : null
     marks.set(r.chapter_id, { label: failed ? 'Failed' : 'Not attempted', tone: failed ? 'bad' : 'warn', note: why })
@@ -216,9 +220,10 @@ export function selectAllLabel(selectable: number, total: number): string {
   return selectable === total ? `Select all ${total}` : `Select all ${selectable} not yet imported`
 }
 
-/** The retry set: the drama's saved import state, else the run that just finished. */
+/** The retry set: the drama's saved import state, else the run that just finished.
+ * A "partial" chapter (interrupted mid-write) is never retried automatically. */
 export function retryIds(state: ImportState | null, result: ChapterImportResult | null): string[] {
-  if (state) return state.retry.map((r) => r.chapter_id)
+  if (state) return state.retry.filter((r) => r.status !== 'partial').map((r) => r.chapter_id)
   return result?.retry_chapter_ids ?? []
 }
 

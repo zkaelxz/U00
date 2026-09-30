@@ -80,7 +80,8 @@ export interface UrlDownloadRequest {
 export interface ImportRetryRow {
   chapter_id: string
   title: string
-  status: 'failed' | 'not_attempted'
+  // partial: interrupted mid-write -- shown, never retried automatically
+  status: 'failed' | 'not_attempted' | 'partial'
   error: string
 }
 

@@ -237,4 +237,16 @@ describe('import state (Step 107)', () => {
     expect(retryNote(3)).toBeNull()
     expect(retryNote(MAX_CHAPTERS + 50)).toBe('Retries the first 200 of 250; run it again for the rest.')
   })
+  it('shows a partly imported chapter but never retries it automatically', () => {
+    const partly = state({
+      retry: [
+        ...state().retry,
+        { chapter_id: 'c6', title: 'Six', status: 'partial', error: 'It may be partly imported -- check the drama before retrying it.' },
+      ],
+    })
+    expect(chapterMarks(partly).get('c6')).toEqual({
+      label: 'Check first', tone: 'bad', note: 'It may be partly imported -- check the drama before retrying it.',
+    })
+    expect(retryIds(partly, done)).toEqual(['c3', 'c4', 'c5'])
+  })
 })

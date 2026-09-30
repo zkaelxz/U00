@@ -145,6 +145,50 @@ def test_retried_chapter_gone_from_the_site_leaves_the_manifest(client, fakes):
     assert _state(client, did).json()["retry_count"] == 0
 
 
+def test_page_write_failure_marks_the_chapter_partial_not_retryable(client, fakes, monkeypatch):
+    """Lead review: an unexpected error while writing page 2 leaves page 1 in
+    the drama, so that chapter must not be auto-retried (it would duplicate
+    page 1); only the chapters after it are "not_attempted"."""
+    from sources import pipeline
+    fakes["comic"] = _make("comic", comic=True)
+    did = db.create_drama(title_en="M", media_type="manhua")
+    real_claim = pipeline._claim_page_index
+    written = []
+
+    def claim(pages_dir, idx):
+        if written:            # page 1 is on disk; page 2 blows up
+            raise OSError("disk full")
+        written.append(idx)
+        return real_claim(pages_dir, idx)
+    monkeypatch.setattr(pipeline, "_claim_page_index", claim)
+    client.post("/api/sources/comic/import",
+                json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
+    _wait(f"sourceimport_{did}")
+    assert len(db.list_pages(did)) == 1           # page 1 of c1 really was written
+    body = _state(client, did, name="comic").json()
+    rows = {x["chapter_id"]: x for x in body["retry"]}
+    assert rows["c1"]["status"] == "partial" and "partly imported" in rows["c1"]["error"]
+    assert rows["c2"]["status"] == "not_attempted"
+    assert body["retry_count"] == 1                # only c2 is retried automatically
+
+
+def test_stop_while_listing_records_requested_chapters(client, fakes):
+    Fake = _make("alpha")
+
+    def challenged(self, series_id):
+        raise ChallengeDetected("c", f"{HOST}/v?x={SECRET}", FailureReason.CLOUDFLARE_CHALLENGE)
+    Fake.get_chapters = challenged
+    fakes["alpha"] = Fake
+    did = _novel()
+    client.post("/api/sources/alpha/import",
+                json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
+    _wait(f"sourceimport_{did}")
+    body = _state(client, did).json()
+    assert [(x["chapter_id"], x["status"]) for x in body["retry"]] == [
+        ("c1", "not_attempted"), ("c2", "not_attempted")]
+    assert SECRET not in str(body)
+
+
 def test_unexpected_error_still_saves_the_manifest(client, fakes, monkeypatch):
     from sources import pipeline
     fakes["alpha"] = _make("alpha", fail={"c1": SourceUnavailable("down")})
@@ -160,7 +204,8 @@ def test_unexpected_error_still_saves_the_manifest(client, fakes, monkeypatch):
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2", "c10"], "drama_id": did})
     _wait(f"sourceimport_{did}")
     rows = {x["chapter_id"]: x["status"] for x in _state(client, did).json()["retry"]}
-    assert rows == {"c1": "failed", "c2": "not_attempted", "c10": "not_attempted"}
+    # c2 was being saved when the error hit: shown, but not retried automatically
+    assert rows == {"c1": "failed", "c2": "partial", "c10": "not_attempted"}
 
 
 def test_rows_older_than_the_drama_are_not_shown(client, fakes):
