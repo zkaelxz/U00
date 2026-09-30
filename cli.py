@@ -59,8 +59,8 @@ import adaptive_style
 import emotion
 import dub as dub_module
 import background_jobs
-from services import (line_provenance_service, narration_service, settings_service,
-                      transcribe_service, translate_service)
+from services import (engine_routing_service, line_provenance_service, narration_service,
+                      settings_service, transcribe_service, translate_service)
 from services.narration_service import TAG_ENGINES
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
 
@@ -435,9 +435,11 @@ def cmd_translate(args):
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
-    # saved translation_engine, else the Settings default engine.
+    # saved translation_engine, else the Settings engine for everyday
+    # translation (Step 36 capability "translation.cheap").
     def _engine_name_for(d):
-        return args.engine or d.get("translation_engine") or settings_service.get_default_engine()
+        return (args.engine or d.get("translation_engine")
+                or engine_routing_service.resolve_capability("translation.cheap"))
     _engines = {}
 
     def _engine_for(name):
