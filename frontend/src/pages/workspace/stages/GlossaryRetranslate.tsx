@@ -70,7 +70,7 @@ export function GlossaryRetranslate({ f, busy, onStarted }: { f: RunForm; busy: 
       <div className="check-row">
         <button
           type="button"
-          className={buttonClass('secondary')}
+          className={`${buttonClass('secondary')} glossary-retranslate-open`}
           onClick={() => {
             setOpen(true)
             load(termIds)
