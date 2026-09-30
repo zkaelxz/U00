@@ -309,7 +309,7 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
                 <span className="tool-row"><strong>{x.name}</strong> <span className="muted">{countDramas(x.dramas.length)}</span></span>
                 <span className="muted series-meta">{countsLine(x.types, 'mediaType')}</span>
                 <span className="muted series-meta">{sharedLine(x)}</span>
-                <SharingControl kind="series" id={x.id} title={x.name} isPrivate={x.is_private} ownedByMe={x.owned_by_me} />
+                <SharingControl kind="series" id={x.id} title={x.name} isPrivate={x.is_private} ownedByMe={x.owned_by_me} onChanged={onChanged} />
                 <ul className="series-drama-list" aria-label={`Dramas in ${x.name}`}>
                   {x.dramas.map((d) => (
                     <li key={d.id} className="series-drama">

@@ -14,11 +14,13 @@ interface Props {
   isPrivate?: boolean | null
   ownedByMe?: boolean | null
   seriesId?: number | null
+  // Called after a confirmed flip, so lists that show this item's state (a series' dramas) can reload.
+  onChanged?: () => void
 }
 
 // Sharing state of one item the viewer owns: a badge and a one-tap switch.
 // The server decides what is allowed; its refusal (409) is shown as is.
-export function SharingControl({ kind, id, title, isPrivate, ownedByMe, seriesId }: Props) {
+export function SharingControl({ kind, id, title, isPrivate, ownedByMe, seriesId, onChanged }: Props) {
   const session = useSession()
   // The confirmed flip, kept only while the list still carries the value it was made from.
   const [flipped, setFlipped] = useState<{ from: boolean | null | undefined; to: boolean } | null>(null)
@@ -34,7 +36,10 @@ export function SharingControl({ kind, id, title, isPrivate, ownedByMe, seriesId
     setError(null)
     void flipSharing(setItemPrivate, kind, id, priv === true).then((r) => {
       if ('error' in r) setError(r.error)
-      else setFlipped({ from: isPrivate, to: r.isPrivate })
+      else {
+        setFlipped({ from: isPrivate, to: r.isPrivate })
+        onChanged?.()
+      }
       setBusy(false)
     })
   }
