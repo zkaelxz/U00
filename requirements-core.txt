@@ -18,3 +18,7 @@ uvicorn>=0.30           # the server that runs it
 authlib>=1.3,<2         # Google sign-in (services/oidc_service.py, BAIHE_API_AUTH=on); <2 because
                          # authlib.jose (used for the id_token check) is removed in 2.0
 httpx>=0.27             # Authlib's HTTP client for sign-in (also FastAPI's TestClient)
+numpy>=1.24              # imported at module level by scanlate.py and hardsub_ocr.py, which api.server
+                         # loads; it used to arrive only as a dependency of pandas
+pillow>=10.0             # scanlate.py imports PIL at module level, so api.server needs it (also in
+                         # requirements-media.txt)

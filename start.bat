@@ -157,7 +157,7 @@ REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
 REM less clear error (Step 53). Keep this import list in sync with
 REM requirements-core.txt's own packages.
-%PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
+%PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn, numpy, PIL; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies -- this can take a few minutes the first time...
     if exist constraints.lock.txt (
