@@ -479,11 +479,18 @@ def _now() -> str:
     return datetime.datetime.utcnow().isoformat()
 
 
-def _redact(text):
-    return translate_engines.redact_secrets(str(text)) if text else text
+def _redact(text, key=None):
+    """redact_secrets, plus the run's own key by value (a key without a
+    recognisable prefix would otherwise slip through)."""
+    if not text:
+        return text
+    text = str(text)
+    if key and len(key) >= 8:
+        text = text.replace(key, "[redacted]")
+    return translate_engines.redact_secrets(text)
 
 
-def _run_translation(engine, case: dict) -> dict:
+def _run_translation(engine, case: dict, key: str = None) -> dict:
     started = time.monotonic()
     usage = None
     try:
@@ -492,7 +499,7 @@ def _run_translation(engine, case: dict) -> dict:
         error = None
         usage = getattr(engine, "last_usage", None)
     except Exception as exc:
-        output_text, error = "", _redact(exc)
+        output_text, error = "", _redact(exc, key)
     cost = 0.0
     if usage:
         cost = translate_engines.estimate_cost_for_engine(
@@ -559,7 +566,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                     base_url=(settings_service.resolve_key("ollama_url") or None)
                     if cfg["engine"] == "ollama" else None)
             except Exception as exc:
-                db.update_benchmark_session(session_id, status="failed", note=_redact(exc),
+                db.update_benchmark_session(session_id, status="failed", note=_redact(exc, api_key),
                                             finished_at=_now())
                 step += len(ordered)
                 continue
@@ -587,7 +594,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 f"{cfg['engine']}{' ' + cfg['model'] if cfg.get('model') else ''}: "
                 f"{case.get('label') or case['id']}")
             if stage == "translation":
-                r = _run_translation(engine, case)
+                r = _run_translation(engine, case, api_key)
                 if r["cost_usd"] or r["usage"]:
                     db.log_usage(None, cfg["engine"], getattr(engine, "model", cfg["model"]) or "",
                                  "benchmark", r["usage"].get("input_tokens", 0) or 0,
