@@ -11,7 +11,7 @@ copied:
    layout without it, so even a half-finished install never puts the
    library in the program folder.
 2. Bootstraps pip from the vendored pip wheel. The embeddable Python ships
-   without pip; running pip straight from its wheel needs no network.
+   without pip; running pip as a module from its own wheel needs no network.
 3. Installs requirements-core.txt from the bundled wheels only
    (`--no-index`), with the same constraints file start.bat uses. On an
    upgrade this only changes what changed; packages added later through
@@ -104,9 +104,18 @@ def constraints_file(app_dir: Path) -> Path:
     return lock if lock.is_file() else app_dir / "constraints.txt"
 
 
+# Runs pip as a module from its own wheel (argv[1]), the equivalent of
+# `python -m pip` before pip is installed. Not `python <wheel>\\pip`: on
+# Windows pip refuses to modify itself when argv[0] is named "pip"
+# (protect_pip_from_modification_on_windows), which is exactly what
+# installing pip is.
+_RUN_PIP_FROM_WHEEL = ("import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); "
+                       "runpy.run_module('pip', run_name='__main__', alter_sys=True)")
+
+
 def bootstrap_pip_command(python_exe: str, wheels_dir: Path) -> list:
     pip_whl = find_pip_wheel(wheels_dir)
-    return [python_exe, "-s", f"{pip_whl}{os.sep}pip", "install", "--no-index",
+    return [python_exe, "-s", "-c", _RUN_PIP_FROM_WHEEL, str(pip_whl), "install", "--no-index",
             "--find-links", str(wheels_dir), "--no-warn-script-location", "--upgrade", "pip"]
 
 

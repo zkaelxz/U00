@@ -294,7 +294,8 @@ class TestPipEnvAndCommands:
         for cmd in (boot, core):
             assert cmd[:2] == ["py", "-s"]
             assert "--no-index" in cmd and "--find-links" in cmd
-        assert boot[2].endswith(os.path.join("pip-26.2-py3-none-any.whl", "pip"))
+        assert boot[2] == "-c" and "runpy.run_module('pip'" in boot[3]
+        assert boot[4].endswith("pip-26.2-py3-none-any.whl")
         assert core[core.index("-r") + 1] == str(app / "requirements-core.txt")
         assert core[core.index("-c") + 1] == str(app / "constraints.txt")
         (app / "constraints.lock.txt").write_text("")
