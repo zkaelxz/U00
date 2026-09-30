@@ -30,7 +30,7 @@ import db
 import dub
 import translate_engines
 from core import Line
-from services import settings_service
+from services import job_checkpoint_service, job_timing_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -109,6 +109,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
 
 def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model):
+    job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
     chunks = core_module.chunk_novel_text(text, MAX_CHUNK_CHARS)
     if not chunks:
@@ -116,20 +117,39 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model):
         return
     lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
 
+    job_timing_service.mark_stage(job_id, "Tag speakers")
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
         free_tier=settings_service.get_gemini_free_tier(),
         base_url=(settings_service.resolve_key("ollama_url") if engine_name == "ollama" else None))
     known = [c["character_name"] for c in db.list_characters(drama_id) if c["character_name"]]
+    # Step 41: a re-run over the same text and engine skips the batches an
+    # interrupted run already tagged (and paid for).
+    scope = job_checkpoint_service.checkpoint_scope(
+        "narration_tag", drama_id, job_checkpoint_service.hash_text(text),
+        f"{engine_name}:{getattr(engine, 'model', model) or ''}",
+        {"max_chunk_chars": MAX_CHUNK_CHARS})
+    done = {int(k): v for k, v in job_checkpoint_service.done_units(scope).items()
+            if isinstance(v, str) and k.lstrip("-").isdigit()}
+    if done:
+        background_jobs.update_progress(
+            job_id, 0.2, f"Resuming: {len(done)} of {len(lines)} chunks already tagged...")
+
+    def _checkpoint(batch_labels):
+        for idx, label in batch_labels.items():
+            job_checkpoint_service.record_unit(scope, idx, label)
+
     by_idx = translate_engines.tag_speakers_by_id(
         {ln.idx: ln.zh for ln in lines}, engine, known,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+        done=done, on_batch=_checkpoint)
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
+    job_timing_service.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, "Saving lines...")
     for label in sorted({ln.speaker for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
@@ -139,4 +159,5 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model):
         db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
+    job_checkpoint_service.clear_prefix("narration_tag", drama_id)
     background_jobs.set_result(job_id, {"line_count": len(lines)})

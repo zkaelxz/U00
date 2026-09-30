@@ -393,6 +393,14 @@ def get_job(job_id: str, principal=None) -> dict:
     return _redact(record)
 
 
+def get_job_stages(job_id: str, principal=None) -> dict:
+    """Step 41 item 5: the job's per-stage timing and spend for its latest
+    runs (services/job_timing_service). Same visibility as get_job."""
+    get_job(job_id, principal=principal)
+    from services import job_timing_service
+    return {"job_id": job_id, "runs": job_timing_service.list_runs(job_id)}
+
+
 def cancel_job(job_id: str, principal=None) -> dict:
     """Requests cancellation of a queued/running job, possibly owned by
     another process. In-process jobs get the normal cancel flag at once;

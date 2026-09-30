@@ -69,6 +69,7 @@ import background_jobs
 import db
 import translate_engines
 import translation_guide as tguide
+from services import job_checkpoint_service
 from translate_engines import WORKFLOW_TIERS
 from services.service_errors import (
     ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError,
@@ -465,12 +466,30 @@ def _normalize_proposals(proposals, known_terms) -> list:
     return list(out.values())
 
 
+def _novel_glossary_cache(engine, engine_name):
+    """Step 41 item 1: each passage's reply is cached on (prompt, engine and
+    model, max_tokens), so re-running an interrupted extraction only pays
+    for the passages it never finished."""
+    model = f"{engine_name}:{getattr(engine, 'model', '') or ''}"
+    settings = {"max_tokens": 4000}
+
+    def get(prompt):
+        return job_checkpoint_service.cache_get(
+            "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model, settings)
+
+    def put(prompt, text):
+        job_checkpoint_service.cache_put(
+            "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model, settings,
+            text)
+    return get, put
+
+
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
                             source_language, known_terms):
     try:
         proposals = tguide.extract_glossary_from_novel(
             src_text, engine, source_language=source_language, english_translation=en_text,
-            known_terms=known_terms,
+            known_terms=known_terms, response_cache=_novel_glossary_cache(engine, engine_name),
             progress_cb=lambda f: background_jobs.update_progress(
                 job_id, f, f"Reading... {f * 100:.0f}%"),
             usage_cb=lambda inp, out: db.log_usage(

@@ -36,14 +36,10 @@ GLOSSARY_MATCH_NOTE = (
     "per-line filtered subset, and Baihe doesn't yet record which entries the "
     "model actually used for a specific line (needs Step 41).")
 
-PROMPT_VERSION_NOTE = (
-    "Per-line prompt/glossary/model version isn't recorded (needs Step 41 "
-    "item 4's reproducibility metadata).")
-
 PER_STAGE_TIMING_NOTE = (
-    "Per-stage timing (download/extract/ASR/diarization/translation/subtitle-gen) "
-    "isn't recorded yet -- needs Step 41 item 5's performance breakdown. Only the "
-    "job's total wall-clock time is available.")
+    "Per-stage timing (Step 41 item 5) is recorded for jobs run since it was "
+    "added; a job that marks no stages shows one \"Whole job\" row. Spend is the "
+    "estimate logged while each stage ran.")
 
 
 def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
@@ -72,9 +68,15 @@ def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
             neighbors_after = [(n.idx, n.zh, n.en)
                                for n in all_lines[pos + 1:pos + 1 + context_after]]
 
+    from services import line_provenance_service
+    provenance = (line_provenance_service.get(drama_id, line.id)
+                  if getattr(line, "id", None) is not None else None)
     versions = db.list_translation_versions(drama_id)
     active_version = next((v for v in versions if v["is_active"]), None)
-    if active_version:
+    if provenance:
+        engine, model = provenance["engine"], provenance["model"]
+        engine_source = "recorded when this line was last translated"
+    elif active_version:
         engine, model = active_version["engine"], active_version["model"]
         engine_source = "this drama's active saved translation version"
     else:
@@ -105,7 +107,8 @@ def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
         "engine": engine,
         "model": model,
         "engine_source": engine_source,
-        "prompt_version_note": PROMPT_VERSION_NOTE,
+        "provenance": provenance,
+        "prompt_version_note": line_provenance_service.describe(provenance),
     }
 
 
@@ -118,6 +121,11 @@ def explain_job(job_id: str) -> dict:
         return {"job_id": job_id, "found": False}
     started, finished = job.get("started_at"), job.get("finished_at")
     duration = (finished - started) if started and finished else None
+    try:
+        from services import job_timing_service
+        runs = job_timing_service.list_runs(job_id, limit=1)
+    except Exception:
+        runs = []
     return {
         "job_id": job_id,
         "found": True,
@@ -129,7 +137,7 @@ def explain_job(job_id: str) -> dict:
         "started_at": started,
         "finished_at": finished,
         "duration_seconds": duration,
-        "per_stage_breakdown": None,
+        "per_stage_breakdown": runs[0]["stages"] if runs else None,
         "per_stage_breakdown_note": PER_STAGE_TIMING_NOTE,
     }
 

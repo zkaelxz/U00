@@ -206,6 +206,14 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── job_checkpoint_service.py Step 41 -- per-unit checkpoints so a re-run resumes an interrupted
+│   │                             job (narration tagging uses it) + an opt-in result cache keyed on
+│   │                             (kind, input hash, model, settings) (glossary-from-novel uses it)
+│   ├── job_timing_service.py     Step 41 -- per-stage duration + estimated spend of every real job
+│   │                             (background_jobs starts/finishes a run; jobs call mark_stage)
+│   ├── line_provenance_service.py Step 41 -- per-line engine/model/prompt/glossary/software version
+│   │                             of the latest translation (recorded by the translate job)
+│   ├── vram_service.py           Step 41 -- free-VRAM fit check before a GPU model load (dub loaders)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -379,6 +387,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -391,6 +400,7 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
+│       ├── job_stage_routes.py   GET /api/jobs/{id}/stages (library.read, job visibility): per-stage timing (Step 41)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)

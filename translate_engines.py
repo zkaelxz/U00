@@ -1346,7 +1346,8 @@ class NLLBEngine:
         return [r["translation_text"] for r in results]
 
 
-def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size: int = 15, usage_cb=None):
+def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size: int = 15,
+                       usage_cb=None, done=None, on_batch=None):
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
     a character name, or 'Narrator' for descriptive prose. Works with
@@ -1359,15 +1360,24 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     model invented are ignored -- a label can only ever land on the chunk
     it was keyed to, never by list position.
     This is a best-effort heuristic -- always let the user correct
-    labels in the review table afterwards."""
+    labels in the review table afterwards.
+
+    Step 41 resume: `done` ({id: label}) holds labels an earlier,
+    interrupted run already paid for -- a batch whose ids are all in it is
+    not sent again. `on_batch({id: label})` is called after each new batch
+    (the caller checkpoints it)."""
     if not getattr(engine, "supports_reference", False):
         return {i: "Narrator" for i in id_to_zh}
 
     known = ", ".join(known_characters) if known_characters else "(none known yet)"
     labels = {}
+    done = done or {}
     all_ids = list(id_to_zh)
     for start in range(0, len(all_ids), batch_size):
         batch_ids = all_ids[start:start + batch_size]
+        if all(i in done for i in batch_ids):
+            labels.update({i: done[i] for i in batch_ids})
+            continue
 
         def call_model(numbered, known=known):
             prompt = (
@@ -1396,6 +1406,8 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
             call_model)
         for i in batch_ids:
             labels[i] = (result_map.get(str(i)) or "").strip() or "Narrator"
+        if on_batch is not None:
+            on_batch({i: labels[i] for i in batch_ids})
     return labels
 
 
@@ -2514,6 +2526,11 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
         "source_language": (drama_meta or {}).get("source_language", "zh"),
         "ollama_num_ctx_override": ollama_num_ctx_override,
     }
+
+
+# Step 41 item 4: recorded with each translated line (line_provenance).
+# Bump it whenever the translate prompt or its batching changes meaning.
+TRANSLATE_PROMPT_VERSION = "1"
 
 
 def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
