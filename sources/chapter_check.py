@@ -46,6 +46,14 @@ def check_series(adapter, row: dict) -> list:
             chapters = adapter.get_chapters(series_id)
         except http.NotModified:
             chapters = None
+        finally:
+            if poll.untrusted_304:
+                # The validated URL now redirects somewhere that answered
+                # 304: forget the validators so the next poll is a full fetch.
+                try:
+                    store.save_poll_validators(source, series_id, None)
+                except Exception:
+                    pass
     if poll.not_modified:
         # Even if an adapter swallowed NotModified and returned something,
         # the one request it made said "unchanged".

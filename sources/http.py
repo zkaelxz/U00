@@ -89,11 +89,19 @@ class ConditionalPoll:
     active, every request made on this thread (any SourceClient) is
     recorded, so validators are only kept for a poll that was exactly one
     plain GET -- a multi-request or browser-rendered chapter list can't
-    be judged unchanged from one of its responses."""
+    be judged unchanged from one of its responses.
+
+    Single-thread by design: it lives in a threading.local, so an adapter
+    that fetched its chapter list on worker threads would go unrecorded
+    (none does today; the registry's thread pool is search only)."""
     url: str = ""
     etag: str = ""
     last_modified: str = ""
     not_modified: bool = False
+    # A 304 that answered a redirect target, not the validated URL: the
+    # saved validators no longer lead to the list, so they are forgotten.
+    untrusted_304: bool = False
+    started_gets: int = 0                       # every GET sent, failed ones included
     gets: list = field(default_factory=list)   # (url, final_url, status, etag, last_modified)
     other_requests: int = 0                     # POSTs, cache hits, browser renders
 
@@ -109,7 +117,7 @@ class ConditionalPoll:
 
     def validators(self):
         """(url, etag, last_modified) to save for the next poll, or None."""
-        if self.other_requests or len(self.gets) != 1:
+        if self.other_requests or self.started_gets != 1 or len(self.gets) != 1:
             return None
         url, final_url, status, etag, last_modified = self.gets[0]
         if status != 200 or final_url != url or not (etag or last_modified):
@@ -505,6 +513,11 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
             break
         r.close()
         nxt = urljoin(current, location)
+        # Conditional validators belong to the URL they were saved for (a
+        # browser sends them only for its cached URL): never to a redirect
+        # target, which could answer 304 for something else (Step 106).
+        cur_headers = {k: v for k, v in cur_headers.items()
+                       if k.lower() not in _CONDITIONAL_HEADERS}
         if _should_strip_auth(current, nxt):
             cur_headers = {k: v for k, v in cur_headers.items()
                            if k.lower() not in ("authorization", "cookie")}
@@ -545,6 +558,10 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
                 cookies[cookie.name] = cookie.value
     return Response(status_code=r.status_code, headers=dict(r.headers), content=content,
                     url=r.url, cookies=cookies)
+
+
+_CONDITIONAL_HEADERS = ("if-none-match", "if-modified-since", "if-match", "if-unmodified-since",
+                        "if-range")
 
 
 def _should_strip_auth(old_url, new_url) -> bool:
@@ -785,6 +802,7 @@ class SourceClient:
         if poll is not None:
             if method.upper() == "GET":
                 conditional = poll.conditional_headers(url)
+                poll.started_gets += 1   # a cache hit also counts as "other" below
             else:
                 poll.other_requests += 1
         cacheable = use_cache and method.upper() == "GET" and self.cache is not None \
@@ -821,6 +839,9 @@ class SourceClient:
                     resp, exc = None, e
                 latency = self.clock() - started
 
+            if conditional and resp is not None and resp.status_code == 304 \
+                    and resp.url != url:
+                poll.untrusted_304 = True   # classified below like any response
             if isinstance(exc, Cancelled):
                 self._status("Idle", 0.0)
                 raise exc

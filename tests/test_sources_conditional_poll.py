@@ -266,8 +266,8 @@ def test_304_from_a_redirect_target_is_not_trusted(tracked):
     with pytest.raises(Exception) as err:
         chapter_check.check_series(adapter, tracked)
     assert not isinstance(err.value, http.NotModified)
-    assert store.poll_validators("condtest", "s1") == {"url": LIST, "etag": "",
-                                                       "last_modified": LAST_MOD}
+    # lead review: the validators are forgotten, so the next poll is a full fetch
+    assert store.poll_validators("condtest", "s1") == {}
 
 
 def test_304_outside_a_poll_or_for_another_url_is_an_ordinary_response(tracked):
@@ -334,3 +334,56 @@ def test_old_validators_expire_to_a_full_fetch(tracked, monkeypatch):
                         lambda: real_time() + chapter_check.VALIDATOR_MAX_AGE_SECONDS + 60)
     assert _check(adapter, tracked) == []
     assert "If-None-Match" not in server.calls[1]["headers"] and adapter.parses == 2
+
+
+def test_validators_never_follow_a_redirect_hop(tracked, monkeypatch):
+    """Lead review: the real transport drops If-None-Match / If-Modified-Since
+    on every redirect hop (it already dropped Authorization/Cookie cross-host)."""
+    monkeypatch.setattr(url_guard.socket, "getaddrinfo",
+                        lambda host, port, **kw: [(2, 1, 6, "", ("93.184.216.34", port))])
+    moved = "https://mirror.example/book/1/chapters.json"
+
+    class Redirecting:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, method, url, headers=None, **kw):
+            self.calls.append((url, dict(headers)))
+            if url == LIST:
+                return _Resp(301, {"Location": moved}, b"", url)
+            return _Resp(200, {"content-type": "application/json", "ETag": '"m1"'},
+                         b'["c1"]', url)
+    session = Redirecting()
+    monkeypatch.setattr(http, "_thread_session", lambda: session)
+    store.save_poll_validators("condtest", "s1", (LIST, ETAG, LAST_MOD))
+    client = make_client("condtest")
+    client.transport = client._limited_transport
+    assert _check(ListAdapter(client), tracked) == ["c1"]
+    first, second = session.calls
+    assert first[1]["If-None-Match"] == ETAG
+    assert not any(k.lower().startswith("if-") for k in second[1])
+    assert store.poll_validators("condtest", "s1") == {}     # redirected: nothing saved
+
+
+def test_a_failed_get_the_adapter_caught_blocks_validators(tracked):
+    """Lead review: a GET that failed (and the adapter swallowed) still
+    counts, so the one successful GET can't be taken for the whole list."""
+    server = FakeServer()
+
+    def transport(method, url, headers, data, timeout):
+        if url == PAGE2:
+            return Response(404, {"content-type": "text/html"}, b"<html>gone</html>", url)
+        return server(method, url, headers, data, timeout)
+
+    class Tolerant(ListAdapter):
+        def get_chapters(self, series_id):
+            out = super().get_chapters(series_id)
+            try:
+                self.client.get(PAGE2)
+            except Exception:
+                pass
+            return out
+
+    adapter = Tolerant(make_client("condtest", transport, max_retries=0))
+    assert _check(adapter, tracked) == ["c1", "c2"]
+    assert store.poll_validators("condtest", "s1") == {}
