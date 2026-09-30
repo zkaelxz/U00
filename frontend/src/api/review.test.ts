@@ -79,6 +79,14 @@ describe('review api', () => {
     await review.startReviewJob(1, 'fix-flagged', { engine: 'openai', model: 'm', job_cost_cap_usd: 0.5 }, fakeFetch(200, {}, calls))
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ engine: 'openai', model: 'm', job_cost_cap_usd: 0.5 })
   })
+  it('sends bulk for a review check and reads it back (R49)', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const started = { job_id: 'bulk_consistency_1', drama_id: 1, kind: 'consistency', engine: 'claude', model: null, line_count: 4, bulk: true }
+    const r = await review.startReviewJob(1, 'consistency', { bulk: true }, fakeFetch(200, started, calls))
+    expect(calls[0].url).toBe('/api/review-jobs/dramas/1/consistency')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ bulk: true })
+    expect(r.bulk).toBe(true)
+  })
   it('reads stored results and checks from the review routes', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const f = fakeFetch(200, {}, calls)

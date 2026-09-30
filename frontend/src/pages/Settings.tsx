@@ -5,11 +5,13 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
+import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
 
@@ -96,7 +98,9 @@ export default function SettingsPage() {
           <DefaultsCard key={defaultsKey} {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
+          <AutoBackupCard />
           <JellyfinSection />
+          <TranscriptionExperimentsCard />
           <ExtensionSection />
           <AppearanceCard />
           <AdvancedCard {...prefProps} />
