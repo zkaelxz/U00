@@ -214,6 +214,10 @@ baihe-subtitler/
 │   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
 │   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
 │   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
+│   ├── model_registry_service.py Step 40 -- model deprecation assistant: configured models vs the shipped
+│   │                             registry (model_registry.json) and a manual, cached provider model-list
+│   │                             check; user-confirmed preset model switch (never automatic)
+│   ├── model_registry.json       Step 40 -- sourced lifecycle facts (current/legacy/deprecated/retired)
 
 │   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
 │   │                             from a static table: allowlisted https hops, timeouts, byte cap,
@@ -420,6 +424,7 @@ baihe-subtitler/
 │   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
+│   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
@@ -502,6 +507,8 @@ baihe-subtitler/
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── benchmark_routes.py   /api/benchmark/options|cases|sets|runs|runs/{id}|arena (GET) + estimate (POST),
 │       │                         admin.diagnostics; cases, import, regression, runs (POST) local_only (Step 38)
+│       ├── model_registry_routes.py /api/models/status (GET, admin.diagnostics), check and
+│       │                         presets/{id}/switch (POST, local_only; Step 40)
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
