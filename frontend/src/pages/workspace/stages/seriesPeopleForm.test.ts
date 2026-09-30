@@ -6,9 +6,14 @@ import {
   CUSTOM,
   buildPersonCreate,
   buildPersonUpdate,
+  bulkPronounsProblem,
+  bulkPronounsSummary,
   formPronouns,
   isPersonDirty,
+  peopleCount,
   personProblem,
+  planBulkPronouns,
+  toBulkPronounsForm,
   toPersonForm,
 } from './seriesPeopleForm'
 
@@ -45,6 +50,47 @@ describe('series person form', () => {
     const f = { ...toPersonForm(), character_name: ' Lan ', pronoun_choice: CUSTOM, custom_pronouns: ' xe/xem ', aliases: ' 兰 ' }
     expect(personProblem(f)).toBeNull()
     expect(buildPersonCreate(f)).toEqual({ character_name: 'Lan', pronouns: 'xe/xem', aliases: '兰', notes: '' })
+  })
+})
+
+describe('bulk pronouns', () => {
+  const wei: SeriesCharacter = { id: 12, character_name: 'Wei', aliases: '', notes: '', pronouns: 'male' }
+  const lan: SeriesCharacter = { id: 13, character_name: 'Lan', aliases: '', notes: '', pronouns: '' }
+  const cast = [mei, wei, lan]
+
+  it('names the fix while disabled', () => {
+    expect(bulkPronounsProblem(0, { choice: 'he/him', custom: '' })).toBe('Still needed: tick at least one person in the list.')
+    expect(bulkPronounsProblem(2, { choice: CUSTOM, custom: '  ' })).toBe('Still needed: type the custom pronouns.')
+    expect(bulkPronounsProblem(2, { choice: CUSTOM, custom: 'xe/xem' })).toBeNull()
+    // Unspecified clears, so it can run.
+    expect(bulkPronounsProblem(1, toBulkPronounsForm())).toBeNull()
+  })
+
+  it('sends only {pronouns}, picked by id, skipping people who already match', () => {
+    const plan = planBulkPronouns(cast, new Set([13, 12, 99]), { choice: 'he/him', custom: '' })
+    expect(plan.body).toEqual({ pronouns: 'he/him' })
+    // Legacy "male" already means he/him.
+    expect(plan.send.map((p) => p.id)).toEqual([13])
+    expect(plan.unchanged.map((p) => p.id)).toEqual([12])
+  })
+
+  it('clears with "" and trims a custom value', () => {
+    expect(planBulkPronouns(cast, new Set([11, 13]), toBulkPronounsForm())).toMatchObject({
+      body: { pronouns: '' },
+      send: [mei],
+      unchanged: [lan],
+    })
+    expect(planBulkPronouns(cast, new Set([11]), { choice: CUSTOM, custom: ' xe/xem ' }).body).toEqual({ pronouns: 'xe/xem' })
+  })
+
+  it('summarises a run in plain words', () => {
+    expect(peopleCount(1)).toBe('1 person')
+    expect(peopleCount(3)).toBe('3 people')
+    expect(bulkPronounsSummary({ updated: 2, unchanged: 0, failed: 0 }, 'he/him')).toBe('Updated 2 people.')
+    expect(bulkPronounsSummary({ updated: 1, unchanged: 1, failed: 1 }, 'she/her')).toBe(
+      'Updated 1 person. 1 person already had she/her. 1 person could not be updated.',
+    )
+    expect(bulkPronounsSummary({ updated: 0, unchanged: 2, failed: 0 }, '')).toBe('2 people already had no pronouns set.')
   })
 })
 

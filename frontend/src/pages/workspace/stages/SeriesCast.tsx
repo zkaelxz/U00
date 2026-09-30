@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { addSeriesPerson, updateSeriesPerson } from '../../../api/seriesPeople'
 import { deleteSeriesCharacter, listSeriesCharacters } from '../../../api/stageDeletes'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { describeError } from '../../../components/errorMessages'
+import { buttonClass } from '../../../components/uiClasses'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
@@ -13,9 +15,15 @@ import {
   PRONOUN_PRESETS,
   buildPersonCreate,
   buildPersonUpdate,
+  bulkPronounsProblem,
+  bulkPronounsSummary,
   isPersonDirty,
+  peopleCount,
   personProblem,
+  planBulkPronouns,
+  toBulkPronounsForm,
   toPersonForm,
+  type BulkPronounsForm,
   type PersonForm,
 } from './seriesPeopleForm'
 import './seriesCast.css'
@@ -152,6 +160,125 @@ function AddPerson({ seriesId, onAdded }: { seriesId: number; onAdded: (p: Serie
   )
 }
 
+type BulkFailure = { id: number; name: string; error: unknown }
+
+// "Bulk pronouns" (parity X16): one pronoun choice for every ticked person.
+// No bulk route exists, so it edits them one at a time through the
+// per-person route, sending only {pronouns} and only to people whose
+// pronouns differ. Failed people stay ticked for a retry.
+function BulkPronouns({ seriesId, cast, selected, onSelect, onUpdated, onRunning }: {
+  seriesId: number
+  cast: SeriesCharacter[]
+  selected: ReadonlySet<number>
+  onSelect: (ids: Set<number>) => void
+  onUpdated: (p: SeriesCharacter) => void
+  onRunning: (running: boolean) => void
+}) {
+  const [form, setForm] = useState<BulkPronounsForm>(toBulkPronounsForm)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [result, setResult] = useState<{ summary: string; failures: BulkFailure[] } | null>(null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+
+  const n = selected.size
+  const running = progress !== null
+  const reason = bulkPronounsProblem(n, form)
+
+  const run = async () => {
+    const plan = planBulkPronouns(cast, selected, form)
+    const failures: BulkFailure[] = []
+    let updated = 0
+    setResult(null)
+    onRunning(true)
+    for (let i = 0; i < plan.send.length; i++) {
+      const p = plan.send[i]
+      setProgress({ done: i + 1, total: plan.send.length })
+      try {
+        const saved = await updateSeriesPerson(seriesId, p.id, plan.body)
+        updated++
+        if (alive.current) onUpdated(saved)
+      } catch (e: unknown) {
+        failures.push({ id: p.id, name: p.character_name, error: e })
+      }
+      if (!alive.current) {
+        onRunning(false)
+        return
+      }
+    }
+    setProgress(null)
+    onRunning(false)
+    onSelect(new Set(failures.map((f) => f.id)))
+    setResult({
+      summary: bulkPronounsSummary({ updated, unchanged: plan.unchanged.length, failed: failures.length }, plan.pronouns),
+      failures,
+    })
+  }
+
+  return (
+    <Section
+      storageKey="translate.characters.series.bulk"
+      title="Bulk pronouns"
+      summary={n ? `${peopleCount(n)} selected` : 'tick people in the list to set their pronouns together'}
+    >
+      <div className="series-bulk">
+        <p className="muted">Tick people in the list above, then pick the pronouns to give them all.</p>
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={running || n === cast.length} onClick={() => onSelect(new Set(cast.map((c) => c.id)))}>
+            Select all
+          </button>
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={running || n === 0} onClick={() => onSelect(new Set())}>
+            Clear
+          </button>
+          <span className="muted">{peopleCount(n)} selected</span>
+        </div>
+        <div className="series-person-grid">
+          <Field label="Set pronouns to" help={PRONOUNS_HELP}>
+            <select value={form.choice} disabled={running} onChange={(e) => setForm((f) => ({ ...f, choice: e.target.value }))}>
+              <option value="">Unspecified (clear them)</option>
+              {PRONOUN_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+              <option value={CUSTOM}>Custom…</option>
+            </select>
+          </Field>
+          {form.choice === CUSTOM && (
+            <Field label="Custom pronouns for selected">
+              <input value={form.custom} maxLength={40} placeholder="e.g. xe/xem" disabled={running} onChange={(e) => setForm((f) => ({ ...f, custom: e.target.value }))} />
+            </Field>
+          )}
+        </div>
+        <div className="actions">
+          <button type="button" className={buttonClass('primary')} disabled={running || reason !== null} onClick={() => void run()}>
+            {n ? `Set pronouns for ${n} selected` : 'Set pronouns for selected'}
+          </button>
+          {reason && !running && <span className="muted">{reason}</span>}
+        </div>
+        {progress && <p role="status">Updating {progress.done} of {progress.total}…</p>}
+        {result && <p role="status">{result.summary}</p>}
+        {result && result.failures.length > 0 && (
+          <div className="series-bulk-failures" role="alert">
+            <strong>Not updated (still ticked, so you can try again):</strong>
+            <ul>
+              {result.failures.map((f) => {
+                const { title, detail } = describeError(f.error)
+                return (
+                  <li key={f.id}>
+                    <strong>{f.name}</strong>: {title}
+                    {detail && <span className="muted"> {detail}</span>}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 const byName = (a: SeriesCharacter, b: SeriesCharacter) =>
   a.character_name < b.character_name ? -1 : a.character_name > b.character_name ? 1 : 0
 
@@ -168,6 +295,9 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
   const [removeError, setRemoveError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState<number | null>(null)
+  // Ticked people, kept per series so switching series drops the ticks.
+  const [pick, setPick] = useState<{ seriesId: number; ids: Set<number> }>(() => ({ seriesId, ids: new Set() }))
+  const [bulkRunning, setBulkRunning] = useState(false)
   const pc = usePcOnly()
 
   useEffect(() => {
@@ -208,6 +338,18 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
   // Not loaded (or failed to load): only a load error.
   if (!cast) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
+  // Only people still in the list count as ticked (a removed one drops out).
+  const ticked = pick.seriesId === seriesId ? pick.ids : new Set<number>()
+  const selected = new Set(cast.filter((c) => ticked.has(c.id)).map((c) => c.id))
+  const select = (ids: Set<number>) => setPick({ seriesId, ids })
+  const toggle = (id: number, on: boolean) => {
+    const next = new Set(selected)
+    if (on) next.add(id)
+    else next.delete(id)
+    select(next)
+  }
+  const bulkUpdated = (p: SeriesCharacter) => setCast((cur) => cur && cur.map((x) => (x.id === p.id ? p : x)))
+
   return (
     <Section
       storageKey="translate.characters.series"
@@ -224,14 +366,23 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
                 <EditPerson seriesId={seriesId} person={c} onSaved={saved} onCancel={() => setEditing(null)} />
               ) : (
                 <>
-                  <span>
+                  <label className="series-cast-pick">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${c.character_name}`}
+                      checked={selected.has(c.id)}
+                      disabled={bulkRunning}
+                      onChange={(e) => toggle(c.id, e.target.checked)}
+                    />
+                  </label>
+                  <span className="series-cast-who">
                     <strong>{c.character_name}</strong>
                     {c.pronouns && <span className="muted"> · {c.pronouns}</span>}
                     {c.aliases && <span className="muted"> · also {c.aliases}</span>}
                     {c.notes && <span className="muted series-cast-notes">{c.notes}</span>}
                   </span>
                   <span className="actions">
-                    <button type="button" aria-label={`Edit ${c.character_name}`} onClick={() => setEditing(c.id)}>
+                    <button type="button" aria-label={`Edit ${c.character_name}`} disabled={bulkRunning} onClick={() => setEditing(c.id)}>
                       Edit
                     </button>
                     {pc === 'local' && (
@@ -250,6 +401,20 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
         </ul>
       )}
       {pc === 'remote' && cast.length > 0 && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+      {cast.length > 0 && (
+        <BulkPronouns
+          seriesId={seriesId}
+          cast={cast}
+          selected={selected}
+          onSelect={select}
+          onUpdated={bulkUpdated}
+          onRunning={(r) => {
+            // An open inline edit would hold pronouns the run is replacing.
+            if (r) setEditing(null)
+            setBulkRunning(r)
+          }}
+        />
+      )}
       <AddPerson seriesId={seriesId} onAdded={added} />
       {notice && <p role="status">{notice}</p>}
       <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
