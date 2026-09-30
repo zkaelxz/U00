@@ -70,7 +70,8 @@ _TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN
               "custom_tags": MAX_URL_LEN}
 _STRIPPED = ("title_en", "title_zh")
 _UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS
-                       + ("media_type", "publication_status", "series_id"))
+                       + ("media_type", "publication_status", "series_id",
+                          "new_series_name"))
 
 
 def _check_text(name, value):
@@ -195,13 +196,29 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     NotFoundError for an unknown drama or series, InvalidInputError for a
     non-whitelisted field or bad value, ConflictError for a move into a
     private series the drama's owner doesn't own (ownership_service; a
-    series `principal` can't see is a 404). Returns the drama detail."""
+    series `principal` can't see is a 404). Returns the drama detail.
+
+    Parity P11/X09: `series_id=0` takes the drama out of its series (0 =
+    clear, as for the counts; a drama leaving a private series stays
+    private). `new_series_name` ("+ New series") moves it into the series
+    of that name, creating it for the principal if none exists; it can't be
+    combined with `series_id`."""
     if isinstance(drama_id, int) and not isinstance(drama_id, bool) and drama_id > MAX_ID:
         raise InvalidInputError("drama_id is out of range.")
     library_service.get_library_drama(drama_id)  # id check + existence
     for key in partial:
         if key not in _UPDATABLE:
             raise InvalidInputError("That field cannot be updated here.")
+    new_series_name = partial.pop("new_series_name", None)
+    if new_series_name is not None:
+        if partial.get("series_id") is not None:
+            raise InvalidInputError("Pass series_id or new_series_name, not both.")
+        new_series_name = _check_text("new_series_name", new_series_name).strip()
+        if not new_series_name:
+            raise InvalidInputError("new_series_name must not be blank.")
+        drama = db.get_item_ownership("drama", drama_id)
+        ownership_service.check_new_series_assignment(principal, new_series_name,
+                                                      drama.get("owner_user_id"))
 
     fields = {}
     for key, value in partial.items():
@@ -221,6 +238,8 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
             if value not in PUBLICATION_STATUSES:
                 raise InvalidInputError("Unknown publication_status.",
                                         details={"allowed": list(PUBLICATION_STATUSES)})
+        elif key == "series_id" and value == 0 and not isinstance(value, bool):
+            pass                # 0 = take the drama out of its series
         elif key == "series_id":
             _check_id("series_id", value)
             drama = db.get_item_ownership("drama", drama_id)
@@ -229,7 +248,11 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
         fields[key] = value
 
     series_id = fields.pop("series_id", None)
-    if series_id is not None:   # first: a refused move writes nothing
+    if new_series_name is not None:   # first: a refused move writes nothing
+        series_id = ownership_service.get_or_create_series_for(principal, new_series_name)
+    if series_id == 0:
+        ownership_service.unassign_drama_series(principal, drama_id)
+    elif series_id is not None:
         ownership_service.assign_drama_series(principal, drama_id, series_id)
     if fields:
         db.update_drama(drama_id, **fields)
