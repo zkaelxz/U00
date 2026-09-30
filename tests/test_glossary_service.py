@@ -29,8 +29,7 @@ class TestNoSeries:
             gs.upsert_glossary_term(did, FULL)
         with pytest.raises(UnsupportedOperationError):
             gs.set_series_instructions(did, "x")
-        with pytest.raises(NotFoundError):
-            gs.delete_glossary_term(did, 1, confirm=True)
+        assert gs.bulk_delete_glossary_terms(did, [1], confirm=True) == {"deleted": [], "not_found": [1]}
         assert gs.set_project_instructions(did, "hi")["project_instructions"] == "hi"
 
     def test_unknown_drama(self, isolated_db):
@@ -93,12 +92,13 @@ class TestCrud:
         did, _ = _drama(isolated_db)
         t = gs.upsert_glossary_term(did, FULL)
         with pytest.raises(InvalidInputError):
-            gs.delete_glossary_term(did, t["id"])
+            gs.bulk_delete_glossary_terms(did, [t["id"]])
         assert len(gs.list_glossary_terms(did)) == 1
-        gs.delete_glossary_term(did, t["id"], confirm=True)
+        out = gs.bulk_delete_glossary_terms(did, [t["id"]], confirm=True)
+        assert out == {"deleted": [t["id"]], "not_found": []}
         assert gs.list_glossary_terms(did) == []
-        with pytest.raises(NotFoundError):
-            gs.delete_glossary_term(did, t["id"], confirm=True)
+        out = gs.bulk_delete_glossary_terms(did, [t["id"]], confirm=True)
+        assert out == {"deleted": [], "not_found": [t["id"]]}
 
 
 class TestValidation:
@@ -130,8 +130,8 @@ class TestIsolation:
         db_, _ = _drama(isolated_db, "B")
         t = gs.upsert_glossary_term(da, FULL)
         assert gs.list_glossary_terms(db_) == []
-        with pytest.raises(NotFoundError):
-            gs.delete_glossary_term(db_, t["id"], confirm=True)
+        out = gs.bulk_delete_glossary_terms(db_, [t["id"]], confirm=True)
+        assert out == {"deleted": [], "not_found": [t["id"]]}
         with pytest.raises(NotFoundError):
             gs.upsert_glossary_term(db_, {"id": t["id"], "term_translation": "hacked"})
         assert gs.list_glossary_terms(da)[0]["term_translation"] == "Shen Qingyi"
