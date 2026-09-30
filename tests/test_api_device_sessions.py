@@ -85,9 +85,17 @@ def test_anonymous_is_401_and_auth_off_is_404(isolated_db):
         assert r.status_code == 404
 
 
+def _household_app():
+    # The household listener needs sign-in configured and answers only to
+    # the BAIHE_PUBLIC_URL host (REMOTE).
+    return create_app(ApiSettings(household_port=8610, serve_frontend=False,
+                                  google_client_id="cid", google_client_secret="s3cr3t-value",
+                                  public_url=REMOTE),
+                      frontend_dist=None, listener="household")
+
+
 def test_household_listener_serves_them(isolated_db):
-    app = create_app(ApiSettings(household_port=8610, serve_frontend=False), frontend_dist=None,
-                     listener="household")
+    app = _household_app()
     _u, phone, _pc = _member()
     r = _remote(app).get("/api/auth/sessions", headers=_h(phone, csrf=False))
     assert r.status_code == 200 and len(r.json()["sessions"]) == 2
@@ -264,11 +272,10 @@ def test_admin_away_from_the_pc_can_list_but_not_revoke(isolated_db):
 
 
 def test_admin_on_the_household_listener_is_refused(isolated_db):
-    app = create_app(ApiSettings(household_port=8610, serve_frontend=False), frontend_dist=None,
-                     listener="household")
     _u, phone, pc = _member("admin@example.com", admin=True)
-    c = TestClient(app, base_url="http://127.0.0.1:8610", client=("127.0.0.1", 5000),
-                   raise_server_exceptions=False)
+    # What the reverse proxy on this PC passes on: a loopback peer, the public Host.
+    c = TestClient(_household_app(), base_url="http://baihe.example.com",
+                   client=("127.0.0.1", 5000), raise_server_exceptions=False)
     assert c.post(f"/api/auth/sessions/{pc['session_id']}/revoke",
                   headers=_h(phone)).status_code == 403
     assert _alive(pc)
