@@ -43,7 +43,9 @@ _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
 # reads and writes instead of its own app setting; "default": the engine used
 # while unset (_DEFAULT_ENGINE = Settings' default engine); "choices": an
 # extra allow-list (or a function returning one) on top of "requires";
-# "exclude": engines never offered.
+# "exclude": engines never offered; "unset_label": the capability is OFF
+# while unset (its unset option is labelled with this, and only an explicit
+# choice counts as set, even one equal to the default).
 CAPABILITIES = {
     "translation.cheap": {
         "label": "Everyday translation",
@@ -56,10 +58,12 @@ CAPABILITIES = {
     "translation.high_quality": {
         "label": "Stronger translation for hard lines",
         "help": ("Suggested in Review for a line with a QC flag or a glossary conflict. "
-                 "Only a suggestion: nothing runs until you choose it."),
+                 "Off until you pick an engine here. Only a suggestion: nothing runs until "
+                 "you choose it."),
         "requires": translate_engines.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
         "exclude": ("test_offline",),  # fake output is never "stronger"
+        "unset_label": "Off (no suggestions)",  # Step 99 offers nothing while unset
     },
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
@@ -172,7 +176,9 @@ def _capability_entry(capability: str) -> dict:
         "default_engine": default,
         # A pref-backed capability always has a saved value's worth of
         # meaning: it equals the preference, set or not.
-        "is_default": stored is None or stored == default,
+        "is_default": (stored is None if d.get("unset_label")
+                       else stored is None or stored == default),
+        "unset_label": d.get("unset_label"),
         "engine_supported": engine in engine_choices(capability),
         "choices": engine_choices(capability),
     }
