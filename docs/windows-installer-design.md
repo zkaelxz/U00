@@ -485,7 +485,8 @@ per-user.
   user-writable program folder, before it is copied; a process running as the
   user could replace those files in that window and have them run as
   administrator. Fixing it needs Setup to be elevated or to extract
-  somewhere only administrators can write; not done.
+  somewhere only administrators can write. **Owner decision (2026-09-30):
+  accepted for now; revisit if the PC gets other users.**
   Uninstall takes the account off both folders again and removes the admin
   folder (files still loaded are moved aside, inside Program Files, and
   deleted at the next restart).
@@ -498,7 +499,10 @@ per-user.
   Windows accounts, they can use the library and its actions. The engine-key
   form is **off** unless the data folder's `.env` sets
   `BAIHE_API_ALLOW_KEY_WRITES=1`, for that reason (the launcher turns it on
-  by default). Per-account sign-in for this listener is not done.
+  by default). Per-account sign-in for this listener is not done. **Owner
+  decision (2026-09-30): accepted on the condition that only the owner uses
+  this PC. If it has other Windows accounts, untick the service task (it is
+  ticked by default for now).**
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing
