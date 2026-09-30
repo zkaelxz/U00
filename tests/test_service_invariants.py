@@ -2,7 +2,7 @@
 Streamlit retirement, were only asserted by AppTest (UI-class) tests in
 tests/test_workspace_tab.py. Each class names the Streamlit test class it
 came from, so the invariant survives when the tab and its tests are deleted
-(docs/streamlit-test-triage.md, section 1 notes). Fully mocked: isolated_db,
+(docs/archive/streamlit-test-triage.md, section 1 notes). Fully mocked: isolated_db,
 no model, GPU or network."""
 import os
 import threading
