@@ -9,7 +9,7 @@
 # app server (`python -m api`, loopback 127.0.0.1:8600 only -- no login
 # yet, see docs/remote-access-decision.md) and its own window once
 # /api/health answers. Needs the prebuilt frontend in frontend\dist
-# (docs/RELEASE.md). Streamlit is no longer launched from here.
+# (docs/RELEASE.md).
 #
 #   .\start.ps1              # normal launch
 #   .\start.ps1 -Portable    # also turns on portable mode for this run
@@ -145,7 +145,7 @@ if (-not (Test-Path $Py)) {
 # make this skip the install step entirely and fail later with a much
 # less clear error (Step 53, applied here in Step 63). Keep this import
 # list in sync with requirements-core.txt's own packages.
-& $Py -c "import streamlit, pandas, requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" 2>$null
+& $Py -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing dependencies -- this can take a few minutes the first time..."
     $constraints = if (Test-Path "constraints.lock.txt") { "constraints.lock.txt" } else { "constraints.txt" }
