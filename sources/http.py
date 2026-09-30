@@ -998,7 +998,7 @@ class SourceClient:
                 self._sleep_cancellable(backoff)
                 continue
 
-            if record_health:
+            if record_health and attempt.reason != FailureReason.NOT_FOUND.value:
                 health.record_failure(self.source, attempt.reason or "UNKNOWN",
                                       attempt.describe())
             self._status("Idle", 0.0)
@@ -1065,13 +1065,14 @@ class SourceClient:
                 st["good_mirror"] = base
                 raise
             except FetchFailed as e:
-                if e.reason in (FailureReason.HTTP_ERROR, FailureReason.TIMEOUT,
-                                FailureReason.RATE_LIMIT) and \
+                if e.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
+                                FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
                         (e.attempt is None or not e.attempt.http_status
                          or e.attempt.http_status >= 500 or e.attempt.http_status == 429):
                     errors.append(f"{base}: {e}")
                     continue
-                health.record_failure(self.source, e.reason.value, str(e))
+                if e.reason != FailureReason.NOT_FOUND:
+                    health.record_failure(self.source, e.reason.value, str(e))
                 raise
             except ChallengeDetected as e:
                 health.record_failure(self.source, e.reason.value, str(e))

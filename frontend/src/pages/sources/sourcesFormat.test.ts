@@ -9,7 +9,9 @@ import {
   describeSourceError,
   draftFrom,
   groupChapters,
+  errorCategoryLabel,
   healthLine,
+  healthTooltip,
   healthText,
   healthTone,
   limitGroups,
@@ -200,6 +202,19 @@ describe('header, health and detail', () => {
       light: 'green', consecutive_failures: 0, last_success: null, last_failure: null, last_error_type: null,
       last_error: null, last_latency: null, unavailable_until: null, retry_after: null,
     })).toBe('No requests yet.')
+    const failed = {
+      light: 'yellow', consecutive_failures: 1, last_success: null, last_failure: 10_000 - 60,
+      last_error_type: 'LAYOUT_CHANGED', last_error_category: 'layout_changed', last_error: null,
+      last_latency: null, unavailable_until: null, retry_after: null,
+    }
+    expect(healthLine(failed, now)).toBe('Last failure 1 min ago (layout changed)')
+    expect(healthTooltip(failed)).toBe('Error type: LAYOUT_CHANGED')
+    expect(healthTooltip({ ...failed, last_error_type: null })).toBeUndefined()
+    expect(errorCategoryLabel({ ...failed, last_error_category: 'site_down' })).toBe('site down')
+    expect(errorCategoryLabel({ ...failed, last_error_category: 'page_missing' })).toBe('page missing')
+    expect(errorCategoryLabel({ ...failed, last_error_category: 'needs_sign_in' })).toBe('needs sign-in')
+    expect(errorCategoryLabel({ ...failed, last_error_category: 'new_thing' })).toBe('failed')
+    expect(errorCategoryLabel({ ...failed, last_error_category: null, last_error_type: null })).toBeNull()
     expect(pausedFor(240)).toBe('Paused for another 4 min.')
     expect(pausedFor(0)).toBeNull()
     expect(ago(null)).toBe('never')

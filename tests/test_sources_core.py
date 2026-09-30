@@ -291,6 +291,69 @@ class TestHealth:
         assert health.light("s") == health.GREEN
 
 
+class TestFailureKinds:
+    @pytest.mark.parametrize("status,reason", [
+        (404, FailureReason.NOT_FOUND), (410, FailureReason.NOT_FOUND),
+        (500, FailureReason.SERVER_ERROR), (502, FailureReason.SERVER_ERROR),
+        (400, FailureReason.HTTP_ERROR), (418, FailureReason.HTTP_ERROR),
+        (401, FailureReason.AUTHENTICATION_REQUIRED), (403, FailureReason.ACCESS_DENIED),
+        (429, FailureReason.RATE_LIMIT), (451, FailureReason.GEO_RESTRICTION),
+    ])
+    def test_classify_separates_status_codes(self, status, reason):
+        from sources import detect
+        assert detect.classify(status, {}, "<p>x</p>", "https://a.invalid/", "") == [reason]
+
+    def test_challenge_on_a_503_is_still_a_challenge_not_a_server_error(self):
+        from sources import detect
+        got = detect.classify(503, {"cf-mitigated": "challenge"}, "", "https://a.invalid/", "")
+        assert got == [FailureReason.CLOUDFLARE_CHALLENGE]
+
+    def test_404_is_not_retried_and_does_not_count_against_health(self, isolated_db):
+        u = "https://gone.invalid/ch/1"
+        t = ScriptedTransport({u: html("nope", 404)})
+        c = make_client("gone", t, max_retries=3)
+        for _ in range(health.RED_AFTER + 1):
+            with pytest.raises(FetchFailed) as e:
+                c.get(u)
+            assert e.value.reason == FailureReason.NOT_FOUND
+        assert len(t.calls) == health.RED_AFTER + 1          # one request each, no retries
+        assert health.light("gone") == health.GREEN
+        assert health.get("gone")["consecutive_failures"] == 0
+
+    def test_500_is_labelled_server_error_retried_and_counts(self, isolated_db):
+        u = "https://err.invalid/"
+        t = ScriptedTransport({u: html("boom", 500)})
+        c = make_client("err", t, max_retries=2)
+        with pytest.raises(FetchFailed) as e:
+            c.get(u)
+        assert e.value.reason == FailureReason.SERVER_ERROR
+        assert len(t.calls) == 3
+        assert health.get("err")["last_error_type"] == "SERVER_ERROR"
+        assert health.get("err")["consecutive_failures"] == 1
+
+    def test_layout_changed_counts_toward_red(self, isolated_db):
+        for _ in range(health.RED_AFTER):
+            health.record_failure("stale", "LAYOUT_CHANGED", "x", base_backoff=10)
+        assert health.light("stale") == health.RED
+
+    def test_categories(self):
+        for error_type, cat in [("CLOUDFLARE_CHALLENGE", "blocked"), ("ACCESS_DENIED", "blocked"),
+                                ("HTTP_ERROR", "site_down"), ("SERVER_ERROR", "site_down"),
+                                ("NOT_FOUND", "page_missing"), ("LAYOUT_CHANGED", "layout_changed"),
+                                ("TIMEOUT", "slow"), ("RATE_LIMIT", "slow"),
+                                ("AUTHENTICATION_REQUIRED", "needs_sign_in"),
+                                ("ConnectError", "other"), (None, None), ("", None)]:
+            assert health.category(error_type) == cat
+
+    def test_recent_failures_lists_open_streaks_without_error_text(self, isolated_db):
+        health.record_failure("a", "SERVER_ERROR", "https://a.invalid/x?k=secret", now=100.0,
+                              base_backoff=10)
+        health.record_success("b", 0.1)
+        rows = health.recent_failures()
+        assert rows == [{"source": "a", "category": "site_down", "count": 1,
+                         "last_failure": 100.0}]
+
+
 # ---------------------------------------------------------------------------
 # Cache modes
 # ---------------------------------------------------------------------------

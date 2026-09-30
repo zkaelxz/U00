@@ -36,6 +36,7 @@ export interface SourceHealth {
   last_success: number | null
   last_failure: number | null
   last_error_type: string | null
+  last_error_category?: string | null
   last_error: string | null
   last_latency: number | null
   unavailable_until: number | null
