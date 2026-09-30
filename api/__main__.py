@@ -36,6 +36,7 @@ def _serve():
             check_household_bind_safety(settings)
     except ValueError as e:
         raise SystemExit(f"ERROR: {e}")
+    _warn_single_port_sign_in(settings)
     if settings.is_development:
         uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True)
         return
@@ -73,6 +74,23 @@ def _serve():
     # However the server stopped (Ctrl+C included): cancel what's still
     # running before the process, and with it the job's children, ends.
     shutdown_service.clean_shutdown()
+
+
+def _warn_single_port_sign_in(settings):
+    """A warning, not a refusal: the single-port sign-in setup still runs.
+    Printed to the console and written to the app log (redacted there), so
+    Diagnostics' log tail shows it too."""
+    from api.api_config import single_port_sign_in_warning
+    warning = single_port_sign_in_warning(settings)
+    if not warning:
+        return
+    from translate_engines import redact_secrets
+    print(f"WARNING: {redact_secrets(warning)}", file=sys.stderr)
+    try:
+        import applog
+        applog.get_logger().warning(warning)
+    except OSError:
+        pass   # an unwritable library folder must not stop startup; the console has it
 
 
 def _serve_with_household(settings):

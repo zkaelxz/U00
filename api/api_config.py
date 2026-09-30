@@ -275,6 +275,24 @@ def check_household_bind_safety(settings: ApiSettings):
                          "BAIHE_API_ENV=development.")
 
 
+SINGLE_PORT_SIGN_IN_WARNING = (
+    "Sign-in is on for the single port (BAIHE_API_AUTH=on, no BAIHE_API_HOUSEHOLD_PORT). "
+    "PC-only actions are only fully protected with the two-port setup: behind a reverse "
+    "proxy this port tells the PC from other devices by request headers alone. Migrate "
+    "with the steps under \"Migrating from single-port sign-in\" in "
+    "docs/remote-access-decision.md.")
+
+
+def single_port_sign_in_warning(settings: ApiSettings) -> str:
+    """The startup warning for the old single-listener sign-in setup, or ''.
+    Still accepted (unlike auth on next to a household port), but its
+    `local_only()` checks rest on header heuristics once a proxy points at
+    it. `settings` are the admin listener's (`load_settings`)."""
+    if settings.auth_enabled and not settings.household_port and not settings.is_household:
+        return SINGLE_PORT_SIGN_IN_WARNING
+    return ""
+
+
 def household_settings(settings: ApiSettings) -> ApiSettings:
     """The household listener's settings, derived from the admin listener's
     after `check_household_bind_safety`: same loopback host, the household
