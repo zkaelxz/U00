@@ -235,6 +235,7 @@ class SettingsOverview(BaseModel):
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
+    bulk_auto_resume: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     monthly_cap_env_usd: float = 0.0
@@ -1118,6 +1119,7 @@ class SettingsUpdateRequest(BaseModel):
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
+    bulk_auto_resume: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
@@ -3882,6 +3884,11 @@ class BurnPreviewStart(BaseModel):
     line_id: int = Field(ge=1)
     pad_seconds: Optional[float] = Field(None, ge=0, le=5)
     preset: Optional[str] = Field(None, max_length=40)
+    style: Optional[AssStyleOverrides] = None
+    speaker_colors: Optional[Dict[str, str]] = None
+    per_speaker_colors: bool = False
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class BurnPreviewStarted(BaseModel):
