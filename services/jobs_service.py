@@ -394,6 +394,22 @@ def get_job(job_id: str, principal=None) -> dict:
     return _redact(record)
 
 
+def get_job_stages(job_id: str, principal=None) -> dict:
+    """Step 41 item 5: the job's per-stage timing and spend for its latest
+    runs (services/job_timing_service). Same visibility as get_job."""
+    record = db.get_job_record(job_id)
+    if record is None or not _visible(principal, record):
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    from services import job_timing_service
+    runs = job_timing_service.list_runs(job_id)
+    if not ownership_service.sees_every_job(principal):
+        # A shared job id (sources_search, bulk_series_translate...) keeps
+        # earlier runs by other users: show only the run the caller can see.
+        started = record.get("started_at") or 0
+        runs = [r for r in runs if r["run_started_at"] >= started]
+    return {"job_id": job_id, "runs": runs}
+
+
 def cancel_job(job_id: str, principal=None) -> dict:
     """Requests cancellation of a queued/running job, possibly owned by
     another process. In-process jobs get the normal cancel flag at once;
