@@ -126,6 +126,7 @@ def _world():
 
 RESTORE_OK = {"confirm": True, "confirm_text": "RESTORE"}
 DELETE_OK = {"confirm": True, "confirm_text": "DELETE"}
+DELETE_ALL = {**DELETE_OK, "all": True}
 
 
 def _requests(a):
@@ -136,7 +137,7 @@ def _requests(a):
         ("get", "/snapshot", {}),
         ("get", "/snapshot/dramas", {}),
         ("post", "/snapshot/restore-drama", {"json": {"drama_id": a, **RESTORE_OK}}),
-        ("post", "/snapshot/delete", {"json": DELETE_OK}),
+        ("post", "/snapshot/delete", {"json": DELETE_ALL}),
     ]
 
 
@@ -195,7 +196,7 @@ class TestRemoteRefused:
     def test_loopback_peer_via_proxy_or_foreign_origin_refused(self, isolated_db, headers):
         a, _ = _world()
         snap = _read(_snap_path())
-        r = _local_on().post(f"{BASE}/snapshot/delete", json=DELETE_OK, headers=headers)
+        r = _local_on().post(f"{BASE}/snapshot/delete", json=DELETE_ALL, headers=headers)
         assert r.status_code == 403
         self._assert_nothing_changed(a, snap)
 
@@ -228,7 +229,7 @@ class TestLocal:
         r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
                                json={"drama_id": 1, **RESTORE_OK}))
         assert r.status_code == 404
-        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_OK))
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
         assert r.status_code == 404
 
     def test_full_flow(self, client):
@@ -269,6 +270,7 @@ class TestLocal:
         body = r.json()
         assert body["drama_id"] == a and body["restored_as_new"] is False
         assert body["title"] == "Alpha" and body["snapshot_kind"] == "db-only"
+        assert body["snapshot"] == first        # the copy used when none was named
         assert body["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
         assert db.get_drama(a)["title_en"] == "Alpha"
 
@@ -298,7 +300,7 @@ class TestLocal:
         info = client.get(f"{BASE}/snapshot").json()
         assert [c["kind"] for c in info["copies"]] == ["full"]
 
-        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_OK))
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
         assert r.status_code == 200 and r.json() == {"deleted": True, "count": 1}
         assert client.get(f"{BASE}/snapshot").json() == {
             "exists": False, "readable": None, "created_at": None, "kind": None, "size": None,
@@ -341,7 +343,7 @@ class TestLocal:
         r = _clean(c.post(f"{BASE}/snapshot/restore-drama", json={"drama_id": a, **RESTORE_OK}))
         assert r.status_code == 200, r.text
         assert db.get_drama(a) is not None
-        r = c.post(f"{BASE}/snapshot/delete", json=DELETE_OK)
+        r = c.post(f"{BASE}/snapshot/delete", json=DELETE_ALL)
         assert r.status_code == 200
         assert not os.path.exists(_snap_path())
 
@@ -394,6 +396,10 @@ class TestValidation:
         {"confirm": 1, "confirm_text": "DELETE"}, {**DELETE_OK, "path": "/etc"},
         {**DELETE_OK, "snapshot": ""}, {**DELETE_OK, "snapshot": "x" * 65},
         {**DELETE_OK, "snapshot": ["a"]},
+        # deleting every copy needs an explicit all=true, and not with a name
+        DELETE_OK, {**DELETE_OK, "all": False}, {**DELETE_OK, "all": "true"},
+        {**DELETE_OK, "all": 1}, {**DELETE_ALL, "confirm": False},
+        {**DELETE_ALL, "snapshot": "baihe_snapshot-20260302-030000.zip"},
     ])
     def test_delete_422_snapshot_kept(self, client, body):
         _world()
@@ -456,7 +462,7 @@ class TestConflicts:
     def test_delete_409_while_backup_runs(self, client):
         _world()
         _put_job(abs_.JOB_ID)
-        assert client.post(f"{BASE}/snapshot/delete", json=DELETE_OK).status_code == 409
+        assert client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL).status_code == 409
         assert os.path.exists(_snap_path())
 
     def test_settings_folder_change_409_while_backup_runs(self, client, tmp_path):

@@ -20,6 +20,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -829,7 +830,9 @@ class TestSnapshotWrite:
         st = _wait_job()
         assert st["status"] == "done", st
         assert abs_.snapshot_info()["kind"] == "full"
-        assert len(_copy_names()) == 3 and _read(first) == before
+        # a third run on one day replaces that day's second copy; the first
+        # stays as the week's first copy
+        assert len(_copy_names()) == 2 and _read(first) == before
 
     def test_back_up_now_include_media_defaults_to_setting(self, isolated_db):
         abs_.set_settings(include_media=True)
@@ -959,7 +962,7 @@ class TestSnapshotInfoAndDelete:
         with pytest.raises(NotFoundError):
             abs_.list_snapshot_dramas()
         with pytest.raises(NotFoundError):
-            abs_.delete_snapshot(confirm=True, confirm_text="DELETE")
+            abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)
         with pytest.raises(NotFoundError):
             _restore(1)
 
@@ -1005,7 +1008,7 @@ class TestSnapshotInfoAndDelete:
             abs_.restore_drama(1, confirm=True, confirm_text="RESTORE",
                                snapshot=os.path.basename(real))
         with pytest.raises(NotFoundError):
-            abs_.delete_snapshot(confirm=True, confirm_text="DELETE")
+            abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)
         with pytest.raises(NotFoundError):
             abs_.delete_snapshot(confirm=True, confirm_text="DELETE",
                                  snapshot=os.path.basename(real))
@@ -1026,14 +1029,14 @@ class TestSnapshotInfoAndDelete:
         db.create_drama(title_en="A")
         _snap()
         with pytest.raises(InvalidInputError):
-            abs_.delete_snapshot(confirm=confirm, confirm_text=text)
+            abs_.delete_snapshot(confirm=confirm, confirm_text=text, all_copies=True)
         assert os.path.isfile(_default_path())
 
     def test_delete(self, isolated_db):
         db.create_drama(title_en="A")
         _snap()
         _snap()
-        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE") == \
+        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True) == \
             {"deleted": True, "count": 2}
         assert _default_path() is None
         assert abs_.snapshot_info() == {"exists": False, "copies": []}
@@ -1053,7 +1056,7 @@ class TestSnapshotInfoAndDelete:
             abs_.delete_snapshot(confirm=True, confirm_text="DELETE",
                                  snapshot=os.path.basename(older))
         # delete-all touches only copies
-        abs_.delete_snapshot(confirm=True, confirm_text="DELETE")
+        abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)
         assert os.listdir(_default_dir()) == ["notes.zip"]
 
     def test_delete_refused_while_backup_runs(self, isolated_db):
@@ -1061,8 +1064,20 @@ class TestSnapshotInfoAndDelete:
         _snap()
         _put_job(abs_.JOB_ID)
         with pytest.raises(ConflictError):
-            abs_.delete_snapshot(confirm=True, confirm_text="DELETE")
+            abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)
         assert os.path.isfile(_default_path())
+
+    @pytest.mark.parametrize("kw", [
+        {}, {"all_copies": False}, {"all_copies": "true"}, {"all_copies": 1},
+        {"all_copies": True, "snapshot": "NAME"}])
+    def test_delete_all_needs_an_explicit_all(self, isolated_db, kw):
+        """A delete that names no copy never means "every copy"."""
+        db.create_drama(title_en="A")
+        path = _snap()
+        kw = {k: (os.path.basename(path) if v == "NAME" else v) for k, v in kw.items()}
+        with pytest.raises(InvalidInputError):
+            abs_.delete_snapshot(confirm=True, confirm_text="DELETE", **kw)
+        assert os.path.isfile(path)
 
 
 # --------------------------------------------------------------------------
@@ -1103,7 +1118,9 @@ class TestRotation:
         for day in days:
             _run_at(monkeypatch, _at(day))
             assert len(os.listdir(_default_dir())) <= 4
-        # daily: the 2 newest (20, 18); weekly: the first copy of each of the
+        # daily: the new copy (20) and the newest copy of the latest earlier
+        # day that has one (18: one run a day, so the same as the 2 newest
+        # copies; same-day runs are covered below); weekly: the first copy of each of the
         # 2 most recent older weeks -- week 12's is 16, week 11's is 10 (12
         # and 14 went when they fell out of the daily slots); week 10's
         # first copy (2) is the third week back, so it is gone.
@@ -1137,7 +1154,144 @@ class TestRotation:
             _run_at(monkeypatch, _at(day))
         new = _run_at(monkeypatch, _at(1))      # clock set back 11 days
         assert os.path.isfile(new)
-        assert len(os.listdir(_default_dir())) <= 4
+        # the copies dated after the new one take no slot and are never deleted
+        assert sorted(os.listdir(_default_dir())) == [
+            _name(_at(1)), _name(_at(10)), _name(_at(11)), _name(_at(12))]
+
+    def test_extra_runs_on_one_day_never_push_out_yesterdays_copy(self, isolated_db,
+                                                                 monkeypatch):
+        """2026-03-02 is a Monday (ISO week 10). Runs on the 2nd and 3rd,
+        then three on the 4th (a manual db-only run among them)."""
+        db.create_drama(title_en="A")
+        _run_at(monkeypatch, _at(2))
+        full = _run_at(monkeypatch, _at(3))
+        for hour in (5, 9, 13):
+            _run_at(monkeypatch, _at(4, hour=hour))
+            # yesterday's copy keeps its daily slot through every extra run
+            assert os.path.isfile(full)
+        # daily: the new copy and the 3rd's; the 2nd's is kept only as week
+        # 10's first copy; the 4th's earlier copies were replaced.
+        assert sorted(os.listdir(_default_dir())) == [
+            _name(_at(2)), _name(_at(3)), _name(_at(4, hour=13))]
+        assert [(c["name"], c["kept_as"]) for c in abs_.snapshot_info()["copies"]] == [
+            (_name(_at(4, hour=13)), "daily"), (_name(_at(3)), "daily"),
+            (_name(_at(2)), "weekly")]
+
+    def test_one_daily_slot_per_day_and_the_weekly_rule(self, isolated_db, monkeypatch):
+        """Two runs a day: the 9th (Monday, week 11) and 10th."""
+        db.create_drama(title_en="A")
+        for day in (2, 3, 9, 10):
+            for hour in (3, 15):
+                _run_at(monkeypatch, _at(day, hour=hour))
+        # daily: the 10th's newest, the 9th's newest; weekly: the first copy
+        # of week 11 (9th 03:00) and of week 10 (2nd 03:00).
+        assert [(c["name"], c["kept_as"]) for c in abs_.snapshot_info()["copies"]] == [
+            (_name(_at(10, hour=15)), "daily"), (_name(_at(9, hour=15)), "daily"),
+            (_name(_at(9, hour=3)), "weekly"), (_name(_at(2, hour=3)), "weekly")]
+        assert len(os.listdir(_default_dir())) == 4
+
+    def test_future_dated_legacy_file_takes_no_slot(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        legacy = _make_legacy(datetime.datetime(2099, 1, 1, tzinfo=UTC))
+        for day in (2, 3, 4, 5):
+            _run_at(monkeypatch, _at(day))
+        # daily: the 5th and yesterday (the 4th); weekly: week 10's first (the
+        # 2nd); the 3rd is rotated out; the 2099 file is left alone
+        assert os.path.isfile(legacy)
+        assert sorted(os.listdir(_default_dir())) == sorted([
+            abs_.LEGACY_SNAPSHOT_NAME, _name(_at(2)), _name(_at(4)), _name(_at(5))])
+        kept = {c["name"]: c["kept_as"] for c in abs_.snapshot_info()["copies"]}
+        assert kept == {abs_.LEGACY_SNAPSHOT_NAME: None, _name(_at(5)): "daily",
+                        _name(_at(4)): "daily", _name(_at(2)): "weekly"}
+
+    def test_copy_that_cannot_be_opened_now_is_never_deleted(self, isolated_db,
+                                                              monkeypatch):
+        """A PermissionError (locked by another program, say) is not damage:
+        the copy takes no slot and is not deleted, even when the rotation
+        would have dropped it."""
+        db.create_drama(title_en="A")
+        for day in (2, 9, 16, 17):
+            _run_at(monkeypatch, _at(day))
+        oldest = os.path.join(_default_dir(), _name(_at(2)))
+        data = _read(oldest)
+        real_zipfile = abs_.zipfile.ZipFile
+
+        def locked(file, *args, **kw):
+            if isinstance(file, str) and os.path.abspath(file) == oldest:
+                raise PermissionError(13, "in use")
+            return real_zipfile(file, *args, **kw)
+        monkeypatch.setattr(abs_.zipfile, "ZipFile", locked)
+        assert abs_._read_copy(oldest) == (abs_._UNREADABLE, None)
+        # on the 23rd (week 13) week 10's copy is the third week back
+        _run_at(monkeypatch, _at(23))
+        assert _read(oldest) == data
+        info = {c["name"]: (c["readable"], c["kept_as"]) for c in abs_.snapshot_info()["copies"]}
+        assert info == {_name(_at(23)): (True, "daily"), _name(_at(17)): (True, "daily"),
+                        _name(_at(16)): (True, "weekly"), _name(_at(9)): (True, "weekly"),
+                        _name(_at(2)): (False, None)}
+        # once it can be read again, the rotation drops it as usual
+        monkeypatch.setattr(abs_.zipfile, "ZipFile", real_zipfile)
+        _run_at(monkeypatch, _at(24))
+        assert not os.path.exists(oldest)
+        assert sorted(os.listdir(_default_dir())) == [
+            _name(_at(9)), _name(_at(16)), _name(_at(23)), _name(_at(24))]
+
+    def test_unreadable_copy_gets_no_slot(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        for day in (2, 9, 16, 17):
+            _run_at(monkeypatch, _at(day))
+        week11 = os.path.join(_default_dir(), _name(_at(9)))
+        real_zipfile = abs_.zipfile.ZipFile
+
+        def locked(file, *args, **kw):
+            if isinstance(file, str) and os.path.abspath(file) == week11:
+                raise PermissionError(13, "in use")
+            return real_zipfile(file, *args, **kw)
+        monkeypatch.setattr(abs_.zipfile, "ZipFile", locked)
+        _run_at(monkeypatch, _at(23))
+        # week 11's copy is skipped, so week 10's first copy takes the second
+        # weekly slot; the skipped copy itself is kept
+        assert sorted(os.listdir(_default_dir())) == [
+            _name(_at(2)), _name(_at(9)), _name(_at(16)), _name(_at(17)), _name(_at(23))]
+
+    def test_read_copy_tells_damage_from_an_os_error(self, isolated_db, tmp_path):
+        bad = tmp_path / "bad.zip"
+        bad.write_bytes(b"not a zip")
+        assert abs_._read_copy(str(bad)) == (abs_._DAMAGED, None)
+        no_manifest = tmp_path / "nomanifest.zip"
+        with zipfile.ZipFile(no_manifest, "w") as zf:
+            zf.writestr("library.db", b"x")
+        assert abs_._read_copy(str(no_manifest)) == (abs_._DAMAGED, None)
+        assert abs_._read_copy(str(tmp_path / "missing.zip")) == (abs_._UNREADABLE, None)
+
+    def test_new_copy_is_on_disk_before_old_ones_are_pruned(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        _run_at(monkeypatch, _at(2))
+        events = []
+        real_file, real_dir, real_prune = abs_._fsync_file, abs_._fsync_dir, abs_._prune
+        monkeypatch.setattr(abs_, "_fsync_file", lambda p: (
+            events.append(("file", os.path.basename(p))), real_file(p)))
+        monkeypatch.setattr(abs_, "_fsync_dir", lambda d: (
+            events.append(("dir", d)), real_dir(d)))
+        monkeypatch.setattr(abs_, "_prune", lambda folder, name: (
+            events.append(("prune", name)), real_prune(folder, name))[1])
+        _run_at(monkeypatch, _at(3))
+        assert [e[0] for e in events] == ["file", "dir", "prune"]
+        assert events[0][1].startswith(".baihe_snapshot.partial-")
+        assert events[1][1] == _default_dir() and events[2][1] == _name(_at(3))
+
+    def test_failed_directory_flush_skips_the_rotation_only(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        for day in (2, 3):
+            _run_at(monkeypatch, _at(day))
+
+        def fail(folder):
+            raise OSError("flush failed")
+        monkeypatch.setattr(abs_, "_fsync_dir", fail)
+        _run_at(monkeypatch, _at(4, hour=5))
+        _run_at(monkeypatch, _at(4, hour=9))        # would rotate the 5:00 copy out
+        assert len(_copy_names()) == 4
+        assert abs_._get_state()["last_error"] is None
 
     @pytest.mark.parametrize("breakage", ["writer", "verify", "manifest", "job_thread"])
     def test_a_failed_run_never_deletes_anything(self, isolated_db, monkeypatch, breakage):
@@ -1249,7 +1403,7 @@ class TestRotation:
         put(_name(_at(5)))
         assert abs_.list_snapshot_dramas()["name"] == _name(_at(4))
         # delete-all removes the copies (readable or not) and nothing else
-        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE")["count"] == 5
+        assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)["count"] == 5
         assert sorted(os.listdir(folder)) == sorted([
             ".baihe_snapshot.partial-abcd.zip", "baihe_snapshot-20240101-000000.zip",
             "baihe_snapshot-20250101-000000.zip", "other.zip"])
@@ -1275,10 +1429,18 @@ class TestNamedCopy:
         _delete_drama(a)
         res = abs_.restore_drama(a, confirm=True, confirm_text="RESTORE", snapshot=older)
         assert res["drama_id"] == a and not res["restored_as_new"]
+        assert res["snapshot"] == older
         assert db.get_drama(a)["title_en"] == "Old title"
         _delete_drama(a)
-        _restore(a)                                  # default: the newest copy
+        res = _restore(a)                            # default: the newest copy
         assert db.get_drama(a)["title_en"] == "New title"
+        # the result and the audit entry say which copy was used
+        assert res["snapshot"] == newer
+        with contextlib.closing(_conn()) as c:
+            details = [r[0] for r in c.execute(
+                "SELECT detail_redacted FROM audit_log WHERE action = "
+                "'library.restore_drama' ORDER BY id")]
+        assert newer in details[-1] and older in details[-2]
 
     @pytest.mark.parametrize("bad", [
         "../x", "..", "../baihe_snapshot-20260302-030000.zip",
@@ -1326,7 +1488,7 @@ class TestNamedCopy:
         with pytest.raises(NotFoundError):
             abs_.delete_snapshot(confirm=True, confirm_text="DELETE", snapshot=name)
         _run_at(monkeypatch, _at(20))                # a prune never touches it
-        abs_.delete_snapshot(confirm=True, confirm_text="DELETE")
+        abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True)
         assert os.path.islink(os.path.join(_default_dir(), name))
         assert outside.read_bytes() == data
         assert db.get_drama(a) is None
@@ -2091,13 +2253,14 @@ class TestFolderMove:
         assert _read(_default_path()) == data
         assert os.listdir(out) == []
 
-    def test_moves_every_copy_and_the_legacy_file_only(self, isolated_db, tmp_path):
+    def test_moves_every_copy_and_the_legacy_file_only(self, isolated_db, tmp_path,
+                                                       monkeypatch):
         db.create_drama(title_en="A")
-        names = [os.path.basename(_snap()) for _ in range(3)]
+        names = [os.path.basename(_run_at(monkeypatch, _at(day))) for day in (2, 3, 4)]
         legacy = os.path.join(_default_dir(), abs_.LEGACY_SNAPSHOT_NAME)
         with open(_newest(), "rb") as src, open(legacy, "wb") as dst:
             dst.write(src.read())
-        old = time.time() - 30 * 24 * 3600
+        old = _at(1).timestamp()        # older than every copy
         os.utime(legacy, (old, old))
         with open(os.path.join(_default_dir(), "notes.txt"), "w") as fh:
             fh.write("mine")
@@ -2131,7 +2294,7 @@ class TestFolderMove:
     def test_failed_move_of_a_later_copy_moves_the_earlier_ones_back(
             self, isolated_db, tmp_path, monkeypatch):
         db.create_drama(title_en="A")
-        paths = [_snap() for _ in range(3)]
+        paths = [_run_at(monkeypatch, _at(day)) for day in (2, 3, 4)]
         before = {p: _read(p) for p in paths}
         real_replace = os.replace
         moved = []
@@ -2223,6 +2386,125 @@ class TestFolderMove:
         assert victim.read_text() == "keep"
         assert _read(_default_path()) == data
         assert abs_.get_settings()["folder"] == ""
+
+    def test_settings_saved_under_the_snapshot_lock(self, isolated_db, monkeypatch):
+        """The read-modify-write of the settings happens under _snapshot_lock
+        (so two saves can't drop each other's fields), and the overview is
+        built after it is released (the lock isn't reentrant)."""
+        held = []
+        real_set = db.set_app_setting
+
+        def spy(key, value):
+            if key == abs_.SETTINGS_KEY:
+                held.append(abs_._snapshot_lock.locked())
+            return real_set(key, value)
+        monkeypatch.setattr(db, "set_app_setting", spy)
+        out = abs_.set_settings(enabled=True, frequency="weekly")
+        assert held == [True] and not abs_._snapshot_lock.locked()
+        assert out["enabled"] is True and out["frequency"] == "weekly"
+        abs_.set_settings(include_media=True)
+        assert abs_.get_settings() == {"enabled": True, "frequency": "weekly",
+                                       "include_media": True, "folder": ""}
+
+
+class _Crash(BaseException):
+    """A process dying mid-way: not caught by the move's error handling."""
+
+
+class TestMoveFileNeverLosesTheCopy:
+    """_move_file across drives: copy to a temp name next to dest, flush,
+    rename over dest, and only then remove the original."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        src_dir, dest_dir = tmp_path / "a", tmp_path / "b"
+        src_dir.mkdir()
+        dest_dir.mkdir()
+        src = src_dir / "baihe_snapshot-20260302-030000.zip"
+        src.write_bytes(b"the only copy")
+        real_replace = os.replace
+
+        def cross_device(a, b, *args, **kw):
+            if os.path.abspath(a) == str(src):
+                raise OSError(18, "Invalid cross-device link")
+            return real_replace(a, b, *args, **kw)
+        monkeypatch.setattr(abs_.os, "replace", cross_device)
+        return str(src), str(dest_dir / src.name), dest_dir
+
+    def _copies(self, src, dest_dir):
+        """Every file holding the copy's bytes, in either folder."""
+        found = [src] if os.path.exists(src) and _read(src) == b"the only copy" else []
+        return found + [str(p) for p in dest_dir.iterdir() if p.read_bytes() == b"the only copy"]
+
+    def test_replace_into_dest_fails_then_copy_back_fails(self, tmp_path, monkeypatch):
+        src, dest, dest_dir = self._setup(tmp_path, monkeypatch)
+        real_copy = shutil.copyfile
+        calls = []
+
+        def copy_once(a, b, *args, **kw):
+            calls.append(a)
+            if len(calls) > 1:
+                raise OSError("copy back failed")
+            return real_copy(a, b, *args, **kw)
+        monkeypatch.setattr(abs_.shutil, "copyfile", copy_once)
+        monkeypatch.setattr(abs_.os, "replace",
+                            lambda a, b, *x, **k: (_ for _ in ()).throw(OSError("replace")))
+        with pytest.raises(OSError):
+            abs_._move_file(src, dest)
+        monkeypatch.undo()
+        assert _read(src) == b"the only copy"
+        assert list(dest_dir.iterdir()) == []       # no partial left behind
+
+    @pytest.mark.parametrize("step", ["copy", "fsync", "replace", "remove_src"])
+    def test_crash_at_any_step_leaves_the_original(self, tmp_path, monkeypatch, step):
+        src, dest, dest_dir = self._setup(tmp_path, monkeypatch)
+        real_replace, real_remove = abs_.os.replace, os.remove
+
+        def crash(*a, **k):
+            raise _Crash()
+        if step == "copy":
+            monkeypatch.setattr(abs_.shutil, "copyfile", crash)
+        elif step == "fsync":
+            monkeypatch.setattr(abs_, "_fsync_file", crash)
+        elif step == "replace":
+            def replace(a, b, *args, **kw):
+                if os.path.basename(a).startswith(".baihe_snapshot.partial-"):
+                    raise _Crash()
+                return real_replace(a, b, *args, **kw)
+            monkeypatch.setattr(abs_.os, "replace", replace)
+        else:
+            def remove(path, *args, **kw):
+                if os.path.abspath(path) == src:
+                    raise _Crash()
+                return real_remove(path, *args, **kw)
+            monkeypatch.setattr(abs_.os, "remove", remove)
+        with pytest.raises(_Crash):
+            abs_._move_file(src, dest)
+        monkeypatch.undo()
+        assert _read(src) == b"the only copy"
+        assert self._copies(src, dest_dir)
+
+    def test_original_that_cannot_be_removed_takes_dest_out_again(self, tmp_path,
+                                                                  monkeypatch):
+        src, dest, dest_dir = self._setup(tmp_path, monkeypatch)
+        real_remove = os.remove
+
+        def locked(path, *args, **kw):
+            if os.path.abspath(path) == src:
+                raise PermissionError("in use")
+            return real_remove(path, *args, **kw)
+        monkeypatch.setattr(abs_.os, "remove", locked)
+        with pytest.raises(OSError):
+            abs_._move_file(src, dest)
+        monkeypatch.undo()
+        assert _read(src) == b"the only copy"
+        assert list(dest_dir.iterdir()) == []
+
+    def test_success_moves_the_copy(self, tmp_path, monkeypatch):
+        src, dest, dest_dir = self._setup(tmp_path, monkeypatch)
+        abs_._move_file(src, dest)
+        assert not os.path.exists(src)
+        assert [p.name for p in dest_dir.iterdir()] == [os.path.basename(dest)]
+        assert _read(dest) == b"the only copy"
 
 
 # --------------------------------------------------------------------------
@@ -2435,11 +2717,10 @@ class TestLeadReviewFollowUps:
         with pytest.raises(ServiceError):
             abs_.set_settings(folder=str(tmp_path))
         monkeypatch.undo()
-        # The temp copy is gone and the file already at the destination was
-        # never touched (the copy is only renamed over it after the source
-        # is removed).
-        assert os.listdir(tmp_path) == [name]
-        assert (tmp_path / name).read_bytes() == b"older file already there"
+        # The original is only removed once its copy is in place; when that
+        # removal fails the copy is taken out again (it replaced the stale
+        # file of the same name), so the copy is in exactly one folder.
+        assert os.listdir(tmp_path) == []
         assert _read(src) == data
         assert abs_.get_settings()["folder"] == ""
 

@@ -1,7 +1,7 @@
 /*
  * Settings > Automatic backups (roadmap Step 43): an opt-in scheduled backup
- * that keeps rotating copies (the last 2 daily and 2 weekly), plus "Back up
- * now", which adds a copy. The copies are listed newest first; restoring a
+ * that keeps rotating copies (one a day for the last 2 days, plus the first
+ * of each of the last 2 weeks), plus "Back up now", which adds a copy. The copies are listed newest first; restoring a
  * drama from one, or deleting one, is in Library tools (SnapshotBlock).
  * PC only: away from the PC the Card shows the "Run this on the main PC."
  * note, and nothing is fetched until /api/meta has answered.

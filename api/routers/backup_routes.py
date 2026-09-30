@@ -81,8 +81,8 @@ def post_restore_drama(body: RestoreDramaRequest, request: Request):
 
 @router.post("/snapshot/delete", dependencies=[local_only()], response_model=DeleteSnapshotDone,
              responses=_ERR_404,
-             summary="Delete one copy (snapshot=<name>) or every copy (confirm=true, "
-                     "confirm_text=DELETE)")
+             summary="Delete one copy (snapshot=<name>) or every copy (all=true); "
+                     "confirm=true, confirm_text=DELETE")
 def post_delete_snapshot(body: DeleteSnapshotRequest):
     return abs_.delete_snapshot(confirm=body.confirm, confirm_text=body.confirm_text,
-                                snapshot=body.snapshot)
+                                snapshot=body.snapshot, all_copies=body.all)

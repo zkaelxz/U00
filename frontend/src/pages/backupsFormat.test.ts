@@ -133,7 +133,7 @@ describe('restore one drama', () => {
   it('describes the result in plain words', () => {
     const r: RestoreDramaDone = {
       drama_id: 9, restored_as_new: true, title: 'Signal (restored 2026-09-30)', media_restored: false,
-      snapshot_kind: 'db-only', series: 'none', counts: { lines: 120, pages: 0 },
+      snapshot: 'baihe_snapshot-20260929-080000.zip', snapshot_kind: 'db-only', series: 'none', counts: { lines: 120, pages: 0 },
       skipped_tables: ['bulk_jobs', 'usage_log', 'other'],
     }
     expect(describeRestore(r)).toBe(

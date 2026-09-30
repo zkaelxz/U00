@@ -27,7 +27,7 @@ test.describe('Settings card (real API)', () => {
   test('the toggle and frequency persist; a bad folder is refused in plain words', async ({ page }) => {
     await page.goto('/#/settings')
     const c = card(page)
-    await expect(c).toContainText('Keeps the last 2 daily and 2 weekly copies')
+    await expect(c).toContainText('Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
     // Daily is the default.
@@ -145,7 +145,7 @@ test.describe('Back up now and the copies (mocked)', () => {
     await expect(block.getByRole('button', { name: 'Restore one drama…' })).toBeDisabled()
     expect(state.posts).toEqual([
       { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', snapshot: 'baihe_snapshot-20260921-093000.zip' } },
-      { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE' } },
+      { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', all: true } },
     ])
   })
 })

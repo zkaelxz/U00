@@ -15,24 +15,31 @@ Step 43, universal soft-delete, was replaced by this.)
   (UTC; library.db + manifest.json, plus media when include_media), with
   library_admin_service.write_backup_zip -- the same writer as the manual
   backup -- into a hidden partial file next to it, validated (zip checks +
-  SQLite quick_check + manifest), and only then renamed into place. Only
-  after that are old copies pruned. A failed backup or failed check never
-  deletes anything.
+  SQLite quick_check + manifest), flushed to disk, and only then renamed
+  into place. Only after that are old copies pruned. A failed backup or
+  failed check never deletes anything.
 - Retention (deterministic, applied after each successful run, under
-  _snapshot_lock): among the readable copies, ordered by their date,
-  "daily" = the 2 newest; "weekly" = among the remaining older copies, the
-  FIRST (oldest) copy of each ISO week (UTC), keeping the 2 most recent such
-  weeks. Every other readable copy is deleted, so at most 4 readable copies
-  remain. The copy just written always counts as the newest (a clock set
-  back can't get it deleted); two runs within one second get names one
-  second apart. A copy's date is the one in its name; the legacy single
-  snapshot "baihe_snapshot.zip" from before rotation counts as a copy dated
-  by its file time and ages out under the same rule. A copy that can't be read
-  never takes a retention slot and is deleted only once it is older than
-  every kept copy (a newer unreadable file is left for the owner to look
-  at). Pruning only ever touches regular files in the backup folder whose
-  name is exactly the copy pattern or the legacy name: never other files,
-  never symlinks, never a name taken from a request.
+  _snapshot_lock): one copy per day for the last 2 days, plus the first
+  copy of each of the last 2 weeks. Precisely, among the readable copies
+  dated no later than the copy just written: "daily" = the new copy, plus
+  the newest copy of the most recent earlier UTC day that has one (so extra
+  runs on one day replace that day's earlier copy, never yesterday's);
+  "weekly" = among the remaining copies, the FIRST (oldest) copy of each ISO
+  week (UTC), keeping the 2 most recent such weeks. Every other such copy
+  is deleted, so at most 4 remain. The copy just written is always kept and
+  is the anchor: a copy dated after it (a future-dated name, a legacy file
+  with a future time, a clock set back) takes no slot and is never deleted.
+  Two runs within one second get names one second apart. A copy's date is
+  the one in its name; the legacy single snapshot "baihe_snapshot.zip" from
+  before rotation counts as a copy dated by its file time and ages out
+  under the same rule. A copy that can't be opened right now (an OS error:
+  locked, no permission, drive hiccup) takes no slot and is never deleted.
+  A damaged copy (not a zip, bad manifest) takes no slot and is deleted
+  only once it is older than every kept copy (a newer damaged file is left
+  for the owner to look at). Pruning only ever touches regular files in
+  the backup folder whose name is exactly the copy pattern or the legacy
+  name: never other files, never symlinks, never a name taken from a
+  request.
 - The due-check (check_and_run) runs at API startup and hourly from the
   API's existing background poller (api/background.py). A scheduled run
   never starts while any job runs or a restore/maintenance holds the
@@ -44,7 +51,7 @@ Step 43, universal soft-delete, was replaced by this.)
   _CHILD_TABLES), plus its series when that series is gone, plus its folder
   when the copy has media. If the drama's id is still in use it comes back
   as a new drama (new id, title suffixed "(restored <date>)"); other dramas
-  are never touched.
+  are never touched. The result names the copy it came from.
 
 No result or error message carries a filesystem path (copies are named by
 file name only), except the folder setting the owner typed themselves (all
@@ -174,34 +181,32 @@ def _check_folder(value, require_exists: bool = True) -> str:
 def set_settings(enabled=None, frequency=None, include_media=None, folder=None) -> dict:
     """Updates the given fields (None = unchanged) and returns
     settings_overview()."""
-    current = get_settings()
-    if enabled is not None:
-        if not isinstance(enabled, bool):
-            raise InvalidInputError("enabled must be true or false.")
-        current["enabled"] = enabled
-    if frequency is not None:
-        if frequency not in FREQUENCIES:
-            raise InvalidInputError("Unknown frequency.", details={"allowed": list(FREQUENCIES)})
-        current["frequency"] = frequency
-    if include_media is not None:
-        if not isinstance(include_media, bool):
-            raise InvalidInputError("include_media must be true or false.")
-        current["include_media"] = include_media
+    if enabled is not None and not isinstance(enabled, bool):
+        raise InvalidInputError("enabled must be true or false.")
+    if frequency is not None and frequency not in FREQUENCIES:
+        raise InvalidInputError("Unknown frequency.", details={"allowed": list(FREQUENCIES)})
+    if include_media is not None and not isinstance(include_media, bool):
+        raise InvalidInputError("include_media must be true or false.")
     if folder is not None:
         folder = _check_folder(folder)
-        if folder != current["folder"]:
-            # One hold for the running-job check, the move and the save, so
-            # a backup can't start in between and write to the old folder
-            # (_start takes the same lock).
-            with _snapshot_lock:
-                if _job_running():
-                    raise ConflictError("A backup is running -- change the folder when it "
-                                        "finishes.")
-                _move_copies(current["folder"], folder)
-                current["folder"] = folder
-                db.set_app_setting(SETTINGS_KEY, current)
-            return settings_overview()
-    db.set_app_setting(SETTINGS_KEY, current)
+    # One hold for the read, the running-job check, a folder move and the
+    # save: two concurrent saves can't drop each other's fields, and a
+    # backup can't start in between and write to the old folder (_start
+    # takes the same lock).
+    with _snapshot_lock:
+        current = get_settings()
+        for key, value in (("enabled", enabled), ("frequency", frequency),
+                           ("include_media", include_media)):
+            if value is not None:
+                current[key] = value
+        if folder is not None and folder != current["folder"]:
+            if _job_running():
+                raise ConflictError("A backup is running -- change the folder when it "
+                                    "finishes.")
+            _move_copies(current["folder"], folder)
+            current["folder"] = folder
+        db.set_app_setting(SETTINGS_KEY, current)
+    # Not under the lock: snapshot_info takes it and it isn't reentrant.
     return settings_overview()
 
 
@@ -237,9 +242,11 @@ def _move_copies(old_folder: str, new_folder: str):
 
 def _move_file(src: str, dest: str):
     """Moves one copy. Never writes through a link at dest. Across drives
-    the copy is made under a temp name, the original removed, and only
-    then renamed over dest, so a failure before that point leaves both
-    folders exactly as they were. Raises OSError."""
+    the copy is made under a temp name next to dest, flushed to disk, and
+    renamed over dest; only then is the original removed (and if that
+    fails, dest is removed again so the copy isn't in both folders). The
+    original is never removed before its copy is in place, so no failure
+    or crash at any step loses the only copy. Raises OSError."""
     if os.path.islink(dest):
         raise OSError("snapshot path is a link")
     try:
@@ -256,18 +263,42 @@ def _move_file(src: str, dest: str):
         with contextlib.suppress(OSError):
             st = os.stat(src)
             os.utime(tmp, (st.st_atime, st.st_mtime))
-        os.remove(src)
-        try:
-            os.replace(tmp, dest)
-        except OSError:
-            # The original is gone: put the copy back where it came from.
-            shutil.copyfile(tmp, src)
-            raise
-        tmp = None
+        _fsync_file(tmp)
+        os.replace(tmp, dest)
+        tmp = None      # it is dest now: never removed below
     finally:
+        # src is still there on every path that reaches this with a tmp.
         if tmp is not None:
             with contextlib.suppress(OSError):
                 os.remove(tmp)
+    with contextlib.suppress(OSError):
+        _fsync_dir(os.path.dirname(dest))
+    try:
+        os.remove(src)
+    except OSError:
+        if not os.path.lexists(src):
+            return          # it went after all: the move is done
+        with contextlib.suppress(OSError):
+            os.remove(dest)
+        raise
+
+
+def _fsync_file(path: str):
+    # r+b: Windows can't flush a handle opened read-only.
+    with open(path, "r+b") as fh:
+        os.fsync(fh.fileno())
+
+
+def _fsync_dir(folder: str):
+    """Makes a rename into `folder` durable. POSIX only: Windows can't open
+    a directory for this and commits the rename with the file."""
+    if os.name != "posix":
+        return
+    fd = os.open(folder, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _get_state() -> dict:
@@ -394,21 +425,43 @@ def _list_copies(folder: str) -> list:
     return out
 
 
-def _read_copy(path: str):
-    """The copy's manifest, or None when it can't be read."""
+# What _read_copy found: a readable copy; one the OS wouldn't let us read
+# right now (locked, no permission, a drive hiccup -- maybe fine later, so
+# never deleted); or a damaged one (not a zip, no valid manifest).
+_OK, _UNREADABLE, _DAMAGED = "ok", "unreadable", "damaged"
+
+
+def _read_copy(path: str) -> tuple:
+    """(_OK, manifest), (_UNREADABLE, None) or (_DAMAGED, None)."""
     try:
         with zipfile.ZipFile(path) as zf:
-            return _read_manifest(zf)
-    except (OSError, zipfile.BadZipFile, InvalidInputError, EOFError, ValueError):
-        return None
+            return _OK, _read_manifest(zf)
+    except OSError:
+        return _UNREADABLE, None
+    except (zipfile.BadZipFile, InvalidInputError, EOFError, ValueError, RuntimeError,
+            zlib.error):
+        return _DAMAGED, None
 
 
 def _retention(readable: list) -> dict:
-    """{name: "daily" | "weekly"} for the copies the rotation keeps, from
-    the readable copies ordered newest first (see the module docstring)."""
-    kept = {c["name"]: "daily" for c in readable[:KEEP_DAILY]}
+    """{name: "daily" | "weekly"} for the copies the rotation keeps (see the
+    module docstring), from readable copies ordered newest first. The first
+    is the anchor (the copy just written) and is always kept; the caller
+    leaves out copies dated after it."""
+    if not readable:
+        return {}
+    kept = {readable[0]["name"]: "daily"}
+    days = {readable[0]["at"].date()}
+    rest = []
+    for copy in readable[1:]:       # newest first: the first seen of a day is its newest
+        day = copy["at"].date()
+        if day not in days and len(days) < KEEP_DAILY:
+            kept[copy["name"]] = "daily"
+            days.add(day)
+        else:
+            rest.append(copy)
     first_of_week = {}
-    for copy in readable[KEEP_DAILY:]:      # newest first: the last one seen is the oldest
+    for copy in rest:               # newest first: the last one seen is the oldest
         first_of_week[copy["at"].isocalendar()[:2]] = copy
     for week in sorted(first_of_week, reverse=True)[:KEEP_WEEKLY]:
         kept[first_of_week[week]["name"]] = "weekly"
@@ -418,23 +471,25 @@ def _retention(readable: list) -> dict:
 def _prune(folder: str, new_name: str) -> int:
     """Deletes the copies the rotation no longer keeps; returns how many.
     The caller holds _snapshot_lock and has just put the validated copy
-    `new_name` in place; it always counts as the newest (so a clock set
-    back, or an old copy with a date in the future, can never get it
-    deleted). An unreadable copy is deleted only when older than every
-    kept copy. Nothing is deleted unless the new copy reads back."""
+    `new_name` in place; it is always kept and anchors the rule. A copy
+    dated after it (a clock set back, a future-dated file) or one that
+    can't be opened right now takes no slot and is never deleted; a damaged
+    copy is deleted only when older than every kept copy. Nothing is
+    deleted unless the new copy reads back."""
     copies = _list_copies(folder)
-    readable = [c for c in copies if _read_copy(c["path"]) is not None]
-    new = [c for c in readable if c["name"] == new_name]
-    if not new:
+    new = next((c for c in copies if c["name"] == new_name), None)
+    if new is None or _read_copy(new["path"])[0] != _OK:
         return 0
-    kept = _retention(new + [c for c in readable if c["name"] != new_name])
+    older = [c for c in copies if c["name"] != new_name and c["at"] <= new["at"]]
+    state = {c["name"]: _read_copy(c["path"])[0] for c in older}
+    readable = [new] + [c for c in older if state[c["name"]] == _OK]
+    kept = _retention(readable)
     oldest_kept = min(c["at"] for c in readable if c["name"] in kept)
-    readable_names = {c["name"] for c in readable}
     removed = 0
-    for copy in copies:
-        if copy["name"] in kept:
+    for copy in older:
+        if copy["name"] in kept or state[copy["name"]] == _UNREADABLE:
             continue
-        if copy["name"] not in readable_names and copy["at"] >= oldest_kept:
+        if state[copy["name"]] == _DAMAGED and copy["at"] >= oldest_kept:
             continue
         try:
             os.remove(copy["path"])     # removes a name, never follows a link
@@ -453,16 +508,16 @@ def _pick_copy(name=None) -> tuple:
         if not copies:
             raise NotFoundError(_NO_SNAPSHOT)
         for copy in copies:
-            manifest = _read_copy(copy["path"])
-            if manifest is not None:
+            state, manifest = _read_copy(copy["path"])
+            if state == _OK:
                 return copy, manifest
         raise InvalidInputError(_BAD_SNAPSHOT)
     if not isinstance(name, str) or not name or len(name) > _MAX_COPY_NAME_LEN:
         raise InvalidInputError("A backup copy is named by its file name.")
     for copy in copies:
         if copy["name"] == name:
-            manifest = _read_copy(copy["path"])
-            if manifest is None:
+            state, manifest = _read_copy(copy["path"])
+            if state != _OK:
                 raise InvalidInputError(_BAD_SNAPSHOT)
             return copy, manifest
     raise NotFoundError(_NO_COPY)
@@ -475,9 +530,11 @@ def _read_manifest(zf: zipfile.ZipFile) -> dict:
         raise InvalidInputError(_BAD_SNAPSHOT) from None
     if info.file_size > _MANIFEST_MAX_BYTES:
         raise InvalidInputError(_BAD_SNAPSHOT)
+    # An OSError (the file couldn't be read) is not damage: it propagates,
+    # so _read_copy can tell the two apart.
     try:
         data = json.loads(zf.read(info).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, RuntimeError, OSError,
+    except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, RuntimeError,
             EOFError, zlib.error):
         raise InvalidInputError(_BAD_SNAPSHOT) from None
     if (not isinstance(data, dict) or data.get("format") != MANIFEST_FORMAT
@@ -494,9 +551,11 @@ def snapshot_info() -> dict:
     readable, kept_as}: names only, never paths. When copies exist but none
     can be read: {exists: True, readable: False, copies}."""
     with _snapshot_lock:
-        described = [(copy, _read_copy(copy["path"]))
+        described = [(copy, _read_copy(copy["path"])[1])
                      for copy in _list_copies(_target_dir(create=False))]
-    kept = _retention([c for c, m in described if m is not None])
+    # As the next run would see it: a copy dated after now takes no slot.
+    now = _now()
+    kept = _retention([c for c, m in described if m is not None and c["at"] <= now])
     copies, newest = [], None
     for copy, manifest in described:
         created = manifest.get("created_at") if manifest else None
@@ -638,13 +697,18 @@ def _backup_job(job_id, include_media: bool):
                              manifest=lambda snap: _manifest_bytes(snap, include_media))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
+        # On disk before any old copy is deleted: a power cut must not
+        # leave an empty new copy and no old ones.
+        _fsync_file(tmp)
         with _snapshot_lock:
             final = _new_copy_path(target, now)
             os.replace(tmp, final)
             tmp = None
             size = os.path.getsize(final)
-            # Only now, with the new copy validated and in place.
+            # Only now, with the new copy validated and in place (a failed
+            # directory flush skips the rotation, never the backup).
             try:
+                _fsync_dir(target)
                 _prune(target, os.path.basename(final))
             except Exception as exc:
                 log.warning("Could not rotate the automatic backup copies: %s",
@@ -760,11 +824,16 @@ def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float 
     return removed
 
 
-def delete_snapshot(confirm=False, confirm_text="", snapshot=None) -> dict:
+def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=False) -> dict:
     """Deletes the copy named `snapshot` (matched against the folder's
-    listing), or every copy when no name is given. Needs confirm=True and
-    confirm_text "DELETE". Returns {deleted, count}."""
+    listing), or every copy with all_copies=True -- exactly one of the two,
+    so a request that lost its name can't delete everything. Needs
+    confirm=True and confirm_text "DELETE". Returns {deleted, count}."""
     las._require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting the snapshot")
+    if not isinstance(all_copies, bool):
+        raise InvalidInputError("all must be true or false.")
+    if (snapshot is None) == (not all_copies):
+        raise InvalidInputError("Name one backup copy to delete, or ask for all of them.")
     if snapshot is not None and (not isinstance(snapshot, str) or not snapshot
                                  or len(snapshot) > _MAX_COPY_NAME_LEN):
         raise InvalidInputError("A backup copy is named by its file name.")
@@ -1067,7 +1136,8 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     cleanup, backup or export holds the library. The drama keeps its id
     when that id (and its folder) are free, else it becomes a new drama
     titled "... (restored <date>)". Returns {drama_id, restored_as_new,
-    title, media_restored, counts, skipped_tables}."""
+    title, media_restored, snapshot (the copy's name), snapshot_kind,
+    series, counts, skipped_tables}."""
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or drama_id < 1:
         raise InvalidInputError("A drama id is a positive whole number.")
     las._require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a drama")
@@ -1076,7 +1146,8 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     with las._maintenance("restoring a drama"), tempfile.TemporaryDirectory() as tmp:
         staging = None
         with _snapshot_lock:
-            path = _pick_copy(snapshot)[0]["path"]
+            copy = _pick_copy(snapshot)[0]
+            path = copy["path"]
             las.validate_backup_file(path, check_disk=False, check_limits=False)
             try:
                 with zipfile.ZipFile(path) as zf:
@@ -1090,13 +1161,13 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
             except (OSError, zipfile.BadZipFile):
                 raise InvalidInputError(_BAD_SNAPSHOT) from None
         try:
-            return _restore_from(snap_db, drama_id, staging, manifest, actor_id)
+            return _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy["name"])
         finally:
             if staging is not None and os.path.isdir(staging):
                 shutil.rmtree(staging, ignore_errors=True)
 
 
-def _restore_from(snap_db, drama_id, staging, manifest, actor_id) -> dict:
+def _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy_name) -> dict:
     folder_free = not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     keep_id = db.get_drama(drama_id) is None and folder_free
     suffix = None if keep_id else f"(restored {datetime.date.today().isoformat()})"
@@ -1131,11 +1202,12 @@ def _restore_from(snap_db, drama_id, staging, manifest, actor_id) -> dict:
     try:
         from services import auth_service
         auth_service.write_audit(actor_id, "library.restore_drama",
-                                 f"drama {drama_id} restored from the backup snapshot "
+                                 f"drama {drama_id} restored from backup copy {copy_name} "
                                  f"as drama {live_id}")
     except Exception:
         log.warning("Could not write the audit entry for a drama restore")
     return {"drama_id": live_id, "restored_as_new": not keep_id, "title": title or "",
-            "media_restored": moved_to is not None, "snapshot_kind": manifest["kind"],
+            "media_restored": moved_to is not None, "snapshot": copy_name,
+            "snapshot_kind": manifest["kind"],
             "series": series_outcome,
             "counts": counts, "skipped_tables": sorted(_SKIPPED_TABLES)}

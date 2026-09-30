@@ -46,10 +46,12 @@ export const restoreSnapshotDrama = (drama_id: number, snapshot?: string, f?: Fe
     pcOnlyFetch(f),
   )
 
-/** Deletes the copy called `snapshot`, or every copy when it is left out. */
-export const deleteSnapshot = (snapshot?: string, f?: Fetch) =>
+/** Deletes the copy called `snapshot`, or every copy for `{ all: true }`. The
+ * server refuses a request that names neither, so a lost name never deletes
+ * everything. */
+export const deleteSnapshot = (target: { snapshot: string } | { all: true }, f?: Fetch) =>
   postJson<DeleteSnapshotDone>(
     `${BASE}/snapshot/delete`,
-    { confirm: true, confirm_text: DELETE_SNAPSHOT_WORD, ...(snapshot ? { snapshot } : {}) },
+    { confirm: true, confirm_text: DELETE_SNAPSHOT_WORD, ...target },
     pcOnlyFetch(f),
   )

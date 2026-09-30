@@ -84,6 +84,8 @@ export interface RestoreDramaDone {
   restored_as_new: boolean
   title: string
   media_restored: boolean
+  // The name of the copy the drama came from.
+  snapshot: string
   snapshot_kind: SnapshotKind
   // linked: back in its series; recreated: the series was gone and came back
   // from the snapshot; dropped_private: the series is now someone else's

@@ -109,6 +109,7 @@ class RestoreDramaDone(BaseModel):
     restored_as_new: bool
     title: str
     media_restored: bool
+    snapshot: str = Field(description="The name of the copy the drama came from.")
     snapshot_kind: SnapshotKind
     series: Literal["none", "linked", "recreated", "dropped_private"] = Field(
         description="linked: back in its series; recreated: its series was gone and came back "
@@ -119,13 +120,14 @@ class RestoreDramaDone(BaseModel):
 
 
 class DeleteSnapshotRequest(BaseModel):
-    """Needs confirm=true and confirm_text "DELETE". snapshot names the copy
-    to delete; left out = every copy."""
+    """Needs confirm=true and confirm_text "DELETE", and exactly one of
+    snapshot (the copy to delete) or all=true (every copy)."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=32)
     snapshot: Optional[str] = Field(None, min_length=1, max_length=64,
-                                    description="A copy's name; left out = every copy.")
+                                    description="A copy's name from the copies list.")
+    all: StrictBool = Field(False, description="true = delete every copy (no snapshot).")
 
 
 class DeleteSnapshotDone(BaseModel):

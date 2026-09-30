@@ -289,10 +289,11 @@ function DeleteSnapshot({ copies, onDone, onCancel }: {
   const run = () => {
     setBusy(true)
     setError(null)
-    deleteSnapshot(chosen ? chosen.name : undefined).then(
+    const all = which === ALL
+    deleteSnapshot(all ? { all: true } : { snapshot: which }).then(
       () => {
         setBusy(false)
-        onDone(!chosen)
+        onDone(all)
       },
       (e: unknown) => {
         setBusy(false)

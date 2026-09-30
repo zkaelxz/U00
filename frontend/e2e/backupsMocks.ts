@@ -112,14 +112,17 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
       return json(route, {
         drama_id: d.exists_now ? 40 : d.id, restored_as_new: d.exists_now,
         title: d.exists_now ? `${d.title} (restored 2026-09-30)` : d.title, media_restored: false,
-        snapshot_kind: state.snapshot.kind, series: 'none', counts: { lines: d.line_count }, skipped_tables: ['bulk_jobs', 'metadata_research_results', 'usage_log'],
+        snapshot: body.snapshot ?? copies()[0]?.name, snapshot_kind: state.snapshot.kind, series: 'none', counts: { lines: d.line_count }, skipped_tables: ['bulk_jobs', 'metadata_research_results', 'usage_log'],
       })
     }
     if (path === '/api/backups/snapshot/delete') {
-      if (body.snapshot === undefined) {
+      if (body.all === true && body.snapshot === undefined) {
         const count = copies().length
         state.snapshot = infoFor([])
         return json(route, { deleted: true, count })
+      }
+      if (body.all !== undefined || body.snapshot === undefined) {
+        return json(route, { error: { code: 'validation_error', message: 'Name one backup copy to delete, or ask for all of them.' } }, 422)
       }
       if (!copies().some((c) => c.name === body.snapshot)) return notFound(route)
       state.snapshot = infoFor(copies().filter((c) => c.name !== body.snapshot))
