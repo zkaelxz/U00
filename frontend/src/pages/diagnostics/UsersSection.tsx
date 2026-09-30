@@ -5,27 +5,29 @@ import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
+import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
-import { canManageUsers, deactivateBlock, revokeBlock, sessionsText, userName } from './adminUsers'
+import { canManageUsers, rowBlocks, sessionsText, userName } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
 type Busy = { id: number; what: 'active' | 'revoke' } | null
 
 /**
  * "Users": the household's accounts. An admin can deactivate or activate
- * one and end its sessions, each after a confirm step. Adding people and
- * changing permissions stay on the PC (python -m api). Loaded when opened;
- * hidden from anyone without admin.users.
+ * one and end its sessions, each after a confirm step. Admin accounts can
+ * only be changed on the PC (off elsewhere, with the reason). Adding people
+ * and changing permissions stay on the PC (python -m api). Loaded when
+ * opened; hidden from anyone without admin.users.
  */
-export function UsersSection() {
+export function UsersSection({ pc }: { pc: PcMode }) {
   const session = useSession()
   if (!canManageUsers(session)) return null
   const signInOff = session.status === 'ready' && !session.me.auth_enabled
-  return <UsersBody signInOff={signInOff} />
+  return <UsersBody signInOff={signInOff} pc={pc} />
 }
 
-function UsersBody({ signInOff }: { signInOff: boolean }) {
+function UsersBody({ signInOff, pc }: { signInOff: boolean; pc: PcMode }) {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<Busy>(null)
@@ -76,7 +78,7 @@ function UsersBody({ signInOff }: { signInOff: boolean }) {
         ) : (
           <ul className="pkg-list admin-user-list" aria-label="Users">
             {users.map((u) => (
-              <UserRow key={u.id} user={u} users={users} busy={busy} onRun={(what) => void run(u, what)} />
+              <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} onRun={(what) => void run(u, what)} />
             ))}
           </ul>
         )}
@@ -86,16 +88,16 @@ function UsersBody({ signInOff }: { signInOff: boolean }) {
   )
 }
 
-function UserRow({ user: u, users, busy, onRun }: {
+function UserRow({ user: u, users, pc, busy, onRun }: {
   user: AdminUser
   users: AdminUser[]
+  pc: PcMode
   busy: Busy
   onRun: (what: 'active' | 'revoke') => void
 }) {
-  const offBlock = deactivateBlock(u, users)
-  const sessBlock = revokeBlock(u)
+  const { deactivate: offBlock, revoke: sessBlock, activate: onBlock } = rowBlocks(u, users, pc)
   const mine = busy?.id === u.id
-  const why = [offBlock, sessBlock].filter(Boolean).join(' ')
+  const why = [...new Set([offBlock, sessBlock, onBlock].filter(Boolean))].join(' ')
   const whyId = `admin-user-why-${u.id}`
   return (
     <li>
@@ -120,8 +122,8 @@ function UserRow({ user: u, users, busy, onRun }: {
             describedBy={offBlock ? whyId : undefined} onConfirm={() => onRun('active')} />
         ) : (
           <ConfirmButton name={u.email} label="Activate…" verb="activate" tone="primary"
-            busy={mine && busy?.what === 'active'} disabled={busy !== null}
-            onConfirm={() => onRun('active')} />
+            busy={mine && busy?.what === 'active'} disabled={busy !== null || !!onBlock}
+            describedBy={onBlock ? whyId : undefined} onConfirm={() => onRun('active')} />
         )}
       </div>
     </li>

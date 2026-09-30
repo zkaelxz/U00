@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { AuthMe } from '../../api/auth'
 import type { AdminUser } from '../../types/adminUsers'
 import {
-  activeAdminCount, appendAudit, auditActionLabel, auditActor, auditTime, canManageUsers,
-  deactivateBlock, revokeBlock, sessionsText, userName,
+  activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
+  auditTime, canManageUsers, deactivateBlock, revokeBlock, rowBlocks, sessionsText, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -44,6 +44,36 @@ describe('guards', () => {
     expect(revokeBlock(user({ is_self: true }))).toMatch(/Sign out/)
     expect(revokeBlock(user({ active_sessions: 0 }))).toMatch(/Not signed in/)
     expect(revokeBlock(user({ active_sessions: 2 }))).toBeNull()
+  })
+})
+
+describe('admin accounts are PC-only', () => {
+  const admin = user({ id: 2, is_admin: true })
+  const self = user({ id: 1, is_admin: true, is_self: true })
+  const member = user({ id: 3 })
+  const users = [self, admin, member]
+
+  it('blocks every button on an admin row off the PC, and waits while unknown', () => {
+    for (const pc of ['remote', 'unknown'] as const) {
+      expect(adminTargetBlock(admin, pc)).toBe(ADMIN_PC_ONLY)
+      expect(rowBlocks(admin, users, pc)).toEqual({ revoke: ADMIN_PC_ONLY, deactivate: ADMIN_PC_ONLY, activate: null })
+      const off = user({ id: 4, is_admin: true, is_active: false })
+      expect(rowBlocks(off, [...users, off], pc).activate).toBe(ADMIN_PC_ONLY)
+    }
+  })
+
+  it('allows admin rows on the PC and non-admin rows anywhere', () => {
+    expect(adminTargetBlock(admin, 'local')).toBeNull()
+    expect(rowBlocks(admin, users, 'local')).toEqual({ revoke: null, deactivate: null, activate: null })
+    expect(rowBlocks(member, users, 'remote')).toEqual({ revoke: null, deactivate: null, activate: null })
+    expect(rowBlocks(user({ id: 5, is_active: false }), users, 'remote').activate).toBeNull()
+  })
+
+  it("keeps the row's own reason first", () => {
+    expect(rowBlocks(self, users, 'remote').deactivate).toMatch(/your own account/)
+    expect(rowBlocks(self, users, 'remote').revoke).toMatch(/Sign out/)
+    expect(rowBlocks(user({ id: 2, is_admin: true, active_sessions: 0 }), users, 'remote').revoke)
+      .toMatch(/Not signed in/)
   })
 })
 

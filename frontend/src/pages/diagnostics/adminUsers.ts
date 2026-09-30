@@ -1,6 +1,7 @@
 // Pure helpers for the Users and Audit log sections of Diagnostics. The
-// server enforces every rule below (409); these only explain up front why
-// a button is off.
+// server enforces every rule below (409, or 403 for an admin target off the
+// PC); these only explain up front why a button is off.
+import type { PcMode } from '../../hooks/usePcOnly'
 import type { SessionState } from '../../hooks/useSession'
 import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 
@@ -31,6 +32,25 @@ export function revokeBlock(user: AdminUser): string | null {
   if (user.is_self) return 'Use Sign out to end your own session.'
   if (user.active_sessions === 0) return 'Not signed in anywhere.'
   return null
+}
+
+export const ADMIN_PC_ONLY = 'Admin accounts can only be changed on the main PC.'
+
+/** Why an admin account can't be changed from here: anything touching an
+ * admin is PC-only on the server. 'unknown' waits for 'local' like the other
+ * Diagnostics admin blocks. */
+export function adminTargetBlock(user: AdminUser, pc: PcMode): string | null {
+  return user.is_admin && pc !== 'local' ? ADMIN_PC_ONLY : null
+}
+
+/** Each row button's reason to be off (null = allowed); the row's own rules come first. */
+export function rowBlocks(user: AdminUser, users: AdminUser[], pc: PcMode) {
+  const admin = adminTargetBlock(user, pc)
+  return {
+    revoke: revokeBlock(user) ?? admin,
+    deactivate: deactivateBlock(user, users) ?? admin,
+    activate: user.is_active ? null : admin,
+  }
 }
 
 export function userName(user: AdminUser): string {

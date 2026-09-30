@@ -17,7 +17,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
-from services.service_errors import ConflictError, NotFoundError
+from services.service_errors import ConflictError, ForbiddenError, NotFoundError
 
 REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
@@ -151,7 +151,7 @@ def test_unknown_user_is_404_and_not_audited(isolated_db):
 
 
 def test_admin_cannot_deactivate_or_sign_out_self(isolated_db):
-    c = _remote(_app())
+    c = _local(_app())
     a, s = _admin()
     _admin("second@example.com")   # another admin exists, so only the self rule applies
     r = c.post(f"/api/admin/users/{a['id']}/deactivate", headers=_h(s))
@@ -164,7 +164,7 @@ def test_admin_cannot_deactivate_or_sign_out_self(isolated_db):
 
 
 def test_last_active_admin_cannot_be_deactivated(isolated_db):
-    c = _remote(_app())
+    c = _local(_app())
     a, s = _admin()
     b, _ = _admin("second@example.com")
     assert c.post(f"/api/admin/users/{b['id']}/deactivate", headers=_h(s)).status_code == 200
@@ -176,6 +176,45 @@ def test_last_active_admin_cannot_be_deactivated(isolated_db):
     # An inactive admin doesn't count; deactivating them again is harmless.
     assert _local(_app("off")).post(f"/api/admin/users/{b['id']}/deactivate",
                                     headers=LOCAL_POST).status_code == 200
+
+
+def test_admin_target_is_pc_only(isolated_db):
+    """A remote admin session manages non-admin accounts only; anything
+    touching an admin account is refused (403) and not audited."""
+    remote = _remote(_app())
+    _a, s = _admin()
+    b, bs = _admin("second@example.com")
+    for action in ("deactivate", "revoke-sessions", "activate"):
+        r = remote.post(f"/api/admin/users/{b['id']}/{action}", headers=_h(s))
+        assert r.status_code == 403, action
+        assert r.json()["error"]["message"] == auth_service.ADMIN_AT_PC_ONLY
+    assert db.auth_get_user(b["id"])["is_active"] == 1
+    assert auth_service.resolve_session(bs["session_token"])
+    assert not _audit("user.deactivate") and not _audit("user.activate") \
+        and not _audit("session.revoke_all")
+    # The same admin session at the PC may.
+    local = _local(_app())
+    assert local.post(f"/api/admin/users/{b['id']}/revoke-sessions",
+                      headers=_h(s)).status_code == 200
+    assert local.post(f"/api/admin/users/{b['id']}/deactivate", headers=_h(s)).status_code == 200
+    # Activating an inactive admin is PC-only too.
+    r = remote.post(f"/api/admin/users/{b['id']}/activate", headers=_h(s))
+    assert r.status_code == 403 and not db.auth_get_user(b["id"])["is_active"]
+    assert local.post(f"/api/admin/users/{b['id']}/activate", headers=_h(s)).status_code == 200
+
+
+def test_admin_target_check_order(isolated_db):
+    """404, then self (409), then admin target (403), then last admin (409)."""
+    remote = _remote(_app())
+    a, s = _admin()
+    r = remote.post("/api/admin/users/9999/deactivate", headers=_h(s))
+    assert r.status_code == 404
+    r = remote.post(f"/api/admin/users/{a['id']}/deactivate", headers=_h(s))
+    assert r.status_code == 409 and "your own account" in r.json()["error"]["message"]
+    with pytest.raises(ForbiddenError):
+        auth_service.admin_set_active(a["id"], False, actor_id=None)
+    with pytest.raises(ConflictError):
+        auth_service.admin_set_active(a["id"], False, actor_id=None, at_pc=True)
 
 
 def test_guarded_write_refuses_the_second_of_two(isolated_db):
@@ -194,7 +233,7 @@ def test_guarded_write_refuses_the_second_of_two(isolated_db):
 def test_service_guards_and_cli_path_unchanged(isolated_db):
     a = auth_service.grant_admin_local("a@example.com")
     with pytest.raises(ConflictError):
-        auth_service.admin_set_active(a["id"], False, actor_id=None)
+        auth_service.admin_set_active(a["id"], False, actor_id=None, at_pc=True)
     with pytest.raises(NotFoundError):
         auth_service.admin_revoke_sessions(4242, actor_id=None)
     # The CLI recovery path (deactivate_user without keep_an_admin) is not guarded.

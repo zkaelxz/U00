@@ -11,7 +11,9 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
 Every route is `admin.users` (held only by admins, and by the local owner
 with auth off), so with auth on the writes also need the session's CSRF
 token. Guards (409): not your own account, not the last active admin, not
-your own sessions. Unknown user: 404. The service audits every write.
+your own sessions. A write whose target is an admin account is PC-only
+(403 from a remote session): remote admins manage non-admin accounts only.
+Unknown user: 404. The service audits every write.
 Nothing here creates users, changes permissions, or edits or deletes
 audit rows.
 """
@@ -21,7 +23,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.admin_users_schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
-from api.auth import require_permission
+from api.auth import is_local_request, require_permission
 from services import auth_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -51,21 +53,24 @@ def list_users(request: Request, response: Response):
              summary="Deactivate a user and end their sessions")
 def deactivate_user(request: Request, response: Response, user_id: int = _UserId):
     _no_store(response)
-    return auth_service.admin_set_active(user_id, False, actor_id=_actor(request))
+    return auth_service.admin_set_active(user_id, False, actor_id=_actor(request),
+                                       at_pc=is_local_request(request))
 
 
 @router.post("/users/{user_id}/activate", dependencies=_ADMIN, response_model=AdminUser,
              summary="Activate a user")
 def activate_user(request: Request, response: Response, user_id: int = _UserId):
     _no_store(response)
-    return auth_service.admin_set_active(user_id, True, actor_id=_actor(request))
+    return auth_service.admin_set_active(user_id, True, actor_id=_actor(request),
+                                       at_pc=is_local_request(request))
 
 
 @router.post("/users/{user_id}/revoke-sessions", dependencies=_ADMIN,
              response_model=AdminSessionsRevoked, summary="End every session of a user")
 def revoke_sessions(request: Request, response: Response, user_id: int = _UserId):
     _no_store(response)
-    return auth_service.admin_revoke_sessions(user_id, actor_id=_actor(request))
+    return auth_service.admin_revoke_sessions(user_id, actor_id=_actor(request),
+                                            at_pc=is_local_request(request))
 
 
 @router.get("/audit", dependencies=_ADMIN, response_model=AuditPage,

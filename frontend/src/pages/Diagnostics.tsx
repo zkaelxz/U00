@@ -204,7 +204,7 @@ export default function DiagnosticsPage() {
         <LogSection />
         <BugReportsSection pc={pc} />
         <BugBundlesSection pc={pc} />
-        <UsersSection />
+        <UsersSection pc={pc} />
         <AuditLogSection />
       </div>
 

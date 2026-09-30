@@ -30,8 +30,8 @@ import time
 from collections import OrderedDict, deque
 
 import db
-from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                     RateLimitedError)
+from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
+                                     NotFoundError, RateLimitedError)
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
@@ -216,27 +216,43 @@ def _admin_view(user: dict, actor_id, now: float) -> dict:
                 is_self=actor_id is not None and user["id"] == actor_id)
 
 
-def admin_set_active(user_id: int, active: bool, actor_id=None) -> dict:
+ADMIN_AT_PC_ONLY = ("Admin accounts can only be changed at the PC. "
+                    "Use: python -m api deactivate/grant-admin <email>")
+
+
+def _require_pc_for_admin(row, at_pc: bool):
+    """Anything that changes an admin account is PC-only: a remote admin
+    session could otherwise lock the owner out."""
+    if row["is_admin"] and not at_pc:
+        raise ForbiddenError(ADMIN_AT_PC_ONLY)
+
+
+def admin_set_active(user_id: int, active: bool, actor_id=None, at_pc: bool = False) -> dict:
     """Admin activate/deactivate; returns the admin_list_users row. The
-    caller can't deactivate their own account, nor the last active admin
-    (409). `actor_id` None is the local owner, who has no users row and so
-    can never be the target."""
+    caller can't deactivate their own account (409); an admin target needs
+    `at_pc` (403); the last active admin can't be deactivated (409).
+    `actor_id` None is the local owner, who has no users row and so can
+    never be the target."""
+    row = _require_user(user_id)
     if active:
+        _require_pc_for_admin(row, at_pc)
         user = activate_user(user_id, actor_id=actor_id)
     else:
-        _require_user(user_id)
         if actor_id is not None and user_id == actor_id:
             raise ConflictError("You can't deactivate your own account.")
+        _require_pc_for_admin(row, at_pc)
         user = deactivate_user(user_id, actor_id=actor_id, keep_an_admin=True)
     return _admin_view(user, actor_id, time.time())
 
 
-def admin_revoke_sessions(user_id: int, actor_id=None) -> dict:
+def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
     """Ends every session of another user (they can sign in again). Not the
-    caller's own: that would sign them out mid-action (409; use Sign out)."""
-    _require_user(user_id)
+    caller's own: that would sign them out mid-action (409; use Sign out).
+    An admin target needs `at_pc` (403)."""
+    row = _require_user(user_id)
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("To end your own sessions, use Sign out.")
+    _require_pc_for_admin(row, at_pc)
     return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id)}
 
 

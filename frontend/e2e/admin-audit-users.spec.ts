@@ -42,7 +42,9 @@ async function guard(page: Page): Promise<string[]> {
   return unmocked
 }
 
-async function mockPage(page: Page, permissions: string[]) {
+async function mockPage(page: Page, permissions: string[], local = true) {
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local } }))
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: me(permissions) }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
 }
@@ -112,6 +114,26 @@ test('Users: a refused action shows the server reason in plain words', async ({ 
   await section.getByRole('button', { name: 'Confirm sign out kid@example.com' }).click()
   await expect(alert).toContainText('That item could not be found.')
   await expect(alert).toContainText('User not found.')
+  expect(unmocked).toEqual([])
+})
+
+test('Users: away from the PC, admin accounts are off with the reason; others still work', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users'], false)
+  const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  const otherOff = user({ id: 5, email: 'third@example.com', is_admin: true, is_active: false, active_sessions: 0 })
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other, otherOff, KID] } }))
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Users/)
+  const list = page.getByRole('list', { name: 'Users' })
+  const second = list.locator('li').nth(1)
+  await expect(second).toContainText('Admin accounts can only be changed on the main PC.')
+  await expect(second.getByRole('button', { name: 'Deactivate second@example.com' })).toBeDisabled()
+  await expect(second.getByRole('button', { name: 'Sign out everywhere second@example.com' })).toBeDisabled()
+  await expect(list.locator('li').nth(2).getByRole('button', { name: 'Activate third@example.com' })).toBeDisabled()
+  const kid = list.locator('li').nth(3)
+  await expect(kid.getByRole('button', { name: 'Deactivate kid@example.com' })).toBeEnabled()
+  await expect(kid.getByRole('button', { name: 'Sign out everywhere kid@example.com' })).toBeEnabled()
   expect(unmocked).toEqual([])
 })
 
