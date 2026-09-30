@@ -79,3 +79,12 @@
   padding: var(--space-3);
   margin-top: var(--space-3);
 }
+
+/* Deliver a proposed fix as a GitHub PR. */
+.assistant-deliver {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+}
+.assistant-deliver-files { margin: 0 0 var(--space-3); padding-left: var(--space-4); }
+.assistant-deliver-files code, .assistant-deliver code { overflow-wrap: anywhere; }
