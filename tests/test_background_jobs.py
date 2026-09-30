@@ -8,6 +8,7 @@ of switching to another tab and coming back later.
 """
 import sys
 import os
+import queue
 import shutil
 import sqlite3
 import tempfile
@@ -1517,3 +1518,258 @@ class TestRunCancellable:
         bg.request_cancel("rc3")
         assert _wait_for(lambda: bg.get_status("rc3")["status"] == "cancelled", timeout=8)
         assert time.time() - t0 < 4
+
+
+class TestStartFailure:
+    """A job is marked "running" before its thread/process starts; if the
+    start raises, the record must not stay "running" forever (blocking a
+    restart, acquire_exclusive and the GPU lock)."""
+
+    def _fail_thread_starts(self, monkeypatch, name=None):
+        real = bg._start_job_thread
+
+        def flaky(target, thread_name, *args, **kwargs):
+            if name is None or thread_name == name:
+                raise RuntimeError("can't start new thread key=AIzaSyFAKESECRETVALUE12345")
+            return real(target, thread_name, *args, **kwargs)
+
+        monkeypatch.setattr(bg, "_start_job_thread", flaky)
+        return real
+
+    def test_thread_start_failure_marks_error_and_frees_everything(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        real = self._fail_thread_starts(monkeypatch)
+        with pytest.raises(RuntimeError):
+            bg.start_job("sf_thread", lambda: None, gpu_touching=True)
+        status = bg.get_status("sf_thread")
+        assert status["status"] == "error"
+        assert "AIzaSyFAKESECRETVALUE12345" not in status["error"]
+        assert db.try_acquire_gpu_lock("someone_else")
+        db.release_gpu_lock("someone_else")
+        assert bg.acquire_exclusive("test")
+        bg.release_exclusive()
+        monkeypatch.setattr(bg, "_start_job_thread", real)
+        assert bg.start_job("sf_thread", lambda: None) is True
+        _wait("sf_thread")
+        assert bg.get_status("sf_thread")["status"] == "done"
+
+    def test_process_start_failure_marks_error(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+
+        procs, queues = [], []
+
+        class _Unstartable(_FakeProcess):
+            closed = False
+
+            def start(self):
+                raise TypeError("cannot pickle '_thread.lock' object")
+
+            def close(self):
+                self.closed = True
+
+        def make_proc(target, args, daemon=True):
+            procs.append(_Unstartable(target, args))
+            return procs[-1]
+
+        def make_queue():
+            queues.append(_SpyQueue())
+            return queues[-1]
+
+        monkeypatch.setattr(bg.multiprocessing, "Process", make_proc)
+        monkeypatch.setattr(bg.multiprocessing, "Queue", make_queue)
+        with pytest.raises(TypeError):
+            bg.start_process_job("sf_proc", lambda q: None, gpu_touching=True)
+        assert bg.get_status("sf_proc")["status"] == "error"
+        assert procs[0].closed and queues[0].closed   # no leaked pipe fds
+        assert db.try_acquire_gpu_lock("someone_else")
+        db.release_gpu_lock("someone_else")
+        assert bg.acquire_exclusive("test")
+        bg.release_exclusive()
+
+    def test_promoted_job_failing_to_start_errors_and_the_next_one_runs(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        bg.set_gpu_limit_enabled(True)
+        release = threading.Event()
+        assert bg.start_job("sf_a", lambda: release.wait(5), gpu_touching=True)
+        assert bg.start_job("sf_b", lambda: None, gpu_touching=True)
+        assert bg.start_job("sf_c", lambda: None, gpu_touching=True)
+        assert bg.get_status("sf_b")["status"] == "queued"
+        self._fail_thread_starts(monkeypatch, name="job:sf_b")
+        release.set()
+        assert _wait_for(lambda: bg.get_status("sf_c")["status"] == "done", timeout=5)
+        assert bg.get_status("sf_b")["status"] == "error"
+
+
+class TestSystemExitInJob:
+    def test_system_exit_marks_the_job_errored(self):
+        def leave():
+            raise SystemExit(2)
+
+        bg.start_job("sysexit", leave)
+        assert _wait_for(lambda: bg.get_status("sysexit")["status"] != "running")
+        assert bg.get_status("sysexit")["status"] == "error"
+        assert "SystemExit" in bg.get_status("sysexit")["error"]
+
+
+class _StubbornProcess(_FakeProcess):
+    """Ignores terminate() (a child stuck in a CUDA call); only kill() stops it."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.killed = False
+        self.joins = 0
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+        self._alive = False
+        self.exitcode = -9
+
+    def join(self, timeout=None):
+        self.joins += 1
+
+
+class _SpyQueue:
+    def __init__(self, items=(), error=None):
+        self.items = list(items)
+        self.error = error
+        self.closed = False
+
+    def get(self, timeout=None):
+        if self.error is not None:
+            raise self.error
+        if self.items:
+            return self.items.pop(0)
+        time.sleep(0.01)
+        raise queue.Empty
+
+    def close(self):
+        self.closed = True
+
+
+def _register_fake_process_job(job_id):
+    proc = _StubbornProcess(lambda q: None, (), alive_forever=True)
+    with bg._lock:
+        bg._jobs[job_id] = {
+            "status": "running", "progress": 0.0, "message": "", "error": None,
+            "started_at": time.time(), "finished_at": None, "cancel_requested": False,
+            "result": None, "gpu_touching": False, "description": None, "kind": "process",
+            "process": proc, "owner_user_id": None,
+        }
+    return proc
+
+
+class TestProcessWatcherRobustness:
+    def test_queue_error_marks_job_errored_and_stops_the_child(self):
+        import pickle
+        proc = _register_fake_process_job("w_torn")
+        q = _SpyQueue(error=pickle.UnpicklingError(
+            "pickle data was truncated key=AIzaSyFAKESECRETVALUE12345"))
+        bg._process_watcher("w_torn", proc, q, poll_interval=0.01)
+        status = bg.get_status("w_torn")
+        assert status["status"] == "error"
+        assert "UnpicklingError" in status["error"]
+        assert "AIzaSyFAKESECRETVALUE12345" not in status["error"]
+        assert proc.killed
+        assert q.closed
+
+    def test_cancel_kills_a_child_that_ignores_terminate(self):
+        proc = _register_fake_process_job("w_stubborn")
+        bg.request_cancel("w_stubborn")
+        bg._process_watcher("w_stubborn", proc, _SpyQueue(), poll_interval=0.01)
+        assert bg.get_status("w_stubborn")["status"] == "cancelled"
+        assert proc.terminated and proc.killed
+        assert not proc.is_alive()
+
+    def test_normal_exit_reaps_the_child_and_closes_the_queue(self):
+        proc = _register_fake_process_job("w_normal")
+        q = _SpyQueue(items=[("ok", {"n": 1})])
+        bg._process_watcher("w_normal", proc, q, poll_interval=0.01)
+        assert bg.get_status("w_normal")["status"] == "done"
+        assert proc.joins >= 1
+        assert q.closed
+
+
+_FAKE_KEY = "AIzaSyFAKESECRETVALUE12345"
+
+
+def _log_text():
+    import applog
+    return "\n".join(applog.tail(200))
+
+
+def _boom(*a, **k):
+    raise sqlite3.OperationalError(f"disk I/O error key={_FAKE_KEY}")
+
+
+class TestSwallowedFailuresAreVisible:
+    def test_gpu_lock_db_error_queues_the_job_and_logs(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        bg.set_gpu_limit_enabled(True)
+        real = db.try_acquire_gpu_lock
+        monkeypatch.setattr(db, "try_acquire_gpu_lock", _boom)
+        ran = threading.Event()
+        assert bg.start_job("gl_err", ran.set, gpu_touching=True) is True
+        assert bg.get_status("gl_err")["status"] == "queued"
+        assert not ran.is_set()
+        log = _log_text()
+        assert "could not take the GPU lock" in log and _FAKE_KEY not in log
+        monkeypatch.setattr(db, "try_acquire_gpu_lock", real)
+        bg.recheck_gpu_queue()
+        assert ran.wait(5)
+
+    def test_external_gpu_check_error_is_logged_and_ignored(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", _boom)
+        assert bg.start_job("ext_err", lambda: None, gpu_touching=True) is True
+        _wait("ext_err")
+        assert bg.get_status("ext_err")["status"] == "done"
+        log = _log_text()
+        assert "external GPU load check failed" in log and _FAKE_KEY not in log
+
+    def test_gpu_limit_setting_error_is_logged(self, monkeypatch):
+        monkeypatch.setattr(db, "get_app_setting", _boom)
+        assert bg.get_gpu_limit_enabled() is True
+        assert "could not read the GPU-limit setting" in _log_text()
+
+    def test_db_cancel_check_error_is_logged_once_and_retried(self, monkeypatch):
+        calls = []
+
+        def failing(job_id):
+            calls.append(job_id)
+            raise sqlite3.OperationalError(f"database is locked key={_FAKE_KEY}")
+
+        monkeypatch.setattr(db, "is_job_record_cancel_requested", failing)
+        # Set the log handler up before the job thread logs: two threads
+        # doing it at once can attach it twice and write every line twice.
+        import applog
+        applog.get_logger()
+        release = threading.Event()
+        bg.start_job("dc_err", lambda: release.wait(5))
+        try:
+            assert bg.is_cancel_requested("dc_err") is False
+            assert bg.is_cancel_requested("dc_err") is False
+            assert len(calls) == 2    # not held back by the check interval
+            log = _log_text()
+            assert log.count("could not read a cancel request") == 1
+            assert _FAKE_KEY not in log
+        finally:
+            release.set()
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process-group kill")
+    def test_kill_tree_failure_is_logged(self, monkeypatch):
+        def denied(pid, sig):
+            raise PermissionError("not permitted")
+
+        class _Proc:
+            pid = 999999
+
+            def kill(self):
+                raise OSError("kill failed")
+
+        monkeypatch.setattr(os, "killpg", denied)
+        bg._kill_tree(_Proc())
+        log = _log_text()
+        assert "could not kill process tree 999999" in log
+        assert "could not kill process 999999" in log
