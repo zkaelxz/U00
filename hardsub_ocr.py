@@ -40,6 +40,7 @@ import cv2
 import numpy as np
 
 import ocr as ocr_module
+import storage
 
 
 # Frame sampling decodes the whole video once; generous for a multi-hour file.
@@ -279,7 +280,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     dropping genuinely short captions because of it.
     """
     lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
-    with tempfile.TemporaryDirectory(dir=tmp_dir) as frame_dir:
+    with storage.job_workdir(job_id, dir=tmp_dir) as frame_dir:
         frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval, job_id=job_id)
         if not frames:
             return []

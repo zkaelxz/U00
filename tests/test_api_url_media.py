@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 import db
+import storage
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -140,7 +141,7 @@ def _run(client, did, **body):
 
 
 def _no_tmp(did):
-    assert not [n for n in os.listdir(db.drama_dir(did)) if n.startswith(".urldl_")]
+    assert os.listdir(storage.temp_root()) == []
 
 
 def test_audio_only_download(client, env):
@@ -171,7 +172,7 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
                            "source_url": URL}]
     assert db.get_drama(did)["title_en"] == "Mine" and not db.get_drama(did)["title_zh"]
     cmd = env.ffmpeg[0]
-    assert cmd[0] == "ffmpeg" and os.path.basename(os.path.dirname(cmd[-1])).startswith(".urldl_")
+    assert cmd[0] == "ffmpeg" and os.path.dirname(os.path.dirname(cmd[-1])) == storage.temp_root()
     i = cmd.index("-i")
     assert cmd[i - 2:i] == ["-protocol_whitelist", "file"]
     _no_tmp(did)
@@ -189,8 +190,8 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     assert o["restrictfilenames"] is True
     assert not [k for k in o if "cookie" in k.lower()]
     tmp = o["paths"]["home"]
-    assert o["paths"]["temp"] == tmp and os.path.dirname(tmp) == db.drama_dir(did)
-    assert os.path.basename(tmp).startswith(".urldl_")
+    assert o["paths"]["temp"] == tmp and os.path.dirname(tmp) == storage.temp_root()
+    assert os.path.basename(tmp).startswith("urlmedia_")
     assert os.path.dirname(o["outtmpl"]) == tmp
     assert o["allowed_extractors"] == ["default", "-generic"]
     mf = o["match_filter"]

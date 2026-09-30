@@ -40,13 +40,13 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from urllib.parse import urljoin, urlsplit
 
 import background_jobs
 import db
+import storage
 from services import drama_service, media_upload_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -294,7 +294,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
 
 def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
     ddir = db.drama_dir(drama_id)
-    tmp = tempfile.mkdtemp(dir=ddir, prefix=".urldl_")
+    tmp = storage.new_workdir(job_id)
     try:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
         direct_ext = direct_media_ext(url)

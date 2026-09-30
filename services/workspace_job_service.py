@@ -621,13 +621,14 @@ _MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
 # Top-level library entries a restore never takes from an upload and
 # instead carries across from the current library: saved backups/exports,
 # saved site sign-ins, approved source profiles and the browser-extension
-# token. (Upload members under these names are skipped, so a planted
+# token, plus the temp folder of in-flight work. (Upload members under these names are skipped, so a planted
 # backups/exports/x.zip can never become the "latest export".)
 def _restore_kept_names():
     import page_server
+    import storage
     from sources import store as src_store
     return ("backups", src_store.BROWSER_PROFILES_DIRNAME, "source_profiles",
-            page_server.TOKEN_FILENAME)
+            page_server.TOKEN_FILENAME, storage.TEMP_DIRNAME)
 
 
 # library.db tables that hold who may sign in and what they may do; a

@@ -212,6 +212,12 @@ def start_background_services() -> dict:
     except Exception as exc:
         _log("leftover deleted-drama folders were not swept: %s", exc)
     try:
+        import storage
+        storage.sweep_stale_temp()
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        _log("leftover temp files were not swept: %s", redact_secrets(str(exc)))
+    try:
         from services import lncrawl_service
         lncrawl_service.cleanup_stale_workdirs()
     except Exception as exc:
