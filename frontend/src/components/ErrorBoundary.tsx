@@ -2,7 +2,8 @@ import { Component, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 
 import { routeHref, useRoute } from '../router'
-import { copyText, errorText } from './errorFallbackText'
+import { copyText } from './clipboard'
+import { errorText } from './errorFallbackText'
 
 export function ErrorFallback({ error }: { error: unknown }) {
   const [copied, setCopied] = useState<'idle' | 'ok' | 'failed'>('idle')
