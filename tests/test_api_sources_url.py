@@ -47,7 +47,8 @@ class FakeFetch:
         self.html, self.handoff, self.gate, self.calls = html, handoff, gate, []
 
     def __call__(self, url, client=None, rendered_fetch=None, user_html=None,
-                 authenticated_fetch=None, allow_signed_in=True, allow_browser=True):
+                 authenticated_fetch=None, allow_signed_in=True, allow_browser=True,
+                 record=True):
         self.calls.append({"url": url, "signed_in": allow_signed_in, "browser": allow_browser})
         if self.gate is not None:
             self.gate.wait(5)

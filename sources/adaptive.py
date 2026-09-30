@@ -283,9 +283,14 @@ def _offer_novel_profile(page, data, report, domain, origin):
 
 
 def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
-                  report: ExtractionReport = None):
+                  report: ExtractionReport = None, remember: bool = True):
     """Runs the extraction ladder on an already-fetched page. Returns
-    (data or None, report). Never fetches anything itself."""
+    (data or None, report). Never fetches anything itself.
+
+    `remember=False` writes nothing that outlives the call: no profile is
+    saved or offered, no profile use or failure is recorded, and no AI
+    result is cached (the API passes it for page source pasted from another
+    device, which could otherwise plant a site profile for any domain)."""
     report = report or ExtractionReport(url, "novel")
     page = ax.PageModel(html, url)
     domain = profiles.domain_of(url)
@@ -299,12 +304,14 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
         if data is not None:
             ax.validate_novel(data, page)
             if data["valid"]:
-                profiles.record_use(domain, "novel", prof["version"], True)
+                if remember:
+                    profiles.record_use(domain, "novel", prof["version"], True)
                 report.profile["used"] = True
                 return _done(report, data, "profile",
                              f"Used the saved profile for {domain} (v{prof['version']}) -- 0 AI calls."), report
             why = "; ".join(data["problems"]) or "its result failed the checks"
-        profiles.record_use(domain, "novel", prof["version"], False, why)
+        if remember:
+            profiles.record_use(domain, "novel", prof["version"], False, why)
         failed_profile = prof
         report.profile["failed_version"] = prof["version"]
         report.note(f"The saved profile for {domain} (v{prof['version']}) no longer fits this page "
@@ -313,7 +320,7 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
     det = ax.deterministic_novel(page)
     ax.validate_novel(det, page)
     if det["valid"]:
-        if failed_profile:
+        if failed_profile and remember:
             _offer_novel_profile(page, det, report, domain, "deterministic")
         return _done(report, det, "deterministic",
                      f"Deterministic extraction ({det['method']}) found the chapter -- 0 AI calls."), report
@@ -326,9 +333,10 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
         data = ax.novel_from_picks(page, picks)
         ax.validate_novel(data, page, picks.get("confidence"))
         if data["valid"]:
-            if not report.cache_hit:
+            if not report.cache_hit and remember:
                 _cache_put("novel", h, url, picks, data, engine)
-            _offer_novel_profile(page, data, report, domain, "llm")
+            if remember:
+                _offer_novel_profile(page, data, report, domain, "llm")
             return _done(report, data, "llm",
                          "AI-assisted extraction identified the chapter (text copied from the "
                          "page, never rewritten)."), report
@@ -349,13 +357,17 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
 
 def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
                  use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, hold_profiles: bool = False):
+                 allow_browser: bool = True, remember: bool = True,
+                 hold_profiles: bool = False):
     """The generic novel import with the Step 23g ladder. Returns
     (NovelImportResult, report); raises NoContentFound (with `.report`).
-    `hold_profiles`: never auto-save a generated site profile."""
+    `remember=False`: see extract_novel; the ladder result is not recorded
+    on the source's capability record either. `hold_profiles`: never
+    auto-save a generated site profile."""
     report = ExtractionReport(url, "novel", hold_profiles=hold_profiles)
     lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html,
-                                   allow_signed_in=allow_signed_in, allow_browser=allow_browser)
+                                   allow_signed_in=allow_signed_in, allow_browser=allow_browser,
+                                   record=remember)
     _note_access(report, lr)
     if lr.handoff:
         report.reason = f"Stopped at a browser verification page ({lr.handoff['reason']}) -- handed to you."
@@ -365,7 +377,7 @@ def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_h
         report.reason = _unreachable_reason(report)
         _log(report)
         raise _no_content(_unreachable_message(report, lr), report)
-    data, report = extract_novel(lr.html, url, engine, use_cache, report)
+    data, report = extract_novel(lr.html, url, engine, use_cache, report, remember=remember)
     _log(report)
     if data is None:
         raise _no_content(report.reason, report)

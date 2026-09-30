@@ -42,7 +42,8 @@ class FakeFetch:
         self.pages, self.calls = {}, []
 
     def __call__(self, url, client=None, rendered_fetch=None, user_html=None,
-                 authenticated_fetch=None, allow_signed_in=True, allow_browser=True):
+                 authenticated_fetch=None, allow_signed_in=True, allow_browser=True,
+                 record=True):
         self.calls.append({"url": url, "signed_in": allow_signed_in, "browser": allow_browser})
         lr = LadderResult(url)
         lr.tier, lr.html = AccessTier.STATIC_HTTP.value, self.pages[url]
@@ -372,7 +373,7 @@ def test_comic_no_pages_and_handoff(client, env, comic, monkeypatch):
     assert r.status_code == 422 and SECRET not in r.text
 
     def challenge(url, client=None, rendered_fetch=None, user_html=None, authenticated_fetch=None,
-                  allow_signed_in=True, allow_browser=True):
+                  allow_signed_in=True, allow_browser=True, record=True):
         lr = LadderResult(url)
         lr.handoff = {"tier": "STATIC_HTTP", "reason": "CAPTCHA", "url": url}
         return lr
@@ -520,8 +521,8 @@ def test_low_confidence_opens_a_review(client, env, monkeypatch):
 
     real = adaptive.extract_novel
 
-    def unsure(html, url, engine=None, use_cache=True, report=None):
-        data, report = real(html, url, engine, use_cache, report)
+    def unsure(html, url, engine=None, use_cache=True, report=None, **kw):
+        data, report = real(html, url, engine, use_cache, report, **kw)
         report.needs_review = True
         return data, report
     monkeypatch.setattr(adaptive, "extract_novel", unsure)

@@ -65,6 +65,10 @@ export function previewAction(p: UrlPreview): PreviewAction {
   return 'unknown'
 }
 
+// Comic pages are downloaded from the site itself, so pasted page source can't bring them in.
+export const PASTED_COMIC_NOTE =
+  'Comic pages can’t be imported from pasted page source. Once the site lets Baihe in again, press Preview and import the pages.'
+
 export const PREVIEW_NOTES: Record<'unknown', string> = {
   unknown: 'Baihe couldn’t tell what this page is. Try the series or chapter page itself, or a different link.',
 }

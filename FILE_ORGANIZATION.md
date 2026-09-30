@@ -206,6 +206,12 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
+│   │                             from a static table: allowlisted https hops, timeouts, byte cap,
+│   │                             .sha256sum check) and "Test first" for an update target, both as
+│   │                             background jobs (deno_install, upgrade_check) behind the install guard
+│   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
+│   │                             must resolve inside the voice-bank folder, symlinks refused
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -304,6 +310,8 @@ baihe-subtitler/
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text and SO06 comic pages from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
+│   ├── sources_tools_service.py  Sources SO02/SO03/SO08/SO16 -- site check job, pasted page source preview and
+│   │                              import, identify-media job (+ PC-only full resource URL), pasted-URL diagnostics
 │   ├── page_import_limits.py     the comic page-upload rules (types, per-image bytes/pixels, per-import files/bytes,
 │   │                             strip slicing, EXIF orientation); used by the SO06 import, later the Scanlate upload
 │   ├── sources_extraction_service.py Sources parity SO09/SO10 -- the pasted-URL AI fallback engine (opt-in, key
@@ -383,6 +391,8 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
+│   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
@@ -467,6 +477,8 @@ baihe-subtitler/
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
+│       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
+│       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
 │       ├── sources_extraction_routes.py GET /api/sources/url/ai-engines, POST /url/import-comic, Review
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
@@ -477,6 +489,10 @@ baihe-subtitler/
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
 │       │                         model-cache/hf|piper/{name}/delete (POST, local_only + confirm; API batch 1,
 │       │                         react-misc-parity)
+│       ├── diagnostics_installs_routes.py /api/diagnostics/deno, /upgrade-check (GET, admin.diagnostics);
+│       │                         /deno/install, /dependencies/{pkg}/test-upgrade (POST, local_only +
+│       │                         confirm; background jobs, polled)
+│       ├── voice_bank_audio_routes.py GET/HEAD /api/library/voice-bank/{entry_id}/audio (media.stream)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -500,7 +516,8 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList (+ libraryFilters.ts: the More filters, pure), DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
+│   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
@@ -533,8 +550,11 @@ baihe-subtitler/
 │   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
-│   │                              helpers, unit-tested), diagnostics.css; API in
-│   │                              src/api/diagnostics.ts
+│   │                              helpers, unit-tested), DenoInstall (Setup card: Install Deno job +
+│   │                              denoInstallText.ts), UpgradeTest ("Test first" result + upgradeTestText.ts),
+│   │                              useServerJobStatus + jobPoll.ts (poll a server job's status),
+│   │                              diagnostics.css; API in src/api/diagnostics.ts and
+│   │                              src/api/diagnosticsInstalls.ts (types/diagnosticsInstalls.ts)
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
@@ -573,15 +593,18 @@ baihe-subtitler/
 │   ├── src/pages/sources/         FindModeSwitch (search | link), SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
-│   │                              sourcesFormat.ts (pure, unit-tested), sources.css; AiFallback + useAiEngines
-│   │                              (SO09 AI fallback picker), NovelUrlImport, ComicUrlImport (SO06), ExtractionReview (SO10), extractionFormat.ts
+│   │                              sourcesFormat.ts (pure, unit-tested), sources.css; Sources tools:
+│   │                              SiteCheck, PastedSource, IdentifyMedia, RecentExtractions,
+│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts);
+│   │                              AiFallback + useAiEngines (SO09 AI fallback picker), NovelUrlImport,
+│   │                              ComicUrlImport (SO06), ExtractionReview (SO10), extractionFormat.ts
 │   │                              (pure, unit-tested), extraction.css
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),
 │   │                              bulk import; api/discover.ts, types/discover.ts
 │   ├── src/pages/discover/        CatalogPanel, FindPanel (+ PlatformList), BaihehubPanel, NavigationHelp,
-│   │                              AddTitle, BulkImport, ExternalLink (http(s)-only links), useDiscoverJob
+│   │                              AddTitle, BulkImport (+ PastedListing), ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:

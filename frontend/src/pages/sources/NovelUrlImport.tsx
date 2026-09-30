@@ -3,12 +3,16 @@
  * novel drama's novel text (S-5 R2; job sourceimport_<drama>). Options:
  * the AI fallback (SO09, AiFallback) and "Check before importing" (SO10).
  * When Baihe is unsure, or the check was asked for, nothing is written and
- * the Review extraction step opens below (ExtractionReview).
+ * the Review extraction step opens below (ExtractionReview). With page
+ * source pasted after a verification page (`html`, SO03), the text is read
+ * from the paste instead (POST /api/sources/url/import-pasted), without the
+ * AI fallback or the review step.
  */
 import { useState } from 'react'
 
 import { startNovelUrlImport } from '../../api/sourcesExtraction'
 import { sourceImportJobId } from '../../api/sourcesImport'
+import { startPastedImport } from '../../api/sourcesTools'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
@@ -25,9 +29,9 @@ import { useDramaList } from './useDramaList'
 import { useSourcesJob } from './useSourcesJob'
 import { chapterImportDramas, urlImportText } from './urlImportFormat'
 
-type Props = { url: string; title: string; language: string | null }
+type Props = { url: string; html?: string | null; title: string; language: string | null }
 
-export function NovelUrlImport({ url, title, language }: Props) {
+export function NovelUrlImport({ url, html = null, title, language }: Props) {
   const dramas = useDramaList()
   const [dramaId, setDramaId] = useState<number | null>(null)
   // No reattach on 409: the server answers 409 while any job for the drama
@@ -41,12 +45,16 @@ export function NovelUrlImport({ url, title, language }: Props) {
   // The drama whose review is shown (closed: null).
   const [reviewing, setReviewing] = useState<number | null>(null)
   const ai = useAiEngines(aiChoice.on)
-  const aiBlocked = aiReason(aiChoice, ai.engines)
+  const aiBlocked = html ? null : aiReason(aiChoice, ai.engines)
 
   const start = () => {
     if (!dramaId || running || aiBlocked) return
     setReviewing(dramaId)
-    job.start(() => startNovelUrlImport(url, dramaId, { ...aiRequestFields(aiChoice, ai.engines), ...(reviewFirst ? { review: true } : {}) }))
+    job.start(() =>
+      html
+        ? startPastedImport(url, html, dramaId)
+        : startNovelUrlImport(url, dramaId, { ...aiRequestFields(aiChoice, ai.engines), ...(reviewFirst ? { review: true } : {}) }),
+    )
   }
   const showReview = result?.review_open && dramaId !== null && reviewing === dramaId
 
@@ -62,12 +70,16 @@ export function NovelUrlImport({ url, title, language }: Props) {
         help="The chapter text is added to the end of the drama’s novel text."
       />
       <ErrorBanner error={dramas.error} />
-      <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
-      <div className="toggle-list">
-        <Field label="Check before importing" help={REVIEW_FIRST_HELP}>
-          <Toggle checked={reviewFirst} disabled={running} onChange={setReviewFirst} />
-        </Field>
-      </div>
+      {!html && (
+        <>
+          <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
+          <div className="toggle-list">
+            <Field label="Check before importing" help={REVIEW_FIRST_HELP}>
+              <Toggle checked={reviewFirst} disabled={running} onChange={setReviewFirst} />
+            </Field>
+          </div>
+        </>
+      )}
       <div className="actions">
         <button type="button" className={buttonClass('primary')} disabled={!dramaId || running || !!aiBlocked} onClick={start}>
           {running ? 'Importing…' : 'Import text'}

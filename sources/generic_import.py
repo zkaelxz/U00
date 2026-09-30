@@ -307,7 +307,7 @@ def _default_capabilities(client: SourceClient):
 
 def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None,
                authenticated_fetch=None, allow_signed_in: bool = True,
-               allow_browser: bool = True):
+               allow_browser: bool = True, record: bool = True):
     """Runs the ladder for one URL: static HTTP, then a real browser if
     that failed (unless a challenge stopped everything). With `user_html`
     -- the page source the person saved after completing a verification
@@ -321,7 +321,9 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
 
     `allow_signed_in=False` never uses the saved signed-in profile and
     `allow_browser=False` never starts a browser (static HTTP only): the
-    API turns both off for a request that isn't from this PC."""
+    API turns both off for a request that isn't from this PC. `record=False`
+    leaves the source's capability record alone (page source pasted from
+    another device must not rewrite it)."""
     client = _client(client, url)
     default = _default_capabilities(client)
     ladder.check_terms(client.source, default, url=url)
@@ -340,7 +342,8 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
         result.resource_types = resource_types(result.html, url)
         if result.content_access == ContentAccess.UNKNOWN.value:
             result.content_access = content_access_for(result.resource_types)
-    ladder.record_ladder_result(client.source, result, default)
+    if record:
+        ladder.record_ladder_result(client.source, result, default)
     return result
 
 
