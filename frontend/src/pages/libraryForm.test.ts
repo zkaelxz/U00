@@ -21,6 +21,11 @@ describe('buildCreateRequest', () => {
       source_language: 'zh', media_type: 'anime', title_en: 'A', director: 'D',
     })
   })
+  it('sends a trimmed summary (parity P06), and none when blank', () => {
+    const extras = { series: '', newSeriesName: '', preset: '' }
+    expect(buildCreateRequest({ ...form, summary: '  A story.  ' }, extras).summary).toBe('A story.')
+    expect(buildCreateRequest({ ...form, summary: '   ' }, extras).summary).toBeUndefined()
+  })
   it('sends series_id or new_series_name, never both, plus preset', () => {
     const a = buildCreateRequest(form, { series: '4', newSeriesName: 'x', preset: '2' })
     expect(a.series_id).toBe(4)
