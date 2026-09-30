@@ -186,6 +186,8 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
     -- e.g. already imported into this drama; each gets a
     {"skipped": True} outcome. Every chapter imported is recorded in
     store.imported_chapters."""
+    if db.get_drama(drama_id) is None:
+        raise SourceError("The drama to import into no longer exists.")
     skip_ids = {str(i) for i in (skip_ids or ())}
     chapters = [c if isinstance(c, ChapterInfo) else ChapterInfo(**c) for c in chapters]
     total = len(chapters)
@@ -282,6 +284,8 @@ def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=
     is given."""
     from services import drama_service
     chapters = list(chapters)
+    if db.get_drama(drama_id) is None:
+        return False
     if drama_service.job_running_for_drama(drama_id):
         return False
     if skip_ids is None:

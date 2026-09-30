@@ -14,6 +14,7 @@ import threading
 import time
 
 import background_jobs
+import db
 from translate_engines import redact_for_storage
 
 from . import http, ladder, registry, store
@@ -135,6 +136,11 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
         summary["new"] += len(new)
         if new and auto_queue and row.get("drama_id"):
             from .pipeline import start_import
+            if db.get_drama(row["drama_id"]) is None:
+                summary["errors"][row["title"]] = "The linked drama was deleted."
+                store.mark_checked(row["source"], row["series_id"],
+                                   error="The linked drama was deleted.")
+                continue
             if start_import(row["source"], row["series_id"], new, row["drama_id"]):
                 summary["queued"].append(row["title"])
     store.set_setting("last_check_cycle", time.time())

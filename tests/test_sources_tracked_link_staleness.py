@@ -26,7 +26,7 @@ from services import sources_tracking_service as tracking
 from sources import chapter_check, pipeline, registry, store
 from sources.base import SourceAdapter
 from sources.http import PacingPolicy
-from sources.models import ChapterInfo, PageRef
+from sources.models import ChapterInfo, PageRef, SourceError
 from tests.sources_helpers import ScriptedTransport, png
 
 HOST = "https://fake.invalid"
@@ -208,48 +208,6 @@ def _link_then_delete(env, comic):
     return name, did
 
 
-def test_current_behaviour_deleted_novel_drama_gets_orphan_folder_and_records(env):
-    """Current: the job starts for the deleted id and succeeds: it recreates
-    the deleted drama's folder (db.drama_dir makes it) with the chapter text
-    in it, records the chapters as imported into the dead id, and the
-    tracked row shows no error. No drama row points at the folder."""
-    name, did = _link_then_delete(env, comic=False)
-    summary, st = _cycle_then_wait(did)
-    assert summary["queued"] == ["Series T"] and summary["errors"] == {}
-    assert st["status"] == "done"
-    assert all(c["ok"] for c in st["result"]["chapters"])
-    assert env[name].calls == ["c2", "c3"]
-    assert db.get_drama(did) is None
-    assert os.path.isfile(_raw_path(did))          # orphan folder and file
-    assert store.imported_chapter_ids(name, SERIES, did) == {"c2", "c3"}
-    row = _row(name)
-    assert row["drama_id"] == did and not row["last_check_error"]
-
-
-def test_current_behaviour_deleted_comic_drama_job_errors_leaving_orphan_page(env):
-    """Current: the job starts, downloads the first chapter's pages, writes
-    the first page file into a recreated folder, then db.create_page fails
-    the pages foreign key (sqlite3.IntegrityError, not a SourceError) and
-    the whole job ends in error. The tracked row shows no error and keeps
-    the link, so each later cycle with new chapters repeats this."""
-    name, did = _link_then_delete(env, comic=True)
-    summary, st = _cycle_then_wait(did)
-    assert summary["queued"] == ["Series T"] and summary["errors"] == {}
-    assert st["status"] == "error"
-    assert "FOREIGN KEY" in (st.get("error") or "")
-    assert env[name].calls == ["c2"]               # stopped at the first chapter
-    pages_dir = os.path.join(_drama_folder(did), "pages")
-    assert sorted(os.listdir(pages_dir)) == ["page_0000.png"]   # file, no row
-    assert db.list_pages(did) == []
-    assert store.imported_chapter_ids(name, SERIES, did) == set()
-    row = _row(name)
-    assert row["drama_id"] == did and not row["last_check_error"]
-
-
-@pytest.mark.xfail(strict=True, reason=(
-    "Stale tracked link: pipeline.start_import (sources/pipeline.py) never checks the drama "
-    "exists, and deleting a drama leaves tracked_series.drama_id pointing at the dead id, "
-    "so the auto-import recreates the deleted drama's folder and writes into it."))
 @pytest.mark.parametrize("comic", [False, True], ids=["novel", "comic"])
 def test_desired_deleted_drama_gets_no_import_and_row_reports_it(env, comic):
     name, did = _link_then_delete(env, comic=comic)
@@ -259,5 +217,20 @@ def test_desired_deleted_drama_gets_no_import_and_row_reports_it(env, comic):
     assert env[name].calls == []
     assert not os.path.exists(_drama_folder(did))
     row = _row(name)
-    # Either the link is cleared or the row says why nothing was imported.
-    assert row["drama_id"] is None or row["last_check_error"]
+    assert row["drama_id"] == did          # the link is kept, not cleared
+    assert row["last_check_error"] == "The linked drama was deleted."
+    assert summary["errors"] == {"Series T": "The linked drama was deleted."}
+    assert store.imported_chapter_ids(name, SERIES, did) == set()
+
+
+def test_start_import_refuses_missing_drama(env):
+    name, did = _link_then_delete(env, comic=False)
+    assert pipeline.start_import(name, SERIES, _chapters(name), did) is False
+    assert not os.path.exists(_drama_folder(did))
+
+
+def test_run_import_job_refuses_missing_drama(env):
+    name, did = _link_then_delete(env, comic=False)
+    with pytest.raises(SourceError):
+        pipeline.run_import_job(pipeline.import_job_id(did), name, _chapters(name), did)
+    assert not os.path.exists(_drama_folder(did))
