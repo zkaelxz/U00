@@ -9,7 +9,6 @@ db.LIBRARY_DIR at call time, so the tests' `isolated_db` fixture
 redirects it along with everything else.
 """
 
-import contextlib
 import json
 import os
 import re
@@ -212,14 +211,10 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 """
 
 
-# Seconds a statement waits on another writer's lock before failing.
-BUSY_TIMEOUT = 30
-
-
 def connect() -> sqlite3.Connection:
     path = db_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT)
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     # Every statement is CREATE ... IF NOT EXISTS, so this is cheap and
     # needs no "already initialized?" bookkeeping that could go stale when
@@ -662,7 +657,7 @@ def delete_extraction(kind: str, content_hash: str):
 # ---------------------------------------------------------------------------
 # Domain lists (sources/domains.py). The list and the last domain that
 # worked are settings, one pair of keys per source; a host found by
-# discovery is only a proposal until the owner confirms it.
+# a redirect is only a proposal until the owner confirms it.
 # ---------------------------------------------------------------------------
 
 def _domains_key(source: str) -> str:
@@ -696,54 +691,18 @@ def set_last_good_domain(source: str, origin):
 MAX_PENDING_PROPOSALS = 5
 
 
-@contextlib.contextmanager
-def _write_transaction():
-    """One BEGIN IMMEDIATE transaction: the write lock is taken before
-    anything is read, so a check-then-write inside it can't race another
-    thread or process sharing sources.db."""
-    conn = connect()
-    conn.isolation_level = None
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            yield conn
-        except BaseException:
-            conn.execute("ROLLBACK")
-            raise
-        conn.execute("COMMIT")
-    finally:
-        conn.close()
-
-
 def propose_domain(source: str, host: str, now: float = None) -> bool:
     """Records a pending proposal (`host` is host[:port]). False when the
     host was already proposed, was dismissed before (a dismissed host is not
     proposed again), or the source already has MAX_PENDING_PROPOSALS
     waiting."""
-    with _write_transaction() as conn:
+    # One statement: the count and the insert run under the same write lock.
+    with connect() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO domain_proposals(source, host, found_at) SELECT ?, ?, ? "
             "WHERE (SELECT COUNT(*) FROM domain_proposals WHERE source=? AND dismissed=0) < ?",
             (source, host, time.time() if now is None else now, source, MAX_PENDING_PROPOSALS))
-        return cur.rowcount > 0
-
-
-def claim_discovery(source: str, interval: float, now: float = None) -> bool:
-    """True if discovery may run for the source now, recording the time in
-    the same transaction; False if it ran less than `interval` seconds ago
-    (a time in the future, e.g. after a clock change, doesn't block)."""
-    key = f"source_domain_discovery_at.{source}"
-    with _write_transaction() as conn:
-        # Read the clock under the write lock, so a later claimant never
-        # holds an earlier time than the one it is compared with.
-        now = time.time() if now is None else now
-        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        last = json.loads(row["value"]) if row is not None else None
-        if isinstance(last, (int, float)) and 0 <= now - last < interval:
-            return False
-        conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
-                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(now)))
-        return True
+    return cur.rowcount > 0
 
 
 def domain_proposals(source: str = None) -> list:

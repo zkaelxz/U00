@@ -87,8 +87,8 @@ class XbanxiaSource(SourceAdapter):
     languages = ["zh"]
     url_patterns = [r"xbanxia\.cc/books/\d+"]
     default_headers = {"Referer": BASE_URL + "/"}
-    # The bare domain 301-redirects to www; SiteDomains re-sends a POST
-    # that a redirect turned into a GET to the listed host it landed on.
+    # The bare domain 301-redirects to www: a search posted there ends on
+    # another host and counts as failed, so www (first) is the one used.
     base_urls = [BASE_URL, "https://xbanxia.cc"]
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
@@ -103,7 +103,7 @@ class XbanxiaSource(SourceAdapter):
 
     @classmethod
     def verify_site(cls, text: str) -> bool:
-        """The home page: 半夏 in the <title>, the search form this adapter
+        """A home-style page: 半夏 in the <title>, the search form this adapter
         posts to (search_t.php with a searchkey field), and at least three
         distinct /books/<id>.html links."""
         soup = _soup(text)

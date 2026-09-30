@@ -76,11 +76,9 @@ class SourceAdapter:
     default_headers = {}
     #: A site that moves between domains: its known https origins, the
     #: first being the default. Non-empty opts in to the persisted domain
-    #: list, failover and discovery of sources/domains.py (the adapter
+    #: list, failover and proposals of sources/domains.py (the adapter
     #: fetches through a SiteDomains and implements verify_site).
     base_urls = []
-    #: The page discovery fetches on a candidate host for verify_site.
-    verify_path = "/"
     #: Adapter-specific auth. `auth_required` seeds the capability
     #: record's `authentication_required` (REQUIRED if True, else UNKNOWN
     #: until a real attempt observes it).
@@ -175,9 +173,9 @@ class SourceAdapter:
     # -- helpers ---------------------------------------------------------------
     @classmethod
     def verify_site(cls, text: str) -> bool:
-        """True only if `text` (the verify_path page of a candidate host)
-        is unmistakably this site. Strict: an unrelated or look-alike site
-        must fail, because a pass is what lets discovery propose a host."""
+        """True only if `text` (a page a listed domain redirected to another
+        host) is unmistakably this site. Strict: an unrelated or look-alike
+        site must fail, because a pass is what makes that host a proposal."""
         return False
 
     def supports(self, method: str) -> bool:

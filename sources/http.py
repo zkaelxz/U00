@@ -129,20 +129,6 @@ class ConditionalPoll:
 
 
 _poll_local = threading.local()
-_redirect_local = threading.local()
-
-
-@contextmanager
-def redirects_not_followed():
-    """Requests this thread's clients send inside the block get a redirect
-    back as the 3xx response (Location header intact) instead of the
-    transport following it, so the caller can vet every hop itself."""
-    previous = getattr(_redirect_local, "off", False)
-    _redirect_local.off = True
-    try:
-        yield
-    finally:
-        _redirect_local.off = previous
 
 
 def _active_poll():
@@ -379,8 +365,6 @@ class FetchLimits:
     deadline: float = REQUEST_DEADLINE
     cancel_check: object = None
     clock: object = time.monotonic
-    # False: a redirect comes back to the caller as the 3xx response itself.
-    follow_redirects: bool = True
 
 
 def _header(headers, name: str) -> str:
@@ -604,7 +588,7 @@ def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits
             _tls.pin = None
         hops.append(r)
         location = (r.headers or {}).get("Location") or (r.headers or {}).get("location")
-        if r.status_code not in _REDIRECT_CODES or not location or not limits.follow_redirects:
+        if r.status_code not in _REDIRECT_CODES or not location:
             try:
                 content = _read_body(r, limits, deadline_at)
             finally:
@@ -805,24 +789,6 @@ def _host_key(url: str) -> str:
     return host
 
 
-def _same_cache_site(requested: str, final: str) -> bool:
-    """Whether a response that ended at `final` may be cached under
-    `requested`: same scheme, same effective port, and the same host name,
-    where `www.<host>` and `<host>` count as one (a site's usual bare-to-www
-    redirect). Any other host, a trailing-dot variant, another port or an
-    https->http move is not."""
-    def key(url):
-        parts = urlsplit(url)
-        scheme = parts.scheme.lower()
-        host = (parts.hostname or "").lower()
-        port = parts.port if parts.port is not None else _DEFAULT_PORTS.get(scheme)
-        return scheme, host[4:] if host.startswith("www.") else host, port
-    try:
-        return key(requested) == key(final)
-    except ValueError:
-        return False
-
-
 def _host(host: str, min_interval: float) -> dict:
     """The host's shared pace state. Its minimum interval is the largest
     any client has declared for it, so a client that declares none (the
@@ -883,8 +849,7 @@ class SourceClient:
         read at call time, so a cancel_check set after construction works."""
         return _requests_transport(method, url, headers, data, timeout, limits=FetchLimits(
             self.max_page_bytes, self.max_image_bytes, self.request_deadline,
-            self._cancel_requested,
-            follow_redirects=not getattr(_redirect_local, "off", False)))
+            self._cancel_requested))
 
     def _cancel_requested(self) -> bool:
         return bool(self.cancel_check and self.cancel_check())
@@ -1073,7 +1038,7 @@ class SourceClient:
                         health.record_success(self.source, latency)
                     # Content a redirect fetched from another host is never
                     # stored under the URL that was asked for.
-                    if cacheable and _same_cache_site(url, resp.url or url):
+                    if cacheable and _host_key(resp.url or url) == _host_key(url):
                         self.cache.put(url, resp.content)
                     if poll is not None and method.upper() == "GET":
                         low = {k.lower(): v for k, v in resp.headers.items()}

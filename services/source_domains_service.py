@@ -1,16 +1,16 @@
 """
 services/source_domains_service.py -- the domain lists of sources that move
 between domains (sources/domains.py): read and edit a source's list, and
-confirm or dismiss a host that discovery proposed. UI-free; every route is
+confirm or dismiss a host a redirect proposed. UI-free; every route is
 PC-only (api/routers/source_domains_routes.py).
 
 Only host names (with a port when it isn't 443) leave this module, never a
-scheme-full URL, a path or a query. Host names are a deliberate exception to "no fetched URLs": the
-owner has to see which host they are confirming, which is why every route
-is local_only().
+scheme-full URL, a path or a query. Host names are a deliberate exception
+to "no fetched URLs": the owner has to see which host they are confirming,
+which is why every route is local_only().
 
 Importing this module also sets the sources/domains.py unreachable hook:
-when every listed domain of a source failed and discovery found nothing,
+when every listed domain of a source failed and no proposal is pending,
 one maintenance-assistant backlog item is filed for that source (only while
 the assistant's Developer Mode is on), and none again while that item is
 still in the backlog.

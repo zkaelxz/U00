@@ -140,7 +140,7 @@ baihe-subtitler/
 │   ├── pipeline.py                hands fetched content to the rest of the app
 │   ├── detect.py                  names what happened when a fetch didn't go as expected
 │   ├── domains.py                 domain lists for sites that move: ordered failover, last good domain,
-│   │                              discovery of a redirected new host as a pending proposal
+│   │                              a redirected-to host that passes verify_site becomes a pending proposal
 │   ├── ladder.py                  the access-method ladder (try the cheap method, then the next)
 │   ├── adaptive.py                the order methods are tried in for a pasted URL, learned over time
 │   ├── ai_extract.py              LLM-based extraction, used only as a fallback
@@ -437,7 +437,7 @@ baihe-subtitler/
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
-│   ├── source_domains_service.py  source domain lists (read/edit/reset), confirm or dismiss discovered
+│   ├── source_domains_service.py  source domain lists (read/edit/reset), confirm or dismiss proposed
 │   │                             hosts (host names only), one assistant backlog item per unreachable source
 │   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
 │   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker

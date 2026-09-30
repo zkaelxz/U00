@@ -46,9 +46,9 @@ re-verifying at build time rather than trusting the vetting-time domain).
 Re-confirmed live immediately before writing this file: still the correct,
 reachable, unchallenged domain. The domain is a list (`base_urls`,
 sources/domains.py): the owner can edit it, the last one that worked is
-remembered, and when every listed domain is unreachable a redirect to a
-new host that passes `verify_site` becomes a proposal for the owner to
-confirm -- a rotation needs no code change.
+remembered, and a redirect from a listed domain to a new host whose page
+passes `verify_site` becomes a proposal for the owner to confirm -- a
+rotation needs no code change.
 
 `robots.txt` is fully permissive (`Allow: /`, no disallow lines);
 Cloudflare (observed via response headers) acts only as a CDN in front of
@@ -143,7 +143,7 @@ class ToonkorSource(SourceAdapter):
 
     @classmethod
     def verify_site(cls, text: str) -> bool:
-        """The home page: 툰코/ToonKor in the <title> and at least three
+        """A home or listing page: 툰코/ToonKor in the <title> and at least three
         webtoon cards in the listing markup search results also use
         (div.section-item-inner with a titled link), with distinct slugs."""
         soup = _soup(text)

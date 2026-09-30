@@ -1,6 +1,6 @@
 """
 api/routers/source_domains_routes.py -- domain lists of sources that move
-between domains, and the hosts discovery proposed. Thin: see
+between domains, and the hosts redirects proposed. Thin: see
 services/source_domains_service.py.
 
 Every route is `local_only()`: the list decides where source requests go
@@ -36,7 +36,7 @@ def list_domains():
 
 
 @router.get("/proposals", dependencies=[local_only()], response_model=List[SourceDomainProposal],
-            summary="PC only: hosts discovery proposed, waiting for the owner (host names only)")
+            summary="PC only: hosts redirects proposed, waiting for the owner (host names only)")
 def list_proposals():
     return svc.list_proposals()
 
