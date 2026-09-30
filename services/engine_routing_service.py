@@ -116,8 +116,10 @@ def _stored(capability: str):
     """The user's saved engine for `capability`, or None when unset or no
     longer valid (an engine that was removed or lost the capability)."""
     d = _definition(capability)
-    if d.get("pref"):
-        raw = db.get_app_setting(settings_service.PREF_PREFIX + d["pref"], None)
+    if d.get("pref") == "default_engine":
+        raw = settings_service.get_default_engine()  # the one public getter for it
+    elif d.get("pref"):
+        raw = settings_service.get_preference(d["pref"])
     else:
         raw = db.get_app_setting(_STORE_PREFIX + capability, None)
     return raw if isinstance(raw, str) and raw in engine_choices(capability) else None

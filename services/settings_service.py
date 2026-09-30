@@ -194,7 +194,6 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
 # validates (e.g. an engine that was removed) reads back as the default.
 
 _PREF_PREFIX = "pref."
-PREF_PREFIX = _PREF_PREFIX  # for services/engine_routing_service.py
 # Step 36: the last "Test" result per engine (engine_routing_service). A key
 # or endpoint write forgets it, so a stale "working" never outlives the key.
 ENGINE_TEST_PREFIX = "engine_test."
