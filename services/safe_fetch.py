@@ -15,6 +15,7 @@ no text) comes back flagged `needs_manual`, so the UI can ask the user to
 paste the page text instead. Error messages are fixed strings: no URL,
 exception text, path or key is ever echoed.
 """
+import time
 from dataclasses import dataclass
 from urllib.parse import urljoin
 
@@ -45,10 +46,16 @@ def _redact(text: str) -> str:
     return redact_secrets(text)
 
 
-def _read_capped(resp, max_bytes: int) -> bytes:
-    """Read at most max_bytes from the stream and stop (never the whole body)."""
+def _read_capped(resp, max_bytes: int, deadline: float = None) -> bytes:
+    """Read at most max_bytes from the stream and stop (never the whole
+    body), and stop at the wall-clock deadline: the per-read timeout alone
+    restarts on every byte a slow server drips."""
+    if deadline is None:
+        deadline = time.monotonic() + _ms.FETCH_DEADLINE
     chunks, total = [], 0
     while total < max_bytes:
+        if time.monotonic() > deadline:
+            raise DependencyUnavailableError(FETCH_FAILED)
         chunk = resp.raw.read(min(_CHUNK, max_bytes - total), decode_content=True)
         if not chunk:
             break
@@ -67,8 +74,11 @@ def fetch_public_text(url: str, max_bytes: int = MAX_FETCH_BYTES) -> FetchResult
     max_bytes = max(1, min(int(max_bytes), MAX_FETCH_BYTES))
     headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
     current = url
+    deadline = time.monotonic() + _ms.FETCH_DEADLINE
     try:
         for _ in range(MAX_REDIRECTS + 1):
+            if time.monotonic() > deadline:
+                raise DependencyUnavailableError(FETCH_FAILED)
             ip = _ms._check_public_url(current)
             resp = _ms._pinned_get(current, ip, headers)
             try:
@@ -79,7 +89,7 @@ def fetch_public_text(url: str, max_bytes: int = MAX_FETCH_BYTES) -> FetchResult
                     current = urljoin(current, location)
                     continue
                 resp.raise_for_status()
-                raw = _read_capped(resp, max_bytes)
+                raw = _read_capped(resp, max_bytes, deadline)
                 encoding = resp.encoding or "utf-8"
             finally:
                 resp.close()
