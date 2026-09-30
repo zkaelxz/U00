@@ -19,6 +19,7 @@ import type { JobRecord } from '../types/jobs'
 import { BugBundlesSection } from './diagnostics/BugBundlesSection'
 import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
+import { DenoInstall } from './diagnostics/DenoInstall'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelCacheSection } from './diagnostics/ModelCacheSection'
@@ -147,7 +148,10 @@ export default function DiagnosticsPage() {
             setChecking(true)
             refreshSetup()
           }}
-        />
+        >
+          <DenoInstall pc={pc} jobsActive={active} busy={adminBusy}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+        </SetupSection>
       ) : (
         !error && <p className="muted">Loading…</p>
       )}
@@ -165,6 +169,7 @@ export default function DiagnosticsPage() {
             onBusy={setAdminBusy}
             onChanged={refreshSetup}
             onOpenChange={setPackagesOpen}
+            onJobStarted={() => void refreshJobs()}
           />
         )}
         <PyannoteSection />
