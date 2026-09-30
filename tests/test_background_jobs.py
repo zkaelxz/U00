@@ -1556,15 +1556,31 @@ class TestStartFailure:
     def test_process_start_failure_marks_error(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
 
+        procs, queues = [], []
+
         class _Unstartable(_FakeProcess):
+            closed = False
+
             def start(self):
                 raise TypeError("cannot pickle '_thread.lock' object")
 
-        monkeypatch.setattr(bg.multiprocessing, "Process",
-                            lambda target, args, daemon=True: _Unstartable(target, args))
+            def close(self):
+                self.closed = True
+
+        def make_proc(target, args, daemon=True):
+            procs.append(_Unstartable(target, args))
+            return procs[-1]
+
+        def make_queue():
+            queues.append(_SpyQueue())
+            return queues[-1]
+
+        monkeypatch.setattr(bg.multiprocessing, "Process", make_proc)
+        monkeypatch.setattr(bg.multiprocessing, "Queue", make_queue)
         with pytest.raises(TypeError):
             bg.start_process_job("sf_proc", lambda q: None, gpu_touching=True)
         assert bg.get_status("sf_proc")["status"] == "error"
+        assert procs[0].closed and queues[0].closed   # no leaked pipe fds
         assert db.try_acquire_gpu_lock("someone_else")
         db.release_gpu_lock("someone_else")
         assert bg.acquire_exclusive("test")

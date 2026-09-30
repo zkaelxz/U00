@@ -469,11 +469,12 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
     _start_job_thread(runner, f"job:{job_id}")
 
 
-def _fail_start(job_id, gpu_touching, exc, proc=None):
+def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None):
     """The job was marked "running" but its thread or process could not be
     started (thread limit, fork or pickling failure). Without this the
     record stays "running" forever: the id can't be restarted, a restore
-    or reset is refused and the GPU lock is never released."""
+    or reset is refused and the GPU lock is never released. The process
+    and its result queue are closed so their pipe fds aren't leaked."""
     import applog
     from translate_engines import redact_secrets
     error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
@@ -481,6 +482,15 @@ def _fail_start(job_id, gpu_touching, exc, proc=None):
         try:
             if proc.is_alive():
                 _stop_process(proc)
+        except Exception:
+            pass
+        try:
+            proc.close()
+        except Exception:
+            pass
+    if result_queue is not None:
+        try:
+            result_queue.close()
         except Exception:
             pass
     with _lock:
@@ -597,7 +607,10 @@ def _promote_next_queued_gpu_job():
             _spawn(job_id, target, args, kwargs, gpu_touching=True)
     except Exception as exc:
         # Runs in another job's finishing thread: record it, don't raise.
-        _fail_start(job_id, True, exc, proc if entry.get("kind") == "process" else None)
+        if entry.get("kind") == "process":
+            _fail_start(job_id, True, exc, proc, result_queue)
+        else:
+            _fail_start(job_id, True, exc)
 
 
 # Set while a library restore swaps the library folder: no job may start
@@ -810,7 +823,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done)
     except Exception as exc:
-        _fail_start(job_id, gpu_touching, exc, proc)
+        _fail_start(job_id, gpu_touching, exc, proc, result_queue)
         raise
     return True
 
@@ -986,8 +999,11 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _owner = _jobs[job_id].get("owner_user_id")
         _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
     except Exception as exc:
-        # A torn pickle (child killed mid-put), a broken queue or any other
-        # watcher failure: without this the job stays "running" forever.
+        # A complete message that fails to unpickle, a broken queue or any
+        # other watcher failure: without this the job stays "running"
+        # forever. Known limit, not handled: a child killed partway through
+        # writing a large result can leave Queue.get blocked on the rest of
+        # that message, so the watcher never gets here.
         from translate_engines import redact_secrets
         error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
         logger.error(f"job {job_id} watcher failed: {error_msg}")
