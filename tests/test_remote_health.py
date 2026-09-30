@@ -192,6 +192,12 @@ def test_monitor_not_started_when_remote_access_is_off(env, no_network):
     assert background._remote_health_poller is None
 
 
+def test_monitor_not_started_without_sign_in_settings(env, no_network):
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT)
+    assert background.start_remote_health_monitor(settings) is False
+    assert background._remote_health_poller is None
+
+
 def test_monitor_runs_the_check_when_on(env, monkeypatch):
     ran = threading.Event()
     calls = []
@@ -200,7 +206,8 @@ def test_monitor_runs_the_check_when_on(env, monkeypatch):
         calls.append((url, port, host, isinstance(stop, threading.Event)))
         ran.set()
     monkeypatch.setattr(rhs, "run_check", fake_run)
-    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT)
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
     try:
         assert background.start_remote_health_monitor(settings, interval=0.01, first=0.01)
         assert background.start_remote_health_monitor(settings) is False   # one at a time
@@ -485,7 +492,8 @@ def test_monitor_stop_ends_a_running_cycle_within_the_join(env, monkeypatch, spi
         entered.set()
         return real_bounded(fn, timeout, stop)
     monkeypatch.setattr(rhs, "_bounded", bounded)
-    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT)
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
     try:
         assert background.start_remote_health_monitor(settings, interval=0.01, first=0.01)
         thread = background._remote_health_poller[0]
