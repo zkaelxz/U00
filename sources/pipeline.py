@@ -155,6 +155,9 @@ def _discard_pages(drama_id: int, page_ids):
             os.remove(path)
 
 
+_fsync = os.fsync   # module-level so a test can fail this call alone
+
+
 def _as_written(text: str) -> bytes:
     """The bytes a text-mode write of `text` puts on disk."""
     return text.replace("\n", os.linesep).encode("utf-8")
@@ -191,7 +194,8 @@ def import_job_id(drama_id: int) -> str:
 
 
 # Fixed texts (no exception detail: it may hold a path or a URL).
-_IN_FLIGHT_TEXT = "Interrupted while saving this chapter; retrying it is safe."
+_IN_FLIGHT_TEXT = ("Interrupted while saving this chapter; retry it, then check the novel "
+                   "text if other chapters were imported since.")
 _IN_FLIGHT_PAGES = ("Interrupted while saving this chapter; some of its pages may be in the "
                     "drama -- check the drama before retrying it.")
 _NO_BOOKKEEPING = "Could not update the import records; nothing was saved for this chapter."
@@ -216,8 +220,9 @@ def _mark_in_flight(source: str, ch, drama_id: int):
 
 
 def _mark_retryable(source: str, ch, drama_id: int, error: str):
-    """Best effort, after a chapter's pages were removed: if it fails the
-    chapter just stays "partial"."""
+    """Best effort: stores why a chapter failed, as retryable (a comic one
+    only once its pages were removed; a text one keeps its text_offset).
+    If this fails, the in-flight marker stays."""
     from translate_engines import redact_secrets
     try:
         store.record_import_retry(
@@ -302,7 +307,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
             with open(path, "ab") as f:
                 f.write(payload(offset))
                 f.flush()
-                os.fsync(f.fileno())
+                _fsync(f.fileno())
         except OSError:
             _warn("Could not save a chapter's text")
             if offset < 0:
@@ -404,17 +409,18 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                     if not recorded:
                         # Unrecorded pages would be imported again by a retry.
                         _discard_pages(drama_id, page_ids)
-                        _mark_retryable(source, ch, drama_id, _NOT_RECORDED)
                 else:
                     text = adapter.get_chapter_text(ch)
                     error = _append_chapter_text(source, ch, drama_id, text)
                     if error:
+                        _mark_retryable(source, ch, drama_id, error)
                         results.append({"chapter_id": ch.chapter_id, "title": ch.title,
                                         "ok": False, "error": error})
                         continue
                     outcome = {"chars": len(text)}
                     recorded = _record_imported(source, ch, drama_id)
                 if not recorded:
+                    _mark_retryable(source, ch, drama_id, _NOT_RECORDED)
                     results.append({"chapter_id": ch.chapter_id, "title": ch.title,
                                     "ok": False, "error": _NOT_RECORDED})
                     continue

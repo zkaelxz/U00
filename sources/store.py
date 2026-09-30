@@ -214,8 +214,9 @@ def connect() -> sqlite3.Connection:
     if "text_offset" not in {r["name"] for r in conn.execute("PRAGMA table_info(import_retry)")}:
         try:
             conn.execute("ALTER TABLE import_retry ADD COLUMN text_offset INTEGER")
-        except sqlite3.OperationalError:   # another connection added it first
-            pass
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):   # else another connection added it first
+                raise
     return conn
 
 

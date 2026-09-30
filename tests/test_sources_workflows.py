@@ -761,15 +761,15 @@ class TestChapterCommit:
     def test_a_torn_append_is_cut_off_and_written_once(self, isolated_db, monkeypatch, job):
         drama_id, adapter = self._novel(isolated_db)
         path = pipeline.save_novel_text(drama_id, "前文", heading="序")
-        real = os.fsync
-        self._crash_on(monkeypatch, pipeline.os, "fsync")
+        real = pipeline._fsync
+        self._crash_on(monkeypatch, pipeline, "_fsync")
         with pytest.raises(_Crash):
             self._run(job, adapter, drama_id)
         whole = open(path, "rb").read()
         with open(path, "r+b") as f:   # the crash cut the write short
             f.truncate(len(whole) - 7)
 
-        monkeypatch.setattr(pipeline.os, "fsync", real)
+        monkeypatch.setattr(pipeline, "_fsync", real)
         assert self._run(job, adapter, drama_id)[0]["ok"] is True
         assert open(path, "rb").read() == whole
 
@@ -778,19 +778,64 @@ class TestChapterCommit:
         drama_id, adapter = self._novel(isolated_db)
         path = pipeline.save_novel_text(drama_id, "前文", heading="序")
         before = open(path, "rb").read()
-        real = os.fsync
+        real = pipeline._fsync
 
         def disk_full(fd):
             raise OSError("disk full")
-        monkeypatch.setattr(pipeline.os, "fsync", disk_full)
+        monkeypatch.setattr(pipeline, "_fsync", disk_full)
         assert self._run(job, adapter, drama_id) == [
             {"chapter_id": "c1", "title": "第1章", "ok": False, "error": pipeline._NOT_SAVED}]
         assert open(path, "rb").read() == before
         assert self._retry("fake_text", drama_id) == [("c1", "failed")]
 
-        monkeypatch.setattr(pipeline.os, "fsync", real)
+        monkeypatch.setattr(pipeline, "_fsync", real)
         assert self._run(job, adapter, drama_id)[0]["ok"] is True
         assert self._text(isolated_db, drama_id).count("c1 的正文") == 1
+
+    def test_a_torn_first_write_to_a_new_file_is_rewritten_without_a_separator(
+            self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+        path = self._path(isolated_db, drama_id)
+        real = pipeline._fsync
+        self._crash_on(monkeypatch, pipeline, "_fsync")
+        with pytest.raises(_Crash):
+            self._run(job, adapter, drama_id)
+        whole = open(path, "rb").read()
+        assert not whole.startswith(os.linesep.encode())
+        with open(path, "r+b") as f:
+            f.truncate(5)
+
+        monkeypatch.setattr(pipeline, "_fsync", real)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        assert open(path, "rb").read() == whole
+
+    def test_a_failed_first_write_removes_the_new_file(self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+
+        def disk_full(fd):
+            raise OSError("disk full")
+        monkeypatch.setattr(pipeline, "_fsync", disk_full)
+        assert self._run(job, adapter, drama_id)[0]["error"] == pipeline._NOT_SAVED
+        assert not os.path.exists(self._path(isolated_db, drama_id))
+        rows = store.import_retry_rows("fake_text", "s1", drama_id)
+        assert [(r["status"], r["error"]) for r in rows] == [("failed", pipeline._NOT_SAVED)]
+
+    def test_an_old_sources_db_gains_text_offset(self, isolated_db):
+        import sqlite3
+        store.connect().close()
+        with sqlite3.connect(store.db_path()) as conn:
+            conn.execute("DROP TABLE import_retry")
+            conn.execute("CREATE TABLE import_retry (source TEXT NOT NULL, series_id TEXT NOT NULL, "
+                         "drama_id INTEGER NOT NULL, chapter_id TEXT NOT NULL, title TEXT NOT NULL "
+                         "DEFAULT '', status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', "
+                         "updated_at REAL NOT NULL, PRIMARY KEY (source, series_id, drama_id, "
+                         "chapter_id))")
+            conn.execute("INSERT INTO import_retry VALUES ('a', 's1', 1, 'c1', '', 'failed', '', 0)")
+        for _ in range(2):   # the second connect finds the column already there
+            with store.connect() as conn:
+                cols = [r["name"] for r in conn.execute("PRAGMA table_info(import_retry)")]
+            assert cols.count("text_offset") == 1
+        assert store.import_text_offset("a", "s1", 1, "c1") is None
 
     def test_append_writes_only_the_new_block(self, isolated_db, monkeypatch, job):
         import builtins

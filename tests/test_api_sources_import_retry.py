@@ -243,13 +243,42 @@ def test_a_text_write_error_leaves_the_chapter_retryable(client, fakes, monkeypa
 
     def disk_full(fd):
         raise OSError("disk full")
-    monkeypatch.setattr(pipeline.os, "fsync", disk_full)
+    monkeypatch.setattr(pipeline, "_fsync", disk_full)
     client.post("/api/sources/alpha/import",
                 json={"series_id": "s1", "chapter_ids": ["c2"], "drama_id": did})
     _wait(f"sourceimport_{did}")
     body = _state(client, did).json()
     assert [(x["chapter_id"], x["status"]) for x in body["retry"]] == [("c2", "failed")]
     assert body["retry_count"] == 1
+
+
+def test_a_crash_after_the_text_is_written_retries_through_the_api_once(client, fakes,
+                                                                      monkeypatch):
+    """The text's offset survives the manifest the service saves after the
+    crash, so the retry finds the text already there."""
+    import os
+
+    from sources import pipeline
+    fakes["alpha"] = _make("alpha")
+    did = _novel()
+    real = pipeline._record_imported
+
+    def crash(*a, **kw):
+        raise RuntimeError("unexpected")
+    monkeypatch.setattr(pipeline, "_record_imported", crash)
+    client.post("/api/sources/alpha/import",
+                json={"series_id": "s1", "chapter_ids": ["c2"], "drama_id": did})
+    _wait(f"sourceimport_{did}")
+    assert [x["chapter_id"] for x in _state(client, did).json()["retry"]] == ["c2"]
+    assert store.import_text_offset("alpha", "s1", did, "c2") is not None
+
+    monkeypatch.setattr(pipeline, "_record_imported", real)
+    res = _start(client, did, ["c2"])
+    assert [c["outcome"] for c in res["chapters"]] == ["imported"]
+    path = os.path.join(db.drama_dir(did), pipeline.RAW_NOVEL_FILENAME)
+    with open(path, encoding="utf-8") as f:
+        assert f.read().count("text of c2") == 20
+    assert _state(client, did).json()["retry"] == []
 
 
 def test_rows_older_than_the_drama_are_not_shown(client, fakes):
