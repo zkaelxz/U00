@@ -208,6 +208,20 @@ begin
   Result := RemoveBackslashUnlessRoot(Trim(DataDirPage.Values[0]));
 end;
 
+// The Baihe Studio items already in Dir, by the names an uninstall that
+// ticks "delete" removes (library, .env, model_cache), as a bullet list;
+// '' if none.
+function ExistingDataItems(const Dir: String): String;
+begin
+  Result := '';
+  if DirExists(AddBackslash(Dir) + 'library') then
+    Result := Result + #13#10 + '  - library (projects, backups)';
+  if FileExists(AddBackslash(Dir) + '.env') then
+    Result := Result + #13#10 + '  - .env (settings and API keys)';
+  if DirExists(AddBackslash(Dir) + 'model_cache') then
+    Result := Result + #13#10 + '  - model_cache (downloaded AI models)';
+end;
+
 procedure InitializeWizard();
 var
   Initial: String;
@@ -232,7 +246,7 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Problem, OldDir: String;
+  Problem, OldDir, Existing: String;
   OldCreated: Boolean;
 begin
   Result := True;
@@ -266,6 +280,23 @@ begin
         Result := MsgBox('The folder ' + DataDir() + ' already exists outside your user folder, so other ' +
         'accounts on this PC may be able to read what''s in it, including the API keys Baihe Studio ' +
         'saves there.' + #13#10#13#10 + 'Use it anyway?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+      // A folder that already holds data this install didn't put there
+      // (an earlier install's own folder is not asked about). Installing
+      // and updating never delete it; only uninstalling can, and only the
+      // ticked items by name. The folder itself is never removed, because
+      // Setup didn't create it.
+      if Result then
+      begin
+        Existing := ExistingDataItems(DataDir());
+        if (Existing <> '') and (NormDir(OldDir) <> NormDir(DataDir())) then
+          Result := MsgBox('The folder ' + DataDir() + ' already has:' + Existing + #13#10#13#10 +
+            'Baihe Studio will use these as they are, so an existing library and API keys will show ' +
+            'up in the app. Installing and updating never delete them.' + #13#10#13#10 +
+            'Uninstalling keeps them unless you tick "delete" for them in the uninstaller. If you ' +
+            'do, the ticked items above are permanently deleted, including anything you put in them ' +
+            'yourself. Other files in the folder are never deleted.' + #13#10#13#10 +
+            'Use this folder?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+      end;
     end;
   end;
 end;

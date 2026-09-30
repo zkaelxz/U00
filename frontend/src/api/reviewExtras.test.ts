@@ -90,10 +90,23 @@ describe('review extras api', () => {
     const f = fakeFetch({}, calls)
     await rx.startBurnPreview(6, { line_id: 9, pad_seconds: null, preset: '' }, f)
     await rx.startBurnPreview(6, { line_id: 9, pad_seconds: 0, preset: 'Bold' }, f)
+    await rx.startBurnPreview(
+      6,
+      { line_id: 9, preset: 'Clean', style: { size: 40 }, speaker_colors: { A: '#112233' }, per_speaker_colors: true, wrap_chars_en: 30 },
+      f,
+    )
     await rx.getBurnPreviewInfo(6, f)
     expect(sent(calls[0])).toEqual({ line_id: 9 })
     expect(sent(calls[1])).toEqual({ line_id: 9, pad_seconds: 0, preset: 'Bold' })
-    expect(calls[2].url).toBe('/api/review-extras/dramas/6/burn-preview/info')
+    expect(sent(calls[2])).toEqual({
+      line_id: 9,
+      preset: 'Clean',
+      style: { size: 40 },
+      speaker_colors: { A: '#112233' },
+      per_speaker_colors: true,
+      wrap_chars_en: 30,
+    })
+    expect(calls[3].url).toBe('/api/review-extras/dramas/6/burn-preview/info')
     expect(rx.burnPreviewClipUrl(6, '2026-09-29T10:00')).toBe(
       '/api/review-extras/dramas/6/burn-preview/clip?v=2026-09-29T10%3A00',
     )

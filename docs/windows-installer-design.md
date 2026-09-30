@@ -126,12 +126,20 @@ same as `start.bat`.
      (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
 3. Downloads the embeddable Python zip, checks its pinned SHA-256, extracts it,
    and rewrites the `._pth` (research notes §2).
-4. Runs `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12`
-   for `requirements-core.txt`, constrained by `constraints.lock.txt` if present,
-   else `constraints.txt` (the same rule as `start.bat`), plus pip's own wheel.
-   This must run on Windows under Python 3.12, because pip evaluates environment
-   markers for the build machine (a Linux download silently drops `colorama` and
-   `tzdata`). The script warns otherwise.
+4. Checks that `installer/wheels.lock.txt` pins every package named in
+   `requirements-core.txt` and pip, then runs
+   `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12 --require-hashes --no-deps -r installer/wheels.lock.txt`.
+   pip itself refuses a file whose hash isn't pinned. The build then re-checks
+   every downloaded wheel on its own (see "Pinned wheels" below): a wheel whose
+   SHA-256 differs, a wheel that isn't in the lock, and a locked package with no
+   wheel each fail the build, naming the file. There is no unhashed fallback.
+   Because the lock is complete and `--no-deps` is used, nothing is resolved at
+   build time. `--update-lock` must run on Windows under Python 3.12, because
+   pip evaluates environment markers for the machine it runs on (a Linux resolve
+   drops Windows-only dependencies such as `tzdata`). The first lock was made on
+   Linux instead: `uv pip compile --python-platform windows --python-version 3.12`
+   for the versions, then `pip download --platform win_amd64 --no-deps` of those
+   pins, each hash cross-checked against uv's. The Windows job is what confirms it.
 5. Writes `manifest.json`, including the unpacked size of the wheels. That size
    is passed to Inno's `ExtraDiskSpaceRequired`, so the free-space check counts
    what pip will unpack (the disk-space preflight, research notes decision 2).
@@ -141,6 +149,40 @@ same as `start.bat`.
    installed).
 
 `build/` is git-ignored.
+
+### Pinned wheels
+
+`installer/wheels.lock.txt` lists `name==version` and `--hash=sha256:...` for
+every distribution the installer bundles: `requirements-core.txt`, pip, and all
+transitive dependencies, one win_amd64 / CPython 3.12 wheel each. The
+verifier (`postinstall.parse_lock` / `verify_wheels`, shared by the build and the
+install step) rejects an unpinned line, a package without a hash, a duplicate,
+markers or other options, a hash that isn't 64 hex digits, and any wheel that
+is extra or missing compared with the lock.
+
+Regenerating on an intentional dependency change (a change to
+`requirements-core.txt`, `constraints.txt`, or a version bump):
+
+1. A maintainer, on Windows with Python 3.12 and network access to PyPI, runs
+   `python installer/build_installer.py --update-lock`. It does an ordinary
+   `pip download` of `requirements-core.txt` + pip (constrained by
+   `constraints.lock.txt` if present, else `constraints.txt`) and writes the
+   SHA-256 of each wheel it got.
+2. The maintainer reads `git diff installer/wheels.lock.txt`, checking that only
+   the intended packages and versions moved, and commits the file with the
+   dependency change.
+3. CI does not regenerate it. The Windows Installer workflow builds from the
+   committed lock; it fails if the lock doesn't cover `requirements-core.txt`,
+   if pip rejects a hash, or if the build's own check finds any mismatch.
+   `tests/test_installer_payload.py` also checks on every PR (Linux) that the
+   committed lock parses and covers `requirements-core.txt`.
+
+What this proves, honestly: the wheels in the installer are the same files, byte
+for byte, as the ones whose hashes were committed. It does not show that those
+packages, or the versions the maintainer accepted in step 1, are safe; step 1
+trusts whatever PyPI served at that moment, and the review of the diff is a
+human's. Its value is that a later change on PyPI, a mirror or the build
+machine's network path can't swap in different bytes unnoticed.
 
 ## 4. Install flow
 
@@ -165,7 +207,10 @@ same as `start.bat`.
       the equivalent of `python -m pip`; running `pip.whl\pip` directly fails
       on Windows, where pip refuses to modify itself unless run as `-m pip`).
       No network is needed, and nothing is fetched from bootstrap.pypa.io.
-   3. `pip install --no-index --find-links <wheels> -r requirements-core.txt -c <constraints>`.
+   3. Re-checks every bundled wheel against the shipped copy of the lock
+      (`<wheels>\wheels.lock.txt`; exit code 6 on a mismatch, an extra wheel or
+      a missing one), then
+      `pip install --no-index --find-links <wheels> --require-hashes --no-deps -r <wheels>\wheels.lock.txt`.
       `PIP_USER`, `PIP_REQUIRE_VIRTUALENV`, `PIP_INDEX_URL` and similar variables
       from the user's environment are dropped first, and `-s` keeps the user's
       own site-packages out (research notes §1, the ComfyUI `-s` lesson).
@@ -355,7 +400,9 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 ## 9. Testing
 
 - Linux (the test suite): `tests/test_installer_payload.py` covers staging,
-  exclusions, `._pth`, the wheel command, the manifest and ISCC arguments.
+  exclusions, `._pth`, the wheel commands, the hash-lock parser and verifier
+  (match, mismatch, extra, missing, malformed lines), the manifest and ISCC
+  arguments.
   `tests/test_installer_iss.py` statically checks the `.iss` (per-user install,
   no secrets, sources only from the payload, the data folder, opt-in deletion,
   two Pascal pitfalls that broke the compile) and the workflow (on-demand only,
@@ -381,6 +428,9 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
     folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
     asserts that a non-Baihe `%TEMP%` folder, a file next to the folders, and
     the first install's data folder are untouched.
+- Only the Windows job proves that pip accepts `installer/wheels.lock.txt` for
+  the real win_amd64 downloads and installs, and that the pinned wheels are the
+  ones the Windows pip picks.
 - Still owed, from a person: a real install on the user's PC (steps in the PR),
   the interactive wizard and uninstall dialog, SmartScreen, Edge app window, and
   the research notes' clean-Windows GPU matrix once a GPU tier is added through

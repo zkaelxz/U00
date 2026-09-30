@@ -1,12 +1,12 @@
 /*
  * Settings > the persisted PC-side preferences (inventory G05, G06 URLs,
- * G08, G09, G13, G14, G15) and the per-browser Appearance choice (G03).
+ * G08, G09, G13, G14, G15). The theme (G03) is the header button, not a setting here.
  * The preferences live on the Baihe PC (db app_settings, endpoint URLs in
  * .env) and are used by the server's translate, transcribe, OCR and
  * download jobs and by the CLI. Changing them is PC only; away from the PC
  * each block shows "PC only".
  *
- * Layout (UI refresh §3.12): Appearance, Defaults and Spending are Cards;
+ * Layout (UI refresh §3.12): Defaults and Spending are Cards;
  * OCR, offline, downloads and server addresses are rare, so they are
  * Sections inside one "Advanced" Card.
  */
@@ -21,7 +21,6 @@ import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
-import { applyTheme, loadTheme, saveTheme, THEME_OPTIONS, type ThemePref } from '../../theme'
 import type { EndpointName, SettingsOverview, SettingsPreferences } from '../../types/settings'
 import {
   capSummary,
@@ -358,32 +357,6 @@ function Block({ as, title, summary, storageKey, children }: { as: 'card' | 'sec
     <Section title={title} summary={summary} storageKey={storageKey}>
       {children}
     </Section>
-  )
-}
-
-export function AppearanceCard() {
-  const [theme, setTheme] = useState<ThemePref>(() => loadTheme())
-  const label = THEME_OPTIONS.find((o) => o.value === theme)?.label ?? ''
-  return (
-    <Card title="Appearance" meta={label} aria-label="Appearance">
-      <div style={grid}>
-        <Field label="Theme" help="Light, dark, or follow this device's setting. Saved in this browser only. The Reader's Auto theme follows it.">
-          <select
-            value={theme}
-            onChange={(e) => {
-              const next = e.target.value as ThemePref
-              setTheme(next)
-              saveTheme(next)
-              applyTheme(next)
-            }}
-          >
-            {THEME_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </Field>
-      </div>
-    </Card>
   )
 }
 

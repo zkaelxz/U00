@@ -223,6 +223,21 @@ class TestPreparePython:
         assert len(bi.PYTHON_EMBED_SHA256) == 64
 
 
+def _lock_repo(tmp_path, wheels):
+    """A repo whose requirements-core.txt names fastapi/pip, and a lock
+    pinning the given {wheel file name: bytes}."""
+    repo = tmp_path / "repo"
+    repo.mkdir(exist_ok=True)
+    (repo / "requirements-core.txt").write_text("fastapi>=1\n" if "fastapi-1-py3-none-any.whl" in wheels else "")
+    lines = []
+    for name, data in wheels.items():
+        parts = name.split("-")
+        lines.append(f"{parts[0]}=={parts[1]} \\\n    --hash=sha256:{hashlib.sha256(data).hexdigest()}")
+    lock = tmp_path / "wheels.lock.txt"
+    lock.write_text("\n".join(lines) + "\n")
+    return repo, lock
+
+
 class TestWheels:
     def test_download_command(self, tmp_path):
         cmd = bi.wheel_download_command(bi.REPO_ROOT, tmp_path / "wheels", "3.12.10", "py")
@@ -241,23 +256,85 @@ class TestWheels:
         assert bi.constraints_for(tmp_path).name == "constraints.lock.txt"
 
     def test_download_wheels_requires_pip(self, tmp_path, monkeypatch):
+        repo, lock = _lock_repo(tmp_path, {"fastapi-1-py3-none-any.whl": b"f",
+                                           "pip-26-py3-none-any.whl": b"p"})
+
         class R:
             returncode = 0
 
         def fake_run(cmd, timeout):
             dest = Path(cmd[cmd.index("-d") + 1])
-            (dest / "fastapi-1-py3-none-any.whl").write_bytes(b"")
+            (dest / "fastapi-1-py3-none-any.whl").write_bytes(b"f")
             return R()
         monkeypatch.setattr(bi.subprocess, "run", fake_run)
         with pytest.raises(bi.BuildError, match="pip's own wheel"):
-            bi.download_wheels(bi.REPO_ROOT, tmp_path / "wheels")
+            bi.download_wheels(repo, tmp_path / "wheels", lock_path=lock)
 
     def test_download_wheels_failure(self, tmp_path, monkeypatch):
+        repo, lock = _lock_repo(tmp_path, {"pip-26-py3-none-any.whl": b"p"})
+
         class R:
             returncode = 1
         monkeypatch.setattr(bi.subprocess, "run", lambda cmd, timeout: R())
         with pytest.raises(bi.BuildError, match="pip download"):
-            bi.download_wheels(bi.REPO_ROOT, tmp_path / "wheels")
+            bi.download_wheels(repo, tmp_path / "wheels", lock_path=lock)
+
+    def test_download_wheels_ok_copies_the_lock(self, tmp_path, monkeypatch):
+        repo, lock = _lock_repo(tmp_path, {"pip-26-py3-none-any.whl": b"p"})
+
+        class R:
+            returncode = 0
+
+        def fake_run(cmd, timeout):
+            assert "--require-hashes" in cmd and "--no-deps" in cmd
+            (Path(cmd[cmd.index("-d") + 1]) / "pip-26-py3-none-any.whl").write_bytes(b"p")
+            return R()
+        monkeypatch.setattr(bi.subprocess, "run", fake_run)
+        assert bi.download_wheels(repo, tmp_path / "wheels", lock_path=lock) == ["pip-26-py3-none-any.whl"]
+        assert (tmp_path / "wheels" / "wheels.lock.txt").read_text() == lock.read_text()
+
+    def test_download_wheels_fails_on_a_swapped_wheel_even_if_pip_succeeded(self, tmp_path, monkeypatch):
+        repo, lock = _lock_repo(tmp_path, {"pip-26-py3-none-any.whl": b"p"})
+
+        class R:
+            returncode = 0
+
+        def fake_run(cmd, timeout):
+            (Path(cmd[cmd.index("-d") + 1]) / "pip-26-py3-none-any.whl").write_bytes(b"evil")
+            return R()
+        monkeypatch.setattr(bi.subprocess, "run", fake_run)
+        with pytest.raises(bi.BuildError, match="pip-26-py3-none-any.whl: SHA-256"):
+            bi.download_wheels(repo, tmp_path / "wheels", lock_path=lock)
+
+    def test_locked_download_command(self, tmp_path):
+        cmd = bi.locked_download_command(tmp_path / "l.txt", tmp_path / "w", "3.12.10", "py")
+        assert cmd[:4] == ["py", "-m", "pip", "download"]
+        for flag in ("--require-hashes", "--no-deps", "--only-binary=:all:"):
+            assert flag in cmd
+        assert cmd[cmd.index("--platform") + 1] == "win_amd64"
+        assert cmd[cmd.index("-r") + 1] == str(tmp_path / "l.txt") and "-c" not in cmd
+
+    def test_lock_must_cover_requirements(self, tmp_path):
+        repo, lock = _lock_repo(tmp_path, {"pip-26-py3-none-any.whl": b"p"})
+        (repo / "requirements-core.txt").write_text("# c\nRequests>=2  # x\nzzz_pkg>=1\n")
+        with pytest.raises(bi.BuildError, match="requests, zzz-pkg"):
+            bi.check_lock_covers_requirements(repo, lock)
+        with pytest.raises(bi.BuildError, match="doesn't exist"):
+            bi.check_lock_covers_requirements(repo, tmp_path / "nope.txt")
+
+    def test_committed_lock_covers_requirements_and_parses(self):
+        bi.check_lock_covers_requirements(bi.REPO_ROOT)
+        lock = bi.postinstall.parse_lock(bi.WHEEL_LOCK.read_text(encoding="utf-8"))
+        assert all(hashes for _, hashes in lock.values())
+
+    def test_format_lock_round_trips(self, tmp_path):
+        wheels = tmp_path / "w"
+        wheels.mkdir()
+        (wheels / "Pydantic_Core-2.1-cp312-cp312-win_amd64.whl").write_bytes(b"a")
+        (wheels / "pip-26-py3-none-any.whl").write_bytes(b"b")
+        text = bi.format_lock(wheels)
+        assert "pydantic-core==2.1 \\\n    --hash=sha256:" in text
+        assert bi.postinstall.verify_wheels(wheels, text) == 2
 
     def test_size_estimate_and_manifest(self, tmp_path):
         wheels = tmp_path / "payload" / "wheels"
@@ -298,3 +375,78 @@ class TestVersionAndIscc:
     def test_main_rejects_an_unsafe_version(self, capsys):
         assert bi.main(["--version", "1.0\"; rm -rf /"]) == 2
         assert "--version" in capsys.readouterr().err
+
+
+def _sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+class TestWheelHashVerifier:
+    def _dir(self, tmp_path, files):
+        d = tmp_path / "wheels"
+        d.mkdir()
+        for name, data in files.items():
+            (d / name).write_bytes(data)
+        return d
+
+    def test_match(self, tmp_path):
+        d = self._dir(tmp_path, {"a_b-1.0-py3-none-any.whl": b"x", "c-2-cp312-cp312-win_amd64.whl": b"y"})
+        lock = (f"# c\na-b==1.0 \\\n    --hash=sha256:{_sha(b'x')} \\\n    --hash=sha256:{'0' * 64}\n"
+                f"c==2 --hash=sha256:{_sha(b'y')}\n")
+        assert bi.postinstall.verify_wheels(d, lock) == 2
+
+    def test_mismatch_names_the_wheel(self, tmp_path):
+        d = self._dir(tmp_path, {"a-1-py3-none-any.whl": b"changed"})
+        with pytest.raises(bi.postinstall.LockError, match="a-1-py3-none-any.whl: SHA-256"):
+            bi.postinstall.verify_wheels(d, f"a==1 --hash=sha256:{_sha(b'x')}\n")
+
+    def test_version_mismatch(self, tmp_path):
+        d = self._dir(tmp_path, {"a-2-py3-none-any.whl": b"x"})
+        with pytest.raises(bi.postinstall.LockError, match="pins a==1"):
+            bi.postinstall.verify_wheels(d, f"a==1 --hash=sha256:{_sha(b'x')}\n")
+
+    def test_extra_wheel_not_in_the_lock(self, tmp_path):
+        d = self._dir(tmp_path, {"a-1-py3-none-any.whl": b"x", "sneaky-9-py3-none-any.whl": b"z"})
+        with pytest.raises(bi.postinstall.LockError, match="sneaky-9-py3-none-any.whl: not in wheels.lock.txt"):
+            bi.postinstall.verify_wheels(d, f"a==1 --hash=sha256:{_sha(b'x')}\n")
+
+    def test_locked_package_with_no_wheel(self, tmp_path):
+        d = self._dir(tmp_path, {"a-1-py3-none-any.whl": b"x"})
+        lock = f"a==1 --hash=sha256:{_sha(b'x')}\nb==1 --hash=sha256:{_sha(b'q')}\n"
+        with pytest.raises(bi.postinstall.LockError, match="b: pinned .* no wheel"):
+            bi.postinstall.verify_wheels(d, lock)
+
+    def test_reports_every_offender(self, tmp_path):
+        d = self._dir(tmp_path, {"a-1-py3-none-any.whl": b"bad", "extra-1-py3-none-any.whl": b"e"})
+        with pytest.raises(bi.postinstall.LockError) as e:
+            bi.postinstall.verify_wheels(d, f"a==1 --hash=sha256:{_sha(b'x')}\n")
+        assert "a-1-py3-none-any.whl" in str(e.value) and "extra-1-py3-none-any.whl" in str(e.value)
+
+    @pytest.mark.parametrize("lock,match", [
+        ("a>=1 --hash=sha256:" + "0" * 64, "isn't a pinned"),
+        ("a==1\n", "no --hash"),
+        ("a==1 --hash=sha256:abc", "unexpected"),
+        ("a==1 --hash=md5:" + "0" * 32, "unexpected"),
+        ("a==1 --hash=sha256:" + "0" * 64 + " --index-url=https://x", "unexpected"),
+        ("a==1 ; python_version>'3' --hash=sha256:" + "0" * 64, "unexpected"),
+        ("--hash=sha256:" + "0" * 64, "isn't a pinned"),
+        ("a==1 --hash=sha256:" + "0" * 64 + "\na==2 --hash=sha256:" + "1" * 64, "listed twice"),
+        ("a==1 --hash=sha256:" + "0" * 64 + " \\\n", "trailing backslash"),
+        ("# only a comment\n", "no packages"),
+    ])
+    def test_malformed_lock(self, tmp_path, lock, match):
+        d = self._dir(tmp_path, {"a-1-py3-none-any.whl": b"x"})
+        with pytest.raises(bi.postinstall.LockError, match=match):
+            bi.postinstall.verify_wheels(d, lock)
+
+    def test_not_a_wheel_name(self, tmp_path):
+        d = self._dir(tmp_path, {"weird.whl": b"x"})
+        with pytest.raises(bi.postinstall.LockError, match="weird.whl isn't a wheel"):
+            bi.postinstall.verify_wheels(d, f"a==1 --hash=sha256:{_sha(b'x')}\n")
+
+    def test_build_wrapper_raises_build_error(self, tmp_path):
+        d = self._dir(tmp_path, {"a-1-py3-none-any.whl": b"bad"})
+        lock = tmp_path / "l.txt"
+        lock.write_text(f"a==1 --hash=sha256:{_sha(b'x')}\n")
+        with pytest.raises(bi.BuildError, match="a-1-py3-none-any.whl"):
+            bi.verify_wheel_hashes(d, lock)
