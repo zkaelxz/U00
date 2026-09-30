@@ -428,7 +428,7 @@ def cmd_align(args):
                         f"Qwen3 forced alignment model download failed: {detail}") from exc
                 except ValueError as exc:
                     print(f"#{d['id']} Qwen3 forced alignment couldn't align this transcript "
-                          f"({exc}) -- using the default character-alignment method for this run.")
+                          f"({translate_engines.redact_secrets(str(exc))}) -- using the default character-alignment method for this run.")
                     lines = align_transcript_to_timing(user_lines, segments)
             else:
                 lines = align_transcript_to_timing(user_lines, segments)
