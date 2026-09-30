@@ -2,8 +2,7 @@
 
 Almost every filename in this project is unique, even across folders —
 if you're downloading files individually, a file's name tells you
-unambiguously where it belongs: anything ending `_tab.py` goes in
-`tabs/`, anything starting `test_` goes in `tests/`, everything else
+unambiguously where it belongs: anything starting `test_` goes in `tests/`, everything else
 sits at the top level or in one of the subsystem packages below. The
 one expected exception is `__init__.py` (a marker in every package --
 empty, or a docstring mapping the package's modules; `sources/adapters/`'s
@@ -17,9 +16,7 @@ TypeScript/React app built with npm that talks to `api/` over HTTP
 ```
 baihe-subtitler/
 │
-├── app.py                        old Streamlit entry point (frozen, being deleted)
 ├── __init__.py                   (empty)
-├── common.py                     shared imports every tab pulls in
 ├── cli.py                        headless batch runner
 │                                 START HERE: `python -m api` (api/server.py) runs the app, see api/ below
 ├── run_tests.py                  test runner wrapper
@@ -41,9 +38,6 @@ baihe-subtitler/
 ├── README.md
 ├── FILE_ORGANIZATION.md          this file
 ├── CLAUDE.md                     rules for AI sessions working in this repo
-│
-├── .streamlit/
-│   └── config.toml               visual theme
 │
 ├── .github/
 │   ├── pull_request_template.md
@@ -125,19 +119,6 @@ baihe-subtitler/
 │   file. If a `docs/README.md` or `docs/baihe-roadmap.md` copy turns up again on another
 │   branch, re-verify it the same way before trusting or merging any of it.
 │
-├── tabs/                      ← UI ONLY. One file per tab, 10 tabs total.
-│   ├── __init__.py               (empty, marks the package)
-│   ├── library_tab.py            dashboard, filters, backup, storage, quick-filter tags
-│   ├── workspace_tab.py           the main pipeline: align → translate → dub → export
-│   ├── reader_tab.py             reading, wiki, story tools, line tools
-│   ├── scanlate_tab.py           manhua/webtoon typesetting
-│   ├── discover_tab.py           title discovery, bulk import, site navigation help
-│   ├── sources_tab.py            paste any URL, run it through the sources/ adapter pipeline
-│   ├── translate_tab.py          standalone translate tool: paste or upload text, translate it
-│   ├── live_tab.py               near-live translation of an ongoing stream
-│   ├── settings_tab.py           sidebar: API keys, appearance, defaults
-│   └── diagnostics_tab.py        "check my setup"
-│
 ├── sources/                   ← the site-adapter system (roadmap Step 23 and its sub-steps).
 │   ├── __init__.py               (package docstring: a map of the modules below)
 │   ├── base.py                    the adapter interface every site implements
@@ -168,16 +149,9 @@ baihe-subtitler/
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
 │           lightnovel_fun.py, ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
-├── ui/                         ← small shared UI building blocks used across tabs (Step 13).
-│   ├── __init__.py               (package docstring: a map of the modules below)
-│   ├── project_header.py         the compact, always-visible project header
-│   ├── project_state.py          the unified project-state model
-│   ├── status.py                 the shared background-job status block
-│   └── workflow.py               the pipeline-stage stepper
-│
 ├── services/                   ← UI-INDEPENDENT application services (React/FastAPI migration).
-│   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
-│   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
+│   ├── __init__.py               (empty, marks the package)   Called by api/ and cli.py alike;
+│   ├── service_errors.py         error types every service raises   never imports fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
 │   ├── library_admin_service.py  E0 destructive/admin Library actions (router: library_admin_routes.py): bulk status/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
@@ -189,6 +163,9 @@ baihe-subtitler/
 │   │                             each of the last 2 weeks), due-check (startup + hourly via
 │   │                             api/background.py), restore one drama from a chosen copy (same id,
 │   │                             or a new "(restored <date>)" copy); router: backup_routes.py
+│   ├── backup_import_service.py  Step 143: import chosen dramas from an uploaded backup file (snapshot
+│   │                             copy, manual backup zip or library.db) as new dramas owned by the acting
+│   │                             user; reuses auto_backup_service._copy_drama; router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
@@ -454,7 +431,7 @@ baihe-subtitler/
 │                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
 │                                 (raw novel) any Sources import runs (router: novel_files_routes.py)
 │
-├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
+├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Serves the React app, same library/.
 │   ├── __init__.py               (empty, marks the package)
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings (plus the household
 │   │                             listener on BAIHE_API_HOUSEHOLD_PORT, same process, when set);
@@ -513,7 +490,7 @@ baihe-subtitler/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── backup_routes.py      /api/backups/* (Step 43): auto-backup settings, back up now, snapshot
-│       │                         info/dramas, restore one drama, delete snapshot; all local_only;
+│       │                         info/dramas, restore one drama, import from a backup file, delete snapshot; all local_only;
 │       │                         tests/test_api_backups.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
@@ -842,9 +819,7 @@ baihe-subtitler/
 **App entry & shared infrastructure**
 | File | Does |
 |---|---|
-| `app.py` | Streamlit entry point |
-| `common.py` | shared imports every tab pulls in |
-| `cli.py` | headless batch runner (kept in parity with the Workspace tab) |
+| `cli.py` | headless batch runner (kept in parity with the app) |
 | `run_tests.py` | test runner wrapper |
 | `core.py` | timing, alignment, SRT formatting, line merging |
 | `db.py` | all database access (plain `sqlite3`, no ORM) |
@@ -854,8 +829,6 @@ baihe-subtitler/
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
 | `process_guard.py` | Windows Job Object that ends every child process (ffmpeg, Playwright's Node and Chromium, pip...) with the API server, however it was started, plus the console-close handler that runs the clean stop first; `launcher.py --stop` can end an install's whole group (Step 80b) |
 | `portable.py` | lets the whole app folder be copied/moved and still work; `data_dir()` is where library/, .env and (installed copies) model caches live -- the app folder for a source checkout, the per-user data folder for an installed copy (Step 80b) |
-| `ui_theme.py` | design system (CSS, layout primitives) |
-| `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
 | `storage.py` | disk usage, cache cleanup |
 | `benchmark.py` | the case runners the Benchmark Lab (services/benchmark_lab_service.py) builds on: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
 | `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
@@ -935,21 +908,12 @@ site under `sources/adapters/`) and the browser extension bridge
 tree above rather than repeated here, since each is really its own
 subsystem rather than a handful of top-level modules.
 
-**Shared UI components (`ui/`)**
-| File | Does |
-|---|---|
-| `ui/project_header.py` | the compact, always-visible project header |
-| `ui/project_state.py` | the unified project-state model |
-| `ui/status.py` | the shared background-job status block |
-| `ui/workflow.py` | the pipeline-stage stepper |
-
 ## Rules of thumb
 
-- **UI code goes in `tabs/`**, named `*_tab.py`. Logic lives at the top
-  level (or in `sources/`/`ui/`) so it stays testable without Streamlit.
-- **Logic a second UI will need goes in `services/`** (React/FastAPI
-  migration): a plain function the Streamlit tab and an `api/routers/*_routes.py`
-  file both call. Streamlit never calls the API over HTTP.
+- **UI code goes in `frontend/`** (React). Logic lives at the top level (or in
+  `sources/`) so it stays testable without a UI.
+- **Logic the API and the CLI both need goes in `services/`**: a plain function
+  an `api/routers/*_routes.py` file and `cli.py` both call.
 - **Nothing writes outside `library/`** except exports you explicitly download.
 - **Optional dependencies are imported inside functions**, never at module
   top level — a missing package disables its own feature instead of
