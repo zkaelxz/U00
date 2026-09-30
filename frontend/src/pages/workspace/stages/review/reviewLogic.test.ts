@@ -5,6 +5,13 @@ import type { ReviewLine } from '../../../../types/review'
 import {
   adjacentRun,
   buildPatch,
+  canResegmentWith,
+  droppedText,
+  llmApplyProblem,
+  llmApplyProblemText,
+  llmPreviewSummary,
+  resegmentCostNote,
+  resegmentEngines,
   chipLabel,
   codePointOffset,
   draftFromLine,
@@ -167,5 +174,66 @@ describe('keptNote', () => {
     expect(keptNote(0)).toBe('')
     expect(keptNote(1)).toBe(' 1 line was edited meanwhile and kept.')
     expect(keptNote(3)).toBe(' 3 lines were edited meanwhile and kept.')
+  })
+})
+
+describe('AI re-segmentation preview (R47)', () => {
+  const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true })
+  const config = {
+    engines: [eng('claude'), eng('ollama', true), eng('deepl'), eng('gemini')],
+    month_spend: 1.5,
+    monthly_cap_usd: 10,
+    cap_applies_by_engine: { claude: true, ollama: false, deepl: true, gemini: false },
+  }
+
+  it('leaves translation-only engines out of the picker', () => {
+    expect(resegmentEngines(config.engines).map((e) => e.name)).toEqual(['claude', 'ollama', 'gemini'])
+    expect(canResegmentWith('deepl')).toBe(false)
+    expect(canResegmentWith('')).toBe(true)
+  })
+
+  it('says what the preview costs before it starts', () => {
+    expect(resegmentCostNote(config, 'claude')).toBe('A paid AI call, counted toward the monthly spending cap. Spent this month: $1.50 of $10.00.')
+    expect(resegmentCostNote(config, 'ollama')).toBe('OLLAMA is free to run.')
+    expect(resegmentCostNote(config, 'gemini')).toBe('An AI call; this engine is not counted toward the monthly cap. Spent this month: $1.50 of $10.00.')
+    expect(resegmentCostNote({ ...config, monthly_cap_usd: 0 }, 'claude')).toContain('(no monthly cap)')
+    expect(resegmentCostNote(null, '')).toBe('A paid AI call, counted toward the monthly spending cap.')
+  })
+
+  it('lists only what would be dropped', () => {
+    expect(droppedText({ translated: 2, flagged: 1, notes: 1 })).toBe('2 translations, 1 flag and 1 note on the lines being split will be dropped.')
+    expect(droppedText({ translated: 1, flagged: 0, notes: 3 })).toBe('1 translation and 3 notes on the lines being split will be dropped.')
+    expect(droppedText({ translated: 0, flagged: 2, notes: 0 })).toBe('2 flags on the lines being split will be dropped.')
+    expect(droppedText({ translated: 0, flagged: 0, notes: 0 })).toMatch(/any line that is split loses them/)
+  })
+
+  it('summarises counts and the engine in plain words', () => {
+    const p = { drama_id: 1, source_line_ids: [1, 2], line_count_before: 2, line_count_after: 4, changed: new Array(2).fill({ line_id: 1, idx: 0, zh: '', pieces: [] }), translated: 0, flagged: 0, notes: 0, needs_confirm: false, engine: 'claude' }
+    expect(llmPreviewSummary(p)).toBe('2 → 4 lines · 2 lines split · by Claude')
+    expect(llmPreviewSummary({ ...p, changed: p.changed.slice(0, 1) })).toContain('1 line split')
+  })
+
+  it('reads why an apply was refused', () => {
+    const err = (status: number, message: string) => new ApiError(status, { code: 'x', message })
+    expect(llmApplyProblem(err(422, 'Re-segmenting would clear translations, flags or notes on the lines being split -- pass confirm=true.'))).toBe('confirm')
+    expect(llmApplyProblem(err(409, "This drama's lines changed since the preview -- run the preview again."))).toBe('changed')
+    expect(llmApplyProblem(err(409, "This drama's lines changed since you loaded them -- reload and try again."))).toBe('changed')
+    expect(llmApplyProblem(err(409, 'A background job is still running for this drama -- wait for it to finish.'))).toBe('job')
+    expect(llmApplyProblem(err(409, 'A re-segmentation is already running for this drama.'))).toBe('job')
+    expect(llmApplyProblem(err(404, 'No LLM re-segmentation preview is ready for this drama -- run the preview first.'))).toBe('gone')
+    expect(llmApplyProblem(err(503, 'down'))).toBeNull()
+    expect(llmApplyProblem(new Error('x'))).toBeNull()
+    // The apply job's own error text (checked again at run time).
+    expect(llmApplyProblem('Re-segmenting would now clear translations, flags or notes on the lines being split -- nothing was changed; apply again with confirm=true.')).toBe('confirm')
+    expect(llmApplyProblem("This drama's lines changed since the preview -- nothing was changed; run the preview again.")).toBe('changed')
+    expect(llmApplyProblem('Something else')).toBeNull()
+  })
+
+  it('never shows raw API wording for a refusal', () => {
+    for (const p of ['confirm', 'changed', 'gone', 'job'] as const) {
+      const text = llmApplyProblemText(p)
+      expect(text).not.toMatch(/confirm=|use_preview|_/)
+    }
+    expect(llmApplyProblemText('job')).toBe(JOB_RUNNING_MESSAGE)
   })
 })
