@@ -352,6 +352,10 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .toggle-list .field-item { display: flex; }
   .field-help-btn::after, .review-hint::after { inset: -12px; }
 }
+/* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
+@media (max-width: 1360px) {
+  .app-header button.report-btn > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
   /* "Report a problem" is a 44px icon button in the title row; the text stays its accessible name. */

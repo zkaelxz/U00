@@ -108,22 +108,3 @@ test('Settings has no theme select; the header button is the only control', asyn
   await pick(page, 'Sepia')
   await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
 })
-
-// Screenshots for the PR: THEME_SHOTS_DIR=<dir> npx playwright test theme-menu
-const DIR = process.env.THEME_SHOTS_DIR
-test('screenshots in sepia', async ({ page }) => {
-  test.skip(!DIR, 'set THEME_SHOTS_DIR to save screenshots')
-  await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/#/library')
-  await pick(page, 'Sepia')
-  await button(page).click()
-  await page.screenshot({ path: `${DIR}/library-menu-sepia-1280.png` })
-  await page.keyboard.press('Escape')
-  await page.screenshot({ path: `${DIR}/library-sepia-1280.png` })
-  await page.goto('/#/drama/1/review')
-  await page.waitForTimeout(1200)
-  await page.screenshot({ path: `${DIR}/review-sepia-1280.png` })
-  await page.goto('/#/settings')
-  await page.waitForTimeout(800)
-  await page.screenshot({ path: `${DIR}/settings-sepia-1280.png` })
-})
