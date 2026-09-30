@@ -10,17 +10,18 @@ empty, or a docstring mapping the package's modules; `sources/adapters/`'s
 also holds the list of built-in adapters to load).
 The other exception to "Python" is `extension/`, which is
 browser-side JavaScript loaded by Chrome rather than anything Python
-imports, and `frontend/` (experimental migration branch only), a
-TypeScript/React app built with npm that talks to `api/` over HTTP.
+imports, and `frontend/`, a
+TypeScript/React app built with npm that talks to `api/` over HTTP
+(`python -m api` serves its built `frontend/dist`).
 
 ```
 baihe-subtitler/
 │
-├── app.py                     ← START HERE:  streamlit run app.py
+├── app.py                        old Streamlit entry point (frozen, being deleted)
 ├── __init__.py                   (empty)
 ├── common.py                     shared imports every tab pulls in
 ├── cli.py                        headless batch runner
-│                                 (experimental: `python -m api` starts the HTTP API, see api/ below)
+│                                 START HERE: `python -m api` (api/server.py) runs the app, see api/ below
 ├── run_tests.py                  test runner wrapper
 │
 ├── requirements-core.txt         minimum to launch + translate text
@@ -28,10 +29,8 @@ baihe-subtitler/
 ├── requirements-optional.txt     per-feature extras
 ├── requirements.txt              everything, in one shot -- just the three files above combined
 ├── constraints.txt               upper bounds for packages that have broken this app before
-├── start.bat                     one-click Windows launcher
+├── start.bat                     one-click Windows launcher: runs `python -m api`, opens http://127.0.0.1:8600/
 ├── start.ps1                     PowerShell version of the launcher (start.bat is primary)
-├── start-react.bat               one-command Windows launcher for the React app: builds frontend/dist once,
-│                                 runs `python -m api`, opens http://127.0.0.1:8600/ (untested on Windows)
 ├── make_lock.bat                 snapshots installed package versions to constraints.lock.txt
 ├── make_shortcut.bat             creates a desktop shortcut to start.bat
 ├── uninstall.bat                 this app has no registry/Program Files footprint to clean up
@@ -70,52 +69,34 @@ baihe-subtitler/
 │   ├── content-sources.md        every source the Sources tab can reach, what was actually
 │   │                             checked and how [maintained status tracking — updated per
 │   │                             adapter, per adding-source.md's own instruction]
-│   ├── handoff-browser-extension.md   the browser extension's original pre-build reasoning
-│   │                             [superseded handoff — its own banner says the feature is now
-│   │                             built as Step 34/34b and points to browser-extension.md;
-│   │                             kept only as historical record, not a live plan]
 │   ├── known-working-sources.md  quick "can I point the app at this site" status board, a
 │   │                             short companion to content-sources.md's full technical detail
 │   │                             [maintained status tracking — update a row's status on
 │   │                             re-verification rather than trusting an old date]
-│   ├── migration-react-fastapi.md   the React + FastAPI migration: phase tables, differences from
-│   │                             the original Python-only design, historical foundation write-up
-│   │                             [source of truth for migration phases; merged into `baihe-subtitler`]
-│   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants,
-│   │                             sequence, decisions [planning/reference, companion to
-│   │                             migration-react-fastapi.md]
-│   ├── migration-handoff.md      durable migration status, recipe and queue [live status page]
 │   ├── migration-frontend-plan.md   React frontend slice plan [planning/reference]
-│   ├── baihe-roadmap-master.md   master index: status snapshot, bug tracker, to-do queue,
-│   │                             deferred steps [snapshot; the roadmap on the planning branch
-│   │                             stays the source of truth]
+│   ├── STATUS.md                 current state, in-flight PRs, what's next [live status; each
+│   │                             session replaces its own entry]
+│   ├── archive/                  historical records, not sources of truth: migration review,
+│   │                             handoff and phase log, old roadmap master tracker, Streamlit test
+│   │                             triage, superseded remote-access/extension handoffs, installer
+│   │                             research notes, Step 19 click-through audit
 │   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
-│   ├── remote-access-design.md   M8-H: Tailscale Serve access + Baihe permissions [design
-│   │                             proposal, nothing built yet; written for the planning session
-│   │                             to fold the decision into the roadmap]
-│   ├── migration-screenshots/    before/after screenshots referenced by migration-review.md
+│   ├── migration-screenshots/    before/after screenshots referenced by archive/migration-review.md
 │   ├── technical-notes.md        engineering changelog: real bugs found during development, how
 │   │                             they were diagnosed and fixed [audit record, append-only;
 │   │                             deliberately kept separate from README.md so that stays
 │   │                             focused on using the app]
-│   ├── windows-installer-design.md   Step 80 Windows installer/uninstaller architecture
-│   │                             [design proposal, nothing built yet; written for an
-│   │                             implementing session or the user to read before Step 80's
-│   │                             build work starts]
-│   ├── windows-installer-research-notes.md   follow-up research stress-testing that design's
-│   │                             recommendation against prior art [research/reference,
-│   │                             discussion only — no roadmap step id, doesn't change the
-│   │                             merged design's recommendation]
-│   └── ux-click-through-audit.md Step 19's live click-through UX audit of every workflow,
-│                                 against the roadmap's own 12-workflow/8-question spec [audit
-│                                 record]
+│   └── windows-installer-design.md   Step 80 Windows installer/uninstaller architecture
+│                                 [design proposal, nothing built yet; written for an
+│                                 implementing session or the user to read before Step 80's
+│                                 build work starts]
 │
 │   Note: the numbered build-order roadmap (`docs/baihe-roadmap.md`) and its own status table
 │   don't live in this repo — they're tracked on the separate planning branch
 │   `claude/baihe-subtitle-planning-95qyvq` until the roadmap's own final step copies the file
-│   in (see root `CLAUDE.md`, and `docs/README.md`'s own fetch command). A branch,
+│   in (see `docs/README.md`). A branch,
 │   `claude/baihe-subtitler-tracker-gzuzhg`, once carried a copy of `docs/baihe-roadmap.md` and a
 │   `docs/README.md` committed straight into this repo — deliberately not merged: the roadmap
 │   copy was a stale snapshot (missing several already-merged steps) and duplicating the file
@@ -215,6 +196,8 @@ baihe-subtitler/
 │   │                             filtered by job visibility) and the jobs/new-chapters push categories
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
+
+│   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -287,9 +270,9 @@ baihe-subtitler/
 │   │                             update_drama_metadata (whitelisted partial update); Slice 36
 │   │                             delete_drama (typed-confirm, refused while a job runs);
 │   │                             cover upload stays out of scope (auto-fill is metadata_service, Slice 37)
-│   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
+│   ├── translate_run_service.py  Migration Slice 39 -- per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
-│   │                             estimate / cap gating); start-translate job is a later slice;
+│   │                             estimate / cap gating); start_translate_run starts the job;
 │   │                             parity X02/X22: apply_workflow_tier, save_translate_preset
 │   ├── characters_service.py     Migration Slice 42 -- per-drama speakers' character/voice config:
 │   │                             list/update (None = leave alone, "" = clear), series-character
@@ -437,6 +420,7 @@ baihe-subtitler/
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
@@ -478,8 +462,8 @@ baihe-subtitler/
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
 │       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36), POST|GET
 │       │                         /api/dramas/{id}/cover (upload local_only, read library.read)
-│       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
-│       │                         (Migration Slice 39, read-only)
+│       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate, POST .../run,
+│       │                         .../bulk (list, resume, cancel), presets (Migration Slice 39)
 │       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
 │       │                         POST .../voice-bank/apply, /series/{id}/characters, /voice-bank
 │       │                         (Migration Slice 42)
@@ -564,6 +548,11 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
+
+│       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
+│       │                         Steps 103/104)
+│       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
+│                                 /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
 │       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
@@ -599,7 +588,7 @@ baihe-subtitler/
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
-│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
+│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
@@ -629,7 +618,9 @@ baihe-subtitler/
 │   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
 │   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
-│   │                              settings.css (the page's Card stack and status rows)
+│   │                              settings.css (the page's Card stack and status rows).
+│   │                              TranscriptionExperimentsCard (Settings > Transcription experiments, Steps
+│   │                              103/104: Qwen3-ASR batch size, MOSS toggle; PC only); API in src/api/asrOptions.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
@@ -671,7 +662,8 @@ baihe-subtitler/
 │   │                              AddTitle, BulkImport (+ PastedListing), ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
-│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
+│   ├── src/pages/workspace/stages/  also DiarizationDeviceNote (Transcribe > Speakers: GPU/CPU of the last
+│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
 │   │                              Glossary > From novel / From lines, and the novel one on Source),
 │   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
 │   │                              (Translate: review glossary before translating), useGlossaryRun
@@ -759,7 +751,7 @@ baihe-subtitler/
 **ASR / transcription & alignment**
 | File | Does |
 |---|---|
-| `asr_backend.py` | pluggable transcription: Whisper (default) vs Qwen3-ASR |
+| `asr_backend.py` | pluggable transcription (BACKENDS/get_backend): Whisper (default), Qwen3-ASR (optional batching, Step 103), MOSS-Transcribe-Diarize (experimental, Step 104) |
 | `asr_benchmark.py` | Whisper vs Qwen3-ASR/ForcedAligner, one clip at a time |
 | `audio_preprocess.py` | optional audio preprocessing before transcription |
 | `forced_align.py` | Qwen3-ForcedAligner timing (alternative to `core.py`'s Whisper-diff alignment) |
@@ -824,7 +816,7 @@ baihe-subtitler/
 | `export_package.py` | per-drama archive bundle |
 
 The `services/` and `api/` packages and `frontend/` (the React + FastAPI
-migration's foundation, experimental, see `docs/migration-react-fastapi.md`)
+migration; history in `docs/archive/migration-react-fastapi.md`)
 are listed in the tree above. The `sources/` package (the adapter system proper, one file per supported
 site under `sources/adapters/`) and the browser extension bridge
 (`page_server.py` plus everything in `extension/`) are broken out in the
@@ -851,7 +843,6 @@ subsystem rather than a handful of top-level modules.
   top level — a missing package disables its own feature instead of
   stopping the app from starting.
 - **`library/` is yours.** Back it up. It's gitignored for a reason.
-- **Adding a new top-level module or `tabs/*.py` file? Update this file
-  in the same step/PR.** See `CLAUDE.md`'s "Rules learned from real
-  bugs" section — this drifted badly once already, which is why that
-  rule exists.
+- **Adding a new top-level module, `services/*.py` or `api/routers/*.py`
+  file? Update this file in the same PR** (root `CLAUDE.md`, "How to
+  work"; a hook warns) — this drifted badly once already.

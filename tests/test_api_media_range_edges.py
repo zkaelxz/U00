@@ -9,7 +9,7 @@ seek behaviour") as far as it can be checked without a multi-GB real file:
 the >4 GiB case uses a sparse file, so no real disk is used. Behaviour
 is checked against RFC 9110 sections 13.1.5 (If-Range), 14 (Range requests)
 and 15.5.17 (416), and against the Slice 52 paragraph in
-docs/migration-review.md. Any mismatch is a strict xfail with the root cause.
+docs/archive/migration-review.md. Any mismatch is a strict xfail with the root cause.
 
 Complements tests/test_api_media_playback.py (the slice's own tests); cases
 already asserted there are not repeated unless a new edge is added.
