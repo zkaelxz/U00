@@ -190,6 +190,28 @@ SITE_TERMS = [
                                  "path is even reached.",
         },
     },
+    {
+        # roadmap Step 115. Has an adapter (sources/adapters/lightnovel_fun.py),
+        # which carries the same notes; recorded here too so a pasted
+        # lightnovel.fun URL the adapter doesn't route (a /category/ page, a
+        # post) still shows what is known about the site's terms.
+        "domains": ("lightnovel.fun",),
+        "platform": "轻之国度 (LightNovel)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "robots.txt fetched directly (2026-09-30): User-agent: * disallows only "
+                    "/settings/ and /publish_mgr/; AhrefsBot, DotBot, MJ12bot and SemrushBot "
+                    "get Disallow: /. The site rules page (LK站规) couldn't be located: the "
+                    "footer's rules links have no target and /site_rule returns 404.",
+            "notices": "Per-work notices uploaders put on their releases: \"仅供个人学习交流使用，"
+                       "禁作商业用途\" (personal study only, no commercial use), \"禁止转载\" (no "
+                       "reposting), \"禁止二改二传\" (no re-editing or re-uploading).",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. The per-work notices restrict "
+                          "redistribution, not reading; they are not a site-wide automation "
+                          "clause.",
+        },
+    },
 ]
 
 
