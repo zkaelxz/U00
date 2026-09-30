@@ -38,4 +38,5 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - Finish with a short summary: what changed and what the user will notice, the commands you ran with pass counts, what you're unsure about, and follow-ups.
 - Merging: push and open a draft PR into `baihe-subtitler`; the lead session merges once CI is green.
 - Don't delegate by default. Use a subagent only for independent work that needs many files read, and brief it with the exact files and question.
+- Model: Sonnet 5.5 at medium effort by default (sessions and agents). Use Opus 5.5 for security reviews and audits, auth/remote-access changes, and concurrency or data-integrity bugs; `security-reviewer` and `security-auditor` are pinned to Opus. (User decision 2026-09-30, for cost.)
 - Commit trailers name the model actually used.

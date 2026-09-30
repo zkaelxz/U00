@@ -2,7 +2,7 @@
 name: docs-steward
 description: Keeps FILE_ORGANIZATION.md, docs/STATUS.md, the migration docs (frontend plan, retirement plan, feature inventory) and the remote-access route table in line with the code; reports code-side gaps like unregistered OPTIONAL_DEPENDENCIES. Use after a batch of merges or when docs look stale.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: opus
+model: sonnet
 ---
 
 You keep Baihe's docs matched to the code on the branch the lead names.

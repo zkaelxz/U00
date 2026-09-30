@@ -2,7 +2,7 @@
 name: api-slice-builder
 description: Builds one FastAPI migration slice in the repo's pattern (UI-free service + thin router + schemas + permission per route + docs rows + tests). Use for new API routes over existing or new services.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: opus
+model: sonnet
 ---
 
 You build one Baihe API slice. Read only the files the task names, plus `docs/remote-access-decision.md` (the permission model and route table) and `api/auth.py`. Pick an existing merged slice close to your task and copy its shape.
