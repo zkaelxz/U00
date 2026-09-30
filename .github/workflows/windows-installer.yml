@@ -43,11 +43,15 @@ jobs:
   # 2x Windows rate for long.
   installer:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       INNO_VERSION: "6.7.3"
       INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+      # Builds the bundled Caddy (installer/build_installer.py CADDY_GO_VERSION);
+      # the hash is go.dev's published one for this zip.
+      GO_URL: "https://go.dev/dl/go1.26.8.windows-amd64.zip"
+      GO_SHA256: "b92c3b2adae85a11ba71fe7216daf0d84e82af4c8ab6c5625807f28622043a59"
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.
@@ -80,6 +84,20 @@ jobs:
           if ($p.ExitCode -ne 0) { Write-Error "Inno Setup install exited $($p.ExitCode)"; exit 1 }
           "ISCC=$dir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      - name: Install Go (pinned)
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "go.zip"
+          Invoke-WebRequest -Uri $env:GO_URL -OutFile $zip -TimeoutSec 300
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:GO_SHA256) { Write-Error "Go hash $hash != $env:GO_SHA256"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP "go-dist"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          # Windows' own tar: much faster than Expand-Archive on Go's many files.
+          tar -xf $zip -C $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't unpack Go"; exit 1 }
+          "GO_EXE=$dir\go\bin\go.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Pick the version
         shell: pwsh
         env:
@@ -98,7 +116,7 @@ jobs:
 
       - name: Build the installer
         shell: pwsh
-        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC"
+        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC" --go "$env:GO_EXE"
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
@@ -250,6 +268,13 @@ jobs:
           if ($failure -notmatch 'RESTART') { Write-Error "no restart on failure: $failure"; exit 1 }
           $svc = Get-Service BaiheStudio
           if ($svc.Status -ne 'Running' -or $svc.StartType -ne 'Automatic') { Write-Error "BaiheStudio is $($svc.Status), start $($svc.StartType)"; exit 1 }
+          # Caddy is installed but off: its own account, stopped, never starts at boot.
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "BaiheCaddy is $($caddy.Status), start $($caddy.StartType)"; exit 1 }
+          $caddyAccount = (Get-CimInstance Win32_Service -Filter "Name='BaiheCaddy'").StartName
+          if ($caddyAccount -ne 'NT SERVICE\BaiheCaddy') { Write-Error "BaiheCaddy runs as '$caddyAccount'"; exit 1 }
+          $caddyPrivs = (sc.exe qprivs BaiheCaddy 4096) | Out-String
+          if ($caddyPrivs -match 'SeImpersonatePrivilege') { Write-Error "BaiheCaddy privileges: $caddyPrivs"; exit 1 }
           $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
           if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
           Invoke-WebRequest -Uri http://127.0.0.1:8600/api/library/dramas -UseBasicParsing -TimeoutSec 30 | Out-Null
@@ -296,6 +321,43 @@ jobs:
           if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
           Write-Host "The update kept the data folder and the running service."
 
+      # Remote access is the owner's own step. Without its sign-in settings
+      # enable-remote refuses and changes nothing; nothing here runs it with
+      # settings, so no port opens, no certificate is requested and no
+      # firewall rule exists. The Caddyfile it would write is rendered from the
+      # shipped template and checked by the bundled Caddy (which must include
+      # rate_limit), without starting it.
+      - name: Service -- remote access refuses without settings; the Caddyfile validates
+        shell: pwsh
+        run: |
+          $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
+          $py = "$admin\helper\python\python.exe"
+          & $py -I -S "$admin\helper\lib\installer\service.py" enable-remote
+          if ($LASTEXITCODE -ne 2) { Write-Error "enable-remote without settings exited $LASTEXITCODE, expected 2 (refused)"; exit 1 }
+          $caddy = Get-Service BaiheCaddy
+          if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "a refused enable-remote changed Caddy"; exit 1 }
+          if (Test-Path "$admin\caddy\Caddyfile") { Write-Error "a refused enable-remote wrote a Caddyfile"; exit 1 }
+          if (Get-NetFirewallRule -DisplayName "*Baihe*" -ErrorAction SilentlyContinue) { Write-Error "a firewall rule exists"; exit 1 }
+          foreach ($port in @(80, 443, 8610)) {
+            if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) { Write-Error "port $port is listening"; exit 1 }
+          }
+          $test = Join-Path $env:RUNNER_TEMP "caddy-validate"
+          New-Item -ItemType Directory -Force -Path $test | Out-Null
+          $script = Join-Path $test "render.py"
+          @'
+          import pathlib, sys
+          sys.path.insert(0, sys.argv[1])
+          import service
+          text = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+          pathlib.Path(sys.argv[3]).write_text(service.render_caddyfile(text, "baihe.example.com", 8610, sys.argv[4]), encoding="utf-8")
+          '@ | Set-Content -Path $script -Encoding utf8
+          & $py -I -S $script "$admin\helper\lib\installer" "$admin\helper\lib\deploy\caddy\Caddyfile.template" "$test\Caddyfile" $test
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't render the Caddyfile"; exit 1 }
+          $env:XDG_DATA_HOME = $test; $env:XDG_CONFIG_HOME = $test
+          & "$admin\caddy\caddy.exe" validate --config "$test\Caddyfile" --adapter caddyfile
+          if ($LASTEXITCODE -ne 0) { Write-Error "caddy validate exited $LASTEXITCODE"; exit 1 }
+          Write-Host "enable-remote refused without settings; the rendered Caddyfile validates; nothing is listening or allowed through the firewall."
+
       - name: Service -- uninstall removes it and keeps the data
         shell: pwsh
         run: |
@@ -303,7 +365,9 @@ jobs:
           $p = Start-Process -FilePath "$env:APP_DIR3\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
           for ($i = 0; $i -lt 120 -and ((Test-Path "$env:APP_DIR3\unins000.exe") -or (Test-Path $admin)); $i++) { Start-Sleep -Seconds 1 }
-          if (Get-Service BaiheStudio -ErrorAction SilentlyContinue) { Write-Error "the BaiheStudio service is still installed"; exit 1 }
+          foreach ($name in @("BaiheStudio", "BaiheCaddy")) {
+            if (Get-Service $name -ErrorAction SilentlyContinue) { Write-Error "the $name service is still installed"; exit 1 }
+          }
           if (Test-Path $admin) {
             Write-Host "--- admin folder"; Get-Item -Force $admin | Format-List FullName, Attributes, LastWriteTime
             Get-ChildItem -Force -Recurse $admin -ErrorAction SilentlyContinue | Select-Object -First 30 FullName | Format-Table -AutoSize | Out-String | Write-Host
