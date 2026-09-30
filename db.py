@@ -5383,6 +5383,19 @@ def auth_delete_user_sessions(user_id: int) -> int:
         return cur.rowcount
 
 
+def auth_delete_stale_sessions(now: float, idle_cutoff: float) -> int:
+    """Deletes every session a lookup would refuse anyway: past its absolute
+    expiry, idle since `idle_cutoff` or earlier, or held by a deactivated or
+    missing user. Returns how many rows went."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "DELETE FROM auth_sessions WHERE expires_at <= ? OR last_seen_at <= ? "
+            "OR user_id NOT IN (SELECT id FROM users WHERE is_active = 1)",
+            (now, idle_cutoff))
+        conn.commit()
+        return cur.rowcount
+
+
 def auth_list_sessions(user_id: int):
     """Never selects id_hash or csrf_hash."""
     with contextlib.closing(get_conn()) as conn:
