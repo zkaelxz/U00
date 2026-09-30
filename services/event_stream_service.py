@@ -86,6 +86,7 @@ class Subscription:
         self._live = set()
         self._notifications = False
         self._overflow = False
+        self._recheck = False
         self._loop = loop
         self._event = asyncio.Event() if loop is not None else None
         self._signalled = False
@@ -118,6 +119,17 @@ class Subscription:
         if wake:
             self._wake()
 
+    def request_recheck(self) -> None:
+        """The stream re-checks its session on its next wake-up, even
+        within AUTH_RECHECK_SECONDS of the last check (a session was
+        revoked), and is woken now."""
+        with self._mu:
+            self._recheck = True
+            wake = not self._signalled
+            self._signalled = True
+        if wake:
+            self._wake()
+
     def _wake(self) -> None:
         if self._loop is None or self._event is None:
             return
@@ -144,11 +156,13 @@ class Subscription:
     def drain(self) -> dict:
         with self._mu:
             batch = {"overflow": self._overflow, "jobs": sorted(self._jobs),
-                     "live": sorted(self._live), "notifications": self._notifications}
+                     "live": sorted(self._live), "notifications": self._notifications,
+                     "recheck": self._recheck}
             self._jobs.clear()
             self._live.clear()
             self._notifications = False
             self._overflow = False
+            self._recheck = False
             self._signalled = False
             if self._event is not None:
                 self._event.clear()
@@ -207,6 +221,20 @@ def close_subscription(sub) -> None:
         _subs.discard(sub)
         if len(_subs) == 0:
             _sweep_snapshot = None   # the next first stream takes a fresh baseline
+
+
+def request_recheck(user_id=None) -> None:
+    """After a sign-out elsewhere, a revoke or a deactivation: that user's
+    streams (every stream for None) re-check their session at once, so a
+    revoked one ends now instead of at its next heartbeat. Never raises."""
+    key = None if user_id is None else principal_key({"user_id": user_id})
+    with _lock:
+        subs = [s for s in _subs if key is None or s.key == key]
+    for sub in subs:
+        try:
+            sub.request_recheck()
+        except Exception:
+            pass
 
 
 def open_count(key: str = None) -> int:

@@ -294,7 +294,9 @@ class TestDocsAndAdmin:
         assert h.get("/api/library/dramas", headers=_h(_admin_session())).status_code == 200
 
     def test_disabled_household_leaves_admin_as_today(self):
-        today, now = create_app(ApiSettings()), _admin_app()
+        # serve_frontend as in ADMIN: otherwise a built frontend/dist adds the
+        # catch-all to one side only.
+        today, now = create_app(ApiSettings(serve_frontend=False)), _admin_app()
         assert ([m.cls.__name__ for m in today.user_middleware]
                 == [m.cls.__name__ for m in now.user_middleware])
         assert ({p for _r, p, _m, _d in api_auth.iter_route_declarations(today)}

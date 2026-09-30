@@ -67,6 +67,11 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   (`api.auth.HouseholdGate`). Refused at startup: the admin port, the
   extension bridge's 8756, a non-loopback host, development mode, sign-in
   not configured (the three `BAIHE_GOOGLE_*`/`BAIHE_PUBLIC_URL` settings).
+- `BAIHE_API_SESSION_IDLE_DAYS` (default 14, 1-90) and
+  `BAIHE_API_SESSION_MAX_DAYS` (default 30, 1-365) -- a signed-in device
+  is signed out after this many days unused, and after this many days
+  whatever happens (then it signs in with Google again). The idle limit
+  may not exceed the absolute one. Both apply to existing sessions too.
 """
 
 import os
@@ -75,6 +80,8 @@ from urllib.parse import urlsplit
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8600
+SESSION_IDLE_DAYS_RANGE = (1, 90)
+SESSION_MAX_DAYS_RANGE = (1, 365)
 DEV_CORS_ORIGINS = (
     "http://localhost:5173", "http://127.0.0.1:5173",   # vite dev
     "http://localhost:4173", "http://127.0.0.1:4173",   # vite preview
@@ -96,6 +103,8 @@ class ApiSettings:
     google_client_secret: str = field(default="", repr=False)
     public_url: str = ""
     household_port: int = 0       # 0 = no household listener
+    session_idle_days: int = 14   # auth_service.DEFAULT_IDLE_TIMEOUT_DAYS
+    session_max_days: int = 30    # auth_service.DEFAULT_ABSOLUTE_TIMEOUT_DAYS
     listener: str = "admin"       # "admin" | "household" (set by household_settings only)
 
     @property
@@ -168,6 +177,11 @@ def load_settings(environ=None) -> ApiSettings:
                 f"BAIHE_API_HOUSEHOLD_PORT must be a number, got {household_text!r}")
         if not 1 <= household_port <= 65535:
             raise ValueError(f"BAIHE_API_HOUSEHOLD_PORT must be 1-65535, got {household_port}")
+    idle_days = _days(env, "BAIHE_API_SESSION_IDLE_DAYS", 14, SESSION_IDLE_DAYS_RANGE)
+    max_days = _days(env, "BAIHE_API_SESSION_MAX_DAYS", 30, SESSION_MAX_DAYS_RANGE)
+    if idle_days > max_days:
+        raise ValueError("BAIHE_API_SESSION_IDLE_DAYS may not be more than "
+                         f"BAIHE_API_SESSION_MAX_DAYS ({idle_days} > {max_days})")
     sign_in = _sign_in_values(env, from_env_file=environ is None)
     public_url = normalize_public_url(sign_in["BAIHE_PUBLIC_URL"])
     return ApiSettings(host=host, port=port, environment=environment,
@@ -176,7 +190,21 @@ def load_settings(environ=None) -> ApiSettings:
                        cookie_secure=cookie_secure, background_services=background_services,
                        google_client_id=sign_in["BAIHE_GOOGLE_CLIENT_ID"],
                        google_client_secret=sign_in["BAIHE_GOOGLE_CLIENT_SECRET"],
-                       public_url=public_url, household_port=household_port)
+                       public_url=public_url, household_port=household_port,
+                       session_idle_days=idle_days, session_max_days=max_days)
+
+
+def _days(env, name: str, default: int, bounds: tuple) -> int:
+    text = (env.get(name) or "").strip()
+    if not text:
+        return default
+    try:
+        days = int(text)
+    except ValueError:
+        raise ValueError(f"{name} must be a whole number of days, got {text!r}")
+    if not bounds[0] <= days <= bounds[1]:
+        raise ValueError(f"{name} must be {bounds[0]}-{bounds[1]}, got {days}")
+    return days
 
 
 SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL")
