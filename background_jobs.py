@@ -68,6 +68,14 @@ def _emit_change(job_id) -> None:
             pass
 
 
+def _storage_text(text):
+    """job_records lands in backups: secrets and URL query strings out."""
+    if not text:
+        return text
+    from translate_engines import redact_for_storage
+    return redact_for_storage(text)
+
+
 def _mirror_locked(job_id):
     """Caller must already hold _lock. Writes this job's current
     status-transition fields (Migration Slice 7) to the cross-process
@@ -90,7 +98,7 @@ def _mirror_locked(job_id):
         import db
         db.save_job_record(
             job_id, status=job.get("status"), progress=job.get("progress"),
-            message=job.get("message"), error=job.get("error"),
+            message=_storage_text(job.get("message")), error=_storage_text(job.get("error")),
             description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
             started_at=job.get("started_at"), finished_at=job.get("finished_at"),
             result_json=result_json, owner_user_id=job.get("owner_user_id"))

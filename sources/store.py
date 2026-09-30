@@ -16,6 +16,7 @@ import sqlite3
 import time
 
 import db
+from translate_engines import redact_for_storage, safe_url
 
 # Step 23 item 3's concrete starting defaults, plus item 4's cache mode
 # and item 5's chapter-check schedule. All user-editable in Settings.
@@ -272,10 +273,24 @@ def load_capabilities(source: str):
     return json.loads(row["data"]) if row else None
 
 
+def _redact_any(value):
+    if isinstance(value, str):
+        return redact_for_storage(value)
+    if isinstance(value, dict):
+        return {k: _redact_any(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_any(v) for v in value]
+    return value
+
+
 def log_attempt(source: str, url: str, data: dict):
+    """The URL is stored as scheme+host+path and the data with secrets and URL
+    queries removed: this table is part of whole-library backups. Readers
+    only ever show the query-less form, so nothing needs the full URL."""
     with connect() as conn:
         conn.execute("INSERT INTO access_attempts(source, url, data, created_at) VALUES(?, ?, ?, ?)",
-                     (source, url, json.dumps(data, ensure_ascii=False), time.time()))
+                     (source, safe_url(url), json.dumps(_redact_any(data), ensure_ascii=False),
+                      time.time()))
 
 
 def recent_attempts(source: str = None, limit: int = 50) -> list:
@@ -500,7 +515,7 @@ def release_check_cycle(token) -> None:
 def mark_checked(source: str, series_id: str, error: str = None):
     with connect() as conn:
         conn.execute("UPDATE tracked_series SET last_checked=?, last_check_error=? "
-                     "WHERE source=? AND series_id=?", (time.time(), error, source, series_id))
+                     "WHERE source=? AND series_id=?", (time.time(), redact_for_storage(error), source, series_id))
 
 
 def list_notifications(include_dismissed: bool = False) -> list:

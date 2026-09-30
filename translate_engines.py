@@ -311,6 +311,40 @@ def redact_secrets(text: str) -> str:
         lambda m: m.group(0) if "[REDACTED]" in m.group(0) else m.group(1) + "***@", text)
 
 
+_URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
+
+
+def safe_url(url) -> str:
+    """scheme + host + path only: no query, fragment or userinfo (a source
+    URL can carry a signed token). Anything unparsable gives ""."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit(str(url or "").strip())
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if not parts.scheme or not host:
+        return ""
+    return f"{parts.scheme}://{host}{port}{parts.path}"
+
+
+def strip_url_queries(text):
+    """Reduces every absolute URL inside `text` to scheme+host+path
+    (redact_secrets leaves query strings and fragments alone)."""
+    if not text:
+        return text
+    return _URL_IN_TEXT.sub(lambda m: safe_url(m.group(0)) or "[url]", str(text))
+
+
+def redact_for_storage(text):
+    """redact_secrets plus URL query stripping, for text written to a
+    database that ends up in backups."""
+    if not text:
+        return text
+    return strip_url_queries(redact_secrets(str(text)))
+
+
 # Reused from forced_align.py rather than duplicated -- both files need
 # the same "zh"/"ja"/"ko" -> full language name mapping.
 from forced_align import LANGUAGE_NAMES

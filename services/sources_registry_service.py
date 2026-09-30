@@ -28,7 +28,7 @@ from services.service_errors import (InvalidInputError, NotFoundError,
 from sources import auth_browser, cache as src_cache, health, ladder, registry, store
 from sources import http as src_http
 from sources import profiles as src_profiles
-from translate_engines import redact_secrets
+from translate_engines import redact_secrets, safe_url, strip_url_queries
 
 _LIGHTS = {health.GREEN: "green", health.YELLOW: "yellow", health.RED: "red"}
 
@@ -47,7 +47,6 @@ SETTING_KEYS = (
 # Scrubbing
 # ---------------------------------------------------------------------------
 
-_URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*")
 _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
 # A query after a relative request path (requests' "url: /book/7?sig=..."),
@@ -55,20 +54,6 @@ _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
 _REL_QUERY = re.compile(r"(?<=[\w/\]])\?[^\s)'\"<>]+")
 _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-~@+]*|"
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
-
-
-def safe_url(url) -> str:
-    """scheme + host + path only: no query, fragment or userinfo (a source
-    URL can carry a signed token). Anything unparsable gives ""."""
-    try:
-        parts = urlsplit(str(url or "").strip())
-        host = parts.hostname or ""
-        port = f":{parts.port}" if parts.port else ""
-    except ValueError:
-        return ""
-    if not parts.scheme or not host:
-        return ""
-    return f"{parts.scheme}://{host}{port}{parts.path}"
 
 
 def _scrub(text):
@@ -81,7 +66,7 @@ def _scrub(text):
     if lib:
         text = text.replace(lib, "[path]")
     text = redact_secrets(text)
-    text = _URL_IN_TEXT.sub(lambda m: safe_url(m.group(0)) or "[url]", text)
+    text = strip_url_queries(text)
     text = _UNC_PATH.sub("[path]", text)
     text = _WIN_PATH.sub("[path]", text)
     text = _POSIX_PATH.sub("[path]", text)
