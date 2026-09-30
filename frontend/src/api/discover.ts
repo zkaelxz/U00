@@ -17,6 +17,7 @@ import type {
   KnownTitleList,
   NavigationHelpResult,
   Platform,
+  SearchGenre,
   SearchLink,
   TitleFilters,
   TranslateQueryResult,
@@ -58,8 +59,11 @@ export const listPlatforms = (language = '', content_type = '', f?: Fetch) =>
   getJson<{ platforms: Platform[] }>(`${BASE}/platforms${queryString({ language, content_type })}`, f).then(
     (r) => r.platforms,
   )
-export const searchLinks = (q: string, format = '', f?: Fetch) =>
-  getJson<{ links: SearchLink[] }>(`${BASE}/search-links${queryString({ q, format })}`, f).then((r) => r.links)
+export const searchLinks = (q: string, format = '', genre: SearchGenre = 'baihe', tag = '', f?: Fetch) =>
+  getJson<{ links: SearchLink[] }>(
+    `${BASE}/search-links${queryString({ q, format, genre: genre === 'baihe' ? undefined : genre, tag: genre === 'any' ? tag : undefined })}`,
+    f,
+  ).then((r) => r.links)
 
 // Lookup helpers
 export const translateQuery = (q: string, engine?: string, f?: Fetch) =>

@@ -47,6 +47,8 @@ export interface Platform {
   notes?: string
 }
 
+export type SearchGenre = 'baihe' | 'any'
+
 export interface SearchLink {
   site: string
   url: string

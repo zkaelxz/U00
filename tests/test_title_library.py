@@ -110,6 +110,27 @@ class TestSearchLinkGeneration:
         url = known_sites.jjwxc_tag_url("百合")
         assert url.startswith("https://www.jjwxc.net/") and "百合" not in url
 
+    def test_jjwxc_tag_link_baihe_only_by_default(self):
+        import known_sites
+        links = known_sites.build_search_links("x")
+        tag = [l for l in links if l["site"].startswith("JJWXC (百合")]
+        assert len(tag) == 1 and tag[0]["kind"] == "direct"
+        assert tag[0]["url"] == known_sites.jjwxc_tag_url("百合")
+        assert "百合" in links[0]["url"] or "%E7%99%BE%E5%90%88" in links[0]["url"]
+
+    def test_all_genres_drops_hint_and_tag_restriction(self):
+        import known_sites
+        links = known_sites.build_search_links("x", baihe_only=False)
+        assert all("%E7%99%BE%E5%90%88" not in l["url"] for l in links)
+        listing = [l for l in links if l["site"] == "JJWXC (all novels)"]
+        assert listing and "bq=" not in listing[0]["url"]
+
+    def test_all_genres_tag_is_url_quoted(self):
+        import known_sites
+        links = known_sites.build_search_links("x", baihe_only=False, tag="a&b 言情")
+        url = [l for l in links if "tag)" in l["site"]][0]["url"]
+        assert url == "https://www.jjwxc.net/bookbase.php?bq=a%26b+%E8%A8%80%E6%83%85&page=1"
+
 
 class _FakeResponse:
     def __init__(self, payload, status_code=200):
