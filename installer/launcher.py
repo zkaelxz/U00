@@ -10,7 +10,7 @@ window of its own; errors are shown in a message box.
 
 It does what start.bat does for a source checkout, minus the setup the
 installer already did: if the app server already answers on
-http://127.0.0.1:8600/api/health, it just opens a window on it; otherwise
+http://127.0.0.1:<port>/api/health (8600 by default), it just opens a window on it; otherwise
 it starts `python -m api` (loopback only) in its own minimized console
 window -- closing that window stops the app -- waits for /api/health, and
 opens the app in its own window (Edge app mode, then Chrome, then the
@@ -46,8 +46,8 @@ if str(APP_DIR) not in sys.path:
 
 import portable  # noqa: E402 -- needs APP_DIR on sys.path first
 import process_guard  # noqa: E402
+from api.api_config import DEFAULT_PORT  # noqa: E402 -- standard library only, so safe this early
 
-DEFAULT_PORT = 8600
 HEALTH_TRIES = 90          # seconds; a first start compiles every .pyc
 PID_FILE_NAME = "server.pid"
 TOKEN_FILE_NAME = "shutdown.token"
@@ -83,7 +83,7 @@ def server_env(base=None) -> dict:
     """The environment the server runs with. Loopback only, whatever the
     caller's environment says (no LAN access until remote access is set
     up on purpose, docs/remote-access-decision.md); the PC-only API-key
-    form on unless BAIHE_API_ALLOW_KEY_WRITES was set; port 8600 unless
+    form on unless BAIHE_API_ALLOW_KEY_WRITES was set; the default port unless
     BAIHE_API_PORT was set. Same as start.bat."""
     env = dict(os.environ if base is None else base)
     env["BAIHE_API_HOST"] = "127.0.0.1"
@@ -100,7 +100,7 @@ def port_from_env(env) -> int:
     try:
         port = int(str(env.get("BAIHE_API_PORT", DEFAULT_PORT)).strip())
     except ValueError:
-        raise LaunchError("BAIHE_API_PORT must be a port number, like 8600.")
+        raise LaunchError(f"BAIHE_API_PORT must be a port number, like {DEFAULT_PORT}.")
     if not 1 <= port <= 65535:
         raise LaunchError("BAIHE_API_PORT must be between 1 and 65535.")
     return port
