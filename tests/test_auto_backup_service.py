@@ -1835,7 +1835,8 @@ class TestRestoreRoundTrip:
             _restore(a)
         assert db.LIBRARY_DIR not in str(e.value)
         assert _dump_all() == before
-        assert not [n for n in os.listdir(db.DRAMAS_DIR) if n.startswith(".restoring")] \
+        assert not [n for n in os.listdir(db.DRAMAS_DIR)
+                    if n.startswith((".restoring", db.MEDIA_STAGING_PREFIX))] \
             if os.path.isdir(db.DRAMAS_DIR) else True
 
 
@@ -1924,6 +1925,35 @@ class TestRestoreMedia:
         _delete_drama(a)
         res = _restore(a)
         assert res["media_restored"] is False and res["drama_id"] == a
+
+    def test_commit_failure_removes_only_the_restored_folder(self, isolated_db, monkeypatch):
+        a = self._media_drama()
+        b = db.create_drama(title_en="B")
+        os.makedirs(_ddir(b))
+        with open(os.path.join(_ddir(b), "b.wav"), "wb") as fh:
+            fh.write(b"B")
+        _snap(include_media=True)
+        _delete_drama(a)
+        armed, real_move = [], abs_._move_media_in
+
+        def move(*args, **kw):
+            real_move(*args, **kw)
+            assert os.path.isdir(_ddir(a))     # in place before the commit
+            armed.append(1)
+
+        def commit(self):
+            if armed:
+                armed.clear()
+                raise sqlite3.OperationalError("disk I/O error")
+            return sqlite3.Connection.commit(self)
+        monkeypatch.setattr(abs_, "_move_media_in", move)
+        monkeypatch.setattr(db._TrackedConnection, "commit", commit, raising=False)
+        with pytest.raises(ServiceError):
+            _restore(a)
+        monkeypatch.undo()
+        assert db.get_drama(a) is None and not os.path.lexists(_ddir(a))
+        assert sorted(os.listdir(db.DRAMAS_DIR)) == [str(b)]
+        assert _read(os.path.join(_ddir(b), "b.wav")) == b"B"
 
 
 # --------------------------------------------------------------------------

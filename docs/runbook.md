@@ -10,6 +10,7 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 4. On GitHub: Actions -> "Windows Installer" -> Run workflow (set the version). The installer is the uploaded artifact.
 - The build fails if a wheel's hash is missing or different from the lock. That is the check working.
 - This proves the files match the lock. It does not prove the upstream packages are safe.
+- Before bumping one package, test it in a throwaway venv: `python scripts/dependency_canary.py <package>` (runs the offline suite; `--write-pin` caps `constraints.txt` on FAIL; see `docs/testing-and-ci.md`).
 
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
