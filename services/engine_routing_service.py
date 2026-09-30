@@ -133,6 +133,11 @@ def default_engine_for(capability: str) -> str:
     return settings_service.get_default_engine() if default == _DEFAULT_ENGINE else default
 
 
+def is_configured(capability: str) -> bool:
+    """True once the user picked an engine for `capability` in Settings."""
+    return _stored(capability) is not None
+
+
 def resolve_capability(capability: str) -> str:
     """The engine name configured for `capability`, else its default. Pure
     configuration lookup: never checks keys, never tries another engine."""

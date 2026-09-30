@@ -67,10 +67,11 @@ class TestReasons:
         assert svc.line_reasons(Line(idx=0, start=0, end=1, zh="林婉笑了", en="lin wan smiled."),
                                 g) == []
 
-    def test_ambiguous_term(self):
-        g = _glossary([("师姐", "Senior Sister"), ("师姐", "Shijie")])
-        assert "ambiguous_term" in svc.line_reasons(
-            Line(idx=0, start=0, end=1, zh="师姐来了", en="Senior Sister came."), g)
+    @pytest.mark.parametrize("flag", ["ambiguous_reference", "name_uncertain"])
+    def test_ambiguous_term(self, flag):
+        assert svc.line_reasons(
+            Line(idx=0, start=0, end=1, zh="师姐来了", en="She came.", flag=flag),
+            []) == ["ambiguous_term"]
 
     def test_untranslated_line_is_not_suggested(self):
         assert svc.line_reasons(Line(idx=0, start=0, end=1, zh="你好", en="", flag="x"), []) == []
@@ -89,9 +90,28 @@ class TestSuggestions:
 
     def test_nothing_when_the_stronger_engine_is_already_used(self, drama):
         did, _, _ = drama
-        routing.set_capability_engine("translation.high_quality", None)  # = default = ollama
+        routing.set_capability_engine("translation.high_quality", "ollama")
         out = svc.get_suggestions(did)
         assert out["available"] is False and out["lines"] == []
+
+    def test_nothing_until_a_stronger_engine_is_picked(self, drama):
+        did, _, _ = drama
+        routing.set_capability_engine("translation.high_quality", None)
+        settings_service.set_settings({"default_engine": "claude"})  # unset default != ollama
+        out = svc.get_suggestions(did)
+        assert out["available"] is False and out["lines"] == []
+
+    def test_glossary_conflict_from_real_rows(self, drama):
+        did, ids, _ = drama
+        by_id = {s["line_id"]: s["reasons"] for s in svc.get_suggestions(did)["lines"]}
+        assert "glossary_conflict" in by_id[ids[1]]
+        assert ids[2] not in by_id  # "Lin Wan left." uses the term
+
+    def test_estimate_counts_the_whole_prompt(self, drama):
+        did, ids, _ = drama
+        est = {s["line_id"]: s["estimate_usd"] for s in svc.get_suggestions(did)["lines"]}[ids[1]]
+        bare = svc._estimate("claude", "林婉笑了", 0)
+        assert est > bare * 3
 
     def test_unknown_drama(self, isolated_db):
         with pytest.raises(NotFoundError):
@@ -109,32 +129,58 @@ class TestTryLine:
     def test_returns_a_suggestion_and_writes_nothing(self, drama, engine):
         did, ids, _ = drama
         before = [(ln.id, ln.en, ln.flag) for ln in db.load_line_objects(did)]
-        out = svc.try_line(did, ids[1])
+        out = svc.try_line(did, ids[1], "claude")
         assert out["text"] == "Lin Wan smiled." and out["engine"] == "claude"
         assert out["based_on_en"] == "She smiled."
         assert [(ln.id, ln.en, ln.flag) for ln in db.load_line_objects(did)] == before
         zh, ctx = engine.contexts[0]
         assert zh == ["林婉笑了"] and ctx["line_ids"] == [ids[1]]
         assert ctx["recent_context"] == [("你好", "Hello")]
+        assert "Lin Wan" in repr(ctx["glossary_terms"]) and ctx["style_guidelines"]
+
+    def test_character_hints_reach_the_prompt(self, drama, engine, monkeypatch):
+        did, ids, _ = drama
+        from services import workspace_job_service
+        monkeypatch.setattr(workspace_job_service, "build_run_style_context",
+                            lambda *a, **k: (None, "Xiaoling (she/her)", {}))
+        svc.try_line(did, ids[1], "claude")
+        assert "Xiaoling (she/her)" in engine.contexts[0][1]["style_guidelines"]
+
+    def test_a_changed_engine_is_refused(self, drama, engine):
+        did, ids, _ = drama
+        from services.service_errors import ConflictError
+        with pytest.raises(ConflictError):
+            svc.try_line(did, ids[1], "gemini")
+        assert engine.contexts == []
 
     def test_spend_is_logged(self, drama, engine):
         did, ids, _ = drama
         before = db.get_month_spend()
-        out = svc.try_line(did, ids[1])
+        out = svc.try_line(did, ids[1], "claude")
         assert out["cost_usd"] > 0
         assert db.get_month_spend() == pytest.approx(before + out["cost_usd"])
 
     def test_more_than_one_answer_is_refused(self, drama, engine):
         did, ids, _ = drama
         engine.answer = ["a", "b"]
+        before = db.get_month_spend()
         with pytest.raises(ServiceError):
-            svc.try_line(did, ids[1])
+            svc.try_line(did, ids[1], "claude")
+        assert db.get_month_spend() > before  # a rejected answer was still billed
+
+    def test_a_failed_call_still_logs_its_spend(self, drama, engine):
+        did, ids, _ = drama
+        engine.boom = TimeoutError("slow")
+        before = db.get_month_spend()
+        with pytest.raises(ServiceError):
+            svc.try_line(did, ids[1], "claude")
+        assert db.get_month_spend() > before
 
     def test_engine_error_is_fixed_text(self, drama, engine):
         did, ids, _ = drama
         engine.boom = RuntimeError("401 bad key sk-ant-api03-" + "B" * 40)
         with pytest.raises(ServiceError) as ei:
-            svc.try_line(did, ids[1])
+            svc.try_line(did, ids[1], "claude")
         assert "sk-ant" not in str(ei.value)
 
     def test_refused_when_the_monthly_cap_is_used_up(self, drama, engine):
@@ -142,7 +188,7 @@ class TestTryLine:
         settings_service.set_settings({"monthly_cap_usd": 1.0})
         db.log_usage(did, "claude", "m", "translate", 0, 0, 1.5)
         with pytest.raises(UnsupportedOperationError):
-            svc.try_line(did, ids[1])
+            svc.try_line(did, ids[1], "claude")
         assert engine.contexts == []
 
     def test_refused_when_the_estimate_passes_the_cap(self, drama, engine, monkeypatch):
@@ -151,19 +197,19 @@ class TestTryLine:
         db.log_usage(did, "claude", "m", "translate", 0, 0, 0.99)
         monkeypatch.setattr(svc, "_estimate", lambda *a: 0.05)
         with pytest.raises(UnsupportedOperationError):
-            svc.try_line(did, ids[1])
+            svc.try_line(did, ids[1], "claude")
 
     def test_no_key(self, drama, monkeypatch):
         did, ids, _ = drama
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         with pytest.raises(DependencyUnavailableError):
-            svc.try_line(did, ids[1])
+            svc.try_line(did, ids[1], "claude")
 
     def test_same_engine_is_refused(self, drama, engine):
         did, ids, _ = drama
         routing.set_capability_engine("translation.high_quality", "ollama")
         with pytest.raises(UnsupportedOperationError):
-            svc.try_line(did, ids[1])
+            svc.try_line(did, ids[1], "claude")
 
 
 class TestRoutes:

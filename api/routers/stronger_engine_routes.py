@@ -24,7 +24,7 @@ from services import stronger_engine_service as svc
 router = APIRouter(prefix="/api/stronger-engine", tags=["review"])
 
 _ERRORS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
-           404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+           404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
            429: {"model": ErrorResponse}, 500: {"model": ErrorResponse},
            503: {"model": ErrorResponse}}
 
@@ -44,6 +44,9 @@ def get_suggestions(drama_id: int = Path(ge=1)):
              responses=_ERRORS)
 def try_line(request: Request, body: StrongerLineTryRequest = None,
              drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
-    require_engines_allowed(request, svc.stronger_engine_name(drama_id))
+    engine = svc.stronger_engine_name(drama_id)
+    require_engines_allowed(request, engine)
     with llm_slot(request):
-        return svc.try_line(drama_id, line_id)
+        # The checked name is passed on; the service refuses (409) if
+        # Settings changed since, so the call can't use an unchecked engine.
+        return svc.try_line(drama_id, line_id, engine)
