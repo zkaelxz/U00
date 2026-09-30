@@ -20,7 +20,7 @@ import json
 import urllib.request
 
 import portable
-from core import LANGUAGE_NAMES
+from core import LANGUAGE_NAMES, atomic_write
 
 CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
@@ -38,8 +38,7 @@ def _ensure_cedict():
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
     with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
         raw = gzip.decompress(resp.read())
-    with open(CEDICT_PATH, "wb") as f:
-        f.write(raw)
+    atomic_write(CEDICT_PATH, raw, binary=True)
 
 
 def load_cedict():
