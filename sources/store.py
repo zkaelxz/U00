@@ -44,6 +44,10 @@ DEFAULT_SETTINGS = {
     "session_break_max_delay": 90.0,
     "unavailable_backoff": 300.0,   # seconds a 🔴 source is left alone after failing
     "cache_mode": "temporary",
+    # Roadmap 111: a size ceiling (MB) for what the keep_originals /
+    # keep_both cache modes retain. 0 = no limit. Least recently used
+    # content is removed first, after each import (sources.cache).
+    "cache_max_mb": 0,
     "check_interval_hours": 24,
     "auto_queue_new_chapters": False,
     "demo_source_enabled": False,

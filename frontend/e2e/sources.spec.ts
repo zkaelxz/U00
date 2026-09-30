@@ -330,6 +330,12 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
   saveStatus = 200
   await save.click()
   await expect(settings.getByText('Saved.')).toBeVisible()
+  // Cache size limit: a whole number of MB, 0 = no limit.
+  const limit = settings.getByRole('spinbutton', { name: 'Cache limit (MB)' })
+  await expect(limit).toHaveValue('0')
+  await limit.fill('500')
+  await save.click()
+  await expect.poll(() => posted(s, '/api/sources/settings').at(-1)?.body).toEqual({ cache_max_mb: 500 })
 
   // Clear cache: two presses, then the line updates.
   await expect(settings.getByText('Cache: 120 items · 45.2 MB')).toBeVisible()

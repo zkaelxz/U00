@@ -101,10 +101,20 @@ def test_settings_ranges_and_enum(client, pacing_resets):
     for body in ({"max_concurrent": 0}, {"max_concurrent": 5}, {"max_retries": 7},
                  {"pace_max_delay": 121}, {"session_break_max_delay": 901},
                  {"check_interval_hours": 169}, {"cache_mode": "everything"},
+                 {"cache_max_mb": -1}, {"cache_max_mb": 1_000_001},
                  {"pace_min_delay": None}, {"auto_queue_new_chapters": "true"}, {}):
         assert client.post("/api/sources/settings", json=body).status_code == 422, body
     assert pacing_resets == []
     assert store.get_setting("max_concurrent") == 1
+
+
+def test_cache_ceiling_setting(client, pacing_resets):
+    assert client.get("/api/sources/settings").json()["cache_max_mb"] == 0
+    r = client.post("/api/sources/settings", json={"cache_max_mb": 500})
+    assert r.status_code == 200, r.text
+    assert r.json()["cache_max_mb"] == 500
+    assert store.get_setting("cache_max_mb") == 500
+    assert client.post("/api/sources/settings", json={"cache_max_mb": 0}).json()["cache_max_mb"] == 0
 
 
 def test_cache_clear_needs_confirm(client):

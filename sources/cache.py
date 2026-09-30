@@ -56,13 +56,21 @@ class RawCache:
         if not row:
             return None
         path = self._path(row["sha256"])
-        if not os.path.exists(path):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except FileNotFoundError:   # cleared or trimmed (enforce_ceiling) meanwhile
             with store.connect() as conn:
                 conn.execute("DELETE FROM cache_index WHERE url=?", (url,))
             return None
         self.hits += 1
-        with open(path, "rb") as f:
-            return f.read()
+        # A hit counts as use for the size ceiling (enforce_ceiling):
+        # created_at doubles as "last used". put() already rewrites it on
+        # every store and nothing else reads it, so this needs no new
+        # column in a schema that has no migration path.
+        with store.connect() as conn:
+            conn.execute("UPDATE cache_index SET created_at=? WHERE url=?", (time.time(), url))
+        return data
 
     def put(self, url: str, content: bytes):
         if self.mode == "none" or content is None:
@@ -105,8 +113,79 @@ class RawCache:
             except FileNotFoundError:
                 pass
 
+    def enforce_ceiling(self, max_mb: float = None):
+        """Roadmap 111: shrink what the keep modes retain to the
+        `cache_max_mb` setting (0 = no limit). Works per distinct content
+        (one file can back several URLs), least recently used first, and
+        only removes content every row of which is `keep` -- content an
+        import in progress holds as `temporary` is left alone. Also drops
+        files more than a day old that nothing indexes: `.part` files a
+        crashed put() left behind, and files an earlier trim couldn't
+        remove. Returns the number of files removed by the ceiling."""
+        self._drop_stale_orphans()
+        if max_mb is None:
+            max_mb = store.get_setting("cache_max_mb") or 0
+        if max_mb <= 0:
+            return 0
+        ceiling = int(max_mb * 1024 * 1024)
+        with store.connect() as conn:
+            # One write transaction from the read to the delete, so a row
+            # another import stores meanwhile is seen or waits.
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT sha256, MAX(size) AS size, MAX(created_at) AS used, "
+                "SUM(retention != 'keep') AS pinned FROM cache_index "
+                "GROUP BY sha256 ORDER BY used ASC").fetchall()
+            # Only kept content counts: an import's temporary rows are
+            # released when it ends and can't be trimmed before then.
+            rows = [r for r in rows if not r["pinned"]]
+            total = sum(r["size"] for r in rows)
+            doomed = []
+            for r in rows:
+                if total <= ceiling:
+                    break
+                doomed.append(r["sha256"])
+                total -= r["size"]
+            conn.executemany("DELETE FROM cache_index WHERE sha256=? AND retention='keep'",
+                             [(s,) for s in doomed])
+            still_used = {r["sha256"] for r in conn.execute(
+                "SELECT DISTINCT sha256 FROM cache_index")}
+        removed = 0
+        for sha in doomed:
+            if sha in still_used:   # re-stored by a concurrent put()
+                continue
+            try:
+                os.remove(self._path(sha))
+                removed += 1
+            except FileNotFoundError:
+                pass
+            except OSError:   # e.g. open elsewhere on Windows; keep trimming the rest
+                import applog
+                applog.get_logger().warning("Could not remove a cached file", exc_info=True)
+        return removed
+
+    def _drop_stale_orphans(self, max_age: float = 86400):
+        cutoff = time.time() - max_age
+        with store.connect() as conn:
+            indexed = {r["sha256"] for r in conn.execute(
+                "SELECT DISTINCT sha256 FROM cache_index")}
+        for dirpath, _, files in os.walk(self.root):
+            for name in files:
+                if name in indexed:
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    if os.path.getmtime(path) < cutoff:
+                        os.remove(path)
+                except OSError:
+                    pass
+
     def stats(self) -> dict:
         with store.connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes "
-                               "FROM cache_index").fetchone()
-        return {"entries": row["n"], "bytes": row["bytes"], "mode": self.mode}
+            row = conn.execute("SELECT COUNT(*) AS n FROM cache_index").fetchone()
+            # Bytes on disk: content shared by several URLs is stored once,
+            # and the size ceiling (enforce_ceiling) measures it the same way.
+            size = conn.execute("SELECT COALESCE(SUM(size), 0) AS bytes FROM "
+                                "(SELECT MAX(size) AS size FROM cache_index GROUP BY sha256)"
+                                ).fetchone()
+        return {"entries": row["n"], "bytes": size["bytes"], "mode": self.mode}

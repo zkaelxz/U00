@@ -58,7 +58,7 @@ const SETTINGS: SourcesSettings = {
   pace_min_delay: 3, pace_max_delay: 8, max_concurrent: 1, max_retries: 3,
   session_break_min_requests: 8, session_break_max_requests: 20,
   session_break_min_delay: 30, session_break_max_delay: 90,
-  cache_mode: 'keep_originals', check_interval_hours: 24,
+  cache_mode: 'keep_originals', cache_max_mb: 0, check_interval_hours: 24,
   auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
   proxy_configured: false, cache_modes: ['none', 'temporary', 'keep_originals'],
   cache: { entries: 0, bytes: 0 },
@@ -244,6 +244,14 @@ describe('settings', () => {
       .toEqual({ pace_max_delay: 10, cache_mode: 'none', demo_source_enabled: true })
     // "8.0" is the same number.
     expect(settingsChanges(SETTINGS, { ...d, pace_max_delay: '8.0' })).toEqual({})
+  })
+
+  it('edits the cache size limit (0 = no limit, whole MB)', () => {
+    const d = draftFrom(SETTINGS)
+    expect(d.cache_max_mb).toBe('0')
+    expect(settingsChanges(SETTINGS, { ...d, cache_max_mb: '500' })).toEqual({ cache_max_mb: 500 })
+    expect(pacingErrors({ ...d, cache_max_mb: '-1' }).cache_max_mb).toMatch(/between 0 and/)
+    expect(pacingErrors({ ...d, cache_max_mb: '1.5' }).cache_max_mb).toBe('Enter a whole number.')
   })
 
   it('checks ranges and max >= min', () => {

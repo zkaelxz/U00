@@ -30,7 +30,7 @@ export const SETTINGS = {
   pace_min_delay: 3, pace_max_delay: 8, max_concurrent: 1, max_retries: 3,
   session_break_min_requests: 8, session_break_max_requests: 20,
   session_break_min_delay: 30, session_break_max_delay: 90,
-  cache_mode: 'keep_originals', check_interval_hours: 24,
+  cache_mode: 'keep_originals', cache_max_mb: 0, check_interval_hours: 24,
   auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
   proxy_configured: false,
   cache_modes: ['none', 'temporary', 'keep_originals', 'keep_translated', 'keep_both'],
