@@ -157,7 +157,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Settings > Defaults for new dramas (the column's own default is
         # claude, so an unstamped drama would never see the setting).
         fields["translation_engine"] = settings_service.get_default_engine()
-    new_id = db.create_drama(**fields)
+    try:
+        new_id = db.create_drama(**fields)
+    except db.DramaFolderConflict as exc:
+        raise ConflictError(str(exc)) from None
     # Hardening H1: a NEW series is created only after the drama row exists
     # (as the Streamlit form does), so a failed create can't leave a stray
     # series behind (db has no delete_series to clean one up).

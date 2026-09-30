@@ -72,7 +72,6 @@ import stat
 import tempfile
 import threading
 import time
-import uuid
 import zipfile
 import zlib
 
@@ -840,11 +839,14 @@ STALE_LEFTOVER_SECONDS = 24 * 3600
 
 def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float = None) -> int:
     """Startup sweep: partial snapshot files (".baihe_snapshot.partial-*")
-    in the backup folder and single-drama restore staging folders
+    in the backup folder and restore staging folders from older versions
     ("dramas/.restoring-*") left by a process that was killed mid-way,
-    once older than a day. Symlinks are left alone. Never raises."""
+    once older than a day, plus the leftovers of interrupted imports and
+    restores (db.recover_media_imports: any age once journalled, but never
+    one whose import holds its lock). Symlinks are left alone. Never
+    raises."""
     now = time.time() if now is None else now
-    removed = 0
+    removed = db.recover_media_imports(max_age, now)["settled"]
     targets = [(_folder_path(get_settings()["folder"]), ".baihe_snapshot.partial-", False),
                (db.DRAMAS_DIR, ".restoring-", True)]
     for folder, prefix, is_dir in targets:
@@ -1215,11 +1217,12 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
     return live_id, counts, series_outcome
 
 
-def _stage_media(zf: zipfile.ZipFile, old_id: int):
-    """Extracts dramas/<old_id>/... into a hidden staging folder inside
-    DRAMAS_DIR; returns its path, or None when the snapshot has no files
-    for this drama. Member names were already checked by
-    validate_backup_file; each target is re-checked to stay inside."""
+def _stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
+    """Extracts dramas/<old_id>/... into a new folder inside `staging` (an
+    import's db.new_media_staging folder); returns its path, or None when
+    the snapshot has no files for this drama. Member names were already
+    checked by validate_backup_file; each target is re-checked to stay
+    inside."""
     prefix = f"dramas/{old_id}/"
     members = [i for i in zf.infolist()
                if i.filename.replace("\\", "/").startswith(prefix) and not i.is_dir()]
@@ -1236,23 +1239,59 @@ def _stage_media(zf: zipfile.ZipFile, old_id: int):
         free = None
     if free is not None and free < need + las._RESTORE_DISK_MARGIN_BYTES:
         raise InvalidInputError("Not enough free disk space to restore this drama's files.")
-    os.makedirs(db.DRAMAS_DIR, exist_ok=True)
-    staging = os.path.join(db.DRAMAS_DIR, f".restoring-{uuid.uuid4().hex[:8]}")
-    os.makedirs(staging)
-    base = os.path.realpath(staging)
+    folder = os.path.join(staging, f"drama-{int(old_id)}")
+    os.makedirs(folder)
+    base = os.path.realpath(folder)
     try:
         for info in members:
             rel = info.filename.replace("\\", "/")[len(prefix):]
-            dest = os.path.realpath(os.path.join(staging, *rel.split("/")))
+            dest = os.path.realpath(os.path.join(folder, *rel.split("/")))
             if not dest.startswith(base + os.sep):
                 raise InvalidInputError("The backup contains an unsafe file path.")
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with zf.open(info) as src, open(dest, "wb") as out:
                 shutil.copyfileobj(src, out, 1024 * 1024)
     except BaseException:
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(folder, ignore_errors=True)
         raise
-    return staging
+    return folder
+
+
+def _claim_folder(drama_id: int, conflict: str):
+    """dramas/<drama_id> must not exist for a drama being added: a leftover
+    of an import that never committed is cleared, anything else is renamed
+    aside (db.claim_new_drama_folder); 409 when that fails."""
+    try:
+        db.claim_new_drama_folder(drama_id)
+    except db.DramaFolderConflict:
+        raise ConflictError(conflict) from None
+
+
+def _move_media_in(staging: str, folders: dict, conflict: str):
+    """Call inside the transaction, with the new drama rows inserted:
+    {new drama id: staged folder}. Refuses before moving anything when a
+    new id's folder already exists, records the journal (db's media
+    journal), then renames each staged folder to dramas/<id>. The caller
+    commits next; on any failure it calls _end_media_staging."""
+    for did in folders:
+        _claim_folder(did, conflict)
+    db.write_media_journal(staging, folders)
+    for did, path in folders.items():
+        if not db.move_staged_folder(staging, did, path):
+            raise ConflictError(conflict)
+    _fsync_dir(db.DRAMAS_DIR)
+
+
+def _end_media_staging(staging: str) -> bool:
+    """Ends an import's staging (see db.finish_media_staging): after a
+    commit only the markers, journal and staging folder go; otherwise the
+    folders it moved into place go too. False when something was left in
+    place (logged by id; the journal stays, so the next start retries)."""
+    try:
+        return db.finish_media_staging(staging)
+    except (OSError, sqlite3.Error):
+        log.warning("An import's staging folder could not be removed")
+        return False
 
 
 def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
@@ -1272,7 +1311,8 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
     if _job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
     with las._maintenance("restoring a drama"), tempfile.TemporaryDirectory() as tmp:
-        staging = None
+        db.recover_media_imports()
+        staging = staged = None
         with _snapshot_lock:
             copy = _pick_copy(snapshot)[0]
             path = copy["path"]
@@ -1285,21 +1325,30 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
                         raise NotFoundError("That drama isn't in the snapshot.")
                     snap_db = _extract_db(zf, tmp)
                     if manifest["kind"] == "full":
-                        staging = _stage_media(zf, drama_id)
+                        staging = db.new_media_staging()
+                        staged = _stage_media(zf, drama_id, staging)
             except (OSError, zipfile.BadZipFile):
+                if staging is not None:
+                    _end_media_staging(staging)
                 raise InvalidInputError(_BAD_SNAPSHOT) from None
+            except BaseException:
+                if staging is not None:
+                    _end_media_staging(staging)
+                raise
         try:
-            return _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy["name"])
+            return _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id,
+                                 copy["name"])
         finally:
-            if staging is not None and os.path.isdir(staging):
-                shutil.rmtree(staging, ignore_errors=True)
+            if staging is not None:
+                _end_media_staging(staging)
 
 
-def _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy_name) -> dict:
+def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_name) -> dict:
     folder_free = not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     keep_id = db.get_drama(drama_id) is None and folder_free
     suffix = None if keep_id else f"(restored {datetime.date.today().isoformat()})"
-    moved_to = None
+    conflict = ("A folder for the restored drama is already in the library's dramas folder "
+                "and could not be moved aside; nothing was restored.")
     with contextlib.closing(sqlite3.connect(_ro_uri(snap_db), uri=True)) as src, \
             contextlib.closing(db.get_conn()) as dst:
         src.execute("PRAGMA trusted_schema = OFF")
@@ -1307,19 +1356,16 @@ def _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy_name) -> 
             dst.execute("BEGIN IMMEDIATE")
             live_id, counts, series_outcome = _copy_drama(src, dst, drama_id, drama_id if keep_id else None,
                                           suffix)
-            if staging is not None:
-                final = os.path.join(db.DRAMAS_DIR, str(live_id))
-                if os.path.lexists(final):
-                    raise ConflictError("A folder for the restored drama already exists; "
-                                        "nothing was restored.")
-                os.rename(staging, final)
-                moved_to = final
+            _claim_folder(live_id, conflict)   # never inherit a stray dramas/<new id>
+            if staged is not None:
+                _move_media_in(staging, {live_id: staged}, conflict)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
-            if moved_to is not None:
-                with contextlib.suppress(OSError):
-                    os.rename(moved_to, staging)
+            if staging is not None and not _end_media_staging(staging):
+                raise ServiceError("The drama was not restored, but some of its files could not "
+                                   "be cleaned up and are still in the library's dramas folder; "
+                                   "the app tries again at the next start.") from None
             if isinstance(exc, (ServiceError, KeyboardInterrupt, SystemExit)):
                 raise
             log.warning("Single-drama restore failed: %s", type(exc).__name__)
@@ -1335,7 +1381,7 @@ def _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy_name) -> 
     except Exception:
         log.warning("Could not write the audit entry for a drama restore")
     return {"drama_id": live_id, "restored_as_new": not keep_id, "title": title or "",
-            "media_restored": moved_to is not None, "snapshot": copy_name,
+            "media_restored": staged is not None, "snapshot": copy_name,
             "snapshot_kind": manifest["kind"],
             "series": series_outcome,
             "counts": counts, "skipped_tables": sorted(_SKIPPED_TABLES)}
