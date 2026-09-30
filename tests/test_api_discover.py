@@ -78,6 +78,9 @@ def test_platforms_and_search_links(client):
     s = client.get("/api/discover/search-links", params={"q": "女将军", "format": "novel"})
     assert s.status_code == 200 and s.json()["links"]
     assert client.get("/api/discover/search-links", params={"q": ""}).status_code == 422
+    a = client.get("/api/discover/search-links", params={"q": "x", "genre": "any"})
+    assert a.status_code == 200 and not any("bq=" in l["url"] for l in a.json()["links"])
+    assert client.get("/api/discover/search-links", params={"q": "x", "genre": "zz"}).status_code == 422
     assert client.get("/api/discover/search-links",
                       params={"q": "x", "format": "zz"}).status_code == 422
 
