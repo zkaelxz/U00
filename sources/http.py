@@ -4,9 +4,10 @@ generic importer go through (Step 23 items 2, 3, 3b, 4).
 
 What it guarantees, structurally rather than by convention:
   * Human-paced: a random 1-3s gap (configurable) between requests to
-    the same source, one request in flight per source by default, and an
-    adapter can declare a stricter per-host minimum (e.g. a robots.txt
-    Crawl-delay).
+    the same host, whichever source name or client sends them, one
+    request in flight per source by default, and an adapter can declare a
+    stricter per-host minimum (e.g. a robots.txt Crawl-delay) that every
+    client fetching that host then honours.
   * Session-shaped: every so often (a randomized request count, default
     8-20) the source takes one longer pause (default 30-90s) before
     continuing -- like a person setting the app down and coming back --
@@ -734,29 +735,70 @@ def _is_connection_error(exc) -> bool:
         return isinstance(exc, ConnectionError)
 
 
-# Shared per-source state, so two clients for the same source (a search
-# and an import running at once) still share one pace and one concurrency
-# limit rather than each getting their own.
+# Shared state, so two clients (a search and an import running at once, or
+# an adapter and the generic client fetching a pasted URL) can't together
+# hit a site faster than either would alone. The pace clock is per host,
+# across every source name; the concurrency limit, session-break counter
+# and preferred mirror stay per source name.
 _state_lock = threading.Lock()
 _source_state = {}
+_host_state = {}
 
 
 def _state(source: str, max_concurrent: int) -> dict:
     with _state_lock:
         st = _source_state.get(source)
-        if st is None or st["limit"] != max_concurrent:
+        if st is None:
             st = {"sem": threading.BoundedSemaphore(max_concurrent), "limit": max_concurrent,
-                  "pace_lock": threading.Lock(), "last": {}, "good_mirror": None}
+                  "break_lock": threading.Lock(), "good_mirror": None}
             _source_state[source] = st
+        elif st["limit"] != max_concurrent:
+            # Holders of the old semaphore release it as they finish; only
+            # the limit is replaced, never the break counter or mirror.
+            st["sem"] = threading.BoundedSemaphore(max_concurrent)
+            st["limit"] = max_concurrent
         return st
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _host_key(url: str) -> str:
+    """The pace key for a URL: the lowercased host name, plus the port
+    only when it isn't the scheme's default, so `WWW.Example.com`,
+    `www.example.com:443` and `www.example.com` share one clock."""
+    parts = urlsplit(url)
+    try:
+        host, port = (parts.hostname or "").lower(), parts.port
+    except ValueError:            # a malformed port; the request itself will fail
+        return parts.netloc.lower()
+    if not host:
+        return parts.netloc.lower()
+    if port is not None and port != _DEFAULT_PORTS.get(parts.scheme.lower()):
+        host += f":{port}"
+    return host
+
+
+def _host(host: str, min_interval: float) -> dict:
+    """The host's shared pace state. Its minimum interval is the largest
+    any client has declared for it, so a client that declares none (the
+    generic one) still waits as long as the adapter asks for."""
+    with _state_lock:
+        hs = _host_state.get(host)
+        if hs is None:
+            hs = {"lock": threading.Lock(), "last": None, "min_interval": 0.0}
+            _host_state[host] = hs
+        hs["min_interval"] = max(hs["min_interval"], min_interval)
+        return hs
+
+
 def reset_pacing_state():
-    """Test helper / settings-change hook: forget every source's last
-    request time, rebuild the concurrency limits, and forget which mirror
-    last worked for each source."""
+    """Test helper / settings-change hook: forget every host's last
+    request time and declared minimum interval, rebuild the concurrency
+    limits, and forget which mirror last worked for each source."""
     with _state_lock:
         _source_state.clear()
+        _host_state.clear()
 
 
 class SourceClient:
@@ -831,18 +873,40 @@ class SourceClient:
             self.sleep(min(left, 0.5))
 
     # -- pacing ------------------------------------------------------------
+    def _acquire_cancellable(self, lock):
+        # Real-time polling (not self.sleep) so a cancel still interrupts a
+        # thread queued behind another one's wait on the same lock.
+        while not lock.acquire(timeout=0.2):
+            self._check_cancel()
+        try:
+            self._check_cancel()
+        except Cancelled:
+            lock.release()
+            raise
+
     def _wait_turn(self, host: str, st: dict):
-        """Called holding the source's pace lock."""
-        self._maybe_take_a_break(st)
-        last = st["last"].get(host)
-        gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
-        gap = max(gap, float(self.policy.host_min_interval.get(host, 0.0)))
-        if last is not None:
-            wait = last + gap - self.clock()
-            if wait > 0:
-                self._status(f"Waiting {wait:.1f}s before next request...", wait)
-                self._sleep_cancellable(wait)
-        st["last"][host] = self.clock()
+        """Takes the source's session break, then waits for the host's
+        turn. The two locks are never held together, and the host lock
+        only blocks other requests to that host."""
+        self._acquire_cancellable(st["break_lock"])
+        try:
+            self._maybe_take_a_break(st)
+        finally:
+            st["break_lock"].release()
+        declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
+        hs = _host(host, float(declared.get(host, 0.0)))
+        self._acquire_cancellable(hs["lock"])
+        try:
+            gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
+            gap = max(gap, hs["min_interval"])
+            if hs["last"] is not None:
+                wait = hs["last"] + gap - self.clock()
+                if wait > 0:
+                    self._status(f"Waiting {wait:.1f}s before next request...", wait)
+                    self._sleep_cancellable(wait)
+            hs["last"] = self.clock()
+        finally:
+            hs["lock"].release()
 
     def _pick_break_at(self) -> int:
         lo = self.policy.session_break_min_requests
@@ -903,14 +967,13 @@ class SourceClient:
         given = {k.lower() for k in hdrs}
         conditional = {k: v for k, v in conditional.items() if k.lower() not in given}
         hdrs.update(conditional)
-        host = urlsplit(url).netloc
+        host = _host_key(url)
         st = _state(self.source, self.policy.max_concurrent)
 
         attempt_no = 0
         while True:
             with st["sem"]:
-                with st["pace_lock"]:
-                    self._wait_turn(host, st)
+                self._wait_turn(host, st)
                 self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
                 started = self.clock()
@@ -1008,16 +1071,16 @@ class SourceClient:
 
     def paced(self, fn, url: str, access_method: str, action: str = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the
-        same per-source pace and concurrency limit as ordinary requests, so
-        a higher ladder tier can't be used to hit a source faster."""
+        same per-host pace and per-source concurrency limit as ordinary
+        requests, so a higher ladder tier can't be used to hit a source
+        faster."""
         self._check_cancel()
         poll = _active_poll()
         if poll is not None:
             poll.other_requests += 1
         st = _state(self.source, self.policy.max_concurrent)
         with st["sem"]:
-            with st["pace_lock"]:
-                self._wait_turn(urlsplit(url).netloc, st)
+            self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1
             self._status(action or f"{access_method}: {url}", 0.0)
