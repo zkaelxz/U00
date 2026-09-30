@@ -15,6 +15,7 @@ import threading
 from typing import Optional
 
 import background_jobs
+import portable
 from services.service_errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
@@ -48,8 +49,10 @@ _ENGINE_KEY_NAMES = tuple(k for k in ENV_NAMES if k != "monthly_cap_usd")
 
 
 def _default_env_path() -> str:
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    # The project folder for a source checkout; the per-user data folder
+    # for an installed copy, so keys never sit in the program files an
+    # update replaces (portable.data_dir(), Step 80b).
+    return os.path.join(portable.data_dir(), ".env")
 
 
 def _read_env_file(env_path: str = None) -> dict:

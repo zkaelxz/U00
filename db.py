@@ -16,7 +16,11 @@ import threading
 import time
 from typing import List
 
-LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
+import portable
+
+# Next to the code for a source checkout; the per-user data folder for an
+# installed copy (portable.data_dir(), Step 80b).
+LIBRARY_DIR = os.path.join(portable.data_dir(), "library")
 DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
 DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
 BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
