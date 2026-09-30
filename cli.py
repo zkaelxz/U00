@@ -391,9 +391,20 @@ def cmd_align(args):
                 import forced_align
                 lines = forced_align.align_with_qwen3(
                     audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
-            except (ImportError, ModelDownloadError, ValueError) as exc:
-                print(f"#{d['id']} Qwen3 forced alignment unavailable ({exc}) -- using the "
-                      "default character-alignment method for this run.")
+            except ImportError as exc:
+                # Same as the API (dependency_missing): fail this drama
+                # rather than quietly using a method nobody chose.
+                detail = translate_engines.redact_secrets(str(exc))
+                raise RuntimeError(
+                    "Qwen3-ASR isn't installed, so Qwen3 forced alignment can't run. "
+                    "Install qwen-asr from Diagnostics (or: pip install qwen-asr torch), "
+                    f"or change this drama's alignment method. ({detail})") from exc
+            except ModelDownloadError as exc:
+                detail = translate_engines.redact_secrets(str(exc))
+                raise RuntimeError(f"Qwen3 forced alignment model download failed: {detail}") from exc
+            except ValueError as exc:
+                print(f"#{d['id']} Qwen3 forced alignment couldn't align this transcript "
+                      f"({exc}) -- using the default character-alignment method for this run.")
                 lines = align_transcript_to_timing(user_lines, segments)
         else:
             lines = align_transcript_to_timing(user_lines, segments)

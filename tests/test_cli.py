@@ -557,6 +557,30 @@ class TestCmdAlignUsesDramaSettings:
             cli.cmd_align(self._args(id=did))
         assert calls == ["zh"]
 
+    def test_missing_qwen3_fails_clearly_instead_of_falling_back(self, isolated_db, monkeypatch):
+        """Parity with the API (failed_reason dependency_missing): a drama
+        saved to use Qwen3 forced alignment must not silently get the
+        default method when qwen-asr isn't installed."""
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        import forced_align
+
+        def missing(*a, **k):
+            raise ImportError("No module named 'qwen_asr'")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", missing)
+        monkeypatch.setattr(cli, "align_transcript_to_timing",
+                            lambda *a, **k: pytest.fail("fell back to the default method"))
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue() + err.getvalue()
+        assert "Qwen3-ASR isn't installed" in text and "Diagnostics" in text
+        assert "1 failed" in text
+        assert isolated_db.load_lines(did) == []
+        assert isolated_db.get_drama(did)["status"] != "aligned"
+
     def test_default_whisper_diff_alignment_is_unaffected(self, isolated_db, monkeypatch):
         """No alignment_method saved -- must still use the plain
         character-diff aligner, same as before this fix."""
