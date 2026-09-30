@@ -1540,9 +1540,10 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     line whose English differs (its write was skipped because it was
     edited mid-run, or it was edited since) is the user's: it gets no
     substitution, and no flag computed from this run's text. A flag is
-    saved only while the line's English and timing in the database are
-    still what it was computed from; the ids of lines changed after the
-    read above are added to flags_needing_recheck (a set, if given)."""
+    saved only while the line's English, timing and flag in the database
+    are still what it was computed from (the flag can be a reading-speed
+    or a content-blocked one); the ids of lines that changed during the
+    run are added to flags_needing_recheck (a set, if given)."""
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     landed = own_fresh = None
     if enforce_ids is not None:
