@@ -8,7 +8,9 @@ import { Section } from '../../components/Section'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
-import { canManageUsers, rowBlocks, sessionsText, userName } from './adminUsers'
+import {
+  canChangeUsers, canViewUsers, CHANGES_AT_PC, rowBlocks, sessionsText, userName,
+} from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 
 type Busy = { id: number; what: 'active' | 'revoke' } | null
@@ -18,16 +20,17 @@ type Busy = { id: number; what: 'active' | 'revoke' } | null
  * one and end its sessions, each after a confirm step. Admin accounts can
  * only be changed on the PC (off elsewhere, with the reason). Adding people
  * and changing permissions stay on the PC (python -m api). Loaded when
- * opened; hidden from anyone without admin.users.
+ * opened; hidden from anyone without admin.users.read, and read-only (no
+ * buttons) without admin.users, as for an admin on the household address.
  */
 export function UsersSection({ pc }: { pc: PcMode }) {
   const session = useSession()
-  if (!canManageUsers(session)) return null
+  if (!canViewUsers(session)) return null
   const signInOff = session.status === 'ready' && !session.me.auth_enabled
-  return <UsersBody signInOff={signInOff} pc={pc} />
+  return <UsersBody signInOff={signInOff} pc={pc} canChange={canChangeUsers(session)} />
 }
 
-function UsersBody({ signInOff, pc }: { signInOff: boolean; pc: PcMode }) {
+function UsersBody({ signInOff, pc, canChange }: { signInOff: boolean; pc: PcMode; canChange: boolean }) {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<Busy>(null)
@@ -71,6 +74,7 @@ function UsersBody({ signInOff, pc }: { signInOff: boolean; pc: PcMode }) {
         {signInOff && (
           <p className="muted">Sign-in is off, so these accounts are only used once it is turned on.</p>
         )}
+        {!canChange && <p className="muted">{CHANGES_AT_PC}</p>}
         {users === null ? (
           !error && <p className="muted">Loading…</p>
         ) : users.length === 0 ? (
@@ -78,7 +82,8 @@ function UsersBody({ signInOff, pc }: { signInOff: boolean; pc: PcMode }) {
         ) : (
           <ul className="pkg-list admin-user-list" aria-label="Users">
             {users.map((u) => (
-              <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} onRun={(what) => void run(u, what)} />
+              <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} canChange={canChange}
+                onRun={(what) => void run(u, what)} />
             ))}
           </ul>
         )}
@@ -88,16 +93,17 @@ function UsersBody({ signInOff, pc }: { signInOff: boolean; pc: PcMode }) {
   )
 }
 
-function UserRow({ user: u, users, pc, busy, onRun }: {
+function UserRow({ user: u, users, pc, busy, canChange, onRun }: {
   user: AdminUser
   users: AdminUser[]
   pc: PcMode
   busy: Busy
+  canChange: boolean
   onRun: (what: 'active' | 'revoke') => void
 }) {
   const { deactivate: offBlock, revoke: sessBlock, activate: onBlock } = rowBlocks(u, users, pc)
   const mine = busy?.id === u.id
-  const why = [...new Set([offBlock, sessBlock, onBlock].filter(Boolean))].join(' ')
+  const why = canChange ? [...new Set([offBlock, sessBlock, onBlock].filter(Boolean))].join(' ') : ''
   const whyId = `admin-user-why-${u.id}`
   return (
     <li>
@@ -112,7 +118,7 @@ function UserRow({ user: u, users, pc, busy, onRun }: {
         </div>
         {why && <div className="muted" id={whyId}>{why}</div>}
       </div>
-      <div className="actions">
+      {canChange && <div className="actions">
         <ConfirmButton name={u.email} label="Sign out everywhere…" verb="sign out" tone="primary"
           busy={mine && busy?.what === 'revoke'} disabled={busy !== null || !!sessBlock}
           describedBy={sessBlock ? whyId : undefined} onConfirm={() => onRun('revoke')} />
@@ -125,7 +131,7 @@ function UserRow({ user: u, users, pc, busy, onRun }: {
             busy={mine && busy?.what === 'active'} disabled={busy !== null || !!onBlock}
             describedBy={onBlock ? whyId : undefined} onConfirm={() => onRun('active')} />
         )}
-      </div>
+      </div>}
     </li>
   )
 }

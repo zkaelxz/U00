@@ -485,10 +485,13 @@ def cancel_job(job_id: str, principal=None) -> dict:
     already finished -> ConflictError (409). Cancellation is
     asynchronous: the returned status is the record's current one. A job
     `principal` may not see is a 404 (visibility, not starter-only: anyone
-    who can see a drama may cancel its jobs, as before)."""
+    who can see a drama may cancel its jobs, as before); one an admin sees
+    only through the admin view (away from the PC) is a 403."""
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
+    ownership_service.require_job_changeable(principal, record.get("job_id"),
+                                             record.get("owner_user_id"))
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)
