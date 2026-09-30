@@ -78,7 +78,8 @@ def get_epub_chapter_count(epub_path: str) -> int:
 
 
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
-                 lines_per_chapter: int = 200, images_dir: str = None):
+                 lines_per_chapter: int = 200, images_dir: str = None,
+                 source_language: str = None):
     """Exports translated (or original) lines as a proper .epub, split
     into chapters of `lines_per_chapter` lines each so long novels
     don't become one giant unreadable chapter. field: 'en' for the
@@ -92,13 +93,22 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     text. A placeholder with no images_dir given, or naming a file that
     isn't actually there, is dropped rather than left as visible
     [[IMG:...]] text in the reader's output. Each distinct filename is
-    embedded once even if it's referenced from more than one chapter."""
+    embedded once even if it's referenced from more than one chapter.
+
+    source_language: the drama's source language ('zh', 'ja', 'ko'), used
+    as the book language when field is not 'en'; unknown falls back to 'zh'.
+
+    The file is written to a temp file beside out_path and moved into
+    place on success, so a crash never truncates an existing export."""
     from ebooklib import epub
+
+    lang = "en" if field == "en" else (
+        source_language if source_language in ("zh", "ja", "ko") else "zh")
 
     book = epub.EpubBook()
     book.set_identifier(f"baihe-subtitler-{title}")
     book.set_title(title)
-    book.set_language("en" if field == "en" else "zh")
+    book.set_language(lang)
     if author:
         book.add_author(author)
 
@@ -151,7 +161,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
                 html_parts.extend(_line_html(text))
         html_paragraphs = "\n".join(html_parts)
         c = epub.EpubHtml(title=f"Chapter {chapter_num}", file_name=f"chap_{chapter_num:03d}.xhtml",
-                           lang="en" if field == "en" else "zh")
+                           lang=lang)
         c.content = f"<h1>Chapter {chapter_num}</h1>\n{html_paragraphs}"
         book.add_item(c)
         chapters.append(c)
@@ -161,5 +171,14 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     book.add_item(epub.EpubNav())
     book.spine = ["nav"] + chapters
 
-    epub.write_epub(out_path, book)
+    tmp_path = f"{out_path}.{os.getpid()}.tmp"
+    try:
+        epub.write_epub(tmp_path, book)
+        os.replace(tmp_path, out_path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
     return out_path
