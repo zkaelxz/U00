@@ -528,8 +528,11 @@ def remove_folder_later(folder: Path) -> None:
     its job when the process exits doesn't take it along. Only administrators
     can change that folder, so nothing in it can have been swapped for a
     link."""
-    script = (f'for /l %i in (1,1,30) do (ping -n 3 127.0.0.1 >nul & rmdir /s /q "{folder}" 2>nul '
-              f'& if not exist "{folder}" exit /b 0)')
+    # Attempts and their errors go to a log in Windows' Temp folder, so a
+    # folder that won't go can be explained.
+    log = os.path.join(os.path.dirname(system_dir()), "Temp", "baihe-services-cleanup.log")
+    script = (f'for /l %i in (1,1,30) do (ping -n 3 127.0.0.1 >nul & rmdir /s /q "{folder}" 2>>"{log}" '
+              f'& if not exist "{folder}" (echo removed >>"{log}" & exit /b 0) else echo attempt %i >>"{log}")')
     base = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
     breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
     for flags in (base | breakaway, base):
