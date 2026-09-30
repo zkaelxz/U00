@@ -312,6 +312,10 @@ def test_ci_workflows_and_git_internals_are_refused(path):
     "frontend/package.json", "frontend/package-lock.json", "frontend/vite.config.ts",
     "frontend/vitest.config.mts", "frontend/Playwright.config.ts", "frontend/eslint.config.js",
     ".github/dependabot.yml",
+    "frontend/.oxlintrc.json", "frontend/tsconfig.json", "frontend/tsconfig.app.json",
+    "frontend/tsconfig.node.json", "frontend/TSConfig.build.json",
+    "frontend/scripts/check.mjs", "frontend/scripts/sub/x.js",
+    ".npmrc", "frontend/.npmrc", "check_setup.py", "Check_Setup.py",
 ])
 def test_paths_that_run_before_review_are_refused(path):
     for patch in (f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n",
@@ -322,7 +326,9 @@ def test_paths_that_run_before_review_are_refused(path):
 
 @pytest.mark.parametrize("path", ["tests/test_x.py", "docs/claude-notes.md", "services/run_tests.py",
                                   "frontend/src/package.json", "frontend/src/vite.config.ts",
-                                  "docs/requirements.txt", "frontend/src/App.tsx"])
+                                  "docs/requirements.txt", "frontend/src/App.tsx",
+                                  "frontend/src/tsconfig.json", "frontend/src/scripts/x.js",
+                                  "services/check_setup.py", "frontend/scripts.ts"])
 def test_ordinary_paths_with_similar_names_are_allowed(path):
     assert gh.parse_patch(f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")[0]["new"] == path
 

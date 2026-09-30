@@ -24,8 +24,8 @@ Hard rules, each enforced here, not only in the UI:
 - Nothing that runs before review: a patch may not touch .github/ (CI
   workflows), .claude/ or CLAUDE.md (they steer any Claude Code session
   on the branch), or the CI entry points the workflows run from the PR
-  head (run_tests.py, conftest.py, pytest/pip/npm config and manifests,
-  frontend tool configs, start.bat); see _runs_before_review.
+  head (run_tests.py, check_setup.py, conftest.py, pytest/pip/npm config and
+  manifests, frontend tool configs and frontend/scripts/, start.bat); see _runs_before_review.
 - Out of scope (roadmap item 4): reading or triaging other issues/PRs.
 """
 
@@ -248,11 +248,11 @@ def _clean_path(raw: str):
 # manifest and lockfile, the frontend build/test tool configs, start.bat).
 # Compared case-insensitively.
 _BLOCKED_DIRS = {".github", ".claude"}                  # at any depth
-_BLOCKED_NAMES_ANY_DEPTH = {"claude.md", "claude.local.md", "conftest.py"}
+_BLOCKED_NAMES_ANY_DEPTH = {"claude.md", "claude.local.md", "conftest.py", ".npmrc"}
 _BLOCKED_ROOT_FILES = {"run_tests.py", "constraints.txt", "pytest.ini", "setup.cfg",
-                       "pyproject.toml", "tox.ini", "start.bat"}
-_BLOCKED_FRONTEND_FILES = {"package.json", "package-lock.json"}
-_BLOCKED_FRONTEND_CONFIG = re.compile(r"^(?:vite|vitest|playwright|eslint)\.config\.[a-z]+$")
+                       "pyproject.toml", "tox.ini", "start.bat", "check_setup.py"}
+_BLOCKED_FRONTEND_FILES = {"package.json", "package-lock.json", ".oxlintrc.json"}
+_BLOCKED_FRONTEND_CONFIG = re.compile(r"^(?:(?:vite|vitest|playwright|eslint)\.config\.[a-z]+|tsconfig[^/]*\.json)$")
 _REQUIREMENTS_RE = re.compile(r"^requirements[^/]*\.txt$")
 
 
@@ -263,6 +263,8 @@ def _runs_before_review(parts: list) -> bool:
         return True
     if len(low) == 1:
         return name in _BLOCKED_ROOT_FILES or bool(_REQUIREMENTS_RE.match(name))
+    if len(low) > 2 and low[0] == "frontend" and low[1] == "scripts":
+        return True
     if len(low) == 2 and low[0] == "frontend":
         return name in _BLOCKED_FRONTEND_FILES or bool(_BLOCKED_FRONTEND_CONFIG.match(name))
     return False
