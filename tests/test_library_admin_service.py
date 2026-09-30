@@ -544,6 +544,23 @@ def test_restore_rechecks_jobs_before_swap(isolated_db, monkeypatch):
     assert not background_jobs.exclusive_active()
 
 
+def test_restore_waits_for_finished_job_threads_before_swap(isolated_db, monkeypatch):
+    """A finished job's thread still writes timing/notification/GPU-lock
+    rows; the library must not be swapped under it (as reset_library)."""
+    _new("A")
+    data = _backup_bytes()
+    b = _new("B")
+    calls = []
+    monkeypatch.setattr(background_jobs, "wait_for_job_threads",
+                        lambda timeout: calls.append(timeout) or False)
+    with pytest.raises(ConflictError):
+        _restore(data)
+    assert calls
+    assert db.get_drama(b)
+    assert not _leftovers()
+    assert not background_jobs.exclusive_active()
+
+
 def test_no_job_or_delete_during_restore(isolated_db):
     a = _new("A")
     assert background_jobs.acquire_exclusive("test")
