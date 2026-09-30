@@ -8,7 +8,8 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
   const switches = page.getByRole('switch')
   for (const sw of await switches.all()) {
-    await sw.scrollIntoViewIfNeeded() // elementFromPoint only sees the viewport
+    // elementFromPoint only sees the viewport; centre it so the +-21px probes stay on screen.
+    await sw.evaluate((el) => el.scrollIntoView({ block: 'center' }))
     const hit = await sw.evaluate((el) => {
       const r = el.getBoundingClientRect()
       const cx = r.left + r.width / 2
