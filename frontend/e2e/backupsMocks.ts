@@ -73,7 +73,7 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
       return json(route, {
         drama_id: d.exists_now ? 40 : d.id, restored_as_new: d.exists_now,
         title: d.exists_now ? `${d.title} (restored 2026-09-30)` : d.title, media_restored: false,
-        snapshot_kind: state.snapshot.kind, counts: { lines: d.line_count }, skipped_tables: ['bulk_jobs', 'usage_log'],
+        snapshot_kind: state.snapshot.kind, series: 'none', counts: { lines: d.line_count }, skipped_tables: ['bulk_jobs', 'usage_log'],
       })
     }
     if (path === '/api/backups/snapshot/delete') {

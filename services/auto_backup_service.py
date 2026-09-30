@@ -104,10 +104,20 @@ def get_settings() -> dict:
                 out[key] = stored[key]
     if out["frequency"] not in FREQUENCIES:
         out["frequency"] = DEFAULT_SETTINGS["frequency"]
+    if out["folder"]:
+        # Re-checked on every read: a whole-library restore can bring in a
+        # folder setting saved on another PC. A folder that breaks the
+        # rules falls back to the default; one that is merely missing (a
+        # drive not plugged in) is kept, so its backup fails visibly
+        # rather than landing somewhere else.
+        try:
+            out["folder"] = _check_folder(out["folder"], require_exists=False)
+        except InvalidInputError:
+            out["folder"] = ""
     return out
 
 
-def _check_folder(value) -> str:
+def _check_folder(value, require_exists: bool = True) -> str:
     if value is None or value == "":
         return ""
     if not isinstance(value, str) or len(value) > _MAX_FOLDER_LEN or "\x00" in value:
@@ -127,7 +137,7 @@ def _check_folder(value) -> str:
     if real in artifact_dirs:
         raise InvalidInputError("That folder holds the manual backups and exports; pick a "
                                 "folder of its own (the default is fine).")
-    if not os.path.isdir(real):
+    if require_exists and not os.path.isdir(real):
         raise InvalidInputError("That backup folder doesn't exist. Create it first.")
     return os.path.normpath(value)
 
@@ -151,8 +161,17 @@ def set_settings(enabled=None, frequency=None, include_media=None, folder=None) 
     if folder is not None:
         folder = _check_folder(folder)
         if folder != current["folder"]:
-            _move_snapshot(current["folder"], folder)
-        current["folder"] = folder
+            # One hold for the running-job check, the move and the save, so
+            # a backup can't start in between and write to the old folder
+            # (_start takes the same lock).
+            with _snapshot_lock:
+                if _job_running():
+                    raise ConflictError("A backup is running -- change the folder when it "
+                                        "finishes.")
+                _move_snapshot(current["folder"], folder)
+                current["folder"] = folder
+                db.set_app_setting(SETTINGS_KEY, current)
+            return settings_overview()
     db.set_app_setting(SETTINGS_KEY, current)
     return settings_overview()
 
@@ -164,39 +183,43 @@ def _folder_path(folder: str) -> str:
 def _move_snapshot(old_folder: str, new_folder: str):
     """Keeps the one-snapshot rule across a folder change: the existing
     snapshot moves to the new folder (replacing a stale file of the same
-    name there). Refused while a backup runs; on failure nothing changes."""
-    if _job_running():
-        raise ConflictError("A backup is running -- change the folder when it finishes.")
-    with _snapshot_lock:
-        src = os.path.join(_folder_path(old_folder), SNAPSHOT_NAME)
-        if os.path.islink(src) or not os.path.isfile(src):
-            return
-        dest_dir = _folder_path(new_folder)
-        dest = os.path.join(dest_dir, SNAPSHOT_NAME)
-        tmp = None
+    name there). The caller holds _snapshot_lock and has checked no
+    backup runs. On failure nothing changes: a copy made for a cross-drive
+    move is removed again if the original can't be deleted."""
+    src = os.path.join(_folder_path(old_folder), SNAPSHOT_NAME)
+    if os.path.islink(src) or not os.path.isfile(src):
+        return
+    dest_dir = _folder_path(new_folder)
+    dest = os.path.join(dest_dir, SNAPSHOT_NAME)
+    tmp = None
+    copied = False
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        if os.path.islink(dest):
+            raise OSError("snapshot path is a link")
         try:
-            os.makedirs(dest_dir, exist_ok=True)
-            if os.path.islink(dest):
-                raise OSError("snapshot path is a link")
-            try:
-                os.replace(src, dest)       # same drive: atomic
-                return
-            except OSError:
-                pass
-            fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
-                                       dir=dest_dir)
-            os.close(fd)
-            shutil.copyfile(src, tmp)
-            os.replace(tmp, dest)
-            tmp = None
-            os.remove(src)
+            os.replace(src, dest)       # same drive: atomic
+            return
         except OSError:
-            raise ServiceError("The existing snapshot could not be moved to the new folder; "
-                               "the folder was not changed.") from None
-        finally:
-            if tmp is not None:
-                with contextlib.suppress(OSError):
-                    os.remove(tmp)
+            pass
+        fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
+                                   dir=dest_dir)
+        os.close(fd)
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dest)
+        tmp = None
+        copied = True
+        os.remove(src)
+    except OSError:
+        if copied:
+            with contextlib.suppress(OSError):
+                os.remove(dest)
+        raise ServiceError("The existing snapshot could not be moved to the new folder; "
+                           "the folder was not changed.") from None
+    finally:
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
 
 
 def _get_state() -> dict:
@@ -459,8 +482,11 @@ def _backup_job(job_id, include_media: bool):
 
 
 def _start(include_media: bool) -> bool:
-    return background_jobs.start_job(JOB_ID, _backup_job, JOB_ID, include_media,
-                                     description="Automatic backup")
+    # Under _snapshot_lock so a folder change can't slip between its
+    # running-job check and its save (see set_settings).
+    with _snapshot_lock:
+        return background_jobs.start_job(JOB_ID, _backup_job, JOB_ID, include_media,
+                                         description="Automatic backup")
 
 
 def start_now(replace: bool = False, include_media=None) -> dict:
@@ -674,27 +700,31 @@ def _free_series_name(dst, name) -> str:
 
 
 def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
-    """(live series id or None, {old series_character id: live id}).
-    The live series is reused only when it is the SAME series (same id and
-    name) and the private-series rule allows the drama in it (the
+    """(live series id or None, {old series_character id: live id},
+    outcome "none" | "linked" | "recreated" | "dropped_private").
+    When the drama's series still exists (same id; ids are never reused)
+    it is linked if the private-series rule allows the drama in it (the
     db.assign_drama_series predicate: a private series takes only its
-    owner's and the PC owner's dramas). A name match alone never links a
-    drama to someone else's series; otherwise the series comes back from
-    the snapshot as a new series (renamed "... (restored <date>)" if its
-    name is taken) with its glossary, characters and memory."""
+    owner's and the PC owner's dramas); if not, the drama comes back with
+    no series ("dropped_private") and nothing of that series is copied, so
+    a series its owner has since made private is never re-shared. A name
+    match alone never links. Only when the series is gone does it come
+    back from the snapshot as a new series (renamed "... (restored <date>)"
+    if its name is taken) with its glossary, characters and memory."""
     if series_id is None:
-        return None, {}
+        return None, {}, "none"
     srows = _rows(src, "series", "id = ?", (series_id,))
     if not srows:
-        return None, {}
+        return None, {}, "none"
     series = srows[0]
     live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0) FROM series "
-                       "WHERE id = ? AND name IS ?", (series_id, series.get("name"))).fetchone()
-    if live is not None and not (live[2] and drama_owner is not None
-                                 and drama_owner != live[1]):
+                       "WHERE id = ?", (series_id,)).fetchone()
+    if live is not None:
+        if live[2] and drama_owner is not None and drama_owner != live[1]:
+            return None, {}, "dropped_private"
         live_chars = {r[0] for r in dst.execute(
             "SELECT id FROM series_characters WHERE series_id = ?", (series_id,))}
-        return series_id, {c: c for c in live_chars}
+        return series_id, {c: c for c in live_chars}, "linked"
     row = {k: v for k, v in series.items() if k != "id"}
     if row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
@@ -714,12 +744,13 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
                 char_map[old] = new
             n += 1
         counts[table] = n
-    return live_id, char_map
+    return live_id, char_map, "recreated"
 
 
 def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
-    transaction). new_id None = a fresh id. Returns (live id, counts)."""
+    transaction). new_id None = a fresh id. Returns (live id, counts,
+    series outcome -- see _resolve_series)."""
     drama = _rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
@@ -730,8 +761,8 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     row = dict(drama)
     if row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
-    series_id, char_map = _resolve_series(src, dst, drama.get("series_id"),
-                                          row["owner_user_id"], users, counts)
+    series_id, char_map, series_outcome = _resolve_series(
+        src, dst, drama.get("series_id"), row["owner_user_id"], users, counts)
     row["series_id"] = series_id
     if series_id is not None:
         row["is_private"] = 0   # a drama in a series follows the series (decision 4)
@@ -755,7 +786,8 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
         for child in _rows(src, table, "drama_id = ?", (old_id,)):
             old = child.pop("id", None)
             child["drama_id"] = live_id
-            if table in _PROFILE_TABLES and child.get("profile_id") not in profiles:
+            if (table in _PROFILE_TABLES and child.get("profile_id") is not None
+                    and child["profile_id"] not in profiles):
                 continue
             if table in _LINE_REF_TABLES and child.get("line_id") is not None:
                 child["line_id"] = line_map.get(child["line_id"])
@@ -785,7 +817,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
                 _insert(dst, "bubbles", bubble, live_cols)
                 n += 1
         counts["bubbles"] = n
-    return live_id, counts
+    return live_id, counts, series_outcome
 
 
 def _stage_media(zf: zipfile.ZipFile, old_id: int):
@@ -875,7 +907,7 @@ def _restore_from(snap_db, drama_id, staging, manifest, actor_id) -> dict:
         src.execute("PRAGMA trusted_schema = OFF")
         try:
             dst.execute("BEGIN IMMEDIATE")
-            live_id, counts = _copy_drama(src, dst, drama_id, drama_id if keep_id else None,
+            live_id, counts, series_outcome = _copy_drama(src, dst, drama_id, drama_id if keep_id else None,
                                           suffix)
             if staging is not None:
                 final = os.path.join(db.DRAMAS_DIR, str(live_id))
@@ -906,4 +938,5 @@ def _restore_from(snap_db, drama_id, staging, manifest, actor_id) -> dict:
         log.warning("Could not write the audit entry for a drama restore")
     return {"drama_id": live_id, "restored_as_new": not keep_id, "title": title or "",
             "media_restored": moved_to is not None, "snapshot_kind": manifest["kind"],
+            "series": series_outcome,
             "counts": counts, "skipped_tables": sorted(_SKIPPED_TABLES)}

@@ -182,6 +182,10 @@ export function describeRestore(r: RestoreDramaDone): string {
   if (!r.media_restored) {
     parts.push(r.snapshot_kind === 'db-only' ? 'No files were in the snapshot.' : 'No files were restored.')
   }
+  if (r.series === 'recreated') parts.push('Its series was gone, so it was restored from the snapshot too.')
+  if (r.series === 'dropped_private') {
+    parts.push("Its series is now someone else's private series, so the drama is back without a series.")
+  }
   const skipped = r.skipped_tables.map((t) => SKIPPED_WORDS[t]).filter(Boolean)
   if (skipped.length) parts.push(`Not restored: ${skipped.join(' and ')}.`)
   return parts.join(' ')

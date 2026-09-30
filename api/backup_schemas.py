@@ -89,6 +89,10 @@ class RestoreDramaDone(BaseModel):
     title: str
     media_restored: bool
     snapshot_kind: SnapshotKind
+    series: Literal["none", "linked", "recreated", "dropped_private"] = Field(
+        description="linked: back in its series; recreated: its series was gone and came back "
+                    "from the snapshot; dropped_private: its series has since been made private "
+                    "by someone else, so the drama came back with no series.")
     counts: Dict[str, int]
     skipped_tables: List[str]
 

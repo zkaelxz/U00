@@ -1643,12 +1643,19 @@ class TestRestoreSeriesResolution:
         with contextlib.closing(_conn()) as c:   # the owner made the series private since
             c.execute("UPDATE series SET is_private = 1 WHERE id = ?", (sid,))
             c.commit()
+            c.execute("INSERT INTO glossary_terms (series_id, term_original, term_translation) "
+                      "VALUES (?, '甲', 'A')", (sid,))
+            c.commit()
         before = _series_rows()
         res = _restore(a)
-        new_sid = db.get_drama(a)["series_id"]
-        assert new_sid != sid and res["counts"].get("series") == 1
-        assert _series_rows()[sid] == before[sid]
-        assert _series_rows()[new_sid]["name"].startswith("Mine (restored ")
+        # Nothing of the owner's now-private series is copied or re-shared:
+        # the drama comes back with no series and the result says why.
+        assert db.get_drama(a)["series_id"] is None
+        assert res["series"] == "dropped_private"
+        assert "series" not in res["counts"]
+        assert _series_rows() == before
+        with contextlib.closing(_conn()) as c:
+            assert c.execute("SELECT COUNT(*) FROM glossary_terms").fetchone()[0] == 1
         assert db.get_drama(a)["owner_user_id"] == kid["id"]
 
     @pytest.mark.parametrize("drama_owner", ["none", "series_owner"])
@@ -1665,6 +1672,7 @@ class TestRestoreSeriesResolution:
         _delete_drama(a)
         res = _restore(a)
         assert db.get_drama(a)["series_id"] == sid
+        assert res["series"] == "linked"
         assert "series" not in res["counts"]
         assert len(_series_rows()) == 1
 
@@ -1943,3 +1951,97 @@ class TestSnapshotReadSafety:
             assert t.is_alive() and out == []
         t.join(10)
         assert not t.is_alive() and len(out) == 1
+
+
+# --------------------------------------------------------------------------
+# lead security review of PR #473 (L1-L3 and the NULL-profile check)
+# --------------------------------------------------------------------------
+
+class TestLeadReviewFollowUps:
+    def test_stored_folder_inside_library_falls_back_to_default(self, isolated_db):
+        """L1: a folder setting brought in by a whole-library restore is
+        re-checked on every read."""
+        inside = os.path.join(db.LIBRARY_DIR, "dramas")
+        db.set_app_setting(abs_.SETTINGS_KEY, {**abs_.DEFAULT_SETTINGS, "folder": inside})
+        assert abs_.get_settings()["folder"] == ""
+        assert abs_._snapshot_path() == _default_path()
+        db.set_app_setting(abs_.SETTINGS_KEY, {**abs_.DEFAULT_SETTINGS, "folder": "relative"})
+        assert abs_.get_settings()["folder"] == ""
+
+    def test_stored_missing_folder_outside_library_is_kept(self, isolated_db, tmp_path):
+        missing = str(tmp_path / "unplugged-drive")
+        db.set_app_setting(abs_.SETTINGS_KEY, {**abs_.DEFAULT_SETTINGS, "folder": missing})
+        assert abs_.get_settings()["folder"] == os.path.normpath(missing)
+
+    def test_start_waits_for_the_snapshot_lock(self, isolated_db, monkeypatch):
+        """L2: starting a backup and a folder change are serialized."""
+        import threading as _t
+        started = []
+        monkeypatch.setattr(abs_.background_jobs, "start_job",
+                            lambda *a, **k: started.append(1) or True)
+        abs_._snapshot_lock.acquire()
+        try:
+            th = _t.Thread(target=abs_._start, args=(False,))
+            th.start()
+            th.join(0.3)
+            assert th.is_alive() and not started
+        finally:
+            abs_._snapshot_lock.release()
+        th.join(5)
+        assert started == [1]
+
+    def test_copy_fallback_cleans_up_when_original_cannot_be_removed(
+            self, isolated_db, tmp_path, monkeypatch):
+        db.create_drama(title_en="A")
+        _snap()
+        data = _read(_default_path())
+        src = _default_path()
+        real_replace, real_remove = os.replace, os.remove
+
+        def cross_device(a, b, *args, **kw):
+            if os.path.abspath(a) == os.path.abspath(src):
+                raise OSError(18, "Invalid cross-device link")
+            return real_replace(a, b, *args, **kw)
+
+        def locked(path, *args, **kw):
+            if os.path.abspath(path) == os.path.abspath(src):
+                raise PermissionError("in use")
+            return real_remove(path, *args, **kw)
+        monkeypatch.setattr(abs_.os, "replace", cross_device)
+        monkeypatch.setattr(abs_.os, "remove", locked)
+        with pytest.raises(ServiceError):
+            abs_.set_settings(folder=str(tmp_path))
+        monkeypatch.undo()
+        assert os.listdir(tmp_path) == []           # the copy was removed again
+        assert _read(src) == data
+        assert abs_.get_settings()["folder"] == ""
+
+    def test_tombstone_sweep_survives_a_huge_numeric_name(self, isolated_db):
+        """L3: an all-digit name too big for SQLite doesn't stop the sweep."""
+        from services import drama_service
+        os.makedirs(db.DRAMAS_DIR, exist_ok=True)
+        old = time.time() - 3 * 24 * 3600
+        paths = []
+        for name in ("9" * 25 + ".deleting-0123abcd", "8.deleting-0123abcd"):
+            path = os.path.join(db.DRAMAS_DIR, name)
+            os.makedirs(path)
+            os.utime(path, (old, old))
+            paths.append(path)
+        drama_service.cleanup_stale_tombstones()
+        assert os.path.isdir(paths[0])          # skipped, not fatal
+        assert not os.path.exists(paths[1])     # the sweep kept going
+
+    def test_reading_history_with_null_profile_is_kept(self, isolated_db):
+        did = db.create_drama(title_en="A")
+        with contextlib.closing(_conn()) as c:
+            c.execute("INSERT INTO reading_history (drama_id, profile_id, line_idx, "
+                      "percent_complete, accessed_at) VALUES (?, NULL, 3, 10, 'x')", (did,))
+            c.commit()
+        _snap()
+        _delete_drama(did)
+        res = _restore(did)
+        assert res["counts"]["reading_history"] == 1
+        with contextlib.closing(_conn()) as c:
+            row = c.execute("SELECT profile_id, line_idx FROM reading_history "
+                            "WHERE drama_id = ?", (res["drama_id"],)).fetchone()
+        assert tuple(row) == (None, 3)

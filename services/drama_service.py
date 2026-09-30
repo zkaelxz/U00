@@ -371,8 +371,10 @@ def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: fl
                 continue
             shutil.rmtree(path)
             removed += 1
-        except OSError:
-            log.warning("Could not remove a leftover deleted-drama folder")
+        except (OSError, ValueError, OverflowError):
+            # OverflowError: an absurdly long all-digit name can't be looked
+            # up; skip that folder and keep sweeping.
+            log.warning("Could not check or remove a leftover deleted-drama folder")
     return removed
 
 

@@ -65,6 +65,10 @@ export interface RestoreDramaDone {
   title: string
   media_restored: boolean
   snapshot_kind: SnapshotKind
+  // linked: back in its series; recreated: the series was gone and came back
+  // from the snapshot; dropped_private: the series is now someone else's
+  // private series, so the drama came back with no series.
+  series: 'none' | 'linked' | 'recreated' | 'dropped_private'
   counts: Record<string, number>
   skipped_tables: string[]
 }
