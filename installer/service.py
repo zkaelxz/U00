@@ -573,6 +573,7 @@ def remove_admin_folder(folder: Path) -> None:
     parked here are ever scheduled for deletion."""
     park = folder.parent / f".baihe-removing-{secrets.token_hex(8)}"
     parked = []
+    park_made = False
     # Bottom-up, so files go before the folders that hold them.
     for path in sorted(folder.rglob("*"), key=lambda p: len(p.parts), reverse=True):
         if path.is_dir() and not is_reparse_point(path):
@@ -581,7 +582,8 @@ def remove_admin_folder(folder: Path) -> None:
             path.unlink()
         except OSError:
             try:
-                if not parked:
+                if not park_made:
+                    park_made = True
                     os.mkdir(park)            # must be new; never an existing name
                     refuse_reparse_point(park)
                 target = park / f"{len(parked)}-{path.name}"
@@ -808,10 +810,12 @@ def build_services(args) -> Services:
             raise ServiceError("Setup passes --install-root and --data-dir.")
     layout = Layout(root, data, admin)
     layout.check()
+    if not running_from_admin:
+        # So a failed first install leaves the log Setup points the user at.
+        refuse_reparse_point(admin)
+        admin.mkdir(exist_ok=True)
     source = None if running_from_admin else APP_DIR.parent.parent
-    return Services(layout, Runner(layout.log_file if running_from_admin or layout.admin.is_dir()
-                                   else None),
-                    source=source)
+    return Services(layout, Runner(layout.log_file), source=source)
 
 
 def main(argv=None, services=None, admin=None) -> int:

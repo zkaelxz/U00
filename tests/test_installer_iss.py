@@ -321,6 +321,12 @@ class TestBootService:
         assert "RunServiceHelper(AdminDir(), 'uninstall')" in remove
         assert "if not Result then" in remove
 
+    def test_uninstall_can_be_run_again_over_a_half_removed_service(self, iss):
+        present = _func(iss, "ServiceOrAdminDirPresent")
+        assert "ServiceInstalled()" in present and "\\helper\\python\\python.exe" in present
+        assert "if not ServiceOrAdminDirPresent() then" in _func(iss, "RemoveService")
+        assert "ServiceOrAdminDirPresent()" in _func(iss, "ConfigureService")
+
     def test_nothing_but_the_service_is_added(self, iss):
         # No firewall, router or second-listener step belongs to the installer.
         for needle in ("netsh", "firewall", "caddy", "upnp"):

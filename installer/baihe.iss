@@ -352,6 +352,14 @@ begin
     ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
+// True if the BaiheStudio service or its admin folder is still there: a
+// half-finished uninstall leaves one without the other, and uninstall can be
+// run again over either.
+function ServiceOrAdminDirPresent(): Boolean;
+begin
+  Result := ServiceInstalled() or FileExists(AdminDir() + '\helper\python\python.exe');
+end;
+
 // Runs service.py with administrator rights: directly when Setup already
 // has them, otherwise through the Windows permission prompt (only this step
 // is elevated; the install itself stays per-user). Base is a folder with
@@ -480,7 +488,7 @@ begin
     ServiceFailed := not RunServiceHelper(ExpandConstant('{app}\service'),
       '--install-root "' + ExpandConstant('{app}') + '" --data-dir "' + DataDir() + '" install');
   end
-  else if ServiceInstalled() then
+  else if ServiceOrAdminDirPresent() then
     ServiceFailed := not RunServiceHelper(AdminDir(), 'uninstall');
   if ServiceFailed then
     SuppressibleMsgBox('Baihe Studio is installed, but its background service couldn''t be set up ' +
@@ -664,7 +672,7 @@ end;
 function RemoveService(): Boolean;
 begin
   Result := True;
-  if not ServiceInstalled() then
+  if not ServiceOrAdminDirPresent() then
     Exit;
   Result := RunServiceHelper(AdminDir(), 'uninstall');
   if not Result then

@@ -436,6 +436,52 @@ class TestRemoveAdminFolder:
         assert scheduled == [folder / "service.log"]           # only the exact path
 
 
+class TestLaterFilesStillGoToThePark:
+    def test_a_failed_first_rename_doesnt_send_later_files_to_their_old_paths(self, tmp_path, monkeypatch):
+        folder = tmp_path / "Program Files" / "Baihe Studio Services"
+        folder.mkdir(parents=True)
+        for name in ("a.dll", "b.dll"):
+            (folder / name).write_text("x", encoding="utf-8")
+        real_unlink, real_rename, scheduled = Path.unlink, Path.rename, []
+
+        def unlink(self, *a, **k):
+            if self.suffix == ".dll":
+                raise PermissionError("in use")
+            return real_unlink(self, *a, **k)
+
+        first = []
+
+        def rename(self, target):
+            if self.suffix == ".dll" and not first:
+                first.append(self)
+                raise PermissionError("busy")
+            return real_rename(self, target)
+        monkeypatch.setattr(Path, "unlink", unlink)
+        monkeypatch.setattr(Path, "rename", rename)
+        monkeypatch.setattr(service, "_delete_on_reboot", scheduled.append)
+        service.remove_admin_folder(folder)
+        # One file is scheduled in place (its rename failed); the other was parked.
+        other = next(p for p in (folder / "a.dll", folder / "b.dll") if p != first[0])
+        assert scheduled == [first[0]] and other not in scheduled
+
+
+class TestFirstInstallLog:
+    def test_the_log_exists_after_a_failed_first_install(self, tmp_path, monkeypatch):
+        admin = tmp_path / "Program Files" / "Baihe Studio Services"
+        admin.parent.mkdir()
+        src = tmp_path / "Setup" / "service" / "helper" / "lib" / "installer"
+        src.mkdir(parents=True)
+        monkeypatch.setattr(service, "program_files", lambda: admin.parent)
+        monkeypatch.setattr(service, "APP_DIR", src.parent)
+        monkeypatch.setattr(service, "system_folders", lambda: [])
+        root, data = tmp_path / "app", tmp_path / "data"
+        root.mkdir()
+        args = type("A", (), {"command": "install", "install_root": str(root), "data_dir": str(data)})()
+        services = service.build_services(args)
+        services.run.log("service.py install")
+        assert (admin / service.LOG_FILE_NAME).is_file()
+
+
 class TestKnownFolders:
     def test_the_admin_copy_must_be_where_windows_says(self, tmp_path, monkeypatch):
         monkeypatch.setattr(service, "program_files", lambda: tmp_path / "Program Files")
