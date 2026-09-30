@@ -209,12 +209,19 @@ def test_developer_mode_off_by_default_and_validated(isolated_db):
 
 def test_changelog_feeds_the_commit_range_to_the_model(dev_mode, fake_engine, monkeypatch):
     calls = []
-    monkeypatch.setattr(svc, "_git", lambda *a: calls.append(a) or
-                        "abc123 2026-09-29 Fix stage stepper\n\n---\ndef456 2026-09-28 Add X\n\n---\n")
+
+    def fake_git(*a):
+        calls.append(a)
+        if a[0] == "rev-list":
+            return "3\n"
+        return "abc123 2026-09-29 Fix stage stepper\ndef456 2026-09-28 Add X\n"
+
+    monkeypatch.setattr(svc, "_git", fake_git)
     chat = ScriptedChat("## Fixed\n- The stage stepper no longer sticks.")
     out = svc.changelog("v1.0", "HEAD", chat=chat)
-    assert out["commit_count"] == 2 and "stepper" in out["changelog"]
-    assert "v1.0..HEAD" in calls[0]
+    assert out["commit_count"] == 3 and "stepper" in out["changelog"]
+    assert out["truncated"] is True  # 3 in range, 2 reached the model
+    assert all("v1.0..HEAD" in c for c in calls)
     for bad in ("--output=/tmp/x", "a..b", "x y", ""):
         with pytest.raises(svc.InvalidInputError):
             svc.changelog(bad)
@@ -260,3 +267,134 @@ def test_api_answer_never_carries_a_key(dev_mode, fake_engine, monkeypatch):
     r = _client().post("/api/assistant/ask", json={"question": "what's my key?"})
     assert r.status_code == 200 and FAKE_KEY not in r.text
     assert json.loads(r.text)["answer"]
+
+
+def test_changelog_refused_when_developer_mode_off(isolated_db):
+    with pytest.raises(svc.ConflictError):
+        svc.changelog("HEAD~1")
+
+
+# --- review fixes: paths and patches survive redaction ----------------------------
+
+def test_deep_paths_and_patches_are_not_mangled(dev_mode, fake_engine):
+    out = svc.run_tool("search_code", {"query": "READ_ONLY_TOOLS = {", "path": ""})
+    assert "services/maintenance_assistant_service.py:" in out["output"]
+    out = svc.run_tool("read_file", {"path": "api/routers/assistant_routes.py", "start": 1,
+                                     "end": 400})
+    assert out["ok"] and '"/api/assistant"' in out["output"]
+    patch = ("```diff\n--- a/api/routers/assistant_routes.py\n+++ b/api/routers/assistant_routes.py\n"
+             "@@ -1,1 +1,1 @@\n-x = \"/api/assistant/ask\"\n+x = \"/api/assistant/ask2\"\n```")
+    res = svc.ask("fix", chat=ScriptedChat(patch))
+    assert res["proposed_patches"][0]["files"] == ["api/routers/assistant_routes.py"]
+    assert '"/api/assistant/ask2"' in res["proposed_patches"][0]["patch"]
+
+
+def test_absolute_repo_prefix_and_github_token_are_removed():
+    root = os.path.realpath(svc.repo_root())
+    text = svc._redact(f"at {root}/services/x.py token ghp_{'a' * 36} and {FAKE_KEY}")
+    assert root not in text and "services/x.py" in text
+    assert "ghp_" not in text and FAKE_KEY not in text
+
+
+def test_untracked_files_are_not_readable(monkeypatch):
+    monkeypatch.setattr(svc, "_tracked_files", lambda: {"db.py"})
+    assert svc.run_tool("read_file", {"path": "db.py", "end": 2})["ok"] is True
+    out = svc.run_tool("read_file", {"path": "qa.py", "end": 2})
+    assert out["ok"] is False and "outside" in out["output"]
+    assert "qa.py" not in svc.run_tool("list_files", {"path": ""})["output"]
+
+
+@pytest.mark.parametrize("path", [":(glob)**/[.]env", "C:/x", "\\\\server\\x"])
+def test_git_diff_path_refuses_magic_and_absolute(path):
+    assert svc.run_tool("git_diff", {"path": path})["ok"] is False
+
+
+def test_tool_ids_are_unique_across_the_question(dev_mode, fake_engine):
+    chat = ScriptedChat(
+        'TOOL: {"id": "t1", "name": "git_status", "args": {}}\n'
+        'TOOL: {"id": "t1", "name": "list_files", "args": {}}',
+        'TOOL: {"id": "t1", "name": "list_files", "args": {}}',
+        "done",
+    )
+    out = svc.ask("x", chat=chat)
+    ids = [c["id"] for c in out["tool_calls"]]
+    assert ids == ["t1", "t1-2", "t1-3"]
+    assert "RESULT t1-2 (list_files" in chat.seen[1][1][-1]["content"]
+
+
+def test_only_one_test_run_per_question(dev_mode, fake_engine, monkeypatch):
+    ran = []
+    monkeypatch.setitem(svc.READ_ONLY_TOOLS, "run_tests",
+                        (lambda a: ran.append(a) or "ok",) + svc.READ_ONLY_TOOLS["run_tests"][1:])
+    call = 'TOOL: {"id": "r", "name": "run_tests", "args": {"path": "tests/test_db.py"}}'
+    out = svc.ask("x", chat=ScriptedChat(call + "\n" + call, "done"))
+    assert len(ran) == 1 and [c["ok"] for c in out["tool_calls"]] == [True, False]
+
+
+def test_test_run_env_has_no_keys_and_uses_the_guard(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_KEY)
+    monkeypatch.setenv("BAIHE_GITHUB_TOKEN", "x")
+    env = svc._test_env()
+    assert "ANTHROPIC_API_KEY" not in env and "BAIHE_GITHUB_TOKEN" not in env
+    assert env["BAIHE_ASSISTANT_TEST_RUN"] == "1" and "PATH" in env
+    seen = {}
+
+    class P:
+        returncode, stdout, stderr = 0, "1 passed", ""
+
+    monkeypatch.setattr(svc, "_tracked_files", lambda: None)
+    monkeypatch.setattr(svc.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd, **kw) or P())
+    assert svc.run_tool("run_tests", {"path": "tests/test_maintenance_assistant.py"})["ok"]
+    assert "services.assistant_pytest_guard" in seen["cmd"]
+    assert "ANTHROPIC_API_KEY" not in seen["env"]
+
+
+def test_pytest_guard_refuses_outside_a_test_run(monkeypatch):
+    import importlib
+    import sys
+    monkeypatch.delenv("BAIHE_ASSISTANT_TEST_RUN", raising=False)
+    sys.modules.pop("services.assistant_pytest_guard", None)
+    with pytest.raises(RuntimeError):
+        importlib.import_module("services.assistant_pytest_guard")
+
+
+def test_assistant_code_is_a_protected_path():
+    for path in ("services/maintenance_assistant_service.py", "api/routers/assistant_routes.py"):
+        assert action_tiers.classify_action("modify_code", touches_paths=[path]) \
+            is action_tiers.ActionTier.RED
+
+
+def test_saved_model_applies_to_the_default_engine_and_resets_on_engine_change(isolated_db):
+    svc.set_settings({"model": "claude-x"})
+    assert svc.get_settings()["model"] == "claude-x"
+    svc.set_settings({"engine": "ollama"})
+    assert svc.get_settings()["model"] is None
+
+
+def test_empty_history_turns_are_dropped():
+    assert svc._check_history([{"role": "assistant", "content": "  "},
+                               {"role": "user", "content": "hi"}]) == [{"role": "user", "content": "hi"}]
+
+
+def test_non_finite_args_are_not_echoed():
+    assert svc._shown_args({"n": float("nan"), "path": "db.py"}) == {"path": "db.py"}
+
+
+def test_second_ask_while_one_runs_is_refused(dev_mode, fake_engine):
+    assert svc._ASK_LOCK.acquire(blocking=False)
+    try:
+        with pytest.raises(svc.ConflictError):
+            svc.ask("x", chat=ScriptedChat("y"))
+    finally:
+        svc._ASK_LOCK.release()
+
+
+@pytest.mark.skipif(__import__("shutil").which("git") is None, reason="git not installed")
+def test_real_git_read_tools_smoke():
+    if not os.path.isdir(os.path.join(svc.repo_root(), ".git")):
+        pytest.skip("not a git checkout")
+    for tool, args in (("git_status", {}), ("git_log", {"n": 2}),
+                       ("git_diff", {"ref": "HEAD", "stat": True}),
+                       ("git_diff", {"ref": "HEAD", "path": "db.py"})):
+        out = svc.run_tool(tool, args)
+        assert out["ok"], (tool, out["output"])

@@ -5,6 +5,8 @@ import { api } from './api/client'
 import type { MetaResponse } from './api/types'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import AssistantPage from './pages/Assistant'
+import { useDeveloperMode } from './pages/assistant/developerMode'
 import ComicPage from './pages/Comic'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
@@ -106,11 +108,14 @@ const NAV: [string, Route, Route['name'][]][] = [
   ['Settings', { name: 'settings' }, ['settings']],
   ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
 ]
+// Shown only with Developer Mode on (Settings; PC only).
+const ASSISTANT_NAV: [string, Route, Route['name'][]] = ['Assistant', { name: 'assistant' }, ['assistant']]
 
 export default function App() {
   const route = useRoute()
   const session = useSession()
   const view = gateView(session)
+  const developerMode = useDeveloperMode(view === 'app')
 
   if (view === 'connecting') {
     return (
@@ -129,7 +134,7 @@ export default function App() {
       <header className="app-header">
         <h1>Baihe Studio</h1>
         <nav aria-label="Main">
-          {NAV.map(([label, target, active]) => (
+          {(developerMode ? [...NAV, ASSISTANT_NAV] : NAV).map(([label, target, active]) => (
             <a
               key={label}
               href={routeHref(target)}
@@ -157,6 +162,7 @@ export default function App() {
         {route.name === 'discover' && <DiscoverPage />}
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
+        {route.name === 'assistant' && <AssistantPage />}
       </RouteErrorBoundary>
     </>
   )

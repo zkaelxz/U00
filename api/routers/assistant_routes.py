@@ -83,8 +83,8 @@ def post_backlog_clear(body: AssistantConfirm):
     return svc.clear_backlog(confirm=body.confirm)
 
 
-@router.post("/backlog/{item_id}/delete", dependencies=[local_only()],
+@router.post("/backlog/{backlog_id}/delete", dependencies=[local_only()],
              response_model=AssistantBacklogDeleted,
              summary="PC only: delete one backlog item (confirm=true)", responses=_ERRS)
-def post_backlog_delete(body: AssistantConfirm, item_id: int = Path(ge=1)):
-    return svc.delete_backlog_item(item_id, confirm=body.confirm)
+def post_backlog_delete(body: AssistantConfirm, backlog_id: int = Path(ge=1)):
+    return svc.delete_backlog_item(backlog_id, confirm=body.confirm)

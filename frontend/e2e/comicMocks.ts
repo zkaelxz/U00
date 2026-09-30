@@ -192,6 +192,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: true }))
   // Sign-in off, on the PC (the app asks before rendering any page).
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
+  // The header asks whether to show the Assistant link (Developer Mode off).
+  await page.route(/\/api\/assistant\/settings$/, (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
   await page.route(new RegExp(`/api/library/dramas/${id}$`), (route) => {
     record(route)
     return json(route, {

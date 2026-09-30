@@ -94,6 +94,7 @@ class AssistantChangelog(BaseModel):
     commit_count: int
     from_ref: str
     to_ref: str
+    truncated: bool = False
 
 
 class AssistantBacklogItem(BaseModel):

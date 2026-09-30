@@ -211,6 +211,7 @@ baihe-subtitler/
 │   │                             log, job history, support report, dependency/model checks, one test file),
 │   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
 │   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
+│   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -470,7 +471,7 @@ baihe-subtitler/
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
-│       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{item_id}/delete)
+│       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,

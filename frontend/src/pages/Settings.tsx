@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
+import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
@@ -71,6 +72,7 @@ export default function SettingsPage() {
           <NotificationsSection />
           <ExtensionSection />
           <AppearanceCard />
+          <DeveloperModeCard />
           <AdvancedCard {...prefProps} />
         </>
       )}

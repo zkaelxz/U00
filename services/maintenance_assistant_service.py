@@ -29,13 +29,16 @@ real code (frontend/src included) with search_code instead.
 Safety rails on every tool: paths are repo-relative, resolved and kept
 inside the repo, and never reach the library folder, .git internals,
 virtualenvs, node_modules, dotfiles or anything named like a secret; all
-text leaving a tool goes through diagnostics.redact_for_support (keys,
-tokens, the OS user name, absolute paths); subprocesses (git, pytest)
-take a fixed argument list, a timeout, and no shell.
+text leaving a tool has keys/tokens and this PC's folder prefixes
+removed (_redact); in a git checkout only git-tracked files are
+readable (so an untracked local config never reaches the engine);
+subprocesses (git, pytest) take a fixed argument list, a timeout, and no
+shell; a test run gets a throwaway library and no keys.
 """
 
 import contextlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -71,6 +74,7 @@ TEST_TIMEOUT_SECONDS = 300
 MAX_BACKLOG_TEXT = 1000
 MAX_BACKLOG_ITEMS = 500
 MAX_MODEL_CHARS = 100
+MAX_OUTPUT_TOKENS = 4000
 BACKLOG_KINDS = ("bug", "feature", "note")
 _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,99}$")
 
@@ -90,12 +94,42 @@ _DENIED_DIRS = frozenset({
 })
 # Dot-directories that are ordinary project content.
 _ALLOWED_DOT_DIRS = frozenset({".claude", ".github", ".streamlit"})
+# On top of translate_engines.redact_secrets: GitHub tokens and PEM keys.
+_EXTRA_SECRET_PATTERNS = [
+    re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
+               re.DOTALL),
+]
 _SECRET_NAME_RE = re.compile(r"(^\.env|secret|token|password|credential|cookie|\.key$|\.pem$|"
                              r"\.p12$|\.pfx$|\.log$|\.db$|\.sqlite)", re.IGNORECASE)
 
 
 def _redact(text) -> str:
-    return diagnostics.redact_for_support("" if text is None else str(text))
+    """Keys and tokens out, plus this PC's absolute project/home folder
+    prefixes. Deliberately NOT diagnostics.redact_for_support: that one
+    collapses every "a/b/c" to ".../c" and replaces the OS user name as a
+    bare substring, which mangles repo-relative paths, code and patches.
+    The log, job history and support report tools are already redacted
+    with it by the functions they call."""
+    import translate_engines
+    text = translate_engines.redact_secrets("" if text is None else str(text)) or ""
+    for pattern in _EXTRA_SECRET_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    for prefix in _private_prefixes():
+        text = text.replace(prefix, "")
+    return text
+
+
+def _private_prefixes() -> list:
+    out = []
+    root = os.path.realpath(repo_root())
+    for base in (root, os.path.abspath(repo_root())):
+        out += [base + os.sep, base + "/"]
+    home = os.path.expanduser("~")
+    if home and home not in ("/", "~") and len(home) > 3:
+        out += [home + os.sep, home + "/"]
+    # Longest first so the repo prefix wins over the home folder it sits in.
+    return sorted(set(out), key=len, reverse=True)
 
 
 def _clip(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
@@ -176,6 +210,8 @@ def set_settings(updates: dict) -> dict:
             cleaned[key] = _check_model(value)
         else:
             raise InvalidInputError("Unknown assistant setting.")
+    if "engine" in cleaned and "model" not in cleaned and cleaned["engine"] != get_settings()["engine"]:
+        cleaned["model"] = None  # a model name belongs to the engine it was saved with
     for key, value in cleaned.items():
         db.set_app_setting(_SETTINGS_PREFIX + key, value)
     return get_settings()
@@ -198,6 +234,36 @@ def _is_denied_part(part: str) -> bool:
     return False
 
 
+_OUTSIDE = "That path is outside what the assistant may read."
+
+
+def _denied_rel(parts: list, want_dir: bool) -> bool:
+    if any(_is_denied_part(p) for p in parts):
+        return True
+    return bool(parts and not want_dir and _SECRET_NAME_RE.search(parts[-1]))
+
+
+def _tracked_files():
+    """The set of git-tracked repo-relative paths, or None when this
+    isn't a git checkout (a packaged install: the name rules still
+    apply). Untracked files (a local settings.local.json, a stray
+    credentials file) are never readable in a checkout."""
+    try:
+        out = subprocess.run(["git", "-c", "core.fsmonitor=", "ls-files", "-z"], cwd=repo_root(),
+                             capture_output=True, timeout=GIT_TIMEOUT_SECONDS,
+                             stdin=subprocess.DEVNULL, env=_git_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    return {p for p in out.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
+def _is_tracked(rel: str, tracked=...) -> bool:
+    tracked = _tracked_files() if tracked is ... else tracked
+    return tracked is None or rel in tracked
+
+
 def _resolve(path, *, want_dir: bool) -> str:
     """Repo-relative path -> absolute path inside the repo, or an
     InvalidInputError. Never echoes the rejected path back."""
@@ -209,21 +275,24 @@ def _resolve(path, *, want_dir: bool) -> str:
     rel = path.replace("\\", "/").strip()
     if rel in ("", ".", "./"):
         rel = ""
-    if rel.startswith("/") or re.match(r"^[A-Za-z]:", rel):
-        raise InvalidInputError("path must be relative to the project folder.")
+    if rel.startswith(("/", ":")) or re.match(r"^[A-Za-z]:", rel):
+        raise InvalidInputError(_OUTSIDE)
     parts = [p for p in rel.split("/") if p not in ("", ".")]
-    if any(p == ".." for p in parts):
-        raise InvalidInputError("path may not contain '..'.")
-    if any(_is_denied_part(p) for p in parts):
-        raise InvalidInputError("That path is outside what the assistant may read.")
-    if parts and not want_dir and _SECRET_NAME_RE.search(parts[-1]):
-        raise InvalidInputError("That file is outside what the assistant may read.")
+    if any(p == ".." for p in parts) or _denied_rel(parts, want_dir):
+        raise InvalidInputError(_OUTSIDE)
     full = os.path.realpath(os.path.join(root, *parts))
     if full != root and not full.startswith(root + os.sep):
-        raise InvalidInputError("That path is outside the project folder.")
+        raise InvalidInputError(_OUTSIDE)
     library = os.path.realpath(db.LIBRARY_DIR)
     if full == library or full.startswith(library + os.sep):
-        raise InvalidInputError("The library folder is outside what the assistant may read.")
+        raise InvalidInputError(_OUTSIDE)
+    # Same rules on the resolved path (a symlink/junction or an 8.3 short
+    # name must not get around them).
+    real_parts = [p for p in _rel(full).split("/") if p not in ("", ".")]
+    if _denied_rel(real_parts, want_dir):
+        raise InvalidInputError(_OUTSIDE)
+    if not want_dir and not _is_tracked(_rel(full)):
+        raise InvalidInputError(_OUTSIDE)
     if want_dir and not os.path.isdir(full):
         raise NotFoundError("No such folder in the project.")
     if not want_dir:
@@ -239,6 +308,7 @@ def _rel(full: str) -> str:
 
 
 def _walk_text_files(start: str):
+    tracked = _tracked_files()
     for dirpath, dirnames, filenames in os.walk(start):
         dirnames[:] = sorted(d for d in dirnames if not _is_denied_part(d)
                              and not os.path.islink(os.path.join(dirpath, d)))
@@ -248,7 +318,7 @@ def _walk_text_files(start: str):
             if os.path.splitext(name)[1].lower() not in _TEXT_EXTENSIONS:
                 continue
             full = os.path.join(dirpath, name)
-            if os.path.islink(full):
+            if os.path.islink(full) or not _is_tracked(_rel(full), tracked):
                 continue
             yield full
 
@@ -279,8 +349,15 @@ def _str_arg(args, name, default="", max_len=200):
 
 def tool_list_files(args: dict) -> str:
     full = _resolve(_str_arg(args, "path", "", 300), want_dir=True)
+    tracked = _tracked_files()
+    tracked_dirs = None
+    if tracked is not None:
+        tracked_dirs = {"/".join(p.split("/")[:i]) for p in tracked for i in range(1, p.count("/") + 1)}
     entries = []
     for name in sorted(os.listdir(full)):
+        rel = _rel(os.path.join(full, name))
+        if tracked is not None and rel not in tracked and rel not in tracked_dirs:
+            continue
         child = os.path.join(full, name)
         if os.path.islink(child):
             continue
@@ -335,13 +412,19 @@ def tool_search_code(args: dict) -> str:
     return "\n".join(hits) if hits else "No matches."
 
 
+def _git_env() -> dict:
+    # Literal pathspecs: a path like ":(glob)**/[.]env" is just a name.
+    return dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0",
+                GIT_LITERAL_PATHSPECS="1")
+
+
 def _git(*args: str) -> str:
     """One read-only git command. Fixed argument lists only (callers
     never pass a model-chosen option), no shell, a timeout, no pager, no
     external diff/textconv drivers and no fsmonitor hook."""
     cmd = ["git", "-c", "core.pager=cat", "-c", "core.fsmonitor=", "-c", "diff.external=",
            "--no-optional-locks", *args]
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+    env = _git_env()
     try:
         proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT_SECONDS,
@@ -404,10 +487,9 @@ def tool_git_diff(args: dict) -> str:
 
 def _resolve_name_only(path: str):
     parts = [p for p in path.replace("\\", "/").split("/") if p not in ("", ".")]
-    if (path.startswith("/") or any(p == ".." for p in parts)
-            or any(_is_denied_part(p) for p in parts)
-            or (parts and _SECRET_NAME_RE.search(parts[-1]))):
-        raise InvalidInputError("That path is outside what the assistant may read.")
+    if (path.startswith(("/", ":", "\\")) or re.match(r"^[A-Za-z]:", path)
+            or any(p == ".." for p in parts) or _denied_rel(parts, False)):
+        raise InvalidInputError(_OUTSIDE)
 
 
 def tool_inspect_logs(args: dict) -> str:
@@ -441,14 +523,27 @@ def tool_check_models(args: dict) -> str:
                      for r in rows)
 
 
+_KEYISH_ENV_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|WEBHOOK|NTFY|CREDENTIAL|^BAIHE_)",
+                            re.IGNORECASE)
+
+
+def _test_env() -> dict:
+    env = {k: v for k, v in os.environ.items() if not _KEYISH_ENV_RE.search(k)}
+    env["BAIHE_ASSISTANT_TEST_RUN"] = "1"
+    return env
+
+
 _TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_]+\.py$")
 _TEST_LOCK = threading.Lock()
 
 
 def tool_run_tests(args: dict) -> str:
-    """Runs ONE test file under tests/ (pytest -q), one run at a time.
-    The test suite is mocked by project rule (no network, no GPU, an
-    isolated database), so this is read-only for the user's library."""
+    """Runs ONE test file under tests/ (pytest -q), one run at a time and
+    at most one per question. The child gets no key-looking environment
+    variables, and services/assistant_pytest_guard points its library at
+    a throwaway folder and its .env at an empty file before any test
+    runs, so a test that forgot isolated_db still can't touch the real
+    library or spend with a real key."""
     path = _str_arg(args, "path", "", 200).replace("\\", "/")
     if not _TEST_PATH_RE.match(path):
         raise InvalidInputError("path must be one test file, like tests/test_db.py.")
@@ -457,11 +552,12 @@ def tool_run_tests(args: dict) -> str:
         raise ConflictError("A test run is already in progress.")
     try:
         cmd = [sys.executable, "-m", "pytest", "-q", "-o", "addopts=", "-p", "no:cacheprovider",
-               "--no-header", "-rfE", path]
+               "-p", "services.assistant_pytest_guard", "--no-header", "-rfE", path]
         try:
             proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True,
                                   encoding="utf-8", errors="replace",
-                                  timeout=TEST_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL)
+                                  timeout=TEST_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
+                                  env=_test_env())
         except subprocess.TimeoutExpired:
             return f"The test run took over {TEST_TIMEOUT_SECONDS} seconds and was stopped."
         output = (proc.stdout or "") + (proc.stderr or "")
@@ -519,7 +615,7 @@ def run_tool(name: str, args) -> dict:
     can read and correct."""
     entry = READ_ONLY_TOOLS.get(name) if isinstance(name, str) else None
     if entry is None:
-        return {"ok": False, "output": f"No such tool: {str(name)[:60]!r}. "
+        return {"ok": False, "output": f"No such tool: {_redact(str(name)[:60])!r}. "
                                       f"This assistant is read-only; available tools: "
                                       f"{', '.join(READ_ONLY_TOOLS)}."}
     if action_tiers.classify_action(TOOL_ACTIONS[name]) is not action_tiers.ActionTier.GREEN:
@@ -572,21 +668,35 @@ def _system_prompt() -> str:
     )
 
 
-def _parse_tool_calls(reply: str) -> list:
+def _unique_id(wanted: str, used: set) -> str:
+    call_id, n = wanted, 1
+    while call_id in used:
+        n += 1
+        call_id = f"{wanted}-{n}"
+    used.add(call_id)
+    return call_id
+
+
+def _parse_tool_calls(reply: str, used_ids: set = None) -> list:
+    """TOOL lines -> calls, each with an id unique across the whole
+    question (`used_ids` carries them between rounds), so every RESULT
+    and every tool_calls row is matched by id, never by order."""
+    used_ids = set() if used_ids is None else used_ids
     calls = []
-    for n, match in enumerate(_TOOL_LINE_RE.finditer(reply or ""), 1):
+    for match in _TOOL_LINE_RE.finditer(reply or ""):
         try:
             obj = json.loads(match.group(1))
         except (ValueError, TypeError):
             obj = None
         if not isinstance(obj, dict):
-            calls.append({"id": f"bad{n}", "name": None, "args": {}, "malformed": True})
+            calls.append({"id": _unique_id("bad", used_ids), "name": None, "args": {},
+                          "malformed": True})
             continue
         call_id = obj.get("id")
         if not isinstance(call_id, str) or not re.match(r"^[A-Za-z0-9_-]{1,20}$", call_id):
-            call_id = f"call{n}"
+            call_id = "call"
         args = obj.get("args")
-        calls.append({"id": call_id, "name": obj.get("name"),
+        calls.append({"id": _unique_id(call_id, used_ids), "name": obj.get("name"),
                       "args": args if isinstance(args, dict) else {}, "malformed": False})
     return calls
 
@@ -622,7 +732,9 @@ def _check_history(chat_history) -> list:
                                     f" of at most {MAX_CHAT_TURN_CHARS} characters.")
     if sum(len(m["content"]) for m in history) > MAX_CHAT_TOTAL_CHARS:
         raise InvalidInputError(f"chat_history is longer than {MAX_CHAT_TOTAL_CHARS} characters in total.")
-    return [{"role": m["role"], "content": m["content"]} for m in history]
+    # An empty turn (an answer that was only BACKLOG lines) is dropped:
+    # some providers reject empty message content.
+    return [{"role": m["role"], "content": m["content"]} for m in history if m["content"].strip()]
 
 
 def _check_question(question) -> str:
@@ -638,15 +750,20 @@ def build_engine(engine_name=None, model=None):
     from the request). Same rules as the Reader's Q&A engine."""
     from services import reader_service
     settings = get_settings()
-    engine_name = _check_engine_name(engine_name) or settings["engine"] or "claude"
-    model = _check_model(model) or (settings["model"] if engine_name == settings["engine"] else None)
-    return reader_service._llm_engine(engine_name, model), engine_name, model
+    saved_engine = settings["engine"] or "claude"
+    engine_name = _check_engine_name(engine_name) or saved_engine
+    model = _check_model(model) or (settings["model"] if engine_name == saved_engine else None)
+    from services import line_ai_service, settings_service
+    engine = reader_service._llm_engine(engine_name, model)
+    line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
+    return engine, engine_name, model
 
 
 def _chat(system_prompt: str, messages: list, engine) -> str:
     import qa
     try:
-        return qa._dispatch_chat(system_prompt, messages, engine) or ""
+        return qa._dispatch_chat(system_prompt, messages, engine,
+                                 max_tokens=MAX_OUTPUT_TOKENS) or ""
     except ServiceError:
         raise
     except Exception as e:  # engine/network failure: never leak a key or path
@@ -658,8 +775,10 @@ def _shown_args(args: dict) -> dict:
     short."""
     shown = {}
     for key, value in list(args.items())[:8]:
+        if isinstance(value, float) and not math.isfinite(value):
+            continue
         if isinstance(value, (str, int, float, bool)) or value is None:
-            shown[str(key)[:40]] = _redact(value)[:200] if isinstance(value, str) else value
+            shown[_redact(str(key)[:40])] = _redact(value)[:200] if isinstance(value, str) else value
     return shown
 
 
@@ -671,10 +790,12 @@ def run_diagnosis(question: str, history: list, engine, chat=None) -> dict:
     system_prompt = _system_prompt()
     messages = list(history) + [{"role": "user", "content": question}]
     calls_made = []
+    used_ids = set()
+    tests_run = False
     reply = ""
     for round_no in range(MAX_ROUNDS):
         reply = chat(system_prompt, messages, engine)
-        calls = _parse_tool_calls(reply)
+        calls = _parse_tool_calls(reply, used_ids)
         if not calls:
             break
         if round_no == MAX_ROUNDS - 1:
@@ -685,10 +806,13 @@ def run_diagnosis(question: str, history: list, engine, chat=None) -> dict:
         for call in calls[:MAX_TOOL_CALLS_PER_ROUND]:
             if call["malformed"]:
                 outcome = {"ok": False, "output": "That TOOL line wasn't valid JSON."}
+            elif call["name"] == "run_tests" and tests_run:
+                outcome = {"ok": False, "output": "Only one test run per question."}
             else:
+                tests_run = tests_run or call["name"] == "run_tests"
                 outcome = run_tool(call["name"], call["args"])
             calls_made.append({
-                "id": call["id"], "name": str(call["name"] or "")[:60],
+                "id": call["id"], "name": _redact(str(call["name"] or "")[:60]),
                 "args": _shown_args(call["args"]),
                 "ok": outcome["ok"],
                 "summary": outcome["output"].splitlines()[0][:200] if outcome["output"] else "",
@@ -702,6 +826,9 @@ def run_diagnosis(question: str, history: list, engine, chat=None) -> dict:
     return {"answer": reply, "tool_calls": calls_made}
 
 
+_ASK_LOCK = threading.Lock()
+
+
 def ask(question: str, chat_history=None, engine_name: str = None, model: str = None,
         chat=None) -> dict:
     """One assistant turn. Stateless: the client keeps the history."""
@@ -709,10 +836,19 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
     question = _check_question(question)
     history = _check_history(chat_history)
     engine, engine_name, model = build_engine(engine_name, model)
-    result = run_diagnosis(question, history, engine, chat=chat)
+    if not _ASK_LOCK.acquire(blocking=False):
+        raise ConflictError("The assistant is already answering a question. Try again when it's done.")
+    try:
+        result = run_diagnosis(question, history, engine, chat=chat)
+    finally:
+        _ASK_LOCK.release()
     raw = _redact(result["answer"])
+    answer = _clean_answer(raw)
+    if raw.count("```") % 2:
+        answer += ("\n\n[The answer looks cut off (an unclosed code block); any fix in it "
+                   "is incomplete. Ask for just the patch.]")
     return {
-        "answer": _clean_answer(raw),
+        "answer": answer,
         "proposed_patches": extract_patches(raw),
         "suggested_backlog": extract_backlog_suggestions(raw),
         "tool_calls": result["tool_calls"],
@@ -725,34 +861,42 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
 # Changelog (roadmap item 8)
 # ---------------------------------------------------------------------------
 
-MAX_CHANGELOG_COMMITS = 200
+MAX_CHANGELOG_COMMITS = 300
 
 
 def changelog(from_ref: str, to_ref: str = "HEAD", engine_name: str = None, model: str = None,
               chat=None) -> dict:
-    """A plain-English summary of the commits in from_ref..to_ref."""
+    """A plain-English summary of the commits in from_ref..to_ref. Uses
+    commit subjects (bodies would crowd out older commits); the count
+    comes from rev-list, and `truncated` says when the newest
+    MAX_CHANGELOG_COMMITS were all the model saw."""
     _require_developer_mode()
     from_ref = _ref_arg({"r": from_ref}, "r")
     to_ref = _ref_arg({"r": to_ref or "HEAD"}, "r", "HEAD")
     if not from_ref:
         raise InvalidInputError("from_ref is required.")
-    log = _git("log", f"--max-count={MAX_CHANGELOG_COMMITS}", "--date=short",
-               "--format=%h %ad %s%n%b%n---", f"{from_ref}..{to_ref}", "--")
-    commit_count = log.count("\n---")
+    span = f"{from_ref}..{to_ref}"
+    try:
+        commit_count = int(_git("rev-list", "--count", span, "--").strip() or 0)
+    except ValueError:
+        commit_count = 0
     if commit_count == 0:
         return {"changelog": "No commits in that range.", "commit_count": 0,
-                "from_ref": from_ref, "to_ref": to_ref}
+                "from_ref": from_ref, "to_ref": to_ref, "truncated": False}
+    log = _git("log", f"--max-count={MAX_CHANGELOG_COMMITS}", "--date=short",
+               "--format=%h %ad %s", span, "--")
+    shown = len([ln for ln in log.splitlines() if ln.strip()])
+    truncated = shown < commit_count
     engine, _name, _model = build_engine(engine_name, model)
     system_prompt = (
         "Write release notes for the owner of Baihe (a subtitle/translation app) from the "
-        "git commits below. Group into short sections (New, Fixed, Changed, Under the "
+        "git commit subjects below. Group into short sections (New, Fixed, Changed, Under the "
         "hood), plain English, one line per user-visible change, merge commits that are "
         "parts of one change, skip pure test/doc churn unless it matters. Don't invent "
         "anything that isn't in the commits.")
-    text = (chat or _chat)(system_prompt,
-                           [{"role": "user", "content": _clip(_redact(log), 30000)}], engine)
+    text = (chat or _chat)(system_prompt, [{"role": "user", "content": _redact(log)}], engine)
     return {"changelog": _redact(text).strip(), "commit_count": commit_count,
-            "from_ref": from_ref, "to_ref": to_ref}
+            "from_ref": from_ref, "to_ref": to_ref, "truncated": truncated}
 
 
 # ---------------------------------------------------------------------------
