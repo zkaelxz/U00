@@ -548,17 +548,20 @@ def cmd_translate(args):
                 db.heartbeat_gpu_lock(_gpu_holder)
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
+        style_note = (args.style_note if args.style_note is not None
+                      else settings_service.get_preference("default_style_note"))
+        # Same settings the Workspace job records with each line (Step 41).
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
             locale=args.locale or settings_service.get_preference("default_locale"),
-            reflect=bool(getattr(args, "reflect", False)),
+            style_preset=style_preset, reflect=bool(getattr(args, "reflect", False)),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
-            batch_size=_flag_or(args, "batch_size", tdefaults))
+            batch_size=_flag_or(args, "batch_size", tdefaults),
+            style_note=style_note or "", style_guidelines=style_guidelines or "")
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
-            style_note=(args.style_note if args.style_note is not None
-                        else settings_service.get_preference("default_style_note")),
+            style_note=style_note,
             novel_reference=novel_reference, force_retranslate=args.force,
             locale=args.locale or settings_service.get_preference("default_locale"),
             glossary_terms=glossary_terms,

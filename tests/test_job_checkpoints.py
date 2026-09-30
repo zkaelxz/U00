@@ -636,16 +636,49 @@ def test_cli_narrate_prep_resumes_and_can_start_over(isolated_db, monkeypatch):
 
 
 def test_cli_translate_records_provenance(isolated_db, monkeypatch):
-    on_save = line_provenance_service.translate_run_tracker(
-        1, [Line(idx=0, start=0, end=1, zh="你好", en="")], _Engine(), "claude", [],
-        locale="en-US")
-    ln = Line(idx=0, start=0, end=1, zh="你好", en="hello")
-    ln.id = None
-    on_save([ln])   # no permanent id yet: nothing recorded, no error
-    import inspect
+    import argparse
+    import contextlib
+    import io
     import cli
-    src = inspect.getsource(cli.cmd_translate)
-    assert "line_provenance_service.translate_run_tracker" in src and "provenance(lines)" in src
+    from services import workspace_job_service as wjs
+    did = isolated_db.create_drama(title_en="C", status="aligned")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _Engine())
+
+    def fake_translate(lines, engine, **kw):
+        lines[0].en = "hello"
+        kw["save_cb"](lines)
+        return lines, []
+
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    args = argparse.Namespace(id=did, status=None, engine="claude", api_key="k", model=None,
+                              style_note="Keep it short", style_preset="novel",
+                              locale="en-GB", force=False, ollama_num_ctx=None)
+    with contextlib.redirect_stdout(io.StringIO()):
+        cli.cmd_translate(args)
+    line = isolated_db.load_line_objects(did)[0]
+    prov = line_provenance_service.get(did, line.id, current_en=line.en)
+    assert line.en == "hello" and prov is not None
+    assert (prov["engine"], prov["model"]) == ("claude", "fake-model")
+    assert prov["prompt_version"] == translate_engines.TRANSLATE_PROMPT_VERSION
+    # The same settings the Workspace job records: a run with only the style
+    # preset changed hashes differently, so the preset is in the record.
+    captured = {}
+    real = line_provenance_service.translate_run_tracker
+    monkeypatch.setattr(line_provenance_service, "translate_run_tracker",
+                        lambda *a, **k: captured.update(k) or real(*a, **k))
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+    with contextlib.redirect_stdout(io.StringIO()):
+        cli.cmd_translate(args)
+    assert captured["style_preset"] == "novel"
+    assert captured["style_note"] == "Keep it short"
+    assert captured["style_guidelines"]
+    assert captured["locale"] == "en-GB"
+    workspace_keys = {"locale", "style_preset", "reflect", "context_window",
+                      "context_window_ahead", "batch_size", "style_note", "style_guidelines"}
+    assert set(captured) == workspace_keys
+    import inspect
+    assert all(k in inspect.getsource(wjs.run_translate_job) for k in workspace_keys)
 
 
 # --- stages route with auth on (security review) --------------------------------
