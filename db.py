@@ -3198,6 +3198,21 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
         return cur.lastrowid
 
 
+def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
+    """Step 40's guided switch: changes only a preset's model, and only if it
+    still holds expected_model (when given). False when nothing changed."""
+    with contextlib.closing(get_conn()) as conn:
+        if expected_model is None:
+            cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
+                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
+        else:
+            cur = conn.execute(
+                "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
+                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
+        conn.commit()
+    return cur.rowcount > 0
+
+
 def list_presets():
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()

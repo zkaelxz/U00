@@ -1,0 +1,22 @@
+{
+  "_about": "Step 40: known cloud-model lifecycle facts, shipped with the app. status is current | legacy (older, still served) | deprecated (announced for removal) | retired (no longer served). Only facts with a source go here; a model not listed is simply 'not in the registry', and the manual provider check covers what this file doesn't know yet.",
+  "updated": "2026-09-29",
+  "models": [
+    {
+      "engine": "deepseek",
+      "model": "deepseek-chat",
+      "status": "retired",
+      "retired_on": "2026-07",
+      "replacement": "deepseek-v4-flash",
+      "note": "DeepSeek's legacy alias, retired July 2026 (api-docs.deepseek.com). V4 Flash is the model this app uses for DeepSeek (it has no model choice here)."
+    },
+    {
+      "engine": "deepseek",
+      "model": "deepseek-reasoner",
+      "status": "retired",
+      "retired_on": "2026-07",
+      "replacement": "deepseek-v4-flash",
+      "note": "DeepSeek's legacy alias, retired July 2026 (api-docs.deepseek.com). V4 Flash is the model this app uses for DeepSeek (it has no model choice here)."
+    }
+  ]
+}
