@@ -55,7 +55,9 @@ def test_analyze_media(client, drama, monkeypatch):
                         "has_audio": True, "audio_track_count": 1, "sample_rate": 44100,
                         "width": None, "height": None, "fps": None, "subtitle_tracks": [],
                         "suggested_pipeline": ["Transcribe (Whisper)", "Diarize speakers",
-                                               "Translate", "Export subtitles (ASS/VTT/SRT)"]}
+                                               "Translate", "Export subtitles (ASS/VTT/SRT)"],
+                        "content_type_guess": "audio_drama",
+                        "content_type_reason": "audio-only file"}
 
 
 VIDEO_PROBE = {"format": {"duration": "60"},
@@ -86,6 +88,8 @@ def test_analyze_media_resolution_subtitles_pipeline(client, drama, monkeypatch)
     assert body["subtitle_tracks"] == [{"index": 2, "codec": "ass", "language": "chi"},
                                        {"index": 3, "codec": "subrip", "language": None}]
     assert body["suggested_pipeline"][0].startswith("Import existing subtitle track")
+    assert body["content_type_guess"] == "video_drama"
+    assert body["content_type_reason"] == "has a video track"
     assert folder not in r.text and "v.mp4" not in r.text   # never a path
 
 

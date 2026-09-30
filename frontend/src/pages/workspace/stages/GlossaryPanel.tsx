@@ -18,6 +18,7 @@ import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage } from '../StageContext'
 import { GlossaryImport } from './GlossaryImport'
+import { SeriesAssign } from './SeriesAssign'
 import { LinesGlossary, NovelGlossary } from './NovelGlossary'
 import { useGlossaryTermsVersion } from './useGlossaryRun'
 
@@ -145,7 +146,8 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
 }
 
 export function GlossaryPanel() {
-  const { dramaId } = useStage()
+  const { dramaId, drama } = useStage()
+  const seriesId = drama.series_id ?? null
   const [terms, setTerms] = useState<GlossaryTerm[] | null>(null)
   const [catalogues, setCatalogues] = useState<GlossaryCatalogues | null>(null)
   const [instructions, setInstructions] = useState<{ project: string; series: string } | null>(null)
@@ -174,7 +176,7 @@ export function GlossaryPanel() {
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads, termsVersion])
+  }, [dramaId, reloads, termsVersion, seriesId])
 
   useEffect(() => {
     let cancelled = false
@@ -189,7 +191,7 @@ export function GlossaryPanel() {
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, seriesId])
 
   const save = (f: TermForm) =>
     saveGlossaryTerm(dramaId, {
@@ -240,11 +242,12 @@ export function GlossaryPanel() {
       storageKey="translate.glossary"
       title="Glossary"
       count={terms?.length}
-      summary={terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
+      summary={seriesId == null ? 'not in a series' : terms ? (terms.length ? `${terms.length} term${terms.length === 1 ? '' : 's'}` : 'no terms yet') : undefined}
     >
       <div role="region" aria-label="Glossary">
+      <SeriesAssign />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {terms && terms.length === 0 && <p className="muted">No terms yet. They belong to the drama's series.</p>}
+      {terms && terms.length === 0 && seriesId != null && <p className="muted">No terms yet. They belong to the drama's series.</p>}
       {terms && terms.length > 0 && (
         <div className="table-scroll"><table>
           <thead>
@@ -321,7 +324,18 @@ export function GlossaryPanel() {
           onCancel={() => setEditing(null)}
         />
       ) : (
-        <button type="button" className={buttonClass('secondary')} onClick={() => setEditing(EMPTY)}>Add term</button>
+        <div className="actions">
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            disabled={seriesId == null}
+            aria-describedby={seriesId == null ? 'glossary-add-reason' : undefined}
+            onClick={() => setEditing(EMPTY)}
+          >
+            Add term
+          </button>
+          {seriesId == null && <span className="muted" id="glossary-add-reason">Still needed: a series (above).</span>}
+        </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
       <GlossaryImport hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />

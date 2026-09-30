@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { dubApi, dubTrackUrl } from '../../../api/dub'
+import { getWorkflowProgress } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -24,6 +25,7 @@ import {
   narrationResumeNote,
   pacingRows,
   pacingSummary,
+  untranslatedNarrationWarning,
   type DubForm,
 } from './dubForm'
 import { JobPanel } from './JobPanel'
@@ -41,9 +43,16 @@ export default function DubStage() {
   const [error, setError] = useState<unknown>(null)
   const [jobId, setJobId, runKey] = useJobRun()
   const [reloads, setReloads] = useState(0)
+  // Lines with source text and no English (workflow progress). Advisory only:
+  // if it cannot be loaded, the narration warning is simply not shown.
+  const [untranslated, setUntranslated] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    getWorkflowProgress(dramaId).then(
+      (p) => !cancelled && setUntranslated(p.untranslated_count),
+      () => !cancelled && setUntranslated(null),
+    )
     Promise.all([dubApi.config(dramaId), dubApi.pacing(dramaId)]).then(
       ([c, p]) => {
         if (cancelled) return
@@ -84,6 +93,7 @@ export default function DubStage() {
     }, setError)
   const trackReady = cfg.track_available || (done && jobSucceeded(job))
   const cloneWarning = warningSummary(cloneWarnings(cfg).size)
+  const untranslatedWarning = cfg.is_narration ? untranslatedNarrationWarning(form.language, untranslated) : null
   const showPacing =
     pacing?.available && (pacing.lines.length > 0 || Object.keys(pacing.counts).length > 0)
 
@@ -138,6 +148,16 @@ export default function DubStage() {
             )}
           </p>
         </div>
+        {untranslatedWarning && (
+          <p className="voice-warning dub-untranslated" role="note" data-testid="dub-untranslated">
+            <span>{untranslatedWarning}</span>
+            {form.language === 'translation' && (
+              <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate' })}>
+                Go to Translate
+              </ButtonLink>
+            )}
+          </p>
+        )}
         {cloneWarning && (
           <p className="voice-warning" data-testid="dub-clone-warning">
             {cloneWarning}
