@@ -12,6 +12,7 @@ import type {
   DiagnosticsJobHistoryItem,
   DiagnosticsLogTail,
   DiagnosticsModelCache,
+  DiagnosticsModelFolder,
   DiagnosticsPackageUpdates,
   DiagnosticsOverview,
   DiagnosticsPyannoteReadiness,
@@ -98,6 +99,12 @@ export const deleteHfRevision = (revision: string, f?: Fetch) =>
 export const deletePiperVoice = (voice: string, f?: Fetch) =>
   postJson<DiagnosticsCacheDeleteResult>(
     `${BASE}/model-cache/piper/${encodeURIComponent(voice)}/delete`, { confirm: true }, pcOnlyFetch(f),
+  )
+
+export const deleteModelFile = (folder: DiagnosticsModelFolder, name: string, f?: Fetch) =>
+  postJson<DiagnosticsCacheDeleteResult>(
+    `${BASE}/model-cache/files/${encodeURIComponent(folder)}/${encodeURIComponent(name)}/delete`,
+    { confirm: true }, pcOnlyFetch(f),
   )
 
 // Saved bug-reproduction bundles (a line's "What happened here?" snapshot).
