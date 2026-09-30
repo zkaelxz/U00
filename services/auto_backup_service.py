@@ -114,8 +114,8 @@ def _check_folder(value) -> str:
         raise InvalidInputError("The backup folder must be a full folder path.")
     value = value.strip()
     if not os.path.isabs(value):
-        raise InvalidInputError("The backup folder must be a full folder path "
-                                "(for example D:\\Backups).")
+        raise InvalidInputError("The backup folder must be a full folder path, starting "
+                                "with the drive letter.")
     real = os.path.realpath(value)
     lib = os.path.realpath(db.LIBRARY_DIR)
     backups = os.path.join(lib, "backups")
