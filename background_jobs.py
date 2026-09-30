@@ -1,35 +1,29 @@
 """
-background_jobs.py -- runs long operations in a real background thread
-so they survive Streamlit's script lifecycle.
+background_jobs.py -- runs long operations (translate, transcribe, dub,
+exports...) in background threads, so an HTTP request can start a job
+and return at once. Work with no safe point to stop at (one opaque
+diarization call) runs in a child process instead, so cancel can kill it.
 
-The problem this solves: Streamlit reruns its whole script on every
-interaction, and by default CANCELS whatever script run is currently in
-flight when a new one starts. A translation job that runs as a blocking
-loop directly inside the button-click handler dies the moment the person
-clicks anything else -- including something in another tab, since every
-tab's content renders in the same script execution regardless of which
-one is visually active (Streamlit tabs are a client-side CSS toggle, not
-a separate script per tab).
+State lives in the module-level `_jobs` dict. That dict is the authority
+for jobs this process owns; the API polls it through get_status().
 
-The fix: run the job in an actual `threading.Thread`, with its progress
-kept in a plain module-level dict. Module state survives reruns because
-imported modules are only loaded once per process and cached in
-sys.modules -- so a thread started during one script run keeps running,
-and its state dict is still there to read on the next one, no matter
-what the person clicked in between.
+Every status change is also mirrored, best-effort, to the `job_records`
+table so other processes (and a restarted server) can see a job's last
+known state. While this process has queued or running jobs, a daemon
+heartbeat thread bumps their `updated_at` so a stale-record sweep
+elsewhere can tell a quiet live job from one whose owner process died.
+A failed mirror write is logged and never breaks the job.
 
-Two hard rules for anything run this way:
-  - Never touch st.* from inside the thread. Streamlit's session state
-    and widgets are not thread-safe to write from a background thread.
-    Progress goes into this module's dict instead; the main script
-    reads it and renders normally.
-  - Do the actual work through functions that already only touch plain
-    Python objects and the database (e.g. translate_lines_with_engine),
-    not anything that assumes it's running inside a Streamlit script.
+Rules for anything run this way:
+  - Do the work through functions that only touch plain Python objects
+    and the database (e.g. translate_lines_with_engine).
+  - Write only the fields the job owns (`db.save_lines(..., fields=...)`),
+    so a job can't overwrite the user's edits or another job's work.
+  - A process job can't write into this process's dict; it reports
+    progress and its result through a multiprocessing.Queue that a
+    watcher thread here applies.
 
-Single-process, in-memory only -- fine for a local personal app with one
-user. Would need a real job queue (Celery, RQ) for anything multi-user
-or multi-process.
+One machine, one process owning each job: not a distributed job queue.
 """
 
 import multiprocessing
@@ -45,6 +39,33 @@ _jobs = {}
 def _acting_user_id():
     from services import ownership_service
     return ownership_service.acting_user_id()
+
+
+# Push hook (SSE, services/event_stream_service.py): listeners are told a
+# job id changed (None: every job, e.g. clear_all_jobs) and fetch what they
+# need themselves. A listener must not block; one that raises is ignored,
+# so a listener can never break the job it is told about.
+_change_listeners = []
+
+
+def add_change_listener(fn) -> None:
+    if fn not in _change_listeners:
+        _change_listeners.append(fn)
+
+
+def remove_change_listener(fn) -> None:
+    try:
+        _change_listeners.remove(fn)
+    except ValueError:
+        pass
+
+
+def _emit_change(job_id) -> None:
+    for fn in list(_change_listeners):
+        try:
+            fn(job_id)
+        except Exception:
+            pass
 
 
 def _mirror_locked(job_id):
@@ -77,6 +98,7 @@ def _mirror_locked(job_id):
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
                                     exc_info=True)
+    _emit_change(job_id)
     _ensure_heartbeat()
 
 
@@ -783,10 +805,14 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
                 _, exc_type, msg = outcome
+                # The worker's message can carry a key (a provider's error
+                # echoing it back): redact before storing or logging.
+                from translate_engines import redact_secrets
+                error_msg = redact_secrets(f"{exc_type}: {msg}")
                 _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = f"{exc_type}: {msg}"
+                _jobs[job_id]["error"] = error_msg
                 _jobs[job_id]["finished_at"] = time.time()
-                logger.error(f"job {job_id} failed: {exc_type}: {msg}")
+                logger.error(f"job {job_id} failed: {error_msg}")
             else:
                 _jobs[job_id]["status"] = "error"
                 _jobs[job_id]["error"] = (
@@ -852,6 +878,7 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             if message:
                 _jobs[job_id]["message"] = message
             _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
+            _emit_change(job_id)
     if _gpu_touching:
         # Step 25w: refreshes this job's cross-process GPU lock (see
         # _gpu_slot_available_locked) so a long-running job's own regular
@@ -876,6 +903,8 @@ def set_result(job_id: str, result, mirror: bool = False):
             _jobs[job_id]["result"] = result
             if mirror:
                 _mirror_locked(job_id)
+            else:
+                _emit_change(job_id)
 
 
 def get_status(job_id: str):
@@ -920,6 +949,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "audiobook_", "burned_video_", "softsub_video_", "dubbed_video_", "bulk_translate_", "novel_glossary_", "extract_audio_",
     "sourceimport_", "urlmedia_", "voiceref_", "lines_glossary_", "burnpreview_",
     "bulk_consistency_", "bulk_emotion_", "bulk_notes_", "bulk_flag_", "resegpreview_", "scanlate_",
+    "lncrawl_",
     "notion_export_",
 )
 
@@ -1101,6 +1131,7 @@ def clear_job(job_id: str):
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
                                     exc_info=True)
+    _emit_change(job_id)
 
 
 def clear_all_jobs():
@@ -1116,6 +1147,7 @@ def clear_all_jobs():
     except Exception:
         import applog
         applog.get_logger().warning("failed to clear job_records", exc_info=True)
+    _emit_change(None)
 
 
 def list_running_jobs():

@@ -23,7 +23,7 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 ## Rules learned from real bugs
 - Match LLM results back to lines by explicit id, never by list position (`translate_engines._request_translations_with_retry`, `_parse_id_keyed_json`).
 - API keys go in headers, never in URLs, log lines or stored error messages. Pass any error text through `translate_engines.redact_secrets` before showing, storing or logging it. API responses never include secrets, filesystem paths or fetched URLs (booleans only).
-- Every outbound HTTP call has a `timeout=`. `tests/test_static_analysis.py` enforces this for the files it lists; add new HTTP-calling modules to it.
+- Every outbound HTTP call has a `timeout=`. `tests/test_static_analysis.py` enforces this for every file under `services/` and `api/` plus the other modules it lists; add a new HTTP-calling module outside those two packages to its list.
 - Background jobs write only the fields they own: `db.save_lines(drama_id, lines, fields=("en",))`. A full sync (`fields=None`) makes the list the drama's lines: rows are updated in place by id, rows missing from the list are deleted, and a field is written when it differs from the Line's `orig`. Build Lines with `core.line_from_row` (it carries every field and `orig`) so flags, speaker and the like aren't wiped.
 - `db.create_drama` / `db.update_drama` interpolate kwarg keys into SQL: services must whitelist keys. Services check drama/series ownership (`services/ownership_service.py`).
 - Every API route declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`; `tests/test_api_permissions.py` enforces it along with the route table in `docs/remote-access-decision.md`.
@@ -34,6 +34,8 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
+- A new code comment states the constraint or the reason, never a Step, Slice, B- or PR id. Don't mass-rewrite old comments.
+- Screenshots go on the PR as attachments, not in committed files.
 - A new top-level module, `services/*.py` or `api/routers/*.py` file gets a line in `FILE_ORGANIZATION.md` (a hook warns).
 - Finish with a short summary: what changed and what the user will notice, the commands you ran with pass counts, what you're unsure about, and follow-ups.
 - Merging: push and open a draft PR into `baihe-subtitler`; the lead session merges once CI is green.

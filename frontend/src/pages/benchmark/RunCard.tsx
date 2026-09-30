@@ -330,7 +330,7 @@ function PrefillNote({ prefill, onDismiss }: { prefill: ComparePrefill; onDismis
   )
 }
 
-function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: BenchmarkStage }) {
+export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: BenchmarkStage }) {
   const capLine = est.monthly_cap_usd > 0
     ? `This month: ${formatCost(est.month_spend_usd)} spent of a ${formatCost(est.monthly_cap_usd)} cap${
         est.remaining_usd != null ? ` · ${formatCost(est.remaining_usd)} left` : ''}`
@@ -363,7 +363,7 @@ function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: Benchmar
   )
 }
 
-function JobProgress({ job, onStop }: { job: JobRecord | null; onStop: () => void }) {
+export function JobProgress({ job, onStop }: { job: JobRecord | null; onStop: () => void }) {
   const pct = job?.progress != null ? Math.round(job.progress * 100) : null
   return (
     <div className="bench-progress" data-testid="bench-progress" role="status">

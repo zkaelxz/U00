@@ -242,6 +242,25 @@ work".
 | Known limits | `music`-catalog entries (soundtrack-only) are excluded from `get_chapters()`. HLS manifests are returned as-is, not downloaded/muxed to a file. The authenticated-fallback extraction shape (raw JSON inside a rendered `<pre>`) is a reasonable guess, not confirmed against a real session. |
 | Tests | `tests/test_sources_missevan.py`. All fetches are mocked fixtures trimmed from real captured responses; no live network call. |
 
+## 饭角 Fanjiao — `sources/adapters/fanjiao.py`
+
+| | |
+|---|---|
+| URL patterns | `www.fanjiao.co/pages/share.html?album_id=<id>` (series). The roadmap's "泛娱有声" label was wrong: the platform is 饭角, operated by 深圳热蓝科技有限公司; `known_sites.py`'s old `www.fanjiao.cc` (DNS fails) is now `https://www.fanjiao.co/`. |
+| Content type / language | audio_drama, zh (baihe/GL, 18+) |
+| Status | **Metadata only: `get_series` and `get_chapters`.** No `search()` (no public search or catalogue) and no `get_audio_url()` (the public page exposes no audio; 收听第一集 opens the app). Built 2026-09-30 against the page's own script (`/files/js/share03.js`); **a live render could not be run from the build container**, so the first real run is still to do (see the manual checks below). |
+| Access tier | `RENDERED_BROWSER`. `share.html` is an empty template (title, brief, 参演CV, 收听第一集, 最新评论, 打开APP查看全部内容) until its own script runs. |
+| **Protection, recorded not worked around** | The site's API (`api.fanjiao.co/walkman/api/...`) needs an md5 `signature` header computed from the query plus a secret salt; the app adds Shumei risk control and 360 hardening. User decision (2026-09-30): never extract or reimplement the signing. The adapter opens the share page through `page_fetch.api_capture_session` (the guarded browser) and reads only the responses the page's own script already made: `album/album_info` (name, description, cover, author_name, update_frequency), `album/actor_cvs` (`cv_list[].name`/`role_name`, added to the description as 参演CV) and `album/audio` (`audios_list[].audio_id`/`name`, the episode list; the page itself only uses the first id). The rendered DOM (`.title`, `.brieftext`, `.titleimg img`, `.cvname`) is the fallback for the series fields. The same "let the site's own execution path produce the result" rule as Bilibili Manga and manhuaku. |
+| Paid / locked | Paid episodes stay in the list with the group `付费 / paid (app only)`. The flag keys aren't confirmed, so a small set of likely ones is checked (`need_pay`, `is_pay`, `pay_type`, `vip`, `is_vip`, `price` > 0, `is_free` = 0, `lock`/`is_lock`). If the page's own album or episode call is refused (a non-200 answer) or answers without a list (paid, 18+, removed or app-only album), `get_series()`/`get_chapters()` raise `ContentHidden`/`PURCHASE_REQUIRED` rather than returning an empty list. The API reports that as reason `PURCHASE_REQUIRED` with the adapter's message, not as the adult-works hint. |
+| Paid episodes (user decision, 2026-09-30) | **A purchase is never bypassed.** Paid episodes are listed as metadata only and never fetched: this adapter has no audio path at all. Reading a bought episode would be allowed only through the authenticated-browser tier, with the person signed in on the web and the page itself showing that episode. No web sign-in has been found on fanjiao.co (the share page opens the app; the user agreement is app-only), so no authenticated tier is built. Anything else stays `ContentHidden`. |
+| Subtitles (user decision, 2026-09-30) | https://fun.zhufree.fun/sub-download is a **manual route only**: the person downloads the SRT in their own browser and imports it in the Source stage. Baihe never calls that site. It almost certainly makes Fanjiao's signed API calls on the visitor's behalf, has no published API or terms, and is run by the same person as BaiheHub, which Baihe already queries. |
+| Finding album ids | baihehub.com's audio-drama records carry a `fjId` field (the Fanjiao album id). The existing BaiheHub search (`title_library.search_baihehub`) doesn't surface it yet; paste the share link instead. |
+| Pacing | One render makes four or five calls on the site's side, so renders are spaced 10 s apart (`host_min_interval`), under the client's pacing and concurrency limit (`client.paced`). `get_series` and `get_chapters` share one render per album. |
+| From another device | No browser (docs/remote-access-decision.md): the URL preview, preflight, the series listing and "Check now" set the adapter's `allow_browser` from "is this request from this PC" (the scheduled check runs on the PC and may render); with it off, the adapter refuses (`JAVASCRIPT_REQUIRED`) before rendering. Browser failures (Playwright missing, a timeout, the proxy check) come back as a plain `SourceError`. |
+| Terms | No robots.txt (every unknown path returns the homepage). The user agreement is only viewable in the app; the public `/pages/useragree.html` is the privacy policy and has no automation clause. `automation_permission` UNKNOWN, `technical_protection` DETECTED, in `capabilities()` and in `site_terms.py` (whose `capabilities_for()` now carries an entry's `technical_protection`). |
+| Reference | `tsinglinrain/YuriAudio2Notion` (Apache-2.0), read for field names only; its endpoints/signing approach are not used. |
+| Tests | `tests/test_sources_fanjiao.py`. No network or browser: a fake capture returns rendered HTML plus the page's own responses, shaped after `share03.js` and the reference's field list (not a trimmed live capture). |
+
 ## 轻之国度 LightNovel — `sources/adapters/lightnovel_fun.py`
 
 | | |
@@ -271,6 +290,18 @@ work".
 | Known limits | The first chapter from a site can't use the cross-chapter repeat check yet, so a page-sized logo that shares the pages' width can get through. Pages drawn on a canvas or assembled by scripts need the browser tier. trafilatura's CJK extraction hasn't been benchmarked. Confirmed live (2026-09-27, `m.zgzl.net`): a site that splits one chapter across several numbered sub-pages (`.../sb93g.html` page 1 of 5, `.../sb93g_2.html` page 2, ...) offers a "next page" link on every sub-page but no "next chapter" link except on the last one -- and `validate_novel`'s link-shape check correctly refuses to treat "next page" as "next chapter" (their URLs don't resemble sibling chapters), so a book like this can be read sub-page by sub-page but not auto-walked chapter to chapter from a page that isn't the chapter's last one. |
 | **Pages your browser already translated** | A browser translator (Google Translate, Edge's) **replaces** a page's text rather than annotating it — confirmed against a live translation, after which the original Japanese was gone from the page. Reading such a page would hand this app the translation as though it were the source, so it would "translate" English it believes is Chinese, or save an English chapter as the original — silently, because the import succeeds and the text looks fine. This is now detected and reported, with what to do about it (turn the browser's page translation off for that site and fetch again). It matters most when you paste page source from your own browser. It is a warning, never a failure: the page loaded fine, so it never stops or escalates the access ladder. Detected from the fingerprints a real translation leaves — `translated-ltr`/`translated-rtl` on `<html>`, the `goog-gt-tt`/`goog-gt-vt` elements, and text rewritten into nested `vertical-align:inherit` `<font>` wrappers. A merely *embedded, idle* translate widget is deliberately not matched, or every page offering translation would be flagged. |
 | Tests | `tests/test_sources_workflows.py` |
+
+## lightnovel-crawler (external program, optional) — `services/lncrawl_service.py`
+
+| | |
+|---|---|
+| What | Source > Novel text > **Import with lightnovel-crawler**: runs the user-installed [lightnovel-crawler](https://github.com/lncrawl/lightnovel-crawler) (`lncrawl`) on a pasted novel URL and attaches the text of the EPUB it makes. Shown only when the program is found (PATH, or Settings > Advanced > Downloads > "lightnovel-crawler program"). User decision 2026-09-30: an optional external tool. |
+| Licence | **GPL-3.0-or-later** (checked against the 4.14.0 release's package metadata, 2026-09-30; the older xbanxia note above called the project MIT, which no longer holds). Because of that, Baihe uses it **only as a separate program** (arm's-length use): no lncrawl code is copied, vendored or imported, Diagnostics detects the program rather than the Python module, and it is never offered for one-click install -- the user installs it (`pipx install lightnovel-crawler`, or `pip install lightnovel-crawler` in its own environment). |
+| Interface used | The 4.x CLI: `lncrawl crawl --noin --format epub {--all \| --first N \| --last N} -- <url>`, with `LNCRAWL_DATA_PATH` pointed at a temp folder inside the drama folder. Confirmed in the 4.14.0 source: `crawl` defines `--noin`, `--all`, `--first N`, `--last N` and `-f/--format`; `config.py` sets its app folder from `LNCRAWL_DATA_PATH`, and its config file, sqlite database and artifacts (the EPUB) all resolve under that folder. `LNCRAWL_CONFIG` and `DATABASE_URL` could redirect the config or database, so they are removed from its environment. 4.x has no `--source` flag, no output-folder flag and no from–to chapter range, so the UI offers all / first N / latest N. Older 3.x releases (`lncrawl -s <url> ...`) are not supported. |
+| Fetching | lncrawl fetches the site itself (its own sources, DNS, redirects and pacing). Baihe checks the pasted URL once with `url_guard` before starting it and cannot pin what lncrawl fetches after that, so the routes are PC-only (`docs/remote-access-decision.md`). |
+| Terms | Per title, the user's call -- the panel says so. Site-specific terms are not looked up for lncrawl's sources. |
+| Known limits | Never run for real from this repo's tests (the subprocess is mocked). The EPUB lncrawl writes has a cover/intro page and volume headings; their text is attached along with the chapters. lncrawl's own saved config (proxies, logins) is not used, because it runs with a fresh temp data folder; sites that need a login are not supported. |
+| Tests | `tests/test_lncrawl_service.py`; `frontend/src/pages/workspace/stages/lncrawlForm.test.ts`; `frontend/e2e/lncrawl-import.spec.ts`, `lncrawl-import.mobile.spec.ts`. |
 
 ### "Will this site work?" — `sources/preflight.py`
 
@@ -594,6 +625,13 @@ they've been tried against the real site.
   inside a rendered `<pre>`" extraction shape it assumes is actually what
   the browser hands back for this specific endpoint. Not verified this
   pass; no such account was available.
+- [ ] **fanjiao, first real render (pending):** on a normal machine,
+  open a real album (e.g. `album_id=111601`, found through baihehub's
+  `fjId`) through the Sources tab and confirm the page's own
+  `album_info`/`actor_cvs`/`album/audio` responses are captured and
+  parsed, that `audios_list` items really carry `audio_id`/`name`, and
+  which key marks a paid episode. The build container couldn't render
+  the page, so the fixtures follow the page's own script, not a capture.
 - [ ] **Mag-Comi, raw1001.net, novema.jp, Kakuyomu, Hameln -- generic
   pipeline only, no dedicated adapter:** search a real title on each
   through the existing generic paste-a-URL / adaptive-extraction flow

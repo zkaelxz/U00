@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { getSupportReport } from '../../api/diagnostics'
 import { Card } from '../../components/Card'
+import { copyText } from '../../components/clipboard'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
@@ -89,9 +90,7 @@ export function SupportReportSection() {
         const blob = pending.then((t) => new Blob([t], { type: 'text/plain' }))
         await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })])
       } else {
-        const text = await pending
-        if (!navigator.clipboard?.writeText) throw new Error('no clipboard')
-        await navigator.clipboard.writeText(text)
+        if (!(await copyText(await pending))) throw new Error('no clipboard')
       }
       setNote('Copied. Paste it into your bug report.')
     } catch {

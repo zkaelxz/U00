@@ -97,6 +97,10 @@ export async function mockAuth(page: Page, me: MeBody): Promise<AuthMockState> {
     if (req.method() === 'GET' && s.unauthorizedPaths.has(path)) {
       return json(route, 401, { error: { code: 'unauthorized', message: 'Please sign in.' } })
     }
+    // No push stream (GET /api/events): pages poll, as these specs expect.
+    if (req.method() === 'GET' && path === '/api/events') {
+      return json(route, 429, { error: { code: 'rate_limited', message: 'No stream in this test.' } })
+    }
     if (req.method() === 'GET' && Object.prototype.hasOwnProperty.call(GET_FIXTURES, path)) {
       return json(route, 200, GET_FIXTURES[path])
     }
