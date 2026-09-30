@@ -45,15 +45,14 @@ URL you have the right to download from, only.
   [`docs/RELEASE.md`](docs/RELEASE.md)).
 - **Streamlit app (removed).** The old UI (`app.py`, `tabs/`) was deleted;
   `legacy/streamlit` and the `pre-streamlit-removal` tag hold the last version
-  once they are created (`docs/streamlit-retirement-plan.md`). Much of this
-  README still describes its screens; the React app is the only UI.
+  (`docs/streamlit-retirement-plan.md`). Some of this README's older
+  sections may still use its wording; the React app is the only UI.
 - **FastAPI + React app (the app going forward).** An HTTP API (`api/`)
   and a React frontend (`frontend/`) over the *same* library, database and
-  background jobs. What works in React today: Library, Diagnostics,
-  Settings, the standalone Translate page, and the per-drama Workspace
-  stages Source, Translate, Review, Export and Dub. Everything else
-  (for example Reader, Discover, Live, Scanlate and Sources) is
-  not yet ported to React (see `docs/streamlit-retirement-plan.md`).
+  background jobs. Pages: Library, the per-drama Workspace
+  stages, the standalone Translate page, Reader, Discover, Live, Sources,
+  Comic (Scanlate), Benchmark Lab, Assistant, Diagnostics and Settings
+  (`frontend/src/pages/`; status in `docs/STATUS.md`).
 - **Layers.** `db.py` (plain `sqlite3`) and the domain modules at the
   repo root hold the logic; `services/` wraps them in UI-independent
   functions; `api/` exposes those as HTTP routes; `frontend/` is the
@@ -1049,13 +1048,13 @@ font (system/serif/sans/mono), and three themes (light, sepia, dark).
 
 ### Interface
 
-**Dark mode** is a toggle at the top of the ⚙️ Settings sidebar and
+**Theme** is a menu in the app header (including a Sepia theme) and
 applies to the whole app. The Reader keeps its own separate theme
 (light/sepia/dark) for the reading surface, since reading preferences
 and UI preferences aren't always the same. Tables (glossary, bulk
 import review, library filtering) may still show light cell backgrounds
-in dark mode — a data-grid rendering constraint of the old UI,
-not a missed style; see `docs/technical-notes.md` for why.
+in dark mode — a data-grid rendering constraint of the old UI;
+see `docs/technical-notes.md` for why.
 
 A restrained design system:
 one accent colour carrying emphasis (when five things are highlighted,
@@ -1114,7 +1113,7 @@ The app is meant to feel like a proper library, not a folder of files.
 **Progress & resume**
 - Reading percentage and last page tracked per drama, saved automatically as you page through the Reader
 - Audio position stored separately from reading position, so listening and reading don't overwrite each other
-- **Continue** shelf on the Library tab: cover art, progress bar, one-click resume to where you left off. The Resume button sets your target drama/page then tells you to open the Read & Watch tab yourself — `st.tabs()` has no API to switch tabs from Python, so rather than pretend otherwise, it says plainly what to click next
+- **Continue** shelf on the Library tab: cover art, progress bar, one-click resume to where you left off. Resume opens the Reader or Workspace at your saved place
 - Reading history log, clearable
 
 **Metadata**
@@ -1423,10 +1422,9 @@ tab.
 
 A design goal: one thing breaking should break only that thing.
 
-**Tab isolation.** Each tab renders inside a guard that shows the error
-(with a traceback, so it stays diagnosable) inside that tab while the
-rest of the app keeps working. Tab modules are also imported
-individually, so one failing to import doesn't stop the others loading.
+**Page isolation.** Each React page renders inside an error boundary,
+so one page failing shows its error there while the rest of the app
+keeps working.
 
 **Database connections.** Connections are tracked and reclaimed even
 when a statement raises between opening and closing one, so a single
@@ -1476,16 +1474,13 @@ scanlate job.
 - **Isolated diarization failures**: if diarization fails (bad HF
   token, missing install), the alignment work already done is still
   saved -- you just don't get speaker labels until you fix and re-run it.
-- **Shared Settings panel** (sidebar): enter each API key/endpoint
-  once per session, reused as the default everywhere else, still
-  overridable per-tab. Nothing here is written to disk.
+- **Settings page**: enter each API key/endpoint once, reused as the
+  default everywhere else. Keys are never shown back by the API.
 - **Backup & restore** (Library tab): zips the whole library --
   database plus every drama's audio/video/dub files and reference
   clips -- for download, with a matching restore flow. Worth doing
-  before any big batch run. Note: at very large libraries (100+ GB,
-  e.g. many video dramas), the in-app zip buffers in memory -- for
-  libraries that large, back up the `library/` folder directly with
-  normal file tools (rsync, cloud sync) instead.
+  before any big batch run. The zip is streamed to disk, so it scales
+  to a large library.
 
 ### Performance & dashboard
 
@@ -1504,7 +1499,7 @@ scanlate job.
   responses, logged per drama, with a cost breakdown table in the
   dashboard. Estimates only -- pricing changes over time.
 - **Default settings**: save your usual translation engine, English
-  locale, and style notes in the Settings sidebar so new dramas start
+  locale, and style notes in Settings so new dramas start
   pre-filled instead of resetting every time.
 - **GPU acceleration**: optional, for Whisper transcription,
   diarization, and local voice cloning. Falls back to CPU automatically

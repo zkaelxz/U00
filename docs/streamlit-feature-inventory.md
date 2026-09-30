@@ -2,6 +2,8 @@
 
 Written 2026-09-29 to prepare the Streamlit deletion (`docs/streamlit-retirement-plan.md`, sections 9 and 10). It lists what every Streamlit tab and every Workspace stage did, so nothing is lost silently when the files go.
 
+> **Status (2026-09-30):** The Streamlit UI was deleted in #502 (21e3872). The `path:line` references point at BASE; read them with `git show pre-streamlit-removal:<path>` or on the `legacy/streamlit` branch. The MISSING/PARTIAL cells and the counts and backlog in sections 13-14 describe React as of BASE and have not been re-checked since. Many gaps have been closed by later PRs (for example API key entry: `frontend/src/api/settings.ts` now calls `/api/settings/keys/`, and the Reader, Discover, Live, Sources and Comic pages exist). Check the code before treating a row as open.
+
 - **BASE:** `bdcc18c489b4ffc246db232b6bb9135a1603c6e0` (`origin/baihe-subtitler`). Every `path:line` below is at BASE; the archive tag `pre-streamlit-removal` points at BASE or later, so `git show pre-streamlit-removal:tabs/workspace_tab.py` gives the same text unless a later commit touched it.
 - **React column:** the React file that does the same job, or one of:
   - **MISSING**: not in React yet. It goes on the backlog at the end.

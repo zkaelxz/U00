@@ -61,8 +61,11 @@ baihe-subtitler/
 │   │                             pip from its wheel, installs requirements-core offline
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
-├── scripts/dependency_canary.py  tests one package upgrade in a throwaway venv against the offline suite;
-│                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
+├── scripts/
+│   ├── build_release.py          packages the built React app as a release zip (baihe-frontend-<version>.zip)
+│   ├── dependency_canary.py      tests one package upgrade in a throwaway venv against the offline suite;
+│   │                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
+│   └── migration/                keepboth.py, resolve_slice.py -- merge-conflict helpers for migration slices
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -167,14 +170,13 @@ baihe-subtitler/
 │   │                             copy, manual backup zip or library.db) as new dramas owned by the acting
 │   │                             user; reuses auto_backup_service._copy_drama; router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
-│   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
-│   │                             unchanged; those tabs import them back and call them as before)
-│   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
-│   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
-│   │                             + stage_statuses_from_index (from ui/workflow.py); get_drama_progress
+│   │                             Slice 2)
+│   ├── workflow_service.py       compute_workspace_stage_index (the
+│   │                             pipeline-stage index, Step 19 invariant)
+│   │                             + stage_statuses_from_index; get_drama_progress
 │   │                             (per-stage state + counts for the API)
 │   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
-│   │                             Scanlate pages (moved from tabs/scanlate_tab.py; Streamlit upload; API callers must pass
+│   │                             Scanlate pages (API callers must pass
 │   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
 │   │                             route must enforce a png/jpg/jpeg/pdf allowlist and a size cap)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
@@ -200,7 +202,7 @@ baihe-subtitler/
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
-│   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
+│   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
 │   ├── job_checkpoint_service.py Step 41 -- per-unit checkpoints so a re-run resumes an interrupted
@@ -251,8 +253,8 @@ baihe-subtitler/
 │   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
 │   │                             job_records sweep for other processes' jobs
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
-│   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
-│   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
+│   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution;
+│   │                             never returns a key value over an API (D2)
 │   ├── engine_routing_service.py Step 36 -- capability-based task routing: resolve_capability("translation.cheap"|
 │   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
 │   │                             -> the engine chosen in Settings (else a default; never switches on its own);
@@ -284,7 +286,7 @@ baihe-subtitler/
 │   │                             (Whisper tuning knobs, newly persisted per drama) plus
 │   │                             start_transcribe_run: a background job that does the WHOLE
 │   │                             pipeline (ASR, alignment, DB write, optional diarization chain-
-│   │                             start), unlike Streamlit's render-loop apply step. Slice 21 adds
+│   │                             start), Slice 21 adds
 │   │                             hardsub_ocr transcript_mode (burned-in video captions, via
 │   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
 │   │                             step, same as Whisper's own text). chunk_and_tag lives in narration_service

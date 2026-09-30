@@ -10,7 +10,6 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 - `translate_engines.py`: every translation/LLM engine plus the id-keyed request, retry and redaction helpers.
 - `background_jobs.py`: thread-based jobs. The in-memory dict is the authority, with a best-effort mirror in the `job_records` table.
 - `sources/`: site adapters (`sources/adapters/`) and the fetch ladder. `cli.py`: headless batch runner.
-- Streamlit (`app.py`, `tabs/`, `ui/`, `ui_theme.py`, `common.py`) is frozen and being deleted. Don't add to it. Only fix crashes or data loss there that block the migration, delete it, or move its logic into `services/`.
 - Current status and what's next: `docs/STATUS.md`.
 
 ## Tests

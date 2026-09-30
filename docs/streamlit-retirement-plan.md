@@ -1,5 +1,7 @@
 # Streamlit retirement plan (proposal)
 
+Update 2026-09-30: the Streamlit UI is deleted (#502, 21e3872); the `pre-streamlit-removal` tag and `origin/legacy/streamlit` branch exist. The rest of this file is the historical plan.
+
 Status: DECIDED IN PART 2026-09-29 (see section 8). Written by a read-only architecture pass after the user decided to complete the React migration and remove Streamlit.
 Section 8 records the decisions taken; anything in sections 3-7 not covered there is still a proposal. Evidence is `file:line` on `baihe-subtitler` at that date; HYP = hypothesis, UNK = unknown.
 Streamlit code is about 11,950 lines: tabs 10,876, `ui_theme.py` 468, `ui/` 363, `app.py` 118, `common.py` 113, `.streamlit/config.toml` 15.
