@@ -20,11 +20,6 @@ on:
   push:
     tags:
       - "installer-v*"
-    # TEMP (PR #498): first run from the PR branch, since workflow_dispatch
-    # needs the file on the default branch and this session can't push tags.
-    # Removed again once the run is green.
-    branches:
-      - step-80b-windows-installer
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -34,12 +29,13 @@ permissions:
   contents: read
 
 jobs:
-  # First run: size the timeout from real history afterwards
-  # (docs/testing-and-ci.md). The build is npm ci + build, a ~100MB wheel
-  # download and an LZMA compile; the smoke test installs those wheels.
+  # Real observed duration (run 36667149394, 2026-09-30): 2m20s for the
+  # whole job, cold npm cache included. 20 minutes leaves room for slower
+  # runner provisioning and downloads without letting a hung step bill the
+  # 2x Windows rate for long.
   installer:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       INNO_VERSION: "6.7.3"
       INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
