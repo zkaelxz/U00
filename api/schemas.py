@@ -337,7 +337,8 @@ class TranslateHistoryResponse(BaseModel):
 class TranslateRequest(BaseModel):
     """Never carries an API key (D2) -- the server resolves one per engine
     itself; see services/translate_service.py's own resolve logic."""
-    text: str
+    # Mirrored by MAX_TRANSLATE_TEXT_CHARS in frontend/src/api/translate.ts.
+    text: str = Field(max_length=2_000_000)
     engine: str
     source_language: str
     target_language: str

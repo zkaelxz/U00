@@ -47,9 +47,6 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
 
-# tabs/workspace_tab.py's "English variant" selectbox options.
-LOCALES = ["en-US", "en-GB", "en-AU"]
-
 # tabs/workspace_tab.py's _cap_applies: engines that report usage.
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "google", "deepl")
 
@@ -115,7 +112,7 @@ def get_translate_config(drama_id: int) -> dict:
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
                           for k, v in translation_guide.STYLE_PRESETS.items()],
         "default_style_preset": "novel" if is_novel else "audio_drama",
-        "locales": list(LOCALES),
+        "locales": list(settings_service.LOCALE_CHOICES),
         "workflow_tiers": [
             {"key": k, "label": t["label"], "translation_engine": t["translation_engine"],
              "engine_model": t["engine_model"], "reflect": bool(t["reflect"]),
@@ -354,7 +351,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown translate engine.")
-    if locale not in LOCALES:
+    if locale not in settings_service.LOCALE_CHOICES:
         raise InvalidInputError("Unknown English variant.")
     is_novel = drama.get("content_mode") == "novel_narration"
     style_preset = style_preset or ("novel" if is_novel else "audio_drama")
@@ -773,7 +770,7 @@ def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
         "translation_engine": engine,
         "engine_model": (preset.get("engine_model") or None) if engine else None,
         "style_preset": style if style in translation_guide.STYLE_PRESETS else None,
-        "locale": locale if locale in LOCALES else None,
+        "locale": locale if locale in settings_service.LOCALE_CHOICES else None,
         "default_female_pronouns": bool(pronouns),
         "include_genre_notes": True if genre is None else bool(genre),
     }
@@ -818,7 +815,7 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
         raise InvalidInputError("That model isn't offered for this engine.")
     if style_preset is not None and style_preset not in translation_guide.STYLE_PRESETS:
         raise InvalidInputError("Unknown style preset.")
-    if locale is not None and locale not in LOCALES:
+    if locale is not None and locale not in settings_service.LOCALE_CHOICES:
         raise InvalidInputError("Unknown English variant.")
     fields = dict(translation_engine=translation_engine, engine_model=engine_model,
                   style_preset=style_preset, locale=locale,

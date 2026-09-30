@@ -16,9 +16,9 @@ permissions:
   contents: read
 
 # Cancel a still-running CI run for the same branch/PR once a newer push
-# supersedes it -- checked safe: this repo has no deployment/release
-# workflow whose in-flight run a cancellation could interrupt, just these
-# two validation workflows, so there's nothing here a mid-run cancel loses.
+# supersedes it. The group is per workflow and ref, so this never touches
+# windows-installer.yml, the one workflow that publishes a release (it runs
+# only for a tag or on demand); windows-bootstrap.yml is validation only.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

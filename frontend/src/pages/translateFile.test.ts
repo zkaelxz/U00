@@ -13,6 +13,7 @@ import {
   loadChosenFile,
   readTranslateFile,
 } from './translateFile'
+import { MAX_TRANSLATE_TEXT_CHARS } from '../api/translate'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
 import { MAX_EPUB_BYTES } from './translateEpub'
 import { buildEpub, stripTags } from './translateEpubFixture'
@@ -50,6 +51,12 @@ describe('decodeText / readTranslateFile', () => {
   it('drops invalid UTF-8 bytes like errors="ignore"', () => {
     const buf = new Uint8Array([0x61, 0xff, 0x62]).buffer
     expect(decodeText(buf)).toBe('ab')
+  })
+  it('refuses text longer than the API accepts', async () => {
+    const atCap = 'a'.repeat(MAX_TRANSLATE_TEXT_CHARS)
+    expect((await readTranslateFile(file('a.txt', atCap), readBytes)).ok).toBe(true)
+    const over = await readTranslateFile(file('a.txt', `${atCap}a`), readBytes)
+    expect(over).toEqual({ ok: false, error: expect.stringMatching(/2,000,000 characters/) })
   })
   it('reads a valid file', async () => {
     expect(await readTranslateFile(file('a.txt', '你好'), readBytes)).toEqual({

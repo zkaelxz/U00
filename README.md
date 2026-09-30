@@ -204,8 +204,8 @@ just prefer the command line on Windows too.
 
 ### Prerequisites
 
-Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
-diarization; CI and the cloud test setup use 3.11) and `ffmpeg` **with
+Python 3.10+ (CI and the cloud test setup use 3.11; the Windows installer
+ships 3.12) and `ffmpeg` **with
 libass support** (needed for burning subtitles into video). Most
 standard `ffmpeg` builds already include it. Node.js is only needed to
 build the React frontend yourself (22 is what CI uses); the release zip
