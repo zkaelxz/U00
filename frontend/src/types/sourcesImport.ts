@@ -26,7 +26,8 @@ export interface UrlPreview {
   display_url: string | null
 }
 
-export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found'
+// not_attempted (Step 107): the run stopped (cancel, browser check) before this chapter.
+export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted'
 
 export interface ChapterImportRow {
   chapter_id: string
@@ -44,6 +45,10 @@ export interface ChapterImportResult {
   imported_count: number
   skipped_count: number
   failed_count: number
+  // Step 107: failed + not attempted ids (the retry set) and whether any exist.
+  not_attempted_count: number
+  retry_chapter_ids: string[]
+  partial: boolean
   cancelled: boolean
   handoff: Record<string, unknown> | null
 }
@@ -53,6 +58,8 @@ export interface UrlImportResult {
   kind: 'url_import'
   needs_review: boolean
   char_count: number
+  // A Review extraction was opened for the drama (parity SO10).
+  review_open?: boolean
 }
 
 export type SourceImportResult = ChapterImportResult | UrlImportResult
@@ -67,4 +74,24 @@ export interface UrlDownloadRequest {
   url: string
   audio_only: boolean
   confirm_replace_audio: boolean
+}
+
+// Step 107: GET /api/sources/{name}/import-state?series_id=&drama_id= --
+// which chapters of a series are already in a drama, and the ones the last
+// imports left failed or not attempted ("Retry failed chapters (N)").
+export interface ImportRetryRow {
+  chapter_id: string
+  title: string
+  // partial: interrupted mid-write -- shown, never retried automatically
+  status: 'failed' | 'not_attempted' | 'partial'
+  error: string
+}
+
+export interface ImportState {
+  source: string
+  series_id: string
+  drama_id: number
+  imported_chapter_ids: string[]
+  retry: ImportRetryRow[]
+  retry_count: number
 }
