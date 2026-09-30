@@ -268,3 +268,36 @@ class TestRoundTrip:
         finally:
             import shutil
             shutil.rmtree(d, ignore_errors=True)
+
+
+class TestExportAtomicAndLanguage:
+    def _lines(self):
+        return [Line(idx=0, start=0, end=1, zh="原文", en="Hello.")]
+
+    def test_crash_during_write_keeps_previous_file(self, tmp_path, monkeypatch):
+        from ebooklib import epub
+        out = tmp_path / "out.epub"
+        out.write_bytes(b"previous good file")
+
+        def boom(path, book, *a, **k):
+            with open(path, "wb") as f:
+                f.write(b"partial")
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(epub, "write_epub", boom)
+        with pytest.raises(RuntimeError):
+            epub_io.export_epub(self._lines(), "T", "A", str(out), field="en")
+        assert out.read_bytes() == b"previous good file"
+        assert os.listdir(tmp_path) == ["out.epub"]
+
+    @pytest.mark.parametrize("src,field,expected", [
+        ("ja", "zh", "ja"), ("ko", "zh", "ko"), ("zh", "zh", "zh"),
+        (None, "zh", "zh"), ("fr", "zh", "zh"), ("ja", "en", "en"),
+    ])
+    def test_language_follows_source_language(self, tmp_path, src, field, expected):
+        from ebooklib import epub
+        out = tmp_path / "out.epub"
+        epub_io.export_epub(self._lines(), "T", "A", str(out), field=field,
+                            source_language=src)
+        book = epub.read_epub(str(out))
+        assert book.get_metadata("DC", "language")[0][0] == expected
