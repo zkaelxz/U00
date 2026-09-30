@@ -1,17 +1,21 @@
 """
 api/routers/backup_routes.py -- automatic backups and single-drama restore
 (roadmap Step 43 as redefined 2026-09-29) over
-services/auto_backup_service.py: settings, "Back up now", the one
-snapshot's info, the dramas inside it, restoring one drama, deleting the
-snapshot.
+services/auto_backup_service.py: settings, "Back up now", the rotating
+copies' info, the dramas inside a copy, restoring one drama, deleting a
+copy (or all of them).
 
 Thin adapter. Every route is local_only (backups and restores are PC-only).
 Restore and delete need confirm=true plus the typed word (RESTORE, DELETE).
 The drama to restore is a body field (an id inside the snapshot, not a live
-drama), so there is no path parameter to guard.
+drama), so there is no path parameter to guard. A copy is chosen by its
+file name (query or body field), which the service matches against the
+backup folder's own listing and never uses as a path.
 """
 
-from fastapi import APIRouter, Request
+from typing import Optional
+
+from fastapi import APIRouter, Query, Request
 
 from api.auth import local_only
 from api.backup_schemas import (
@@ -44,22 +48,25 @@ def post_settings(body: AutoBackupSettingsUpdate):
 
 @router.post("/now", dependencies=[local_only()], response_model=BackupJobStarted,
              responses=_ERR_409,
-             summary="Back up now, replacing the snapshot (replace=true when one exists)")
+             summary="Back up now: adds a new copy, then rotates the old ones "
+                     "(replace is ignored)")
 def post_now(body: BackupNowRequest = None):
     body = body or BackupNowRequest()
     return abs_.start_now(replace=body.replace, include_media=body.include_media)
 
 
 @router.get("/snapshot", dependencies=[local_only()], response_model=SnapshotInfo,
-            summary="The snapshot's date, size and kind (exists=false when there is none)")
+            summary="The copies (newest first) and the newest copy's date, size and kind "
+                    "(exists=false when there is none)")
 def get_snapshot():
     return abs_.snapshot_info()
 
 
 @router.get("/snapshot/dramas", dependencies=[local_only()], response_model=SnapshotDramaList,
-            responses=_ERR_404, summary="The dramas inside the snapshot")
-def get_snapshot_dramas():
-    return abs_.list_snapshot_dramas()
+            responses=_ERR_404,
+            summary="The dramas inside a copy (snapshot=<name>, else the newest readable)")
+def get_snapshot_dramas(snapshot: Optional[str] = Query(None, min_length=1, max_length=64)):
+    return abs_.list_snapshot_dramas(snapshot)
 
 
 @router.post("/snapshot/restore-drama", dependencies=[local_only()],
@@ -69,11 +76,13 @@ def post_restore_drama(body: RestoreDramaRequest, request: Request):
     principal = getattr(request.state, "principal", None) or {}
     return abs_.restore_drama(body.drama_id, confirm=body.confirm,
                               confirm_text=body.confirm_text,
-                              actor_id=principal.get("user_id"))
+                              actor_id=principal.get("user_id"), snapshot=body.snapshot)
 
 
 @router.post("/snapshot/delete", dependencies=[local_only()], response_model=DeleteSnapshotDone,
              responses=_ERR_404,
-             summary="Delete the snapshot (confirm=true, confirm_text=DELETE)")
+             summary="Delete one copy (snapshot=<name>) or every copy (all=true); "
+                     "confirm=true, confirm_text=DELETE")
 def post_delete_snapshot(body: DeleteSnapshotRequest):
-    return abs_.delete_snapshot(confirm=body.confirm, confirm_text=body.confirm_text)
+    return abs_.delete_snapshot(confirm=body.confirm, confirm_text=body.confirm_text,
+                                snapshot=body.snapshot, all_copies=body.all)

@@ -79,7 +79,11 @@ def _code(resp):
 
 
 def _snap_path():
-    return os.path.join(db.LIBRARY_DIR, "backups", "auto", abs_.SNAPSHOT_NAME)
+    """The newest copy in the default folder (a path that never exists when
+    there is none)."""
+    folder = os.path.join(db.LIBRARY_DIR, "backups", "auto")
+    copies = abs_._list_copies(folder)
+    return copies[0]["path"] if copies else os.path.join(folder, "no-copy")
 
 
 def _read(path):
@@ -122,6 +126,7 @@ def _world():
 
 RESTORE_OK = {"confirm": True, "confirm_text": "RESTORE"}
 DELETE_OK = {"confirm": True, "confirm_text": "DELETE"}
+DELETE_ALL = {**DELETE_OK, "all": True}
 
 
 def _requests(a):
@@ -132,7 +137,7 @@ def _requests(a):
         ("get", "/snapshot", {}),
         ("get", "/snapshot/dramas", {}),
         ("post", "/snapshot/restore-drama", {"json": {"drama_id": a, **RESTORE_OK}}),
-        ("post", "/snapshot/delete", {"json": DELETE_OK}),
+        ("post", "/snapshot/delete", {"json": DELETE_ALL}),
     ]
 
 
@@ -191,7 +196,7 @@ class TestRemoteRefused:
     def test_loopback_peer_via_proxy_or_foreign_origin_refused(self, isolated_db, headers):
         a, _ = _world()
         snap = _read(_snap_path())
-        r = _local_on().post(f"{BASE}/snapshot/delete", json=DELETE_OK, headers=headers)
+        r = _local_on().post(f"{BASE}/snapshot/delete", json=DELETE_ALL, headers=headers)
         assert r.status_code == 403
         self._assert_nothing_changed(a, snap)
 
@@ -212,17 +217,19 @@ class TestLocal:
         r = _clean(client.get(f"{BASE}/settings"))
         assert r.status_code == 200
         body = r.json()
-        assert body["enabled"] is False and body["frequency"] == "weekly"
+        assert body["enabled"] is False and body["frequency"] == "daily"
         assert body["include_media"] is False and body["folder"] == ""
         assert body["next_run_at"] is None and body["running"] is False
-        assert _clean(client.get(f"{BASE}/snapshot")).json()["exists"] is False
+        assert body["copies"] == []
+        snap = _clean(client.get(f"{BASE}/snapshot")).json()
+        assert snap["exists"] is False and snap["copies"] == []
 
     def test_no_snapshot_404s(self, client):
         assert _code(_clean(client.get(f"{BASE}/snapshot/dramas"))) == "not_found"
         r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
                                json={"drama_id": 1, **RESTORE_OK}))
         assert r.status_code == 404
-        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_OK))
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
         assert r.status_code == 404
 
     def test_full_flow(self, client):
@@ -245,8 +252,13 @@ class TestLocal:
         assert info["exists"] and info["readable"] and info["kind"] == "db-only"
         assert info["drama_count"] == 2 and info["size"] > 0
 
-        r = _clean(client.post(f"{BASE}/now", json={}))
-        assert r.status_code == 422   # a snapshot exists: replace=true needed
+        first = info["copies"][0]["name"]
+        assert [c["name"] for c in info["copies"]] == [first]
+        assert set(info["copies"][0]) == {"name", "created_at", "size", "kind", "drama_count",
+                                          "readable", "kept_as"}
+        assert "/" not in first and "\\" not in first
+        settings = _clean(client.get(f"{BASE}/settings")).json()
+        assert settings["copies"] == info["copies"]
 
         db.delete_drama(a)
         listing = _clean(client.get(f"{BASE}/snapshot/dramas")).json()
@@ -258,6 +270,7 @@ class TestLocal:
         body = r.json()
         assert body["drama_id"] == a and body["restored_as_new"] is False
         assert body["title"] == "Alpha" and body["snapshot_kind"] == "db-only"
+        assert body["snapshot"] == first        # the copy used when none was named
         assert body["skipped_tables"] == ["bulk_jobs", "metadata_research_results", "usage_log"]
         assert db.get_drama(a)["title_en"] == "Alpha"
 
@@ -268,17 +281,60 @@ class TestLocal:
         assert "(restored " in r.json()["title"]
         assert db.get_drama(b)["title_en"] == "Beta"
 
+        time.sleep(1.05)   # copy names have one-second resolution
+        # replace is still accepted (and ignored): a second copy is added
         r = _clean(client.post(f"{BASE}/now", json={"replace": True, "include_media": True}))
         assert r.status_code == 200
         assert _wait_job()["status"] == "done"
-        assert client.get(f"{BASE}/snapshot").json()["kind"] == "full"
+        info = _clean(client.get(f"{BASE}/snapshot")).json()
+        assert info["kind"] == "full"
+        assert [c["kind"] for c in info["copies"]] == ["full", "db-only"]
+        assert info["copies"][1]["name"] == first
 
-        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_OK))
-        assert r.status_code == 200 and r.json() == {"deleted": True}
+        # the older copy by name: its own dramas, restore from it, delete it
+        listing = _clean(client.get(f"{BASE}/snapshot/dramas",
+                                    params={"snapshot": first})).json()
+        assert listing["name"] == first and listing["kind"] == "db-only"
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json={**DELETE_OK, "snapshot": first}))
+        assert r.status_code == 200 and r.json() == {"deleted": True, "count": 1}
+        info = client.get(f"{BASE}/snapshot").json()
+        assert [c["kind"] for c in info["copies"]] == ["full"]
+
+        r = _clean(client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL))
+        assert r.status_code == 200 and r.json() == {"deleted": True, "count": 1}
         assert client.get(f"{BASE}/snapshot").json() == {
             "exists": False, "readable": None, "created_at": None, "kind": None, "size": None,
-            "app_version": None, "drama_count": None}
+            "app_version": None, "drama_count": None, "copies": []}
         assert not os.path.exists(_snap_path())
+
+    def test_restore_from_a_named_copy(self, client):
+        a, _ = _world()
+        first = abs_.snapshot_info()["copies"][0]["name"]
+        r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
+                               json={"drama_id": a, "snapshot": first, **RESTORE_OK}))
+        assert r.status_code == 200, r.text
+        assert r.json()["drama_id"] == a and db.get_drama(a) is not None
+
+    @pytest.mark.parametrize("bad", ["../x", "/etc/passwd", "other.zip",
+                                     "baihe_snapshot-20990101-000000.zip"])
+    def test_named_copy_must_be_listed(self, client, bad):
+        a, _ = _world()
+        snap = _read(_snap_path())
+        absolute = os.path.join(os.path.dirname(_snap_path()),
+                                os.path.basename(_snap_path()))
+        # an unknown name is 404; a full path is too long to be a name (422)
+        for name in (bad, absolute):
+            r = _clean(client.get(f"{BASE}/snapshot/dramas", params={"snapshot": name}))
+            assert r.status_code in (404, 422), r.text
+            r = _clean(client.post(f"{BASE}/snapshot/restore-drama",
+                                   json={"drama_id": a, "snapshot": name, **RESTORE_OK}))
+            assert r.status_code in (404, 422), r.text
+            r = _clean(client.post(f"{BASE}/snapshot/delete",
+                                   json={**DELETE_OK, "snapshot": name}))
+            assert r.status_code in (404, 422), r.text
+            assert name not in r.text
+        assert db.get_drama(a) is None
+        assert _read(_snap_path()) == snap
 
     def test_auth_on_local_owner_allowed(self, isolated_db):
         a, _ = _world()
@@ -287,7 +343,7 @@ class TestLocal:
         r = _clean(c.post(f"{BASE}/snapshot/restore-drama", json={"drama_id": a, **RESTORE_OK}))
         assert r.status_code == 200, r.text
         assert db.get_drama(a) is not None
-        r = c.post(f"{BASE}/snapshot/delete", json=DELETE_OK)
+        r = c.post(f"{BASE}/snapshot/delete", json=DELETE_ALL)
         assert r.status_code == 200
         assert not os.path.exists(_snap_path())
 
@@ -320,6 +376,9 @@ class TestValidation:
         {**RESTORE_OK},
         {"drama_id": 1, **RESTORE_OK, "extra": 1},
         {"drama_id": 1, "confirm": True, "confirm_text": "R" * 33},
+        {"drama_id": 1, **RESTORE_OK, "snapshot": ""},
+        {"drama_id": 1, **RESTORE_OK, "snapshot": "x" * 65},
+        {"drama_id": 1, **RESTORE_OK, "snapshot": 5},
     ])
     def test_restore_422_nothing_restored(self, client, body):
         a, _ = _world()
@@ -335,6 +394,12 @@ class TestValidation:
         {}, {"confirm": True}, {"confirm": False, "confirm_text": "DELETE"},
         {"confirm": True, "confirm_text": "delete"}, {"confirm": True, "confirm_text": "RESTORE"},
         {"confirm": 1, "confirm_text": "DELETE"}, {**DELETE_OK, "path": "/etc"},
+        {**DELETE_OK, "snapshot": ""}, {**DELETE_OK, "snapshot": "x" * 65},
+        {**DELETE_OK, "snapshot": ["a"]},
+        # deleting every copy needs an explicit all=true, and not with a name
+        DELETE_OK, {**DELETE_OK, "all": False}, {**DELETE_OK, "all": "true"},
+        {**DELETE_OK, "all": 1}, {**DELETE_ALL, "confirm": False},
+        {**DELETE_ALL, "snapshot": "baihe_snapshot-20260302-030000.zip"},
     ])
     def test_delete_422_snapshot_kept(self, client, body):
         _world()
@@ -397,7 +462,7 @@ class TestConflicts:
     def test_delete_409_while_backup_runs(self, client):
         _world()
         _put_job(abs_.JOB_ID)
-        assert client.post(f"{BASE}/snapshot/delete", json=DELETE_OK).status_code == 409
+        assert client.post(f"{BASE}/snapshot/delete", json=DELETE_ALL).status_code == 409
         assert os.path.exists(_snap_path())
 
     def test_settings_folder_change_409_while_backup_runs(self, client, tmp_path):
