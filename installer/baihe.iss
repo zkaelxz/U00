@@ -497,7 +497,7 @@ begin
   Port := Trim(GetEnv('BAIHE_API_PORT'));
   if Port = '' then
     Exit;
-  Digits := True;
+  Digits := Length(Port) <= 5;
   for I := 1 to Length(Port) do
     if (Port[I] < '0') or (Port[I] > '9') then
       Digits := False;

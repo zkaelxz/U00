@@ -1071,7 +1071,8 @@ class Services:
         if requested is None:
             return current
         try:
-            port = int(str(requested).strip())
+            text = str(requested).strip()
+            port = int(text) if re.fullmatch(r"[0-9]{1,5}", text) else None
         except ValueError:
             port = None
         household = {self.remote_state().get("household_port", 0)} - {0}
@@ -1116,7 +1117,11 @@ class Services:
         except ConfigRefused:
             self._start_again()
             raise
-        caddy_was_running = query_state(CADDY_SERVICE, self.run) == "RUNNING"
+        # Setup has already stopped the services, so "was on" is also "set to
+        # start with Windows".
+        caddy_was_running = (query_state(CADDY_SERVICE, self.run) == "RUNNING"
+                             or query_start_type(CADDY_SERVICE, self.run) == "AUTO_START")
+        old_household = self.remote_state().get("household_port", 0)
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         swapped = self._swap_in_admin_files(port_to_use)
@@ -1159,7 +1164,7 @@ class Services:
                        f"Setting the {CADDY_SERVICE} service's start")
                 start_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         except Exception:
-            self._roll_back(swapped, created, caddy_was_running)
+            self._roll_back(swapped, created, caddy_was_running, old_household)
             raise
         self._discard(swapped)
         where = f" on http://127.0.0.1:{port_to_use}"
@@ -1167,7 +1172,8 @@ class Services:
             return f"Baihe Studio's service is running{where}; remote access is on." + note
         return f"Baihe Studio's service is running{where} and starts with Windows." + note
 
-    def _roll_back(self, swapped, created: list, caddy_was_running: bool) -> None:
+    def _roll_back(self, swapped, created: list, caddy_was_running: bool,
+                   old_household: int = 0) -> None:
         for name in (CADDY_SERVICE, APP_SERVICE):
             try:
                 stop_service(name, self.run, sleep=self.sleep)
@@ -1180,6 +1186,10 @@ class Services:
                 except Exception:
                     pass
         self._restore(swapped)
+        try:
+            self._write_state(old_household)
+        except Exception:
+            pass
         for name in (APP_SERVICE, CADDY_SERVICE):
             if name not in created and (name == APP_SERVICE or caddy_was_running):
                 try:

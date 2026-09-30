@@ -922,6 +922,21 @@ class TestChosenPort:
         self._svc(layout, win, source, in_use=(8611,)).install("8611")
         assert svc.api_port() == 8611
 
+    def test_a_failed_port_change_keeps_remote_access_on(self, layout, source):
+        win = FakeWindows()
+        (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
+        svc = self._svc(layout, win, source, is_baihe=lambda p, d: True)
+        svc.install()
+        svc.enable_remote(8610)
+        for name in ("BaiheCaddy", "BaiheStudio"):
+            win.services[name]["state"] = "STOPPED"          # Setup stopped both
+        with pytest.raises(service.ServiceError, match="/api/health"):
+            self._svc(layout, win, source, health=lambda p: p != 8612,
+                      is_baihe=lambda p, d: True).install("8612")
+        assert win.services["BaiheCaddy"]["state"] == "RUNNING"
+        assert win.services["BaiheCaddy"]["start"] == "AUTO_START"
+        assert svc.remote_state() == {"household_port": 8610}
+
     def test_a_new_port_that_does_not_answer_rolls_back_to_the_old_one(self, layout, source):
         win = FakeWindows()
         self._svc(layout, win, source).install("8611")
