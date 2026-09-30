@@ -377,6 +377,12 @@ class TestStorage:
         for expected in ("dub_clips", "ocr_temp", "typeset_pages"):
             assert expected in cats
 
+    def test_every_category_is_cleaned_by_some_preset(self):
+        # A category no preset selects is reported as reclaimable but can
+        # never actually be reclaimed.
+        cleaned = {c for p in stg.STORAGE_QUALITY_PRESETS for c in stg.categories_for_preset(p)}
+        assert set(stg.CLEANABLE_CATEGORIES) <= cleaned
+
     def test_all_cleanable_categories_are_regenerable(self):
         # nothing marked cleanable should ever be irreplaceable
         for key, cfg in stg.CLEANABLE_CATEGORIES.items():

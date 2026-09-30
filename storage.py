@@ -37,13 +37,6 @@ CLEANABLE_CATEGORIES = {
         "regenerable": True,
         "note": "Re-renderable from saved bubbles at no API cost.",
     },
-    "export_artifacts": {
-        "label": "Export artifacts",
-        "pattern_names": ["export_package.zip", "typeset_pages.zip", "subtitled_episode.mp4",
-                           "subtitled_episode.mkv", "dubbed_episode.mp4", "translated.epub"],
-        "regenerable": True,
-        "note": "Finished exports. Rebuildable from the source + translation.",
-    },
     "temp_files": {
         "label": "Leftover temp files",
         "pattern_suffixes": [".tmp.png", ".tmp"],
