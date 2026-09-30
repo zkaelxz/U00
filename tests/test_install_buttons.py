@@ -88,8 +88,8 @@ class TestStreamPipUninstall:
 class TestParseRequirementsFile:
     def test_skips_comments_and_blank_lines(self, tmp_path):
         p = tmp_path / "reqs.txt"
-        p.write_text("# a header comment\n\nstreamlit>=1.49\n\n# section\npandas>=2.0\n")
-        assert diagnostics.parse_requirements_file(str(p)) == ["streamlit>=1.49", "pandas>=2.0"]
+        p.write_text("# a header comment\n\nrequests>=2.32\n\n# section\nurllib3>=2.6\n")
+        assert diagnostics.parse_requirements_file(str(p)) == ["requests>=2.32", "urllib3>=2.6"]
 
     def test_strips_trailing_inline_comments(self, tmp_path):
         p = tmp_path / "reqs.txt"

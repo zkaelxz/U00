@@ -218,13 +218,13 @@ def test_upgrade_refused_when_the_check_found_nothing_allowed(monkeypatch):
 
 
 def test_presets_carry_installed_versions(monkeypatch):
-    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp in ("jieba", "streamlit"))
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp in ("jieba", "fastapi"))
     monkeypatch.setattr(diagnostics, "get_installed_version",
-                        {"jieba": "0.42.1", "streamlit": "1.56.0"}.get)
+                        {"jieba": "0.42.1", "fastapi": "0.115.0"}.get)
     p = svc.get_install_presets()["packages"]
     assert p["jieba"]["installed_version"] == "0.42.1"
-    assert p["streamlit"]["installed_version"] == "1.56.0"      # required ones too
-    assert p["streamlit"]["installable"] is False
+    assert p["fastapi"]["installed_version"] == "0.115.0"      # required ones too
+    assert p["fastapi"]["installable"] is False
     assert p["pypinyin"]["installed_version"] is None
 
 
