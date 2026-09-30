@@ -55,11 +55,9 @@ import translate_engines
 import translation_guide as tguide
 import bulk_translate
 import raw_transcript
-import adaptive_style
-import emotion
 import dub as dub_module
 import background_jobs
-from services import settings_service, transcribe_service, translate_service
+from services import settings_service, transcribe_service, translate_service, workspace_job_service
 from services.narration_service import TAG_ENGINES
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
 
@@ -519,31 +517,19 @@ def cmd_translate(args):
         # series glossary, craft/style guidelines, and locale entirely --
         # a real, confirmed gap between what the Workspace Translate
         # button sends and what this command sent for the same drama.
-        glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else None
-        series_chars = db.list_series_characters(d["series_id"]) if d.get("series_id") else []
-        drama_chars = db.list_characters_with_series_names(d["id"])
-        # Step 25r: Workspace's own translate path also folds in the learned
-        # style profile and per-line emotion guidance -- both DB-backed, so
-        # there's no structural reason for the CLI to leave them out. The
-        # pronoun-default/genre-notes toggles aren't stored on the drama, so
-        # they come from --female-pronouns / --no-genre-notes (defaults match
-        # the Workspace checkboxes and the API: she/her off, genre notes on).
-        _scope = f"series:{d['series_id']}" if d.get("series_id") else "global"
-        _prof = db.get_style_profile(_scope)
-        _learned = adaptive_style.profile_to_prompt_block(_prof["profile"]) if _prof else ""
-        _emap = db.load_emotions(d["id"])
-        _emotion_block = emotion.build_emotion_guidance(
-            _emap, [ln.idx for ln in lines]) if _emap else ""
+        # The pronoun-default/genre-notes toggles aren't stored on the drama,
+        # so they come from --female-pronouns / --no-genre-notes (defaults
+        # match the API: she/her off, genre notes on). Everything else --
+        # series glossary, learned style profile, emotion guidance, gender
+        # hints, speaker names -- comes from the same builder the translate
+        # run service uses (B-20).
         style_preset = args.style_preset or (
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
-        style_guidelines = tguide.build_style_guidelines(
-            style_preset=style_preset, glossary_terms=glossary_terms,
-            include_genre_notes=not getattr(args, "no_genre_notes", False),
-            default_female_pronouns=getattr(args, "female_pronouns", False),
-            custom_notes="\n\n".join(b for b in (
-                _learned, _emotion_block,
-                tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
-        character_names = tguide.build_speaker_labels(drama_chars, series_chars)
+        glossary_terms, style_guidelines, character_names = \
+            workspace_job_service.build_run_style_context(
+                d["id"], d, lines, style_preset,
+                include_genre_notes=not getattr(args, "no_genre_notes", False),
+                default_female_pronouns=getattr(args, "female_pronouns", False))
         print(f"#{d['id']} translating {len(lines)} lines with {engine_name}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}

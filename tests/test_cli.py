@@ -1445,3 +1445,24 @@ class TestCmdTranslateFallback:
                                           "--fallback", "deepseek"])
         cli.main()
         assert captured["args"].fallback == "deepseek"
+
+
+def test_cli_and_translate_run_build_the_same_style_guidelines(isolated_db, monkeypatch):
+    """B-20 parity: `translate` and the translate run service use one builder,
+    so the same drama and toggles give the same guidelines."""
+    from services import workspace_job_service
+    series_id = isolated_db.get_or_create_series("S")
+    did = isolated_db.create_drama(title_en="T", series_id=series_id, status="aligned")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+    isolated_db.save_emotions(did, {0: {"emotion": "sad", "intensity": 0.8, "note": "n"}})
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    seen = {}
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                        lambda lines, engine, **kw: (seen.update(kw), (lines, []))[1])
+    with contextlib.redirect_stdout(io.StringIO()):
+        cli.cmd_translate(_translate_args(id=did, female_pronouns=True, no_genre_notes=True))
+    d = isolated_db.get_drama(did)
+    lines = cli.lines_from_rows(isolated_db.load_lines(did))
+    _, expected, _ = workspace_job_service.build_run_style_context(
+        did, d, lines, "audio_drama", include_genre_notes=False, default_female_pronouns=True)
+    assert seen["style_guidelines"] == expected and "sad" in expected

@@ -41,11 +41,15 @@ def _id_by_idx(lines):
     return {ln.idx: ln.id for ln in lines}
 
 
-def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True):
-    """(glossary_terms, style_guidelines, character_names) for one drama,
-    built exactly as translate_run_service.start_translate_run builds them:
-    series glossary, the learned style profile, emotion guidance and
-    character gender hints in custom_notes, and named-speaker labels."""
+def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
+                            include_genre_notes=True, default_female_pronouns=False):
+    """(glossary_terms, style_guidelines, character_names) for one drama --
+    the one builder shared by translate_run_service.start_translate_run,
+    `cli.py translate`, line_ai_service and the review jobs (B-20): series
+    glossary, the learned style profile, emotion guidance for `lines` and
+    character gender hints in custom_notes, and named-speaker labels.
+    include_genre_notes/default_female_pronouns are the Translate toggles
+    (defaults as the API: genre notes on, she/her off)."""
     series_id = (drama or {}).get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
     series_chars = db.list_series_characters(series_id) if series_id else []
@@ -56,6 +60,8 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
+        include_genre_notes=bool(include_genre_notes),
+        default_female_pronouns=bool(default_female_pronouns),
         custom_notes="\n\n".join(b for b in (
             learned, emotion_block,
             tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
