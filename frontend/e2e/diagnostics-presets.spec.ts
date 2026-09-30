@@ -176,10 +176,10 @@ test('tasks list what they need, sizes, links, and install one package at a time
   const { sent, unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Install by task/)
 
+  await expect(page.getByTestId('install-tasks').getByRole('heading', { name: 'Install by task' })).toBeVisible()
   const zh = page.getByTestId('task-reader_zh')
-  await expect(zh).toContainText('1 of 3 installed')
+  await expect(zh.locator('.pill')).toHaveText('1 of 3 installed')
   await expect(zh).toContainText('approx. 21 MB to download')
   await expect(page.getByTestId('task-scanlate')).toContainText('approx. 2.5 GB to download')
   await expect(page.getByTestId('task-scanlate')).toContainText('streamlit_drawable_canvas: not offered')
@@ -236,13 +236,21 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
   const { sent, unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^GPU PyTorch/)
   const panel = page.getByTestId('gpu-torch')
+  await expect(panel.getByRole('heading', { name: 'GPU PyTorch' })).toBeVisible() // open, no fold of its own
+  await expect(panel.locator('.pill')).toHaveText("Versions don't match")
   await expect(panel.getByTestId('gpu-torch-state')).toContainText("don't match")
   await expect(panel.getByTestId('gpu-torch-driver')).toHaveText('NVIDIA GeForce RTX 3080 Ti, driver 581.42')
   await expect(panel).toContainText('torchvision 0.29.0 doesn\'t match torch 2.11.0+cu128')
+  // Installed beside the recommended matched set.
+  const versions = panel.getByRole('table', { name: 'PyTorch versions' })
+  await expect(versions.locator('tbody tr')).toHaveText([
+    /torch\s*2\.11\.0\+cu128 \(CUDA build\)\s*2\.11\.0\+cu128/,
+    /torchvision\s*0\.29\.0\s*0\.26\.0\+cu128/,
+    /torchaudio\s*2\.11\.0\+cu128 \(CUDA build\)\s*2\.11\.0\+cu128/,
+  ])
   await expect(panel.getByTestId('gpu-torch-recommended')).toContainText(
-    'torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128')
+    'Recommended: NVIDIA GPU (CUDA 12.8), from https://download.pytorch.org/whl/cu128')
 
   await panel.getByRole('button', { name: 'Check CUDA' }).click()
   await expect(panel.getByTestId('gpu-torch-probe')).toHaveText('torch 2.11.0+cu128: CUDA works on NVIDIA GeForce RTX 3080 Ti.')
@@ -297,10 +305,10 @@ test('tasks label each package Required / Recommended / Optional with the app\'s
   const { unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
-  await openSection(page, /^Install by task/)
 
   const scan = page.getByTestId('task-scanlate')
-  await expect(scan).toContainText('Needs 1 required package')
+  await expect(scan.locator('.pill')).toHaveText('Needs 1 required package')
+  await expect(scan.locator('.pill')).toHaveClass(/pill-warn/)
   await expect(scan.getByTestId('task-pkg-cv2')).toContainText('cv2 · Required')
   await expect(scan.getByTestId('task-pkg-torch')).toContainText('torch · Recommended')
   await expect(scan.getByTestId('task-pkg-streamlit_drawable_canvas')).toContainText('· Optional')

@@ -11,6 +11,8 @@ import {
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateStage'
 import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
@@ -92,13 +94,15 @@ function TermEditor({ initial, catalogues, onSave, onCancel }: {
       <Field label="Banned" help="Banned translations, one per line.">
         <textarea rows={2} value={f.banned} onChange={(e) => set('banned', e.target.value)} />
       </Field>
-      <label className="inline">
-        <input type="checkbox" checked={f.enforce_exact} onChange={(e) => set('enforce_exact', e.target.checked)} /> Enforce exact
-      </label>
+      <div className="setting-list">
+        <Field label="Enforce exact">
+          <Toggle checked={f.enforce_exact} onChange={(v) => set('enforce_exact', v)} />
+        </Field>
+      </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="actions">
-        <button type="button" onClick={submit}>Save term</button>
-        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" className={buttonClass('primary')} onClick={submit}>Save term</button>
+        <button type="button" className={buttonClass('secondary')} onClick={onCancel}>Cancel</button>
       </div>
     </fieldset>
   )
@@ -124,6 +128,7 @@ function InstructionsEditor({ scope, initial }: { scope: 'project' | 'series'; i
       </Field>
       <button
         type="button"
+        className={buttonClass('secondary', 'sm')}
         onClick={() =>
           saveInstructions(dramaId, scope, text).then(() => {
             setError(null)
@@ -276,7 +281,7 @@ export function GlossaryPanel() {
                 <td>{t.aliases.join(', ')}</td>
                 <td>{t.banned_translations.join(', ')}</td>
                 <td>{t.enforce_exact ? 'yes' : 'no'}</td>
-                <td><button type="button" aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button></td>
+                <td><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={() => setEditing(toForm(t))}>Edit</button></td>
               </tr>
             ))}
           </tbody>
@@ -287,8 +292,8 @@ export function GlossaryPanel() {
           {!confirming ? (
             <button
               type="button"
+              className={buttonClass('danger', 'sm')}
               disabled={chosen.length === 0 || deleting}
-              title={chosen.length === 0 ? 'Select terms first.' : undefined}
               onClick={() => setConfirming(true)}
             >
               Delete selected{chosen.length ? ` (${chosen.length})` : ''}
@@ -296,10 +301,10 @@ export function GlossaryPanel() {
           ) : (
             <>
               <span role="alert">Delete {chosen.length} term{chosen.length === 1 ? '' : 's'} from the series glossary?</span>
-              <button type="button" className="danger" disabled={deleting} onClick={() => remove(chosen)}>
+              <button type="button" className={buttonClass('danger', 'sm')} disabled={deleting} onClick={() => remove(chosen)}>
                 {deleting ? 'Deleting…' : 'Yes, delete'}
               </button>
-              <button type="button" disabled={deleting} onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" className={buttonClass('secondary', 'sm')} disabled={deleting} onClick={() => setConfirming(false)}>Cancel</button>
             </>
           )}
           {chosen.length === 0 && !confirming && <span className="muted">Select terms to delete.</span>}
@@ -316,7 +321,7 @@ export function GlossaryPanel() {
           onCancel={() => setEditing(null)}
         />
       ) : (
-        <button type="button" onClick={() => setEditing(EMPTY)}>Add term</button>
+        <button type="button" className={buttonClass('secondary')} onClick={() => setEditing(EMPTY)}>Add term</button>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
       <GlossaryImport hasTerms={!!terms && terms.length > 0} onImported={() => setReloads((n) => n + 1)} />

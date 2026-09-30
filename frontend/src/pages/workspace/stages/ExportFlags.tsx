@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { flagAutoQc, flagDenseLines, flagOverlaps } from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { buttonClass } from '../../../components/uiClasses'
 import { useStage } from '../StageContext'
 
 interface Action {
@@ -66,7 +67,8 @@ export function ExportFlags({ onDone }: { onDone: () => void }) {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (
         <div className="export-flag-row" key={a.id}>
-          <button type="button" title={a.writes} disabled={busy !== null} onClick={() => run(a)}>{a.label}</button>
+          <button type="button" className={buttonClass('secondary')} disabled={busy !== null} onClick={() => run(a)}>{a.label}</button>
+          <span className="muted">{a.writes}</span>
           {results[a.id] && <span role="status" data-testid={`flag-result-${a.id}`}>{results[a.id]}</span>}
         </div>
       ))}

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { glossaryCsvUrl, importGlossary } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { GlossaryImportResult } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
@@ -87,34 +89,34 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
       {remote ? (
         <p className="muted">Choosing a file and replacing existing terms are PC only; existing terms are skipped.</p>
       ) : (
-        <label className="inline">
-          <input
-            type="checkbox"
-            checked={overwrite}
-            onChange={(e) => {
-              setOverwrite(e.target.checked)
-              setConfirming(false)
-            }}
-          />{' '}
-          Replace terms that are already in the glossary
-        </label>
+        <div className="setting-list">
+          <Field label="Replace terms that are already in the glossary">
+            <Toggle
+              checked={overwrite}
+              onChange={(v) => {
+                setOverwrite(v)
+                setConfirming(false)
+              }}
+            />
+          </Field>
+        </div>
       )}
       <div className="glossary-bulk">
         {overwrite && !remote && confirming ? (
           <>
             <span role="alert">Existing terms with the same original text will be replaced.</span>
-            <button type="button" className="danger" disabled={pending} onClick={run}>
+            <button type="button" className={buttonClass('danger')} disabled={pending} onClick={run}>
               {pending ? 'Importing…' : 'Yes, import and replace'}
             </button>
-            <button type="button" disabled={pending} onClick={() => setConfirming(false)}>Cancel</button>
+            <button type="button" className={buttonClass('secondary')} disabled={pending} onClick={() => setConfirming(false)}>Cancel</button>
           </>
         ) : (
-          <button type="button" disabled={pending} onClick={() => (overwrite && !remote ? setConfirming(true) : run())}>
+          <button type="button" className={buttonClass('secondary')} disabled={pending} onClick={() => (overwrite && !remote ? setConfirming(true) : run())}>
             {pending ? 'Importing…' : 'Import'}
           </button>
         )}
         {hasTerms && (
-          <a href={glossaryCsvUrl(dramaId)} download>Download glossary as CSV</a>
+          <a className={buttonClass('ghost')} href={glossaryCsvUrl(dramaId)} download>Download glossary as CSV</a>
         )}
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}

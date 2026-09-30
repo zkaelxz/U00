@@ -18,6 +18,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { usePcOnly, type PcMode } from '../../../hooks/usePcOnly'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
@@ -328,6 +329,9 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
     onChanged()
   }
 
+  // Nothing to do here before transcription finds speakers (rule 8).
+  if (entries && entries.length === 0 && !jobId && !error) return null
+
   return (
     <Section
       storageKey="dub.voices"
@@ -337,7 +341,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
         warnings.size
           ? `${warnings.size} need${warnings.size === 1 ? 's' : ''} attention`
           : entries
-            ? entries.length ? 'reference clips, voice bank, actors' : 'no speakers yet'
+            ? 'reference clips, voice bank, actors'
             : undefined
       }
     >
@@ -351,14 +355,13 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
               {job && jobFailed(job) && job.error ? ` · ${safeDetail(job.error) ?? 'failed'}` : ''}
             </span>
             {extracting && (
-              <button type="button" className="link" onClick={() => void cancelJob(jobId).catch(setJobError)}>
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void cancelJob(jobId).catch(setJobError)}>
                 Cancel extraction
               </button>
             )}
           </div>
         )}
         <ErrorBanner error={jobError ?? pollError} describe={{ serverText: true }} onDismiss={() => setJobError(null)} />
-        {entries && entries.length === 0 && <p className="muted">No speakers yet. They appear after transcription.</p>}
         {entries && entries.length > 0 && (
           <ul className="voice-cards">
             {entries.map((e) => (

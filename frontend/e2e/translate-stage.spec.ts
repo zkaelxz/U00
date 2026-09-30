@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { withTranslateLines } from './stageLineMocks'
+
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
 
@@ -27,9 +29,10 @@ test('shows config, estimates, and starts a run with the chosen options', async 
     return route.fulfill({ json: { job_id: 'tr-job', cancel_requested: true, status: 'cancelled' } })
   })
 
+  await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeVisible()
+  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
   await expect(run.getByLabel('Engine', { exact: true })).toBeVisible()
   // Options live in a collapsed Advanced section with a summary of non-default values.
   await expect(run.getByText('defaults', { exact: true })).toBeVisible()
@@ -50,9 +53,10 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByLabel('Cost cap', { exact: true }).fill('2.5')
   await run.getByRole('button', { name: 'Add fallback engine' }).click()
   await run.getByLabel('Fallback engine 1').selectOption(other)
-  await run.getByLabel('Re-translate existing').check()
-  await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
-  await expect(run.getByRole('alert')).toContainText('Tick the confirmation')
+  await run.getByRole('switch', { name: 'Re-translate existing' }).click()
+  // Re-translate needs its confirmation: the primary is disabled and says so.
+  await expect(run.getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeDisabled()
+  await expect(run.getByTestId('translate-blocker')).toContainText('confirm replacing the existing English')
   expect(bodies).toEqual([])
 
   await run.getByLabel(/I understand this replaces/).check()
@@ -73,9 +77,32 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 test('a 409 on start says a translate job is already running', async ({ page }) => {
   await page.route('**/api/translate-run/dramas/1/run', (route) =>
     route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'busy' } } }))
+  await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   await page.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect(page.getByText('A translate job is already running for this drama.')).toBeVisible()
+})
+
+test('with no lines, Translate is disabled and links to Source (rule 22)', async ({ page }) => {
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
+  const blocker = run.getByTestId('translate-blocker')
+  await expect(blocker).toContainText('Still needed: lines to translate.')
+  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await expect(page).toHaveURL(/#\/drama\/1\/source$/)
+})
+
+test('with every line translated, the reason offers Re-translate in one tap', async ({ page }) => {
+  await withTranslateLines(page, 1, 4, 0)
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await expect(run.getByRole('button', { name: 'Translate 0 lines' })).toBeDisabled()
+  await expect(run.getByTestId('translate-blocker')).toContainText('All 4 lines have English.')
+  await run.getByRole('button', { name: 'Re-translate existing…' }).click()
+  await run.getByLabel(/I understand this replaces/).check()
+  await expect(run.getByRole('button', { name: 'Translate 4 lines' })).toBeEnabled()
+  await expect(run.getByTestId('translate-blocker')).toHaveCount(0)
 })
 
 test('glossary and characters panels load; a term for a drama without a series shows a banner', async ({ page }) => {

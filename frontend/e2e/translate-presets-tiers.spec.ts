@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { withTranslateLines } from './stageLineMocks'
+
 // Parity X02 (apply a workflow tier) and X22 (save as preset). The two write
 // routes are mocked so the shared seeded library is left as it was; config
 // reads hit the real seeded API. pytest covers the real routes.
@@ -33,7 +35,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
 
   await expect(run.getByLabel('Engine', { exact: true })).toHaveValue('claude')
   await run.getByText('Advanced', { exact: true }).click()
-  await expect(run.getByLabel('Reflect', { exact: true })).toBeChecked()
+  await expect(run.getByRole('switch', { name: 'Reflect', exact: true })).toBeChecked()
   expect(runs).toEqual([])
   await page.screenshot({ path: 'test-results/translate-tier-applied.png', fullPage: true })
 })
@@ -62,7 +64,7 @@ test('save as preset asks for a name and confirms before replacing', async ({ pa
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await run.getByText('Advanced', { exact: true }).click()
-  await run.getByLabel('Default ambiguous pronouns to she/her').check()
+  await run.getByRole('switch', { name: 'Default ambiguous pronouns to she/her' }).click()
   await run.getByRole('button', { name: 'Save as preset…' }).click()
 
   await run.getByRole('button', { name: 'Save preset' }).click()
@@ -112,6 +114,7 @@ test('after a tier, Default runs and saves with the new engine', async ({ page }
     })
   })
 
+  await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await run.getByLabel('Starting tier', { exact: true }).selectOption(tier.key)
