@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
   getDiarizationConfig,
@@ -35,6 +36,7 @@ import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { NovelFilePanel } from './NovelFilePanel'
 import { mediaFileInputId } from './stageBlockers'
+import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
@@ -146,6 +148,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [overwriteAck, setOverwriteAck] = useState(false)
   // Only an untouched form (nothing kept for this drama) takes the last run's count.
   const seedSpeakers = useRef(restored.speakers === undefined)
+  // D04: the stored media's length, for the time estimates (null = unknown).
+  const [duration, setDuration] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -218,6 +222,19 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
 
   const haveTranscript = config?.transcript_mode === 'have_transcript'
   const hasMedia = !!media && (media.has_audio || media.has_source_video)
+
+  // ffprobe on the stored file (read-only); without it the captions say less.
+  useEffect(() => {
+    if (!hasMedia) return
+    let cancelled = false
+    analyzeMedia(dramaId).then(
+      (a) => !cancelled && setDuration(a.duration_seconds > 0 ? a.duration_seconds : null),
+      () => !cancelled && setDuration(null),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, hasMedia])
   // What the primary button still needs, in words (empty = ready).
   const needed = !config || !media
     ? ''
@@ -361,6 +378,21 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }
 
   const turboWarning = cf ? whisperModelWarning(cf.whisper_size, language) : ''
+  // Only runs that go through Whisper (plain ASR, or aligning a pasted
+  // transcript with whisper_diff); a file picked but not uploaded yet has no
+  // known length.
+  const whisperRun = !!cf && (config?.transcript_mode === 'whisper'
+    ? cf.asr_backend_choice === 'whisper'
+    : config?.transcript_mode === 'have_transcript' && cf.alignment_method === 'whisper_diff')
+  const estimate = cf && whisperRun && !file && hasMedia
+    ? transcribeEstimate({
+        durationSeconds: duration,
+        whisperSize: cf.whisper_size,
+        useGpu,
+        useGroq: cf.use_groq,
+        detectSpeakers: runDiarize,
+      })
+    : null
 
   return (
     <section className="panel source-panel" aria-label="Transcribe">
@@ -376,6 +408,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         >
           Transcribe
         </button>
+        {estimate && !busy && <span className="muted" data-testid="transcribe-estimate">{estimate}</span>}
       </div>
       {needed && !busy && (
         <p className="muted source-needed" id="transcribe-needed">
@@ -486,8 +519,10 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           >
             Detect speakers only
           </button>
-          {needsAck && (
+          {needsAck ? (
             <span className="muted" id="diarize-needed">Still needed: tick the confirmation above, or turn Replace off.</span>
+          ) : (
+            hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration)}</span>
           )}
         </div>
       </Section>
