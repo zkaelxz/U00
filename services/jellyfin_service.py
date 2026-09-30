@@ -56,6 +56,7 @@ KEY_ENV = ("BAIHE_JELLYFIN_API_KEY",)
 HTTP_TIMEOUT = (3.05, 20)
 BAIHE_OWN_PORTS = (8501, 8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
+HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 PAGE_SIZE = 200
 MAX_RESPONSE_BYTES = 20_000_000
 READ_DEADLINE = 60.0
@@ -150,9 +151,10 @@ def clear_key(env_path: Optional[str] = None) -> dict:
 
 def _baihe_ports() -> set:
     ports = set(BAIHE_OWN_PORTS)
-    raw = (settings_service.resolve_env_names((API_PORT_ENV,)) or "").strip()
-    if raw.isdigit():
-        ports.add(int(raw))
+    for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
+        raw = (settings_service.resolve_env_names((name,)) or "").strip()
+        if raw.isdigit():
+            ports.add(int(raw))
     return ports
 
 

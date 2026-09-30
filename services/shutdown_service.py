@@ -2,8 +2,9 @@
 services/shutdown_service.py -- the API server's clean stop ("Stop Baihe",
 closing the server's window, the uninstaller, Ctrl+C).
 
-A clean stop, in order: stop starting new work (the chapter-check
-scheduler, the API's own GPU-queue/backup poller registered by
+A clean stop, in order: refuse new job starts on every listener in the
+process (background_jobs.refuse_new_jobs), stop starting new work (the
+chapter-check scheduler, the API's own GPU-queue/backup poller registered by
 `python -m api`, and any new Playwright browser), cancel this process's
 running and queued jobs through the normal cancel path
 (jobs_service.cancel_job), give them a few seconds to stop -- a process
@@ -153,6 +154,10 @@ def _begin():
         if _began:
             return None
         _began = True
+    # Before the cancel's snapshot of active jobs: a job start on either
+    # listener (admin or household) during the grace wait is refused, not
+    # started and then killed mid-write when the process ends.
+    background_jobs.refuse_new_jobs()
     stop_new_work()
     return cancel_all_jobs()
 

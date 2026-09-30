@@ -152,6 +152,17 @@ def test_link_local_and_own_ports_refused(setup, monkeypatch):
     jf._check_target("http://localhost:8096")  # a Jellyfin on this PC is fine
 
 
+def test_household_port_refused_only_when_set(setup, monkeypatch):
+    monkeypatch.setattr(jf.socket, "getaddrinfo",
+                        lambda host, port, **kw: [(2, 1, 6, "", ("127.0.0.1", port))])
+    monkeypatch.delenv(jf.HOUSEHOLD_PORT_ENV, raising=False)
+    jf._check_target("http://127.0.0.1:8610")  # unset: an ordinary local port
+    monkeypatch.setenv(jf.HOUSEHOLD_PORT_ENV, "8610")
+    with pytest.raises(InvalidInputError):
+        jf._check_target("http://127.0.0.1:8610")
+    jf._check_target("http://localhost:8096")
+
+
 def test_test_connection_sends_key_as_header(setup):
     assert jf.test_connection() == {"ok": True, "server_name": "Den", "version": "10.9.0"}
     method, path, params, headers = FakeSession.calls[-1]

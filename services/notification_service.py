@@ -83,6 +83,7 @@ HTTP_TIMEOUT = (3.05, 5)
 SEND_DEADLINE = 10.0          # wall clock for one POST, however slowly the server replies
 BAIHE_OWN_PORTS = (8501, 8600, 8756)   # Streamlit, API default, extension bridge
 API_PORT_ENV = "BAIHE_API_PORT"
+HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 BURST_WINDOW = 5.0
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
@@ -179,13 +180,15 @@ def _is_local_ip(ip) -> bool:
 
 def _baihe_ports() -> set:
     """Ports a loopback ntfy target may never use: Baihe's own servers,
-    plus BAIHE_API_PORT when it is set (environment or .env)."""
+    plus BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT when set (environment
+    or .env)."""
     ports = set(BAIHE_OWN_PORTS)
-    for raw in (os.environ.get(API_PORT_ENV), _settings().resolve_env_names((API_PORT_ENV,))):
-        try:
-            ports.add(int(str(raw).strip()))
-        except (TypeError, ValueError):
-            pass
+    for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
+        for raw in (os.environ.get(name), _settings().resolve_env_names((name,))):
+            try:
+                ports.add(int(str(raw).strip()))
+            except (TypeError, ValueError):
+                pass
     return ports
 
 
