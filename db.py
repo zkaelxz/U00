@@ -3555,19 +3555,6 @@ def clear_reading_history(drama_id: int = None, profile_id: int = None):
 # Custom tags
 # ---------------------------------------------------------------------------
 
-def distinct_custom_tags():
-    """custom_tags is comma-separated per drama -- split and dedupe."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT custom_tags FROM dramas WHERE custom_tags IS NOT NULL AND custom_tags != ''").fetchall()
-    tags = set()
-    for r in rows:
-        for t in r[0].split(","):
-            if t.strip():
-                tags.add(t.strip())
-    return sorted(tags)
-
-
 # Step 24: personal organizational tags, kept in custom_tags alongside any
 # user-defined ones -- deliberately separate from dramas.status, which
 # tracks pipeline progress, not how the person is organizing their list.

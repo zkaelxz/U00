@@ -914,36 +914,3 @@ def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
         "This page is built with JavaScript -- a plain fetch returns only the page "
         "furniture, not the listings. Enable browser rendering or paste the text manually.")
     return result
-
-
-# ---------------------------------------------------------------------------
-# Embedding
-# ---------------------------------------------------------------------------
-
-# Sites known to send X-Frame-Options / frame-ancestors headers that stop
-# them being embedded. Not exhaustive -- most large sites do this.
-KNOWN_FRAME_BLOCKERS = [
-    "jjwxc.net", "missevan.com", "bilibili.com", "kuaikanmanhua.com",
-    "naver.com", "kakao.com", "lezhin.com", "ridibooks.com",
-    "bookwalker.jp", "dlsite.com", "fantia.jp",
-]
-
-
-def can_probably_embed(url: str) -> dict:
-    """
-    Best-effort guess at whether a URL can be shown in an iframe.
-
-    Most substantial sites block framing for clickjacking protection, so
-    an embedded browser panel will usually render blank. This lets the UI
-    warn up front rather than showing an empty box and leaving you to
-    wonder what broke.
-    """
-    lowered = (url or "").lower()
-    for blocker in KNOWN_FRAME_BLOCKERS:
-        if blocker in lowered:
-            return {"embeddable": False, "reason": f"{blocker} blocks iframe embedding",
-                    "certain": True}
-    return {"embeddable": True,
-            "reason": "Not on the known-blocked list, but many sites block framing -- "
-                      "if the panel below is blank, that's why.",
-            "certain": False}

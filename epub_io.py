@@ -70,15 +70,6 @@ def import_epub_text(epub_path: str, chapter_range: tuple = None, images_dir: st
     return "\n\n".join(texts)
 
 
-def get_epub_chapter_count(epub_path: str) -> int:
-    """Quick chapter count without extracting text, for showing a
-    range picker before committing to importing the whole book."""
-    import ebooklib
-    from ebooklib import epub
-    book = epub.read_epub(epub_path)
-    return len([item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT])
-
-
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
                  lines_per_chapter: int = 200, images_dir: str = None,
                  source_language: str = None):
