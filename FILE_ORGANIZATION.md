@@ -194,6 +194,11 @@ baihe-subtitler/
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
 │   │                             also the in-app list for the header bell (last 50 events, memory only,
 │   │                             filtered by job visibility) and the jobs/new-chapters push categories
+│   ├── notion_service.py         roadmap 112 -- Notion export (companion to the Reader's Anki export): target
+│   │                             database/page in app_settings, token in .env (write-only), test connection,
+│   │                             export job notion_export_<id> that creates the drama's page once and then
+│   │                             updates only Baihe's own properties and "Baihe transcript" block in place
+│   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
@@ -418,6 +423,8 @@ baihe-subtitler/
 │   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
+│   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
+
 │   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
@@ -558,6 +565,9 @@ baihe-subtitler/
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
+│       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
+│       │                         /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
+
 │       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
 │       │                         (local_only; address change also key-write gate) -- item 114
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
@@ -624,6 +634,10 @@ baihe-subtitler/
 │   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
+│   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
+│   │                              target database/page link, test connection; PC only, unit-tested helpers);
+│   │                              API in src/api/notion.ts (types/notion.ts). Export > Export to Notion is
+│   │                              src/pages/workspace/stages/ExportNotion.tsx (job + "Open in Notion" link).
 │   │                              TranscriptionExperimentsCard (Settings > Transcription experiments, Steps
 │   │                              103/104: Qwen3-ASR batch size, MOSS toggle; PC only); API in src/api/asrOptions.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
