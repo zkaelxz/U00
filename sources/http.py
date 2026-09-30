@@ -1036,9 +1036,11 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
-                    # Content a redirect fetched from another host is never
-                    # stored under the URL that was asked for.
-                    if cacheable and _host_key(resp.url or url) == _host_key(url):
+                    # Content a redirect fetched from another host, or over a
+                    # downgraded scheme, is never stored under the URL that
+                    # was asked for.
+                    if cacheable and _host_key(resp.url or url) == _host_key(url) \
+                            and urlsplit(resp.url or url).scheme == urlsplit(url).scheme:
                         self.cache.put(url, resp.content)
                     if poll is not None and method.upper() == "GET":
                         low = {k.lower(): v for k, v in resp.headers.items()}
