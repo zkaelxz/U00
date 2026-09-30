@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { asrBackendOptions } from '../../../api/asrOptions'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
@@ -16,6 +17,7 @@ import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { useMossExperimental } from '../../../hooks/useMossExperimental'
 import type {
   DiarizationConfig,
   MediaStatus,
@@ -34,6 +36,7 @@ import {
 } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
+import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
 import { mediaFileInputId } from './stageBlockers'
 import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
@@ -48,6 +51,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_forced_align: 'Qwen3 forced alignment',
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
+  moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   audio_separator: 'Audio Separator',
   demucs: 'Demucs',
@@ -122,6 +126,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
 
 export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
   const { dramaId, drama } = useStage()
+  const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
@@ -274,8 +279,10 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       setProblem('Expected speakers must be a whole number from 0 to 20.')
       return null
     }
-    if (runDiarize && (minSpeakers.trim() || maxSpeakers.trim())) {
-      setProblem('A speaker range works with "Detect speakers only". Clear Min/Max speakers, or use Expected speakers, to detect speakers after transcribing.')
+    // The Min/Max range goes with speaker detection after transcribing too.
+    const hints = runDiarize ? parseSpeakerHints(speakers, minSpeakers, maxSpeakers) : null
+    if (typeof hints === 'string') {
+      setProblem(hints)
       return null
     }
     if (haveTranscript && !transcriptText.trim()) {
@@ -289,6 +296,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       ...(haveTranscript ? { transcript_text: transcriptText } : {}),
       run_diarize: runDiarize,
       ...(expected !== undefined ? { expected_speakers: expected } : {}),
+      ...(hints?.min !== undefined ? { min_speakers: hints.min } : {}),
+      ...(hints?.max !== undefined ? { max_speakers: hints.max } : {}),
       ...promptFields(override, extraNames),
     }
   }
@@ -477,7 +486,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
             <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
           </Field>
-          <Field label="Min speakers" help="1-20. For Detect speakers only, when you know a range but not the exact count.">
+          <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
             <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} />
           </Field>
           <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
@@ -526,6 +535,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             hasMedia && <span className="muted" data-testid="diarize-estimate">{diarizeEstimate(duration)}</span>
           )}
         </div>
+        <DiarizationDeviceNote dramaId={dramaId} refreshKey={busy} />
       </Section>
 
       {cf && (
@@ -540,7 +550,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', ['whisper', 'qwen3_asr'])}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), mossEnabled ? 'MOSS is experimental: it transcribes and labels speakers in one pass, replacing Whisper and speaker detection for this drama.' : undefined)}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
           </div>
