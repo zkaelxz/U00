@@ -1119,11 +1119,28 @@ def _name(when):
     return f"baihe_snapshot-{when:%Y%m%d-%H%M%S}.zip"
 
 
+def _untag(path, when):
+    """Rewrites the copy as an app from before copies carried a library id
+    wrote it: no library_id or sequence, created_at `when`."""
+    with zipfile.ZipFile(path) as zf:
+        members = {i.filename: zf.read(i) for i in zf.infolist()}
+    manifest = json.loads(members["manifest.json"])
+    manifest.pop("library_id")
+    manifest.pop("sequence")
+    manifest["created_at"] = abs_._iso(when)
+    members["manifest.json"] = json.dumps(manifest).encode()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+
+
 def _make_legacy(when):
-    """A pre-rotation baihe_snapshot.zip (a real snapshot) dated `when`."""
+    """A pre-rotation baihe_snapshot.zip (a real snapshot, as the app wrote
+    it before copies carried a library id) dated `when`."""
     path = _snap()
     legacy = os.path.join(os.path.dirname(path), abs_.LEGACY_SNAPSHOT_NAME)
     os.replace(path, legacy)
+    _untag(legacy, when)
     ts = when.timestamp()
     os.utime(legacy, (ts, ts))
     return legacy
@@ -1388,7 +1405,13 @@ class TestRotation:
         info = abs_.snapshot_info()
         assert info["exists"] and info["readable"]
         assert [c["name"] for c in info["copies"]] == [abs_.LEGACY_SNAPSHOT_NAME]
-        assert [d["id"] for d in abs_.list_snapshot_dramas()["dramas"]] == [a]
+        assert info["copies"][0]["managed"] is True
+        # no copy numbered by this library yet: the owner names one
+        assert info["choose_copy"] is True
+        with pytest.raises(ConflictError):
+            abs_.list_snapshot_dramas()
+        assert [d["id"] for d in abs_.list_snapshot_dramas(
+            abs_.LEGACY_SNAPSHOT_NAME)["dramas"]] == [a]
         # upgrading loses nothing: the first rotating run keeps it
         _run_at(monkeypatch, _at(2))
         _run_at(monkeypatch, _at(3))
@@ -1449,9 +1472,15 @@ class TestRotation:
         assert [c["readable"] for c in info["copies"]] == [True, False, True, True, False]
         assert [c["managed"] for c in info["copies"]] == [True, False, True, True, False]
         assert info["created_at"] == abs_._iso(_at(4))
-        # the default for a restore skips a damaged newest file
-        put(_name(_at(5)))
+        # a damaged file dated before the default doesn't matter; one dated
+        # after it may have been the newest copy, so the owner chooses
         assert abs_.list_snapshot_dramas()["name"] == _name(_at(4))
+        put(_name(_at(5)))
+        with pytest.raises(ConflictError) as e:
+            abs_.list_snapshot_dramas()
+        assert e.value.details["reason"] == "choose_copy"
+        assert _name(_at(5)) not in [c["name"] for c in e.value.details["candidates"]]
+        assert abs_.snapshot_info()["choose_copy"] is True
         # delete-all removes this library's copies only
         assert abs_.delete_snapshot(confirm=True, confirm_text="DELETE", all_copies=True) == \
             {"deleted": True, "count": 3, "kept_unmanaged": 3}
@@ -2324,6 +2353,7 @@ class TestFolderMove:
         legacy = os.path.join(_default_dir(), abs_.LEGACY_SNAPSHOT_NAME)
         with open(_newest(), "rb") as src, open(legacy, "wb") as dst:
             dst.write(src.read())
+        _untag(legacy, _at(1))
         old = _at(1).timestamp()        # older than every copy
         os.utime(legacy, (old, old))
         with open(os.path.join(_default_dir(), "notes.txt"), "w") as fh:

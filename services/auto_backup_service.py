@@ -8,29 +8,36 @@ Step 43, universal soft-delete, was replaced by this.)
   (daily/weekly/monthly, daily by default), include_media (off: database
   only) and folder ("" = <library>/backups/auto, which every backup already
   skips because backups/ is an excluded top-level entry; a custom folder
-  must be outside the library or inside its backups/ folder). A value the
-  owner already saved is kept; the defaults only fill in what was never
-  saved.
+  must be outside the library or inside its backups/ folder, and not
+  inside another library's folder). A value the owner already saved is
+  kept; the defaults only fill in what was never saved.
 - Each successful run writes a NEW copy, baihe_snapshot-YYYYMMDD-HHMMSS.zip
   (UTC; library.db + manifest.json, plus media when include_media), with
   library_admin_service.write_backup_zip -- the same writer as the manual
   backup -- into a hidden partial file next to it, validated (zip checks +
-  SQLite quick_check + manifest), flushed to disk, and only then renamed
-  into place. Only after that are old copies pruned. A failed backup or
-  failed check never deletes anything.
+  SQLite quick_check + manifest), flushed to disk, and only then linked
+  into place under a name no file has (never over an existing file). Only
+  after that are old copies pruned. A failed backup or failed check never
+  deletes anything.
 - Ownership: each library has a random id, made once and kept in
-  app_settings (IDENTITY_KEY) with a sequence number that goes up by one
-  for every copy it writes (never taken from a restored backup, see
-  workspace_job_service._RESTORE_KEPT_APP_SETTINGS). Both go into every
-  copy's manifest. A backup folder may be shared (a synced folder used by
-  two PCs), so a file's name proves nothing: the rotation, "delete all",
-  and a folder move touch only MANAGED copies -- ones whose manifest
-  carries this library's id and a sequence number, plus copies written
-  before copies carried an id when they sit in this library's own default
-  folder inside the library (adopted). Every other copy (another
-  library's, an id-less copy in a custom folder, one that can't be read)
-  is listed but takes no slot and is only deleted when the owner names it
-  or asks for include_unmanaged.
+  app_settings (IDENTITY_KEY) with the time it was made, a sequence number
+  that goes up by one for every copy it writes, and the (sequence, name)
+  of each copy it wrote that is still in the folder (never taken from a
+  restored backup, see workspace_job_service._RESTORE_KEPT_APP_SETTINGS).
+  The id and sequence go into every copy's manifest. A backup folder may
+  be shared (a synced folder used by two PCs, possibly two PCs running a
+  hand-copied library with the same id), so neither a file's name nor the
+  id alone proves who wrote it: the rotation, "delete all", and a folder
+  move touch only MANAGED copies -- ones whose manifest carries this
+  library's id and a sequence this library recorded writing under that
+  name, plus copies written before copies carried an id, dated before the
+  id was made, when they sit in this library's own default folder inside
+  the library (adopted). Every other copy (another library's or a clone's,
+  an id-less copy in a custom folder, one that can't be read) is listed
+  but takes no slot and is only deleted when the owner names it or asks
+  for include_unmanaged. When the folder holds a copy with this id
+  numbered above the stored counter (a clone, or a library.db restored by
+  hand), that run prunes nothing and logs a warning.
 - Retention (deterministic, applied after each successful run, under
   _snapshot_lock): one copy per day for the last 2 days, plus the first
   copy of each of the last 2 weeks. Precisely, among the managed copies
@@ -55,9 +62,10 @@ Step 43, universal soft-delete, was replaced by this.)
 - The default restore pick (no copy named) is this library's copy with the
   highest sequence number, never a guess from file or wall-clock times.
   When that can't be told for sure (none of this library's copies is
-  readable, two share the top number, a lower-numbered copy claims to be
-  more than _ORDER_TOLERANCE newer, an unmanaged copy claims to be newer,
-  or a copy can't be opened right now) nothing is picked: a ConflictError
+  readable, another copy with this id is numbered as high or higher, a
+  lower-numbered copy claims to be more than _ORDER_TOLERANCE newer, an
+  unmanaged copy claims to be newer, a damaged copy's name is newer, or a
+  copy can't be opened right now) nothing is picked: a ConflictError
   with details {reason: "choose_copy", candidates} asks the owner to name
   one.
 - The due-check (check_and_run) runs at API startup and hourly from the
@@ -107,11 +115,16 @@ log = logging.getLogger(__name__)
 
 SETTINGS_KEY = "auto_backup.settings"
 STATE_KEY = "auto_backup.state"
-# {"library_id": 32 hex, "sequence": last copy number}. A whole-library
-# restore keeps the current value (workspace_job_service copies this key
-# from the live library).
+# {"library_id": 32 hex, "sequence": last copy number, "created_at": ISO
+# time the id was made, "written": [[sequence, file name], ...] of this
+# library's copies still in the folder}. A whole-library restore keeps the
+# current value (workspace_job_service copies this key from the live
+# library).
 IDENTITY_KEY = "auto_backup.identity"
 _LIBRARY_ID_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
+# A bound on the written list; a copy that falls off it only becomes
+# unmanaged (kept), never someone else's.
+_MAX_WRITTEN = 200
 # The sequence decides which copy is newest, even when a clock correction
 # makes created_at disagree; but a lower-numbered copy claiming to be more
 # than this much newer means the clock or the counter can't be trusted, and
@@ -213,6 +226,18 @@ def _check_folder(value, require_exists: bool = True) -> str:
     if real in artifact_dirs:
         raise InvalidInputError("That folder holds the manual backups and exports; pick a "
                                 "folder of its own (the default is fine).")
+    # Another library's folder (or its backups/auto): its copies would
+    # share the folder with ours, and its default folder adopts untagged
+    # copies. Detected by a library.db in the folder or above it.
+    path = real
+    while path != lib:
+        if os.path.isfile(os.path.join(path, "library.db")):
+            raise InvalidInputError("That folder is inside another library's folder. Pick a "
+                                    "folder of its own.")
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
     if require_exists and not os.path.isdir(real):
         raise InvalidInputError("That backup folder doesn't exist. Create it first.")
     return os.path.normpath(value)
@@ -229,17 +254,27 @@ def set_settings(enabled=None, frequency=None, include_media=None, folder=None) 
         raise InvalidInputError("include_media must be true or false.")
     if folder is not None:
         folder = _check_folder(folder)
+    moving = folder is not None and folder != get_settings()["folder"]
+    guard = contextlib.nullcontext()
+    if moving:
+        # A folder move is refused while a whole-library restore, bulk
+        # delete or storage cleanup holds the library, and holds off a
+        # restore until it ends.
+        las._refuse_during_maintenance("backup folder change")
+        guard = las._maintenance("changing the backup folder")
     # One hold for the read, the running-job check, a folder move and the
     # save: two concurrent saves can't drop each other's fields, and a
     # backup can't start in between and write to the old folder (_start
     # takes the same lock).
-    with _snapshot_lock:
+    with guard, _snapshot_lock:
         current = get_settings()
         for key, value in (("enabled", enabled), ("frequency", frequency),
                            ("include_media", include_media)):
             if value is not None:
                 current[key] = value
         if folder is not None and folder != current["folder"]:
+            if not moving:
+                raise ConflictError("The backup settings changed meanwhile; try again.")
             if _job_running():
                 raise ConflictError("A backup is running -- change the folder when it "
                                     "finishes.")
@@ -264,7 +299,8 @@ def _move_copies(old_folder: str, new_folder: str):
     error is raised, so the setting is not changed and the copies stay
     together."""
     src_dir, dest_dir = _folder_path(old_folder), _folder_path(new_folder)
-    copies = [c for c in _classify(src_dir) if c["owner"] in _MANAGED]
+    ident = _identity_info()
+    copies = [c for c in _classify(src_dir, ident) if c["owner"] in _MANAGED]
     if not copies:
         return
     moved = []
@@ -275,12 +311,11 @@ def _move_copies(old_folder: str, new_folder: str):
         # could remove it.
         if os.path.samefile(src_dir, dest_dir):
             return
-        library_id = _identity()[0]
         for copy in copies:
             dest = os.path.join(dest_dir, copy["name"])
             if os.path.lexists(dest) and not (
                     os.path.isfile(dest) and not os.path.islink(dest)
-                    and _owner_id(dest) == library_id):
+                    and _recorded(ident, _read_copy(dest)[1], copy["name"])):
                 raise ConflictError(f"The new folder already has a file named {copy['name']} "
                                     "that this library didn't make; move or rename it first. "
                                     "The folder was not changed.")
@@ -383,22 +418,30 @@ def _is_sequence(value) -> bool:
     return type(value) is int and value >= 1
 
 
-def _identity(bump_from=None) -> tuple:
-    """(library id, sequence). The id is made at random the first time and
-    never changes (a stored value that isn't a valid id is replaced, which
-    only ever makes old copies unmanaged, never someone else's managed).
-    With bump_from, the sequence becomes max(stored, bump_from) + 1 and that
-    number is returned: one write transaction, so two processes never hand
-    out the same number."""
-    if bump_from is None:
-        try:
-            stored = db.get_app_setting(IDENTITY_KEY, None)
-        except ValueError:
-            stored = None
-        if (isinstance(stored, dict) and isinstance(stored.get("library_id"), str)
-                and _LIBRARY_ID_RE.fullmatch(stored["library_id"])):
-            seq = stored.get("sequence")
-            return stored["library_id"], seq if _is_sequence(seq) else 0
+def _normalise_identity(stored):
+    """The stored identity with every field checked ({library_id, sequence,
+    created_at (str or None), written}), or None when it has no valid id."""
+    if not (isinstance(stored, dict) and isinstance(stored.get("library_id"), str)
+            and _LIBRARY_ID_RE.fullmatch(stored["library_id"])):
+        return None
+    seq = stored.get("sequence")
+    created = stored.get("created_at")
+    written = stored.get("written")
+    return {"library_id": stored["library_id"],
+            "sequence": seq if _is_sequence(seq) else 0,
+            "created_at": created if _parse(created) is not None else None,
+            "written": [[w[0], w[1]] for w in written
+                        if isinstance(w, list) and len(w) == 2 and _is_sequence(w[0])
+                        and isinstance(w[1], str)][-_MAX_WRITTEN:]
+            if isinstance(written, list) else []}
+
+
+def _change_identity(change=None) -> dict:
+    """The identity after one write transaction (so two processes never
+    hand out the same number): made at random the first time (a stored
+    value without a valid id is replaced, which only ever makes old copies
+    unmanaged, never someone else's managed), created_at filled in when
+    missing, then change(identity) applied in place."""
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -408,26 +451,65 @@ def _identity(bump_from=None) -> tuple:
                 stored = json.loads(row[0]) if row else None
             except ValueError:
                 stored = None
-            stored = stored if isinstance(stored, dict) else {}
-            library_id, sequence = stored.get("library_id"), stored.get("sequence")
-            changed = False
-            if not (isinstance(library_id, str) and _LIBRARY_ID_RE.fullmatch(library_id)):
-                library_id, sequence, changed = uuid.uuid4().hex, 0, True
-            if not _is_sequence(sequence):
-                sequence = 0
-            if bump_from is not None:
-                sequence = max(sequence, bump_from) + 1
-                changed = True
-            if changed:
+            ident = _normalise_identity(stored) or {
+                "library_id": uuid.uuid4().hex, "sequence": 0, "created_at": None,
+                "written": []}
+            if ident["created_at"] is None:
+                ident["created_at"] = _iso(_now())
+            if change is not None:
+                change(ident)
+            if ident != stored:
                 conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) "
                              "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                             (IDENTITY_KEY, json.dumps({"library_id": library_id,
-                                                        "sequence": sequence})))
+                             (IDENTITY_KEY, json.dumps(ident)))
             conn.commit()
         except BaseException:
             conn.rollback()
             raise
-    return library_id, sequence
+    return ident
+
+
+def _identity_info() -> dict:
+    """The identity (see IDENTITY_KEY), made or completed when needed."""
+    try:
+        ident = _normalise_identity(db.get_app_setting(IDENTITY_KEY, None))
+    except ValueError:
+        ident = None
+    if ident is None or ident["created_at"] is None:
+        ident = _change_identity()
+    return ident
+
+
+def _identity(bump_from=None) -> tuple:
+    """(library id, sequence). With bump_from, the sequence becomes
+    max(stored, bump_from) + 1 and that number is returned."""
+    if bump_from is None:
+        ident = _identity_info()
+    else:
+        def bump(i):
+            i["sequence"] = max(i["sequence"], bump_from) + 1
+        ident = _change_identity(bump)
+    return ident["library_id"], ident["sequence"]
+
+
+def _record_copy(sequence: int, name: str, present: set):
+    """Notes that this library wrote copy `name` numbered `sequence`, and
+    drops the notes for copies no longer in the folder (`present`: the
+    names there now)."""
+    def record(ident):
+        ident["written"] = [w for w in ident["written"]
+                            if w[1] in present and w[1] != name][-(_MAX_WRITTEN - 1):]
+        ident["written"].append([sequence, name])
+    _change_identity(record)
+
+
+def _recorded(ident: dict, manifest, name: str) -> bool:
+    """The copy called `name` with this manifest is one this library wrote:
+    its id, and its sequence recorded under that name."""
+    if not isinstance(manifest, dict) or manifest.get("library_id") != ident["library_id"]:
+        return False
+    seq = manifest.get("sequence")
+    return _is_sequence(seq) and [seq, name] in ident["written"]
 
 
 def _now() -> datetime.datetime:
@@ -435,17 +517,33 @@ def _now() -> datetime.datetime:
 
 
 def _iso(dt: datetime.datetime) -> str:
-    return dt.astimezone(datetime.timezone.utc).isoformat(timespec="seconds")
+    try:
+        return dt.astimezone(datetime.timezone.utc).isoformat(timespec="seconds")
+    except (OverflowError, ValueError):     # a date at the very edge of the range
+        return dt.isoformat(timespec="seconds")
 
 
 def _parse(value):
+    """A UTC datetime from an ISO string, or None -- also for one that
+    can't be moved to UTC (an offset at the edge of the date range)."""
     if not isinstance(value, str):
         return None
     try:
         dt = datetime.datetime.fromisoformat(value)
-    except ValueError:
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+
+
+def _later(a: datetime.datetime, b: datetime.datetime, slack=datetime.timedelta(0)) -> bool:
+    """a is more than `slack` after b; never raises at the edge of the date
+    range (nothing is later than the latest date)."""
+    try:
+        return a > b + slack
+    except OverflowError:
+        return False
 
 
 def next_run_at(settings=None, state=None):
@@ -513,10 +611,13 @@ def _copy_name(at: datetime.datetime) -> str:
 
 
 def _list_copies(folder: str) -> list:
-    """Every copy in `folder`, newest first: [{name, path, at, size}]. Only
-    regular files (checked without following links) whose name is exactly
-    the copy pattern or the legacy name; `at` is the UTC time in the name,
-    or the legacy file's modification time."""
+    """Every copy in `folder`, newest first: [{name, path, at, size,
+    dated}]. Only regular files (checked without following links) whose
+    name is exactly the copy pattern or the legacy name; `at` is the UTC
+    time in the name, or the legacy file's modification time. A name
+    whose date isn't a real date (or a legacy file with an impossible
+    time) is still listed, dated=False, so it can be seen and deleted by
+    name; it is never managed."""
     try:
         names = os.listdir(folder)
     except OSError:
@@ -533,6 +634,7 @@ def _list_copies(folder: str) -> list:
             continue
         if not stat.S_ISREG(st.st_mode):
             continue
+        dated = True
         try:
             if match is not None:
                 at = datetime.datetime.strptime(match.group(1) + match.group(2),
@@ -541,8 +643,10 @@ def _list_copies(folder: str) -> list:
             else:
                 at = datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc)
         except (ValueError, OverflowError, OSError):
-            continue
-        out.append({"name": name, "path": path, "at": at, "size": st.st_size})
+            dated = False
+            at = datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
+        out.append({"name": name, "path": path, "at": at, "size": st.st_size,
+                    "dated": dated})
     out.sort(key=lambda c: (c["at"], c["name"]), reverse=True)
     return out
 
@@ -560,41 +664,46 @@ def _adopts_legacy(folder: str) -> bool:
         return False
 
 
-def _owner_id(path: str):
-    """The library id in the copy's manifest, or None."""
-    state, manifest = _read_copy(path)
-    value = manifest.get("library_id") if state == _OK else None
-    return value if isinstance(value, str) else None
-
-
-def _classify(folder: str) -> list:
+def _classify(folder: str, ident: dict = None) -> list:
     """_list_copies(folder) (newest first by name date), each copy with what
     its manifest says: state (see _read_copy), manifest, sequence (int or
-    None), created (the manifest's created_at, else the name's date) and
-    owner:
-      _THIS   -- the manifest carries this library's id and a sequence;
-      _LEGACY -- a readable copy with neither, in the folder _adopts_legacy
-                 accepts;
-      _OTHER  -- anything else: another library's id, no id elsewhere, an
-                 id without a sequence, a copy that can't be read.
+    None), created (the manifest's created_at, else the name's date),
+    same_id (the manifest carries this library's id and a sequence, whoever
+    wrote it) and owner:
+      _THIS   -- same_id, and this library recorded writing that sequence
+                 under this name (see IDENTITY_KEY);
+      _LEGACY -- a readable copy with neither id nor sequence, dated (its
+                 manifest's created_at) before this library's id was made,
+                 in the folder _adopts_legacy accepts;
+      _OTHER  -- anything else: another library's id, a clone's or a
+                 hand-restored library's copy with this id, no id
+                 elsewhere, an id without a sequence, a copy that can't be
+                 read, a name that isn't a real date.
     Only _THIS and _LEGACY (_MANAGED) take rotation slots or are deleted
     without the owner naming them. The caller holds _snapshot_lock."""
-    library_id = _identity()[0]
+    ident = ident or _identity_info()
     adopt = _adopts_legacy(folder)
+    id_made = _parse(ident["created_at"])
     out = []
     for copy in _list_copies(folder):
         state, manifest = _read_copy(copy["path"])
-        owner, sequence, created = _OTHER, None, copy["at"]
+        owner, sequence, created, same_id = _OTHER, None, copy["at"], False
         if state == _OK:
-            created = _parse(manifest.get("created_at")) or copy["at"]
+            written_at = _parse(manifest.get("created_at"))
+            created = written_at or copy["at"]
             seq = manifest.get("sequence")
             sequence = seq if _is_sequence(seq) else None
-            if manifest.get("library_id") == library_id and sequence is not None:
+            same_id = manifest.get("library_id") == ident["library_id"] and sequence is not None
+            if not copy["dated"]:
+                pass
+            elif same_id and _recorded(ident, manifest, copy["name"]):
                 owner = _THIS
-            elif adopt and "library_id" not in manifest and "sequence" not in manifest:
+            elif (adopt and "library_id" not in manifest and "sequence" not in manifest
+                  and written_at is not None and id_made is not None
+                  and written_at < id_made):
                 owner = _LEGACY
         out.append({**copy, "state": state, "manifest": manifest, "sequence": sequence,
-                    "created": created, "owner": owner})
+                    "created": created, "same_id": same_id, "owner": owner})
     return out
 
 
@@ -610,14 +719,21 @@ def _default_pick(entries: list) -> tuple:
     if not own or any(e["state"] == _UNREADABLE for e in entries):
         return None, True
     top = max(own, key=lambda e: e["sequence"])
-    for e in readable:
+    for e in entries:
         if e is top:
             continue
-        if e["owner"] == _THIS:
-            if (e["sequence"] == top["sequence"]
-                    or e["created"] > top["created"] + _ORDER_TOLERANCE):
+        if e["state"] != _OK:
+            # A damaged copy named after the pick may have been the newest.
+            if _later(e["at"], top["at"]):
                 return None, True
-        elif e["created"] > top["created"]:
+        elif e["same_id"] and e["sequence"] >= top["sequence"]:
+            # Two with one number, or one numbered above this library's own
+            # (a clone of this library, or a library.db restored by hand).
+            return None, True
+        elif e["owner"] == _THIS:
+            if _later(e["created"], top["created"], _ORDER_TOLERANCE):
+                return None, True
+        elif _later(e["created"], top["created"]):
             return None, True
     return top, False
 
@@ -643,8 +759,10 @@ def _read_copy(path: str) -> tuple:
             return _OK, _read_manifest(zf)
     except OSError:
         return _UNREADABLE, None
-    except (zipfile.BadZipFile, InvalidInputError, EOFError, ValueError, RuntimeError,
-            zlib.error):
+    except Exception:
+        # Anything else a foreign or broken file can make zipfile or the
+        # manifest check raise (BadZipFile, NotImplementedError for an
+        # unknown compression, struct/zlib errors, ...) is damage.
         return _DAMAGED, None
 
 
@@ -688,10 +806,11 @@ def _rotation_pool(entries: list, anchor: dict) -> list:
 def _prune(folder: str, new_name: str) -> int:
     """Deletes the copies the rotation no longer keeps; returns how many.
     The caller holds _snapshot_lock and has just put the validated copy
-    `new_name` in place; it is always kept and anchors the rule. Only
-    managed copies in _rotation_pool are ever deleted: never another
-    library's, never one that can't be read or proves no owner. Nothing is
-    deleted unless the new copy reads back as this library's."""
+    `new_name` in place (and recorded it); it is always kept and anchors
+    the rule. Only managed copies in _rotation_pool are ever deleted: never
+    another library's or a clone's, never one that can't be read or proves
+    no owner. Nothing is deleted unless the new copy reads back as this
+    library's."""
     entries = _classify(folder)
     new = next((e for e in entries if e["name"] == new_name), None)
     if new is None or new["owner"] != _THIS:
@@ -752,7 +871,7 @@ def _read_manifest(zf: zipfile.ZipFile) -> dict:
     try:
         data = json.loads(zf.read(info).decode("utf-8"))
     except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, RuntimeError,
-            EOFError, zlib.error):
+            EOFError, zlib.error, NotImplementedError):
         raise InvalidInputError(_BAD_SNAPSHOT) from None
     if (not isinstance(data, dict) or data.get("format") != MANIFEST_FORMAT
             or data.get("kind") not in ("db-only", "full")
@@ -781,9 +900,8 @@ def snapshot_info() -> dict:
     copies = []
     for e in entries:
         manifest = e["manifest"]
-        created = manifest.get("created_at") if manifest else None
         copies.append({"name": e["name"],
-                       "created_at": created if isinstance(created, str) else _iso(e["at"]),
+                       "created_at": _iso(e["created"]),
                        "size": e["size"], "readable": manifest is not None,
                        "kind": manifest["kind"] if manifest else None,
                        "drama_count": len(manifest["dramas"]) if manifest else None,
@@ -899,17 +1017,49 @@ def _job_running() -> bool:
     return bool(job and job.get("status") in ("running", "queued"))
 
 
-def _new_copy_path(folder: str, now: datetime.datetime) -> str:
-    """A free name for the new copy: its UTC time, moved on a second at a
-    time while that name is taken (two backups within one second). Never
-    replaces an existing file. The caller holds _snapshot_lock."""
+def _place_copy(tmp: str, folder: str, now: datetime.datetime) -> str:
+    """Puts the finished partial file `tmp` in place as the new copy and
+    returns its path: named after its UTC time, moved on a second at a time
+    while that name is taken (two backups within one second, or a file that
+    appears there meanwhile -- another PC writing into a shared folder).
+    Never replaces an existing file. The caller holds _snapshot_lock."""
     at = now.astimezone(datetime.timezone.utc).replace(microsecond=0)
     for _ in range(1000):
         path = os.path.join(folder, _copy_name(at))
         if not os.path.lexists(path):
-            return path
+            try:
+                _link_new(tmp, path)
+                return path
+            except FileExistsError:
+                pass
         at += datetime.timedelta(seconds=1)
     raise OSError("no free backup copy name")
+
+
+def _link_new(src: str, dest: str):
+    """Gives `src` the name `dest` without ever replacing a file there
+    (FileExistsError when one is there): a hard link, then src's name is
+    removed. A file system without hard links (FAT/exFAT drives, some
+    network shares) gets dest created exclusively first and src renamed
+    over that empty placeholder, which only this call can have made."""
+    try:
+        os.link(src, dest)
+    except FileExistsError:
+        raise
+    except (OSError, AttributeError, NotImplementedError):
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0))
+        os.close(fd)
+        try:
+            os.replace(src, dest)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.remove(dest)
+            raise
+        return
+    # The copy is in place under both names; a leftover partial name is
+    # swept by cleanup_stale_leftovers.
+    with contextlib.suppress(OSError):
+        os.remove(src)
 
 
 def _backup_job(job_id, include_media: bool):
@@ -922,12 +1072,17 @@ def _backup_job(job_id, include_media: bool):
         fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
                                    dir=target)
         os.close(fd)
-        # The next number above both the stored one and every copy of this
-        # library already in the folder, so a sequence rolled back by a
-        # hand-restored library.db can't reuse a number.
+        # The next number above both the stored one and every copy with
+        # this library's id already in the folder, so a sequence rolled
+        # back by a hand-restored library.db can't reuse a number. A copy
+        # numbered above the stored counter means someone else writes with
+        # this id (a hand-copied library on another PC) or the counter was
+        # rolled back: this run prunes nothing (see below).
         with _snapshot_lock:
-            floor = max((e["sequence"] for e in _classify(target) if e["owner"] == _THIS),
+            ident = _identity_info()
+            floor = max((e["sequence"] for e in _classify(target, ident) if e["same_id"]),
                         default=0)
+            foreign_above = floor > ident["sequence"]
             owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
         las.write_backup_zip(tmp, include_media=include_media,
@@ -938,15 +1093,23 @@ def _backup_job(job_id, include_media: bool):
         # leave an empty new copy and no old ones.
         _fsync_file(tmp)
         with _snapshot_lock:
-            final = _new_copy_path(target, now)
-            os.replace(tmp, final)
+            final = _place_copy(tmp, target, now)
             tmp = None
             size = os.path.getsize(final)
             # Only now, with the new copy validated and in place (a failed
-            # directory flush skips the rotation, never the backup).
+            # directory flush or record skips the rotation, never the
+            # backup; an unrecorded copy is only unmanaged).
             try:
+                _record_copy(owner[1], os.path.basename(final),
+                             {c["name"] for c in _list_copies(target)})
                 _fsync_dir(target)
-                _prune(target, os.path.basename(final))
+                if foreign_above:
+                    log.warning("Automatic backup: the backup folder has a copy with this "
+                                "library's id (%s) numbered above its own counter (another "
+                                "PC using a copy of this library, or a library.db restored "
+                                "by hand); no old copies were deleted this time", owner[0])
+                else:
+                    _prune(target, os.path.basename(final))
             except Exception as exc:
                 log.warning("Could not rotate the automatic backup copies: %s",
                             type(exc).__name__)
@@ -1082,7 +1245,10 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
         raise InvalidInputError("A backup copy is named by its file name.")
     if _job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
-    with _snapshot_lock:
+    # Refused while a whole-library restore, bulk delete or storage cleanup
+    # holds the library, and holds off a restore until it ends.
+    las._refuse_during_maintenance("deletion of backup copies")
+    with las._maintenance("deleting backup copies"), _snapshot_lock:
         entries = _classify(_target_dir(create=False))
         left = 0
         if snapshot is not None:
@@ -1167,7 +1333,8 @@ def list_snapshot_dramas(snapshot=None) -> dict:
                     "line_count": d.get("line_count") if isinstance(d.get("line_count"), int)
                     else 0,
                     "exists_now": d["id"] in live})
-    return {"name": copy["name"], "created_at": manifest.get("created_at"),
+    created = _parse(manifest.get("created_at")) or copy["at"]
+    return {"name": copy["name"], "created_at": _iso(created),
             "kind": manifest["kind"], "dramas": out}
 
 
@@ -1491,7 +1658,7 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None,
                     snap_db = _extract_db(zf, tmp)
                     if manifest["kind"] == "full":
                         staging = _stage_media(zf, drama_id)
-            except (OSError, zipfile.BadZipFile):
+            except (OSError, zipfile.BadZipFile, NotImplementedError, EOFError, zlib.error):
                 raise InvalidInputError(_BAD_SNAPSHOT) from None
         try:
             return _restore_from(snap_db, drama_id, staging, manifest, actor_id, copy["name"])
