@@ -121,3 +121,35 @@ export interface DeleteSnapshotDone {
   // Unmanaged copies "delete all" left in place.
   kept_unmanaged?: number
 }
+
+// Importing dramas from a backup file (POST /api/backups/import/list, /import).
+export interface BackupFileDrama {
+  // The drama's id inside the file.
+  id: number
+  title: string
+  media_type: string
+  line_count: number
+  has_media: boolean
+}
+
+export interface BackupFileDramaList {
+  kind: 'zip' | 'database'
+  media_available: boolean
+  // The file has columns this version doesn't know; they are ignored.
+  schema_differs: boolean
+  dramas: BackupFileDrama[]
+}
+
+export interface ImportedDrama {
+  source_id: number
+  drama_id: number
+  title: string
+  media_imported: boolean
+}
+
+export interface ImportDramasDone {
+  imported: ImportedDrama[]
+  series_created: number
+  media_imported: number
+  counts: Record<string, number>
+}

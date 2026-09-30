@@ -97,6 +97,7 @@ import zlib
 
 import background_jobs
 import db
+from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -851,14 +852,18 @@ def _ro_uri(path: str) -> str:
     return f"file:{quote(os.path.abspath(path))}?mode=ro"
 
 
-def _extract_db(zf: zipfile.ZipFile, dest_dir: str) -> str:
+def _extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
+                check: bool = True) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
-    (quick_check) before anything reads it."""
+    (quick_check) before anything reads it. check=False copies it without
+    running any SQL: the caller checks it on its own guarded connection."""
     dest = os.path.join(dest_dir, "library.db")
-    if zf.getinfo("library.db").file_size > _MAX_MEMBER_BYTES:
+    if zf.getinfo("library.db").file_size > (max_bytes or _MAX_MEMBER_BYTES):
         raise InvalidInputError(_BAD_SNAPSHOT)
     with zf.open("library.db") as src, open(dest, "wb") as out:
         shutil.copyfileobj(src, out, 1024 * 1024)
+    if not check:
+        return dest
     try:
         with contextlib.closing(sqlite3.connect(_ro_uri(dest), uri=True)) as conn:
             conn.execute("PRAGMA trusted_schema = OFF")
@@ -1133,6 +1138,17 @@ _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bu
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+# Columns naming a file in the drama folder, with the one subfolder the app
+# writes that file in (None: the folder itself). Readers join these onto the
+# drama folder, so a backup from another library keeps one only when it is a
+# name inside the new drama's own folder (see _import_file_ref).
+IMPORT_FILE_COLUMNS = {
+    "dramas": {"audio_filename": None, "source_video_filename": None,
+               "novel_reference_filename": None, "cover_art_filename": None},
+    "lines": {"dub_filename": "dub_clips"},
+    "characters": {"ref_audio_filename": "voice_refs"},
+    "pages": {"filename": "pages", "rendered_filename": "pages"},
+}
 
 
 def list_snapshot_dramas(snapshot=None) -> dict:
@@ -1181,16 +1197,50 @@ def _rows(src, table: str, where: str, args) -> list:
     return [dict(zip(names, r)) for r in cur.fetchall()]
 
 
-def _remap_json_lines(value, line_map):
+def _import_file_ref(folder, value, subdir):
+    """`value` (normalised to "/") when it is a plain file name, or
+    "<subdir>/<plain name>", that stays inside `folder`; None otherwise,
+    and always None when `folder` is None (the drama's files weren't
+    imported)."""
+    if folder is None or not isinstance(value, str) or "\x00" in value or ":" in value:
+        return None
+    parts = value.replace("\\", "/").split("/")
+    if len(parts) == 1:
+        base, name = folder, parts[0]
+    elif len(parts) == 2 and subdir is not None and parts[0] == subdir:
+        base, name = os.path.join(folder, subdir), parts[1]
+    else:
+        return None
+    if delete_service._file_in_folder(base, name) is None:
+        return None
+    return name if len(parts) == 1 else f"{subdir}/{name}"
+
+
+def _sanitise_file_refs(table: str, row: dict, import_as):
+    if import_as is None:
+        return
+    for col, subdir in IMPORT_FILE_COLUMNS.get(table, {}).items():
+        if col in row:
+            row[col] = _import_file_ref(import_as.get("media_dir"), row[col], subdir)
+
+
+def _remap_json_lines(value, line_map, import_as=None):
+    """Points the saved lines' ids at the new lines. import_as (see
+    _copy_drama): each saved dub_filename is sanitised like lines'
+    (restoring the version writes it back into lines), and a value that
+    isn't a list of lines becomes an empty list."""
     try:
         items = json.loads(value) if value else None
-    except ValueError:
-        return value
+    except (ValueError, RecursionError):
+        return value if import_as is None else "[]"
     if not isinstance(items, list):
-        return value
+        return value if import_as is None else "[]"
     for item in items:
         if isinstance(item, dict) and "id" in item:
             item["id"] = line_map.get(item["id"])
+        if import_as is not None and isinstance(item, dict) and "dub_filename" in item:
+            item["dub_filename"] = _import_file_ref(import_as.get("media_dir"),
+                                                    item["dub_filename"], "dub_clips")
     return json.dumps(items, ensure_ascii=False)
 
 
@@ -1198,17 +1248,18 @@ def _live_ids(dst, table: str) -> set:
     return {r[0] for r in dst.execute(f'SELECT id FROM "{table}"')}
 
 
-def _free_series_name(dst, name) -> str:
-    base = (name or "Series").strip() or "Series"
-    candidate = f"{base} (restored {datetime.date.today().isoformat()})"
+def _free_series_name(dst, name, label="restored") -> str:
+    base = (str(name) if name else "Series").strip() or "Series"
+    today = datetime.date.today().isoformat()
+    candidate = f"{base} ({label} {today})"
     n = 2
     while dst.execute("SELECT 1 FROM series WHERE name = ?", (candidate,)).fetchone():
-        candidate = f"{base} (restored {datetime.date.today().isoformat()}, {n})"
+        candidate = f"{base} ({label} {today}, {n})"
         n += 1
     return candidate
 
 
-def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
+def _resolve_series(src, dst, series_id, drama_owner, users, counts, import_as=None) -> tuple:
     """(live series id or None, {old series_character id: live id},
     outcome "none" | "linked" | "recreated" | "dropped_private").
     A live series with the snapshot's id that is now someone else's
@@ -1222,13 +1273,24 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
     different one), and a name match alone never links. In every other case
     the series comes back from the snapshot as a new series (renamed
     "... (restored <date>)" if its name is taken) with its glossary,
-    characters and memory."""
+    characters and memory.
+    import_as (see _copy_drama) skips all of that: the series is always
+    created new, owned by the importing user, once per source series."""
     if series_id is None:
         return None, {}, "none"
     srows = _rows(src, "series", "id = ?", (series_id,))
     if not srows:
         return None, {}, "none"
     series = srows[0]
+    if import_as is not None:
+        if series_id not in import_as["series"]:
+            row = {k: v for k, v in series.items() if k != "id"}
+            row["owner_user_id"] = import_as["owner_user_id"]
+            row["is_private"] = import_as["is_private"]
+            row["name"] = _free_series_name(dst, row.get("name"), "imported")
+            import_as["series"][series_id] = _insert_series(src, dst, series_id, row, counts)
+        live_id, char_map = import_as["series"][series_id]
+        return live_id, char_map, "recreated"
     live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0), name FROM series "
                        "WHERE id = ?", (series_id,)).fetchone()
     if live is not None and live[2] and drama_owner is not None and drama_owner != live[1]:
@@ -1244,6 +1306,13 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
         row["owner_user_id"] = None
     if dst.execute("SELECT 1 FROM series WHERE name = ?", (row.get("name"),)).fetchone():
         row["name"] = _free_series_name(dst, row.get("name"))
+    live_id, char_map = _insert_series(src, dst, series_id, row, counts)
+    return live_id, char_map, "recreated"
+
+
+def _insert_series(src, dst, series_id, row, counts) -> tuple:
+    """Inserts the series row and its glossary, characters and memory;
+    (live series id, {old series_character id: live id})."""
     live_id = _insert(dst, "series", row, _columns(dst, "series"))
     counts["series"] = 1
     char_map = {}
@@ -1258,13 +1327,21 @@ def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
                 char_map[old] = new
             n += 1
         counts[table] = n
-    return live_id, char_map, "recreated"
+    return live_id, char_map
 
 
-def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
+def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
-    series outcome -- see _resolve_series)."""
+    series outcome -- see _resolve_series).
+    import_as (a backup from another library, see backup_import_service) =
+    {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
+    and privacy come from it and never from the file, the series is always
+    new, the Notion page link is dropped, per-profile tables (profile ids
+    mean something else in this library) are not copied, and each file
+    reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
+    media_dir (the drama's imported files; None = none imported, so every
+    reference is cleared)."""
     drama = _rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
@@ -1273,10 +1350,15 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     users = {r[0] for r in dst.execute("SELECT id FROM users")}
     profiles = _live_ids(dst, "profiles")
     row = dict(drama)
-    if row.get("owner_user_id") not in users:
+    if import_as is not None:
+        row["owner_user_id"] = import_as["owner_user_id"]
+        row["is_private"] = import_as["is_private"]
+        row["notion_page_id"] = None
+        _sanitise_file_refs("dramas", row, import_as)
+    elif row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
     series_id, char_map, series_outcome = _resolve_series(
-        src, dst, drama.get("series_id"), row["owner_user_id"], users, counts)
+        src, dst, drama.get("series_id"), row["owner_user_id"], users, counts, import_as)
     row["series_id"] = series_id
     if series_id is not None:
         row["is_private"] = 0   # a drama in a series follows the series (decision 4)
@@ -1295,11 +1377,15 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     for table in _CHILD_TABLES:
         if not _has_table(dst, table):
             continue
+        if import_as is not None and table in _PROFILE_TABLES:
+            counts[table] = 0
+            continue
         live_cols = _columns(dst, table)
         n = 0
         for child in _rows(src, table, "drama_id = ?", (old_id,)):
             old = child.pop("id", None)
             child["drama_id"] = live_id
+            _sanitise_file_refs(table, child, import_as)
             if (table in _PROFILE_TABLES and child.get("profile_id") is not None
                     and child["profile_id"] not in profiles):
                 continue
@@ -1313,7 +1399,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
                     continue
             if table in _LINE_JSON:
                 col = _LINE_JSON[table]
-                child[col] = _remap_json_lines(child.get(col), line_map)
+                child[col] = _remap_json_lines(child.get(col), line_map, import_as)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 line_map[old] = new

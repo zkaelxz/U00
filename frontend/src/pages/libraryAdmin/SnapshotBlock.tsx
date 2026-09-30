@@ -13,6 +13,8 @@
  * database-only copy; a warning for a copy this library doesn't manage),
  * then type RESTORE. Copies this library doesn't manage are listed apart
  * and are deleted only when chosen by name or with "including not managed".
+ * "From a backup file…" imports chosen dramas from an uploaded backup file
+ * instead (BackupFileImport).
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -26,7 +28,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { mediaTypeLabel } from '../../labels'
 import { routeHref } from '../../router'
 import {
-  DELETE_SNAPSHOT_WORD, RESTORE_SNAPSHOT_WORD, type RestoreDramaDone, type SnapshotCopy, type SnapshotDrama,
+  DELETE_SNAPSHOT_WORD, RESTORE_SNAPSHOT_WORD, type ImportDramasDone, type RestoreDramaDone, type SnapshotCopy, type SnapshotDrama,
   type SnapshotDramaList, type SnapshotInfo,
 } from '../../types/backups'
 import {
@@ -34,13 +36,15 @@ import {
   chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot, filterSnapshotDramas, formatWhen,
   initialRestoreCopy, isManaged, restoreNotes, splitCopies,
 } from '../backupsFormat'
+import { describeImport } from '../backupFileImportModel'
 import '../backups.css'
+import { BackupFileImport } from './BackupFileImport'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 // Show the search box once the list is longer than this.
 const SEARCH_FROM = 8
 
-type Mode = 'idle' | 'restore' | 'delete'
+type Mode = 'idle' | 'restore' | 'import' | 'delete'
 
 export function SnapshotBlock() {
   const [snapshot, setSnapshot] = useState<SnapshotInfo | null>(null)
@@ -48,6 +52,7 @@ export function SnapshotBlock() {
   const [mode, setMode] = useState<Mode>('idle')
   const [notice, setNotice] = useState<string | null>(null)
   const [restored, setRestored] = useState<RestoreDramaDone | null>(null)
+  const [imported, setImported] = useState<ImportDramasDone | null>(null)
 
   const load = useCallback(() => {
     setLoadError(null)
@@ -69,6 +74,7 @@ export function SnapshotBlock() {
   const open = (next: Mode) => {
     setNotice(null)
     setRestored(null)
+    setImported(null)
     setMode(next)
   }
 
@@ -85,6 +91,9 @@ export function SnapshotBlock() {
           <button type="button" disabled={!usable} onClick={() => open('restore')}>
             Restore one drama…
           </button>
+          <button type="button" onClick={() => open('import')}>
+            From a backup file…
+          </button>
           <button type="button" className="danger" disabled={!snapshot?.exists} onClick={() => open('delete')}>
             Delete a copy…
           </button>
@@ -96,6 +105,15 @@ export function SnapshotBlock() {
           initial={initialRestoreCopy(snapshot, copies.filter((c) => c.readable))}
           onDone={(r) => {
             setRestored(r)
+            setMode('idle')
+          }}
+          onCancel={() => setMode('idle')}
+        />
+      )}
+      {mode === 'import' && (
+        <BackupFileImport
+          onDone={(r) => {
+            setImported(r)
             setMode('idle')
           }}
           onCancel={() => setMode('idle')}
@@ -124,6 +142,16 @@ export function SnapshotBlock() {
           <ButtonLink href={routeHref({ name: 'drama', id: restored.drama_id, stage: null })} size="sm">
             Open drama
           </ButtonLink>
+        </div>
+      )}
+      {imported && (
+        <div className="actions" role="status" data-testid="import-result">
+          <span>{describeImport(imported)}</span>
+          {imported.imported.length === 1 && (
+            <ButtonLink href={routeHref({ name: 'drama', id: imported.imported[0].drama_id, stage: null })} size="sm">
+              Open drama
+            </ButtonLink>
+          )}
         </div>
       )}
       {notice && <p role="status">{notice}</p>}

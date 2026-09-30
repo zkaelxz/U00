@@ -5,14 +5,16 @@
 import type {
   AutoBackupSettings,
   AutoBackupSettingsUpdate,
+  BackupFileDramaList,
   BackupJobStarted,
   DeleteSnapshotDone,
+  ImportDramasDone,
   RestoreDramaDone,
   SnapshotDramaList,
   SnapshotInfo,
 } from '../types/backups'
 import { DELETE_SNAPSHOT_WORD, RESTORE_SNAPSHOT_WORD } from '../types/backups'
-import { getJson, postJson } from './client'
+import { getJson, postJson, postMultipart } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
@@ -46,6 +48,23 @@ export const restoreSnapshotDrama = (drama_id: number, snapshot?: string, f?: Fe
     { drama_id, confirm: true, confirm_text: RESTORE_SNAPSHOT_WORD, ...(snapshot ? { snapshot } : {}) },
     pcOnlyFetch(f),
   )
+
+/** The dramas inside a backup file (a snapshot copy, a manual backup zip or a library.db). Changes nothing. */
+export function listBackupFileDramas(file: File | Blob, f?: Fetch) {
+  const form = new FormData()
+  form.append('file', file)
+  return postMultipart<BackupFileDramaList>(`${BASE}/import/list`, form, pcOnlyFetch(f))
+}
+
+/** Imports the chosen dramas (ids as listed) as new dramas. The file is sent again: the server keeps nothing between the two calls. */
+export function importBackupFileDramas(file: File | Blob, dramaIds: readonly number[], f?: Fetch) {
+  const form = new FormData()
+  form.append('file', file)
+  for (const id of dramaIds) form.append('drama_ids', String(id))
+  form.append('confirm', 'true')
+  form.append('confirm_text', RESTORE_SNAPSHOT_WORD)
+  return postMultipart<ImportDramasDone>(`${BASE}/import`, form, pcOnlyFetch(f))
+}
 
 /** Deletes the copy called `snapshot`, or every copy this library manages for
  * `{ all: true }`. The server refuses a request that names neither, so a lost

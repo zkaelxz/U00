@@ -57,6 +57,25 @@ export const SNAPSHOT_DRAMAS = [
   { id: 3, title: 'Signal', media_type: 'video_drama', line_count: 1204, exists_now: false },
 ]
 
+export const FILE_DRAMAS = [
+  { id: 7, title: 'Manual backup drama', media_type: 'audio_drama', line_count: 12, has_media: true },
+  { id: 9, title: 'Second drama', media_type: 'novel', line_count: 8, has_media: false },
+]
+
+/** Reads the form fields of a multipart body: the file's name and the repeated drama_ids. */
+function multipart(raw: string): Record<string, unknown> {
+  const out: Record<string, unknown> = { drama_ids: [] as number[] }
+  for (const part of raw.split(/--+[^\r\n]*\r\n/)) {
+    const name = /name="([^"]+)"/.exec(part)?.[1]
+    if (!name) continue
+    const value = (part.split('\r\n\r\n')[1] ?? '').replace(/\r\n(--.*)?$/s, '')
+    if (name === 'file') out.file = /filename="([^"]*)"/.exec(part)?.[1]
+    else if (name === 'drama_ids') (out.drama_ids as number[]).push(Number(value))
+    else out[name] = value
+  }
+  return out
+}
+
 const NEW_COPY: CopyBody = {
   name: 'baihe_snapshot-20260930-080000.zip', created_at: '2026-09-30T08:00:00+00:00', size: 12_400_000,
   kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily', managed: true, sequence: 8,
@@ -111,6 +130,19 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
         return json(route, { name: copy.name, created_at: copy.created_at, kind: copy.kind, dramas })
       }
       return route.abort()
+    }
+    if (path === '/api/backups/import/list' || path === '/api/backups/import') {
+      const form = multipart(req.postData() ?? '')
+      state.posts.push({ path, body: form })
+      if (path === '/api/backups/import/list') {
+        if (form.file === 'bad.zip') return json(route, { error: { code: 'invalid_input', message: "That file isn't a Baihe backup, or it is damaged." } }, 422)
+        return json(route, { kind: 'zip', media_available: true, schema_differs: false, dramas: FILE_DRAMAS })
+      }
+      const ids = form.drama_ids as number[]
+      return json(route, {
+        imported: ids.map((id, i) => ({ source_id: id, drama_id: 50 + i, title: FILE_DRAMAS.find((d) => d.id === id)?.title ?? '', media_imported: id === 7 })),
+        series_created: 1, media_imported: ids.includes(7) ? 1 : 0, counts: { lines: 20 },
+      })
     }
     const body = (req.postDataJSON() ?? {}) as Record<string, unknown>
     state.posts.push({ path, body })
