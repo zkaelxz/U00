@@ -78,6 +78,7 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
         if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
             raise NotFoundError(f"No drama with id {drama_id}.")
         _check_media(source, drama)
-    if not store.set_tracked_drama(source, series_id, drama_id):
+    if not store.set_tracked_drama(source, series_id, drama_id,
+                                   linked_by_user_id=(principal or {}).get("user_id")):
         raise NotFoundError("That series isn't tracked.")
     return list_tracked(principal)
