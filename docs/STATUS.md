@@ -20,6 +20,7 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
   101-105 #468; 106 #460; 110 #461; 111 #486; 112 #485; 114 #482; 116 #484.
 - Bug fixes: steps 122-131 (B-02..B-07, B-20, B-23, B-24) #466.
 - Other: Scanlate automatic path #463; Benchmark jiwer scoring #483.
+- SSE push (`GET /api/events`: jobs, the bell and Live pushed; polling only as fallback) #494, branch `migration-sse-push`.
 - This docs cleanup: branch `docs-instruction-diet`.
 
 ## Next
