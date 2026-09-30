@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import type { Page, Route } from '@playwright/test'
+import { untilTestEnds } from './stageLineMocks'
 
 // Shared by review-resegment-llm(.mobile).spec.ts (parity R47): three real
 // lines for drama 3 in the throwaway library, and mocks for the AI preview
@@ -68,24 +69,26 @@ export async function mockAiResegment(
   // The real config is read once and reused: re-fetching it in every
   // handler call fails with "Response has been disposed" when reads overlap.
   let realConfig: Promise<Record<string, unknown>> | null = null
-  await page.route('**/api/translate-run/dramas/3/config', async (route) => {
-    realConfig ??= route.fetch().then((r) => r.json())
-    const real = await realConfig
-    await route.fulfill({
-      json: {
-        ...real,
-        translation_engine: 'claude',
-        engines: [
-          { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
-          { name: 'gemini', label: 'Gemini', free: false, models: ['flash', 'pro'], key_configured: true },
-          { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
-        ],
-        month_spend: 1.25,
-        monthly_cap_usd: 20,
-        cap_applies_by_engine: { claude: true, gemini: true, deepl: true },
-      },
-    })
-  })
+  await page.route('**/api/translate-run/dramas/3/config', (route) =>
+    untilTestEnds(async () => {
+      realConfig ??= route.fetch().then((r) => r.json())
+      const real = await realConfig
+      await route.fulfill({
+        json: {
+          ...real,
+          translation_engine: 'claude',
+          engines: [
+            { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
+            { name: 'gemini', label: 'Gemini', free: false, models: ['flash', 'pro'], key_configured: true },
+            { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
+          ],
+          month_spend: 1.25,
+          monthly_cap_usd: 20,
+          cap_applies_by_engine: { claude: true, gemini: true, deepl: true },
+        },
+      })
+    }),
+  )
   await page.route('**/api/restructure/dramas/3/resegment/preview-llm', (route) => {
     if (route.request().method() === 'POST') {
       calls.previewStarts.push(route.request().postDataJSON())
