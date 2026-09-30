@@ -1034,7 +1034,11 @@ def init_db():
                               # -- unlike personal_notes above, which is private and never
                               # sent anywhere. The series-level counterpart is
                               # series.instructions, inherited by every drama in the series.
-                              ("project_instructions", "TEXT")]:
+                              ("project_instructions", "TEXT"),
+                              # Roadmap 112: the Notion page this drama was last exported
+                              # to (services/notion_service.py), so a re-export updates
+                              # that page in place. Only the id, never a token or URL.
+                              ("notion_page_id", "TEXT")]:
             if col not in drama_cols:
                 _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
         series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
@@ -1428,6 +1432,15 @@ def update_drama(drama_id: int, **fields):
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE dramas SET {set_clause} WHERE id = ?",
                      list(fields.values()) + [drama_id])
+        conn.commit()
+
+
+def set_drama_notion_page_id(drama_id: int, page_id):
+    """Roadmap 112: records (or clears, with None) the Notion page a drama
+    was exported to. Left out of update_drama on purpose: an export is not
+    an edit, so updated_at stays as it was."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
         conn.commit()
 
 
@@ -2741,7 +2754,9 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
     payload = [{"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
                 "zh": ln.zh, "en": ln.en,
                 "speaker": getattr(ln, "speaker", None),
-                "speaker_manual": bool(getattr(ln, "speaker_manual", False))} for ln in lines]
+                "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+                "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+                "sfx": bool(getattr(ln, "sfx", False))} for ln in lines]
     with contextlib.closing(get_conn()) as conn:
         if make_active:
             conn.execute("UPDATE translation_versions SET is_active = 0 WHERE drama_id = ?", (drama_id,))
@@ -3198,6 +3213,21 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
         return cur.lastrowid
 
 
+def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
+    """Step 40's guided switch: changes only a preset's model, and only if it
+    still holds expected_model (when given). False when nothing changed."""
+    with contextlib.closing(get_conn()) as conn:
+        if expected_model is None:
+            cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
+                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
+        else:
+            cur = conn.execute(
+                "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
+                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
+        conn.commit()
+    return cur.rowcount > 0
+
+
 def list_presets():
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
@@ -3237,7 +3267,9 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
-         "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
+         "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+         "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+         "sfx": bool(getattr(ln, "sfx", False))}
         for ln in lines
     ]
     conn = get_conn()

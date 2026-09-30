@@ -78,6 +78,8 @@ export default function SourcesPage() {
   const opener = useRef<{ key: string; scrollY: number } | null>(null)
   // A chapter to tick in the series opened from a pasted chapter link.
   const [preselect, setPreselect] = useState<{ source: string; series_id: string; chapter_id: string } | null>(null)
+  // A web-search result handed to the Paste a link box (n: a new hand-off each time).
+  const [linkHandoff, setLinkHandoff] = useState<{ url: string; n: number } | null>(null)
 
   const search = useSourcesJob<SearchResult>(SEARCH_JOB_ID)
   const seriesId = open ? seriesJobId(open.source) : null
@@ -191,6 +193,12 @@ export default function SourcesPage() {
   const canLink = !(remote && !IMPORT_REMOTE_ALLOWED)
   const canSearch = !searchBlocked
   const mode: FindMode = !canSearch ? 'link' : !canLink ? 'search' : storedMode === 'link' ? 'link' : 'search'
+  const useWebLink = canLink
+    ? (url: string) => {
+        setLinkHandoff((cur) => ({ url, n: (cur?.n ?? 0) + 1 }))
+        setStoredMode('link')
+      }
+    : null
 
   return (
     <div className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}>
@@ -215,7 +223,7 @@ export default function SourcesPage() {
         )}
         {canLink && (
           <div className="sources-find" hidden={mode !== 'link'}>
-            <UrlBox display={display} onOpenSeries={openFromUrl} />
+            <UrlBox display={display} onOpenSeries={openFromUrl} handoff={linkHandoff} />
           </div>
         )}
         {canSearch && sources && (
@@ -226,6 +234,7 @@ export default function SourcesPage() {
               job={search}
               resultsHidden={seriesShown && !wide}
               onOpen={openSeries}
+              onUseLink={useWebLink}
             />
           </div>
         )}
