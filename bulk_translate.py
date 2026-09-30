@@ -605,14 +605,11 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
 # ---------------------------------------------------------------------------
 
 def _parse_strict(text: str, expected_ids: list) -> dict:
-    """Only an id-keyed JSON object is accepted for a bulk result -- not
-    the positional-array fallback the live path tolerates. Keys outside
-    this request's own ids are ignored."""
+    """Only an id-keyed JSON object is accepted for a bulk result (as on
+    the live path). Keys outside this request's own ids are ignored."""
     stripped = (text or "").strip()
     for fence in ("```json", "```"):
         stripped = stripped.replace(fence, "")
-    if not isinstance(translate_engines._extract_first_json_value(stripped.strip()), dict):
-        return {}
     return translate_engines._parse_id_keyed_json(stripped, expected_ids)
 
 

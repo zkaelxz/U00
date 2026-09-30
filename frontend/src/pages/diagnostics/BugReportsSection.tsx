@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { deleteBugReport, getBugReport, listBugReports } from '../../api/bugReports'
+import { copyText } from '../../components/clipboard'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
@@ -35,13 +36,9 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
     try {
       const r = await getBugReport(id)
       setShown(r)
-      try {
-        if (!navigator.clipboard?.writeText) throw new Error('no clipboard')
-        await navigator.clipboard.writeText(r.markdown)
-        setNote(`Copied report #${id}.`)
-      } catch {
-        setNote(`Report #${id} is shown below; copy it from there.`)
-      }
+      setNote(await copyText(r.markdown)
+        ? `Copied report #${id}.`
+        : `Report #${id} is shown below; copy it from there.`)
     } catch (e) {
       setError(e)
     }

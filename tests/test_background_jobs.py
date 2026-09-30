@@ -1011,6 +1011,30 @@ class TestProcessJobOnDone:
         assert seen == []
         bg.clear_job(job_id)
 
+    def test_subprocess_error_is_redacted_in_record_and_log(self, monkeypatch, isolated_db):
+        import os
+        import applog
+        import db
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        key = "sk-abcdefghijklmnopqrstuvwxyz123456"
+        job_id = "test_process_err_redacted"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("error", "RuntimeError", f"401 bad key {key}")),
+                             args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert "401 bad key" in status["error"]
+        assert key not in status["error"]
+        rec = db.get_job_record(job_id)
+        assert rec["status"] == "error" and key not in (rec["error"] or "")
+        for h in applog.get_logger().handlers:
+            h.flush()
+        with open(os.path.join(db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+            log_text = f.read()
+        assert f"job {job_id} failed" in log_text
+        assert key not in log_text
+        bg.clear_job(job_id)
+
     def test_hook_not_called_on_cancel(self, monkeypatch):
         _install_fake_process(monkeypatch, alive_forever=True)
         seen = []

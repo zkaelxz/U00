@@ -805,10 +805,14 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 logger.info(f"job {job_id} finished")
             elif outcome and outcome[0] == "error":
                 _, exc_type, msg = outcome
+                # The worker's message can carry a key (a provider's error
+                # echoing it back): redact before storing or logging.
+                from translate_engines import redact_secrets
+                error_msg = redact_secrets(f"{exc_type}: {msg}")
                 _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = f"{exc_type}: {msg}"
+                _jobs[job_id]["error"] = error_msg
                 _jobs[job_id]["finished_at"] = time.time()
-                logger.error(f"job {job_id} failed: {exc_type}: {msg}")
+                logger.error(f"job {job_id} failed: {error_msg}")
             else:
                 _jobs[job_id]["status"] = "error"
                 _jobs[job_id]["error"] = (

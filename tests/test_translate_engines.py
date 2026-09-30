@@ -583,13 +583,12 @@ class TestParseIdKeyedJson:
         result = te._parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
         assert result == {"1": "First.", "2": "Second."}
 
-    def test_falls_back_to_positional_array_for_a_noncompliant_model_when_lengths_match(self):
-        """The positional-array fallback is only safe when the array's
-        length exactly matches what was asked for -- see the short-list
-        test below for why a mismatched length must NOT be guessed at
-        positionally."""
+    def test_a_same_length_array_is_malformed_not_matched_by_position(self):
+        """CLAUDE.md rule: never match AI results back to lines by list
+        position. Even a same-length array can be reordered, so it's
+        treated as a malformed reply (empty) and the retry path re-asks."""
         result = te._parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
-        assert result == {"1": "Hello.", "2": "Hi."}
+        assert result == {}
 
     def test_short_positional_array_is_rejected_not_misassigned(self):
         """Regression test for a real bug: ["A", "C"] for ids [1, 2, 3]
@@ -619,10 +618,6 @@ class TestParseIdKeyedJson:
         result = te._parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
         assert result == {"3": "Hi."}
 
-    def test_non_string_values_in_a_positional_array_are_also_dropped(self):
-        result = te._parse_id_keyed_json('["Hi.", null]', [1, 2])
-        assert result == {"1": "Hi."}
-
     def test_prose_wrapped_around_the_json_object_is_tolerated(self):
         """Small local models often add commentary around the JSON --
         e.g. "Here you go:\\n{...}". The first JSON value anywhere in the
@@ -631,9 +626,9 @@ class TestParseIdKeyedJson:
         result = te._parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
         assert result == {"1": "Hello."}
 
-    def test_prose_wrapped_around_a_positional_array_is_tolerated(self):
+    def test_prose_wrapped_around_an_array_is_still_malformed(self):
         result = te._parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
-        assert result == {"1": "Hello.", "2": "Hi."}
+        assert result == {}
 
 
 class TestRequestTranslationsWithRetry:
@@ -820,7 +815,7 @@ class TestGeminiEngine:
             def json(self):
                 return {
                     "candidates": [{"content": {"parts": [
-                        {"text": '["Hello.", "Goodbye."]'}]}}],
+                        {"text": '{"1": "Hello.", "2": "Goodbye."}'}]}}],
                     "usageMetadata": {"promptTokenCount": 42, "candidatesTokenCount": 8},
                 }
 
@@ -1092,7 +1087,7 @@ class TestGeminiRateStatus:
             def raise_for_status(self):
                 pass
             def json(self):
-                return {"candidates": [{"content": {"parts": [{"text": "[\"Hi.\"]"}]}}],
+                return {"candidates": [{"content": {"parts": [{"text": "{\"1\": \"Hi.\"}"}]}}],
                         "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}}
 
         resp = FakeResponse()

@@ -92,6 +92,32 @@ class TestDiagnostics:
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
 
+    def test_lazy_optional_imports_in_asr_modules_are_registered(self):
+        """CLAUDE.md: every optional import must be in OPTIONAL_DEPENDENCIES,
+        or Diagnostics never reports it missing. asr_backend/forced_align
+        import their optional packages inside functions (qwen_asr, torch)."""
+        import ast
+        registered = {imp.split(".")[0] for imp, _f, _t in diagnostics.OPTIONAL_DEPENDENCIES.values()}
+        for module in ("asr_backend.py", "forced_align.py"):
+            with open(os.path.join(PROJECT_ROOT, module), encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            for fn in ast.walk(tree):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Import):
+                        names = [a.name for a in node.names]
+                    elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                        names = [node.module]
+                    else:
+                        continue
+                    for name in names:
+                        top = name.split(".")[0]
+                        if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")):
+                            continue
+                        assert top in registered, f"{module}: {top}"
+        assert diagnostics.OPTIONAL_DEPENDENCIES["qwen-asr"][0] == "qwen_asr"
+
     def test_upload_and_numpy_deps_are_registered(self):
         """python-multipart (requirements-core; the upload routes) and numpy
         (imported directly by dub_service/scanlate/hardsub_ocr)."""

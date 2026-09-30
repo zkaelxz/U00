@@ -357,8 +357,10 @@ test('support report: a failed build shows the error, and no clipboard falls bac
     ? r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
     : r.fulfill({ json: { report: REPORT } }))
   await page.addInitScript(() => {
-    // Plain http on another device: no clipboard API at all.
+    // Plain http on another device with no clipboard API, and the
+    // execCommand fallback refused too: nothing can copy.
     Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    document.execCommand = () => false
   })
   await page.goto('/#/diagnostics')
   const card = page.getByRole('region', { name: 'Copy a report for a bug' })

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { LOG_KEYWORD_MAX, getLog } from '../../api/diagnostics'
+import { copyText } from '../../components/clipboard'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -128,11 +129,9 @@ export function CopyBlock({ text, label }: { text: string; label: string }) {
   }
 
   const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('no clipboard')
-      await navigator.clipboard.writeText(text)
+    if (await copyText(text)) {
       setNote('Copied.')
-    } catch {
+    } else {
       selectAll()
       setNote(copyFallbackText(touch))
     }

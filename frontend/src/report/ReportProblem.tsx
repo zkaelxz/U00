@@ -20,6 +20,7 @@ import { api } from '../api/client'
 import { applyMeta, getPcMode } from '../api/pcOnly'
 import type { MetaResponse } from '../api/types'
 import { Sheet } from '../components/Sheet'
+import { copyText } from '../components/clipboard'
 import { describeError } from '../components/errorMessages'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
@@ -210,11 +211,9 @@ function ReportResult({ result, hadScreenshot, onClose }: {
   const issue = githubIssueUrl(result.issue, result.issueMarkdown)
 
   const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('no clipboard')
-      await navigator.clipboard.writeText(result.markdown)
+    if (await copyText(result.markdown)) {
       setNote('Copied.')
-    } catch {
+    } else {
       setShowText(true)
       setNote(touch ? 'Long-press the text below to copy it.' : 'Press Ctrl+C to copy the selected text.')
       requestAnimationFrame(() => {
