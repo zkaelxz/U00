@@ -83,7 +83,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None):
+                       summary_monthly_cap_usd=None, own_lines_only=False):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -111,6 +111,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     target_ids: optional set of permanent line ids (Migration Slice 40's API
     start) -- only those lines are translated; None = every eligible line.
+
+    own_lines_only (with target_ids): English is written only on the target
+    lines and only where it still is what the job loaded -- a line edited
+    meanwhile keeps the edit, with no Reflect note, substitution or flag
+    from this run -- and the glossary's exact-term substitution touches
+    only the target lines.
     """
     cap_reached = {}
     if isinstance(engine, translate_engines.FallbackEngine):
@@ -136,9 +142,15 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         style_note=style_note or "", style_guidelines=style_guidelines or "")
 
-    def _save(ls):
-        db.save_lines(drama_id, ls, fields=("en",))
-        provenance(ls)
+    if own_lines_only:
+        _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
+    else:
+        def _save(ls):
+            db.save_lines(drama_id, ls, fields=("en",))
+            provenance(ls)
+
+        def _notes(notes):
+            db.save_translation_notes(drama_id, notes, id_by_idx=_id_by_idx(lines))
 
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_engines.translate_lines_with_engine(
@@ -151,8 +163,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
-        notes_cb=lambda notes: db.save_translation_notes(
-            drama_id, notes, id_by_idx=_id_by_idx(lines)),
+        notes_cb=_notes,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
@@ -168,6 +179,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     )
 
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
+    recheck = set()
     # Shared with `cli.py translate` (Step 25c): glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
@@ -176,13 +188,17 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cancelled=background_jobs.is_cancel_requested(job_id),
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap_usd,
-            line_scoped=target_ids is not None):
+            line_scoped=target_ids is not None,
+            enforce_ids=set(target_ids) if own_lines_only and target_ids is not None else None,
+            flags_needing_recheck=recheck):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
         return
 
     background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent"),
+                                        **({"flags_needing_recheck": sorted(recheck)}
+                                           if recheck else {}),
                                         **_fallback_result(engine)})
 
 

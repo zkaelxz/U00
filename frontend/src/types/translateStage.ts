@@ -135,6 +135,59 @@ export interface TranslateRunStarted {
   fallback_engines: string[]
 }
 
+// Lines a glossary change affects (GET .../glossary-affected). hand_edited is
+// true unless the English is exactly what the last recorded translate run
+// produced; unknown provenance counts as hand-edited.
+export interface GlossaryAffectedMatch {
+  term_id: number
+  term_original: string
+  term_translation: string
+  reason: 'source' | 'banned'
+}
+
+export interface GlossaryAffectedLine {
+  id: number
+  idx: number
+  start: number | null
+  end: number | null
+  zh: string
+  en: string
+  hand_edited: boolean
+  matched_terms: GlossaryAffectedMatch[]
+}
+
+export interface GlossaryAffectedPreview {
+  drama_id: number
+  has_glossary: boolean
+  terms: { id: number; term_original: string; term_translation: string }[]
+  selected_term_ids: number[]
+  lines: GlossaryAffectedLine[]
+  hand_edited_count: number
+  preview_hash: string
+  estimate: TranslateRunEstimate
+  estimate_with_hand_edited: TranslateRunEstimate
+}
+
+export interface GlossaryAffectedParams {
+  term_ids?: number[]
+  engine?: string
+  model?: string
+  reflect?: boolean
+  job_cost_cap_usd?: number
+}
+
+export type GlossaryAffectedRunBody = Omit<TranslateRunStartBody, 'force_retranslate' | 'bulk'> & {
+  line_ids: number[]
+  preview_hash: string
+  include_hand_edited: boolean
+  term_ids?: number[]
+}
+
+export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
+  line_ids: number[]
+  skipped_hand_edited_count: number
+}
+
 export interface GlossaryTerm {
   id: number
   term_original: string

@@ -61,6 +61,7 @@ import {
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
+import { GlossaryRetranslate } from './GlossaryRetranslate'
 import { GlossaryReview } from './GlossaryReview'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
@@ -479,6 +480,7 @@ function RunPanel({
           I understand this replaces existing English (a snapshot is saved first)
         </label>
       )}
+      {canReview && <GlossaryRetranslate f={f} busy={busy} onStarted={onStarted} />}
       {canReview && (
         <div className="setting-list">
           <Field

@@ -159,7 +159,9 @@ def _default_model(engine_name: str) -> Optional[str]:
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool = None,
-                            job_cost_cap_usd: float = None) -> dict:
+                            job_cost_cap_usd: float = None, line_ids=None) -> dict:
+    """line_ids (optional): estimate only these lines (of those the run
+    would translate)."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
     engine_name = (engine_name or drama.get("translation_engine")
@@ -184,7 +186,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
 
     lines = db.load_lines(drama_id)
     targets = [ln for ln in lines if (ln.get("zh") or "").strip()
-               and (force_retranslate or not (ln.get("en") or "").strip())]
+               and (force_retranslate or not (ln.get("en") or "").strip())
+               and (line_ids is None or ln.get("id") in line_ids)]
 
     estimated = None
     if targets:
@@ -296,7 +299,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         fallback_chain: list = None, reflect: bool = False,
                         bulk: bool = False, default_female_pronouns: bool = None,
                         include_genre_notes: bool = None,
-                        allow_paid_summary: bool = True) -> dict:
+                        allow_paid_summary: bool = True,
+                        own_lines_only: bool = False, expected_en: dict = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -330,6 +334,13 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     drama to a preset in the DB). None means the tab's own widget defaults:
     she/her off, genre guidance on.
 
+    own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
+    line edited while the job runs keeps the edit.
+    expected_en (with line_ids): {line id: English} the caller chose the
+    lines by; a line whose English differs once loaded here was edited
+    since and is dropped (ConflictError if none is left). With line_ids,
+    the result's line_ids are the ids the job will actually translate.
+
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
     engine), DependencyUnavailableError (no key), ConflictError (already
@@ -360,6 +371,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         raise InvalidInputError("Context window and batch size are out of range.")
     if fallback_chain and (reflect or bulk):
         raise InvalidInputError("A fallback chain only applies to a normal translation run.")
+    if own_lines_only and line_ids is None:
+        raise InvalidInputError("own_lines_only needs line_ids.")
     if bulk and line_ids is not None:
         raise InvalidInputError("Bulk mode translates the whole drama; line_ids isn't supported.")
     if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -378,6 +391,12 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         target_ids = set(line_ids)
         if not target_ids or not target_ids <= {ln.id for ln in lines}:
             raise InvalidInputError("line_ids must be a non-empty list of this drama's line ids.")
+        if expected_en is not None:
+            target_ids = {ln.id for ln in lines if ln.id in target_ids
+                          and (ln.en or "") == expected_en.get(ln.id)}
+            if not target_ids:
+                raise ConflictError("The chosen lines were edited since they were picked. "
+                                    "Pick them again.", details={"reason": "stale_preview"})
     eligible = [ln for ln in lines if (ln.zh or "").strip()
                 and (force_retranslate or not (ln.en or "").strip())
                 and (target_ids is None or ln.id in target_ids)]
@@ -481,14 +500,19 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=_monthly_cap() or None,
-        target_ids=target_ids, gpu_touching=any(c["engine"] == "ollama" for c in chain),
+        target_ids=target_ids, own_lines_only=own_lines_only,
+        gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
-    return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-            "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
-            "fallback_engines": [c["engine"] for c in chain[1:]],
-            "reflect": reflect, "bulk": False}
+    started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
+               "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
+               "fallback_engines": [c["engine"] for c in chain[1:]],
+               "reflect": reflect, "bulk": False}
+    if target_ids is not None:
+        # expected_en may have dropped some of the caller's ids.
+        started["line_ids"] = sorted(ln.id for ln in eligible)
+    return started
 
 
 def bulk_job_id(drama_id: int) -> str:

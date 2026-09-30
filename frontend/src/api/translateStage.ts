@@ -6,6 +6,10 @@ import type {
   CloneEngines,
   CharacterUpdate,
   EstimateParams,
+  GlossaryAffectedParams,
+  GlossaryAffectedPreview,
+  GlossaryAffectedRunBody,
+  GlossaryAffectedRunStarted,
   GlossaryCatalogues,
   GlossaryInstructions,
   GlossaryBulkDeleteResult,
@@ -46,6 +50,22 @@ export const getTranslateEstimate = (id: number, p: EstimateParams, f?: Fetch) =
   getJson<TranslateRunEstimate>(`/api/translate-run/dramas/${id}/estimate${buildEstimateQuery(p)}`, f)
 export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: Fetch) =>
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
+export function buildGlossaryAffectedQuery(p: GlossaryAffectedParams): string {
+  const q = new URLSearchParams()
+  for (const id of p.term_ids ?? []) q.append('term_ids', String(id))
+  if (p.engine) q.set('engine', p.engine)
+  if (p.model) q.set('model', p.model)
+  if (p.reflect) q.set('reflect', 'true')
+  if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+/** Read-only: no engine call, no change. */
+export const getGlossaryAffected = (id: number, p: GlossaryAffectedParams, f?: Fetch) =>
+  getJson<GlossaryAffectedPreview>(`/api/translate-run/dramas/${id}/glossary-affected${buildGlossaryAffectedQuery(p)}`, f)
+/** 409 when the lines or glossary changed since the preview. */
+export const startGlossaryAffectedRun = (id: number, body: GlossaryAffectedRunBody, f?: Fetch) =>
+  postJson<GlossaryAffectedRunStarted>(`/api/translate-run/dramas/${id}/glossary-affected/run`, body, f)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
 export const applyTranslatePreset = (id: number, presetId: number, f?: Fetch) =>
