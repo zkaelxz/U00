@@ -8,12 +8,17 @@ API calls.
 """
 
 import contextlib
+import logging
 import os
+import re
+import shutil
 import sqlite3
 import datetime
 import json
+import stat
 import threading
 import time
+import uuid
 from typing import List
 
 import portable
@@ -1530,6 +1535,229 @@ def drama_dir(drama_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Media journal: drama folders moved in by a backup import or restore
+# ---------------------------------------------------------------------------
+# An import stages drama folders in DRAMAS_DIR/.import-<token>/. Inside its
+# database transaction (new rows inserted, not committed) it writes
+# <staging>/journal.json -- each new drama id with the identity (st_dev,
+# st_ino) of the staged folder that will become dramas/<id> -- and only then
+# renames the folders into place and commits. The commit is the commit
+# point: when the journal's drama rows don't exist the transaction never
+# committed, and a dramas/<id> folder is removed only when the journal lists
+# that id and the folder is the very one it recorded (the rename keeps the
+# identity), so a folder the import didn't create is never touched.
+MEDIA_STAGING_PREFIX = ".import-"
+_MEDIA_STAGING_RE = re.compile(r"\.import-[0-9a-f]{32}", re.ASCII)
+_MEDIA_JOURNAL = "journal.json"
+_DAMAGED_JOURNAL = object()
+_media_lock = threading.RLock()
+_active_media_stagings = set()   # staging names of imports running in this process
+
+log = logging.getLogger(__name__)
+
+
+class DramaFolderConflict(RuntimeError):
+    """dramas/<id> already exists for a drama id being created, and no import
+    journal shows it as a leftover of an import that never committed."""
+
+
+def _folder_identity(path: str):
+    """[st_dev, st_ino] of a real directory (not a symlink), else None; also
+    None when the file system reports no inode number (it can't prove which
+    folder is which)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    if not stat.S_ISDIR(st.st_mode) or not st.st_ino:
+        return None
+    return [int(st.st_dev), int(st.st_ino)]
+
+
+def _fsync_dir(path: str):
+    if os.name != "posix":
+        return      # Windows can't open a directory; it commits the rename with the file
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def new_media_staging() -> str:
+    """Creates an empty staging folder DRAMAS_DIR/.import-<token>/ for one
+    import, registered as running (recovery leaves it alone) until
+    finish_media_staging; returns its path."""
+    os.makedirs(DRAMAS_DIR, exist_ok=True)
+    name = MEDIA_STAGING_PREFIX + uuid.uuid4().hex
+    with _media_lock:
+        os.mkdir(os.path.join(DRAMAS_DIR, name))
+        _active_media_stagings.add(name)
+    return os.path.join(DRAMAS_DIR, name)
+
+
+def write_media_journal(staging: str, folders: dict):
+    """Records {new drama id: staged folder} in the staging folder's journal,
+    flushed to disk; call inside the import's transaction, before any
+    folder is moved into place."""
+    ids = {str(int(did)): _folder_identity(path) for did, path in folders.items()}
+    tmp = os.path.join(staging, _MEDIA_JOURNAL + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"format": 1, "ids": ids}, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, os.path.join(staging, _MEDIA_JOURNAL))
+    _fsync_dir(staging)
+
+
+def _read_media_journal(staging: str):
+    """{drama id: identity or None}; None when there is no journal (the import
+    stopped before moving anything); _DAMAGED_JOURNAL when it can't be read."""
+    try:
+        with open(os.path.join(staging, _MEDIA_JOURNAL), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return _DAMAGED_JOURNAL
+    out = {}
+    try:
+        for key, ident in data["ids"].items():
+            if not (key.isascii() and key.isdigit() and str(int(key)) == key):
+                return _DAMAGED_JOURNAL
+            if ident is not None and not (isinstance(ident, list) and len(ident) == 2 and all(
+                    isinstance(v, int) and not isinstance(v, bool) for v in ident)):
+                return _DAMAGED_JOURNAL
+            out[int(key)] = ident
+    except (AttributeError, KeyError, TypeError):
+        return _DAMAGED_JOURNAL
+    return out
+
+
+def _any_drama_row(ids) -> bool:
+    ids = list(ids)
+    if not ids or not os.path.exists(DB_PATH):
+        return False
+    marks = ",".join("?" for _ in ids)
+    # Its own untracked connection: callers hold a get_conn() connection
+    # (mid-transaction), which a nested get_conn() in this thread would close.
+    with contextlib.closing(sqlite3.connect(DB_PATH)) as conn:
+        return conn.execute(f"SELECT 1 FROM dramas WHERE id IN ({marks}) LIMIT 1",
+                            ids).fetchone() is not None
+
+
+def _settle_media_staging(name: str) -> list:
+    """Resolves one staging folder whose import is not running. Returns the
+    drama ids whose folders could not be removed (the journal is then kept,
+    so the next try removes them)."""
+    staging = os.path.join(DRAMAS_DIR, name)
+    journal = _read_media_journal(staging)
+    if journal is _DAMAGED_JOURNAL:
+        log.warning("An import journal could not be read; its folders were left alone")
+        return []
+    if journal and _any_drama_row(journal):
+        # Committed: every folder is in place, so only the journal goes (a
+        # staged folder still here is left alone rather than deleted).
+        os.remove(os.path.join(staging, _MEDIA_JOURNAL))
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(os.path.join(staging, _MEDIA_JOURNAL + ".tmp"))
+        try:
+            os.rmdir(staging)
+        except OSError:
+            log.warning("A finished import's staging folder was not empty; it was left alone")
+        return []
+    failed = []
+    for did, ident in sorted((journal or {}).items()):
+        final = os.path.join(DRAMAS_DIR, str(did))
+        if ident is None or _folder_identity(final) != ident:
+            continue    # not the folder this import moved there (or already gone)
+        try:
+            shutil.rmtree(final)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            failed.append(did)
+    if failed:
+        log.warning("Could not remove the folders of uncommitted imported dramas %s",
+                    ",".join(str(i) for i in failed))
+        return failed
+    shutil.rmtree(staging)
+    return []
+
+
+def finish_media_staging(staging: str) -> list:
+    """Ends one import's staging: after a commit only the journal and the
+    (empty) staging folder go; otherwise the folders it moved into place are
+    removed too. Returns the drama ids whose folders could not be removed
+    (logged; the journal stays for the next start). Raises OSError when the
+    staging folder itself can't be removed. Calling it again is harmless."""
+    name = os.path.basename(staging)
+    with _media_lock:
+        try:
+            if not os.path.isdir(staging):
+                return []   # already ended
+            return _settle_media_staging(name)
+        finally:
+            _active_media_stagings.discard(name)
+
+
+def _leftover_stagings() -> list:
+    try:
+        names = os.listdir(DRAMAS_DIR)
+    except OSError:
+        return []
+    return sorted(n for n in names if _MEDIA_STAGING_RE.fullmatch(n)
+                  and n not in _active_media_stagings
+                  and not os.path.islink(os.path.join(DRAMAS_DIR, n))
+                  and os.path.isdir(os.path.join(DRAMAS_DIR, n)))
+
+
+def recover_media_imports() -> dict:
+    """Crash recovery for imports that are not running in this process (run
+    at startup and before an import or restore): a journal whose drama rows
+    exist is deleted; one whose rows don't removes the dramas/<id> folders it
+    recorded, then its staging folder; a staging folder with no journal (the
+    import stopped before moving anything) is removed. Nothing a journal
+    doesn't list is touched. Returns {"settled": n, "failed_ids": [...]}.
+    Never raises."""
+    settled, failed = 0, []
+    with _media_lock:
+        for name in _leftover_stagings():
+            try:
+                left = _settle_media_staging(name)
+            except (OSError, sqlite3.Error):
+                log.warning("An interrupted import's leftovers could not be removed")
+                continue
+            failed += left
+            if not left:
+                settled += 1
+    return {"settled": settled, "failed_ids": failed}
+
+
+def claim_new_drama_folder(drama_id: int):
+    """Call with a new drama's row inserted but not committed (so no other
+    import is mid-transaction). A dramas/<id> folder is never inherited: one
+    that an uncommitted import's journal recorded is removed with that
+    import's other leftovers; any other folder raises DramaFolderConflict."""
+    final = os.path.join(DRAMAS_DIR, str(drama_id))
+    if not os.path.lexists(final):
+        return
+    with _media_lock:
+        for name in _leftover_stagings():
+            journal = _read_media_journal(os.path.join(DRAMAS_DIR, name))
+            if isinstance(journal, dict) and drama_id in journal:
+                try:
+                    _settle_media_staging(name)
+                except (OSError, sqlite3.Error):
+                    log.warning("An interrupted import's leftovers could not be removed")
+                break
+        if os.path.lexists(final):
+            raise DramaFolderConflict(
+                f"A folder for new drama {int(drama_id)} is already in the library's dramas "
+                "folder and wasn't left there by this app; move it out and try again.")
+
+
+# ---------------------------------------------------------------------------
 # Dramas CRUD
 # ---------------------------------------------------------------------------
 
@@ -1547,8 +1775,9 @@ def create_drama(**fields) -> int:
         placeholders = ", ".join("?" for _ in fields)
         cur = conn.execute(f"INSERT INTO dramas ({cols}) VALUES ({placeholders})",
                             list(fields.values()))
-        conn.commit()
         new_id = cur.lastrowid
+        claim_new_drama_folder(new_id)   # raising here rolls the insert back
+        conn.commit()
     return new_id
 
 
@@ -1582,7 +1811,6 @@ def delete_drama(drama_id: int):
         conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
         conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
         conn.commit()
-    import shutil
     d = os.path.join(DRAMAS_DIR, str(drama_id))
     if os.path.isdir(d):
         shutil.rmtree(d)

@@ -36,7 +36,6 @@ import contextlib
 import datetime
 import logging
 import os
-import shutil
 import sqlite3
 import tempfile
 import time
@@ -64,6 +63,7 @@ _MAX_VALUE_BYTES = 64 * 1024 ** 2
 _MAX_IMPORT_BYTES = 512 * 1024 ** 2
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 _BAD_FILE = "That file isn't a Baihe backup, or it is damaged."
+_FOLDER_EXISTS = "A folder for an imported drama already exists; nothing was imported."
 _TOO_LARGE = "The uploaded file is too large."
 # How long reads of the uploaded database may run: a crafted file must not
 # hold the request (and, for an import, the maintenance lock) indefinitely.
@@ -309,8 +309,9 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
     if abs_._job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
     with las._maintenance("importing dramas"), tempfile.TemporaryDirectory() as tmp:
+        db.recover_media_imports()
         backup = _Backup(tmp, stream)
-        stagings = {}
+        stagings, staging = {}, None
         try:
             try:
                 with contextlib.closing(_open_db(backup.db_path)) as src:
@@ -323,24 +324,28 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
             except sqlite3.Error:
                 raise InvalidInputError(_BAD_FILE) from None
             if backup.zip_path is not None:
-                media = backup.media_ids()
+                media = backup.media_ids() & set(ids)
                 try:
+                    if media:
+                        staging = db.new_media_staging()
                     with zipfile.ZipFile(backup.zip_path) as zf:
                         for did in ids:
                             if did in media:
-                                stagings[did] = abs_._stage_media(zf, did)
+                                stagings[did] = abs_._stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None
-            return _import_from(backup.db_path, ids, stagings, principal)
+            return _import_from(backup.db_path, ids, stagings, staging, principal)
         finally:
-            for path in stagings.values():
-                if path is not None and os.path.isdir(path):
-                    shutil.rmtree(path, ignore_errors=True)
+            if staging is not None:
+                abs_._end_media_staging(staging)
 
 
-def _import_from(snap_db, ids, stagings, principal) -> dict:
+def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
+    """Inserts the dramas in one transaction, then moves their staged
+    folders (in `staging`) into dramas/<new id>, then commits: the commit is
+    the commit point (see db's media journal)."""
     defaults = ownership_service.new_item_defaults(principal)
-    imported, moved, totals = [], [], {}
+    imported, folders, totals = [], {}, {}
     today = datetime.date.today().isoformat()
     titles = _live_titles()   # before dst opens: db helpers close the connection they use
     with contextlib.closing(_open_db(snap_db, _IMPORT_TIME_LIMIT_S)) as src, \
@@ -355,29 +360,29 @@ def _import_from(snap_db, ids, stagings, principal) -> dict:
                 row = abs_._rows(src, "dramas", "id = ?", (old_id,))[0]
                 title = (_text(row.get("title_en"), 300) or _text(row.get("title_zh"), 300))
                 suffix = f"(restored {today})" if title.casefold() in titles else None
-                staging = stagings.get(old_id)
-                import_as["media_dir"] = staging
+                staged = stagings.get(old_id)
+                import_as["media_dir"] = staged
                 live_id, counts, _ = abs_._copy_drama(src, dst, old_id, None, suffix, import_as)
+                # Never inherit a stray dramas/<new id>, files imported or not.
+                abs_._claim_folder(live_id, _FOLDER_EXISTS)
                 shown = dst.execute("SELECT COALESCE(NULLIF(title_en, ''), title_zh) FROM dramas "
                                     "WHERE id = ?", (live_id,)).fetchone()[0] or ""
                 titles.add(str(shown).strip().casefold())
-                if staging is not None:
-                    final = os.path.join(db.DRAMAS_DIR, str(live_id))
-                    if os.path.lexists(final):
-                        raise ConflictError("A folder for an imported drama already exists; "
-                                            "nothing was imported.")
-                    os.rename(staging, final)
-                    moved.append((final, staging))
+                if staged is not None:
+                    folders[live_id] = staged
                 for key, n in counts.items():
                     totals[key] = totals.get(key, 0) + n
                 imported.append({"source_id": old_id, "drama_id": live_id, "title": str(shown),
-                                 "media_imported": staging is not None})
+                                 "media_imported": staged is not None})
+            if folders:
+                abs_._move_media_in(staging, folders, _FOLDER_EXISTS)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
-            for final, staging in reversed(moved):
-                with contextlib.suppress(OSError):
-                    os.rename(final, staging)
+            if staging is not None and not abs_._end_media_staging(staging):
+                raise ServiceError("The dramas could not be imported and nothing was added, but "
+                                   "some of their files could not be removed yet; they are "
+                                   "removed at the next start.") from None
             if isinstance(exc, (ServiceError, KeyboardInterrupt, SystemExit)):
                 raise
             log.warning("Drama import failed: %s", type(exc).__name__)
