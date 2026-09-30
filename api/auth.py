@@ -45,7 +45,8 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
-  multipart upload before being refused.
+  multipart upload before being refused. `HouseholdGate`, outermost there,
+  answers only the `BAIHE_PUBLIC_URL` Host and adds the security headers.
 
 Paid engines: a route that starts LLM work declares `jobs.start` (household)
 and its handler calls `require_engines_allowed` with the engines the request
@@ -53,6 +54,7 @@ names, so a user without `engines.paid` can only use `FREE_ENGINES`.
 """
 
 import ipaddress
+import re
 from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
@@ -535,6 +537,156 @@ class LoopbackOnlyGate:
                     return await send({"type": "websocket.close", "code": 1008})
                 return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         return await self.app(scope, receive, send)
+
+
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+_HOST_PORT_RE = re.compile(r":([0-9]{1,5})")
+_HOST_NAME_RE = re.compile(r"[a-z0-9._-]+")
+
+# The Reader shows each page in a sandboxed srcdoc iframe, which inherits
+# this policy and runs inline scripts and handlers, and plays audio and shows
+# images from data: URIs; index.html has one inline theme script. So scripts
+# can't be limited to 'self' until the Reader page is served from a URL.
+HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                 "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+                 "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+                 "object-src 'none'; base-uri 'self'; form-action 'self'; "
+                 "frame-ancestors 'none'")
+HOUSEHOLD_SECURITY_HEADERS = (
+    ("Content-Security-Policy", HOUSEHOLD_CSP),
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "same-origin"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
+)
+HSTS_VALUE = "max-age=31536000"
+
+
+def _normal_host(name: str, port):
+    """(name, port) with the name lowercased, one trailing dot dropped, an
+    IPv6 literal bracketed in its compressed form and anything else
+    IDNA-encoded (what a browser sends); None if the name is unusable."""
+    name = (name or "").strip().lower()
+    if name.startswith("[") and name.endswith("]"):
+        name = name[1:-1]
+    if ":" in name:
+        try:
+            return f"[{ipaddress.IPv6Address(name).compressed}]", port
+        except ValueError:
+            return None
+    if name.endswith("."):
+        name = name[:-1]
+    try:
+        name = name.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+    if not name or not _HOST_NAME_RE.fullmatch(name):
+        return None
+    return name, port
+
+
+def parse_host_header(value: str):
+    """(name, port or None) from a Host header, normalised like
+    `_normal_host`; None when it is malformed (userinfo, path, spaces, a bad
+    port...)."""
+    value = (value or "").strip()
+    if value.startswith("["):
+        end = value.find("]")
+        if end < 0:
+            return None
+        name, rest = value[:end + 1], value[end + 1:]
+    else:
+        name, sep, port_text = value.partition(":")
+        rest = sep + port_text
+    port = None
+    if rest:
+        match = _HOST_PORT_RE.fullmatch(rest)
+        if not match or not 1 <= int(match.group(1)) <= 65535:
+            return None
+        port = int(match.group(1))
+    if name.startswith("[") and ":" not in name:
+        return None
+    return _normal_host(name, port)
+
+
+def public_host(public_url: str):
+    """((name, port), port_is_default) for the Host the household listener
+    answers to, from BAIHE_PUBLIC_URL (port: the URL's own, else its
+    scheme's default), or None when there is no usable public URL."""
+    try:
+        parts = urlsplit(public_url or "")
+        port = parts.port or _DEFAULT_PORTS.get(parts.scheme)
+    except ValueError:
+        return None
+    if not parts.hostname or port is None:
+        return None
+    return _normal_host(parts.hostname, port), port == _DEFAULT_PORTS[parts.scheme]
+
+
+def _host_allowed(allowed, headers: list) -> bool:
+    hosts = [v for k, v in headers if k.lower() == b"host"]
+    if allowed is None or allowed[0] is None or len(hosts) != 1:
+        return False
+    (name, port), port_is_default = allowed
+    got = parse_host_header(hosts[0].decode("latin-1"))
+    if got is None or got[0] != name:
+        return False
+    # A browser leaves the scheme's default port out of the Host.
+    return got[1] == port or (got[1] is None and port_is_default)
+
+
+def _arrived_over_https(scope) -> bool:
+    """The reverse proxy on this PC (a loopback peer) says the browser used
+    https. Only a single `X-Forwarded-Proto: https` counts."""
+    from api.routers.settings_routes import _is_loopback_peer
+    client = scope.get("client")
+    if not _is_loopback_peer(client[0] if client else None):
+        return False
+    protos = [v for k, v in scope.get("headers", ()) if k.lower() == b"x-forwarded-proto"]
+    return len(protos) == 1 and protos[0].decode("latin-1").strip().lower() == "https"
+
+
+class HouseholdGate:
+    """Pure-ASGI middleware, outermost, on the household listener only.
+    - Host allowlist: the one Host that app answers to is BAIHE_PUBLIC_URL's
+      (case, a trailing dot and the default port don't matter). Anything
+      else, a missing or repeated Host included, is a 400 before routing:
+      a DNS-rebinding page or a stray name pointed at the proxy reaches
+      nothing. X-Forwarded-Host is ignored; the proxy must pass the Host on.
+    - Security headers on every reply (a header a route set itself, such as
+      a stricter CSP, is kept), and HSTS only when the request came through
+      the proxy on this PC over https (`_arrived_over_https`).
+    Unexpected-error (500) replies are written outside every middleware and
+    don't get the headers; they carry no page content."""
+
+    def __init__(self, app, public_url: str):
+        self.app = app
+        self._allowed = public_host(public_url)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        ok = _host_allowed(self._allowed, scope.get("headers", ()))
+        if scope["type"] == "websocket":
+            if not ok:
+                return await send({"type": "websocket.close", "code": 1008})
+            return await self.app(scope, receive, send)
+        extra = HOUSEHOLD_SECURITY_HEADERS
+        if _arrived_over_https(scope):
+            extra = extra + (("Strict-Transport-Security", HSTS_VALUE),)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                from starlette.datastructures import MutableHeaders
+                headers = MutableHeaders(scope=message)
+                for name, value in extra:
+                    headers.setdefault(name, value)
+            await send(message)
+
+        if not ok:
+            return await _json_refusal(400, "invalid_host", "Unknown host.")(
+                scope, receive, send_with_headers)
+        return await self.app(scope, receive, send_with_headers)
 
 
 class ActingPrincipalMiddleware:

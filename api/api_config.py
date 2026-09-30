@@ -62,8 +62,11 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   services, serves no docs or schema, and refuses every `local_only()`
   route and every handler-level "is this the PC" check, whatever the
   request looks like (`household_settings`, `api.auth.is_local_request`).
-  Both share the in-memory job list. Refused at startup: the admin port,
-  the extension bridge's 8756, a non-loopback host, development mode.
+  Both share the in-memory job list. It answers only requests whose Host is
+  `BAIHE_PUBLIC_URL`'s (400 otherwise) and sends security headers
+  (`api.auth.HouseholdGate`). Refused at startup: the admin port, the
+  extension bridge's 8756, a non-loopback host, development mode, sign-in
+  not configured (the three `BAIHE_GOOGLE_*`/`BAIHE_PUBLIC_URL` settings).
 """
 
 import os
@@ -253,7 +256,9 @@ def check_household_bind_safety(settings: ApiSettings):
     and only next to an admin listener in off mode (with auth on there, a
     proxy pointed at the admin port would get signed-in access to it).
     Development mode runs one auto-reloading app, so it has no household
-    listener. `settings` are the admin listener's (`load_settings`)."""
+    listener. Without sign-in configured nobody could sign in there, and
+    there would be no public host to allow. `settings` are the admin
+    listener's (`load_settings`)."""
     import page_server
     port = settings.household_port
     if not port:
@@ -273,6 +278,11 @@ def check_household_bind_safety(settings: ApiSettings):
     if settings.is_development:
         raise ValueError("BAIHE_API_HOUSEHOLD_PORT is not available with "
                          "BAIHE_API_ENV=development.")
+    if not settings.sign_in_configured:
+        raise ValueError("BAIHE_API_HOUSEHOLD_PORT needs Google sign-in set up first: "
+                         "BAIHE_GOOGLE_CLIENT_ID, BAIHE_GOOGLE_CLIENT_SECRET and "
+                         "BAIHE_PUBLIC_URL (in .env). The household listener answers "
+                         "only to the BAIHE_PUBLIC_URL host.")
 
 
 SINGLE_PORT_SIGN_IN_WARNING = (
