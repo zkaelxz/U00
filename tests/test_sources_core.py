@@ -198,6 +198,155 @@ class TestPacing:
         assert seen and seen[0] > 0
 
 
+class TestPerHostPacing:
+    """The pace clock is shared per host across every source name, so a
+    search, an import and the generic client can't together hit a site
+    faster than the adapter's minimum interval allows."""
+
+    @staticmethod
+    def _client(source, transport, clock, sleep=None, cancel_check=None, **policy_kw):
+        # No reset here: these tests need state shared across clients.
+        policy = PacingPolicy(**{"min_delay": 0.0, "max_delay": 0.0,
+                                 "session_break_min_requests": 0, **policy_kw})
+        return SourceClient(source, policy=policy, transport=transport,
+                            sleep=sleep or clock.sleep, clock=clock.clock, rng=FixedRng(0.0),
+                            cancel_check=cancel_check)
+
+    def test_two_source_names_on_one_host_respect_the_larger_interval(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = [f"https://shared.invalid/{i}" for i in range(4)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        adapter = self._client("syosetu", t, clock, min_delay=1.0, max_delay=1.0,
+                               host_min_interval={"shared.invalid": 10.0})
+        generic = self._client("generic", t, clock, min_delay=1.0, max_delay=1.0)
+        adapter.get(urls[0])
+        generic.get(urls[1])     # declares no interval, still waits the adapter's
+        generic.get(urls[2])
+        adapter.get(urls[3])
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([10.0, 10.0, 10.0])
+
+    def test_user_delay_above_the_host_interval_still_applies(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://h.invalid/1": html("x"),
+                               "https://h.invalid/2": html("y")}, clock)
+        a = self._client("a", t, clock, host_min_interval={"h.invalid": 2.0})
+        b = self._client("b", t, clock, min_delay=5.0, max_delay=5.0)
+        a.get("https://h.invalid/1")
+        b.get("https://h.invalid/2")
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(5.0)
+
+    def test_a_max_concurrent_change_keeps_the_last_request_times(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://mc.invalid/1": html("x"),
+                               "https://mc.invalid/2": html("y")}, clock)
+        interval = {"mc.invalid": 10.0}
+        self._client("mc", t, clock, max_concurrent=1,
+                     host_min_interval=interval).get("https://mc.invalid/1")
+        self._client("mc", t, clock, max_concurrent=2,
+                     host_min_interval=interval).get("https://mc.invalid/2")
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(10.0)
+
+    def test_different_hosts_do_not_block_each_other(self, isolated_db):
+        import threading
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://x.invalid/1": html("x"), "https://x.invalid/2": html("x"),
+                               "https://y.invalid/1": html("y")}, clock)
+        waiting, release = threading.Event(), threading.Event()
+
+        def blocking_sleep(s):
+            waiting.set()
+            assert release.wait(10)
+            clock.sleep(s)
+        slow = self._client("slow", t, clock, sleep=blocking_sleep, max_concurrent=2,
+                            host_min_interval={"x.invalid": 30.0})
+        slow.get("https://x.invalid/1")
+        worker = threading.Thread(target=slow.get, args=("https://x.invalid/2",))
+        worker.start()
+        other = None
+        try:
+            assert waiting.wait(10)      # holding x.invalid's turn, mid-wait
+            done = threading.Event()
+            other = threading.Thread(target=lambda: (
+                self._client("slow", t, clock, max_concurrent=2).get("https://y.invalid/1"),
+                done.set()))
+            other.start()
+            # Same source, so this also shows the source's other hosts
+            # aren't held up by one host's wait.
+            assert done.wait(10), "a wait on one host blocked a different host"
+        finally:
+            release.set()
+            worker.join(10)
+            if other is not None:
+                other.join(10)
+        assert t.urls() == ["https://x.invalid/1", "https://y.invalid/1",
+                            "https://x.invalid/2"]
+
+    def test_concurrent_threads_on_one_host_are_spaced(self, isolated_db):
+        import threading
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = [f"https://busyhost.invalid/{i}" for i in range(12)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        clients = [self._client(f"src{i}", t, clock, min_delay=2.0, max_delay=2.0,
+                                max_concurrent=3) for i in range(4)]
+        threads = [threading.Thread(target=lambda c=c, i=i: [c.get(u) for u in urls[i::4]])
+                   for i, c in enumerate(clients)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(10)
+        times = sorted(call["t"] for call in t.calls)
+        assert len(times) == 12
+        assert all(b - a >= 2.0 - 1e-9 for a, b in zip(times, times[1:]))
+
+    def test_cancel_interrupts_a_thread_queued_behind_another_hosts_wait(self, isolated_db):
+        import threading
+        from sources.http import Cancelled
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://q.invalid/1": html("x"), "https://q.invalid/2": html("x"),
+                               "https://q.invalid/3": html("x")}, clock)
+        waiting, release = threading.Event(), threading.Event()
+
+        def blocking_sleep(s):
+            waiting.set()
+            assert release.wait(10)
+            clock.sleep(s)
+        first = self._client("first", t, clock, sleep=blocking_sleep,
+                             host_min_interval={"q.invalid": 30.0})
+        first.get("https://q.invalid/1")
+        worker = threading.Thread(target=first.get, args=("https://q.invalid/2",))
+        worker.start()
+        try:
+            assert waiting.wait(10)
+            cancel = threading.Event()
+            queued = self._client("queued", t, clock, cancel_check=cancel.is_set)
+            errors = []
+            th = threading.Thread(target=lambda: _capture(errors, queued.get,
+                                                          "https://q.invalid/3"))
+            th.start()
+            cancel.set()
+            th.join(10)
+            assert not th.is_alive()
+            assert errors and isinstance(errors[0], Cancelled)
+        finally:
+            release.set()
+            worker.join(10)
+        assert "https://q.invalid/3" not in t.urls()
+
+
+def _capture(errors, fn, *args):
+    try:
+        fn(*args)
+    except Exception as e:
+        errors.append(e)
+
+
 # ---------------------------------------------------------------------------
 # get_with_mirrors: the mirror that actually worked is preferred next time
 # ---------------------------------------------------------------------------
