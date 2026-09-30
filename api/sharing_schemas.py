@@ -13,6 +13,9 @@ class SharingItem(BaseModel):
     id: int
     title: str
     owner_name: str
+    # No owner: made at the PC (or with sign-in off). Stored private since
+    # new items are private by default, so the household can't see it yet.
+    created_at_pc: bool
     is_private: bool
     # Dramas only: a drama in a series follows the series' flag.
     series_id: Optional[int] = None

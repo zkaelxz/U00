@@ -28,6 +28,7 @@
 
 /* Sharing: a drama in a series sits indented under its series. */
 .sharing-meta { display: block; font-weight: normal; }
+.sharing-meta + .pill { margin-top: var(--space-1); }
 .sharing-status { font-size: var(--text-sm); color: var(--muted); }
 .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
 

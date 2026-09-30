@@ -1191,6 +1191,16 @@ def init_db():
             cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        # New items became private by default (user decision 2026-09-30).
+        # A users.share_by_default added before that defaulted to 1, which
+        # nobody chose (nothing could set it): switch every account off once.
+        # The marker keeps later choices across restarts.
+        user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        marker = "migrations.share_by_default_off"
+        if str(user_cols.get("share_by_default")) == "1" and conn.execute(
+                "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+            conn.execute("UPDATE users SET share_by_default = 0")
+            conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
@@ -4774,6 +4784,13 @@ def set_item_private(kind: str, item_id: int, private: bool) -> bool:
         cur = conn.execute(sql, (int(bool(private)), item_id))
         conn.commit()
         return cur.rowcount > 0
+
+
+def series_has_unowned_drama(series_id: int) -> bool:
+    """Whether a series holds a drama with no owner (made at the PC)."""
+    with contextlib.closing(get_conn()) as conn:
+        return conn.execute("SELECT 1 FROM dramas WHERE series_id = ? AND owner_user_id IS NULL "
+                            "LIMIT 1", (series_id,)).fetchone() is not None
 
 
 def list_item_sharing(limit: int, offset: int):

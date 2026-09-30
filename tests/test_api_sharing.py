@@ -87,6 +87,12 @@ class TestFlip:
         assert hidden.json() == missing.json()
         assert _private("drama", world["hidden"]) == 1
         assert _flip(c, world["b"], "series", world["series"], True).status_code == 403
+        secret = db.create_series("Secret saga", owner_user_id=world["a_id"], is_private=True)
+        hidden = _flip(c, world["b"], "series", secret, False)
+        missing = _flip(c, world["b"], "series", 999999, False)
+        assert hidden.status_code == missing.status_code == 404
+        assert hidden.json() == missing.json()
+        assert _private("series", secret) == 1
 
     def test_admin_can_flip_anyones_item(self, world):
         c = _client(_app())
@@ -98,15 +104,32 @@ class TestFlip:
 
     def test_series_conflicts_are_409_with_a_plain_message(self, world):
         c = _client(_app())
-        r = _flip(c, world["a"], "dramas", world["ep1"], True)
-        assert r.status_code == 409
-        assert r.json()["error"]["message"] == "Make the whole series private instead"
+        for private in (True, False):
+            r = _flip(c, world["a"], "dramas", world["ep1"], private)
+            assert r.status_code == 409
+            assert r.json()["error"]["message"] == "Make the whole series private instead"
         db.create_drama(title_en="Bo's ep", source_language="zh", series_id=world["series"],
                         owner_user_id=world["b_id"])
         r = _flip(c, world["admin"], "series", world["series"], True)
         assert r.status_code == 409
         assert "other people's dramas" in r.json()["error"]["message"]
         assert _private("series", world["series"]) == 0
+
+    def test_series_with_a_pc_drama_is_admin_only(self, world):
+        c = _client(_app())
+        db.update_drama(world["pc"], series_id=world["series"])
+        r = _flip(c, world["a"], "series", world["series"], True)
+        assert r.status_code == 409
+        assert r.json()["error"]["message"] == "This series holds a drama owned at the PC; ask an admin."
+        assert _flip(c, world["admin"], "series", world["series"], True).status_code == 200
+
+    def test_flips_are_audited_with_the_actor(self, world):
+        c = _client(_app())
+        assert _flip(c, world["b"], "dramas", world["solo"], True).status_code == 403
+        assert _flip(c, world["a"], "dramas", world["solo"], True).status_code == 200
+        rows = [r for r in db.auth_list_audit(50) if r["action"] == "sharing.set_private"]
+        assert [(r["user_id"], r["detail_redacted"]) for r in rows] == \
+            [(world["a_id"], f"drama {world['solo']}: private=True")]
 
     def test_needs_lines_edit_and_a_valid_body(self, world):
         c = _client(_app())
@@ -143,6 +166,8 @@ class TestList:
             (world["series"], "Saga", True)
         assert by[("series", world["series"])]["is_private"] is True
         assert by[("drama", world["pc"])]["owner_name"] == "PC owner"
+        assert by[("drama", world["pc"])]["created_at_pc"] is True
+        assert by[("drama", world["solo"])]["created_at_pc"] is False
         assert by[("drama", world["solo"])]["owner_name"] == f"User {world['a_id']}"
         assert by[("drama", world["solo"])]["series_is_private"] is None
 

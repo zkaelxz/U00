@@ -56,6 +56,21 @@ export function applyFlip(items: SharingItem[], r: SetPrivateResult): SharingIte
   })
 }
 
+export const PC_ITEMS_NOTE =
+  'Items created at the PC, or while sign-in was off, have no owner and are saved as private. ' +
+  'When sign-in is turned on, others in the household will not see them until an admin shares them here.'
+
+/** "Created at the PC" items the household can't see yet: the ones to review before sign-in. */
+export function isPcPrivate(item: SharingItem): boolean {
+  return item.created_at_pc && !isShared(item)
+}
+
+/** Only private PC items, keeping a series' heading when one of its dramas is shown. */
+export function filterPcPrivate(items: SharingItem[]): SharingItem[] {
+  const series = new Set(items.filter((i) => i.kind === 'drama' && isPcPrivate(i)).map((i) => i.series_id))
+  return items.filter((i) => isPcPrivate(i) || (i.kind === 'series' && series.has(i.id)))
+}
+
 export const itemKey = (i: { kind: string; id: number }) => `${i.kind}:${i.id}`
 
 /** Append the next page, skipping anything already shown (items may shift between pages). */

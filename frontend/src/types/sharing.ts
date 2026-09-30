@@ -7,6 +7,8 @@ export type SharingItem = {
   id: number
   title: string
   owner_name: string
+  // No owner: created at the PC or while sign-in was off.
+  created_at_pc: boolean
   is_private: boolean
   // Dramas only: a drama in a series follows the series' flag.
   series_id: number | null

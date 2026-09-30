@@ -5,6 +5,8 @@
  * its owner and a Shared/Private switch; the server allows a flip only by
  * the owner or an admin and explains a refusal (409) in plain words, which
  * is shown as is. Other people's per-item switches live only here, for admins.
+ * Items with no owner (made at the PC or with sign-in off) are stored private,
+ * so the list notes that, badges them and can filter to the private ones.
  */
 import { useEffect, useState } from 'react'
 
@@ -12,13 +14,15 @@ import { getShareByDefault, listSharing, setItemPrivate, setShareByDefault } fro
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
-import { buttonClass } from '../../components/uiClasses'
+import { badgeClass, buttonClass } from '../../components/uiClasses'
 import { useSession } from '../../hooks/useSession'
 import type { SharingItem } from '../../types/sharing'
 import {
+  PC_ITEMS_NOTE,
   SHARE_DEFAULT_LABEL,
   applyFlip,
   canSeeAllItems,
+  filterPcPrivate,
   followsSeries,
   isForbidden,
   isShared,
@@ -100,6 +104,7 @@ function SharingItems() {
   const [listError, setListError] = useState<string | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ key: string; text: string } | null>(null)
+  const [pcOnly, setPcOnly] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -162,13 +167,25 @@ function SharingItems() {
         Shared: everyone in the household can see it. Private: only its owner and admins can. A series decides for
         all of its dramas.
       </p>
+      <p className="settings-note" data-testid="sharing-pc-note">
+        {PC_ITEMS_NOTE}
+      </p>
+      {items !== null && items.length > 0 && (
+        <div className="setting-list">
+          <Field label="Show only private items created at the PC">
+            <Toggle checked={pcOnly} onChange={setPcOnly} />
+          </Field>
+        </div>
+      )}
       {items === null ? (
         !listError && <p className="muted">Loading…</p>
       ) : items.length === 0 ? (
         <p className="muted">There are no dramas or series yet.</p>
+      ) : pcOnly && filterPcPrivate(items).length === 0 ? (
+        <p className="muted">No private items created at the PC{items.length < total ? ' in the items shown so far' : ''}.</p>
       ) : (
         <ul className="status-list sharing-list" aria-label="Dramas and series">
-          {items.map((item) => {
+          {(pcOnly ? filterPcPrivate(items) : items).map((item) => {
             const key = itemKey(item)
             const title = itemTitle(item)
             const kindLabel = item.kind === 'series' ? 'Series' : 'Drama'
@@ -180,6 +197,7 @@ function SharingItems() {
                     <span className="settings-note sharing-meta">
                       {kindLabel} · Owner: {item.owner_name}
                     </span>
+                    {item.created_at_pc && <span className={badgeClass('neutral')}>Created at the PC</span>}
                   </span>
                   <span className="sharing-status">{statusLabel(item)}</span>
                   {!followsSeries(item) && (

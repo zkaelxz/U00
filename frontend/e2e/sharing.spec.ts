@@ -11,6 +11,7 @@ type Item = {
   id: number
   title: string
   owner_name: string
+  created_at_pc: boolean
   is_private: boolean
   series_id: number | null
   series_name: string | null
@@ -18,10 +19,10 @@ type Item = {
 }
 
 const ITEMS: Item[] = [
-  { kind: 'drama', id: 3, title: 'Hidden Letters', owner_name: 'Ann', is_private: true, series_id: null, series_name: null, series_is_private: null },
-  { kind: 'series', id: 9, title: 'Saga', owner_name: 'Ann', is_private: false, series_id: null, series_name: null, series_is_private: null },
-  { kind: 'drama', id: 4, title: 'Saga Ep 1', owner_name: 'Bo', is_private: false, series_id: 9, series_name: 'Saga', series_is_private: false },
-  { kind: 'drama', id: 5, title: 'Solo Story', owner_name: 'PC owner', is_private: false, series_id: null, series_name: null, series_is_private: null },
+  { kind: 'drama', id: 3, title: 'Hidden Letters', owner_name: 'Ann', created_at_pc: false, is_private: true, series_id: null, series_name: null, series_is_private: null },
+  { kind: 'series', id: 9, title: 'Saga', owner_name: 'Ann', created_at_pc: false, is_private: false, series_id: null, series_name: null, series_is_private: null },
+  { kind: 'drama', id: 4, title: 'Saga Ep 1', owner_name: 'Bo', created_at_pc: false, is_private: false, series_id: 9, series_name: 'Saga', series_is_private: false },
+  { kind: 'drama', id: 5, title: 'Solo Story', owner_name: 'PC owner', created_at_pc: true, is_private: true, series_id: null, series_name: null, series_is_private: null },
 ]
 
 const CONFLICT = "Move other people's dramas out of this series first."
@@ -102,10 +103,21 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   await expect(card.getByTestId('sharing-series:9').getByRole('alert')).toHaveText(CONFLICT)
   await expect(series).toHaveAttribute('aria-checked', 'true')
 
+  // Items made at the PC (no owner) are private until an admin shares them.
+  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/sign-in is turned on, others .* will not see them/)
+  await expect(card.getByTestId('sharing-drama:5')).toContainText('Created at the PC')
+  await expect(hidden).not.toContainText('Created at the PC')
+  await card.getByRole('switch', { name: 'Show only private items created at the PC' }).click()
+  await expect(list.getByRole('listitem')).toHaveCount(1)
+  await card.getByRole('switch', { name: 'Share drama “Solo Story” with the household' }).click()
+  await expect(list).toHaveCount(0)
+  await expect(card.getByText('No private items created at the PC.')).toBeVisible()
+
   expect(posts).toEqual([
     { path: '/api/sharing/share-by-default', body: { share_by_default: true } },
     { path: '/api/sharing/dramas/3/private', body: { private: false } },
     { path: '/api/sharing/series/9/private', body: { private: true } },
+    { path: '/api/sharing/dramas/5/private', body: { private: false } },
   ])
   expect(unmocked).toEqual([])
 })
@@ -124,6 +136,7 @@ test('household member: only their own share-new-items switch, no item list, fit
   )
   await expect(card.getByTestId('share-default-help')).toContainText('an admin can change those one at a time')
   await expect(card.getByRole('list', { name: 'Dramas and series' })).toHaveCount(0)
+  await expect(card.getByTestId('sharing-pc-note')).toHaveCount(0)
   // Not an admin: the settings 403 hides the admin cards without an error banner.
   await expect(page.getByRole('alert')).toHaveCount(0)
   expect(listCalls).toEqual([])

@@ -6,6 +6,8 @@ import type { SharingItem } from '../../types/sharing'
 import {
   applyFlip,
   canSeeAllItems,
+  filterPcPrivate,
+  isPcPrivate,
   followsSeries,
   itemTitle,
   mergePage,
@@ -20,6 +22,7 @@ const item = (over: Partial<SharingItem>): SharingItem => ({
   id: 1,
   title: 'T',
   owner_name: 'Ann',
+  created_at_pc: false,
   is_private: false,
   series_id: null,
   series_name: null,
@@ -54,6 +57,22 @@ describe('sharing helpers', () => {
     expect(statusLabel({ ...inSeries, series_is_private: true })).toBe('Private')
     expect(seriesNote(inSeries)).toContain('“Saga”')
     expect(statusLabel(item({ kind: 'series', is_private: false }))).toBe('Shared')
+  })
+
+  it('finds private items created at the PC, keeping their series heading', () => {
+    const items = [
+      item({ id: 1, created_at_pc: true, is_private: true }),
+      item({ id: 2, created_at_pc: true, is_private: false }),
+      item({ id: 3, is_private: true }),
+      item({ kind: 'series', id: 7, created_at_pc: false }),
+      item({ id: 4, created_at_pc: true, series_id: 7, series_is_private: true }),
+      item({ kind: 'series', id: 8, created_at_pc: true, is_private: true }),
+      item({ id: 5, created_at_pc: true, series_id: 8, series_is_private: false }),
+    ]
+    expect(isPcPrivate(items[0])).toBe(true)
+    expect(isPcPrivate(items[1])).toBe(false)
+    expect(isPcPrivate(items[2])).toBe(false)
+    expect(filterPcPrivate(items).map((i) => `${i.kind}:${i.id}`)).toEqual(['drama:1', 'series:7', 'drama:4', 'series:8'])
   })
 
   it('names untitled items plainly', () => {

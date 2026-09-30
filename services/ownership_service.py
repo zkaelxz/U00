@@ -44,6 +44,10 @@ from services.service_errors import (ConflictError, ForbiddenError, InvalidInput
 HOUSEHOLD_SHARE_KEY = "household.share_by_default"
 _DRAMA_IN_SERIES_MESSAGE = "Make the whole series private instead"
 _PRIVATE_SERIES_MESSAGE = "That series is private, so only its owner's dramas can go in it."
+_PC_DRAMA_IN_SERIES_MESSAGE = "This series holds a drama owned at the PC; ask an admin."
+_NEW_SERIES_PRIVATE_MESSAGE = (
+    "A new series starts private, so it can't take someone else's drama. Create the series "
+    "first and share it in Settings > Sharing, then add the drama; or pick a shared series.")
 _KINDS = ("drama", "series")
 
 
@@ -175,13 +179,23 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
-    if not (_sees_everything(principal) or _is_owner(principal, row)):
+    admin = _sees_everything(principal)
+    if not (admin or _is_owner(principal, row)):
         raise ForbiddenError("Only the owner or an admin can change this.")
+    # User decision 4: only whole series, or dramas with no series. A drama
+    # in a series follows it, so neither direction is a real change.
+    if kind == "drama" and row.get("series_id") is not None:
+        raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)
+    # Flipping the series flips who sees the PC's dramas in it too.
+    if kind == "series" and not admin and db.series_has_unowned_drama(item_id):
+        raise ConflictError(_PC_DRAMA_IN_SERIES_MESSAGE)
     if db.set_item_private(kind, item_id, private):
+        from services import auth_service
+        auth_service.write_audit(_user_id(principal), "sharing.set_private",
+                                 f"{kind} {item_id}: private={bool(private)}")
         return {"kind": kind, "id": item_id, "is_private": bool(private)}
     if kind == "drama":
-        # User decision 4: only whole series, or dramas with no series.
-        raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)
+        raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)   # it joined a series meanwhile
     # Otherwise those dramas would vanish for the people who own them.
     raise ConflictError("Move other people's dramas out of this series first.")
 
@@ -209,7 +223,8 @@ def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {SHARING_PAGE_MAX}.")
     total, rows = db.list_item_sharing(limit, offset)
     items = [{"kind": r["kind"], "id": r["id"], "title": r["title"] or "",
-              "owner_name": _owner_name(r), "is_private": bool(r["is_private"]),
+              "owner_name": _owner_name(r), "created_at_pc": r["owner_user_id"] is None,
+              "is_private": bool(r["is_private"]),
               "series_id": r["series_id"], "series_name": r["series_name"],
               "series_is_private": None if r["series_is_private"] is None
               else bool(r["series_is_private"])}
@@ -274,7 +289,7 @@ def check_new_series_assignment(principal, name: str, drama_owner_user_id) -> No
     new = new_item_defaults(principal)
     if new["is_private"] and drama_owner_user_id is not None \
             and drama_owner_user_id != new["owner_user_id"]:
-        raise ConflictError(_PRIVATE_SERIES_MESSAGE)
+        raise ConflictError(_NEW_SERIES_PRIVATE_MESSAGE)
 
 
 def get_or_create_series_for(principal, name: str) -> int:
