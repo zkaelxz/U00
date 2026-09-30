@@ -8,7 +8,10 @@ import {
   isEmptyPayload,
   mediaTypeOptions,
   modeUpdate,
+  NEW_SERIES,
+  newSeriesProblem,
   serverFieldErrors,
+  seriesUpdate,
   validateDetails,
 } from './detailsForm'
 
@@ -146,5 +149,29 @@ describe('modeUpdate', () => {
     expect(modeUpdate(c, 'audio_drama', 'whisper')).toEqual({})
     expect(modeUpdate(c, 'streamer_vod', 'whisper')).toEqual({ content_mode: 'streamer_vod' })
     expect(modeUpdate(c, 'audio_drama', 'have_transcript')).toEqual({ transcript_mode: 'have_transcript' })
+  })
+})
+
+describe('P11/X09 series choice', () => {
+  const init = formFromDrama(drama)
+  it('"+ New series…" sends new_series_name (trimmed), never series_id', () => {
+    const p = buildDetailsPayload({ ...init, series_id: NEW_SERIES, new_series_name: '  Saga ' }, init)
+    expect(p.metadata).toEqual({ new_series_name: 'Saga' })
+  })
+  it('seriesUpdate maps no series to 0 and an id to a number', () => {
+    expect(seriesUpdate('', '')).toEqual({ series_id: 0 })
+    expect(seriesUpdate('9', 'ignored')).toEqual({ series_id: 9 })
+    expect(seriesUpdate(NEW_SERIES, ' X ')).toEqual({ new_series_name: 'X' })
+  })
+  it('needs a name, within the cap, for a new series', () => {
+    expect(validateDetails({ ...init, series_id: NEW_SERIES, new_series_name: ' ' }, init).new_series_name).toMatch(/name/)
+    expect(newSeriesProblem(NEW_SERIES, 'x'.repeat(301))).toMatch(/300/)
+    expect(newSeriesProblem('5', '')).toBeNull()
+    expect(newSeriesProblem(NEW_SERIES, 'Saga')).toBeNull()
+  })
+  it('maps a new_series_name server error to its field', () => {
+    expect(serverFieldErrors(null, 'new_series_name must not be blank.')).toEqual({
+      new_series_name: 'new_series_name must not be blank.',
+    })
   })
 })

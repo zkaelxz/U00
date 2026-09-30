@@ -30,8 +30,11 @@ export interface DetailsForm {
   custom_tags: string // comma-separated, as stored
   media_type: string
   source_language: string
-  series_id: string // '' = no series
+  series_id: string // '' = no series, NEW_SERIES = "+ New series…"
+  new_series_name: string // used when series_id is NEW_SERIES
 }
+
+export const NEW_SERIES = 'new'
 
 export type DetailsErrors = Partial<Record<keyof DetailsForm, string>>
 
@@ -60,6 +63,7 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   media_type: 'Media type',
   source_language: 'Source language',
   series_id: 'Series',
+  new_series_name: 'New series name',
 }
 
 export const normalizeTags = (raw: string): string =>
@@ -88,6 +92,7 @@ export function formFromDrama(d: DramaDetail): DetailsForm {
     media_type: d.media_type ?? 'audio_drama',
     source_language: d.source_language ?? 'zh',
     series_id: d.series_id == null ? '' : String(d.series_id),
+    new_series_name: '',
   }
 }
 
@@ -115,6 +120,8 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
   if (normalizeTags(f.custom_tags).length > MAX_TAGS_LEN) e.custom_tags = `Too long (max ${MAX_TAGS_LEN} characters).`
   if (!SOURCE_LANGUAGES.includes(f.source_language)) e.source_language = 'Choose a source language.'
   if (f.media_type !== initial.media_type && !MEDIA_TYPES.includes(f.media_type)) e.media_type = 'Choose a media type.'
+  const seriesProblem = newSeriesProblem(f.series_id, f.new_series_name)
+  if (seriesProblem) e.new_series_name = seriesProblem
   return e
 }
 
@@ -141,12 +148,27 @@ export function buildDetailsPayload(f: DetailsForm, initial: DetailsForm): Detai
   const tags = normalizeTags(f.custom_tags)
   if (tags !== normalizeTags(initial.custom_tags)) metadata.custom_tags = tags
   if (f.media_type !== initial.media_type) metadata.media_type = f.media_type
-  // series_id 0 takes the drama out of its series.
-  if (f.series_id !== initial.series_id) metadata.series_id = f.series_id === '' ? 0 : Number(f.series_id)
+  if (f.series_id !== initial.series_id) Object.assign(metadata, seriesUpdate(f.series_id, f.new_series_name))
   return {
     metadata,
     sourceLanguage: f.source_language !== initial.source_language ? f.source_language : null,
   }
+}
+
+// Parity P11/X09: the metadata update for a series choice. series_id 0
+// takes the drama out of its series; "+ New series…" sends the name, which
+// the server creates (or reuses) for the caller.
+export function seriesUpdate(choice: string, newName: string): DramaMetadataUpdate {
+  if (choice === NEW_SERIES) return { new_series_name: newName.trim() }
+  return { series_id: choice === '' ? 0 : Number(choice) }
+}
+
+export function newSeriesProblem(choice: string, newName: string): string | null {
+  if (choice !== NEW_SERIES) return null
+  const name = newName.trim()
+  if (!name) return 'Enter a name for the new series.'
+  if (name.length > MAX_NAME_LEN) return `Too long (max ${MAX_NAME_LEN} characters).`
+  return null
 }
 
 export const isEmptyPayload = (p: DetailsPayload) => !Object.keys(p.metadata).length && p.sourceLanguage === null
