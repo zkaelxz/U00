@@ -1740,6 +1740,7 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
         return lines
 
     n_batches = (len(translated) + batch_size - 1) // batch_size
+    failed_batches = 0
 
     for bi, start in enumerate(range(0, len(translated), batch_size)):
         if cancel_check:
@@ -1751,6 +1752,7 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
                                   usage_cb=usage_cb)
         except Exception:
             text = "[]"  # a check failing shouldn't block anything -- just skip that batch
+            failed_batches += 1
 
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
@@ -1768,6 +1770,12 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
             reason = f.get("reason") if f.get("reason") in FLAG_REASONS else "uncertain_translation"
             ln.flag = reason
             ln.flag_note = f.get("note", "")
+    if failed_batches:
+        # Those batches were not checked, which is not the same as "no issues".
+        import applog
+        applog.get_logger().warning(
+            "flag check failed for %d of %d batches; their lines were not checked",
+            failed_batches, n_batches)
     return lines
 
 

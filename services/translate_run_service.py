@@ -254,7 +254,10 @@ def _summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
         return translate_engines.get_engine(
             choice, api_key, free_tier=choice == "gemini" and settings_service.get_gemini_free_tier()
         ), choice
-    except Exception:
+    except Exception as exc:
+        from applog import get_logger
+        get_logger().warning("Episode summary engine %s could not be built: %s", choice,
+                             translate_engines.redact_secrets(str(exc)))
         return None, None
 
 
