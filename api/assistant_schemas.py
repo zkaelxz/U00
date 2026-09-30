@@ -22,6 +22,7 @@ class AssistantSettings(BaseModel):
     roles_enabled: bool = False
     review_engine: Optional[str] = None
     review_model: Optional[str] = None
+    review_engine_choices: List[str] = Field(default_factory=list)
     default_engine: str = "ollama"
     local_engines: List[str] = Field(default_factory=list)
     cloud_consent: Dict[str, bool] = Field(default_factory=dict)
