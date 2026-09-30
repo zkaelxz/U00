@@ -106,6 +106,14 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     start) -- only those lines are translated; None = every eligible line.
     """
     cap_reached = {}
+    if isinstance(engine, translate_engines.FallbackEngine):
+        # Tokens a provider reported for an attempt that then failed are
+        # billed too: logged against the engine that spent them.
+        engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \
+            db.log_usage(drama_id, choice, getattr(eng, "model", choice), "translate", inp, out,
+                         translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
+                                                                    cache_write),
+                         cache_read_tokens=cache_read)
     # {speaker_label: "Name (pronouns)"}, named characters only -- a line
     # whose speaker has no name set is shown to the translator with no
     # name at all (see translate_lines_with_engine's own docstring),

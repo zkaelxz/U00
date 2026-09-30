@@ -1387,3 +1387,61 @@ class TestCliSavedSettingsFallbacks:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
         assert seen.get("url") == "http://sovits"
+
+
+class TestCmdTranslateFallback:
+    """B-06 parity: `translate --fallback` builds the same chain, with the
+    same rules, as the translate run API's fallback_chain."""
+
+    def _drama(self, db_):
+        did = db_.create_drama(title_en="Test", status="aligned")
+        db_.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        return did
+
+    def _run(self, monkeypatch, args):
+        seen = {}
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: type(name, (), {"name": name, "model": "m"})())
+        monkeypatch.setattr(cli.translate_service, "resolve_api_key", lambda n: "k")
+
+        def fake_translate(lines, engine, **kw):
+            seen["engine"], seen["cost_cap"] = engine, kw["cost_cap_usd"]
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(args)
+        return seen, out.getvalue()
+
+    def test_builds_a_fallback_engine_in_order(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        seen, _ = self._run(monkeypatch, _translate_args(id=did, fallback="deepseek, gemini"))
+        eng = seen["engine"]
+        assert isinstance(eng, translate_engines.FallbackEngine)
+        assert eng.choices == ["claude", "deepseek", "gemini"]
+        assert seen["cost_cap"] is None  # per-engine caps live on the FallbackEngine
+
+    def test_no_fallback_keeps_the_plain_engine(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        seen, _ = self._run(monkeypatch, _translate_args(id=did))
+        assert not isinstance(seen["engine"], translate_engines.FallbackEngine)
+
+    @pytest.mark.parametrize("value", ["deepl", "claude"])
+    def test_chain_rules_skip_the_drama(self, isolated_db, monkeypatch, value):
+        did = self._drama(isolated_db)
+        seen, out = self._run(monkeypatch, _translate_args(id=did, fallback=value))
+        assert "engine" not in seen and "skipped" in out
+
+    @pytest.mark.parametrize("value,reflect", [
+        ("deepseek,gemini,openrouter", False), ("nope", False), ("deepseek", True)])
+    def test_bad_flag_values_refused_up_front(self, value, reflect):
+        with pytest.raises(SystemExit):
+            cli._parse_fallback_arg(value, reflect=reflect)
+
+    def test_real_parser_has_the_flag(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(sys, "argv", ["cli.py", "translate", "--id", "1",
+                                          "--fallback", "deepseek"])
+        cli.main()
+        assert captured["args"].fallback == "deepseek"

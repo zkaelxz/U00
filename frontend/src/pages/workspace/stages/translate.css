@@ -53,3 +53,6 @@
 @media (pointer: coarse), (max-width: 640px) {
   .stage-translate .stage-ack { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
 }
+.stage-translate .fallback-group { display: grid; gap: var(--space-1); min-width: 0; }
+.stage-translate .fallback-rule { margin: 0; font-size: var(--text-sm); }
+.stage-translate .fallback-group .error { margin: 0; }

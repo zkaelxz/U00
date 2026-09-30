@@ -373,16 +373,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
 
     chain = [{"engine": engine_name, "model": model}] + [
         {"engine": f["engine"], "model": f.get("model")} for f in (fallback_chain or [])]
-    if len({c["engine"] for c in chain}) != len(chain):
-        raise InvalidInputError("A fallback chain can't repeat an engine.")
-    if len(chain) > 1:
-        if any(c["engine"] not in translate_engines.ENGINES for c in chain):
-            raise InvalidInputError("Unknown translate engine.")
-        if len({c["engine"] in translate_engines.TRANSLATION_ONLY_ENGINES
-                for c in chain}) > 1:
-            raise InvalidInputError(
-                "A fallback chain can't mix instruction-following engines with "
-                "translation-only ones.")
+    chain_error = translate_engines.fallback_chain_error(c["engine"] for c in chain)
+    if chain_error:
+        raise InvalidInputError(chain_error)
     for c in chain:
         _require_offered_model(c["engine"], c["model"])
     monthly_cap = _monthly_cap()

@@ -233,3 +233,66 @@ def test_backoff_is_capped(monkeypatch, _no_sleep):
     fe = translate_engines.FallbackEngine([a], ["claude"])
     fe.translate_batch(["z"], {})
     assert max(_no_sleep) == translate_engines.FALLBACK_BACKOFF_CAP_SECONDS
+
+
+# ---- B-06: failed-attempt spend counts ------------------------------------
+
+def test_failed_attempt_with_reported_tokens_counts_against_that_engine(isolated_db, engines):
+    a = engines["claude"](model="claude-sonnet-5")
+    b = engines["deepseek"](model="deepseek-v4-flash")
+    logged = []
+    fe = translate_engines.FallbackEngine(
+        [a, b], ["claude", "deepseek"],
+        failed_usage_cb=lambda choice, eng, *tokens: logged.append((choice, tokens)))
+
+    def billed_then_auth_error(z, c):
+        a.last_usage = {"input_tokens": 1000000, "output_tokens": 0}  # a billed parse retry
+        raise AuthError("401")
+    a.translate_batch = billed_then_auth_error
+    fe.translate_batch(["z"], {})
+    assert fe.active == 1
+    assert fe.spent[0] > 0 and fe.spent[1] > 0
+    assert logged == [("claude", (1000000, 0, 0, 0))]
+
+
+def test_failed_attempt_without_tokens_adds_nothing(isolated_db, engines):
+    a, b = engines["claude"](model="m"), engines["deepseek"](model="m")
+    logged = []
+    fe = translate_engines.FallbackEngine([a, b], ["claude", "deepseek"],
+                                          failed_usage_cb=lambda *x: logged.append(x))
+    a.translate_batch = lambda z, c: (_ for _ in ()).throw(AuthError("401"))
+    fe.translate_batch(["z"], {})
+    assert fe.spent[0] == 0.0 and logged == []
+
+
+def test_translate_run_logs_failed_attempt_usage(isolated_db, engines):
+    engines["claude"].fail = RateLimitError("429")
+    real = engines["claude"].translate_batch
+
+    def billed_then_fail(self, z, c):
+        self.last_usage = {"input_tokens": 1000, "output_tokens": 10}
+        return real(self, z, c)
+    engines["claude"].translate_batch = billed_then_fail
+    did = _seed(1)
+    job = _wait(svc.start_translate_run(did, engine_name="claude",
+                                        fallback_chain=[{"engine": "deepseek"}])["job_id"])
+    assert job["status"] == "done"
+    summary = db.get_usage_summary(did)
+    # 1 + retries billed claude attempts, plus deepseek's successful batch
+    assert summary["input_tokens"] == (1 + translate_engines.FALLBACK_TRANSIENT_RETRIES) * 1000 \
+        + 1000000
+
+
+def test_failed_attempt_does_not_recount_previous_batch_usage(isolated_db, engines):
+    """An engine that sets last_usage only on success (DeepL/Google) keeps
+    the previous batch's usage when it fails; that must not count again."""
+    a = engines["claude"](model="claude-sonnet-5")
+    b = engines["deepseek"](model="deepseek-v4-flash")
+    logged = []
+    fe = translate_engines.FallbackEngine([a, b], ["claude", "deepseek"],
+                                          failed_usage_cb=lambda *x: logged.append(x))
+    fe.translate_batch(["z"], {})               # succeeds, last_usage stays set
+    spent = fe.spent[0]
+    a.translate_batch = lambda z, c: (_ for _ in ()).throw(AuthError("401"))
+    fe.translate_batch(["z"], {})
+    assert fe.spent[0] == spent and logged == []

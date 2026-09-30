@@ -2003,6 +2003,26 @@ def is_transient_fallback_error(e: Exception) -> bool:
                for cls in type(e).__mro__ for hint in _TRANSIENT_NAME_HINTS)
 
 
+MAX_FALLBACK_ENGINES = 2
+
+
+def fallback_chain_error(names):
+    """Why an ordered engine chain [primary, *fallbacks] can't run, or None.
+    Shared by the translate run service (API/React) and `cli.py translate
+    --fallback`: no engine twice, known engines only, and never mixing
+    instruction-following engines with TRANSLATION_ONLY_ENGINES."""
+    names = list(names)
+    if len(set(names)) != len(names):
+        return "A fallback chain can't repeat an engine."
+    if len(names) > 1:
+        if any(n not in ENGINES for n in names):
+            return "Unknown translate engine."
+        if len({n in TRANSLATION_ONLY_ENGINES for n in names}) > 1:
+            return ("A fallback chain can't mix instruction-following engines with "
+                    "translation-only ones.")
+    return None
+
+
 class FallbackEngine:
     """Wraps an ordered chain of engines of the SAME class (all
     instruction-following, or all in TRANSLATION_ONLY_ENGINES -- the caller
@@ -2014,17 +2034,24 @@ class FallbackEngine:
     switch in `events`. Everything else (name/model/free_tier/last_usage/
     supports_reference...) reads through to the active engine so cost and
     usage logging stay correct per engine. Each engine has its own cost
-    cap and its own spend (a failed attempt reports no usage, so it adds
-    nothing; a finished batch always counts against the engine that ran it).
+    cap and its own spend. A finished batch always counts against the
+    engine that ran it; so does a failed attempt whose provider reported
+    tokens before the error (its last_usage -- e.g. a parse retry that was
+    billed, then a rate limit): that spend is added to the failing engine's
+    `spent` and passed to `failed_usage_cb(choice, engine, input_tokens,
+    output_tokens, cache_read_tokens, cache_write_tokens)` when set, so the
+    caller can log it. An attempt that reports no tokens adds nothing.
     """
 
-    def __init__(self, engines: list, choices: list, caps: list = None):
+    def __init__(self, engines: list, choices: list, caps: list = None,
+                 failed_usage_cb=None):
         self.engines = list(engines)
         self.choices = list(choices)
         self.caps = list(caps) if caps else [None] * len(engines)
         self.spent = [0.0] * len(engines)
         self.active = 0
         self.events = []
+        self.failed_usage_cb = failed_usage_cb
 
     def __getattr__(self, name):
         if name.startswith("__") or name in ("engines", "active"):
@@ -2043,9 +2070,14 @@ class FallbackEngine:
         retries = 0
         while True:
             engine = self.engines[self.active]
+            if isinstance(getattr(engine, "last_usage", None), dict):
+                # DeepL/Google set it only on success: a failed attempt
+                # must not re-count the previous batch's usage.
+                engine.last_usage = _empty_usage()
             try:
                 result = engine.translate_batch(zh_lines, context)
             except Exception as e:
+                self._record_failed_usage(engine)
                 if not is_fallback_error(e):
                     raise
                 if is_transient_fallback_error(e) and retries < FALLBACK_TRANSIENT_RETRIES:
@@ -2068,6 +2100,18 @@ class FallbackEngine:
                     engine, u.get("input_tokens", 0), u.get("output_tokens", 0),
                     u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
             return result
+
+    def _record_failed_usage(self, engine):
+        """A failed attempt's reported tokens count against the engine that
+        spent them (see the class docstring)."""
+        u = getattr(engine, "last_usage", None) or {}
+        tokens = [u.get(k, 0) or 0 for k in ("input_tokens", "output_tokens",
+                                             "cache_read_tokens", "cache_write_tokens")]
+        if not any(tokens):
+            return
+        self.spent[self.active] += estimate_cost_for_engine(engine, *tokens)
+        if self.failed_usage_cb:
+            self.failed_usage_cb(self.choices[self.active], engine, *tokens)
 
 
 class UnsupportedDirectionError(Exception):

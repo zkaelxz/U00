@@ -422,7 +422,29 @@ def _flag_or(args, name, defaults):
     return defaults[name] if value is None else value
 
 
+def _parse_fallback_arg(value, reflect=False) -> list:
+    """--fallback "<engine>[,<engine>]" as a list of engine names, checked
+    the way the translate run API checks fallback_chain (at most
+    translate_engines.MAX_FALLBACK_ENGINES, known engines, normal runs
+    only); the chain rules against the primary engine are checked per
+    drama (translate_engines.fallback_chain_error)."""
+    names = [n.strip() for n in (value or "").split(",") if n.strip()]
+    if not names:
+        return []
+    if len(names) > translate_engines.MAX_FALLBACK_ENGINES:
+        raise SystemExit(f"translate: --fallback takes at most "
+                         f"{translate_engines.MAX_FALLBACK_ENGINES} engines.")
+    if reflect:
+        raise SystemExit("translate: --fallback only applies to a normal translation run, "
+                         "not --reflect.")
+    if any(n not in translate_engines.ENGINES for n in names):
+        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    return names
+
+
 def cmd_translate(args):
+    fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
+                                         reflect=getattr(args, "reflect", False))
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
@@ -435,7 +457,7 @@ def cmd_translate(args):
         # --api-key/--model belong to --engine when it's given, else to the
         # old default engine (claude). A drama saved with another engine
         # uses that engine's own configured key -- never someone else's.
-        own_flags = bool(args.engine) or name == _API_KEY_DEFAULT_ENGINE
+        own_flags = (name == args.engine) if args.engine else name == _API_KEY_DEFAULT_ENGINE
         if name not in _engines:
             _engines[name] = translate_engines.get_engine(
                 name,
@@ -479,6 +501,16 @@ def cmd_translate(args):
             print(f"#{d['id']} skipped: saved engine {engine_name}; pass --engine {engine_name} "
                   f"and its key, or omit --api-key to use the saved keys.")
             return
+        chain_names = [engine_name] + fallback_names
+        chain_error = translate_engines.fallback_chain_error(chain_names)
+        if chain_error:
+            print(f"#{d['id']} skipped: {chain_error}")
+            return
+        missing = [n for n in fallback_names
+                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        if missing:
+            print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
+            return
         engine = _engine_for(engine_name)
         # Same defaults the service/React use (10/6/30 for novel narration).
         tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
@@ -519,16 +551,33 @@ def cmd_translate(args):
         # and per calendar month (--monthly-cap, or BAIHE_MONTHLY_CAP_USD).
         # Like the service, the monthly cap only covers paid engines
         # (_cap_applies: not local/free engines, not Gemini's free tier).
-        monthly_cap = getattr(args, "monthly_cap", None)
-        if monthly_cap is None:
-            monthly_cap = _monthly_cap_setting()
-        if not _cap_applies(engine_name, _gemini_free_tier(engine_name)):
-            monthly_cap = None
-        cost_cap, refusal = translate_engines.resolve_cost_cap(
-            getattr(args, "cost_cap", None), monthly_cap,
-            db.get_month_spend() if monthly_cap else 0.0)
-        if refusal:
-            raise RuntimeError(refusal)
+        # With --fallback, each engine in the chain gets its own cap
+        # (FallbackEngine enforces it), as the translate run API does.
+        monthly_setting = getattr(args, "monthly_cap", None)
+        if monthly_setting is None:
+            monthly_setting = _monthly_cap_setting()
+        month_spend = db.get_month_spend() if monthly_setting else 0.0
+        caps = []
+        for name in chain_names:
+            monthly_cap = (monthly_setting if _cap_applies(name, _gemini_free_tier(name))
+                           else None)
+            cap, refusal = translate_engines.resolve_cost_cap(
+                getattr(args, "cost_cap", None), monthly_cap, month_spend if monthly_cap else 0.0)
+            if refusal:
+                raise RuntimeError(refusal)
+            caps.append(cap)
+        if fallback_names:
+            engine = translate_engines.FallbackEngine(
+                [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
+                failed_usage_cb=lambda choice, eng, inp, out, cache_read=0, cache_write=0,
+                did=d["id"]: db.log_usage(
+                    did, choice, getattr(eng, "model", choice), "translate", inp, out,
+                    translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
+                                                               cache_write),
+                    cache_read_tokens=cache_read))
+            cost_cap = None
+        else:
+            cost_cap = caps[0]
         cap_reached = {}
         def _progress(frac, did=d["id"]):
             if _gpu_holder:
@@ -559,7 +608,9 @@ def cmd_translate(args):
             # Same as the Workspace Translate job: writes `en` only.
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
-                did, engine_name, getattr(engine, "model", engine_name), "translate", inp, out,
+                did, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+                      else engine_name),
+                getattr(engine, "model", engine_name), "translate", inp, out,
                 translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
                 cache_read_tokens=cache_read),
             cost_cap_usd=cost_cap,
@@ -574,6 +625,8 @@ def cmd_translate(args):
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap)
+        for ev in getattr(engine, "events", None) or []:
+            print(f"\n#{d['id']} switched from {ev['from']} to {ev['to']} ({ev['reason']}).")
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")
@@ -587,7 +640,7 @@ def cmd_translate(args):
     # other translate engine is a remote API call) -- the cross-process
     # lock only needs to guard that case, not every translate run.
     _gpu_ctx = (_gpu_lock(f"CLI translate --engine ollama ({len(dramas)} drama(s))")
-               if any(_engine_name_for(d) == "ollama" for d in dramas if d)
+               if any("ollama" in (_engine_name_for(d), *fallback_names) for d in dramas if d)
                else contextlib.nullcontext(None))
     with _gpu_ctx as _gpu_holder:
         _run_batch(dramas, step, "translate")
@@ -856,6 +909,12 @@ def main():
                                 "narration). More lines per "
                                 "request is cheaper/faster overall but a bigger single point "
                                 "of failure.")
+    p_translate.add_argument("--fallback", default=None, metavar="ENGINE[,ENGINE]",
+                             help="Up to 2 engines tried in order if the main engine keeps "
+                                  "failing (rate limit, timeout, connection, bad key) after "
+                                  "its retries -- same kind as the main engine (AI with AI, "
+                                  "translation-only with translation-only); not with --reflect. "
+                                  "Same rules as the Translate stage's fallback engines.")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
