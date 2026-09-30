@@ -427,6 +427,21 @@ def dismiss_notification(notification_id: int) -> dict:
     return next(n for n in list_notifications(include_dismissed=True) if n["id"] == notification_id)
 
 
+def _require_link_editable(source: str, series_id: str, principal) -> None:
+    """A tracked series auto-imports into its linked drama, so untracking,
+    re-tracking or relinking it changes that drama. One linked to a drama
+    the principal can't edit is refused like an untracked series (its row
+    shows `drama_id: None` to them). A link to a deleted drama doesn't
+    block anyone."""
+    for r in store.list_tracked_series():
+        if r["source"] == source and r["series_id"] == series_id:
+            did = r.get("drama_id")
+            if did is not None and db.get_drama(did) is not None \
+                    and not ownership_service.can_edit_drama(principal, did):
+                raise NotFoundError("That series isn't tracked.")
+            return
+
+
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
                 drama_id: int = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
@@ -447,6 +462,8 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
         raise InvalidInputError("series_id is required.")
     exists = any(r["source"] == source and r["series_id"] == series_id
                  for r in store.list_tracked_series())
+    if exists:
+        _require_link_editable(source, series_id, principal)
     if not tracked:
         if not exists:
             raise NotFoundError("That series isn't tracked.")
