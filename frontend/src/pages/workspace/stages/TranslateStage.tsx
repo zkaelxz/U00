@@ -19,6 +19,8 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
+import { isBulkJobId, translateJobIds } from '../stageJobIds'
 import { routeHref } from '../../../router'
 import type { LibraryPreset } from '../../../types/library'
 import type {
@@ -290,6 +292,7 @@ function RunPanel({
   onPresetApplied,
   onRecheckOllama,
   busy,
+  bulkPending,
 }: {
   config: TranslateRunConfig
   onStarted: (id: string) => void
@@ -297,6 +300,8 @@ function RunPanel({
   onPresetApplied: (p: TranslatePresetApplied) => void
   onRecheckOllama: () => Promise<void>
   busy: boolean
+  // The running job is a bulk batch (the busy reason points to Bulk batches).
+  bulkPending: boolean
 }) {
   const { dramaId, drama } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
@@ -413,7 +418,7 @@ function RunPanel({
           type="button"
           className="primary"
           disabled={busy || reviewing > 0 || blocker !== null}
-          aria-describedby={blocker ? 'translate-blocker' : undefined}
+          aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
@@ -486,7 +491,13 @@ function RunPanel({
         />
       )}
       {reviewNote && <p className="muted" role="status">Glossary: {reviewNote}</p>}
-      {busy && <p className="muted">A translate job is running. Progress is shown below.</p>}
+      {busy && (
+        <p className="muted" id="translate-busy" data-testid="translate-busy">
+          {bulkPending
+            ? 'A bulk batch is waiting on the provider, which can take hours. To run a normal translation now, cancel it under Bulk batches below.'
+            : 'A translate job is running. Progress is shown below.'}
+        </p>
+      )}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
       {error instanceof ApiError && error.status === 409 && (
@@ -623,7 +634,8 @@ export default function TranslateStage() {
   const { dramaId, onJobDone } = useStage()
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob(translateJobIds(dramaId), adoptJob)
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
@@ -664,6 +676,7 @@ export default function TranslateStage() {
         <RunPanel
           config={config}
           busy={busy}
+          bulkPending={isBulkJobId(jobId)}
           onStarted={setJobId}
           onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
           onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}

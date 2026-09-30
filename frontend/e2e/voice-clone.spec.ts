@@ -101,3 +101,15 @@ test('remote: upload and remove are hidden with a PC-only note', async ({ page }
   await page.screenshot({ path: `${SCREENS}/desktop-remote.png`, fullPage: true })
   expect(unmocked).toEqual([])
 })
+
+test('an extraction left running picks up again when the panel is reopened', async ({ page }) => {
+  const m = await mockVoiceClone(page)
+  m.state.started = true
+  const panel = await openVoices(page)
+  await expect(panel.getByTestId('voice-extract-status')).toContainText('Finding clips: running')
+  const wei = panel.getByRole('listitem', { name: 'Voice for SPEAKER_00' })
+  await expect(wei.getByRole('button', { name: 'Find clips in the audio' })).toBeDisabled()
+  m.state.jobDone = true
+  await expect(panel.getByTestId('voice-extract-status')).toContainText('2 candidate clip(s) ready.')
+  await expect(wei.getByRole('button', { name: 'Find clips in the audio' })).toBeEnabled()
+})

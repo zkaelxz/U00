@@ -8,6 +8,8 @@ import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { reviewJobIds } from '../../stageJobIds'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { useStage } from '../../StageContext'
@@ -92,7 +94,8 @@ interface Props {
 // text, flags and findings never stay stale until a hard refresh.
 export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount }: Props) {
   const { onJobDone, drama } = useStage()
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob(reviewJobIds(dramaId), adoptJob)
   const [error, setError] = useState<unknown>(null)
   const [fix, setFix] = useState<FixForm>(EMPTY_FIX_FORM)
   const [checks, setChecks] = useState<CheckForm>(EMPTY_CHECK_FORM)

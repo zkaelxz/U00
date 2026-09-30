@@ -20,6 +20,9 @@ export interface JobRecord {
   // Normalised outcome of a finished job (null while queued/running).
   outcome?: JobOutcome | null
   outcome_message?: string | null
+  // Queued/running on record but not heartbeated for 15 minutes (judged on
+  // the server's clock): left behind by a process that died.
+  stale?: boolean
 }
 
 export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'partial' | 'kept_existing'

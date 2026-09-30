@@ -182,6 +182,9 @@ class JobRecord(BaseModel):
     result: Optional[Dict[str, Any]] = None
     outcome: Optional[str] = None
     outcome_message: Optional[str] = None
+    # Still queued/running on record, but no owner has heartbeated it for
+    # 15 minutes (server clock): left behind by a process that died.
+    stale: bool = False
 
 
 class JobListResponse(BaseModel):
