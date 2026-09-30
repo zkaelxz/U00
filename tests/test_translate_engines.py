@@ -751,6 +751,16 @@ class TestRedactSecrets:
     on top of sending keys as headers rather than URL params in the
     first place."""
 
+    @pytest.mark.parametrize("token", ["ntn_" + "A1b2C3d4" * 6, "secret_" + "A1b2C3d4" * 5])
+    def test_redacts_a_bare_notion_token(self, token):
+        text = f"HTTPError for Notion: token {token} was rejected"
+        out = te.redact_secrets(text)
+        assert token not in out and "[REDACTED]" in out
+
+    def test_leaves_short_secret_and_ntn_words_alone(self):
+        text = "secret_key not set; ntn_status=ok; secret_santa"
+        assert te.redact_secrets(text) == text
+
     def test_redacts_a_key_query_param(self):
         text = ("400 Client Error: Bad Request for url: "
                 "https://generativelanguage.googleapis.com/v1beta/models/x:"

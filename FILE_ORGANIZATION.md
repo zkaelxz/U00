@@ -83,6 +83,9 @@ baihe-subtitler/
 │   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
+│   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
+│   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
+│   │                             [design proposal, nothing built]
 │   ├── migration-screenshots/    before/after screenshots referenced by archive/migration-review.md
 │   ├── technical-notes.md        engineering changelog: real bugs found during development, how
 │   │                             they were diagnosed and fixed [audit record, append-only;
@@ -143,11 +146,11 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (14 sites)
+│   └── adapters/                  one file per supported site (16 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
-│           ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
+│           lightnovel_fun.py, ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
 ├── ui/                         ← small shared UI building blocks used across tabs (Step 13).
 │   ├── __init__.py               (package docstring: a map of the modules below)
@@ -194,7 +197,14 @@ baihe-subtitler/
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
 │   │                             also the in-app list for the header bell (last 50 events, memory only,
 │   │                             filtered by job visibility) and the jobs/new-chapters push categories
+│   ├── notion_service.py         roadmap 112 -- Notion export (companion to the Reader's Anki export): target
+│   │                             database/page in app_settings, token in .env (write-only), test connection,
+│   │                             export job notion_export_<id> that creates the drama's page once and then
+│   │                             updates only Baihe's own properties and "Baihe transcript" block in place
+│   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
+│   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
+│   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -208,7 +218,8 @@ baihe-subtitler/
 │   ├── vram_service.py           Step 41 -- free-VRAM fit check before a GPU model load (dub loaders)
 │   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
 │   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
-│   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
+│   │                             Model Arena compare, CER/WER for ASR/OCR (jiwer when installed, else built-in;
+│   │                             scorer recorded per result), cost estimate + monthly cap
 │   ├── model_registry_service.py Step 40 -- model deprecation assistant: configured models vs the shipped
 │   │                             registry (model_registry.json) and a manual, cached provider model-list
 │   │                             check; user-confirmed preset model switch (never automatic)
@@ -416,6 +427,9 @@ baihe-subtitler/
 │   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
+│   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
+
+│   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
@@ -551,10 +565,15 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
 │       │                         Steps 103/104)
-│       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
-│                                 /dramas/{id}/send -- all local_only (Step 39)
+│       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
+│       │                         /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
+│       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
+│       │                         /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
+
+│       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
+│       │                         (local_only; address change also key-write gate) -- item 114
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │
@@ -586,6 +605,8 @@ baihe-subtitler/
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
+│   │                              useReattachJob (a stage revisited mid-job picks its job up again;
+│   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
@@ -618,6 +639,10 @@ baihe-subtitler/
 │   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
+│   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
+│   │                              target database/page link, test connection; PC only, unit-tested helpers);
+│   │                              API in src/api/notion.ts (types/notion.ts). Export > Export to Notion is
+│   │                              src/pages/workspace/stages/ExportNotion.tsx (job + "Open in Notion" link).
 │   │                              TranscriptionExperimentsCard (Settings > Transcription experiments, Steps
 │   │                              103/104: Qwen3-ASR batch size, MOSS toggle; PC only); API in src/api/asrOptions.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
