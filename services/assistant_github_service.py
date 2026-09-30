@@ -21,6 +21,11 @@ Hard rules, each enforced here, not only in the UI:
   every PR is one explicit yes for one exact diff. action_tiers counts
   this as publish_to_shared_target (RED): require_confirmation runs on
   every delivery.
+- Nothing that runs before review: a patch may not touch .github/ (CI
+  workflows), .claude/ or CLAUDE.md (they steer any Claude Code session
+  on the branch), or the CI entry points the workflows run from the PR
+  head (run_tests.py, conftest.py, pytest/pip/npm config and manifests,
+  frontend tool configs, start.bat); see _runs_before_review.
 - Out of scope (roadmap item 4): reading or triaging other issues/PRs.
 """
 
@@ -46,6 +51,7 @@ MAX_PATCH_CHARS = 200_000
 MAX_FILES = 20
 MAX_TITLE = 200
 MAX_BODY = 20_000
+MAX_HUNK_DRIFT = 20  # lines a hunk may sit from its @@ header's line
 _REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$")
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$")
 _PATH_RE = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_./ -]{0,299}$")
@@ -226,12 +232,40 @@ def _clean_path(raw: str):
     if (not _PATH_RE.match(raw) or raw.startswith("/") or any(p in ("", ".", "..") for p in parts)
             or any(p.lower() == ".git" for p in parts)):
         raise InvalidInputError(_OUTSIDE_PATH)
-    # .github/ holds CI workflows: a PR changing one runs that code with the
-    # repo's CI token before anyone reviews it (it could push to the base).
-    if parts[0].lower() == ".github":
-        raise InvalidInputError("Changes under .github/ (CI workflows) can't be delivered from "
-                                "the app; make them by hand.")
+    if _runs_before_review(parts):
+        raise InvalidInputError(f"{raw} runs before anyone reviews the pull request (CI, "
+                                "Claude Code or the launcher), so it can't be changed from "
+                                "the app; make that change by hand.")
     return raw
+
+
+# Paths whose content runs, or steers an AI session, as soon as the branch
+# exists, before anyone reviews the PR: CI workflows (.github/) run with the
+# repo's CI token; .claude/ (the SessionStart hook) and CLAUDE.md steer any
+# Claude Code session that checks the branch out; and the CI entry points
+# .github/workflows/*.yml run from the PR head (the test runner, pytest
+# config and conftest.py, the pip requirement/constraint files, the npm
+# manifest and lockfile, the frontend build/test tool configs, start.bat).
+# Compared case-insensitively.
+_BLOCKED_DIRS = {".github", ".claude"}                  # at any depth
+_BLOCKED_NAMES_ANY_DEPTH = {"claude.md", "claude.local.md", "conftest.py"}
+_BLOCKED_ROOT_FILES = {"run_tests.py", "constraints.txt", "pytest.ini", "setup.cfg",
+                       "pyproject.toml", "tox.ini", "start.bat"}
+_BLOCKED_FRONTEND_FILES = {"package.json", "package-lock.json"}
+_BLOCKED_FRONTEND_CONFIG = re.compile(r"^(?:vite|vitest|playwright|eslint)\.config\.[a-z]+$")
+_REQUIREMENTS_RE = re.compile(r"^requirements[^/]*\.txt$")
+
+
+def _runs_before_review(parts: list) -> bool:
+    low = [p.lower() for p in parts]
+    name = low[-1]
+    if any(p in _BLOCKED_DIRS for p in low) or name in _BLOCKED_NAMES_ANY_DEPTH:
+        return True
+    if len(low) == 1:
+        return name in _BLOCKED_ROOT_FILES or bool(_REQUIREMENTS_RE.match(name))
+    if len(low) == 2 and low[0] == "frontend":
+        return name in _BLOCKED_FRONTEND_FILES or bool(_BLOCKED_FRONTEND_CONFIG.match(name))
+    return False
 
 
 def parse_patch(patch: str) -> list:
@@ -318,7 +352,8 @@ def change_kind(f: dict) -> str:
 def apply_file_patch(old_text, f: dict) -> str:
     """New file content, or None for a delete. Every hunk's context and
     removed lines must match the current file exactly (at the stated line
-    or one unique place); otherwise nothing is delivered."""
+    or one unique place within MAX_HUNK_DRIFT lines of it); otherwise nothing
+    is delivered."""
     kind = change_kind(f)
     if kind == "add":
         if old_text is not None:
@@ -343,13 +378,21 @@ def apply_file_patch(old_text, f: dict) -> str:
             # A context-free insert can't be checked against the file.
             raise ConflictError(f"A change to {f['old']} has no context lines to check it "
                                 "against. Ask the assistant for a patch with context.")
-        want = max(0, h["old_start"] - 1 + offset)
+        stated = max(0, h["old_start"] - 1 + offset)
+        want = stated
         if want < floor or lines[want:want + len(old_block)] != old_block:
             spots = [i for i in range(floor, len(lines) - len(old_block) + 1)
                      if lines[i:i + len(old_block)] == old_block]
             if len(spots) != 1:
                 raise stale
             want = spots[0]
+            # A unique match far from where the hunk says it goes is more
+            # likely the wrong place than a shifted file.
+            if abs(want - stated) > MAX_HUNK_DRIFT:
+                raise ConflictError(
+                    f"A change to {f['old']} says line {h['old_start']}, but its lines only "
+                    f"match {abs(want - stated)} lines away (at most {MAX_HUNK_DRIFT}). "
+                    "Ask the assistant for a fresh patch.")
         lines[want:want + len(old_block)] = new_block
         offset += len(new_block) - len(old_block)
         floor = want + len(new_block)

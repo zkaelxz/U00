@@ -302,6 +302,30 @@ def test_ci_workflows_and_git_internals_are_refused(path):
         gh.parse_patch(f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")
 
 
+
+@pytest.mark.parametrize("path", [
+    ".claude/settings.json", ".claude/hooks/session-start.sh", "docs/.Claude/x.md",
+    "CLAUDE.md", "claude.md", "services/CLAUDE.md", "CLAUDE.local.md",
+    "run_tests.py", "RUN_TESTS.PY", "tests/conftest.py", "a/b/ConfTest.py",
+    "requirements.txt", "requirements-core.txt", "Requirements-Optional.txt",
+    "constraints.txt", "pytest.ini", "setup.cfg", "pyproject.toml", "start.bat",
+    "frontend/package.json", "frontend/package-lock.json", "frontend/vite.config.ts",
+    "frontend/vitest.config.mts", "frontend/Playwright.config.ts", "frontend/eslint.config.js",
+    ".github/dependabot.yml",
+])
+def test_paths_that_run_before_review_are_refused(path):
+    for patch in (f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n",
+                  f"--- /dev/null\n+++ b/{path}\n@@ -0,0 +1 @@\n+b\n"):
+        with pytest.raises(gh.InvalidInputError, match="runs before anyone reviews"):
+            gh.parse_patch(patch)
+
+
+@pytest.mark.parametrize("path", ["tests/test_x.py", "docs/claude-notes.md", "services/run_tests.py",
+                                  "frontend/src/package.json", "frontend/src/vite.config.ts",
+                                  "docs/requirements.txt", "frontend/src/App.tsx"])
+def test_ordinary_paths_with_similar_names_are_allowed(path):
+    assert gh.parse_patch(f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")[0]["new"] == path
+
 @pytest.mark.parametrize("extra", ["Binary files a/x.png and b/x.png differ",
                                    "old mode 100644", "rename from x.py", "GIT binary patch",
                                    "some stray commentary"])
@@ -323,6 +347,18 @@ def test_context_free_inserts_and_out_of_order_hunks_are_refused():
     two = gh.parse_patch("--- a/x.py\n+++ b/x.py\n@@ -3 +3 @@\n-c\n+C\n@@ -1 +1 @@\n-a\n+A\n")[0]
     with pytest.raises(gh.ConflictError):  # the second hunk may not match before the first
         gh.apply_file_patch("a\nb\nc\n", two)
+
+
+def test_a_hunk_far_from_its_header_line_is_refused():
+    body = [f"l{i}" for i in range(60)]
+    text = "\n".join(body) + "\n"
+    # Header says line 1, the only match is at line 51: too far to trust.
+    far = gh.parse_patch("--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-l50\n+L50\n")[0]
+    with pytest.raises(gh.ConflictError, match="50 lines away"):
+        gh.apply_file_patch(text, far)
+    # Within 20 lines (header line 31, match at line 51) it still applies.
+    near = gh.parse_patch("--- a/x.py\n+++ b/x.py\n@@ -31 +31 @@\n-l50\n+L50\n")[0]
+    assert gh.apply_file_patch(text, near) == text.replace("l50\n", "L50\n")
 
 
 def test_confirmation_is_bound_to_repo_and_base(ready):
