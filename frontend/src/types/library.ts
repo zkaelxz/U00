@@ -140,7 +140,8 @@ export interface DramaMetadataUpdate {
   summary?: string
   custom_tags?: string
   media_type?: string
-  series_id?: number
+  series_id?: number // 0 takes the drama out of its series
+  new_series_name?: string // not with series_id
 }
 
 export interface DramaDeleteResult {
