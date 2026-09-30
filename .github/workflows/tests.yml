@@ -53,13 +53,13 @@ jobs:
   # the end-to-end check (a real browser -> built React -> real FastAPI on a
   # seeded throwaway library, see frontend/e2e/).
   #
-  # Real observed duration: job total ~65s-108s across 3 runs, dominated by
-  # the Python install (~20-23s) and the Playwright e2e step (~29-67s,
-  # variable -- chromium install/launch time). 10 minutes gives real
-  # headroom without leaving a hung browser/e2e step to run indefinitely.
+  # Duration: the Playwright e2e step grew with the suite and now takes about
+  # 8-9 minutes on a runner, so the job sat at the old 10 minute limit and
+  # was cancelled on slow runs. 20 minutes leaves headroom while still
+  # ending a hung browser/e2e step.
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
