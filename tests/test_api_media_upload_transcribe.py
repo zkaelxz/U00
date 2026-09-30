@@ -301,3 +301,27 @@ def test_audio_run_started_while_upload_claim_held(client, monkeypatch):
     assert "transcribe_job_id" not in r.json()["upload"]
     assert seen["claimed"] is True
     assert did not in media_upload_service._claimed
+
+
+def test_upload_passes_the_speaker_range(client, monkeypatch):
+    """Step 105: Min/Max speakers reach the chained speaker detection here too."""
+    did = _drama()
+    captured = {}
+
+    def fake_start_job(job_id, target, *a, **k):
+        captured.update(dict(zip(inspect.signature(target).parameters, a)))
+        captured.update({key: v for key, v in k.items() if key.endswith("_speakers")})
+        return True
+    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    r = _post(client, did, {"run_diarize": "true", "min_speakers": "2", "max_speakers": "4"})
+    assert r.status_code == 200, r.text
+    assert (captured["min_speakers"], captured["max_speakers"]) == (2, 4)
+
+
+def test_upload_refuses_a_bad_speaker_range_and_stores_nothing(client, monkeypatch):
+    import db
+    did = _drama()
+    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+    r = _post(client, did, {"run_diarize": "true", "min_speakers": "5", "max_speakers": "2"})
+    assert r.status_code == 422, r.text
+    assert not db.get_drama(did).get("audio_filename")
