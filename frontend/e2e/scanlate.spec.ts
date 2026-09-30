@@ -36,6 +36,11 @@ test('translate all pages, follow the job, then read the typeset pages', async (
 test('redo this page, redo all needs a second press, export gives a download', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 3, lastPage: 1 })
   await page.goto('/#/comic/7?page=2')
+  // Wait for the pages before clicking: while they load, the pager appears in
+  // the sticky bar and shifts the Translate button. Playwright then retries the
+  // click with scrollIntoView({ block: 'end' }), which on a sticky element
+  // scrolls the page back to page 1.
+  await expect(page.getByTestId('comic-page-label')).toHaveText('Page 2 of 3')
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await panel.getByRole('button', { name: 'Redo page 2' }).click()
