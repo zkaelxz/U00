@@ -4,7 +4,7 @@ import type { RemoteHealth, RemoteHealthState } from '../types/diagnostics'
 import {
   DISMISS_KEY, bannerTitle, checkedLine, diagnosticsText, readDismissed, remoteHealthLabel, remoteHealthTone,
   showBanner, stateKey, writeDismissed,
-} from './remoteHealthBanner'
+} from './remoteHealthModel'
 
 function health(state: RemoteHealthState, o: Partial<RemoteHealth> = {}): RemoteHealth {
   return {

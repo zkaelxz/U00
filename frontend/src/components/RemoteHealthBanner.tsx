@@ -4,7 +4,7 @@
  * RemoteHealthBanner: in the app shell, only on the main PC (usePcOnly()
  * 'local'; never on the household listener, which also refuses the route),
  * only while the last check says warn or critical. Dismissing hides it until
- * the state changes (remoteHealthBanner.ts stateKey), not for good.
+ * the state changes (remoteHealthModel.ts stateKey), not for good.
  * RemoteHealthLine: the neutral "OK / Off" line on Diagnostics.
  *
  * Both read the saved result (the server checks on its own schedule) on mount
@@ -23,7 +23,7 @@ import { ButtonLink } from './Button'
 import {
   POLL_MS, bannerTitle, checkedLine, diagnosticsText, readDismissed, remoteHealthLabel, remoteHealthTone,
   showBanner, stateKey, writeDismissed,
-} from './remoteHealthBanner'
+} from './remoteHealthModel'
 import { buttonClass } from './uiClasses'
 
 const HIDE_ON = [401, 403, 404]

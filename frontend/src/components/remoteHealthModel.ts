@@ -1,7 +1,7 @@
 // Pure helpers for the remote-access health banner (RemoteHealthBanner.tsx)
 // and the Diagnostics line: when to show the banner, what it says, and the
 // dismissal, which lasts only until the state changes. Unit-tested in
-// remoteHealthBanner.test.ts.
+// remoteHealthModel.test.ts.
 import type { RemoteHealth, RemoteHealthState } from '../types/diagnostics'
 import type { BadgeTone } from './labels'
 import { shortAgo } from './notificationBellState'
