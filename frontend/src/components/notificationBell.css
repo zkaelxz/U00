@@ -1,0 +1,61 @@
+/* Header notification bell (components/NotificationBell.tsx). */
+.notify-bell { position: relative; }
+button.notify-bell-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 7px;
+  color: var(--muted);
+}
+button.notify-bell-btn:hover:not(:disabled),
+button.notify-bell-btn[aria-expanded='true'] { color: var(--text); }
+.notify-count { position: absolute; top: calc(-1 * var(--space-2)); right: calc(-1 * var(--space-2)); pointer-events: none; }
+.notify-count .pill {
+  min-width: 1.25rem;
+  justify-content: center;
+  padding: 0 var(--space-1);
+  line-height: 1.25rem;
+  color: var(--on-accent);
+  background: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-bold);
+}
+.notify-panel {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  display: grid;
+  gap: var(--space-2);
+  width: min(24rem, calc(100vw - 2 * var(--space-4)));
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+}
+.notify-panel.align-start { right: auto; left: 0; }
+.notify-panel-title { margin: 0; font-weight: var(--weight-bold); }
+.notify-empty, .notify-note { margin: 0; }
+.notify-note { color: var(--muted); font-size: var(--text-xs); }
+.notify-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.notify-item { padding: var(--space-2) var(--space-2); border-top: 1px solid var(--border); min-width: 0; }
+.notify-item:first-child { border-top: 0; }
+.notify-item.is-new { box-shadow: inset 3px 0 0 var(--accent); }
+.notify-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--text-xs); }
+.notify-item-meta time { font-variant-numeric: tabular-nums; }
+.notify-new { color: var(--accent-text); font-weight: var(--weight-bold); }
+.notify-text { margin: var(--space-1) 0 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+@media (pointer: coarse), (max-width: 640px) {
+  button.notify-bell-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
+}
+@media (max-width: 640px) {
+  /* Phones: the panel spans the header (the page's 16px gutters) under the bell. */
+  .app-header { position: relative; }
+  .notify-bell { position: static; }
+  .notify-panel, .notify-panel.align-start { left: 0; right: 0; top: auto; width: auto; margin-top: var(--space-1); max-height: 70vh; }
+}
