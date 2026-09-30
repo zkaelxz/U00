@@ -50,8 +50,11 @@ export interface ReevalSettings {
   interval_days: number
   tier: string | null
   set_name: string | null
-  // A scheduled run estimated above this is skipped (null: only the monthly cap applies).
+  // A scheduled run estimated above this is skipped (null: only the monthly cap applies,
+  // and then one must be set in Settings to turn the schedule on).
   max_cost_usd: number | null
+  // When the schedule was turned on; the first scheduled run is one interval later.
+  enabled_at?: string | null
 }
 
 export interface ReevalRow {
@@ -99,6 +102,13 @@ export interface ReevalOverview {
   report: ReevalReport
 }
 
+// The answer to saving the schedule: the overview plus, for an enabled schedule,
+// what one scheduled run would cost now (or why it can't be estimated yet).
+export interface ReevalSettingsSaved extends ReevalOverview {
+  schedule_estimate?: BenchmarkEstimate | null
+  schedule_estimate_error?: string | null
+}
+
 export interface ReevalSettingsRequest {
   schedule_enabled: boolean
   interval_days: number
@@ -141,8 +151,9 @@ export const getReevalDecisions = (f?: Fetch) => getJson<{ decisions: ModelDecis
 export const estimateReeval = (f?: Fetch) => postJson<BenchmarkEstimate>(`${BASE}/estimate`, undefined, f)
 
 // The server replaces the whole schedule record (a left-out tier, set or limit is cleared), so every field is sent.
+// Turning the schedule on is refused (422) unless a monthly cap or a per-run limit is set.
 export const saveReevalSettings = (body: ReevalSettingsRequest, f?: Fetch) =>
-  postJson<ReevalOverview>(`${BASE}/settings`, body, pcOnlyFetch(f))
+  postJson<ReevalSettingsSaved>(`${BASE}/settings`, body, pcOnlyFetch(f))
 
 export const addReevalCandidate = (body: CandidateAddRequest, f?: Fetch) =>
   postJson<CandidateAddResult>(`${BASE}/candidates`, body, pcOnlyFetch(f))

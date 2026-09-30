@@ -128,3 +128,19 @@ def test_bad_input(world):
     assert c.post("/api/models/reeval/candidates", json={"engine": "nope"}).status_code == 422
     assert c.post("/api/models/reeval/candidates", json={"engine": "nllb", "x": 1}).status_code == 422
     assert c.post("/api/models/reeval/candidates/999/reject", json={}).status_code == 404
+
+
+def test_enabling_the_schedule_needs_a_limit(world, monkeypatch):
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
+    c = _local()
+    c.post("/api/models/reeval/candidates", json={"engine": "nllb"})
+    body = {"schedule_enabled": True, "interval_days": 30, "tier": "public", "set_name": "g"}
+    refused = c.post("/api/models/reeval/settings", json=body)
+    assert refused.status_code == 422
+    assert "monthly spending cap" in refused.text and "max_cost_usd" in refused.text
+    ok = c.post("/api/models/reeval/settings", json={**body, "max_cost_usd": 0.5})
+    assert ok.status_code == 200
+    out = ok.json()
+    assert out["settings"]["schedule_enabled"] is True and out["settings"]["enabled_at"]
+    assert out["schedule_estimate"]["case_count"] == 2
+    assert out["next_due_at"] > out["settings"]["enabled_at"]

@@ -90,9 +90,10 @@ def stop_gpu_queue_poller(timeout: float = 5.0) -> None:
 
 # Step 40b: scheduled model re-evaluation. The loop only asks
 # model_reeval_service.run_if_due(), which does nothing unless the user turned
-# the schedule on, added a candidate and the interval has passed; the run
-# itself is an ordinary Benchmark Lab run under the monthly cap, and nothing
-# is ever promoted by it.
+# the schedule on (which needs a monthly cap or a per-run limit), added a
+# candidate and the interval has passed, and never while another job is
+# running or queued; the run itself is an ordinary Benchmark Lab run, and
+# nothing is ever promoted by it.
 REEVAL_POLL_SECONDS = 3600.0
 REEVAL_FIRST_CHECK_SECONDS = 120.0
 _reeval_poller = None       # (thread, stop_event) while running

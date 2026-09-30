@@ -7,9 +7,9 @@ re-evaluation and promotion. Thin: see services/model_reeval_service.py.
   history, and the pre-run estimate (a POST that spends nothing).
 - Writes are `local_only()`: schedule settings, adding / rejecting /
   reopening a candidate, "Run now" (`confirm=true`; spends like any
-  benchmark run, under the same monthly cap), and promotion (`confirm=true`),
-  the only call that changes the production model or Settings' default
-  engine. Nothing is promoted by running.
+  benchmark run, under the monthly cap when one is set), and promotion
+  (`confirm=true`), the only call that changes the production model or
+  Settings' default engine. Nothing is promoted by running.
 """
 
 from fastapi import APIRouter, Path
@@ -18,7 +18,8 @@ from api.auth import local_only, require_permission
 from api.model_reeval_schemas import (CandidateAddRequest, CandidateAddResult, CandidateResult,
                                       PromoteRequest, PromoteResult, RejectRequest,
                                       ReevalDecisionList, ReevalEstimate, ReevalOverview,
-                                      ReevalRunRequest, ReevalRunStarted, ReevalSettingsRequest)
+                                      ReevalRunRequest, ReevalRunStarted, ReevalSettingsRequest,
+                                      ReevalSettingsSaved)
 from api.routers.settings_routes import _require_confirm
 from api.schemas import ErrorResponse
 from services import model_reeval_service as svc
@@ -48,8 +49,10 @@ def post_estimate():
     return svc.estimate_run()
 
 
-@router.post("/settings", dependencies=[local_only()], response_model=ReevalOverview,
-             responses=_ERRS, summary="PC only: the re-evaluation schedule and golden set")
+@router.post("/settings", dependencies=[local_only()], response_model=ReevalSettingsSaved,
+             responses=_ERRS,
+             summary="PC only: the re-evaluation schedule and golden set (turning the schedule "
+                     "on needs a monthly cap or a per-run limit)")
 def post_settings(body: ReevalSettingsRequest):
     return svc.set_settings(body.schedule_enabled, body.interval_days, body.tier, body.set_name,
                             body.max_cost_usd)

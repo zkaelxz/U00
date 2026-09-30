@@ -155,7 +155,7 @@ export interface ScheduleDraft {
   interval: string
   tier: string
   setName: string
-  // Dollars; blank = no limit of its own (the monthly cap still applies).
+  // Dollars; blank = no limit of its own (then a monthly cap must be set in Settings to turn the schedule on).
   limit: string
 }
 
@@ -233,7 +233,7 @@ export function nextDueText(overview: Pick<ReevalOverview, 'settings' | 'next_du
   const due = overview.next_due_at
   if (!due) return 'Schedule on.'
   const t = parseUtc(due)
-  if (Number.isFinite(t) && t <= now) return 'Next run: due now (the PC checks every few minutes).'
+  if (Number.isFinite(t) && t <= now) return 'Next run: due now (the PC checks about once an hour).'
   return `Next run: ${formatWhen(due)} (UTC).`
 }
 

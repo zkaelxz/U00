@@ -11,8 +11,12 @@ with Step 38's Benchmark Lab, not a second scoring system:
 - A re-evaluation is one benchmark_lab_service.start_run() arena run of
   the production model plus every open candidate over a golden set the
   user picked. It runs on "Run now", or on a schedule (off until the user
-  turns it on; default interval 30 days) checked by the API's background
-  loop -- the same monthly cap and estimate refusal as any benchmark run.
+  turns it on; default interval 30 days) checked by the API's hourly
+  background loop -- the same estimate refusal as any benchmark run, and the
+  monthly cap when one is set. The schedule can only be turned on while a
+  monthly cap or a per-run limit is set, so it never spends unbounded; the
+  first scheduled run is one interval after it is turned on, and the loop
+  never starts one while any other job is running or queued.
 - report() lines each candidate up against production (quality, cost,
   latency, VRAM deltas) from the recorded runs.
 - Nothing changes until the user approves: promote() is its own call with
@@ -32,10 +36,11 @@ import datetime
 import json
 import threading
 
+import background_jobs
 import db
 from services import benchmark_lab_service, settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
-                                     UnsupportedOperationError)
+                                     ServiceError, UnsupportedOperationError)
 
 CAPABILITIES = ("translation",)
 DEFAULT_INTERVAL_DAYS = 30
@@ -47,6 +52,7 @@ _LAST_RUN_KEY = "model_reeval_last_run"
 # so the report and later decisions keep that run's scores.
 _LAST_ATTEMPT_KEY = "model_reeval_last_attempt"
 _add_lock = threading.Lock()
+_promote_lock = threading.Lock()
 MAX_REASON_CHARS = 300
 
 
@@ -94,13 +100,22 @@ def get_settings() -> dict:
     return {"schedule_enabled": bool(s.get("schedule_enabled", False)),
             "interval_days": int(s.get("interval_days") or DEFAULT_INTERVAL_DAYS),
             "tier": s.get("tier"), "set_name": s.get("set_name"),
-            "max_cost_usd": s.get("max_cost_usd")}
+            "max_cost_usd": s.get("max_cost_usd"), "enabled_at": s.get("enabled_at")}
+
+
+def _spend_limit_set(max_cost_usd) -> bool:
+    """A scheduled run is bounded: a monthly cap above $0 in Settings, or a
+    per-run limit of its own."""
+    return max_cost_usd is not None or settings_service.get_monthly_cap_usd() > 0
 
 
 def set_settings(schedule_enabled: bool, interval_days: int, tier: str = None,
                  set_name: str = None, max_cost_usd: float = None) -> dict:
     """max_cost_usd: a scheduled run whose estimate is above it is skipped
-    (None = only the monthly cap applies). "Run now" shows its own estimate."""
+    (None = only the monthly cap applies, and then a cap must be set).
+    Turning the schedule on is refused without either. "Run now" shows its
+    own estimate. An enabled schedule's answer carries schedule_estimate
+    (what one scheduled run would cost now, or None with the reason)."""
     if not isinstance(schedule_enabled, bool):
         raise InvalidInputError("schedule_enabled must be true or false.")
     if not isinstance(interval_days, int) or not 1 <= interval_days <= 365:
@@ -113,11 +128,30 @@ def set_settings(schedule_enabled: bool, interval_days: int, tier: str = None,
                                      or not isinstance(max_cost_usd, (int, float))
                                      or not 0 <= max_cost_usd <= 10000):
         raise InvalidInputError("max_cost_usd must be between 0 and 10000.")
+    if schedule_enabled and not _spend_limit_set(max_cost_usd):
+        raise InvalidInputError(
+            "Set a monthly spending cap in Settings, or a limit per scheduled run "
+            "(max_cost_usd), before turning the schedule on.")
+    previous = get_settings()
+    # The first scheduled run is one interval after the schedule is turned on.
+    enabled_at = None
+    if schedule_enabled:
+        enabled_at = (previous["enabled_at"] if previous["schedule_enabled"]
+                      and previous["enabled_at"] else _now())
     db.set_app_setting(_SETTINGS_KEY, json.dumps({
         "schedule_enabled": schedule_enabled, "interval_days": interval_days,
         "tier": tier, "set_name": set_name or None,
-        "max_cost_usd": None if max_cost_usd is None else float(max_cost_usd)}))
-    return get_overview()
+        "max_cost_usd": None if max_cost_usd is None else float(max_cost_usd),
+        "enabled_at": enabled_at}))
+    out = get_overview()
+    out["schedule_estimate"] = None
+    out["schedule_estimate_error"] = None
+    if schedule_enabled:
+        try:
+            out["schedule_estimate"] = estimate_run()
+        except ServiceError as exc:
+            out["schedule_estimate_error"] = str(exc)[:300]
+    return out
 
 
 def _last_run() -> dict:
@@ -129,13 +163,16 @@ def next_due_at():
     if not s["schedule_enabled"]:
         return None
     stamps = []
-    for rec in (_last_run(), _json_setting(_LAST_ATTEMPT_KEY, {})):
+    for stamp in (_last_run().get("started_at"),
+                  _json_setting(_LAST_ATTEMPT_KEY, {}).get("started_at"), s["enabled_at"]):
         try:
-            stamps.append(datetime.datetime.fromisoformat(rec["started_at"]))
-        except (KeyError, TypeError, ValueError):
+            stamps.append(datetime.datetime.fromisoformat(stamp))
+        except (TypeError, ValueError):
             pass
-    if not stamps:
-        return _now()
+    if not s["enabled_at"]:
+        # A schedule saved without its enable time can't place its first
+        # run: never due until it is saved again.
+        return None
     started = max(stamps)
     return (started + datetime.timedelta(days=s["interval_days"])).isoformat()
 
@@ -276,17 +313,33 @@ def run_now(capability: str = "translation", scheduled: bool = False) -> dict:
     return {**started, "candidate_ids": [c["id"] for c in candidates]}
 
 
+def _system_busy() -> bool:
+    """Any job running or queued in this process, or a restore / bulk
+    maintenance hold: a scheduled run never competes with the user's work."""
+    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+        return True
+    return any(j.get("status") in ("running", "queued")
+               for j in background_jobs.list_all_jobs().values())
+
+
 def run_if_due() -> bool:
     """The background loop's hook: starts a scheduled run when one is due.
-    Refusals (cap used up, no cases, a run already going) are recorded as
-    the last attempt so the loop doesn't retry every tick."""
+    Refusals (cap used up, no cases, over the per-run limit) are recorded as
+    the last attempt so the loop doesn't retry every tick. Nothing is
+    recorded when the PC is busy (try again next tick) or when no spending
+    limit is set and the run would cost anything (fail closed)."""
+    if _system_busy():
+        return False
     if not is_due():
         return False
-    if benchmark_lab_service._job_active():
-        return False        # another run is going: try again next tick
     try:
         s = get_settings()
-        if s["max_cost_usd"] is not None:
+        if not _spend_limit_set(s["max_cost_usd"]):
+            # Settings refuse this combination, but the monthly cap can be
+            # cleared afterwards: an unbounded scheduled run never starts.
+            if estimate_run()["estimated_cost_usd"] > 0:
+                return False
+        elif s["max_cost_usd"] is not None:
             est = estimate_run()
             if est["estimated_cost_usd"] > s["max_cost_usd"]:
                 raise UnsupportedOperationError(
@@ -387,6 +440,13 @@ def promote(candidate_id: int, confirm: bool, reason: str = "") -> dict:
     """The one place production changes, and only with confirm=true."""
     if confirm is not True:
         raise InvalidInputError("Confirmation required (confirm=true).")
+    # One promotion at a time: two concurrent confirms can't both pass the
+    # status check and leave two "promoted" records.
+    with _promote_lock:
+        return _promote_locked(candidate_id, reason)
+
+
+def _promote_locked(candidate_id: int, reason: str) -> dict:
     c = _require_candidate(candidate_id)
     if c["status"] != "candidate":
         raise ConflictError(f"This candidate is already {c['status']}.")

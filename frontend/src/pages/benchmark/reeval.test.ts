@@ -183,7 +183,7 @@ describe('schedule', () => {
     expect(nextDueText(overview({ settings: on, candidates: [], next_due_at: '2026-10-30T12:00:00' }), now))
       .toBe('Schedule on: nothing runs until a candidate is added.')
     expect(nextDueText(overview({ settings: on, next_due_at: '2026-10-30T12:00:00' }), now)).toBe('Next run: 2026-10-30 12:00 (UTC).')
-    expect(nextDueText(overview({ settings: on, next_due_at: '2026-09-30T11:00:00' }), now)).toBe('Next run: due now (the PC checks every few minutes).')
+    expect(nextDueText(overview({ settings: on, next_due_at: '2026-09-30T11:00:00' }), now)).toBe('Next run: due now (the PC checks about once an hour).')
   })
 })
 

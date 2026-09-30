@@ -28,6 +28,14 @@ def _wait(timeout=15):
     raise AssertionError("job did not finish")
 
 
+def _enabled_days_ago(days):
+    """Moves the schedule's enable time back, so its first run is due."""
+    import json
+    raw = json.loads(db.get_app_setting(svc._SETTINGS_KEY))
+    raw["enabled_at"] = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).isoformat()
+    db.set_app_setting(svc._SETTINGS_KEY, json.dumps(raw))
+
+
 class GoodEngine:
     """Stands in for a 'better' candidate (as nllb): answers with the reference."""
     name = "nllb"
@@ -55,6 +63,8 @@ def world(isolated_db, monkeypatch):
     monkeypatch.setitem(translate_engines.ENGINES, "libretranslate", WeakEngine)
     settings_service.set_settings({"default_engine": "libretranslate"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
+    # A scheduled run needs a spending limit: a monthly cap here.
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 10.0)
     svc.set_settings(False, 30, tier="public", set_name="g")
     return monkeypatch
 
@@ -145,6 +155,11 @@ class TestSchedule:
     def test_due_then_not_due_after_run(self, world):
         svc.add_candidate("nllb")
         svc.set_settings(True, 30, tier="public", set_name="g")
+        # The first run is one interval after the schedule is turned on.
+        assert svc.is_due() is False and svc.run_if_due() is False
+        assert svc.report()["error"] is None
+        assert svc.is_due(now=datetime.datetime.utcnow() + datetime.timedelta(days=31)) is True
+        _enabled_days_ago(31)
         assert svc.is_due() is True
         assert svc.run_if_due() is True
         _wait()
@@ -155,6 +170,7 @@ class TestSchedule:
     def test_scheduled_refusal_is_recorded_not_retried(self, world, monkeypatch):
         svc.add_candidate("nllb")
         svc.set_settings(True, 30, tier="public", set_name="nope")
+        _enabled_days_ago(31)
         assert svc.run_if_due() is False
         assert "No benchmark cases" in svc.report()["error"]
         assert svc.is_due() is False
@@ -190,6 +206,7 @@ class TestReviewFixes:
         c = svc.add_candidate("nllb")["candidate"]
         _run_now()
         svc.set_settings(True, 1, tier="public", set_name="nope")
+        _enabled_days_ago(2)
         db.set_app_setting(svc._LAST_RUN_KEY, __import__("json").dumps({
             **svc._last_run(), "started_at": "2000-01-01T00:00:00"}))
         assert svc.run_if_due() is False
@@ -201,6 +218,7 @@ class TestReviewFixes:
     def test_tick_while_a_run_is_going_is_not_an_attempt(self, world):
         svc.add_candidate("nllb")
         svc.set_settings(True, 30, tier="public", set_name="g")
+        _enabled_days_ago(31)
         with background_jobs._lock:
             background_jobs._jobs[lab.JOB_ID] = {"status": "running"}
         try:
@@ -214,6 +232,7 @@ class TestReviewFixes:
     def test_scheduled_cost_limit(self, world, monkeypatch):
         svc.add_candidate("nllb")
         svc.set_settings(True, 30, tier="public", set_name="g", max_cost_usd=0.0)
+        _enabled_days_ago(31)
         monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": {"estimated_cost_usd": 1.0})
         assert svc.run_if_due() is False
         assert "limit set for scheduled runs" in svc.report()["error"]
@@ -263,3 +282,103 @@ class TestReviewFixes:
         finally:
             background.stop_reeval_scheduler()
         assert calls
+
+
+class TestSpendAndBusyGuards:
+    """A scheduled run never spends without a limit, never starts on the
+    first tick after enabling, and never competes with other jobs."""
+
+    def _no_cap(self, monkeypatch):
+        monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 0.0)
+
+    def test_enabling_needs_a_cap_or_a_limit(self, world, monkeypatch):
+        self._no_cap(monkeypatch)
+        with pytest.raises(InvalidInputError) as err:
+            svc.set_settings(True, 30)
+        assert "monthly spending cap" in str(err.value) and "max_cost_usd" in str(err.value)
+        assert svc.get_settings()["schedule_enabled"] is False
+        # Turning it off, or on with a per-run limit, is fine.
+        svc.set_settings(False, 30)
+        assert svc.set_settings(True, 30, max_cost_usd=0.5)["settings"]["schedule_enabled"] is True
+
+    def test_saving_an_enabled_schedule_returns_its_estimate(self, world):
+        out = svc.set_settings(True, 30, tier="public", set_name="g")
+        assert out["schedule_estimate"] is None and "candidate" in out["schedule_estimate_error"]
+        svc.add_candidate("nllb")
+        out = svc.set_settings(True, 30, tier="public", set_name="g")
+        assert out["schedule_estimate"]["case_count"] == 2
+        assert out["schedule_estimate"]["estimated_cost_usd"] == 0
+        off = svc.set_settings(False, 30, tier="public", set_name="g")
+        assert off["schedule_estimate"] is None and off["schedule_estimate_error"] is None
+
+    def test_enable_time_is_kept_until_turned_off(self, world):
+        svc.add_candidate("nllb")
+        svc.set_settings(True, 30, tier="public", set_name="g")
+        first = svc.get_settings()["enabled_at"]
+        assert first
+        due = datetime.datetime.fromisoformat(svc.next_due_at())
+        assert due == datetime.datetime.fromisoformat(first) + datetime.timedelta(days=30)
+        svc.set_settings(True, 7, tier="public", set_name="g")
+        assert svc.get_settings()["enabled_at"] == first
+        svc.set_settings(False, 7)
+        assert svc.get_settings()["enabled_at"] is None and svc.next_due_at() is None
+
+    def test_no_limit_and_a_cost_fails_closed_without_recording(self, world, monkeypatch):
+        svc.add_candidate("nllb")
+        svc.set_settings(True, 30, tier="public", set_name="g")
+        _enabled_days_ago(31)
+        self._no_cap(monkeypatch)          # the cap was cleared after enabling
+        monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": {"estimated_cost_usd": 0.01})
+        monkeypatch.setattr(svc, "run_now", lambda **kw: pytest.fail("ran without a limit"))
+        assert svc.run_if_due() is False
+        assert db.get_app_setting(svc._LAST_ATTEMPT_KEY) is None
+        assert svc.report()["error"] is None and svc.is_due() is True
+
+    def test_no_limit_but_free_still_runs(self, world, monkeypatch):
+        svc.add_candidate("nllb")
+        svc.set_settings(True, 30, tier="public", set_name="g")
+        _enabled_days_ago(31)
+        self._no_cap(monkeypatch)
+        assert svc.run_if_due() is True     # libretranslate / nllb cost $0
+        _wait()
+
+    @pytest.mark.parametrize("busy", ["running", "queued", "exclusive", "maintenance"])
+    def test_busy_pc_skips_without_recording(self, world, monkeypatch, busy):
+        svc.add_candidate("nllb")
+        svc.set_settings(True, 30, tier="public", set_name="g")
+        _enabled_days_ago(31)
+        monkeypatch.setattr(svc, "estimate_run", lambda capability="translation": pytest.fail("estimated"))
+        if busy in ("running", "queued"):
+            with background_jobs._lock:
+                background_jobs._jobs["transcribe_other"] = {"status": busy}
+        elif busy == "exclusive":
+            assert background_jobs.acquire_exclusive("restore")
+        else:
+            assert background_jobs.enter_maintenance()
+        try:
+            assert svc.run_if_due() is False
+        finally:
+            with background_jobs._lock:
+                background_jobs._jobs.pop("transcribe_other", None)
+            background_jobs.release_exclusive()
+            background_jobs.exit_maintenance()
+        assert db.get_app_setting(svc._LAST_ATTEMPT_KEY) is None
+        assert svc.report()["error"] is None and svc.is_due() is True
+
+    def test_promote_is_serialized(self, world):
+        import threading
+        c = svc.add_candidate("nllb")["candidate"]
+        results = []
+        svc._promote_lock.acquire()
+        t = threading.Thread(target=lambda: results.append(svc.promote(c["id"], confirm=True)))
+        t.start()
+        try:
+            t.join(0.3)
+            assert t.is_alive() and not results     # waits for the lock
+        finally:
+            svc._promote_lock.release()
+        t.join(5)
+        assert results and results[0]["production"]["engine"] == "nllb"
+        with pytest.raises(ConflictError):
+            svc.promote(c["id"], confirm=True)
+        assert len(svc.list_decisions()["decisions"]) == 1

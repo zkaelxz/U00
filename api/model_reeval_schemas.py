@@ -49,6 +49,9 @@ class ReevalSettings(BaseModel):
     tier: Optional[str] = None
     set_name: Optional[str] = None
     max_cost_usd: Optional[float] = None
+    # When the schedule was turned on; the first scheduled run is one
+    # interval later.
+    enabled_at: Optional[str] = None
 
 
 class ReevalRow(BaseModel):
@@ -93,6 +96,13 @@ class ReevalOverview(BaseModel):
     next_due_at: Optional[str] = None
     candidates: List[ModelCandidate]
     report: ReevalReport
+
+
+class ReevalSettingsSaved(ReevalOverview):
+    # What one scheduled run would cost now (enabled schedule only), or why
+    # it can't be estimated yet (e.g. no candidate).
+    schedule_estimate: Optional[BenchmarkEstimate] = None
+    schedule_estimate_error: Optional[str] = None
 
 
 class ReevalDecisionList(BaseModel):

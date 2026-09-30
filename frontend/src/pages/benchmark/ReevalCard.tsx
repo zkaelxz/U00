@@ -5,6 +5,7 @@ import {
   addReevalCandidate, estimateReeval, getReevalDecisions, getReevalOverview, promoteReevalCandidate,
   rejectReevalCandidate, reopenReevalCandidate, saveReevalSettings, startReevalRun,
   type ModelCandidate, type ModelDecision, type ReevalOverview, type ReevalRow, type ReevalRunStarted,
+  type ReevalSettingsSaved,
 } from '../../api/reeval'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
@@ -62,6 +63,8 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
   const [decisions, setDecisions] = useState<ModelDecision[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [ownRun, setOwnRun] = useState(false)
+  // What one scheduled run would cost, from the last save of an enabled schedule.
+  const [scheduleEstimate, setScheduleEstimate] = useState<ScheduleEstimate | null>(null)
 
   const load = useCallback(() => {
     getReevalOverview().then(
@@ -84,6 +87,8 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
 
   const remote = pc === 'remote'
   const changed = () => {
+    // Candidates changed: the last schedule estimate no longer describes a run.
+    setScheduleEstimate(null)
     load()
     loadDecisions()
   }
@@ -144,7 +149,13 @@ export function ReevalCard({ options, sets, pc, phone, job, running, onStarted, 
         options={options}
         sets={sets}
         remote={remote}
-        onSaved={setOverview}
+        savedEstimate={scheduleEstimate}
+        onSaved={(o) => {
+          setOverview(o)
+          setScheduleEstimate(o.settings.schedule_enabled
+            ? { est: o.schedule_estimate ?? null, error: o.schedule_estimate_error ?? null }
+            : null)
+        }}
       />
       <HistorySection decisions={decisions} candidates={overview.candidates} />
     </Card>
@@ -418,7 +429,7 @@ function RunBlock({ overview, options, remote, running, onStarted }: {
       <h4 id="reeval-run-h">Run now</h4>
       <p className="muted">
         Runs production and every open candidate on {s.set_name ? `the “${s.set_name}” set` : s.tier ? `${tierLabel(s.tier).toLowerCase()} sets` : 'every translation case'}
-        {' '}(change it under Schedule and golden set). It spends like any benchmark run, under the same monthly cap.
+        {' '}(change it under Schedule and golden set). It spends like any benchmark run; the monthly cap applies if one is set in Settings.
       </p>
       {missingKeys.length > 0 && (
         <p className="warn bench-note">
@@ -601,12 +612,18 @@ function ReportRow({ row, overview, remote, busy, blocked, onCompare, onPromote 
 
 // ---- schedule ----
 
-function ScheduleSection({ overview, options, sets, remote, onSaved }: {
+interface ScheduleEstimate {
+  est: BenchmarkEstimate | null
+  error: string | null
+}
+
+function ScheduleSection({ overview, options, sets, remote, savedEstimate, onSaved }: {
   overview: ReevalOverview
   options: BenchmarkOptions
   sets: BenchmarkSet[]
   remote: boolean
-  onSaved: (o: ReevalOverview) => void
+  savedEstimate: ScheduleEstimate | null
+  onSaved: (o: ReevalSettingsSaved) => void
 }) {
   const saved = overview.settings
   // Keyed on the saved settings by the parent, so a save starts a fresh draft.
@@ -647,8 +664,9 @@ function ScheduleSection({ overview, options, sets, remote, onSaved }: {
         </Field>
       </div>
       <p className="muted">
-        A scheduled run spends money like Run now, under the same monthly cap, and is refused if the cap would be passed.
-        Nothing is promoted automatically: you read the report and decide.
+        A scheduled run spends money like Run now. To turn the schedule on, set a monthly cap in Settings or a limit per
+        scheduled run below; a run that would pass either is skipped. The first run is one interval after you turn it on,
+        and a run waits while other jobs are going. Nothing is promoted automatically: you read the report and decide.
       </p>
       <div className="field-row">
         <Field label="Every" unit="days" error={intervalErr}>
@@ -681,7 +699,7 @@ function ScheduleSection({ overview, options, sets, remote, onSaved }: {
         <Field
           label="Limit per scheduled run"
           unit="USD"
-          help="A scheduled run estimated above this is skipped, and the report says so. Leave blank to rely on the monthly cap alone. Run now shows its own estimate instead."
+          help="A scheduled run estimated above this is skipped, and the report says so. Leave blank only if a monthly cap is set in Settings: the schedule needs one or the other. Run now shows its own estimate instead."
           error={limitErr}
         >
           <input
@@ -694,6 +712,14 @@ function ScheduleSection({ overview, options, sets, remote, onSaved }: {
         </Field>
       </div>
       <p className="num" data-testid="reeval-next-due">{nextDueText(overview)}</p>
+      {savedEstimate?.est ? (
+        <>
+          <p className="muted">Each scheduled run, estimated as things stand now:</p>
+          <EstimateBlock est={savedEstimate.est} stage="translation" />
+        </>
+      ) : savedEstimate?.error ? (
+        <p className="muted" data-testid="reeval-schedule-estimate">No estimate for a scheduled run yet: {savedEstimate.error}</p>
+      ) : null}
       {remote ? (
         <p className="muted">{PC_ONLY_BODY}</p>
       ) : (
