@@ -58,7 +58,7 @@ export function OpenFileField({
         </span>
       ) : (
         <span id={hintId} className="muted">
-          .txt or .md; replaces the text below
+          .txt, .md or .epub; replaces the text below
         </span>
       )}
     </div>

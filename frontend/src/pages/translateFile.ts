@@ -2,13 +2,16 @@
  * Pure helpers for the Translate page's "Open a file" / "Download result".
  * Parity with tabs/translate_tab.py: it accepted .txt/.md/.epub, decoded text
  * as UTF-8 ignoring bad bytes, and offered the result as a plain .txt.
- * .epub needs an unzip library on the client, so it is refused with a clear
- * message instead (no new dependency). Size cap: the API has no text limit;
- * Streamlit's own upload cap (.streamlit/config.toml maxUploadSize = 2048 MB)
- * is the only limit the old tab enforced, so it is reused here.
+ * .epub is unzipped in the browser and its chapter text extracted (see
+ * translateEpub.ts); nothing is sent to the server. Size cap: the API has no
+ * text limit; Streamlit's own upload cap (.streamlit/config.toml
+ * maxUploadSize = 2048 MB) is the only limit the old tab enforced, so it is
+ * reused for text files. An .epub is held and unzipped in memory, so it gets
+ * the smaller MAX_EPUB_BYTES cap.
  */
+import { EpubError, MAX_EPUB_BYTES, extractEpubText, type HtmlToText } from './translateEpub'
 
-export const ACCEPTED_EXTENSIONS = ['.txt', '.md'] as const
+export const ACCEPTED_EXTENSIONS = ['.txt', '.md', '.epub'] as const
 export const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.join(',')
 export const MAX_FILE_BYTES = 2048 * 1024 * 1024
 
@@ -37,11 +40,11 @@ export function extensionOf(name: string): string {
 /** Returns an error message, or null if the file can be opened. */
 export function checkTranslateFile(file: Pick<FileLike, 'name' | 'size'>): string | null {
   const ext = extensionOf(file.name)
-  if (ext === '.epub') {
-    return 'EPUB files cannot be opened here yet. Save the book as .txt and open that instead.'
-  }
   if (!(ACCEPTED_EXTENSIONS as readonly string[]).includes(ext)) {
-    return `"${file.name}" is not a .txt or .md file.`
+    return `"${file.name}" is not a .txt, .md or .epub file.`
+  }
+  if (ext === '.epub' && file.size > MAX_EPUB_BYTES) {
+    return `"${file.name}" is larger than the ${MAX_EPUB_BYTES / 1024 / 1024} MB limit for EPUB files.`
   }
   if (file.size > MAX_FILE_BYTES) return `"${file.name}" is larger than the 2 GB limit.`
   return null
@@ -57,13 +60,22 @@ export type ReadResult = { ok: true; text: string; name: string } | { ok: false;
 export async function readTranslateFile<F extends FileLike>(
   file: F,
   readBytes: ReadBytes<F>,
+  htmlToText?: HtmlToText,
 ): Promise<ReadResult> {
   const invalid = checkTranslateFile(file)
   if (invalid) return { ok: false, error: invalid }
+  let buf: ArrayBuffer
   try {
-    return { ok: true, text: decodeText(await readBytes(file)), name: file.name }
+    buf = await readBytes(file)
   } catch {
     return { ok: false, error: `Could not read "${file.name}".` }
+  }
+  if (extensionOf(file.name) !== '.epub') return { ok: true, text: decodeText(buf), name: file.name }
+  try {
+    return { ok: true, text: extractEpubText(new Uint8Array(buf), file.name, htmlToText), name: file.name }
+  } catch (e) {
+    const error = e instanceof EpubError ? e.message : `Could not read the text in "${file.name}".`
+    return { ok: false, error }
   }
 }
 
@@ -78,9 +90,10 @@ export async function loadChosenFile<F extends FileLike>(
   file: F | undefined,
   target: FileLoadTarget,
   readBytes: ReadBytes<F>,
+  htmlToText?: HtmlToText,
 ): Promise<void> {
   if (!file) return
-  const read = await readTranslateFile(file, readBytes)
+  const read = await readTranslateFile(file, readBytes, htmlToText)
   if (!read.ok) {
     target.setFileMessage(read.error)
     return

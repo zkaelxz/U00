@@ -14,6 +14,8 @@ import {
   readTranslateFile,
 } from './translateFile'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import { MAX_EPUB_BYTES } from './translateEpub'
+import { buildEpub, stripTags } from './translateEpubFixture'
 
 const bytes = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer
 const file = (name: string, content = 'hi', size?: number) => ({
@@ -24,14 +26,16 @@ const file = (name: string, content = 'hi', size?: number) => ({
 const readBytes = async (f: { content: string }) => bytes(f.content)
 
 describe('checkTranslateFile', () => {
-  it('accepts .txt and .md like the Streamlit tab', () => {
-    expect(ACCEPT_ATTR).toBe('.txt,.md')
+  it('accepts .txt, .md and .epub like the Streamlit tab', () => {
+    expect(ACCEPT_ATTR).toBe('.txt,.md,.epub')
     expect(checkTranslateFile({ name: 'a.TXT', size: 1 })).toBeNull()
     expect(checkTranslateFile({ name: 'b.md', size: 1 })).toBeNull()
+    expect(checkTranslateFile({ name: 'c.EPUB', size: 1 })).toBeNull()
   })
-  it('refuses epub, other types and oversize files with a message', () => {
-    expect(checkTranslateFile({ name: 'book.epub', size: 1 })).toMatch(/EPUB/)
-    expect(checkTranslateFile({ name: 'x.srt', size: 1 })).toMatch(/not a .txt or .md/)
+  it('refuses other types and oversize files with a message', () => {
+    expect(checkTranslateFile({ name: 'x.srt', size: 1 })).toMatch(/not a .txt, .md or .epub/)
+    expect(checkTranslateFile({ name: 'book.epub', size: MAX_EPUB_BYTES + 1 })).toMatch(/200 MB limit for EPUB/)
+    expect(checkTranslateFile({ name: 'book.epub', size: MAX_EPUB_BYTES })).toBeNull()
     expect(checkTranslateFile({ name: 'noext', size: 1 })).toMatch(/not a .txt/)
     expect(checkTranslateFile({ name: 'a.txt', size: MAX_FILE_BYTES + 1 })).toMatch(/2 GB/)
     expect(checkTranslateFile({ name: 'a.txt', size: MAX_FILE_BYTES })).toBeNull()
@@ -106,12 +110,28 @@ describe('Translate file controls', () => {
 
   it('a refused file shows a message and leaves the text alone', async () => {
     const t = target()
-    await loadChosenFile(file('book.epub'), t, readBytes)
+    await loadChosenFile(file('clip.srt'), t, readBytes)
     expect(t.setText).not.toHaveBeenCalled()
-    expect(t.setFileMessage).toHaveBeenCalledWith(expect.stringMatching(/EPUB/))
+    expect(t.setFileMessage).toHaveBeenCalledWith(expect.stringMatching(/not a .txt/))
   })
 
-  it('renders a labelled file input limited to .txt/.md', () => {
+  it('an .epub fills the text box with its chapter text', async () => {
+    const t = target()
+    const epub = buildEpub({ 'OEBPS/c1.xhtml': '<body><p>第一章</p><p>你好</p></body>' })
+    const f = { name: 'book.epub', size: epub.length }
+    await loadChosenFile(f, t, async () => epub.slice().buffer as ArrayBuffer, stripTags)
+    expect(t.setText).toHaveBeenCalledWith('第一章\n你好')
+    expect(t.setSourceName).toHaveBeenCalledWith('book.epub')
+  })
+
+  it('an unreadable .epub shows a plain message and leaves the text alone', async () => {
+    const t = target()
+    await loadChosenFile(file('book.epub', 'not a zip'), t, readBytes, stripTags)
+    expect(t.setText).not.toHaveBeenCalled()
+    expect(t.setFileMessage).toHaveBeenCalledWith('"book.epub" is not a readable EPUB (it could not be unzipped).')
+  })
+
+  it('renders a labelled file input limited to .txt/.md/.epub', () => {
     const html = renderToStaticMarkup(
       createElement(OpenFileField, { sourceName: 'ep1.txt', message: null, target: target() }),
     )
@@ -119,7 +139,7 @@ describe('Translate file controls', () => {
     expect(id).toBeTruthy()
     expect(html).toContain(`for="${id}"`)
     expect(html).toContain('Open a file')
-    expect(html).toContain('accept=".txt,.md"')
+    expect(html).toContain('accept=".txt,.md,.epub"')
     expect(html).toContain('Loaded ep1.txt')
   })
 
@@ -127,7 +147,7 @@ describe('Translate file controls', () => {
     const idle = renderToStaticMarkup(
       createElement(OpenFileField, { sourceName: null, message: null, target: target() }),
     )
-    expect(idle).toContain('.txt or .md; replaces the text below')
+    expect(idle).toContain('.txt, .md or .epub; replaces the text below')
     const failed = renderToStaticMarkup(
       createElement(OpenFileField, { sourceName: 'ep1.txt', message: 'Not a text file.', target: target() }),
     )
