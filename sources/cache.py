@@ -119,15 +119,19 @@ class RawCache:
         (one file can back several URLs), least recently used first, and
         only removes content every row of which is `keep` -- content an
         import in progress holds as `temporary` is left alone. Also drops
-        `.part` files a crashed put() left behind more than a day ago.
-        Returns the number of files removed."""
-        self._drop_stale_parts()
+        files more than a day old that nothing indexes: `.part` files a
+        crashed put() left behind, and files an earlier trim couldn't
+        remove. Returns the number of files removed by the ceiling."""
+        self._drop_stale_orphans()
         if max_mb is None:
             max_mb = store.get_setting("cache_max_mb") or 0
         if max_mb <= 0:
             return 0
         ceiling = int(max_mb * 1024 * 1024)
         with store.connect() as conn:
+            # One write transaction from the read to the delete, so a row
+            # another import stores meanwhile is seen or waits.
+            conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(
                 "SELECT sha256, MAX(size) AS size, MAX(created_at) AS used, "
                 "SUM(retention != 'keep') AS pinned FROM cache_index "
@@ -142,7 +146,8 @@ class RawCache:
                     break
                 doomed.append(r["sha256"])
                 total -= r["size"]
-            conn.executemany("DELETE FROM cache_index WHERE sha256=?", [(s,) for s in doomed])
+            conn.executemany("DELETE FROM cache_index WHERE sha256=? AND retention='keep'",
+                             [(s,) for s in doomed])
             still_used = {r["sha256"] for r in conn.execute(
                 "SELECT DISTINCT sha256 FROM cache_index")}
         removed = 0
@@ -159,11 +164,14 @@ class RawCache:
                 applog.get_logger().warning("Could not remove a cached file", exc_info=True)
         return removed
 
-    def _drop_stale_parts(self, max_age: float = 86400):
+    def _drop_stale_orphans(self, max_age: float = 86400):
         cutoff = time.time() - max_age
+        with store.connect() as conn:
+            indexed = {r["sha256"] for r in conn.execute(
+                "SELECT DISTINCT sha256 FROM cache_index")}
         for dirpath, _, files in os.walk(self.root):
             for name in files:
-                if not name.endswith(".part"):
+                if name in indexed:
                     continue
                 path = os.path.join(dirpath, name)
                 try:

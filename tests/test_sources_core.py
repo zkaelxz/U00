@@ -443,20 +443,31 @@ class TestCacheCeiling:
         c.enforce_ceiling(max_mb=self._mb(1))
         assert self._urls() == [] and os.path.exists(page)
 
-    def test_stale_part_files_are_dropped(self, isolated_db, monkeypatch):
+    def test_stale_unindexed_files_are_dropped(self, isolated_db, monkeypatch):
+        """Crashed put() leftovers (.part) and files an earlier trim couldn't
+        remove, once a day old; indexed and fresh files stay."""
         import os
+        now = 10 * 86400.0
+        monkeypatch.setattr(cache_mod.time, "time", lambda: now)
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * 100)
         root = store.cache_dir()
         os.makedirs(os.path.join(root, "ab"), exist_ok=True)
-        old = os.path.join(root, "ab", "old.part")
-        fresh = os.path.join(root, "ab", "fresh.part")
-        now = 10 * 86400.0
-        for p, mtime in ((old, now - 86400 - 60), (fresh, now - 60)):
+        old_part = os.path.join(root, "ab", "old.part")
+        fresh_part = os.path.join(root, "ab", "fresh.part")
+        old_orphan = os.path.join(root, "ab", "ab" + "0" * 62)
+        fresh_orphan = os.path.join(root, "ab", "ab" + "1" * 62)
+        for p, mtime in ((old_part, now - 86400 - 60), (fresh_part, now - 60),
+                         (old_orphan, now - 86400 - 60), (fresh_orphan, now - 60)):
             with open(p, "wb") as f:
                 f.write(b"half")
             os.utime(p, (mtime, mtime))
-        monkeypatch.setattr(cache_mod.time, "time", lambda: now)
-        cache_mod.RawCache("keep_originals").enforce_ceiling()
-        assert not os.path.exists(old) and os.path.exists(fresh)
+        indexed = c._path(__import__("hashlib").sha256(b"a" * 100).hexdigest())
+        os.utime(indexed, (now - 5 * 86400, now - 5 * 86400))
+        c.enforce_ceiling()
+        assert not os.path.exists(old_part) and not os.path.exists(old_orphan)
+        assert os.path.exists(fresh_part) and os.path.exists(fresh_orphan)
+        assert os.path.exists(indexed)
 
     def test_a_file_that_cannot_be_removed_does_not_stop_the_trim(self, isolated_db,
                                                                    monkeypatch):
