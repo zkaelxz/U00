@@ -1,7 +1,7 @@
 // Structural line changes (/api/restructure/..., Migration Slice 45). Every
 // write is refused (409) while a job runs on the drama or when the drama's
 // line ids differ from `expected_line_ids`.
-import type { HistoryItem, ReviewLine, ReviewLinesPage } from '../types/review'
+import type { ReviewLine, ReviewLinesPage } from '../types/review'
 import type {
   ResegmentLlmPreview,
   ResegmentLlmPreviewStart,
@@ -76,8 +76,6 @@ export const applyLlmResegmentPreview = (id: number, expectedLineIds: number[], 
     { expected_line_ids: expectedLineIds, use_preview: true, confirm },
     f,
   )
-
-export const listSnapshots = (id: number, f?: Fetch) => getJson<HistoryItem[]>(`${base(id)}/history`, f)
 
 export const restoreSnapshot = (id: number, historyId: number, expectedLineIds: number[], f?: Fetch) =>
   postJson<RestoreVersionResult>(`${base(id)}/history/${historyId}/restore`, { expected_line_ids: expectedLineIds }, f)

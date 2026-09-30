@@ -231,29 +231,14 @@ class TestCaptionTracks:
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
         assert list(reader_service.get_caption_tracks(did)["tracks"]) == ["Source"]
 
-    def test_caption_readout_audio_fallback(self, isolated_db):
-        did = _drama(isolated_db)
-        isolated_db.save_lines(did, [Line(idx=0, start=65.0, end=66.0, zh="第一行", en="Line one"),
-                                     Line(idx=1, start=70.0, end=71.0, zh="", en="")])
-        src = reader_service.get_caption_readout(did, "Source")["lines"]
-        assert [r["text"] for r in src] == ["第一行"]
-        assert src[0]["timestamp"] == "01:05"
-        assert src[0]["line_id"] is not None
-        bi = reader_service.get_caption_readout(did, "Bilingual")["lines"]
-        assert bi[0]["text"] == "Line one  \n第一行"
-        with pytest.raises(InvalidInputError):
-            reader_service.get_caption_readout(did, "French")
-
 
 class TestOwnership:
     """Every public function 404s on an unknown drama."""
 
     @pytest.mark.parametrize("call", [
         lambda: reader_service.get_caption_tracks(999),
-        lambda: reader_service.get_caption_readout(999),
         lambda: reader_service.get_media_availability(999),
         lambda: reader_service.media_file_path(999, "original"),
-        lambda: reader_service.get_series_glossary(999),
         lambda: reader_service.get_reading_overview(999),
         lambda: reader_service.save_reading_position(999, 1),
         lambda: reader_service.get_notes(999),
@@ -330,21 +315,7 @@ class TestMedia:
             reader_service.media_file_path(did, "../etc")
 
 
-class TestGlossaryProgressNotes:
-    def test_series_glossary(self, isolated_db):
-        sid = isolated_db.get_or_create_series("S")
-        did = _drama(isolated_db, series_id=sid)
-        isolated_db.upsert_glossary_term(sid, "师尊", "Master")
-        g = reader_service.get_series_glossary(did)
-        assert g["series_id"] == sid
-        assert g["terms"][0]["term_original"] == "师尊"
-        assert g["terms"][0]["term_translation"] == "Master"
-
-    def test_no_series_gives_empty_glossary(self, isolated_db):
-        did = _drama(isolated_db)
-        assert reader_service.get_series_glossary(did) == {"drama_id": did, "series_id": None,
-                                                           "terms": []}
-
+class TestProgressNotes:
     def test_progress_round_trip(self, isolated_db):
         did = _drama(isolated_db)
         isolated_db.save_lines(did, _lines(50))

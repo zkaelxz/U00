@@ -303,11 +303,10 @@ class TestApi:
                                                   "expected_line_ids": ids}).status_code == 409
         assert client.post(f"{base}/lines/{after[0]}/delete",
                            json={"expected_line_ids": after}).status_code == 422
-        hist = client.get(f"{base}/history").json()
+        hist = client.get(f"/api/review/dramas/{did}/history").json()
         assert hist[0]["label"] == "before merge"
         r = client.post(f"{base}/history/{hist[0]['id']}/restore", json={"expected_line_ids": after})
         assert r.status_code == 200 and len(r.json()["line_ids"]) == 4
         assert client.get(f"{base}/resegment/preview").status_code == 200
-        assert client.get("/api/restructure/dramas/99999/history").status_code == 404
         assert client.post(f"{base}/merge", json={"line_ids": ids[:2], "expected_line_ids": ids,
                                                   "bogus": 1}).status_code == 422

@@ -28,7 +28,7 @@ from typing import List
 from fastapi import APIRouter, Path, Query, Request, Response
 from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
-                         GlossaryCatalogues, GlossaryDeleteResult, GlossaryImportRequest,
+                         GlossaryCatalogues, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
                          GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest,
@@ -59,15 +59,6 @@ def get_terms(drama_id: int = Path(ge=1)):
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_term(payload: GlossaryTermUpsert, drama_id: int = Path(ge=1)):
     return glossary_service.upsert_glossary_term(drama_id, payload.model_dump(exclude_unset=True))
-
-
-@router.delete("/dramas/{drama_id}/terms/{term_id}", dependencies=[require_permission("lines.edit")], response_model=GlossaryDeleteResult,
-               summary="Delete a glossary term (requires confirm=true)",
-               responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
-def delete_term(drama_id: int = Path(ge=1), term_id: int = Path(ge=1),
-                confirm: bool = Query(False)):
-    glossary_service.delete_glossary_term(drama_id, term_id, confirm=confirm)
-    return {"deleted": True}
 
 
 @router.post("/dramas/{drama_id}/terms/bulk-delete", dependencies=[require_permission("lines.edit")],
