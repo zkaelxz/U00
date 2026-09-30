@@ -297,6 +297,14 @@ class TestWorkflow:
                        "unins000.exe", "library.db", "upload-artifact"):
             assert needle in wf, needle
 
+    def test_smoke_test_covers_stop_and_clean_uninstall(self, wf):
+        # Stop ends the server's children (smoke_child.py joins its job);
+        # a /CLEAN uninstall removes Baihe's folders and nothing else.
+        for needle in ("--stop", "smoke_child.py", "outlived Stop", '"/CLEAN"',
+                       "notbaihe_smoke_clean", "sentinel.txt",
+                       "touched the first install's data folder"):
+            assert needle in wf, needle
+
     def test_dispatch_input_goes_through_env(self, wf):
         # Never pasted into a script (injection).
         assert "run: |" in wf
