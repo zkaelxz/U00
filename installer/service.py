@@ -855,16 +855,56 @@ class Services:
     """The commands, against a layout, a command runner and checks that
     tests replace."""
 
-    def __init__(self, layout: Layout, run, health=health_ok, sleep=time.sleep, source=None):
-        self.layout, self.run, self.health, self.sleep = layout, run, health, sleep
+    def __init__(self, layout: Layout, run, health=health_ok, port_check=port_answers,
+                 is_baihe=household_is_baihe, sleep=time.sleep, source=None):
+        self.layout, self.run = layout, run
+        self.health, self.port_check, self.is_baihe = health, port_check, is_baihe
+        self.sleep = sleep
         self.source = Path(source) if source else None
 
+    # -- remote-access state (the household port while it is on)
+
+    def remote_state(self) -> dict:
+        try:
+            data = json.loads(self.layout.state_file.read_text(encoding="utf-8"))
+            port = int(data.get("household_port", 0))
+            return {"household_port": port} if port else {}
+        except (OSError, ValueError, TypeError, AttributeError):
+            return {}
+
+    def _write_state(self, household_port: int) -> None:
+        if household_port:
+            self.layout.state_file.write_text(
+                json.dumps({"household_port": household_port}) + "\n", encoding="utf-8")
+        else:
+            self.layout.state_file.unlink(missing_ok=True)
+
+    def _write_app_xml(self, household_port: int) -> None:
+        allow = read_env_file(self.layout.env_file).get("BAIHE_API_ALLOW_KEY_WRITES", "") == "1"
+        self.layout.wrapper_xml(APP_SERVICE).write_text(
+            app_service_xml(self.layout, household_port, allow), encoding="utf-8")
+
+    def _checked_config(self, household_port) -> dict:
+        config = remote_access_config(read_env_file(self.layout.env_file), household_port)
+        config["caddyfile"] = render_caddyfile(
+            self.layout.template.read_text(encoding="utf-8"), config["domain"],
+            config["household_port"], self.layout.caddy_logs)
+        return config
+
+    def _rule_present(self) -> bool:
+        return self.run(firewall_show_command()).returncode == 0
+
+    def _household_up(self, config: dict) -> bool:
+        return wait_until(lambda: self.is_baihe(config["household_port"], config["domain"]),
+                          HOUSEHOLD_WAIT_SECONDS, sleep=self.sleep)
+
     def _swap_in_admin_files(self) -> list:
-        """Replaces helper\\ and service\\ in the admin folder with Setup's
-        fresh extraction (`source`), keeping what was there as *.old, and
-        records the two per-user folders. Returns the (new, old) pairs for
-        _restore or _discard. Refuses if another install on this PC owns
-        the service."""
+        """Replaces helper\\, service\\ and caddy\\ in the admin folder with
+        Setup's fresh extraction (`source`), keeping what was there as *.old,
+        and records the two per-user folders. Caddy's certificates, logs and
+        the remote-access state are not touched. Returns the (new, old)
+        pairs for _restore or _discard. Refuses if another install on this PC
+        owns the service."""
         lay = self.layout
         if self.source is None:
             raise ServiceError("`install` is run by Setup (it needs Setup's files).")
@@ -875,7 +915,8 @@ class Services:
             raise ServiceError(
                 f"Another Baihe Studio install on this PC ({old_config['install_root']}) runs "
                 "the background service. Uninstall it, or untick the service in this Setup.")
-        sources = {"helper": self.source / "helper", "service": self.source / "wrapper"}
+        sources = {"helper": self.source / "helper", "service": self.source / "wrapper",
+                   "caddy": self.source / "caddy"}
         for src in sources.values():
             if not src.is_dir():
                 raise ServiceError(f"Setup's files are incomplete: {src} is missing.")
@@ -909,22 +950,24 @@ class Services:
         for _, old in swapped:
             shutil.rmtree(old, ignore_errors=True)
 
-    def _create_service(self) -> bool:
+    def _create_service(self, name: str, start: str) -> bool:
         """Creates the service disabled if it doesn't exist, configures it,
         and only then sets its start type. Returns True if this call
         created it."""
-        created = query_state(APP_SERVICE, self.run) is None
+        wrapper = self.layout.wrapper(name)
+        created = query_state(name, self.run) is None
         if created:
-            _check(self.run(create_service_command(self.layout.wrapper)),
-                   f"Creating the {APP_SERVICE} service")
+            display = APP_DISPLAY_NAME if name == APP_SERVICE else CADDY_DISPLAY_NAME
+            _check(self.run(create_service_command(name, wrapper, display)),
+                   f"Creating the {name} service")
         try:
-            for cmd in configure_service_commands(self.layout.wrapper):
-                _check(self.run(cmd), f"Configuring the {APP_SERVICE} service")
-            _check(self.run([SC, "config", APP_SERVICE, "start=", "auto"]),
-                   f"Setting the {APP_SERVICE} service's start")
+            for cmd in configure_service_commands(name, wrapper):
+                _check(self.run(cmd), f"Configuring the {name} service")
+            _check(self.run([SC, "config", name, "start=", start]),
+                   f"Setting the {name} service's start")
         except ServiceError:
             if created:
-                self.run([SC, "delete", APP_SERVICE])
+                self.run([SC, "delete", name])
             raise
         return created
 
@@ -932,6 +975,9 @@ class Services:
         lay = self.layout
         for folder in (lay.root, lay.data):
             refuse_reparse_point(folder)
+        for folder in (lay.caddy_storage, lay.caddy_logs):
+            refuse_reparse_point(folder)
+            folder.mkdir(exist_ok=True)
         self.run.log("Granting folder permissions (the data folder can take a while).")
         for cmd, timeout in grant_commands(lay):
             _check(self.run(cmd, timeout=timeout), "Setting folder permissions")
@@ -942,11 +988,37 @@ class Services:
             raise ServiceError("Baihe Studio's service started, but http://127.0.0.1:8600/api/health "
                                "doesn't answer. Its log is in library\\logs\\service in the data folder.")
 
+    def _restart_app(self) -> None:
+        stop_service(APP_SERVICE, self.run, sleep=self.sleep)
+        self._start_and_wait()
+
+    def _turn_off_caddy(self) -> None:
+        """Disables Caddy before stopping it, so a stop that hangs never
+        leaves it set to start at boot, then removes its Caddyfile. Raises
+        after trying every step."""
+        errors = []
+        try:
+            if query_state(CADDY_SERVICE, self.run) is not None:
+                _check(self.run([SC, "config", CADDY_SERVICE, "start=", "disabled"]),
+                       "Disabling the Caddy service")
+        except Exception as e:
+            errors.append(f"disabling Caddy: {e}")
+        try:
+            stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
+        except Exception as e:
+            errors.append(f"stopping Caddy: {e}")
+        self.layout.caddyfile.unlink(missing_ok=True)
+        if errors:
+            raise ServiceError("Turning Caddy off didn't fully work (" + "; ".join(errors) + ").")
+
     def install(self) -> str:
-        """Seeds the admin folder, creates the service or refreshes it after
-        an update, and starts it. If anything fails, the admin files that
-        were there before are put back, a service this call created is
-        removed, and one that existed is started again (Setup stopped it)."""
+        """Seeds the admin folder, creates both services or refreshes them
+        after an update, and starts Baihe Studio's. Caddy is created
+        disabled and stays off unless the owner enabled remote access before,
+        its settings still pass and the household listener comes up. If
+        anything fails, the admin files that were there before are put back,
+        services this call created are removed, and ones that existed are
+        started again (Setup stopped them)."""
         lay = self.layout
         lay.check()
         problem = data_folder_contents_problem(lay.data)
@@ -954,58 +1026,102 @@ class Services:
             raise ServiceError(problem)
         if not lay.python_exe.is_file():
             raise ServiceError(f"Missing (run Setup again to repair the install): {lay.python_exe}")
+        caddy_was_running = query_state(CADDY_SERVICE, self.run) == "RUNNING"
+        stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         swapped = self._swap_in_admin_files()
-        created = False
+        created = []
         try:
-            missing = [str(p) for p in (lay.wrapper, lay.helper_python, lay.helper_script)
-                       if not p.is_file()]
+            missing = [str(p) for p in (lay.wrapper(APP_SERVICE), lay.wrapper(CADDY_SERVICE),
+                                        lay.caddy_exe, lay.template, lay.helper_python,
+                                        lay.helper_script) if not p.is_file()]
             if missing:
                 raise ServiceError("Setup's files are incomplete: " + ", ".join(missing))
-            allow = read_env_file(lay.env_file).get("BAIHE_API_ALLOW_KEY_WRITES", "") == "1"
-            lay.wrapper_xml.write_text(app_service_xml(lay, allow), encoding="utf-8")
-            created = self._create_service()
+            port = self.remote_state().get("household_port", 0)
+            config, note = None, ""
+            if port:
+                try:
+                    config = self._checked_config(port)
+                except ServiceError as e:
+                    note = f" Remote access was turned off: {e}"
+                    port = 0
+            self._write_app_xml(port)
+            lay.wrapper_xml(CADDY_SERVICE).write_text(caddy_service_xml(lay), encoding="utf-8")
+            # Caddy stays disabled here; it is set to start with Windows only
+            # once the household listener has answered.
+            for name, start in ((APP_SERVICE, "auto"), (CADDY_SERVICE, "disabled")):
+                if self._create_service(name, start):
+                    created.append(name)
             self._grant()
+            if not config:
+                self._write_state(0)
             self._start_and_wait()
+            if config and not self._household_up(config):
+                note = (" Remote access was turned off: Baihe Studio's household listener "
+                        "didn't start (its log is in library\\logs\\service in the data folder).")
+                port = 0
+                self._write_state(0)
+                self._write_app_xml(0)
+                self._restart_app()
+            elif config:
+                lay.caddyfile.write_text(config["caddyfile"], encoding="utf-8")
+                _check(self.run([SC, "config", CADDY_SERVICE, "start=", "auto"]),
+                       f"Setting the {CADDY_SERVICE} service's start")
+                start_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         except Exception:
-            self._roll_back(swapped, created)
+            self._roll_back(swapped, created, caddy_was_running)
             raise
         self._discard(swapped)
-        return "Baihe Studio's service is running and starts with Windows."
+        if port:
+            return "Baihe Studio's service is running; remote access is on." + note
+        return "Baihe Studio's service is running and starts with Windows." + note
 
-    def _roll_back(self, swapped, created: bool) -> None:
-        try:
-            stop_service(APP_SERVICE, self.run, sleep=self.sleep)
-        except Exception:
-            pass
-        if created:
+    def _roll_back(self, swapped, created: list, caddy_was_running: bool) -> None:
+        for name in (CADDY_SERVICE, APP_SERVICE):
             try:
-                delete_service(APP_SERVICE, self.run, sleep=self.sleep)
+                stop_service(name, self.run, sleep=self.sleep)
             except Exception:
                 pass
+        for name in (CADDY_SERVICE, APP_SERVICE):
+            if name in created:
+                try:
+                    delete_service(name, self.run, sleep=self.sleep)
+                except Exception:
+                    pass
         self._restore(swapped)
-        if not created:
-            try:
-                start_service(APP_SERVICE, self.run, sleep=self.sleep)
-            except Exception:
-                pass
+        for name in (APP_SERVICE, CADDY_SERVICE):
+            if name not in created and (name == APP_SERVICE or caddy_was_running):
+                try:
+                    if name == CADDY_SERVICE:
+                        # This run set it disabled until the household
+                        # listener answered; it was on before.
+                        self.run([SC, "config", name, "start=", "auto"])
+                    start_service(name, self.run, sleep=self.sleep)
+                except Exception:
+                    pass
 
     def stop(self) -> str:
+        stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
-        return "Stopped Baihe Studio's service."
+        return "Stopped Baihe Studio's services."
 
     def uninstall(self) -> str:
-        """Stops and removes the service, takes it off the per-user
-        folders, and removes the admin folder. If the service can't be
-        stopped, nothing is changed; if it can't be removed, it is started
-        again. The data folder's contents are left alone."""
+        """Stops and removes both services, takes BaiheStudio off the
+        per-user folders, and removes the admin folder (Caddy's certificates
+        and logs with it). If a service can't be stopped, nothing is
+        changed; if the app's can't be removed, it is started again. The
+        data folder's contents are left alone. A firewall rule the owner
+        added is reported, not removed: it names caddy.exe, which is gone."""
         lay = self.layout
         # Checked before anything changes, so a link is never found halfway.
         for folder in (lay.root, lay.data):
             refuse_reparse_point(folder)
+        rule = self._rule_present()
         was_running = query_state(APP_SERVICE, self.run) == "RUNNING"
+        stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         try:
+            delete_service(CADDY_SERVICE, self.run, sleep=self.sleep)
             delete_service(APP_SERVICE, self.run, sleep=self.sleep)
         except ServiceError:
             if was_running:
@@ -1020,17 +1136,118 @@ class Services:
                 result = self.run(cmd, timeout=timeout)
                 if result.returncode != 0:
                     problems.append(f"taking the service off {cmd[1]} (exit code {result.returncode})")
+        left = []
         if lay.admin.exists():
-            remove_admin_folder(lay.admin)
+            # Caddy can write to its two folders, so they go first, with
+            # rmtree, which removes a junction without following it; the
+            # walk in remove_admin_folder never goes where they pointed.
+            for folder in (lay.caddy_storage, lay.caddy_logs):
+                shutil.rmtree(folder, ignore_errors=True)
+            left = [str(f) for f in (lay.caddy_storage, lay.caddy_logs) if os.path.lexists(f)]
+            if not left:
+                remove_admin_folder(lay.admin)
+        errors = []
         if problems:
-            raise ServiceError("The service is removed, but " + " and ".join(problems)
-                               + " failed; its permission is still on that folder.")
-        return "Removed Baihe Studio's service."
+            errors.append("The services are removed, but " + " and ".join(problems)
+                          + " failed; its permission is still on that folder.")
+        if left:
+            errors.append(" and ".join(left) + f" couldn't be removed, so {lay.admin} is left "
+                          "in place; run uninstall again.")
+        if errors:
+            raise ServiceError(" ".join(errors))
+        message = "Removed Baihe Studio's services."
+        if rule:
+            message += (f" The firewall rule '{FIREWALL_RULE_NAME}' is still there; remove it with:"
+                        f"\n  {firewall_delete_command_text()}")
+        return message
+
+    def enable_remote(self, household_port: int = DEFAULT_HOUSEHOLD_PORT) -> str:
+        """The owner's opt-in: the household listener in Baihe Studio's
+        service (127.0.0.1 only), the Caddyfile and the Caddy service. Checks
+        everything first and changes nothing if remote access isn't
+        configured or the port is taken; undoes its changes if a step fails.
+        It adds no firewall rule: it says which one the owner adds."""
+        lay = self.layout
+        if query_state(APP_SERVICE, self.run) is None:
+            raise ServiceError("Baihe Studio isn't installed as a service. Run Setup again with "
+                               "\"Run Baihe Studio in the background\" ticked.")
+        missing = [str(p) for p in (lay.caddy_exe, lay.wrapper(CADDY_SERVICE), lay.template)
+                   if not p.is_file()]
+        if missing:
+            raise ServiceError("Missing (run Setup again to repair the install): "
+                               + ", ".join(missing))
+        config = self._checked_config(household_port)
+        port = config["household_port"]
+        if self.remote_state().get("household_port") != port and self.port_check(port):
+            raise ConfigRefused(f"Port {port} on this PC is already in use by another program; "
+                                "choose another with --household-port. Nothing was changed.")
+        try:
+            self._write_state(port)
+            self._write_app_xml(port)
+            self._restart_app()
+            if not self._household_up(config):
+                raise ServiceError(f"Baihe Studio's household listener doesn't answer on "
+                                   f"127.0.0.1:{port} (or what answers there isn't Baihe "
+                                   "Studio). Its log is in library\\logs\\service in the data "
+                                   "folder.")
+            lay.caddyfile.write_text(config["caddyfile"], encoding="utf-8")
+            lay.wrapper_xml(CADDY_SERVICE).write_text(caddy_service_xml(lay), encoding="utf-8")
+            self._create_service(CADDY_SERVICE, "auto")
+            self._grant()
+            start_service(CADDY_SERVICE, self.run, sleep=self.sleep)
+            if not wait_until(lambda: self.port_check(HTTPS_PORT), CADDY_WAIT_SECONDS,
+                              sleep=self.sleep):
+                raise ServiceError("Caddy started but doesn't answer on port 443 (is another "
+                                   "program using it?). Its log is in caddy-logs in "
+                                   f"%ProgramFiles%\\{ADMIN_FOLDER_NAME}.")
+        except Exception as failure:
+            try:
+                self.disable_remote()
+            except Exception as undo:
+                raise ServiceError(f"{failure} Undoing it also failed: {undo} Run "
+                                   "disable-remote again.") from failure
+            raise
+        return (f"Remote access is on for {config['domain']}: Caddy is running and forwards to "
+                f"Baihe's household listener on 127.0.0.1:{port}. Caddy will ask for its "
+                "certificate once your name points here and port 443 reaches this PC.\n"
+                + remote_reminder(lay, self._rule_present()))
+
+    def disable_remote(self) -> str:
+        """Turns household access off: Caddy disabled, then stopped, and
+        Baihe Studio's service restarted without the household listener.
+        Reports a failure after doing every step it can."""
+        errors = []
+        try:
+            self._turn_off_caddy()
+        except ServiceError as e:
+            errors.append(str(e))
+        self._write_state(0)
+        if query_state(APP_SERVICE, self.run) is not None:
+            self._write_app_xml(0)
+            try:
+                self._restart_app()
+            except ServiceError as e:
+                errors.append(str(e))
+        if errors:
+            raise ServiceError(" ".join(errors))
+        message = "Remote access is off: Caddy is stopped and disabled."
+        if self._rule_present():
+            message += (f" The firewall rule '{FIREWALL_RULE_NAME}' is still there; remove it with:"
+                        f"\n  {firewall_delete_command_text()}")
+        return message
 
     def status(self) -> str:
-        state = query_state(APP_SERVICE, self.run)
-        start = query_start_type(APP_SERVICE, self.run) if state else None
-        return f"{APP_SERVICE}: {state or 'not installed'}" + (f", start {start}" if start else "")
+        lines = []
+        for name in (APP_SERVICE, CADDY_SERVICE):
+            state = query_state(name, self.run)
+            start = query_start_type(name, self.run) if state else None
+            lines.append(f"{name}: {state or 'not installed'}"
+                         + (f", start {start}" if start else ""))
+        port = self.remote_state().get("household_port")
+        lines.append(f"Remote access: {'on, household port ' + str(port) if port else 'off'}")
+        lines.append(f"Firewall rule '{FIREWALL_RULE_NAME}': "
+                     + ("present" if self._rule_present() else "none (this script never adds it)"))
+        return "\n".join(lines)
 
 
 def build_services(args) -> Services:
@@ -1071,10 +1288,13 @@ def main(argv=None, services=None, admin=None) -> int:
     parser.add_argument("--install-root", help="the per-user install folder (Setup)")
     parser.add_argument("--data-dir", help="the data folder (Setup)")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("install", help="create or refresh the service and start it")
-    sub.add_parser("uninstall", help="stop and remove the service and the admin folder")
-    sub.add_parser("stop", help="stop the service")
-    sub.add_parser("status", help="show the service's state")
+    sub.add_parser("install", help="create or refresh both services and start Baihe Studio's")
+    sub.add_parser("uninstall", help="stop and remove both services and the admin folder")
+    sub.add_parser("stop", help="stop both services")
+    enable = sub.add_parser("enable-remote", help="turn household access through Caddy on")
+    enable.add_argument("--household-port", type=int, default=DEFAULT_HOUSEHOLD_PORT)
+    sub.add_parser("disable-remote", help="turn household access off")
+    sub.add_parser("status", help="show both services' state")
     args = parser.parse_args(argv)
 
     if args.command != "status" and not (is_admin() if admin is None else admin):
@@ -1094,7 +1314,15 @@ def main(argv=None, services=None, admin=None) -> int:
     if hasattr(run, "log"):
         run.log(f"service.py {args.command}")
     try:
-        message = getattr(services, args.command)()
+        if args.command == "enable-remote":
+            message = services.enable_remote(args.household_port)
+        else:
+            message = getattr(services, args.command.replace("-", "_"))()
+    except ConfigRefused as e:
+        if hasattr(run, "log"):
+            run.log(f"refused: {e}")
+        print(str(e), file=sys.stderr)
+        return EXIT_REFUSED
     except (ServiceError, OSError, subprocess.SubprocessError) as e:
         if hasattr(run, "log"):
             run.log(f"failed: {e}")

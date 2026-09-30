@@ -584,14 +584,21 @@ and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
 
 `enable-remote [--household-port 8610]` (administrator prompt) refuses, exit
 code 2 and nothing changed, unless the data folder's `.env` has the Google
-sign-in settings and an `https://` `BAIHE_PUBLIC_URL` naming a DNS name on the
-default port, and the port is free. Then it starts the household listener (in
-the `BaiheStudio` service, loopback), writes the Caddyfile from the template
-with the domain and port filled in (no secret goes in it), and starts Caddy;
-any failure turns it all off again. `disable-remote` undoes it. An update
-keeps remote access on if its settings still pass, else turns it off and says
-so. Uninstall removes both services and Caddy's folders and tells the owner
-the command to delete a rule they added.
+sign-in settings and a `BAIHE_PUBLIC_URL` that is just `https://` and an ASCII
+DNS name on the default port, and the port is free and not one of Baihe's own
+(`settings_service.baihe_own_ports()`, and 8601). The server no longer refuses
+to start over a bad household setting (it skips the household listener and
+keeps the PC one), so these checks run first. Then it sets the household
+port in the `BaiheStudio` service definition (the only place it can come
+from: every other `BAIHE_API_*` value is blanked), restarts the service,
+waits for the household listener to answer `/api/meta` for the public name,
+writes the Caddyfile from the template with the domain and port filled in (no
+secret goes in it), and starts Caddy; any failure turns it all off again.
+`disable-remote` undoes it. An update keeps remote access on if its settings
+still pass and the household listener comes back, else turns it off and says
+so. Uninstall removes both services and Caddy's folders (with `rmtree` before
+the rest of the admin folder, so a link Caddy made in them is never followed)
+and tells the owner the command to delete a rule they added.
 
 *Reproducible Caddy build.* The same `go build -trimpath -buildvcs=false`
 gives `e09cc7eb...` on Linux and on Windows only from the same source bytes:
