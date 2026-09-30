@@ -77,7 +77,8 @@ def check_series(adapter, row: dict) -> list:
     return new
 
 
-def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = False) -> dict:
+def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = False,
+                    allow_browser: bool = True) -> dict:
     """One pass over every tracked series. `adapter_factory(name)` is
     injectable for tests; defaults to the registry.
 
@@ -85,7 +86,10 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
     scheduler): the cycle is claimed first (store.claim_check_cycle), and a
     cycle that can't claim returns {"skipped": True, ...} without checking
     anything. A `scheduled` cycle is also skipped when another process
-    finished one within the interval since this one was found due."""
+    finished one within the interval since this one was found due.
+
+    `allow_browser=False` (a manual check from another device) keeps every
+    adapter from launching a browser on this PC; scheduled cycles are local."""
     now = time.time()
     min_gap = float(store.get_setting("check_interval_hours") or 0) * 3600 if scheduled else 0.0
     token = store.claim_check_cycle(now, CYCLE_LEASE_SECONDS, min_gap)
@@ -95,12 +99,12 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
             background_jobs.set_result(job_id, summary)
         return summary
     try:
-        return _run_claimed_cycle(job_id, adapter_factory)
+        return _run_claimed_cycle(job_id, adapter_factory, allow_browser)
     finally:
         store.release_check_cycle(token)
 
 
-def _run_claimed_cycle(job_id, adapter_factory) -> dict:
+def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
     summary = {"checked": 0, "new": 0, "errors": {}, "queued": []}
@@ -115,6 +119,7 @@ def _run_claimed_cycle(job_id, adapter_factory) -> dict:
             continue
         try:
             adapter = factory(row["source"])
+            adapter.allow_browser = allow_browser and adapter.allow_browser
             new = check_series(adapter, row)
         except SourceError as e:
             summary["errors"][row["title"]] = f"{e.reason.value}: {e}"
@@ -145,9 +150,9 @@ def check_due(now: float = None) -> bool:
     return now - float(last) >= hours * 3600
 
 
-def start_check_now(scheduled: bool = False) -> bool:
+def start_check_now(scheduled: bool = False, allow_browser: bool = True) -> bool:
     return background_jobs.start_job(CHECK_JOB_ID, run_check_cycle, CHECK_JOB_ID,
-                                     scheduled=scheduled,
+                                     scheduled=scheduled, allow_browser=allow_browser,
                                      description="Checking tracked series for new chapters")
 
 

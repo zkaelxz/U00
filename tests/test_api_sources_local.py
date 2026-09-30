@@ -141,6 +141,43 @@ def test_check_now_announces_new_chapters(client, fakes):
     assert [n["chapter_id"] for n in notes] == ["c2"]
 
 
+def _browser_flag_seen(client, fakes, monkeypatch, local):
+    seen = []
+    fakes["alpha"] = cls = _make("alpha")
+    orig = cls.get_chapters
+
+    def spy(self, series_id):
+        seen.append(self.allow_browser)
+        return orig(self, series_id)
+    monkeypatch.setattr(cls, "get_chapters", spy)
+    store.track_series("alpha", "s1", "Alpha")
+    monkeypatch.setattr(api_auth, "is_local_request", lambda request: local)
+    monkeypatch.setattr("api.routers.sources_catalog_routes.is_local_request", lambda request: local)
+    assert client.post("/api/sources/check-now").status_code == 200
+    _result(client, chapter_check.CHECK_JOB_ID)
+    return seen
+
+
+def test_check_now_local_allows_browser(client, fakes, monkeypatch):
+    assert _browser_flag_seen(client, fakes, monkeypatch, True) == [True]
+
+
+def test_check_now_non_local_disallows_browser(client, fakes, monkeypatch):
+    assert _browser_flag_seen(client, fakes, monkeypatch, False) == [False]
+
+
+def test_fanjiao_check_from_non_local_never_captures(isolated_db):
+    from sources.adapters.fanjiao import FanjiaoSource
+    from sources.models import SourceError
+
+    def capture(url):
+        raise AssertionError("browser launched")
+    ad = FanjiaoSource(capture=capture, transport=ScriptedTransport({}))
+    ad.allow_browser = False
+    with pytest.raises(SourceError):
+        ad.get_chapters("123")
+
+
 def test_check_now_second_start_is_409(client, fakes):
     gate = threading.Event()
     fakes["alpha"] = _make("alpha", gate=gate)

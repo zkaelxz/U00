@@ -39,8 +39,9 @@ def post_search(body: SourcesSearchRequest):
 @router.post("/{name}/series", dependencies=[require_permission("library.read")],
              response_model=SourcesJobStarted,
              summary="Job: one series' info and chapter list from a source", responses=_ERRS)
-def post_series(body: SourcesSeriesRequest, name: str = Path(min_length=1, max_length=60)):
-    return svc.start_series(name, body.series_id)
+def post_series(request: Request, body: SourcesSeriesRequest,
+                name: str = Path(min_length=1, max_length=60)):
+    return svc.start_series(name, body.series_id, local=is_local_request(request))
 
 
 @router.get("/jobs/{job_id}/result", dependencies=[require_permission("library.read")],

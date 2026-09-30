@@ -133,6 +133,7 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
                               ContentType.MANHWA.value):
             p.notes.append(f"{p.content_type} -- imports into Scanlate")
             p.content_type = COMIC
+        adapter.allow_browser = allow_browser
         parsed = adapter.parse_url(url)
         if parsed and parsed[0] == "series":
             p.series_id = parsed[1]

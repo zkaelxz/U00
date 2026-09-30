@@ -12,7 +12,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import local_only, require_permission
+from api.auth import is_local_request, local_only, require_permission
 from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
                          SourceCacheStats, SourceDetail, SourceHealth, SourceNotification,
                          SourceProfileDomain, SourceProfileRollbackRequest,
@@ -95,8 +95,8 @@ def post_tracked_drama(payload: SourceTrackedDramaRequest):
 @router.post("/check-now", dependencies=[require_permission("sources.import")], response_model=SourcesJobStarted,
              summary="Job: check every tracked series for new chapters now (409 if one is running)",
              responses={**_ERR, 409: {"model": ErrorResponse}})
-def post_check_now():
-    return tracking.start_check_now()
+def post_check_now(request: Request):
+    return tracking.start_check_now(local=is_local_request(request))
 
 
 @router.post("/notifications/{notification_id}/dismiss", dependencies=[require_permission("sources.import")], response_model=SourceNotification,

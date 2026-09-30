@@ -34,14 +34,14 @@ COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 
 
-def start_check_now() -> dict:
-    """{job_id}. 422 when nothing is tracked; 409 while a check runs."""
+def start_check_now(local: bool = True) -> dict:
+    """{job_id}. `local` False: no adapter opens a browser. 422 when nothing is tracked; 409 while a check runs."""
     if not store.list_tracked_series():
         raise InvalidInputError("No series is tracked yet. Open a series and track it first.")
     status = background_jobs.get_status(CHECK_JOB_ID)
     if status and status.get("status") in ("running", "queued"):
         raise ConflictError("A check is already running.", details={"job_id": CHECK_JOB_ID})
-    if not chapter_check.start_check_now():
+    if not chapter_check.start_check_now(allow_browser=local):
         raise ConflictError("A check is already running.", details={"job_id": CHECK_JOB_ID})
     return {"job_id": CHECK_JOB_ID}
 

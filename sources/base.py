@@ -85,6 +85,10 @@ class SourceAdapter:
     #: switch (usually a cookie) and this adapter knows how to send it.
     #: The Sources tab then shows a per-source toggle for it.
     supports_adult_toggle = False
+    #: False for a request not from this PC (the API sets it per job):
+    #: an adapter that opens a browser inside get_series/get_chapters
+    #: must refuse instead (docs/remote-access-decision.md: "no browser").
+    allow_browser = True
 
     def __init__(self, client: SourceClient = None, allow_adult: bool = None, **client_kwargs):
         if client is None:

@@ -319,3 +319,30 @@ def test_refused_response_with_an_unmapped_status_is_a_500_not_a_keyerror():
     exc.status = 418
     view = svc._error_view(exc, "alpha")
     assert view["status"] == 500 and view["code"] == svc.ServiceError.code
+
+
+@pytest.mark.parametrize("local", [True, False])
+def test_series_job_passes_local_as_allow_browser(fakes, local):
+    """Step 113: a request not from this PC must not open a browser, so the
+    series job tells the adapter (docs/remote-access-decision.md)."""
+    seen = []
+    Fake = _make("alpha")
+    real = Fake.get_series
+
+    def get_series(self, series_id):
+        seen.append(self.allow_browser)
+        return real(self, series_id)
+
+    Fake.get_series = get_series
+    fakes["alpha"] = Fake
+    svc.start_series("alpha", "s1", local=local)
+    assert _wait("sources_series_alpha")["status"] == "done"
+    assert seen == [local]
+
+
+def test_purchase_hidden_is_not_the_adult_toggle():
+    view = svc._error_view(ContentHidden("paid, open it in the app",
+                                         FailureReason.PURCHASE_REQUIRED), "fanjiao")
+    assert view["status"] == 400
+    assert view["details"] == {"reason": "PURCHASE_REQUIRED"}
+    assert "open it in the app" in view["message"]
