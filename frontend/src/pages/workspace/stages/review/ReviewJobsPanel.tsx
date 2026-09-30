@@ -105,8 +105,8 @@ interface Props {
 // text, flags and findings never stay stale until a hard refresh.
 export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount }: Props) {
   const { onJobDone, drama } = useStage()
-  const [jobId, setJobId, runKey] = useJobRun()
-  useReattachJob(reviewJobIds(dramaId), jobId, setJobId)
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob(reviewJobIds(dramaId), adoptJob)
   const [error, setError] = useState<unknown>(null)
   const [fix, setFix] = useState<FixForm>(EMPTY_FIX_FORM)
   const [checks, setChecks] = useState<CheckForm>(EMPTY_CHECK_FORM)

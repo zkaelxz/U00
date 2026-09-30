@@ -288,8 +288,8 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
   const [error, setError] = useState<unknown>(null)
   const [jobError, setJobError] = useState<unknown>(null)
   const [extractFor, setExtractFor] = useState<string | null>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
-  useReattachJob([voiceCloneJobId(dramaId)], jobId, setJobId)
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob([voiceCloneJobId(dramaId)], adoptJob)
   const [candReload, setCandReload] = useState(0)
 
   useEffect(() => {

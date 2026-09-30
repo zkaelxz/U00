@@ -7,7 +7,7 @@ import { withExportLines, withTranslateLines } from './stageLineMocks'
 
 const job = (id: string, status: string) => ({
   job_id: id, status, progress: 0.4, message: 'working', error: null, description: null,
-  gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1,
+  gpu_touching: false, started_at: 1, finished_at: null, updated_at: Date.now() / 1000,
 })
 
 const goToStage = (page: Page, name: RegExp) =>
@@ -47,6 +47,15 @@ test('a translate job keeps showing after leaving the stage and coming back', as
 test('a finished or missing translate job does not block Start on a fresh visit', async ({ page }) => {
   await page.route('**/api/jobs/translate_1', (route) =>
     route.fulfill({ json: { ...job('translate_1', 'done'), finished_at: 2 } }))
+  await withTranslateLines(page)
+  await page.goto('/#/drama/1/translate')
+  await expect(page.getByRole('region', { name: 'Translate run' }).getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
+  await expect(page.getByTestId('job-status')).toHaveCount(0)
+})
+
+test('a "running" record left by a crashed app does not lock Start', async ({ page }) => {
+  await page.route('**/api/jobs/translate_1', (route) =>
+    route.fulfill({ json: { ...job('translate_1', 'running'), updated_at: Date.now() / 1000 - 3600 } }))
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   await expect(page.getByRole('region', { name: 'Translate run' }).getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()

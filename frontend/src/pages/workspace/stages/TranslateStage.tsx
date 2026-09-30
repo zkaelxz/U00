@@ -625,8 +625,8 @@ export default function TranslateStage() {
   const { dramaId, onJobDone } = useStage()
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
-  useReattachJob(translateJobIds(dramaId), jobId, setJobId)
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob(translateJobIds(dramaId), adoptJob)
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {

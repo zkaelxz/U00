@@ -31,7 +31,7 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [reloads, setReloads] = useState(0)
   // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
   const [modeVersion, setModeVersion] = useState(0)
@@ -53,7 +53,7 @@ export default function SourceStage() {
   }, [dramaId, reloads])
 
   // Reattach to a run started before this stage was left/reloaded.
-  useReattachJob(sourceJobIds(dramaId), jobId, setJobId)
+  useReattachJob(sourceJobIds(dramaId), adoptJob)
 
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,

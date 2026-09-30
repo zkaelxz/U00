@@ -34,8 +34,8 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
   const [model, setModel] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
-  useReattachJob([resegmentJobId(dramaId)], jobId, setJobId)
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob([resegmentJobId(dramaId)], adoptJob)
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
     onDone: () => {

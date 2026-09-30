@@ -74,11 +74,11 @@ interface JobProps {
 
 function MediaJobSection({ title, label, kind, start, note, testId, children }: JobProps) {
   const { dramaId } = useStage()
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [error, setError] = useState<unknown>(null)
   const [artifact, setArtifact] = useState<ArtifactInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  useReattachJob([mediaExportJobId(dramaId, kind)], jobId, setJobId)
+  useReattachJob([mediaExportJobId(dramaId, kind)], adoptJob)
 
   // A file exported on an earlier visit stays downloadable; none yet (404) shows nothing.
   useEffect(() => {

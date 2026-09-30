@@ -28,8 +28,8 @@ export function AiExtrasSenseVoice({ dramaId, reloads }: Props) {
   const { onJobDone } = useStage()
   const [tags, setTags] = useState<SenseVoiceTags | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
-  useReattachJob([senseVoiceJobId(dramaId)], jobId, setJobId)
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob([senseVoiceJobId(dramaId)], adoptJob)
   const [loadKey, setLoadKey] = useState(0)
   const reload = useCallback(() => setLoadKey((n) => n + 1), [])
   const { job, done, error: pollError } = useJob(jobId, {

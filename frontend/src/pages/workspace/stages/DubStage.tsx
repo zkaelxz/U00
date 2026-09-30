@@ -42,8 +42,8 @@ export default function DubStage() {
   const [pacing, setPacing] = useState<DubPacing | null>(null)
   const [form, setForm] = useState<DubForm | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
-  useReattachJob(dubJobIds(dramaId), jobId, setJobId)
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob(dubJobIds(dramaId), adoptJob)
   const [reloads, setReloads] = useState(0)
   // Lines with source text and no English (workflow progress). Advisory only:
   // if it cannot be loaded, the narration warning is simply not shown.
