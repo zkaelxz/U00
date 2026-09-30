@@ -292,9 +292,11 @@ def cmd_diarize(args):
     are kept unless --overwrite-manual is given."""
     import diarize
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
-    hf_token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+    hf_token = (args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+                or settings_service.resolve_key("hf_token"))
     if not hf_token:
-        print("Needs a Hugging Face token: --hf-token or the HF_TOKEN environment variable.")
+        print("Needs a Hugging Face token: --hf-token, the HF_TOKEN environment variable, "
+              "or one saved in Settings.")
         return
     try:
         num_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
