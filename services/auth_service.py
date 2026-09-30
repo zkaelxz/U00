@@ -458,6 +458,18 @@ def revoke_all_for_user(user_id: int, actor_id=None) -> int:
     return n
 
 
+def sweep_stale_sessions(now: float = None) -> int:
+    """Startup clean-up: deletes expired, idle-expired and deactivated users'
+    sessions (and with them their CSRF hashes), which otherwise stay in the
+    table until presented. Login transactions are in memory only, so a
+    restart has none left over. Returns how many sessions were removed."""
+    now = time.time() if now is None else now
+    n = db.auth_delete_stale_sessions(now, now - IDLE_TIMEOUT_SECONDS)
+    if n:
+        write_audit(None, "session.sweep", f"{n} stale")
+    return n
+
+
 def list_sessions(user_id: int) -> list:
     """No raw tokens and no hashes."""
     return db.auth_list_sessions(user_id)

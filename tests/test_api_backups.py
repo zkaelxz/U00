@@ -35,7 +35,8 @@ ROUTES = {
     ("GET", "/api/backups/settings"), ("POST", "/api/backups/settings"),
     ("POST", "/api/backups/now"), ("GET", "/api/backups/snapshot"),
     ("GET", "/api/backups/snapshot/dramas"), ("POST", "/api/backups/snapshot/restore-drama"),
-    ("POST", "/api/backups/snapshot/delete"),
+    ("POST", "/api/backups/snapshot/delete"), ("POST", "/api/backups/import/list"),
+    ("POST", "/api/backups/import"),
 }
 
 

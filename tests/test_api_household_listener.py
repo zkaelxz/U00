@@ -4,10 +4,10 @@ PC's own: auth off, loopback only, docs, background services) and the
 household app on BAIHE_API_HOUSEHOLD_PORT (sign-in on, no docs, no
 background services, and nothing on it is ever "the PC").
 
-TestClient requests here are direct loopback ones (peer 127.0.0.1, loopback
-Host, no proxy headers): exactly what a reverse proxy that strips its
-forwarding headers would send, which the household app must still treat as
-remote.
+TestClient requests here are direct loopback ones (peer 127.0.0.1, no proxy
+headers; to the household app with the BAIHE_PUBLIC_URL Host, the only one it
+answers): exactly what a reverse proxy that strips its forwarding headers
+would send, which the household app must still treat as remote.
 """
 
 import asyncio
@@ -33,7 +33,12 @@ from services import auth_service
 from services.service_errors import ForbiddenError
 
 HOUSEHOLD_PORT = 8610
-ADMIN = ApiSettings(household_port=HOUSEHOLD_PORT, serve_frontend=False)
+PUBLIC_HOST = "baihe.example.com"
+SIGN_IN = {"google_client_id": "cid", "google_client_secret": "s3cr3t-value",
+           "public_url": f"https://{PUBLIC_HOST}"}
+SIGN_IN_ENV = {"BAIHE_GOOGLE_CLIENT_ID": "cid", "BAIHE_GOOGLE_CLIENT_SECRET": "s3cr3t-value",
+               "BAIHE_PUBLIC_URL": f"https://{PUBLIC_HOST}"}
+ADMIN = ApiSettings(household_port=HOUSEHOLD_PORT, serve_frontend=False, **SIGN_IN)
 
 
 def _admin_app():
@@ -44,17 +49,18 @@ def _household_app():
     return create_app(ADMIN, listener="household")
 
 
-def _client(app, port):
-    return TestClient(app, base_url=f"http://127.0.0.1:{port}", client=("127.0.0.1", 5000),
+def _client(app, base_url):
+    return TestClient(app, base_url=base_url, client=("127.0.0.1", 5000),
                       raise_server_exceptions=False)
 
 
 def _admin_client(app=None):
-    return _client(app or _admin_app(), 8600)
+    return _client(app or _admin_app(), "http://127.0.0.1:8600")
 
 
 def _household_client(app=None):
-    return _client(app or _household_app(), HOUSEHOLD_PORT)
+    # What the reverse proxy on this PC passes on: plain http, public Host.
+    return _client(app or _household_app(), f"http://{PUBLIC_HOST}")
 
 
 def _admin_session():
@@ -89,7 +95,7 @@ class TestSettings:
 
     def test_household_settings_are_derived_and_locked_down(self):
         admin = ApiSettings(household_port=HOUSEHOLD_PORT, allow_key_writes=True,
-                            background_services=True, cookie_secure=False)
+                            background_services=True, cookie_secure=False, **SIGN_IN)
         h = household_settings(admin)
         assert (h.host, h.port) == ("127.0.0.1", HOUSEHOLD_PORT)
         assert h.auth_enabled and h.is_household and not h.background_services
@@ -98,14 +104,19 @@ class TestSettings:
         assert admin.listener == "admin" and not admin.is_household
 
     @pytest.mark.parametrize("settings", [
-        ApiSettings(household_port=8600),                               # the admin port
-        ApiSettings(port=8700, household_port=8700),
-        ApiSettings(household_port=8756),                               # extension bridge
-        ApiSettings(host="0.0.0.0", auth_mode="on", household_port=8610),   # not loopback
-        ApiSettings(host="192.168.1.5", auth_mode="on", household_port=8610),
-        ApiSettings(auth_mode="on", household_port=8610),               # admin must be off
-        ApiSettings(environment="development", household_port=8610),
-        ApiSettings(household_port=0),
+        ApiSettings(household_port=8600, **SIGN_IN),                    # the admin port
+        ApiSettings(port=8700, household_port=8700, **SIGN_IN),
+        ApiSettings(household_port=8756, **SIGN_IN),                    # extension bridge
+        ApiSettings(host="0.0.0.0", auth_mode="on", household_port=8610, **SIGN_IN),
+        ApiSettings(host="192.168.1.5", auth_mode="on", household_port=8610, **SIGN_IN),
+        ApiSettings(auth_mode="on", household_port=8610, **SIGN_IN),    # admin must be off
+        ApiSettings(environment="development", household_port=8610, **SIGN_IN),
+        ApiSettings(household_port=0, **SIGN_IN),
+        ApiSettings(household_port=8610),                               # no sign-in
+        ApiSettings(household_port=8610, **{**SIGN_IN, "google_client_id": ""}),
+        ApiSettings(household_port=8610, **{**SIGN_IN, "google_client_secret": ""}),
+        ApiSettings(household_port=8610, **{**SIGN_IN, "public_url": ""}),
+        ApiSettings(household_port=8610, **{**SIGN_IN, "public_url": "https://faß.example"}),
     ])
     def test_bind_safety_refusals(self, settings):
         with pytest.raises(ValueError):
@@ -115,7 +126,8 @@ class TestSettings:
 
     @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
     def test_loopback_hosts_allowed(self, host):
-        check_household_bind_safety(ApiSettings(host=host, household_port=HOUSEHOLD_PORT))
+        check_household_bind_safety(ApiSettings(host=host, household_port=HOUSEHOLD_PORT,
+                                                **SIGN_IN))
 
     def test_admin_bind_safety_unchanged(self):
         # Same semantics as before for the admin listener, household set or not.
@@ -413,6 +425,272 @@ class TestDocsAndAdmin:
         assert calls == [1]
 
 
+# --- Host allowlist and security headers (household only) ------------------------
+
+def _gate(public_url=f"https://{PUBLIC_HOST}"):
+    """HouseholdGate around an app that records whether it was reached and
+    answers with its own CSP (a route that sets a stricter one keeps it)."""
+    reached = []
+
+    async def inner(scope, receive, send):
+        reached.append(scope["type"])
+        if scope["type"] == "http":
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-security-policy", b"default-src 'none'")]})
+            await send({"type": "http.response.body", "body": b"ok"})
+    return api_auth.HouseholdGate(inner, public_url=public_url), reached
+
+
+def _raw(app, headers, scope_type="http", client=("127.0.0.1", 5000), scheme="http"):
+    scope = {"type": scope_type, "method": "GET", "path": "/api/health",
+             "raw_path": b"/api/health", "query_string": b"", "headers": headers,
+             "client": client, "server": ("127.0.0.1", HOUSEHOLD_PORT), "scheme": scheme,
+             "http_version": "1.1", "root_path": "", "asgi": {"version": "3.0"}}
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+    asyncio.run(app(scope, receive, send))
+    return sent
+
+
+def _start_headers(sent):
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    return start["status"], {k.decode().lower(): v.decode() for k, v in start["headers"]}
+
+
+SECURITY_HEADER_NAMES = ("content-security-policy", "x-content-type-options",
+                         "x-frame-options", "referrer-policy", "permissions-policy")
+
+
+class TestHostAllowlist:
+    @pytest.mark.parametrize("host", [PUBLIC_HOST, "BAIHE.Example.COM", f"{PUBLIC_HOST}.",
+                                      f"{PUBLIC_HOST}:443", f"{PUBLIC_HOST.upper()}.:443"])
+    def test_public_host_accepted(self, isolated_db, host):
+        r = _household_client().get("/api/health", headers={"Host": host})
+        assert r.status_code == 200, host
+
+    @pytest.mark.parametrize("host", [
+        "evil.example", f"{PUBLIC_HOST}.evil.example", f"evil.{PUBLIC_HOST}",
+        "127.0.0.1", f"127.0.0.1:{HOUSEHOLD_PORT}", "localhost", f"[::1]:{HOUSEHOLD_PORT}",
+        f"{PUBLIC_HOST}:80", f"{PUBLIC_HOST}:8443", f"{PUBLIC_HOST}:", f"{PUBLIC_HOST}:abc",
+        f"{PUBLIC_HOST}:99999", f"{PUBLIC_HOST}..", f"user@{PUBLIC_HOST}",
+        f"{PUBLIC_HOST}/x", "", "[baihe]"])
+    def test_other_hosts_refused_before_routing(self, isolated_db, monkeypatch, host):
+        from services import settings_service
+        calls = []
+        monkeypatch.setattr(settings_service, "set_settings", lambda *a, **k: calls.append(1))
+        c = _household_client()
+        s = _admin_session()
+        for method, path in (("GET", "/api/health"), ("GET", "/api/meta"),
+                             ("GET", "/api/library/dramas"), ("GET", "/"),
+                             ("POST", "/api/settings")):
+            r = c.request(method, path, headers=_h(s, Host=host),
+                          **({"json": {}} if method == "POST" else {}))
+            assert r.status_code == 400, (host, path, r.status_code)
+            assert r.json() == {"error": {"code": "invalid_host", "message": "Unknown host."}}
+            assert all(n in r.headers for n in SECURITY_HEADER_NAMES)
+        assert calls == []
+
+    def test_x_forwarded_host_ignored(self, isolated_db):
+        c = _household_client()
+        r = c.get("/api/health", headers={"Host": "evil.example",
+                                          "X-Forwarded-Host": PUBLIC_HOST})
+        assert r.status_code == 400
+        r = c.get("/api/health", headers={"X-Forwarded-Host": "evil.example"})
+        assert r.status_code == 200
+
+    def test_missing_or_repeated_host_refused(self):
+        gate, reached = _gate()
+        for headers in ([], [(b"host", PUBLIC_HOST.encode())] * 2,
+                        [(b"host", PUBLIC_HOST.encode()), (b"host", b"evil.example")]):
+            status, _h2 = _start_headers(_raw(gate, headers))
+            assert status == 400
+        assert reached == []
+        status, _h2 = _start_headers(_raw(gate, [(b"host", PUBLIC_HOST.encode())]))
+        assert status == 200 and reached == ["http"]
+
+    def test_websocket_with_other_host_closed(self):
+        gate, reached = _gate()
+        sent = _raw(gate, [(b"host", b"evil.example")], scope_type="websocket")
+        assert sent == [{"type": "websocket.close", "code": 1008}] and reached == []
+
+    @pytest.mark.parametrize("public_url,ok,bad", [
+        ("https://[2001:db8::1]", ["[2001:db8::1]", "[2001:DB8:0::1]:443"],
+         ["[2001:db8::2]", "2001:db8::1", "[2001:db8::1]:80", "[::1]"]),
+        (f"https://{PUBLIC_HOST}:8443", [f"{PUBLIC_HOST}:8443", f"{PUBLIC_HOST}.:8443"],
+         [PUBLIC_HOST, f"{PUBLIC_HOST}:443"]),
+        ("https://Baihe.Example.com.", [PUBLIC_HOST, f"{PUBLIC_HOST}."], ["example.com"]),
+        ("https://xn--bcher-kva.example", ["xn--bcher-kva.example", "XN--BCHER-KVA.example."],
+         ["bucher.example", "bücher.example"]),
+        ("https://xn--fa-hia.example", ["xn--fa-hia.example"], ["fass.example", "faß.example"]),
+    ])
+    def test_public_url_forms(self, public_url, ok, bad):
+        gate, _reached = _gate(public_url)
+        for host in ok:
+            assert _start_headers(_raw(gate, [(b"host", host.encode())]))[0] == 200, host
+        for host in bad:
+            assert _start_headers(_raw(gate, [(b"host", host.encode())]))[0] == 400, host
+
+    def test_non_ascii_public_url_refused_at_startup(self):
+        """Python's IDNA 2003 codec turns faß into fass, but browsers send
+        xn--fa-hia: a Unicode name must be given in its punycode form."""
+        unicode_url = ApiSettings(household_port=HOUSEHOLD_PORT,
+                                  **{**SIGN_IN, "public_url": "https://faß.example"})
+        with pytest.raises(ValueError, match="punycode"):
+            check_household_bind_safety(unicode_url)
+        check_household_bind_safety(ApiSettings(
+            household_port=HOUSEHOLD_PORT,
+            **{**SIGN_IN, "public_url": "https://xn--fa-hia.example"}))
+        # Reached without the startup check, the gate still answers no Host.
+        gate, reached = _gate("https://faß.example")
+        for host in ("fass.example", "xn--fa-hia.example", "faß.example"):
+            assert _start_headers(_raw(gate, [(b"host", host.encode())]))[0] == 400, host
+        assert reached == []
+
+    def test_no_public_url_refuses_everything(self):
+        gate, reached = _gate("")
+        assert _start_headers(_raw(gate, [(b"host", b"localhost")]))[0] == 400
+        assert reached == []
+
+    @pytest.mark.parametrize("host", ["127.0.0.1:8600", "localhost:8600", "[::1]:8600",
+                                      "127.0.0.1", "localhost"])
+    def test_admin_listener_keeps_loopback_hosts(self, isolated_db, host):
+        a = _admin_client()
+        assert a.get("/api/health", headers={"Host": host}).status_code == 200
+        assert a.get("/api/health", headers={"Host": PUBLIC_HOST}).status_code == 403
+
+
+class TestSecurityHeaders:
+    def _dist(self, tmp_path):
+        (tmp_path / "index.html").write_text("<!doctype html><title>t</title>")
+        return tmp_path
+
+    def test_on_every_household_reply(self, isolated_db, tmp_path):
+        from dataclasses import replace
+        app = create_app(replace(ADMIN, serve_frontend=True), frontend_dist=self._dist(tmp_path),
+                         listener="household")
+        c = _household_client(app)
+        s = _admin_session()
+        replies = [c.get("/api/health"), c.get("/api/library/dramas"),
+                   c.get("/api/library/dramas", headers=_h(s)), c.get("/api/nope", headers=_h(s)),
+                   c.get("/api/settings/keys", headers=_h(s)), c.get("/"),
+                   c.post("/api/settings", json={}, headers=_h(s))]
+        assert [r.status_code for r in replies] == [200, 401, 200, 404, 404, 200, 403]
+        for r in replies:
+            assert r.headers["x-content-type-options"] == "nosniff"
+            assert r.headers["x-frame-options"] == "DENY"
+            assert r.headers["referrer-policy"] == "same-origin"
+            assert "camera=()" in r.headers["permissions-policy"]
+            csp = r.headers["content-security-policy"]
+            assert "frame-ancestors 'none'" in csp and "object-src 'none'" in csp
+            assert "default-src 'self'" in csp and "connect-src 'self'" in csp
+            assert "strict-transport-security" not in r.headers   # plain http, no proxy word
+
+    def test_route_set_header_kept(self):
+        gate, _reached = _gate()
+        _status, headers = _start_headers(_raw(gate, [(b"host", PUBLIC_HOST.encode())]))
+        assert headers["content-security-policy"] == "default-src 'none'"
+        assert headers["x-frame-options"] == "DENY"
+
+    def test_hsts_only_over_https_from_the_proxy_on_this_pc(self, isolated_db):
+        """As served: uvicorn's proxy headers handling runs first and replaces
+        the loopback peer with the browser's address from X-Forwarded-For."""
+        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+        seen = []
+        app = _household_app()
+
+        @app.get("/api/test-peer", dependencies=[api_auth.public_route()])
+        def _peer(request: Request):
+            seen.append((request.client.host, api_auth.client_ip(request)))
+            return {}
+        served = ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
+
+        def get(peer, headers, path="/api/health"):
+            return TestClient(served, base_url=f"http://{PUBLIC_HOST}", client=(peer, 5000),
+                              raise_server_exceptions=False).get(path, headers=headers)
+        caddy = {"X-Forwarded-For": "198.51.100.7", "X-Forwarded-Proto": "https"}
+        r = get("127.0.0.1", caddy)
+        assert r.status_code == 200
+        assert r.headers["strict-transport-security"] == "max-age=31536000"
+        get("127.0.0.1", caddy, "/api/test-peer")
+        assert seen == [("198.51.100.7", "198.51.100.7")]
+        for peer, headers in (("203.0.113.9", caddy),                         # not the proxy
+                              ("127.0.0.1", {"X-Forwarded-For": "198.51.100.7"}),
+                              ("127.0.0.1", {**caddy, "X-Forwarded-Proto": "http"}),
+                              ("127.0.0.1", {**caddy, "X-Forwarded-Proto": "HTTPS, http"})):
+            r = get(peer, headers)
+            assert r.status_code == 200
+            assert "strict-transport-security" not in r.headers, (peer, headers)
+        # Without the proxy headers handling the scheme stays http.
+        r = _household_client().get("/api/health", headers={"X-Forwarded-Proto": "https"})
+        assert "strict-transport-security" not in r.headers
+        gate, _reached = _gate()
+        host = (b"host", PUBLIC_HOST.encode())
+        https = (b"x-forwarded-proto", b"https")
+        assert "strict-transport-security" in _start_headers(
+            _raw(gate, [host, https], scheme="https"))[1]
+        for headers, scheme in (([host, https, https], "https"), ([host], "https"),
+                                ([host, https], "http")):
+            got = _start_headers(_raw(gate, headers, scheme=scheme))[1]
+            assert "strict-transport-security" not in got, (headers, scheme)
+
+    def test_admin_replies_unchanged(self, isolated_db, tmp_path):
+        from dataclasses import replace
+        app = create_app(replace(ADMIN, serve_frontend=True), frontend_dist=self._dist(tmp_path))
+        a = _admin_client(app)
+        for r in (a.get("/api/health"), a.get("/"), a.get("/api/library/dramas")):
+            assert r.status_code == 200
+            for name in ("content-security-policy", "x-frame-options", "referrer-policy",
+                         "permissions-policy", "strict-transport-security"):
+                assert name not in r.headers
+        assert "HouseholdGate" not in [m.cls.__name__ for m in app.user_middleware]
+
+    def test_session_cookies_keep_their_flags(self, isolated_db):
+        """Sign-in cookies set on the household listener stay __Host-,
+        Secure, HttpOnly (session) and SameSite, with plain-http proxying."""
+        from fastapi import Response
+        request = Request({"type": "http", "method": "GET", "path": "/", "headers": [
+            (b"host", PUBLIC_HOST.encode())], "client": ("127.0.0.1", 5000),
+            "app": _household_app(), "query_string": b"", "scheme": "http"})
+        response = Response()
+        api_auth.set_session_cookie(response, request, "tok")
+        api_auth.set_csrf_cookie(response, request, "csrf")
+        cookies = response.headers.getlist("set-cookie")
+        session = next(c for c in cookies if c.startswith(api_auth.COOKIE_NAME + "="))
+        csrf = next(c for c in cookies if c.startswith(api_auth.CSRF_COOKIE_NAME + "="))
+        for cookie in (session, csrf):
+            assert "Secure" in cookie and "Path=/" in cookie and "Domain" not in cookie
+        assert "HttpOnly" in session and "SameSite=lax" in session
+        assert "HttpOnly" not in csrf and "SameSite=strict" in csrf
+
+
+def test_meta_has_no_environment_on_household(isolated_db):
+    assert _admin_client().get("/api/meta").json()["environment"] == "production"
+    assert _household_client().get("/api/meta").json()["environment"] == ""
+
+
+def test_startup_sweeps_stale_sessions_on_the_admin_listener_only(isolated_db, monkeypatch):
+    from dataclasses import replace
+    from api import background
+    from services import jobs_service
+    for name in ("start_background_services", "start_gpu_queue_poller",
+                 "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
+        monkeypatch.setattr(background, name, lambda: None)
+    monkeypatch.setattr(jobs_service, "sweep_stale_job_records", lambda: 0)
+    swept = []
+    monkeypatch.setattr(auth_service, "sweep_stale_sessions", lambda: swept.append(1) or 0)
+    with TestClient(create_app(replace(ADMIN, background_services=True), listener="household")):
+        pass
+    assert swept == []
+    with TestClient(create_app(replace(ADMIN, background_services=True))):
+        pass
+    assert swept == [1]
+
+
 # --- one job list ----------------------------------------------------------------
 
 def test_job_started_on_one_app_is_seen_and_cancelled_on_the_other(isolated_db, monkeypatch):
@@ -494,9 +772,11 @@ class TestRunServers:
         import uvicorn
         from api import __main__ as main_mod
         from services import shutdown_service
+        from services import settings_service
         for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST",
-                  "BAIHE_API_AUTH", "BAIHE_API_ENV"):
+                  "BAIHE_API_AUTH", "BAIHE_API_ENV", *SIGN_IN_ENV):
             monkeypatch.delenv(k, raising=False)
+        monkeypatch.setattr(settings_service, "_read_env_file", lambda *a, **k: {})
         for k, v in env.items():
             monkeypatch.setenv(k, v)
         monkeypatch.setattr(process_guard, "contain_children", lambda: True)
@@ -528,7 +808,8 @@ class TestRunServers:
 
     def test_with_household_port_two_servers_one_stopper(self, monkeypatch):
         single, ran, cleaned, svc = self._serve(monkeypatch,
-                                                {"BAIHE_API_HOUSEHOLD_PORT": "8610"})
+                                                {"BAIHE_API_HOUSEHOLD_PORT": "8610",
+                                                 **SIGN_IN_ENV})
         assert single == [] and len(ran) == 1 and cleaned == [1]
         admin, household = ran[0]
         assert [s.config.port for s in ran[0]] == [8600, 8610]
@@ -542,8 +823,19 @@ class TestRunServers:
 
     def test_unsafe_household_port_refused_at_startup(self, monkeypatch):
         with pytest.raises(SystemExit) as exc:
-            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8756"})
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8756", **SIGN_IN_ENV})
         assert "8756" in str(exc.value)
+
+    @pytest.mark.parametrize("missing", list(SIGN_IN_ENV))
+    def test_household_port_without_sign_in_refused_at_startup(self, monkeypatch, missing):
+        env = {"BAIHE_API_HOUSEHOLD_PORT": "8610", **SIGN_IN_ENV}
+        del env[missing]
+        with pytest.raises(SystemExit) as exc:
+            self._serve(monkeypatch, env)
+        message = str(exc.value)
+        assert message.startswith("ERROR: ") and "sign-in" in message
+        assert all(name in message for name in SIGN_IN_ENV)
+        assert "s3cr3t-value" not in message and PUBLIC_HOST not in message
 
     @staticmethod
     def _warned(capsys):
@@ -564,12 +856,13 @@ class TestRunServers:
         assert self._warned(capsys) == (False, [])
 
     def test_no_warning_with_household_port_and_auth_off(self, isolated_db, monkeypatch, capsys):
-        self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610"})
+        self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", **SIGN_IN_ENV})
         assert self._warned(capsys) == (False, [])
 
     def test_auth_on_with_household_port_still_refused(self, isolated_db, monkeypatch, capsys):
         with pytest.raises(SystemExit) as exc:
-            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_AUTH": "on"})
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_AUTH": "on",
+                                      **SIGN_IN_ENV})
         assert "BAIHE_API_AUTH=off" in str(exc.value)
         assert self._warned(capsys) == (False, [])
 
@@ -579,4 +872,4 @@ class TestRunServers:
         assert not single_port_sign_in_warning(ApiSettings(auth_mode="off"))
         assert not single_port_sign_in_warning(ApiSettings(auth_mode="off", household_port=8610))
         assert not single_port_sign_in_warning(
-            household_settings(ApiSettings(auth_mode="off", household_port=8610)))
+            household_settings(ApiSettings(auth_mode="off", household_port=8610, **SIGN_IN)))

@@ -102,9 +102,13 @@ def _serve_with_household(settings):
     from api.server import app as admin_app, create_app
     from services import shutdown_service
     household_app = create_app(settings, listener="household")
-    # No uvicorn access log for the household app: its lines carry the query
-    # string, which on the sign-in callback holds the Google code and state.
+    # Pinned, not left to FORWARDED_ALLOW_IPS: the household app's HSTS and
+    # client address rely on uvicorn taking X-Forwarded-* only from the
+    # proxy on this PC. No uvicorn access log for the household app: its
+    # lines carry the query string, which on the sign-in callback holds the
+    # Google code and state.
     servers = [_quiet_server(uvicorn.Config(app, host=settings.host, port=port,
+                                            proxy_headers=True, forwarded_allow_ips="127.0.0.1",
                                             timeout_graceful_shutdown=3, access_log=access_log))
                for app, port, access_log in ((admin_app, settings.port, True),
                                              (household_app, settings.household_port, False))]
