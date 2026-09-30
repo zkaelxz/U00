@@ -24,8 +24,9 @@ benchmark_cases table) rather than beside it:
   a transcript in a space-delimited language. Each result records its
   metric so a WER is never read as a translation score. One aggregate
   score per run plus per-example pass/fail (item 8: no rubric sliders).
-  CER/WER use jiwer when it is installed (lower-cased, punctuation and
-  extra whitespace removed from both texts) and the built-in scorer when it
+  CER/WER use jiwer when it is installed (lower-cased and whitespace
+  normalised on both texts; punctuation removed for transcripts but kept
+  for OCR, where it is part of what was read) and the built-in scorer when it
   isn't; each result records its scorer, since the two can differ.
 - Money. A run can spend on paid engines, so estimate() is shown first and
   start_run() refuses when the monthly cap is used up or the estimate is
@@ -112,11 +113,14 @@ def error_rate(actual: str, reference: str, unit: str = "char") -> float:
     return (_edit_distance(a[:limit], r) + extra) / len(r)
 
 
-def _jiwer_transform(jiwer, unit: str):
+def _jiwer_transform(jiwer, unit: str, keep_punctuation: bool = False):
     """jiwer's usual normalisation, applied the same way to both texts:
-    lower-case, punctuation and extra whitespace removed, then split into
-    words (WER) or characters with all whitespace dropped (CER)."""
-    steps = [jiwer.ToLowerCase(), jiwer.RemovePunctuation()]
+    lower-case, punctuation (unless kept, as for OCR) and extra whitespace
+    removed, then split into words (WER) or characters with all whitespace
+    dropped (CER)."""
+    steps = [jiwer.ToLowerCase()]
+    if not keep_punctuation:
+        steps.append(jiwer.RemovePunctuation())
     if unit == "word":
         steps += [jiwer.RemoveMultipleSpaces(), jiwer.Strip(), jiwer.ReduceToListOfListOfWords()]
     else:
@@ -126,14 +130,14 @@ def _jiwer_transform(jiwer, unit: str):
     return jiwer.Compose(steps)
 
 
-def _jiwer_error_rate(actual: str, reference: str, unit: str):
+def _jiwer_error_rate(actual: str, reference: str, unit: str, keep_punctuation: bool = False):
     """CER/WER from jiwer, or None when jiwer isn't installed or the
     reference is empty after normalisation (the caller falls back)."""
     try:
         import jiwer
     except ImportError:
         return None
-    transform = _jiwer_transform(jiwer, unit)
+    transform = _jiwer_transform(jiwer, unit, keep_punctuation)
     r = [t for sentence in transform(reference or "") for t in sentence][:MAX_TEXT_CHARS]
     if not r:
         return None
@@ -160,7 +164,9 @@ def score_output(stage: str, output: str, reference: str, source_language: str =
     metric = "cer" if unit == "char" else "wer"
     if not reference:
         return None, metric, None
-    rate, scorer = _jiwer_error_rate(output, reference, unit), "jiwer"
+    # User decision (2026-09-30): OCR keeps punctuation in its CER.
+    rate, scorer = _jiwer_error_rate(output, reference, unit,
+                                     keep_punctuation=stage == "ocr"), "jiwer"
     if rate is None:
         rate, scorer = error_rate(output, reference, unit), "builtin"
     return max(0.0, 1.0 - rate), metric, scorer

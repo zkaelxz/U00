@@ -147,7 +147,13 @@ class TestJiwerScorer:
         # and output alike, so only real word/character errors count.
         assert svc.score_output("transcription", "The  cat, sat.", "the cat sat", "en")[0] == 1.0
         assert svc.score_output("transcription", "the cat sat", "The cat, sat!", "en")[0] == 1.0
-        assert svc.score_output("ocr", "你好，世界", "你好 世界。")[0] == 1.0
+        assert svc.score_output("transcription", "你好，世界", "你好 世界。", "zh")[0] == 1.0
+
+    def test_ocr_keeps_punctuation(self):
+        # User decision: punctuation is part of what OCR read, so it counts.
+        assert svc.score_output("ocr", "你好，世界", "你好，世界。") == (pytest.approx(5 / 6), "cer", "jiwer")
+        assert svc.score_output("ocr", "Hello, World", "hello, world")[0] == 1.0  # case still ignored
+        assert svc.score_output("ocr", "……", "……")[::2] == (1.0, "jiwer")
         # Non-ASCII spaces are dropped too, from both sides.
         assert svc.score_output("ocr", "你好世", "你好\u3000世界")[0] == pytest.approx(0.75)
         assert svc.score_output("ocr", "你好\u00a0世界", "你好世界")[0] == 1.0
@@ -158,7 +164,7 @@ class TestJiwerScorer:
 
     def test_empty_after_normalisation_falls_back(self):
         # A punctuation-only reference has nothing left for jiwer to score.
-        assert svc.score_output("ocr", "……", "……")[::2] == (1.0, "builtin")
+        assert svc.score_output("transcription", "……", "……", "zh")[::2] == (1.0, "builtin")
 
     def test_length_bound_kept(self):
         started = time.monotonic()
