@@ -20,10 +20,16 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 
 ## 3. Restore a backup
 Close other work first: a restore is refused while any job runs. Restores are PC-only.
-**One drama, from the automatic backup**
-1. Library -> "Backup & storage" -> "Automatic backup snapshot" -> "Restore one drama...", pick the drama, type RESTORE, press "Restore drama".
-2. Only one snapshot (`baihe_snapshot.zip`) is kept; each new backup replaces it. Schedule it in Settings -> "Automatic backups" (off by default; default folder is `backups/auto` in the library).
-3. The result names the drama. It keeps its id if free; otherwise it comes back as a new drama titled "... (restored <date>)". Other dramas are not touched.
+**Automatic backups (Settings -> "Automatic backups")**
+- Off until you turn on "Back up automatically". Defaults: daily, database only (text, translations, settings; small and fast). "Include media (audio, video, pages)" adds every file and can be large. "Back up now" adds a copy at once.
+- Each run adds a new dated copy (`baihe_snapshot-YYYYMMDD-HHMMSS.zip`, UTC) and then prunes. Kept: one copy per UTC day for the last 2 days, plus the oldest copy of each of the last 2 ISO weeks. A failed backup deletes nothing.
+- "Backup folder": empty means `backups/auto` in the library. Changing it moves all existing copies to the new folder (refused while a backup runs; the folder must exist and be outside the library).
+**One drama, from a copy**
+1. Library -> "Backup & storage" -> "Automatic backup copies" -> "Restore one drama...".
+2. "Restore from" lists the copies, newest first, with date, kind (database only or with media) and size. The default is the newest readable copy; pick an older one if the drama was still fine then.
+3. Find and pick the drama, type RESTORE, confirm. Keep the tab open.
+4. The drama keeps its id if free; otherwise it comes back as a new drama titled "... (restored <date>)". Other dramas are not touched. Files come back only from a copy made with media. The API result names the copy used (`snapshot`); the on-screen line does not, so note which copy you picked.
+5. "Delete a copy..." removes one copy (default: the oldest) or "All copies"; type DELETE. Deleting all needs `all: true` in the API; the UI asks for the confirmation. No undo.
 **Whole library, from a .zip made by "Back up library"**
 1. Library -> "Backup & storage" -> Restore -> choose the .zip, type RESTORE, press Restore. Keep the tab open.
 2. This replaces the whole library (dramas, lines, media) with the backup. Everyone is signed out. Sign-in accounts and source settings are kept. "Back up library" first if unsure.
