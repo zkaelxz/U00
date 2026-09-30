@@ -32,13 +32,6 @@ REMOTE = "https://baihe.example.com"
 LOCAL_HDR = {"X-Baihe-Local": "1"}
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 @pytest.fixture
 def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)

@@ -31,13 +31,6 @@ BASE = "/api/library/admin"
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 @pytest.fixture
 def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
