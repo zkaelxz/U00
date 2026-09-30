@@ -1,7 +1,10 @@
 """The source-language and media-extension constants have one home each."""
 import typing
 
+import asr_benchmark
 import core
+import epub_io
+import line_tools
 import dictionary
 import forced_align
 import resegment
@@ -9,7 +12,7 @@ import story_context
 import translate_engines
 import translation_guide
 from api import benchmark_schemas
-from services import (benchmark_lab_service, discover_catalog_service, drama_service,
+from services import (reader_service, source_service, benchmark_lab_service, discover_catalog_service, drama_service,
                       live_service, media_export_service, media_upload_service,
                       transcribe_service, voice_clone_service)
 
@@ -45,3 +48,12 @@ def test_media_extension_copies_are_gone():
     assert voice_clone_service.AUDIO_EXTENSIONS is media_upload_service.AUDIO_EXTENSIONS
     assert not hasattr(media_export_service, "_VIDEO_EXTS")
     assert not hasattr(voice_clone_service, "CLIP_EXTENSIONS")
+
+
+def test_remaining_language_copies_use_core():
+    assert line_tools.LANGUAGE_NAMES is core.LANGUAGE_NAMES
+    assert reader_service.core_module.LANGUAGE_NAMES is core.LANGUAGE_NAMES
+    assert source_service.SOURCE_LANGUAGES is core.SOURCE_LANGUAGES
+    assert not hasattr(source_service, "_SOURCE_LANGUAGES")
+    assert epub_io.SOURCE_LANGUAGES is core.SOURCE_LANGUAGES
+    assert asr_benchmark.SOURCE_LANGUAGES is core.SOURCE_LANGUAGES
