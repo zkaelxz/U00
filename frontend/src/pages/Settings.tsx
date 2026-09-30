@@ -12,7 +12,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
-import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
@@ -109,7 +109,6 @@ export default function SettingsPage() {
           <TranscriptionExperimentsCard />
           <WebSearchSection />
           <ExtensionSection />
-          <AppearanceCard />
           <DeveloperModeCard />
           <AdvancedCard {...prefProps} />
         </>

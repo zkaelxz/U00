@@ -8,6 +8,7 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { NotificationBell } from './components/NotificationBell'
+import { ThemeMenu } from './components/ThemeMenu'
 import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
@@ -149,6 +150,7 @@ export default function App() {
         <div className="header-end">
           <NotificationBell />
           <ReportProblemButton />
+          <ThemeMenu />
           <ApiStatus />
           {user && <UserMenu user={user} />}
         </div>

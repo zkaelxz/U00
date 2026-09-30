@@ -699,10 +699,11 @@ baihe-subtitler/
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
 │   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
-│   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
+│   │                              Defaults for new dramas, Spending, OCR, Offline and performance,
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
-│   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
-│   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
+│   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,
+│   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
+│   │                              components/ThemeMenu.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,

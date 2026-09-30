@@ -53,10 +53,10 @@
   color-scheme: light dark;
 }
 
-/* Dark tokens: the system's choice unless Settings > Appearance picked light
-   (data-theme="light"), and always when it picked dark (src/theme.ts). */
+/* Dark tokens: the system's choice unless the theme picker chose light or
+   sepia (data-theme, src/theme.ts), and always when it chose dark. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"], [data-theme="sepia"]) {
     --bg: #16161a;
     --accent-text: #b8a3ea;
     --field-bg: #17171c;
@@ -92,6 +92,30 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+}
+
+/* Warm paper. Page colour and ink match the Reader's sepia page (reader.py
+   THEMES); every other token is chosen for WCAG AA on --bg and --surface. */
+:root[data-theme="sepia"] {
+  --bg: #f4ecd8;
+  --surface: #ebe0c6;
+  --surface-2: #fbf6e6;
+  --field-bg: #fbf6e6;
+  --text: #3a3226;
+  --muted: #66593f;
+  --border: #c4b48c;
+  --accent: #6f4fb0;
+  --accent-text: #5d3fa0;
+  --bad: #a3231b;
+  --ok: #1b6b35;
+  --warn: #7a4d00;
+  --info: #1a548f;
+  --shadow-1: 0 1px 2px color-mix(in srgb, #3a3226 14%, transparent), 0 2px 8px color-mix(in srgb, #3a3226 10%, transparent);
+  color-scheme: light;
+}
+/* Field edges are UI components (3:1 against the field), unlike the hairline dividers. */
+:root[data-theme="sepia"] :is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea):not(:focus) {
+  border-color: #8c7d5c;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -328,6 +352,10 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .toggle-list .field-item { display: flex; }
   .field-help-btn::after, .review-hint::after { inset: -12px; }
 }
+/* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
+@media (max-width: 1360px) {
+  .app-header button.report-btn > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
   /* "Report a problem" is a 44px icon button in the title row; the text stays its accessible name. */
@@ -421,8 +449,8 @@ button.toggle {
 }
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--text)); border-color: var(--muted); }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
-  :root:not([data-theme="light"]) button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
+  :root:not([data-theme="light"], [data-theme="sepia"]) button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
+  :root:not([data-theme="light"], [data-theme="sepia"]) button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
 }
 :root[data-theme="dark"] button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
 :root[data-theme="dark"] button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }

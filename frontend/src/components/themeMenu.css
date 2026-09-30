@@ -1,0 +1,42 @@
+/* Header theme button and its menu (components/ThemeMenu.tsx). */
+.theme-menu { position: relative; }
+button.theme-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 7px;
+  color: var(--muted);
+}
+button.theme-menu-btn:hover:not(:disabled),
+button.theme-menu-btn[aria-expanded='true'] { color: var(--text); }
+.theme-menu-panel {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  display: grid;
+  min-width: 14rem;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+}
+button.theme-menu-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+button.theme-menu-item:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
+button.theme-menu-item[aria-checked='true'] { font-weight: var(--weight-bold); color: var(--accent-text); }
+.theme-menu-check { min-width: 1ch; }
+
+@media (pointer: coarse), (max-width: 640px) {
+  button.theme-menu-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
+  button.theme-menu-item { min-height: 44px; }
+}

@@ -18,7 +18,7 @@ import { Section } from '../components/Section'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref } from '../router'
-import { isDarkTheme, loadTheme } from '../theme'
+import { resolveTheme, useThemePref } from '../theme'
 import type {
   ReaderMediaAvailability,
   ReaderOverview,
@@ -192,8 +192,8 @@ function NotesSection({ dramaId }: { dramaId: number }) {
 
 export default function ReaderPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
-  // The Reader's "auto" theme follows the app theme (Settings > Appearance).
-  const prefersDark = isDarkTheme(loadTheme(), useMediaQuery('(prefers-color-scheme: dark)'))
+  // The Reader's "auto" theme follows the app theme (the header theme button).
+  const appLook = resolveTheme(useThemePref(), useMediaQuery('(prefers-color-scheme: dark)'))
   const [prefs, setPrefsState] = useState<ReaderPrefs>(() => loadPrefs(browserStorage()))
   const [title, setTitle] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')
@@ -256,8 +256,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
 
   const page = routePage
   const params = useMemo(
-    () => (page === null ? null : pageParams(prefs, page, { phone, prefersDark })),
-    [prefs, page, phone, prefersDark],
+    () => (page === null ? null : pageParams(prefs, page, { phone, appLook })),
+    [prefs, page, phone, appLook],
   )
 
   const overviewReady = overview !== null

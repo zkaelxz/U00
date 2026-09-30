@@ -7,7 +7,7 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { installCapture } from './report/capture'
 import { applyTheme, loadTheme } from './theme'
 
-// The saved light/dark choice, before the first paint.
+// The saved theme (index.html already set it before paint; this covers dev/HMR).
 applyTheme(loadTheme())
 
 const rootEl = document.getElementById('root')!
