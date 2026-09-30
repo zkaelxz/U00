@@ -41,7 +41,7 @@ def env(tmp_path, monkeypatch, isolated_db):
     path = tmp_path / ".env"
     monkeypatch.setattr(settings_service, "_default_env_path", lambda: str(path))
     for names in list(ns.ENV_VARS.values()) + [(ns.ALLOW_LOCAL_NTFY_ENV,), (ns.DISABLED_ENV,),
-                                               (ns.API_PORT_ENV,), (ns.HOUSEHOLD_PORT_ENV,)]:
+                                               (settings_service.API_PORT_ENV,), (settings_service.HOUSEHOLD_PORT_ENV,)]:
         for n in names:
             monkeypatch.delenv(n, raising=False)
     monkeypatch.setattr(background_jobs, "_notify_job_finished", lambda *a, **k: None)
@@ -203,14 +203,14 @@ def test_ipv6_loopback_is_refused_without_the_opt_in(env):
     "http://[::1]:8756/t", "http://[::ffff:127.0.0.1]:8756/t", "http://127.0.0.1:9123/t"])
 def test_local_ntfy_never_targets_baihe_own_ports(env, monkeypatch, url):
     env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
-    monkeypatch.setenv(ns.API_PORT_ENV, "9123")
+    monkeypatch.setenv(settings_service.API_PORT_ENV, "9123")
     with pytest.raises(ns.InvalidInputError) as exc:
         ns.validate_url("ntfy", url)
     assert str(exc.value) == ns._NTFY_OWN_PORT   # fixed text, never the address
 
 
 def test_api_port_from_dotenv_is_protected_too(env):
-    env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n{ns.API_PORT_ENV}=9124\n")
+    env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n{settings_service.API_PORT_ENV}=9124\n")
     with pytest.raises(ns.InvalidInputError, match="belongs to Baihe"):
         ns.validate_url("ntfy", "http://127.0.0.1:9124/t")
     # A LAN address on those ports is not this PC's loopback and is allowed.
@@ -221,11 +221,11 @@ def test_api_port_from_dotenv_is_protected_too(env):
 def test_household_port_is_protected_only_when_set(env, monkeypatch):
     env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n")
     assert ns.validate_url("ntfy", "http://127.0.0.1:8610/t")   # unset: an ordinary port
-    monkeypatch.setenv(ns.HOUSEHOLD_PORT_ENV, "8610")
+    monkeypatch.setenv(settings_service.HOUSEHOLD_PORT_ENV, "8610")
     with pytest.raises(ns.InvalidInputError, match="belongs to Baihe"):
         ns.validate_url("ntfy", "http://127.0.0.1:8610/t")
-    monkeypatch.delenv(ns.HOUSEHOLD_PORT_ENV)
-    env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n{ns.HOUSEHOLD_PORT_ENV}=8611\n")
+    monkeypatch.delenv(settings_service.HOUSEHOLD_PORT_ENV)
+    env.write_text(f"{ns.ALLOW_LOCAL_NTFY_ENV}=1\n{settings_service.HOUSEHOLD_PORT_ENV}=8611\n")
     with pytest.raises(ns.InvalidInputError, match="belongs to Baihe"):
         ns.validate_url("ntfy", "http://127.0.0.1:8611/t")
 

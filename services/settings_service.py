@@ -100,6 +100,30 @@ def resolve_env_names(names, env_path: str = None) -> Optional[str]:
     return None
 
 
+# Default API port (api.api_config.DEFAULT_PORT), Streamlit's 8501 and the
+# extension bridge's 8756 (page_server.DEFAULT_PORT). Services may not import
+# api/, so the numbers are repeated here.
+_BAIHE_FIXED_PORTS = (8501, 8600, 8756)
+API_PORT_ENV = "BAIHE_API_PORT"
+HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
+
+
+def baihe_own_ports() -> set:
+    """Ports on this PC that are Baihe's own, which outbound features (ntfy,
+    SearXNG, Jellyfin) must not be pointed at: the fixed ones above plus the
+    configured BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT. Both the real
+    environment and .env are read, so a port set in either is protected."""
+    ports = set(_BAIHE_FIXED_PORTS)
+    env = _read_env_file()
+    for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
+        for raw in (os.environ.get(name), env.get(name)):
+            try:
+                ports.add(int(str(raw).strip()))
+            except (TypeError, ValueError):
+                pass
+    return ports
+
+
 def key_status(env_path: str = None) -> dict:
     """{settings_key: bool} for every engine key/endpoint setting --
     whether a value is configured, never the value itself (D2)."""

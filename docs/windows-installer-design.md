@@ -293,7 +293,7 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
-`BAIHE_API_PORT=8600` unless already set. `PYTHONNOUSERSITE=1` is set, and the
+`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it). `PYTHONNOUSERSITE=1` is set, and the
 user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 (`sys.executable -m pip install`) install into the bundled interpreter.
 

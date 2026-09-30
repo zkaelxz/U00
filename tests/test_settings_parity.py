@@ -630,3 +630,17 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
                                ollama_num_ctx=0))
     assert seen["locale"] == "en-GB" and seen["style_note"] == ""
     assert seen["ollama_num_ctx_override"] == 0
+
+
+def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
+    from services import settings_service as ss
+    monkeypatch.setattr(ss, "_default_env_path", lambda: str(tmp_path / ".env"))
+    for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
+        monkeypatch.delenv(name, raising=False)
+    assert ss.baihe_own_ports() == {8501, 8600, 8756}
+    monkeypatch.setenv(ss.API_PORT_ENV, "9123")
+    monkeypatch.setenv(ss.HOUSEHOLD_PORT_ENV, " 9124 ")
+    (tmp_path / ".env").write_text(f"{ss.API_PORT_ENV}=9125\n")
+    assert ss.baihe_own_ports() == {8501, 8600, 8756, 9123, 9124, 9125}
+    monkeypatch.setenv(ss.API_PORT_ENV, "not-a-port")
+    assert 9123 not in ss.baihe_own_ports()
