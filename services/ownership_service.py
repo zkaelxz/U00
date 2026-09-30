@@ -427,6 +427,27 @@ def can_see_job(principal, job_id, owner_user_id, writing: bool = False) -> bool
     return uid is not None and owner_user_id == uid
 
 
+def owns_job(principal, job_id, owner_user_id) -> bool:
+    """Is this the caller's own job: they started it (`owner_user_id`) or
+    own the drama it runs on. Auth off and the local owner own every job.
+    Never true for a job the caller may not cancel (can_see_job writing),
+    so a client may offer Cancel wherever it is true. Stricter than that
+    check: a member may also cancel a job on someone else's shared drama,
+    which is not theirs. Computed from the principal only."""
+    if principal is None or principal.get("is_local_owner"):
+        return True
+    uid = _user_id(principal)
+    if uid is None or not can_see_job(principal, job_id, owner_user_id, writing=True):
+        return False
+    if owner_user_id == uid:
+        return True
+    drama_id = drama_id_of_job(job_id)
+    if drama_id is None:
+        return False
+    row = db.get_item_ownership("drama", drama_id)
+    return bool(row) and row.get("owner_user_id") == uid
+
+
 def require_job_visible(principal, job_id, owner_user_id) -> None:
     if not can_see_job(principal, job_id, owner_user_id):
         raise NotFoundError("No such job.")

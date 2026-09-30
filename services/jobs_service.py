@@ -423,6 +423,15 @@ def _visible(principal, record) -> bool:
                                          record.get("owner_user_id"))
 
 
+def _for_caller(principal, record) -> dict:
+    """_redact plus `owned_by_me` (ownership_service.owns_job), the only
+    word on who owns the job a response carries: never an owner id."""
+    out = _redact(record)
+    out["owned_by_me"] = ownership_service.owns_job(principal, record.get("job_id"),
+                                                    record.get("owner_user_id"))
+    return out
+
+
 def sweep_stale_job_records() -> int:
     """Closes (as cancelled) every queued/running job_records row whose
     owner has not heartbeated for STALE_JOB_SECONDS and that is not live in
@@ -447,7 +456,7 @@ def list_jobs(principal=None) -> list:
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
     sweep_stale_job_records()
-    return [_redact(r) for r in db.list_job_records() if _visible(principal, r)]
+    return [_for_caller(principal, r) for r in db.list_job_records() if _visible(principal, r)]
 
 
 def get_job(job_id: str, principal=None) -> dict:
@@ -458,7 +467,7 @@ def get_job(job_id: str, principal=None) -> dict:
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
-    return _redact(record)
+    return _for_caller(principal, record)
 
 
 def get_job_stages(job_id: str, principal=None) -> dict:

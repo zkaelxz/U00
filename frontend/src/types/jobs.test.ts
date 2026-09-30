@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { jobFailed, jobOutcomeText, jobSucceeded } from './jobs'
+import { jobFailed, jobOutcomeText, jobSucceeded, offersCancel } from './jobs'
 
 describe('job outcome helpers', () => {
   it('treats a done job with a failed or cancelled outcome as not a success', () => {
@@ -28,5 +28,13 @@ describe('job outcome helpers', () => {
     expect(jobOutcomeText({ outcome: 'kept_existing', outcome_message: null })).toBe('Nothing new; existing lines kept')
     expect(jobOutcomeText({ outcome: null })).toBeNull()
     expect(jobOutcomeText({})).toBeNull()
+  })
+
+  it('offers a remote admin Cancel only on their own jobs', () => {
+    expect(offersCancel({ owned_by_me: true }, true)).toBe(true)
+    expect(offersCancel({ owned_by_me: false }, true)).toBe(false)
+    expect(offersCancel({}, true)).toBe(false)
+    expect(offersCancel({ owned_by_me: false }, false)).toBe(true)
+    expect(offersCancel({}, false)).toBe(true)
   })
 })
