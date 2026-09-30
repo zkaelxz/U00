@@ -440,7 +440,16 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 
 - An offline installer-side tier picker and GPU/torch opt-in (§6). Today these
   are online, through Diagnostics.
-- An updater that reads `manifest.json`, and delta updates (§7).
+- Delta updates, and an updater that reads the per-component `manifest.json` (§7).
+  What exists: Settings → App updates checks the public GitHub Releases
+  (`BAIHE_UPDATE_REPO`, default `zkaelxz/U00`; no token) for a newer `v*`
+  release, and on the user's clicks downloads the whole installer into
+  `<data>\library\updates\`, checks it against the release's `.sha256` and
+  opens its normal Setup, which stops the server as in §7. That SHA-256 comes
+  from the same release as the installer, so it detects a broken or truncated
+  download, not a tampered release: it is not a signature. The version shown
+  is `manifest.json`'s `app_version`. A daily check is a setting, off by
+  default; nothing is ever downloaded or installed without a click.
 - Code signing (§1).
 - Moving an existing source-checkout library into the installed app. For now,
   point the data folder at the checkout folder (it holds `library\` and `.env`),

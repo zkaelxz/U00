@@ -4040,6 +4040,41 @@ class ShutdownResponse(BaseModel):
     cancelled_jobs: int = Field(description="How many running or queued jobs were asked to stop.")
 
 
+# App updates from the public GitHub Releases (api/routers/update_routes.py).
+# Names, numbers and booleans only: never a URL or a filesystem path.
+class UpdateStatus(BaseModel):
+    current: Optional[str] = Field(None, description="Installed version; null for a source checkout.")
+    installed: bool
+    latest: Optional[str] = None
+    update_available: bool
+    notes: str = Field("", description="Release notes as plain text, links removed, truncated.")
+    installer_name: Optional[str] = None
+    size: Optional[int] = None
+    checked_at: Optional[float] = None
+    check_error: Optional[str] = None
+    download: Literal["idle", "downloading", "verified", "failed"]
+    downloaded_bytes: int
+    download_error: Optional[str] = None
+    verified: bool = Field(description="The downloaded installer matched the release's SHA-256.")
+    can_install: bool
+    auto_check: bool
+
+
+class UpdateSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    auto_check: StrictBool
+
+
+class UpdateInstallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool
+
+
+class UpdateInstallResponse(BaseModel):
+    launched: bool
+    installer_name: str
+
+
 # --- Step 115b: import with lightnovel-crawler (external program) -----------
 
 class LncrawlStatus(BaseModel):

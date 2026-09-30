@@ -23,7 +23,9 @@ Also, only when the owner turned "Resume interrupted translation batches"
 on (`translate_run_service.resume_interrupted_at_startup`, off by default),
 pending bulk batches are resumed through the manual resume's code path.
 The due-check then repeats hourly from the GPU-queue poller thread below
-(`auto_backup_service.periodic_tick`), so no extra thread is added.
+(`auto_backup_service.periodic_tick`), so no extra thread is added; so does
+the once-a-day update check, only when the owner turned it on
+(`update_service.periodic_tick`; it never downloads).
 
 Both `ensure_*` functions are once-per-process and safe to call again, so
 this is idempotent. Off when `ApiSettings.background_services` is False:
@@ -78,6 +80,11 @@ def start_gpu_queue_poller(interval: float = None) -> bool:
                     auto_backup_service.periodic_tick()
                 except Exception as exc:
                     _log("automatic backup check failed: %s", exc)
+                try:
+                    from services import update_service
+                    update_service.periodic_tick()
+                except Exception as exc:
+                    _log("update check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
         _gpu_poller = (thread, stop)

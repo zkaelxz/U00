@@ -6,6 +6,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
+import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
@@ -110,6 +111,7 @@ export default function SettingsPage() {
           <SpendingCard {...prefProps} />
           <NotificationsSection />
           <AutoBackupCard />
+          <AppUpdatesCard />
           <JellyfinSection />
           <NotionSection />
           <TranscriptionExperimentsCard />

@@ -258,6 +258,9 @@ baihe-subtitler/
 │   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
 │   │                             cancels this process's jobs, stops page_server; the launcher's token-gated
 │   │                             POST /api/system/shutdown, a closed console window and Ctrl+C run it
+│   ├── update_service.py         app updates from the public GitHub Releases (BAIHE_UPDATE_REPO): check (no token),
+│   │                             download + SHA-256 check into library/updates, start the verified Setup on a click
+│   │                             (Windows, installed copy); optional daily check, off by default (router: update_routes.py)
 │   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
 │   │                             hooks name what changed, each stream re-reads it through the GET routes'
 │   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
@@ -493,6 +496,8 @@ baihe-subtitler/
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
+│       ├── update_routes.py      /api/system/update[/check|/settings|/download|/install]: all local_only;
+│       │                         tests/test_api_update.py
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
 │       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
