@@ -1,0 +1,142 @@
+# Baihe household access through Caddy: a TEMPLATE, not a live config.
+# Guide: docs/household-access.md. Checked by tests/test_caddyfile_template.py.
+#
+# Values come from environment variables, so this file holds no domain, address
+# or secret. Set them for the Caddy process (or the Caddy Windows service):
+#   BAIHE_DOMAIN               the name household devices open, e.g. baihe.example.com
+#   BAIHE_API_HOUSEHOLD_PORT   Baihe's household listener port, e.g. 8610
+#   BAIHE_CADDY_LOG_DIR        folder for the access log
+# Caddy must be a build that includes the rate_limit module
+# (github.com/mholt/caddy-ratelimit); a plain build refuses to load this file.
+#
+# Caddy proxies only to the household listener. Never point it at 8600 (the
+# PC's own admin listener) or 8756 (the extension bridge).
+{
+	# Uncomment to get certificate expiry mail from the certificate authority.
+	# email you@example.com
+
+	servers {
+		# HTTP/3 would need UDP 443 forwarded as well; TCP 443 is enough.
+		protocols h1 h2
+	}
+}
+
+{$BAIHE_DOMAIN} {
+	# Uploads are PC-only, so household requests are small JSON bodies. The
+	# largest are a bug report (screenshot up to 5 MB) and a glossary import
+	# (up to 1,000,000 characters).
+	request_body {
+		max_size 8MB
+	}
+
+	# SSE (/api/events) is left uncompressed so progress events arrive at once.
+	@compressible not path /api/events
+	encode @compressible zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+		-Via
+	}
+	# `?` sets a header only when Baihe did not, so the app's own values win.
+	# One line each: `?` fields in one block apply only when all are missing.
+	header ?X-Content-Type-Options "nosniff"
+	header ?X-Frame-Options "DENY"
+	header ?Content-Security-Policy "frame-ancestors 'none'"
+	header ?Referrer-Policy "same-origin"
+
+	# The query string can hold a Google sign-in code or state, so no URL is
+	# logged with it; cookies, the CSRF token and redirects are dropped too.
+	log {
+		output file {$BAIHE_CADDY_LOG_DIR}/baihe-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format filter {
+			wrap json
+			request>uri regexp "[?].*" ""
+			request>headers>Cookie delete
+			request>headers>Authorization delete
+			request>headers>X-Csrf-Token delete
+			request>headers>Referer delete
+			resp_headers>Set-Cookie delete
+			resp_headers>Location delete
+		}
+	}
+
+	# PC-only and admin paths, refused here as well as by Baihe itself. Every
+	# local_only() route must be matched by one of these three matchers.
+	@pc_only {
+		path /api/system/* /api/admin/*
+		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
+		path /api/diagnostics /api/diagnostics/* /api/library/admin/*
+		path /api/assistant/* /api/backups/* /api/benchmark/* /api/models/*
+		path /api/extension/* /api/jellyfin/* /api/notion/*
+		path /api/web-search/config /api/web-search/test /api/novel/lncrawl
+		path /api/sources/url/identify-media/resource /api/library/history/clear
+		path /api/docs /api/docs/* /api/openapi.json /docs/*
+		# Household members may send a bug report from their own device.
+		not {
+			method POST
+			path /api/diagnostics/bug-reports
+		}
+	}
+	@pc_only_post {
+		method POST
+		path /api/dramas/*/cover
+		path /api/media/dramas/*/upload /api/media/dramas/*/upload-and-transcribe
+		path /api/media/dramas/*/download-url /api/media/dramas/*/remove
+		path /api/novel/dramas/*/attach-text /api/novel/dramas/*/attach-epub
+		path /api/novel/dramas/*/attach-from-sources /api/novel/dramas/*/ocr-chapter
+		path /api/novel/dramas/*/lncrawl
+		path /api/novel/dramas/*/raw-novel /api/novel/dramas/*/raw-novel/text
+		path /api/novel/dramas/*/raw-novel/remove
+		path /api/novel/dramas/*/reference /api/novel/dramas/*/reference/text
+		path /api/novel/dramas/*/reference/remove
+		path /api/review-extras/dramas/*/style/reset /api/review-extras/dramas/*/style/restore
+		path /api/review/dramas/*/versions/*/delete
+		path /api/discover/titles/*/delete
+		path /api/sources/*/signin/open /api/sources/*/signin/forget /api/sources/*/tier-test
+		path /api/sources/dramas/*/extraction/save-profile
+		path /api/sources/dramas/*/extraction/approve-profile
+		path /api/library/presets/*/delete /api/library/voice-bank/*/delete
+		path /api/characters/series/*/characters/*/delete
+		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
+		path /api/scanlate/dramas/*/pages
+	}
+	@pc_only_delete {
+		method DELETE
+		path /api/dramas/* /api/translate/history
+	}
+
+	route {
+		respond @pc_only 404
+		respond @pc_only_post 404
+		respond @pc_only_delete 404
+
+		# Baihe also limits sign-in per address; this stops a flood before it
+		# reaches the app.
+		rate_limit {
+			zone sign_in {
+				match {
+					path /api/auth/login /api/auth/callback
+				}
+				key {remote_host}
+				events 60
+				window 10m
+			}
+		}
+
+		reverse_proxy 127.0.0.1:{$BAIHE_API_HOUSEHOLD_PORT} {
+			# Set from the connection, never from what the client sent.
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+			header_up -Forwarded
+			header_up -X-Real-Ip
+			header_up -X-Forwarded-Port
+			header_up -X-Forwarded-Prefix
+			header_up -X-Baihe-*
+		}
+	}
+}

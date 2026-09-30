@@ -67,6 +67,9 @@ baihe-subtitler/
 │   │                             pip from its wheel, installs requirements-core offline
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
+├── deploy/caddy/Caddyfile.template   Caddy config template for household access: TLS, proxy to the
+│                                 household listener only, PC-only routes refused (docs/household-access.md;
+│                                 checked by tests/test_caddyfile_template.py)
 ├── scripts/dependency_canary.py  tests one package upgrade in a throwaway venv against the offline suite;
 │                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
 │
@@ -100,6 +103,8 @@ baihe-subtitler/
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
 │   ├── runbook.md                one-page maintainer steps: installer lock, tests, restore, certificate, benchmark [reference]
+│   ├── household-access.md       step-by-step guide to expose Baihe to the household through Caddy:
+│   │                             user-only vs Claude steps, checks, rollback [reference]
 │   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
 │   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
 │   │                             [design proposal, nothing built]
