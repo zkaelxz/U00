@@ -126,6 +126,15 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_source_probe_script(self):
+        # The manual reachability probe makes real GETs (session.request).
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "scripts", "source_probe.py"), session_verbs=True)
+        assert problems == [], f"call(s) missing timeout= at line(s): {problems}"
+        src = open(os.path.join(PROJECT_ROOT, "scripts", "source_probe.py"),
+                   encoding="utf-8").read()
+        assert "session.request(" in src, "the timeout check no longer sees the probe's GET"
+
     def test_model_registry_service(self):
         # Step 40: the manual provider model-list check.
         problems = _find_requests_calls_missing_timeout(
