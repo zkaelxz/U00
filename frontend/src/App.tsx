@@ -160,7 +160,7 @@ export default function App() {
         {route.name === 'discover' && <DiscoverPage />}
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
-        {route.name === 'benchmark' && <BenchmarkPage />}
+        {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
     </>
   )

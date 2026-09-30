@@ -116,3 +116,8 @@
   .bench-run-pick { min-height: 44px; align-items: center; }
   .bench-run-pick input { width: 22px; height: 22px; margin-top: 0; }
 }
+
+/* Set up from a Model health "Compare in Benchmark Lab" link. */
+.bench-prefill { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-3); border: 1px solid var(--info); border-radius: var(--radius-md); background: var(--info-soft); min-width: 0; }
+.bench-prefill p { margin: 0; overflow-wrap: anywhere; }
+.bench-prefill ul { margin: 0; padding-left: 1.2rem; font-size: var(--text-sm); overflow-wrap: anywhere; }

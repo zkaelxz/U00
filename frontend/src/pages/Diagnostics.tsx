@@ -22,6 +22,7 @@ import { DangerZone } from './diagnostics/DangerZone'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
 import { LogSection } from './diagnostics/LogSection'
+import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { ModelCacheSection } from './diagnostics/ModelCacheSection'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
@@ -155,6 +156,8 @@ export default function DiagnosticsPage() {
       ) : (
         !error && <p className="muted">Loading…</p>
       )}
+
+      <ModelHealthCard pc={pc} />
 
       <SupportReportSection />
 
