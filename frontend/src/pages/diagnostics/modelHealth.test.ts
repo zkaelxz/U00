@@ -102,6 +102,9 @@ describe('compare link', () => {
   it('has no link without a (different) replacement', () => {
     expect(compareHref(item({ replacement: null }))).toBeNull()
     expect(compareHref(item({ model: 'a', replacement: 'a' }))).toBeNull()
+    for (const status of ['retired', 'not_listed', 'not_offered'] as const) {
+      expect(compareHref(item({ status, model: 'old', replacement: 'new' }))).toBeNull()
+    }
   })
 })
 

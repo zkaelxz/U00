@@ -252,7 +252,7 @@ describe('compare links (Model health -> Benchmark Lab)', () => {
     expect(p.notes).toEqual([
       "Claude · gone-model isn't offered in this app any more, so it was left out.",
       "Nope · x isn't an engine the Benchmark Lab can run, so it was left out.",
-      'Offline test has no model choice here, so it runs its built-in model instead of some-model.',
+      'Offline test has no model choice here, so it runs its built-in model.',
     ])
   })
 

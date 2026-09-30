@@ -366,7 +366,7 @@ export function comparePrefill(wanted: BenchmarkConfig[], options: BenchmarkOpti
     }
     let next: BenchmarkConfig = { engine: c.engine }
     if (c.model && engine.models === null) {
-      notes.push(`${humanize('engine', c.engine)} has no model choice here, so it runs its built-in model instead of ${c.model}.`)
+      notes.push(`${humanize('engine', c.engine)} has no model choice here, so it runs its built-in model.`)
     } else if (c.model && !engine.models?.includes(c.model)) {
       notes.push(`${label} isn't offered in this app any more, so it was left out.`)
       continue

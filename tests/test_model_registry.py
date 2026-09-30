@@ -77,8 +77,8 @@ class TestProviderCheck:
         db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
         seen = {}
 
-        def fake_get(url, headers=None, timeout=None):
-            seen.update(url=url, headers=headers, timeout=timeout)
+        def fake_get(url, headers=None, timeout=None, allow_redirects=True):
+            seen.update(url=url, headers=headers, timeout=timeout, redirects=allow_redirects)
             return FakeResp({"data": [{"id": "claude-sonnet-5"}, {"id": "claude-haiku-4-5-20251001"}]})
         monkeypatch.setattr(requests, "get", fake_get)
         status = svc.check_providers()
@@ -88,13 +88,14 @@ class TestProviderCheck:
         assert status["warnings"] >= 1
         # Key in a header, never the URL; a timeout on the call.
         assert "SECRETKEY" not in seen["url"] and seen["headers"]["x-api-key"].startswith("sk-ant-")
-        assert seen["timeout"]
+        assert seen["timeout"] and seen["redirects"] is False
         assert _item(status, "claude", "claude-sonnet-5")["status"] == "current"
 
     def test_engines_without_key_are_not_called(self, isolated_db, keys, monkeypatch):
         import requests
         calls = []
-        monkeypatch.setattr(requests, "get", lambda url, **kw: calls.append(url) or FakeResp({"data": []}))
+        monkeypatch.setattr(requests, "get", lambda url, **kw: calls.append(url)
+                            or FakeResp({"data": [{"id": "claude-sonnet-5"}]}))
         status = svc.check_providers()
         assert len(calls) == 1 and "anthropic" in calls[0]
         assert set(status["engines_checked"]) == {"claude"}
@@ -112,9 +113,37 @@ class TestProviderCheck:
         # A failed check never marks a model as gone.
         assert all(i["status"] != "not_listed" for i in status["items"])
 
+    @pytest.mark.parametrize("body", [{"data": []}, {"unexpected": 1},
+                                      {"data": [{"id": "claude-sonnet-5"}], "has_more": True}])
+    def test_empty_or_partial_list_marks_nothing_gone(self, isolated_db, keys, monkeypatch, body):
+        import requests
+        db.save_preset("P", translation_engine="claude", engine_model="claude-opus-4-8")
+        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(body))
+        status = svc.check_providers()
+        assert status["engines_checked"]["claude"]["ok"] is False
+        assert all(i["status"] != "not_listed" for i in status["items"])
+
+    def test_offered_latest_alias_missing_is_not_flagged(self, isolated_db, monkeypatch):
+        import requests
+        monkeypatch.setattr(translate_service, "resolve_api_key",
+                            lambda name, env_path=None: "g-key-123456789" if name == "gemini" else None)
+        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(
+            {"models": [{"name": "models/gemini-3.1-flash-lite"}]}))
+        status = svc.check_providers()
+        default = next(i for i in status["items"] if i["engine"] == "gemini" and i["kind"] == "default")
+        assert default["status"] == "unknown"
+
+    def test_check_already_running_is_429(self, isolated_db, keys):
+        svc._check_lock.acquire()
+        try:
+            with pytest.raises(RateLimitedError):
+                svc.check_providers()
+        finally:
+            svc._check_lock.release()
+
     def test_rate_limited(self, isolated_db, keys, monkeypatch):
         import requests
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": []}))
+        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": [{"id": "x"}]}))
         svc.check_providers(now=1000.0)
         with pytest.raises(RateLimitedError):
             svc.check_providers(now=1030.0)
@@ -155,7 +184,33 @@ class TestGuidedSwitch:
     def test_nothing_switches_without_the_call(self, isolated_db, keys, monkeypatch):
         import requests
         db.save_preset("Old DS", translation_engine="deepseek", engine_model="deepseek-chat")
-        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": []}))
+        monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp({"data": [{"id": "x"}]}))
         svc.get_status()
         svc.check_providers()
+        assert db.list_presets()[0]["engine_model"] == "deepseek-chat"
+
+
+class TestReviewFixes:
+    def test_every_replacement_is_offered(self):
+        for (engine, _m), e in svc.load_registry().items():
+            if e.get("replacement"):
+                assert e["replacement"] in svc._offered(engine), e
+
+    def test_unoffered_preset_model_is_flagged_and_switchable(self, isolated_db):
+        db.save_preset("P", translation_engine="gemini", engine_model="gemini-2.5-pro")
+        item = _item(svc.get_status(), "gemini", "gemini-2.5-pro")
+        assert item["status"] == "not_offered" and item["severity"] == 2
+        assert item["can_switch"] and item["replacement"] in svc._offered("gemini")
+
+    def test_extension_model_is_listed(self, isolated_db):
+        from services import extension_service
+        db.set_app_setting(extension_service.ENGINE_SETTING,
+                           {"engine": "deepseek", "model": "deepseek-chat"})
+        item = next(i for i in svc.get_status()["items"] if i["kind"] == "extension")
+        assert item["status"] == "retired" and item["can_switch"] is False
+
+    def test_switch_is_conditional_in_the_database(self, isolated_db):
+        db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-chat")
+        pid = db.list_presets()[0]["id"]
+        assert db.set_preset_engine_model(pid, "x", expected_model="other") is False
         assert db.list_presets()[0]["engine_model"] == "deepseek-chat"

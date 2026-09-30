@@ -12,8 +12,8 @@ type Fetch = typeof fetch
 
 const BASE = '/api/models'
 
-export type ModelKind = 'default' | 'tier' | 'preset'
-export type ModelStatusValue = 'retired' | 'deprecated' | 'not_listed' | 'legacy' | 'current' | 'unknown'
+export type ModelKind = 'default' | 'tier' | 'preset' | 'extension'
+export type ModelStatusValue = 'retired' | 'deprecated' | 'not_listed' | 'not_offered' | 'legacy' | 'current' | 'unknown'
 
 export interface ModelStatusItem {
   engine: string

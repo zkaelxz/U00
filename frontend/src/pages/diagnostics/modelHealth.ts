@@ -13,6 +13,7 @@ import { compareParam } from '../benchmark/benchmarkForm'
 const STATUS_LABELS: Record<string, string> = {
   retired: 'Retired',
   not_listed: 'No longer listed',
+  not_offered: 'Not offered',
   deprecated: 'Deprecated',
   legacy: 'Older model',
   current: 'Current',
@@ -22,6 +23,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_TONES: Record<string, BadgeTone> = {
   retired: 'bad',
   not_listed: 'bad',
+  not_offered: 'warn',
   deprecated: 'warn',
   legacy: 'info',
   current: 'ok',
@@ -32,7 +34,7 @@ export const modelStatusLabel = (s: string) => STATUS_LABELS[s] ?? humanizeValue
 export const modelStatusTone = (s: string): BadgeTone => STATUS_TONES[s] ?? 'neutral'
 
 // Presets first (the user can act on them here), then workflow tiers, then built-in defaults.
-const KIND_ORDER: Record<string, number> = { preset: 0, tier: 1, default: 2 }
+const KIND_ORDER: Record<string, number> = { preset: 0, extension: 1, tier: 2, default: 3 }
 
 /** Most severe first; then presets, tiers, defaults; then by where it is set. */
 export function sortModelItems(items: ModelStatusItem[]): ModelStatusItem[] {
@@ -72,6 +74,7 @@ export function whereLabel(item: Pick<ModelStatusItem, 'kind' | 'engine' | 'wher
 /** What the user can do about a row that isn't switched from here. */
 export function kindHelp(item: Pick<ModelStatusItem, 'kind' | 'can_switch' | 'replacement'>): string | null {
   if (item.kind === 'default' || item.kind === 'tier') return 'Built into the app — update the app to change it.'
+  if (item.kind === 'extension') return 'Change it in Settings, under the browser extension.'
   if (item.kind === 'preset' && !item.can_switch) {
     return item.replacement
       ? `${item.replacement} isn't offered for this engine in this app yet. To pick a different model, change the preset in a drama's Translate step.`
@@ -80,9 +83,14 @@ export function kindHelp(item: Pick<ModelStatusItem, 'kind' | 'can_switch' | 're
   return null
 }
 
-/** "#/benchmark?compare=engine:model,engine:replacement", or null without a replacement. */
-export function compareHref(item: Pick<ModelStatusItem, 'engine' | 'model' | 'replacement'>): string | null {
+// A model the provider no longer serves, or the app no longer offers, can't be run.
+const NOT_RUNNABLE = new Set(['retired', 'not_listed', 'not_offered'])
+
+/** "#/benchmark?compare=engine:model,engine:replacement", or null when there is
+ *  no replacement or the old model can't be run any more (nothing to compare). */
+export function compareHref(item: Pick<ModelStatusItem, 'engine' | 'model' | 'replacement' | 'status'>): string | null {
   if (!item.replacement || item.replacement === item.model) return null
+  if (NOT_RUNNABLE.has(item.status)) return null
   return routeHref({
     name: 'benchmark',
     compare: compareParam([{ engine: item.engine, model: item.model }, { engine: item.engine, model: item.replacement }]),
@@ -134,4 +142,9 @@ export function modelHealthError(err: unknown): string {
     if (detail) return detail
   }
   return describeError(err, { pcOnly: true }).title
+}
+
+/** The status read is admin-only, not PC-only: a 403 there means no access. */
+export function modelStatusLoadError(err: unknown): string {
+  return describeError(err).title
 }

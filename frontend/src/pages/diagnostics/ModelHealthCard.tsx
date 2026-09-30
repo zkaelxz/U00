@@ -9,7 +9,7 @@ import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import {
-  compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLabel,
+  compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
   modelStatusTone, splitModelItems, whereLabel,
 } from './modelHealth'
 
@@ -33,7 +33,7 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
         setStatus(s)
         setLoadError(null)
       },
-      (e: unknown) => setLoadError(modelHealthError(e)),
+      (e: unknown) => setLoadError(modelStatusLoadError(e)),
     )
   }, [])
   useEffect(load, [load])

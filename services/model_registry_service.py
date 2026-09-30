@@ -49,14 +49,17 @@ MAX_MODELS_PER_ENGINE = 2000
 _PROVIDER_LISTS = {
     "claude": {"url": "https://api.anthropic.com/v1/models?limit=1000",
                "headers": lambda key: {"x-api-key": key, "anthropic-version": "2023-06-01"},
-               "extract": lambda body: [m.get("id") for m in body.get("data", [])]},
+               "extract": lambda body: [m.get("id") for m in body.get("data", [])],
+               "more": lambda body: bool(body.get("has_more"))},
     "gemini": {"url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
                "headers": lambda key: {"x-goog-api-key": key},
                "extract": lambda body: [str(m.get("name", "")).split("/", 1)[-1]
-                                        for m in body.get("models", [])]},
+                                        for m in body.get("models", [])],
+               "more": lambda body: bool(body.get("nextPageToken"))},
     "deepseek": {"url": "https://api.deepseek.com/models",
                  "headers": lambda key: {"Authorization": f"Bearer {key}"},
-                 "extract": lambda body: [m.get("id") for m in body.get("data", [])]},
+                 "extract": lambda body: [m.get("id") for m in body.get("data", [])],
+                 "more": lambda body: False},
 }
 
 _check_lock = threading.Lock()
@@ -107,6 +110,14 @@ def configured_models() -> list:
         if tier.get("engine_model"):
             out.append({"engine": tier["translation_engine"], "model": tier["engine_model"],
                         "kind": "tier", "where": f"Workflow tier: {tier.get('label') or key}"})
+    try:
+        from services import extension_service
+        ext = db.get_app_setting(extension_service.ENGINE_SETTING)
+    except Exception:
+        ext = None
+    if isinstance(ext, dict) and ext.get("engine") and ext.get("model"):
+        out.append({"engine": ext["engine"], "model": ext["model"], "kind": "extension",
+                    "where": "Browser extension translation"})
     for p in db.list_presets():
         if p.get("engine_model") and p.get("translation_engine"):
             out.append({"engine": p["translation_engine"], "model": p["engine_model"],
@@ -157,10 +168,21 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
         status = "deprecated"
         msg = f"{model} ({engine}) is deprecated"
         msg += f" and retires on {entry['retires_on']}." if entry.get("retires_on") else "."
+    elif listed is False and model.endswith("-latest") and model in _offered(engine):
+        # A "-latest" alias the app offers may not appear in a provider's
+        # list; not proof it is gone.
+        status = "unknown"
+        msg = f"{model} ({engine}) is an alias the provider's list doesn't show; it may still work."
     elif listed is False:
         status = "not_listed"
         msg = (f"{model} is no longer in {engine}'s model list (checked "
                f"{(check.get('checked_at') or '')[:10]}). Calls to it will likely fail.")
+    elif _offered(engine) and model not in _offered(engine) and engine != "ollama":
+        status = "not_offered"
+        msg = (f"{model} ({engine}) isn't a model this app offers any more, so a run with it "
+               "is refused.")
+        replacement = replacement or (_default_model(engine) if engine in translate_engines.ENGINES
+                                      else None)
     elif entry and entry["status"] == "legacy":
         status = "legacy"
         msg = f"{model} ({engine}) is an older model that is still offered."
@@ -177,7 +199,8 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
             "listed_by_provider": listed}
 
 
-_SEVERITY = {"retired": 3, "not_listed": 3, "deprecated": 2, "legacy": 1, "current": 0, "unknown": 0}
+_SEVERITY = {"retired": 3, "not_listed": 3, "not_offered": 2, "deprecated": 2, "legacy": 1,
+             "current": 0, "unknown": 0}
 
 
 def get_status() -> dict:
@@ -191,7 +214,8 @@ def get_status() -> dict:
         replacement_offered = bool(a["replacement"]) and a["replacement"] in _offered(c["engine"])
         items.append({**c, **a, "severity": _SEVERITY[a["status"]],
                       "can_switch": c["kind"] == "preset" and replacement_offered
-                      and a["status"] in ("retired", "not_listed", "deprecated", "legacy")})
+                      and a["status"] in ("retired", "not_listed", "not_offered", "deprecated",
+                                          "legacy")})
     engines_checked = {
         name: {"ok": bool(v.get("ok")), "model_count": len(v.get("models") or []),
                "error": v.get("error")}
@@ -218,10 +242,22 @@ def _registry_updated():
 def _fetch_models(engine: str, key: str) -> list:
     import requests
     spec = _PROVIDER_LISTS[engine]
-    resp = requests.get(spec["url"], headers=spec["headers"](key), timeout=HTTP_TIMEOUT)
+    # No redirects: a custom key header (x-api-key, x-goog-api-key) would
+    # otherwise follow one to another host.
+    resp = requests.get(spec["url"], headers=spec["headers"](key), timeout=HTTP_TIMEOUT,
+                        allow_redirects=False)
     resp.raise_for_status()
-    models = [m for m in spec["extract"](resp.json()) if isinstance(m, str) and m]
-    return models[:MAX_MODELS_PER_ENGINE]
+    body = resp.json()
+    if not isinstance(body, dict):
+        raise ValueError("unexpected response shape")
+    models = [m for m in spec["extract"](body) if isinstance(m, str) and m]
+    # An empty or paginated answer is not a complete list: treating it as one
+    # would mark every configured model "no longer listed".
+    if not models:
+        raise ValueError("the provider returned an empty model list")
+    if spec["more"](body) or len(models) > MAX_MODELS_PER_ENGINE:
+        raise ValueError("the provider's model list was incomplete")
+    return models
 
 
 def check_providers(now: float = None) -> dict:
@@ -272,6 +308,7 @@ def switch_preset_model(preset_id: int, from_model: str, to_model: str) -> dict:
         raise InvalidInputError("That model isn't offered for this preset's engine.")
     if to_model == from_model:
         raise InvalidInputError("The preset already uses that model.")
-    db.set_preset_engine_model(preset_id, to_model)
+    if not db.set_preset_engine_model(preset_id, to_model, expected_model=from_model):
+        raise ConflictError("The preset's model changed since you looked; refresh and try again.")
     return {"preset_id": preset_id, "engine": engine, "from_model": from_model,
             "to_model": to_model}
