@@ -36,12 +36,12 @@ test('add to Library, already-added 409, PC-only remove', async ({ page }) => {
   const list = page.getByTestId('catalog-list')
   await list.getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
   await expect(page.getByText('Added “The General and the Princess” to your Library.')).toBeVisible()
-  await expect(list.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42/source')
+  await expect(list.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
 
   s.importConflict = true
   await list.getByRole('button', { name: 'Add 月の庭 to Library' }).click()
   await expect(page.getByText('That title is already in your Library.')).toBeVisible()
-  await expect(list.getByRole('link', { name: 'In your Library — open' }).nth(1)).toHaveAttribute('href', '#/drama/3/source')
+  await expect(list.getByRole('link', { name: 'In your Library — open' }).nth(1)).toHaveAttribute('href', '#/drama/3')
 
   await list.getByRole('button', { name: 'Remove 月の庭' }).click()
   await list.getByRole('button', { name: /Confirm remove 月の庭/ }).click()
