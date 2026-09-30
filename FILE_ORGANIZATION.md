@@ -378,6 +378,8 @@ baihe-subtitler/
 │   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
 │   │                             text; delete version, series character, bug bundle, preset, voice bank
 │   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
+│   ├── egress_proxy.py           loopback proxy that lets ffmpeg/yt-dlp reach public addresses only (every
+│   │                             connection re-checked by url_guard and pinned); used by live_service
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session

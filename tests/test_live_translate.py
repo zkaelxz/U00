@@ -344,6 +344,17 @@ class TestResolveStreamUrl:
 
         assert "cookiesfrombrowser" not in opts_log[0]
         assert "cookiefile" not in opts_log[0]
+        assert "proxy" not in opts_log[0]
+
+    def test_proxy_reaches_yt_dlp_opts(self, monkeypatch):
+        opts_log = []
+        self._install_fake_yt_dlp_with_attempt_log(
+            monkeypatch, lambda _last: {"id": "abc", "url": "https://cdn.example/stream.m3u8"},
+            opts_log=opts_log)
+
+        lt.resolve_stream_url("https://example.com/live", proxy="http://127.0.0.1:9")
+
+        assert opts_log[0]["proxy"] == "http://127.0.0.1:9"
 
 
 class TestGenerationHelpers:
@@ -475,7 +486,7 @@ class TestRunLiveJobCookiesPassthrough:
         import background_jobs
         seen = {}
 
-        def fake_resolve(url, cookies_browser=None, cookies_file=None):
+        def fake_resolve(url, cookies_browser=None, cookies_file=None, proxy=None):
             seen["cookies_browser"] = cookies_browser
             seen["cookies_file"] = cookies_file
             raise lt.LiveCaptureError("stop here -- only checking what was passed in")

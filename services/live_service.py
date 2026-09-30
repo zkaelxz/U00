@@ -10,7 +10,10 @@ dir, use_gpu never passed), every start gets its own id and directory,
 use_gpu reaches the pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
-(host checked by services.url_guard.resolve_public, no fetch here); no
+(host checked by services.url_guard.resolve_public, no fetch here). The
+job runs yt-dlp and ffmpeg through a services.egress_proxy.GuardedProxy,
+so every connection they make afterwards (redirects, playlist variants,
+segments, keys) is checked and pinned to a public address too; no
 browser cookies over the API (a start at the PC uses the saved Settings
 cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No Streamlit/FastAPI import.
@@ -30,7 +33,8 @@ from typing import Optional
 import background_jobs
 import live_translate
 import translate_engines
-from services import ownership_service, settings_service, translate_service, url_guard
+from services import (egress_proxy, ownership_service, settings_service, translate_service,
+                      url_guard)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
@@ -44,8 +48,9 @@ MAX_SESSIONS = 32
 MAX_URL_LEN = 2000
 STREAMLIT_JOB_ID = "live_capture"
 # ffmpeg input protocols for a resolved live stream (HLS over https needs
-# tcp, tls and crypto for encrypted segments); no file, pipe, data, etc.
-FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto"
+# tcp, tls and crypto for encrypted segments, and httpproxy to tunnel
+# https through the egress proxy); no file, pipe, data, etc.
+FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto,httpproxy"
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -160,7 +165,10 @@ def _require_public(url, bad_message: str) -> None:
 def _make_target(session_id: str):
     def _target(*args, **kwargs):
         try:
-            live_translate.run_live_job(*args, **kwargs)
+            # run_live_job stops ffmpeg before returning, so the proxy
+            # outlives every connection it serves.
+            with egress_proxy.GuardedProxy() as proxy:
+                live_translate.run_live_job(*args, proxy=proxy.url, **kwargs)
         finally:
             _remove_dir(session_id)
     return _target

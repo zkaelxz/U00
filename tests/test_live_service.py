@@ -34,9 +34,10 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None):
+    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None, proxy=None):
         calls["out_dir"] = out_dir
         calls["protocol_whitelist"] = protocol_whitelist
+        calls["proxy"] = proxy
         p = FakeProc()
         calls["procs"].append(p)
         return p
@@ -152,6 +153,20 @@ def test_second_start_while_one_runs_is_conflict(live):
         _start()
     assert list(live_service._sessions) == [a]
     assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
+
+
+def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
+    sid = _start()
+    assert _wait(lambda: "out_dir" in live)
+    port = int(live["proxy"].rsplit(":", 1)[1])
+    assert live["proxy"] == f"http://127.0.0.1:{port}"
+    # socket.socket, not create_connection: the fixture fakes getaddrinfo.
+    with socket.socket() as s:
+        s.connect(("127.0.0.1", port))  # serving
+    live_service.stop_session(sid)
+    assert _terminal(sid)
+    with pytest.raises(OSError), socket.socket() as s:
+        s.connect(("127.0.0.1", port))
 
 
 def test_refused_second_start_builds_no_engine(live, monkeypatch):
