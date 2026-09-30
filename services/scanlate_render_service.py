@@ -22,11 +22,11 @@ resolver: no `..`, no symlinks, png/jpg only, size-capped). No path reaches
 a response, a note or a job message. No FastAPI or Streamlit import.
 """
 import os
-import tempfile
 import zipfile
 
 import background_jobs
 import db
+import storage
 from services import artifact_service, comic_view_service
 from services import scanlate_pages_service as pages_svc
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
@@ -160,12 +160,9 @@ def _rendered_path(drama_id: int, page: dict):
 
 
 def _tmp_beside(dest: str) -> str:
-    """A temp file one folder above the artifact's folder, so an unfinished
-    export can never be served as the artifact."""
-    fd, tmp = tempfile.mkstemp(prefix=".export_", suffix=".part",
-                               dir=os.path.dirname(os.path.dirname(dest)))
-    os.close(fd)
-    return tmp
+    """A partial file in the library temp folder, so an unfinished export
+    can never be served as the artifact and a crash's leftover is swept."""
+    return storage.new_partial_file("export")
 
 
 def _write_zip(dest: str, files: list):
