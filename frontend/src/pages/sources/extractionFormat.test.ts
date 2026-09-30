@@ -5,7 +5,7 @@ import {
   AI_OFF, MAX_FOLLOW_PAGES, aiReason, aiRequestFields, canImport, changedImages, clampFollowPages, comicImportText,
   duplicatePages, effectiveEngine, engineLabel, exclusionsFor, followPageLabel, followRequestFields, followStopText,
   importLabel, importPages, nextPageNumber, novelForm, pickedChars, pickedPages, profileSavedText, reviewImportText,
-  reviewWhy, roleLabel, skippedTitle, withContainer,
+  recoverSummary, reviewWhy, roleLabel, skippedTitle, withContainer,
 } from './extractionFormat'
 
 const engines = { engines: ['claude', 'gemini', 'ollama'], default: 'claude' }
@@ -215,5 +215,14 @@ describe('following next chapters', () => {
     expect(reviewImportText({ kind: 'review_import', content_type: 'novel', char_count: 20, pages_imported: 1 })).toBe(
       'Added 20 characters to the drama’s novel text.',
     )
+  })
+})
+
+describe('AI recovery confirm', () => {
+  it('names the engine, one call, and whether it may be paid', () => {
+    const e = { ...engines, free: ['ollama'] }
+    expect(recoverSummary('claude', e)).toBe('Claude · 1 AI call · may use paid credits')
+    expect(recoverSummary('ollama', e)).toBe('Ollama (on this PC) · 1 AI call · free engine')
+    expect(reviewWhy('recovery')).toContain('AI read it once')
   })
 })
