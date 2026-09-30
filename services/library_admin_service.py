@@ -68,6 +68,7 @@ BULK_TRANSLATE_JOB_ID = "bulk_series_translate"  # same id the Streamlit tab use
 EXPORT_JOB_ID = "library_export_zip"
 BACKUP_JOB_ID = "library_backup"
 DATABASE_BACKUP_JOB_ID = "library_db_backup"
+AUTO_BACKUP_JOB_ID = "library_auto_backup"  # services/auto_backup_service.py
 
 # Both under LIBRARY_DIR/backups, which a full backup already skips, so an
 # export or old backup is never zipped into the next backup.
@@ -147,7 +148,8 @@ def _maintenance(action: str):
     if not background_jobs.enter_maintenance():
         raise ConflictError(f"A restore is in progress; {action} is not possible right now.")
     try:
-        for job_id, label in ((BACKUP_JOB_ID, "backup"), (EXPORT_JOB_ID, "library export")):
+        for job_id, label in ((BACKUP_JOB_ID, "backup"), (AUTO_BACKUP_JOB_ID, "backup"),
+                              (EXPORT_JOB_ID, "library export")):
             if _job_id_running(job_id):
                 raise ConflictError(f"A {label} is running -- wait for it to finish before "
                                     f"{action}.")
@@ -482,28 +484,38 @@ def _backup_excluded_top_level() -> tuple:
     return wjs._restore_kept_names()
 
 
-def _backup_job(job_id):
+def write_backup_zip(dest: str, include_media: bool = True, manifest=None):
+    """Writes a backup zip to `dest`: a sanitized library.db snapshot and,
+    with include_media, every other library file except the excluded
+    top-level entries (backups/, sign-ins, source profiles, extension
+    token), the live database files, symlinks and any `.env`. `manifest`,
+    if given, is called with the snapshot's path and returns bytes stored
+    as manifest.json (so it describes exactly the database in the zip)."""
     library_dir = db.LIBRARY_DIR
     skip = {db.DB_PATH, db.DB_PATH + "-wal", db.DB_PATH + "-shm"}
     excluded = _backup_excluded_top_level()
-
-    def write(tmp):
-        with tempfile.TemporaryDirectory() as snapdir:
-            snap = os.path.join(snapdir, "library.db")
-            _sanitized_snapshot(snap)
-            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+    with tempfile.TemporaryDirectory() as snapdir:
+        snap = os.path.join(snapdir, "library.db")
+        _sanitized_snapshot(snap)
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+            if include_media:
                 for root, dirs, files in os.walk(library_dir, topdown=True):
                     if root == library_dir:
                         dirs[:] = [d for d in dirs if d not in excluded]
                         files = [f for f in files if f not in excluded]
                     for fname in files:
                         full = os.path.join(root, fname)
-                        if full in skip or os.path.islink(full):
+                        if full in skip or fname == ".env" or os.path.islink(full):
                             continue
                         zf.write(full, os.path.relpath(full, library_dir))
-                zf.write(snap, "library.db")
+            zf.write(snap, "library.db")
+            if manifest is not None:
+                zf.writestr("manifest.json", manifest(snap))
 
-    name, size = _write_artifact("backup", ".zip", "The backup could not be written.", write)
+
+def _backup_job(job_id):
+    name, size = _write_artifact("backup", ".zip", "The backup could not be written.",
+                                 write_backup_zip)
     background_jobs.set_result(job_id, {"name": name, "size": size})
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 
@@ -603,15 +615,32 @@ def validate_backup_zip(zip_bytes) -> None:
     (workspace_job_service.validate_staged_library_db)."""
     if not isinstance(zip_bytes, (bytes, bytearray)) or not zip_bytes:
         raise InvalidInputError("Upload a backup .zip file.")
+    _validate_zip(io.BytesIO(zip_bytes), len(zip_bytes), check_disk=True)
+
+
+def validate_backup_file(path: str, check_disk: bool = True) -> None:
+    """validate_backup_zip for a zip on disk (read in place, never loaded
+    whole into memory). check_disk=False skips the free-space check, for
+    a backup that was just written rather than one about to be restored
+    whole."""
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            _validate_zip(fh, size, check_disk=check_disk)
+    except OSError:
+        raise InvalidInputError(_BAD_ZIP) from None
+
+
+def _validate_zip(source, size: int, check_disk: bool) -> None:
+    try:
+        with zipfile.ZipFile(source) as zf:
             infos = zf.infolist()
             if len(infos) > min(wjs._MAX_RESTORE_MEMBERS, _RESTORE_MAX_MEMBERS):
                 raise InvalidInputError("The backup has too many files; it looks corrupted "
                                         "or unsafe to extract.")
             if "library.db" not in zf.namelist():
                 raise InvalidInputError(_BAD_ZIP + " (no library.db inside).")
-            total_cap = min(wjs._MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(len(zip_bytes)))
+            total_cap = min(wjs._MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
             total = 0
             for info in infos:
                 if _unsafe_member(info):
@@ -625,12 +654,13 @@ def validate_backup_zip(zip_bytes) -> None:
                 if total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
-            try:
-                free = shutil.disk_usage(os.path.dirname(os.path.abspath(db.LIBRARY_DIR))).free
-            except OSError:
-                free = None
-            if free is not None and free < total + _RESTORE_DISK_MARGIN_BYTES:
-                raise InvalidInputError("Not enough free disk space to restore this backup.")
+            if check_disk:
+                try:
+                    free = shutil.disk_usage(os.path.dirname(os.path.abspath(db.LIBRARY_DIR))).free
+                except OSError:
+                    free = None
+                if free is not None and free < total + _RESTORE_DISK_MARGIN_BYTES:
+                    raise InvalidInputError("Not enough free disk space to restore this backup.")
             if zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
     except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError,
