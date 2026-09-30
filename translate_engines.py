@@ -273,6 +273,10 @@ _SECRET_PATTERNS = [
     re.compile(r'\bhf_[A-Za-z0-9]{20,}\b'),
     # Groq keys: gsk_ + ~52 letters/digits.
     re.compile(r'\bgsk_[A-Za-z0-9]{20,}\b'),
+    # Notion integration secrets (roadmap 112): ntn_ (current) or secret_
+    # (older) + 40+ letters/digits. Same floor idea as hf_ above, so words like
+    # "secret_key" or "ntn_status" are left alone.
+    re.compile(r'\b(?:ntn|secret)_[A-Za-z0-9]{20,}\b'),
     # DeepL keys: a UUID, with ":fx" on Free-plan keys. A bare UUID is
     # only redacted with the ":fx" suffix or after "DeepL-Auth-Key", so
     # the app's own UUID ids stay readable in logs.
