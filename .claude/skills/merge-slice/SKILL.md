@@ -5,10 +5,10 @@ description: Merge a finished migration branch into baihe-subtitler using the re
 
 # /merge-slice `<branch> [<service_stem> <router_stem>]`
 
-Lands one finished branch on `baihe-subtitler`. The recipe comes from `docs/migration-handoff.md` ("Parallel recipe"). Work on one branch at a time: each merge changes the base for the next one.
+Lands one finished branch on `baihe-subtitler`. Work on one branch at a time: each merge changes the base for the next one.
 
 ## 0. Preconditions
-- Merging is allowed by a dated user instruction for migration slices (`docs/migration-handoff.md`, root `CLAUDE.md` "Who may merge"). For a roadmap step in gated mode, stop and ask instead.
+- Merging is allowed: the lead session merges once CI is green (root `CLAUDE.md`, "How to work"). Without that authority, stop and ask.
 - The branch's own report (from an agent or a person) lists its tests. Read it, and flag any doubts it raised before merging.
 
 ## 1. Merge the base into the branch (never rebase, never force-push)
@@ -21,9 +21,9 @@ git merge --no-edit origin/baihe-subtitler
 ```
 
 ## 2. Resolve conflicts
-- New service + router slice: `python scripts/migration/resolve_slice.py <service_stem> <router_stem>`. It handles `api/server.py`, `FILE_ORGANIZATION.md`, `api/schemas.py` and `docs/migration-review.md`.
+- New service + router slice: `python scripts/migration/resolve_slice.py <service_stem> <router_stem>`. It handles `api/server.py`, `FILE_ORGANIZATION.md` and `api/schemas.py`.
 - Append-only conflicts, with no new router: `python scripts/migration/keepboth.py <files>`.
-- **Don't use keep-both when a branch edits an existing class or function in place.** This is most common in `api/schemas.py` (see "Known flags" in the handoff). Resolve those by hand: take the base, then apply the branch's edit.
+- **Don't use keep-both when a branch edits an existing class or function in place.** This is most common in `api/schemas.py` (see "Known flags" in `docs/archive/migration-handoff.md`). Resolve those by hand: take the base, then apply the branch's edit.
 - Code conflicts in import blocks: keep both sides, then remove duplicate imports.
 - If both sides changed the same logic and choosing one side would lose behaviour, stop and report.
 - Check that no conflict markers are left: `git diff --check` and `grep -rn '^<<<<<<<\|^>>>>>>>' -- . ':!*.md'`.
@@ -47,9 +47,9 @@ git push origin HEAD:<branch>
 ```
 - Open a PR into `baihe-subtitler` with the GitHub MCP tools. The body covers: what changed in plain words, the tests run and their counts, and known gaps and doubts from the branch report.
 - End the PR body with the session's attribution lines.
-- Squash-merge it. CI is red only because Actions minutes are exhausted; the local checks above are the merge gate.
+- Squash-merge it once CI is green. If Actions minutes have run out, the full local suite is the gate.
 - Remove the scratch worktree: `git worktree remove <path>`.
 
 ## 5. After merging
-- If the branch added a service or route, check that `FILE_ORGANIZATION.md` and `docs/migration-review.md` have their entries.
+- If the branch added a service or route, check that `FILE_ORGANIZATION.md` has its entries.
 - Report: the PR number, the tests and counts, and follow-ups (gaps the branch listed, and routes still to build).
