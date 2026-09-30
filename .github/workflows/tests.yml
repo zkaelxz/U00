@@ -29,11 +29,13 @@ jobs:
   # ~5m45s-6m13s. By 2026-09-29 the suite had grown to 9-15 min serially
   # and runs were hitting the timeout, so it now runs in parallel with
   # pytest-xdist across the runner's CPUs (the suite is xdist-safe; the
-  # isolated_db fixture gives each worker its own library). 15 minutes
-  # still gives headroom without letting a hung job run indefinitely.
+  # isolated_db fixture gives each worker its own library). By 2026-09-30
+  # the parallel run took 10-15 min and one was cancelled at 94% at the old
+  # 15 minute limit; 25 minutes gives headroom without letting a hung job
+  # run indefinitely.
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:

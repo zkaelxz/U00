@@ -218,6 +218,78 @@ class TestEveryOwnedRouteIsGuarded:
         assert checked > 20
         assert not bad, bad
 
+    def test_body_drama_ids_reach_a_service_that_takes_the_principal(self):
+        # The path guard only sees `{drama_id}` in the URL. A drama id from
+        # the request body is checked by the service, so the service must
+        # take a principal (the test above then makes sure it's passed).
+        # Admin-only and PC-only routes are exempt: they see everything.
+        # `series_id` isn't covered: in a body it's usually a web source's
+        # series id, not a library series.
+        import ast
+        import importlib
+        import inspect
+        import pathlib
+
+        def exempt(route):
+            for dec in route.decorator_list:
+                for kw in getattr(dec, "keywords", ()):
+                    if kw.arg != "dependencies" or not isinstance(kw.value, ast.List):
+                        continue
+                    for d in kw.value.elts:
+                        name = getattr(d.func, "id", None) if isinstance(d, ast.Call) else None
+                        if name == "local_only":
+                            return True
+                        if name == "require_permission" and d.args \
+                                and isinstance(d.args[0], ast.Constant) \
+                                and str(d.args[0].value).startswith("admin."):
+                            return True
+            return False
+
+        def body_drama_arg(args):
+            return any(isinstance(a, ast.Attribute) and a.attr in ("drama_id", "drama_ids")
+                       for a in args)
+
+        checked, bad = 0, []
+        for path in sorted((pathlib.Path(api_auth.__file__).parent / "routers").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module \
+                        and node.module.split(".")[0] == "services":
+                    for a in node.names:
+                        names[a.asname or a.name] = (
+                            importlib.import_module(f"services.{a.name}")
+                            if node.module == "services"
+                            else getattr(importlib.import_module(node.module), a.name, None))
+
+            def resolve(f):
+                if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) \
+                        and inspect.ismodule(names.get(f.value.id)):
+                    return getattr(names[f.value.id], f.attr, None)
+                if isinstance(f, ast.Name):
+                    return names.get(f.id)
+                return None
+
+            for route in ast.walk(tree):
+                if not isinstance(route, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                        or not route.decorator_list or exempt(route):
+                    continue
+                for node in ast.walk(route):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    fn, args = resolve(node.func), list(node.args)
+                    if fn is None and getattr(node.func, "id", None) == "run_in_threadpool" \
+                            and args:
+                        fn, args = resolve(args[0]), args[1:]
+                    if not inspect.isfunction(fn) or not body_drama_arg(
+                            args + [k.value for k in node.keywords]):
+                        continue
+                    checked += 1
+                    if "principal" not in inspect.signature(fn).parameters:
+                        bad.append(f"{path.name}:{node.lineno} {fn.__qualname__}")
+        assert checked >= 5
+        assert not bad, bad
+
 
 class TestRouteWalk:
     """B calls every drama/series route against A's private items."""
@@ -385,6 +457,63 @@ class TestDramaIdsInBodies:
         expected = {"1": world["private"], "2": world["shared"], "3": None}
         assert linked("a") == expected
         assert linked("admin") == expected
+
+    def test_tracked_drama_link_follows_editability(self, world):
+        # The chapter check auto-imports into the linked drama, so linking
+        # one is editing it: a drama B can't edit is a 404 like a missing one.
+        from sources import store
+        for key in ("private", "shared"):
+            db.update_drama(world[key], media_type="manhua")
+        store.track_series("manhuagui", "1", "One")
+        client = _client(_app())
+
+        def link(who, drama_id, series="1"):
+            return client.post("/api/sources/tracked/drama", headers=world[who],
+                               json={"source": "manhuagui", "series_id": series,
+                                     "drama_id": drama_id})
+
+        def stored():
+            return {r["series_id"]: r["drama_id"] for r in store.list_tracked_series()}
+
+        hidden, missing = link("b", world["private"]), link("b", 999999)
+        assert hidden.status_code == missing.status_code == 404, hidden.text
+        assert hidden.json()["error"]["message"].replace(str(world["private"]), "N") \
+            == missing.json()["error"]["message"].replace("999999", "N")
+        assert stored() == {"1": None}
+
+        r = link("b", world["shared"])
+        assert r.status_code == 200, r.text
+        assert [t["drama_id"] for t in r.json()] == [world["shared"]]
+
+        # A links their private drama; B's list hides it, and B can't
+        # relink, clear or untrack it (all 404, nothing changed).
+        r = link("a", world["private"])
+        assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
+        assert link("b", None).status_code == 404
+        assert link("b", world["shared"]).status_code == 404
+        r = client.post("/api/sources/tracked", headers=world["b"],
+                        json={"source": "manhuagui", "series_id": "1", "tracked": False})
+        assert r.status_code == 404, r.text
+        assert stored() == {"1": world["private"]}
+        r = client.get("/api/sources/tracked", headers=world["b"])
+        assert [t["drama_id"] for t in r.json()] == [None]
+
+        # Admin (sees everything) and the PC owner / auth off are unchanged.
+        r = link("admin", world["shared"])
+        assert r.status_code == 200 and r.json()[0]["drama_id"] == world["shared"], r.text
+        r = _local(_app("off")).post("/api/sources/tracked/drama",
+                                     json={"source": "manhuagui", "series_id": "1",
+                                           "drama_id": world["private"]})
+        assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
+
+    def test_link_to_a_deleted_drama_blocks_nobody(self, world):
+        from services import sources_tracking_service as tracking
+        from sources import store
+        store.track_series("manhuagui", "1", "One", drama_id=world["private"])
+        db.delete_drama(world["private"])
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        assert tracking.set_tracked_drama("manhuagui", "1", None, principal=b)[0]["drama_id"] \
+            is None
 
 class TestTranslateHistory:
     def test_users_see_only_their_own_rows(self, world):

@@ -24,8 +24,10 @@ by `sources_search_service.get_job_result`.
 
 import background_jobs
 import db
+from services import ownership_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
-from services.sources_registry_service import _require_source, list_tracked
+from services.sources_registry_service import (_require_link_editable, _require_source,
+                                               list_tracked)
 from services.sources_search_service import _series_id
 from sources import chapter_check, registry, store
 
@@ -59,20 +61,23 @@ def _check_media(source: str, drama: dict):
         raise InvalidInputError("Novel chapters import into a novel drama.")
 
 
-def set_tracked_drama(source: str, series_id: str, drama_id) -> list:
+def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> list:
     """Points a tracked series' auto-import at `drama_id` (None clears it).
-    Fetches nothing. 404 unknown source, untracked series or missing drama;
-    422 a drama of the wrong media type."""
+    Fetches nothing. 404 unknown source, untracked series, a missing drama
+    or one the principal can't edit (the auto-import writes chapters into
+    it), or a series currently linked to such a drama; 422 a drama of the
+    wrong media type. `principal` None is auth off / the PC owner."""
     _require_source(source)
     series_id = _series_id(series_id)
     if not any(r["source"] == source and r["series_id"] == series_id
                for r in store.list_tracked_series()):
         raise NotFoundError("That series isn't tracked.")
+    _require_link_editable(source, series_id, principal)
     if drama_id is not None:
         drama = db.get_drama(drama_id)
-        if drama is None:
+        if drama is None or not ownership_service.can_edit_drama(principal, drama_id):
             raise NotFoundError(f"No drama with id {drama_id}.")
         _check_media(source, drama)
     if not store.set_tracked_drama(source, series_id, drama_id):
         raise NotFoundError("That series isn't tracked.")
-    return list_tracked()
+    return list_tracked(principal)
