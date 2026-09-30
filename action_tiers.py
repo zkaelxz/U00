@@ -90,7 +90,7 @@ _PROTECTED_MODULE_NAMES = frozenset({
     # Step 42's maintenance assistant: its own tool table and routes
     # (roadmap Step 42 item 6).
     "maintenance_assistant_service.py", "assistant_pytest_guard.py",
-    "assistant_roles_service.py",
+    "assistant_roles_service.py", "assistant_github_service.py", "assistant_github_routes.py",
     "assistant_routes.py", "assistant_schemas.py",
 })
 _PROTECTED_PACKAGE_NAMES = frozenset({"maintenance", "permissions", "security"})
