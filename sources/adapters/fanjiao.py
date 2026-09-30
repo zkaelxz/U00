@@ -58,7 +58,8 @@ Could NOT be verified this pass (recorded honestly rather than guessed):
     rather than an empty list.
 
 No browser for a request not from this PC (docs/remote-access-decision.md):
-the API sets `allow_browser` from that, and `_render` refuses when it's
+the API sets `allow_browser` from that (preview, preflight, series listing,
+"Check now"), and `_render` refuses when it's
 off.
 """
 

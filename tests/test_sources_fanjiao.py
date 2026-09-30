@@ -341,3 +341,20 @@ def test_site_terms_carries_technical_protection():
     assert caps.technical_protection == TechnicalProtection.DETECTED.value
     other = site_terms.capabilities_for("https://www.jjwxc.net/")
     assert other.technical_protection == TechnicalProtection.UNKNOWN.value
+
+
+@pytest.mark.parametrize("allow", [True, False])
+def test_check_now_respects_allow_browser(isolated_db, monkeypatch, allow):
+    """A "Check now" from another device must not open a browser on the PC
+    for a tracked Fanjiao album."""
+    from sources import chapter_check, store
+    monkeypatch.setattr(registry, "is_enabled", lambda name: True)
+    store.track_series("fanjiao", ALBUM, "一目余生", SHARE, None, known_chapters=[])
+    cap = FakeCapture()
+    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: _adapter(cap),
+                                            allow_browser=allow)
+    if allow:
+        assert cap.urls == [SHARE] and summary["checked"] == 1
+    else:
+        assert cap.urls == [] and summary["checked"] == 0
+        assert "JAVASCRIPT_REQUIRED" in summary["errors"]["一目余生"]
