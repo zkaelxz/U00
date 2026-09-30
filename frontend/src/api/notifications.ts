@@ -4,9 +4,14 @@
 // the PC itself just means key writes are off, so, like setEngineKey, they
 // use a plain fetch and show WRITES_REFUSED instead of hiding PC-only
 // sections. The URL goes in the body only; responses never carry it back.
+// The category switches (which events are pushed) are PC only but not behind
+// the key-write gate, so they go through pcOnlyFetch like Send test.
+// The header bell's list (GET /api/notifications) is library.read.
 import type {
+  NotificationCategories,
   NotificationChannel,
   NotificationChannelResult,
+  NotificationList,
   NotificationStatus,
   NotificationTestResult,
 } from '../types/notifications'
@@ -27,3 +32,9 @@ export const clearNotificationChannel = (channel: NotificationChannel, f?: Fetch
 
 export const sendTestNotification = (f?: Fetch) =>
   postJson<NotificationTestResult>(`${BASE}/test`, {}, pcOnlyFetch(f))
+
+/** Send only the switches that changed; the reply is the full status. */
+export const setNotificationCategories = (changes: NotificationCategories, f?: Fetch) =>
+  postJson<NotificationStatus>(`${BASE}/categories`, changes, pcOnlyFetch(f))
+
+export const listNotifications = (f?: Fetch) => getJson<NotificationList>('/api/notifications', f)
