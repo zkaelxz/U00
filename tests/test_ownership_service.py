@@ -123,17 +123,38 @@ def test_set_private_refused_for_drama_in_series(people):
 
 
 def test_share_by_default_and_new_item_defaults(people):
+    # New items are private unless the creator chooses to share by default.
     a = people["a"]
-    assert own.get_share_by_default(a) is True
-    assert own.new_item_defaults(a) == {"owner_user_id": people["a_id"], "is_private": 0}
-    own.set_share_by_default(a, False)
     assert own.get_share_by_default(a) is False
-    assert own.new_item_defaults(a)["is_private"] == 1
-    assert own.get_share_by_default(people["b"]) is True
-    assert own.get_share_by_default(LOCAL) is True
+    assert own.new_item_defaults(a) == {"owner_user_id": people["a_id"], "is_private": 1}
+    own.set_share_by_default(a, True)
+    assert own.get_share_by_default(a) is True
+    assert own.new_item_defaults(a)["is_private"] == 0
+    assert own.get_share_by_default(people["b"]) is False
+    assert own.get_share_by_default(LOCAL) is False
+    assert own.new_item_defaults(None) == {"owner_user_id": None, "is_private": 1}
+    own.set_share_by_default(LOCAL, True)
+    assert db.get_app_setting(own.HOUSEHOLD_SHARE_KEY) is True
+    assert own.new_item_defaults(None) == {"owner_user_id": None, "is_private": 0}
     own.set_share_by_default(LOCAL, False)
     assert db.get_app_setting(own.HOUSEHOLD_SHARE_KEY) is False
-    assert own.new_item_defaults(None) == {"owner_user_id": None, "is_private": 1}
+
+
+def test_share_by_default_off_for_new_users_on_an_older_database(people):
+    """A database from before the private default has the column with
+    DEFAULT 1: users stored then keep their value, a new user starts off,
+    and existing items are untouched."""
+    shared = db.create_drama(title_zh="s", owner_user_id=people["a_id"], is_private=0)
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("ALTER TABLE users DROP COLUMN share_by_default")
+        conn.execute("ALTER TABLE users ADD COLUMN share_by_default INTEGER DEFAULT 1")
+        conn.commit()
+    db.init_db()
+    assert own.get_share_by_default(people["a"]) is True
+    c = db.auth_create_user("c@example.com")
+    assert db.auth_get_user(c)["share_by_default"] == 0
+    assert own.get_share_by_default(_p(c)) is False
+    assert db.get_item_ownership("drama", shared)["is_private"] == 0
 
 
 def test_series_name_collision_refused(people):

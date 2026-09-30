@@ -140,13 +140,14 @@ def filter_visible_drama_ids(principal, drama_ids) -> list:
 
 
 def get_share_by_default(principal) -> bool:
+    """Off unless chosen: new items are private by default (user decision
+    2026-09-30). A stored value, even from before that decision, is kept."""
     if principal is None or principal.get("is_local_owner") or _user_id(principal) is None:
-        return bool(db.get_app_setting(HOUSEHOLD_SHARE_KEY, True))
+        return bool(db.get_app_setting(HOUSEHOLD_SHARE_KEY, False))
     user = db.auth_get_user(_user_id(principal))
     if not user:
         raise NotFoundError("User not found.")
-    val = user.get("share_by_default")
-    return True if val is None else bool(val)
+    return bool(user.get("share_by_default"))
 
 
 def set_share_by_default(principal, share: bool) -> bool:
@@ -183,6 +184,37 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
         raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)
     # Otherwise those dramas would vanish for the people who own them.
     raise ConflictError("Move other people's dramas out of this series first.")
+
+
+SHARING_PAGE_MAX = 200
+
+
+def _owner_name(row) -> str:
+    if row["owner_user_id"] is None:
+        return "PC owner"
+    if row["owner_found"] is None:
+        return "Removed user"
+    name = (row["owner_display_name"] or "").strip()
+    # Never show an email, even one typed in as a display name.
+    return name if name and "@" not in name else f"User {row['owner_user_id']}"
+
+
+def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
+    """Who can see each series and drama, for admins and the local owner
+    (the route is admin-only too). Owners are named by display name, never
+    by email. A drama in a series follows the series' flag."""
+    if not _sees_everything(principal):
+        raise ForbiddenError("Only an admin can see every item's sharing.")
+    if not 0 <= offset < 2**31 or not 1 <= limit <= SHARING_PAGE_MAX:
+        raise InvalidInputError(f"offset must be 0 or more and limit 1 to {SHARING_PAGE_MAX}.")
+    total, rows = db.list_item_sharing(limit, offset)
+    items = [{"kind": r["kind"], "id": r["id"], "title": r["title"] or "",
+              "owner_name": _owner_name(r), "is_private": bool(r["is_private"]),
+              "series_id": r["series_id"], "series_name": r["series_name"],
+              "series_is_private": None if r["series_is_private"] is None
+              else bool(r["series_is_private"])}
+             for r in rows]
+    return {"total": total, "offset": offset, "limit": limit, "items": items}
 
 
 def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:

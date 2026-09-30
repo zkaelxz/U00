@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ApiError } from '../api/client'
 import { getSettings, TOGGLES, updateSetting } from '../api/settings'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -13,6 +14,7 @@ import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { SharingCard } from './settings/SharingCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
@@ -37,7 +39,10 @@ export default function SettingsPage() {
   const bumpRouting = () => setRoutingToken((t) => t + 1)
 
   useEffect(() => {
-    getSettings().then(setSettings, setError)
+    // 403: not an admin. The admin cards stay hidden; Sharing below still shows.
+    getSettings().then(setSettings, (e: unknown) => {
+      if (!(e instanceof ApiError && e.status === 403)) setError(e)
+    })
   }, [])
 
   async function toggle(key: SettingsToggleKey, value: boolean) {
@@ -112,6 +117,8 @@ export default function SettingsPage() {
           <AdvancedCard {...prefProps} />
         </>
       )}
+      {/* Outside the settings gate: every signed-in person has a share-new-items choice. */}
+      <SharingCard />
     </section>
   )
 }

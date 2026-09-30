@@ -1184,7 +1184,7 @@ def init_db():
             ("dramas", "is_private", "INTEGER DEFAULT 0"),
             ("series", "owner_user_id", "INTEGER"),
             ("series", "is_private", "INTEGER DEFAULT 0"),
-            ("users", "share_by_default", "INTEGER DEFAULT 1"),
+            ("users", "share_by_default", "INTEGER DEFAULT 0"),
             ("translate_history", "user_id", "INTEGER"),
             ("job_records", "owner_user_id", "INTEGER"),
         ):
@@ -4675,8 +4675,10 @@ _USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active"
 def auth_create_user(email: str, display_name: str = "", is_admin: bool = False) -> int:
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
-            "INSERT INTO users (email, display_name, is_admin, is_active, created_at) "
-            "VALUES (?, ?, ?, 1, ?)",
+            # share_by_default is explicit: a database from before new items
+            # became private by default has the column with DEFAULT 1.
+            "INSERT INTO users (email, display_name, is_admin, is_active, share_by_default, "
+            "created_at) VALUES (?, ?, ?, 1, 0, ?)",
             (email, display_name or "", int(bool(is_admin)),
              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
         conn.commit()
@@ -4772,6 +4774,32 @@ def set_item_private(kind: str, item_id: int, private: bool) -> bool:
         cur = conn.execute(sql, (int(bool(private)), item_id))
         conn.commit()
         return cur.rowcount > 0
+
+
+def list_item_sharing(limit: int, offset: int):
+    """Every series and drama with its sharing fields, for the admin
+    Sharing screen: (total, rows). A series comes just before its dramas;
+    groups are sorted by series name or solo drama title. Owner names come
+    from users.display_name only (never the email)."""
+    items = (
+        "SELECT 'series' AS kind, 0 AS kind_order, s.id, s.name AS title, s.owner_user_id, "
+        "COALESCE(s.is_private, 0) AS is_private, NULL AS series_id, NULL AS series_name, "
+        "NULL AS series_is_private, s.name AS sort_key, s.id AS group_id FROM series s "
+        "UNION ALL "
+        "SELECT 'drama', 1, d.id, COALESCE(NULLIF(d.title_en, ''), NULLIF(d.title_zh, ''), ''), "
+        "d.owner_user_id, COALESCE(d.is_private, 0), d.series_id, s.name, "
+        "CASE WHEN s.id IS NULL THEN NULL ELSE COALESCE(s.is_private, 0) END, "
+        "COALESCE(s.name, NULLIF(d.title_en, ''), d.title_zh, ''), d.series_id "
+        "FROM dramas d LEFT JOIN series s ON s.id = d.series_id")
+    with contextlib.closing(get_conn()) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM ({items})").fetchone()[0]
+        rows = conn.execute(
+            f"SELECT i.*, u.id AS owner_found, u.display_name AS owner_display_name "
+            f"FROM ({items}) i LEFT JOIN users u ON u.id = i.owner_user_id "
+            "ORDER BY i.sort_key COLLATE NOCASE, i.sort_key, i.group_id IS NULL, i.group_id, "
+            "i.kind_order, i.title COLLATE NOCASE, i.id LIMIT ? OFFSET ?",
+            (limit, offset)).fetchall()
+    return total, [dict(r) for r in rows]
 
 
 def auth_get_user(user_id: int):
