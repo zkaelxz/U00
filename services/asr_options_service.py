@@ -51,9 +51,24 @@ def moss_installed() -> bool:
         return False
 
 
+def _qwen_batching_status() -> tuple:
+    """(installed qwen-asr version or None, whether batching can run with it)."""
+    try:
+        import asr_backend
+        version = asr_backend.installed_qwen_asr_version()
+        return version, version == asr_backend.QWEN_ASR_BATCH_TESTED_VERSION
+    except Exception:
+        return None, False
+
+
 def get_asr_options() -> dict:
+    qwen_version, batching_available = _qwen_batching_status()
     return {
         "qwen_asr_batch_size": get_qwen_asr_batch_size(),
+        # Batching runs only with the tested qwen-asr; any other version
+        # sends one segment at a time whatever the saved size.
+        "qwen_asr_version": qwen_version,
+        "qwen_asr_batching_available": batching_available,
         "qwen_asr_batch_min": MIN_BATCH_SIZE,
         "qwen_asr_batch_max": MAX_BATCH_SIZE,
         "moss_experimental": get_moss_experimental(),

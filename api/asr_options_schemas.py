@@ -14,6 +14,10 @@ class AsrOptions(BaseModel):
     qwen_asr_batch_size: int
     qwen_asr_batch_min: int
     qwen_asr_batch_max: int
+    # The installed qwen-asr version (None if not installed) and whether
+    # batching can run with it (only the tested version batches).
+    qwen_asr_version: Optional[str] = None
+    qwen_asr_batching_available: bool = False
     moss_experimental: bool
     # Whether the moss_transcribe_diarize package is importable on the PC.
     moss_installed: bool

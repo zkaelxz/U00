@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { asrBackendOptions, deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, updateAsrOptions } from './asrOptions'
+import { asrBackendOptions, batchingNote, deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, updateAsrOptions } from './asrOptions'
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -13,6 +13,8 @@ const OPTS = {
   qwen_asr_batch_size: 1,
   qwen_asr_batch_min: 1,
   qwen_asr_batch_max: 16,
+  qwen_asr_version: '0.0.6',
+  qwen_asr_batching_available: true,
   moss_experimental: false,
   moss_installed: false,
 }
@@ -59,5 +61,13 @@ describe('asrBackendOptions (Step 104)', () => {
   it('offers MOSS only while the experimental toggle is on', () => {
     expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr'])
     expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'moss_td'])
+  })
+})
+
+describe('batchingNote (Step 103)', () => {
+  it('says when batching can and cannot run', () => {
+    expect(batchingNote({ qwen_asr_version: '0.0.6', qwen_asr_batching_available: true })).toMatch(/can run/)
+    expect(batchingNote({ qwen_asr_version: '0.0.9', qwen_asr_batching_available: false })).toMatch(/one at a time/)
+    expect(batchingNote({ qwen_asr_version: null, qwen_asr_batching_available: false })).toMatch(/not installed/)
   })
 })

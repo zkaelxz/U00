@@ -218,6 +218,25 @@ def pypi_url(name: str):
     return f"https://pypi.org/project/{canonical_dist(dist)}/"
 
 
+# Packages that aren't on PyPI: Diagnostics links to their real source
+# instead of a PyPI page someone else could register (canonical dist -> URL).
+NON_PYPI_SOURCES = {
+    "moss-transcribe-diarize": "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize",
+}
+
+
+def package_source_url(name: str):
+    """Where Diagnostics links a package: its real repository for a non-PyPI
+    one, nothing for any other "experimental" entry, else pypi_url()."""
+    dist = canonical_dist(pip_install_name(name))
+    if dist in NON_PYPI_SOURCES:
+        return NON_PYPI_SOURCES[dist]
+    dep = OPTIONAL_DEPENDENCIES.get(name)
+    if dep and dep[2] == "experimental":
+        return None
+    return pypi_url(name)
+
+
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
@@ -1080,7 +1099,9 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     never automatically."""
     results = {}
     for name, info in deps.items():
-        if not info.get("installed"):
+        # "experimental" entries aren't on PyPI: a lookup by their name could
+        # hit an unrelated package registered under it.
+        if not info.get("installed") or info.get("tier") == "experimental":
             continue
         installed_version = get_installed_version(pip_install_name(name))
         latest_version = get_latest_pypi_version(pip_install_name(name), timeout=timeout)

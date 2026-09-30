@@ -11,7 +11,7 @@ becomes a default is a later decision, made after the real comparison below.
 | Setting | `qwen_asr_batch_size`, 1-16, default 1 (1 = the original one-segment-at-a-time run) | `moss_experimental`, default off |
 | Applies when | a drama's ASR backend is **Qwen3 ASR** in Whisper-text mode | a drama's ASR backend is **MOSS-Transcribe-Diarize (experimental)** in Whisper-text mode |
 | Code | `asr_backend.Qwen3ASRBackend.transcribe(batch_size=...)` | `asr_backend.MossTranscribeDiarizeBackend`, `BACKENDS`/`get_backend` |
-| Written against | qwen-asr **0.0.6** (`transcribe(list)` returns one result per input, in order) | OpenMOSS/MOSS-Transcribe-Diarize commit **61bc29c** (package 0.1.0), HF model revision **704aa4a** |
+| Written against | qwen-asr **0.0.6** (`transcribe(list)` returns one result per input, in order); any other installed version runs one segment per call | OpenMOSS/MOSS-Transcribe-Diarize commit **61bc29c** (package 0.1.0), HF model revision **704aa4a** |
 | Safety | results keyed back by segment index; a batch with the wrong result count is redone one segment at a time; timing is always Whisper's | never picked automatically; refused unless the toggle is on and the package is installed; its own speaker labels are kept and pyannote is not chained over them |
 
 ### Before turning MOSS on
@@ -35,6 +35,26 @@ becomes a default is a later decision, made after the real comparison below.
   doesn't offer a pip install.
 - A run can't be stopped part-way (one blocking call); a Stop takes effect
   when it returns, before any line is replaced.
+
+- **The frozen Streamlit tab has no MOSS path.** A drama set to MOSS keeps that
+  choice when opened there, but a run started from the Streamlit Workspace
+  transcribes with Whisper (and pyannote, if speaker detection is on).
+  Use the React app for MOSS runs.
+- **Batching needs the tested qwen-asr.** With any version other than 0.0.6
+  installed, Qwen3-ASR sends one line at a time whatever the saved batch size;
+  the Settings card says which applies.
+
+## Step 101 manual check: speaker detection on the GPU
+
+1. Settings: turn on "Use the GPU for transcription".
+2. Open a drama with audio > Transcribe > **Speakers** > **Detect speakers only**.
+   While it runs, `nvidia-smi -l 1` should show a `python` process using a few
+   GB of GPU memory with non-zero GPU-Util.
+3. When it finishes, the line under Speakers should read "Last Detect speakers
+   run (pyannote) used the GPU." (`diarization_turns.json` has
+   `"device": "cuda"`.)
+4. Turn "Use the GPU for transcription" off, run **Detect speakers only**
+   again, and confirm the line now says it used the CPU.
 
 ## How to evaluate (the roadmap's method)
 

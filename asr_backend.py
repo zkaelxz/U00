@@ -62,9 +62,37 @@ _asr_model_cache = {}
 
 # Step 103: batching (Qwen3ASRBackend.transcribe's batch_size) was written
 # against qwen-asr 0.0.6, whose transcribe(list) returns one result per input
-# in input order. It stays off by default until a real before/after run on
-# the user's GPU confirms it doesn't change the text on varied-length audio
-# (docs/asr-experiments.md). The 1-16 range lives in services/asr_options_service.
+# in input order -- the order texts are assigned back to segments in. Any
+# other installed version runs one segment per call, since that ordering is
+# not checked there. Batching stays off by default until a real before/after
+# run on the user's GPU confirms it doesn't change the text on varied-length
+# audio (docs/asr-experiments.md). The 1-16 range lives in
+# services/asr_options_service.
+QWEN_ASR_BATCH_TESTED_VERSION = "0.0.6"
+
+
+def installed_qwen_asr_version():
+    """The installed qwen-asr version, or None if it can't be read."""
+    try:
+        import importlib.metadata
+        return importlib.metadata.version("qwen-asr")
+    except Exception:
+        return None
+
+
+def effective_qwen_batch_size(requested) -> int:
+    """requested, when the installed qwen-asr is the tested version; else 1."""
+    requested = max(1, int(requested or 1))
+    if requested == 1:
+        return 1
+    version = installed_qwen_asr_version()
+    if version != QWEN_ASR_BATCH_TESTED_VERSION:
+        import applog
+        applog.get_logger().info(
+            f"Qwen3-ASR batching needs qwen-asr {QWEN_ASR_BATCH_TESTED_VERSION} (installed: "
+            f"{version or 'unknown'}); sending one segment at a time.")
+        return 1
+    return requested
 
 
 class WhisperBackend:
@@ -147,7 +175,8 @@ class Qwen3ASRBackend:
         batch_size (Step 103, experimental): how many segments go to Qwen3-ASR
         in one call. 1 (the default) is the original one-segment-at-a-time
         behaviour. Timing is Whisper's either way; only throughput changes.
-        Not yet validated on real audio -- see docs/asr-experiments.md."""
+        Only used with the tested qwen-asr version (effective_qwen_batch_size);
+        not yet validated on real audio -- see docs/asr-experiments.md."""
         if language not in LANGUAGE_NAMES:
             raise ValueError(
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
@@ -161,7 +190,7 @@ class Qwen3ASRBackend:
 
         model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
         language_name = LANGUAGE_NAMES[language]
-        batch_size = max(1, int(batch_size or 1))
+        batch_size = effective_qwen_batch_size(batch_size)
         out = list(whisper_segments)
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
             # See SEGMENT_DURATION_WARNING_SECONDS -- an oversized segment is

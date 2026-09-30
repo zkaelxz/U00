@@ -167,3 +167,22 @@ def test_model_and_processor_load_a_pinned_hub_revision(fakes, monkeypatch):
     assert len(seen) == 2
     assert all(kw["revision"] == ab.MOSS_HF_REVISION for kw in seen)
     assert len(ab.MOSS_HF_REVISION) == 40
+
+
+def test_diagnostics_links_moss_to_its_repository_never_pypi():
+    import diagnostics
+    url = diagnostics.package_source_url("moss-transcribe-diarize")
+    assert url == "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize"
+    assert diagnostics.package_source_url("jieba") == diagnostics.pypi_url("jieba")
+
+
+def test_version_check_never_asks_pypi_about_experimental_entries(monkeypatch):
+    import diagnostics
+    asked = []
+    monkeypatch.setattr(diagnostics, "get_latest_pypi_version",
+                        lambda name, timeout=10.0: asked.append(name) or "9.9")
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "0.1.0")
+    out = diagnostics.check_dependency_versions({
+        "moss-transcribe-diarize": {"installed": True, "tier": "experimental"},
+        "jieba": {"installed": True, "tier": "feature"}})
+    assert asked == ["jieba"] and "moss-transcribe-diarize" not in out

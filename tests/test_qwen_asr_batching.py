@@ -19,6 +19,12 @@ def _segments(n, length=2.0):
             for i in range(n)]
 
 
+@pytest.fixture(autouse=True)
+def tested_qwen_version(monkeypatch):
+    """Batching only runs on the tested qwen-asr version; pretend it's installed."""
+    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: ab.QWEN_ASR_BATCH_TESTED_VERSION)
+
+
 @pytest.fixture
 def sliced(monkeypatch, tmp_path):
     """Audio slicing writes an empty file; returns the paths it wrote."""
@@ -179,3 +185,32 @@ def test_a_batch_that_raises_is_retried_one_segment_at_a_time(monkeypatch, slice
                                           batch_size=2)
     assert model.calls == [2, 1, 1]
     assert [s["text"] for s in out] == ["seg_0.wav", "seg_1.wav"]
+
+
+@pytest.mark.parametrize("version", ["0.0.7", "0.1.0", None])
+def test_any_other_qwen_asr_version_runs_one_segment_per_call(monkeypatch, sliced, version):
+    """Texts are assigned back in batch order, which is only checked for 0.0.6."""
+    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: version)
+    model = EchoModel()
+    _use_model(monkeypatch, model)
+    out = ab.Qwen3ASRBackend().transcribe("/a.wav", "zh", whisper_segments=_segments(3),
+                                          batch_size=4)
+    assert model.calls == [1, 1, 1]
+    assert [s["text"] for s in out] == ["seg_0.wav", "seg_1.wav", "seg_2.wav"]
+
+
+def test_effective_batch_size(monkeypatch):
+    assert ab.effective_qwen_batch_size(8) == 8
+    assert ab.effective_qwen_batch_size(1) == 1
+    assert ab.effective_qwen_batch_size(None) == 1
+    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: "0.0.9")
+    assert ab.effective_qwen_batch_size(8) == 1
+
+
+def test_route_reports_whether_batching_can_run(isolated_db, monkeypatch):
+    from services import asr_options_service as svc
+    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: "0.0.9")
+    opts = svc.get_asr_options()
+    assert opts["qwen_asr_version"] == "0.0.9" and opts["qwen_asr_batching_available"] is False
+    monkeypatch.setattr(ab, "installed_qwen_asr_version", lambda: "0.0.6")
+    assert svc.get_asr_options()["qwen_asr_batching_available"] is True

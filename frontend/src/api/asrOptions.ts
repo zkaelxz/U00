@@ -10,6 +10,10 @@ export interface AsrOptions {
   qwen_asr_batch_size: number
   qwen_asr_batch_min: number
   qwen_asr_batch_max: number
+  // Installed qwen-asr version (null if not installed); batching only runs
+  // with the tested version, any other sends one line at a time.
+  qwen_asr_version: string | null
+  qwen_asr_batching_available: boolean
   moss_experimental: boolean
   moss_installed: boolean
 }
@@ -62,4 +66,11 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
 // select keeps the current value).
 export function asrBackendOptions(mossEnabled: boolean): string[] {
   return mossEnabled ? ['whisper', 'qwen3_asr', 'moss_td'] : ['whisper', 'qwen3_asr']
+}
+
+// The muted line under the batch-size field (Step 103).
+export function batchingNote(o: Pick<AsrOptions, 'qwen_asr_version' | 'qwen_asr_batching_available'>): string {
+  if (o.qwen_asr_batching_available) return `Batching can run with the installed qwen-asr ${o.qwen_asr_version}.`
+  if (!o.qwen_asr_version) return 'qwen-asr is not installed, so nothing is batched.'
+  return `Batching is tested with qwen-asr 0.0.6 only; with ${o.qwen_asr_version} installed, lines are sent one at a time.`
 }

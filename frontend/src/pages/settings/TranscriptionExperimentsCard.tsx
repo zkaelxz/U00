@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { getAsrOptions, parseBatchSize, updateAsrOptions, type AsrOptions, type AsrOptionsUpdate } from '../../api/asrOptions'
+import { batchingNote, getAsrOptions, parseBatchSize, updateAsrOptions, type AsrOptions, type AsrOptionsUpdate } from '../../api/asrOptions'
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
@@ -104,6 +104,9 @@ function Controls() {
             aria-label="Qwen3-ASR batch size"
           />
         </Field>
+        <p className="muted" data-testid="qwen-batching-note">
+          {batchingNote(opts)}
+        </p>
         <div className="actions">
           <button
             type="button"
