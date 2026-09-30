@@ -201,6 +201,7 @@ describe('following next chapters', () => {
     expect(followPageLabel(follow.pages[1])).toBe('Page 2 · 1,200 characters · a.example')
     expect(followStopText(follow)).toMatch(/number of pages you asked for/)
     expect(followStopText({ ...follow, stop: 'handoff' })).toMatch(/verification page/)
+    expect(followStopText({ ...follow, stop: 'downgrade' })).toMatch(/plain http/)
     expect(followStopText({ ...follow, stop: 'invalid' })).toMatch(/next page/)
     expect(followStopText({ pages: [follow.pages[0]], stop: 'invalid' })).toMatch(/didn’t follow/)
     expect(followStopText({ ...follow, stop: 'new-code' })).toBe('Stopped following next-chapter links.')

@@ -1245,3 +1245,58 @@ def test_follow_address_check_refuses_a_private_address(env, monkeypatch):
     assert imp._is_public(chapter_url(13)) is True
     _dns(monkeypatch, "10.0.0.5")
     assert imp._is_public(chapter_url(13)) is False
+
+
+def test_follow_first_page_heading_falls_back_to_the_page_title(client, env):
+    from services import sources_extraction_service as svc
+    from sources import adaptive, ai_extract
+    url = _novel_page(env)
+    did = db.create_drama(title_en="N", media_type="novel")
+    html = env["fetch"].pages[url]
+    data = ai_extract.deterministic_novel(ai_extract.PageModel(html, url))
+    data["chapter_title"] = None
+    later = adaptive.FollowedPage(chapter_url(13), "第13章 重逢", "第13章第0段。" * 40)
+    assert svc.open_review(did, "novel", url, html, data, None, svc.WHY_FOLLOWED,
+                           chain=[later], follow_stop="cap")
+    rv = _review(client, did)
+    assert rv["follow"]["pages"][0]["title"] == "第12章 重逢 - 某某小说网"
+    client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    _wait(f"sourceimport_{did}")
+    assert _raw(did).startswith("第12章 重逢 - 某某小说网")     # as a direct import would
+
+
+def test_follow_cancelled_import_says_how_many_pages_were_appended(client, env, monkeypatch):
+    from services import sources_extraction_service as svc
+    did, _res = _follow_review(client, env)
+    rv = _review(client, did)
+    asked = []
+
+    def cancel_after_first_page(job_id):
+        asked.append(job_id)
+        return len(asked) > 1               # the check before page 1 says no
+    monkeypatch.setattr(svc.background_jobs, "is_cancel_requested", cancel_after_first_page)
+    client.post(f"/api/sources/dramas/{did}/extraction/import", json={"revision": rv["revision"]})
+    st = _wait(f"sourceimport_{did}")
+    assert st["status"] == "cancelled"
+    assert st["message"] == "Cancelled after appending 1 of 3 pages."
+    assert st["result"]["pages_imported"] == 1 and st["result"]["cancelled"] is True
+    raw = _raw(did)
+    assert "第12章第0段" in raw and "第13章" not in raw
+    assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404   # not re-opened
+
+
+def test_follow_keeps_the_pages_when_a_later_page_is_too_large(client, env, monkeypatch):
+    from sources.http import ResponseTooLarge
+    url = _chain(env, 12, 13)
+    real = env["fetch"]
+
+    def fetch(u, *a, **kw):
+        if u == chapter_url(14):
+            raise ResponseTooLarge()
+        return real(u, *a, **kw)
+    monkeypatch.setattr(generic_import, "fetch_page", fetch)
+    did = db.create_drama(title_en="N", media_type="novel")
+    r = _run(client, "/api/sources/url/import", {"url": url, "drama_id": did, "follow_pages": 5}, did)
+    res = r.json()["result"]
+    assert res["follow_stop"] == "unreachable" and res["pages_found"] == 2
+    assert _review(client, did)["follow"]["stop"] == "unreachable" and _raw(did) == ""

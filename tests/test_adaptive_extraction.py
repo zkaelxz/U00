@@ -757,9 +757,9 @@ class TestFollowNovel:
         out, t = self._follow({chapter_url(12): html_resp(me)})
         assert out.stop in ("cycle", "no_next") and len(out.pages) == 1 and len(t.calls) == 1
         seen = {adaptive._follow_key(chapter_url(12))}
-        assert adaptive._unfollowable(chapter_url(12) + "#x", "novel.example", seen) == "cycle"
-        assert adaptive._unfollowable("http://novel.example/book/77/1012.html/", "novel.example",
-                                      seen) == "cycle"
+        assert adaptive._unfollowable(chapter_url(12) + "#x", chapter_url(11), seen) == "cycle"
+        assert adaptive._unfollowable("http://novel.example/book/77/1012.html/",
+                                      "http://novel.example/book/77/1011.html", seen) == "cycle"
 
     def test_stops_at_another_host(self, isolated_db):
         # Same registrable site, other host: the validator keeps the link,
@@ -769,13 +769,36 @@ class TestFollowNovel:
         out, t = self._follow({chapter_url(12): html_resp(away),
                                "https://m.novel.example/book/77/1013.html": html_resp(chapter_html(13))})
         assert out.stop == "other_host" and len(out.pages) == 1 and len(t.calls) == 1
-        assert adaptive._unfollowable("ftp://novel.example/2", "novel.example", set()) == "other_host"
+        assert adaptive._unfollowable("ftp://novel.example/2", chapter_url(11), set()) == "other_host"
+
+    def test_another_port_is_another_host(self):
+        here = "https://novel.example/book/1.html"
+        assert adaptive._unfollowable("https://novel.example:8443/book/2.html", here, set()) == "other_host"
+        assert adaptive._unfollowable("https://novel.example:443/book/2.html", here, set()) is None
+        assert adaptive._unfollowable("https://novel.example:99999/book/2.html", here,
+                                      set()) == "other_host"
+
+    def test_never_downgrades_from_https_to_http(self, isolated_db):
+        plain = chapter_html(12).replace('href="/book/77/1013.html"',
+                                         'href="http://www.novel.example/book/77/1013.html"')
+        out, t = self._follow({chapter_url(12): html_resp(plain),
+                               "http://www.novel.example/book/77/1013.html": html_resp(chapter_html(13))})
+        assert out.stop == "downgrade" and len(out.pages) == 1 and len(t.calls) == 1
+        # An upgrade is fine.
+        assert adaptive._unfollowable("https://novel.example/book/2.html",
+                                      "http://novel.example/book/1.html", set()) is None
 
     def test_never_follows_a_sign_in_or_age_check_link(self):
+        here = "https://novel.example/book/1.html"
         for u in ("https://novel.example/login?next=/book/2", "https://novel.example/user/signin.php",
-                  "https://novel.example/age-check/2", "https://novel.example/book/2?age_verification=1"):
-            assert adaptive._unfollowable(u, "novel.example", set()) == "gate", u
-        assert adaptive._unfollowable("https://novel.example/author/2", "novel.example", set()) is None
+                  "https://novel.example/age-check/2", "https://novel.example/book/2?age_verification=1",
+                  "https://novel.example/logout", "https://novel.example/book/2/buy",
+                  "https://novel.example/chapter/2/unlock.html", "https://novel.example/pay?ch=2",
+                  "https://novel.example/purchase/2", "https://novel.example/subscribe/77",
+                  "https://novel.example/checkout", "https://novel.example/sign-out"):
+            assert adaptive._unfollowable(u, here, set()) == "gate", u
+        for u in ("https://novel.example/author/2", "https://novel.example/book/payload/2.html"):
+            assert adaptive._unfollowable(u, here, set()) is None, u
 
     def test_url_check_refusal_stops_before_any_request(self, isolated_db):
         out, t = self._follow(self._routes(12, 13), url_check=lambda u: u == chapter_url(12))
@@ -801,6 +824,43 @@ class TestFollowNovel:
     def test_an_unreachable_page_stops_the_chain(self, isolated_db):
         out, t = self._follow(self._routes(12))           # 13 answers 404
         assert out.stop == "unreachable" and len(out.pages) == 1 and len(t.calls) == 2
+
+    def test_an_oversized_or_slow_page_stops_the_chain_keeping_the_pages(self, isolated_db):
+        from sources.http import ResponseTooLarge, ResponseTooSlow
+        for refused in (ResponseTooLarge(), ResponseTooSlow()):
+            out, t = self._follow(self._routes(12, 13, **{chapter_url(14): refused}))
+            assert out.stop == "unreachable" and len(t.calls) == 3
+            assert [p.url for p in out.pages] == [chapter_url(12), chapter_url(13)]
+
+    def test_an_oversized_first_page_still_fails_as_before(self, isolated_db):
+        from sources.http import ResponseTooLarge
+        with pytest.raises(ResponseTooLarge):
+            self._follow({chapter_url(12): ResponseTooLarge()})
+
+    def test_a_huge_title_is_capped_and_counted(self, isolated_db):
+        # No <h1>: the heading falls back to a multi-megabyte <title>.
+        huge = "题" * 1_000_000
+        page13 = chapter_html(13).replace("<title>第13章 重逢 - 某某小说网</title>", f"<title>{huge}</title>")
+        page13 = page13.replace("<h1>第13章 重逢</h1>", "")
+        out, _t = self._follow(self._routes(12, **{chapter_url(13): html_resp(page13)}), max_pages=2)
+        assert len(out.pages) == 2
+        assert out.pages[1].title == "题" * adaptive.MAX_TITLE_CHARS
+        # The capped title counts toward the budget.
+        body = len(out.pages[0].text) + len(out.pages[0].title) + len(out.pages[1].text)
+        out, _t = self._follow(self._routes(12, **{chapter_url(13): html_resp(page13)}), max_pages=2,
+                               max_chars=body + adaptive.MAX_TITLE_CHARS - 1)
+        assert out.stop == "chars" and len(out.pages) == 1
+
+    def test_a_followed_page_never_saves_a_site_profile(self, isolated_db, fake_llm, no_deterministic):
+        _page(12)
+        h13, u13 = _page(13, container_id="chaptercontent", title_wrap="chapterhead")
+        out, _t = self._follow({chapter_url(12): html_resp(_HTML_BY_URL[chapter_url(12)]),
+                                u13: html_resp(h13)}, max_pages=2,
+                               engine=FakeEngine(novel_answer()))
+        assert len(out.pages) == 2 and out.report.profile["saved"] == 1   # the first page, as today
+        vs = profiles.versions(DOMAIN, "novel")
+        assert [v["version"] for v in vs] == [1] and profiles.active(DOMAIN, "novel")["version"] == 1
+        assert not vs[0].get("failures")                 # the hop's misfit isn't recorded either
 
     def test_character_budget(self, isolated_db):
         out, t = self._follow(self._routes(12, 13, 14), max_chars=1)

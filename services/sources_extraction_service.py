@@ -507,12 +507,19 @@ def _comic_view(rv: _Review) -> dict:
             "page_count": _kept_count(rv)}
 
 
+def _first_heading(rv: _Review, data: dict) -> str:
+    """The reviewed page's heading, as a direct import would write it: the
+    chapter title, else the page's <title>, capped."""
+    title = (data or {}).get("chapter_title") or rv.page.page_title or ""
+    return title[:adaptive.MAX_TITLE_CHARS]
+
+
 def _follow_view(rv: _Review):
     """The pages of a followed import, by id in reading order (0 = the
     reviewed first page, as last re-run): title, length and host only."""
     if not rv.follow_stop:
         return None
-    pages = [{"id": 0, "title": _label(rv.data.get("chapter_title")),
+    pages = [{"id": 0, "title": _label(_first_heading(rv, rv.data)),
               "char_count": len(rv.data.get("content") or ""),
               "host": profiles.domain_of(rv.url)}]
     pages += [{"id": i, "title": _label(p.title), "char_count": len(p.text or ""),
@@ -687,6 +694,13 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
             for n, (text, heading) in enumerate(snapshot):
                 # Between pages only: a page is appended whole or not at all.
                 if n and background_jobs.is_cancel_requested(job_id):
+                    # The review is gone; say what is already in the drama.
+                    background_jobs.set_result(job_id, {
+                        "kind": "review_import", "content_type": "novel", "char_count": chars,
+                        "pages_imported": n, "cancelled": True})
+                    background_jobs.update_progress(
+                        job_id, 0.5 + 0.45 * n / len(snapshot),
+                        f"Cancelled after appending {n} of {len(snapshot)} pages.")
                     raise background_jobs.JobCancelled(job_id)
                 if len(snapshot) > 1:
                     background_jobs.update_progress(job_id, 0.5 + 0.45 * n / len(snapshot),
@@ -741,7 +755,7 @@ def start_review_import(drama_id: int, revision: str, principal=None,
     if rv.kind == "novel":
         if media not in imp.NOVEL_MEDIA_TYPES:
             raise InvalidInputError("Novel text imports into a novel drama.")
-        parts = [(data.get("content") or "", data.get("chapter_title") or "")]
+        parts = [(data.get("content") or "", _first_heading(rv, data))]
         parts += [(p.text or "", p.title or "") for p in rv.chain]
         snapshot = [parts[i] for i in _chosen_pages(rv, pages)]
         if not all(text.strip() for text, _h in snapshot):

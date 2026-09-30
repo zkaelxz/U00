@@ -95,7 +95,8 @@ export interface ExtractionComic {
 
 // Why following next-chapter links stopped.
 export type FollowStop =
-  | 'cap' | 'no_next' | 'cycle' | 'other_host' | 'gate' | 'not_public' | 'handoff' | 'unreachable' | 'invalid' | 'chars'
+  | 'cap' | 'no_next' | 'cycle' | 'other_host' | 'downgrade' | 'gate' | 'not_public' | 'handoff' | 'unreachable' | 'invalid'
+  | 'chars'
 
 // One page a followed import read; id 0 is the reviewed first page.
 export interface FollowedPage {

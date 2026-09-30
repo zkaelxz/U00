@@ -71,7 +71,8 @@ const FOLLOW_STOP: Record<string, string> = {
   no_next: 'The last page has no next-chapter link.',
   cycle: 'The next-chapter link led back to a page already read.',
   other_host: 'The next-chapter link leads to another site, so it wasn’t followed.',
-  gate: 'The next-chapter link leads to a sign-in or age-check page, so it wasn’t followed.',
+  downgrade: 'The next-chapter link drops from a secure (https) address to plain http, so it wasn’t followed.',
+  gate: 'The next-chapter link leads to a sign-in, sign-out, age-check or payment page, so it wasn’t followed.',
   not_public: 'The next-chapter link isn’t a public web address, so it wasn’t followed.',
   handoff:
     'The site showed a verification page, so Baihe stopped there. The pages before it are listed; open the site in your ' +
