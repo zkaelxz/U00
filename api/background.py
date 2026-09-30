@@ -151,7 +151,10 @@ def start_remote_health_monitor(settings, interval: float = None,
                                 first: float = None) -> bool:
     global _remote_health_poller
     from services import remote_health_service as rhs
-    if not rhs.remote_access_enabled(settings.public_url, settings.household_port):
+    # Without sign-in settings `python -m api` does not start the household
+    # listener, so there is nothing to probe or alert about.
+    if not (settings.sign_in_configured
+            and rhs.remote_access_enabled(settings.public_url, settings.household_port)):
         return False
     interval = rhs.CHECK_INTERVAL_SECONDS if interval is None else float(interval)
     first = rhs.FIRST_CHECK_SECONDS if first is None else float(first)

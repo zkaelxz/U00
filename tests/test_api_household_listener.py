@@ -883,21 +883,36 @@ class TestRunServers:
         svc._stopper()
         assert admin.should_exit and household.should_exit
 
-    def test_unsafe_household_port_refused_at_startup(self, monkeypatch):
-        with pytest.raises(SystemExit) as exc:
-            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8756", **SIGN_IN_ENV})
-        assert "8756" in str(exc.value)
+    def test_unsafe_household_port_skips_only_the_household_listener(self, isolated_db,
+                                                                      monkeypatch, capsys):
+        single, ran, _c, _s = self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8756",
+                                                        **SIGN_IN_ENV})
+        assert len(single) == 1 and ran == [] and single[0].port == 8600
+        err = capsys.readouterr().err
+        assert "household listener was not started" in err and "8756" in err
 
     @pytest.mark.parametrize("missing", list(SIGN_IN_ENV))
-    def test_household_port_without_sign_in_refused_at_startup(self, monkeypatch, missing):
+    def test_household_port_without_sign_in_skips_household_listener(self, isolated_db,
+                                                                      monkeypatch, capsys,
+                                                                      missing):
         env = {"BAIHE_API_HOUSEHOLD_PORT": "8610", **SIGN_IN_ENV}
         del env[missing]
-        with pytest.raises(SystemExit) as exc:
-            self._serve(monkeypatch, env)
-        message = str(exc.value)
-        assert message.startswith("ERROR: ") and "sign-in" in message
+        single, ran, _c, _s = self._serve(monkeypatch, env)
+        assert len(single) == 1 and ran == []
+        message = capsys.readouterr().err
+        assert "household listener was not started" in message and "sign-in" in message
         assert all(name in message for name in SIGN_IN_ENV)
         assert "s3cr3t-value" not in message and PUBLIC_HOST not in message
+
+    @pytest.mark.parametrize("bad", ["http://example.com", "https://example.com/path", "htps:/x"])
+    def test_bad_public_url_keeps_pc_listener(self, isolated_db, monkeypatch, capsys, bad):
+        env = {**SIGN_IN_ENV, "BAIHE_PUBLIC_URL": bad}
+        for port_env in ({}, {"BAIHE_API_HOUSEHOLD_PORT": "8610"}):
+            single, ran, _c, _s = self._serve(monkeypatch, {**env, **port_env})
+            assert len(single) == 1 and ran == [] and single[0].port == 8600
+            err = capsys.readouterr().err
+            assert "BAIHE_PUBLIC_URL" in err and "treated as not configured" in err
+            assert "s3cr3t-value" not in err and bad not in err
 
     @staticmethod
     def _warned(capsys):
@@ -927,6 +942,17 @@ class TestRunServers:
                                       **SIGN_IN_ENV})
         assert "BAIHE_API_AUTH=off" in str(exc.value)
         assert self._warned(capsys) == (False, [])
+
+    def test_auth_on_refused_even_with_a_bad_public_url(self, isolated_db, monkeypatch):
+        with pytest.raises(SystemExit):
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_AUTH": "on",
+                                      **{**SIGN_IN_ENV, "BAIHE_PUBLIC_URL": "http://x.example"}})
+
+    def test_non_loopback_host_with_household_port_still_refused(self, isolated_db, monkeypatch):
+        with pytest.raises(SystemExit) as exc:
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_HOST": "0.0.0.0",
+                                      "BAIHE_API_AUTH": "off", **SIGN_IN_ENV})
+        assert "0.0.0.0" in str(exc.value)
 
     def test_warning_only_for_the_single_port_sign_in_setup(self):
         from api.api_config import single_port_sign_in_warning

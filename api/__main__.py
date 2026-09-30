@@ -24,18 +24,38 @@ portable.activate_portable_mode()
 
 import argparse
 import sys
+from dataclasses import replace
 
 
 def _serve():
     import uvicorn
-    from api.api_config import check_bind_safety, check_household_bind_safety, load_settings
+    from api.api_config import (check_bind_safety, check_household_bind_safety, is_loopback_host,
+                               load_settings)
     try:
-        settings = load_settings()   # also refuses a non-https BAIHE_PUBLIC_URL
+        settings = load_settings()
         check_bind_safety(settings)
-        if settings.household_port:
-            check_household_bind_safety(settings)
     except ValueError as e:
         raise SystemExit(f"ERROR: {e}")
+    # Refused, loudly, as before: a household port next to sign-in on the
+    # admin listener or a non-loopback host would weaken the PC's own listener.
+    if settings.household_port and (settings.auth_enabled or not is_loopback_host(settings.host)):
+        try:
+            check_household_bind_safety(settings)
+        except ValueError as e:
+            raise SystemExit(f"ERROR: {e}")
+    # Sign-in and other household problems only turn the household listener
+    # off: the PC's own listener always starts, since a typo in .env must not
+    # lock the owner out of the app.
+    if settings.public_url_error:
+        _warn(f"{settings.public_url_error} Sign-in is treated as not configured.")
+    if settings.household_port:
+        try:
+            if settings.public_url_error:
+                raise ValueError("BAIHE_PUBLIC_URL is not valid.")
+            check_household_bind_safety(settings)
+        except ValueError as e:
+            _warn(f"The household listener was not started: {e}")
+            settings = replace(settings, household_port=0)
     _warn_single_port_sign_in(settings)
     if settings.is_development:
         uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True)
@@ -82,8 +102,11 @@ def _warn_single_port_sign_in(settings):
     Diagnostics' log tail shows it too."""
     from api.api_config import single_port_sign_in_warning
     warning = single_port_sign_in_warning(settings)
-    if not warning:
-        return
+    if warning:
+        _warn(warning)
+
+
+def _warn(warning):
     from translate_engines import redact_secrets
     print(f"WARNING: {redact_secrets(warning)}", file=sys.stderr)
     try:
