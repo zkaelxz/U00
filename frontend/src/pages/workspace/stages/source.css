@@ -9,8 +9,11 @@
 .source-suggestions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
 .source-analysis { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: var(--space-2) var(--space-3); }
 .source-analysis dt { font-size: 0.85em; opacity: 0.7; }
-.source-analysis dd { margin: 0; }
+.source-analysis dd { margin: 0; overflow-wrap: anywhere; }
 .source-analysis > div { display: block; min-width: 0; }
+.source-suggestion { display: grid; gap: var(--space-2); justify-items: start; }
+.source-suggestion p, .source-pipeline { margin: 0; overflow-wrap: anywhere; }
+.source-pipeline { padding-left: 1.25rem; }
 
 /* Source media: "Upload a file | From a URL" as a segmented control (the link form is urlDownload.css).
    Native radios stay (arrow keys, radio semantics), visually hidden; the label is the segment. */
@@ -29,3 +32,9 @@
 /* Transcribe's blocker line: the reason plus a one-tap fix (rule 22). */
 .source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .source-panel .setting-list { margin: 0; }
+
+/* D06: keep or replace hand-corrected speakers (TranscribeStage Speakers section). */
+.source-manual { display: grid; gap: var(--space-2); margin: var(--space-2) 0; }
+.source-manual .setting-list { margin: 0; }
+.source-manual .stage-ack { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; overflow-wrap: anywhere; }
+.source-manual p { margin: 0; }
