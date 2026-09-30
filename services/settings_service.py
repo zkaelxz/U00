@@ -10,6 +10,7 @@ never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.
 """
 import os
+import sqlite3
 import threading
 from typing import Optional
 
@@ -623,15 +624,23 @@ def engine_test_generation(engine: str) -> int:
     """Bumped on every key/endpoint write for `engine`, so a Test that was
     already running when the key changed doesn't record its stale result."""
     import db
-    value = db.get_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine, 0)
+    try:
+        value = db.get_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine, 0)
+    except sqlite3.Error:
+        return 0
     return value if isinstance(value, int) else 0
 
 
 def _forget_engine_test(name: str):
     """Drops the saved Test result for the engine a key or endpoint belongs
-    to (Step 36), e.g. "ollama_url" -> "ollama"."""
+    to (Step 36), e.g. "ollama_url" -> "ollama". Best effort: the key or URL
+    is already written to .env, and status bookkeeping must never turn that
+    into an error (e.g. a library whose tables don't exist yet)."""
     import db
     engine = name[:-len("_url")] if name.endswith("_url") else name
-    db.set_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine,
-                       engine_test_generation(engine) + 1)
-    db.set_app_setting(ENGINE_TEST_PREFIX + engine, None)
+    try:
+        db.set_app_setting(ENGINE_TEST_GENERATION_PREFIX + engine,
+                           engine_test_generation(engine) + 1)
+        db.set_app_setting(ENGINE_TEST_PREFIX + engine, None)
+    except sqlite3.Error:
+        pass

@@ -285,3 +285,18 @@ class TestRoutes:
                      "/api/settings/engine-routing/engines/test_offline/test"):
             assert remote.post(path, json={"engine": "claude"} if "capab" in path
                                else {}).status_code == 403
+
+
+def test_a_key_write_never_fails_on_status_bookkeeping(isolated_db, tmp_path, monkeypatch):
+    """CI regression: a library whose tables don't exist yet made every key
+    write a 500 once the key write also forgot the engine's Test result."""
+    import sqlite3
+
+    def broken(*a, **k):
+        raise sqlite3.OperationalError("no such table: app_settings")
+    monkeypatch.setattr(db, "set_app_setting", broken)
+    monkeypatch.setattr(db, "get_app_setting", broken)
+    env = str(tmp_path / ".env")
+    assert settings_service.set_engine_key("claude", "sk-abc-123", env_path=env)["configured"]
+    assert settings_service.clear_engine_key("claude", env_path=env)["engine"] == "claude"
+    settings_service.set_endpoint_url("ollama_url", "http://127.0.0.1:11434", env_path=env)
