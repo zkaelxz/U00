@@ -32,6 +32,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSi
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    assistant_github_routes,
     assistant_routes,
     auth_routes,
     blocked_retry_routes,
@@ -201,6 +202,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
     app.include_router(assistant_routes.router)
+    app.include_router(assistant_github_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

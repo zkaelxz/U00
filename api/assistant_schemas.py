@@ -141,3 +141,79 @@ class AssistantBacklogDeleted(BaseModel):
 
 class AssistantBacklogCleared(BaseModel):
     deleted: int
+
+
+# --- Step 72: deliver a proposed fix as a GitHub pull request ---------------
+
+class AssistantGithubStatus(BaseModel):
+    """Never carries the token: only whether one is configured."""
+    enabled: bool
+    repo: Optional[str] = None
+    base_branch: str
+    token_configured: bool
+    branch_prefix: str
+
+
+class AssistantGithubSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: Optional[bool] = None
+    repo: Optional[str] = Field(None, max_length=141)
+    base_branch: Optional[str] = Field(None, max_length=100)
+
+
+class AssistantGithubTokenSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(min_length=1, max_length=512)
+    confirm: bool = False
+
+
+class AssistantGithubTokenResult(BaseModel):
+    token_configured: bool
+
+
+class AssistantGithubConnection(BaseModel):
+    ok: bool
+    repo: str
+    default_branch: Optional[str] = None
+    can_push: bool
+    base_branch: str
+    base_exists: bool
+
+
+class AssistantGithubPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patch: str = Field(min_length=1, max_length=200_000)
+    title: str = Field(min_length=1, max_length=200)
+
+
+class AssistantGithubFile(BaseModel):
+    path: str
+    change: Literal["add", "modify", "delete"]
+
+
+class AssistantGithubPreview(BaseModel):
+    repo: str
+    base_branch: str
+    branch_prefix: str
+    title: str
+    files: List[AssistantGithubFile]
+    patch: str
+    sha256: str
+
+
+class AssistantGithubDeliverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patch: str = Field(min_length=1, max_length=200_000)
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field("", max_length=20_000)
+    sha256: str = Field(min_length=64, max_length=64)
+    confirm: bool = False
+
+
+class AssistantGithubDelivered(BaseModel):
+    pr_url: str
+    pr_number: Optional[int] = None
+    branch: str
+    base_branch: str
+    repo: str
+    files: List[AssistantGithubFile]
