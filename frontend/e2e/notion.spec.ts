@@ -137,7 +137,7 @@ test('export: starts a job, shows progress, then links to the page', async ({ pa
   await page.goto('/#/drama/1/export')
   const panel = page.getByRole('region', { name: 'Export to Notion' })
   await panel.locator('.section-title', { hasText: 'Export to Notion' }).click()
-  await expect(panel).toContainText('your own notes on the page are kept')
+  await expect(panel).toContainText('your notes outside the Baihe transcript section are kept')
   await expect(panel.getByTestId('notion-page-link')).toHaveCount(0)
 
   await panel.getByRole('button', { name: 'Export to Notion' }).click()

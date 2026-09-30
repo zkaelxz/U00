@@ -562,8 +562,8 @@ baihe-subtitler/
 │                                 /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
-│       └── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
-│                                 /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
+│       ├── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
+│       │                         /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │

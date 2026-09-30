@@ -2,7 +2,8 @@
  * Export > Export to Notion (roadmap item 112). Shown only at the PC, and
  * only once Notion has been set up in Settings (a muted hint when it is
  * half done). Runs as a background job; re-exporting updates the same page
- * in place and keeps the user's own notes on it.
+ * in place and keeps the user's own notes outside the Baihe transcript
+ * section (that section is replaced on every export).
  */
 import { useEffect, useState } from 'react'
 
@@ -85,7 +86,7 @@ export function ExportNotion({ field }: { field: NotionField }) {
             <>
               <p className="muted">
                 Exports {FIELD_TEXT[field]} (the Language choice above). Re-exporting updates the same page in place;
-                your own notes on the page are kept.
+                your notes outside the Baihe transcript section are kept (that section is replaced each time).
               </p>
               <div>
                 <button type="button" className={buttonClass('primary')} disabled={busy} onClick={run}>

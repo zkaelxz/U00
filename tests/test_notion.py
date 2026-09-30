@@ -404,6 +404,7 @@ def test_first_export_creates_a_database_page(notion, drama):
     texts = _texts(notion, heading["id"])
     assert "00:00:00  Mo Ran: Line 0" in texts and "00:00:02  Line 1" in texts
     assert any(t.startswith("Original title: 二哈") for t in texts)
+    assert texts[0] == ns.REPLACED_NOTE  # warns before anyone types inside it
 
 
 def test_bilingual_and_original_text(notion, drama):
@@ -510,7 +511,7 @@ def test_long_transcript_is_chunked(notion, drama):
     _export(drama)
     page_id = db.get_drama(drama)["notion_page_id"]
     [heading] = notion.headings(page_id)
-    assert len(notion.children[heading["id"]]) == 250 + 4  # 2 details, stamp, divider
+    assert len(notion.children[heading["id"]]) == 250 + 5  # note, 2 details, stamp, divider
     appends = [c for c in notion.calls if c["method"] == "PATCH" and c["url"].endswith("/children")]
     assert len(appends) == 3
     for c in appends:

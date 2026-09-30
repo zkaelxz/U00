@@ -20,7 +20,8 @@ them under these exact names ("Original title", "Lines", "Translated",
 "Source language", "Exported"; see OPTIONAL_PROPERTIES), and one toggle
 heading block titled "Baihe transcript" that holds the details and the
 lines. Anything else on the page, the user's own notes included, is left
-alone. The new transcript block is inserted right after the old one (the
+alone; anything added inside that block is replaced with it (the block's
+first line says so). The new transcript block is inserted right after the old one (the
 append's `after`), written completely, and only then is the old one deleted,
 so the transcript keeps its place on the page and a failed export never
 leaves the page without one. A first export (or one whose old block the user
@@ -423,8 +424,12 @@ def _line_block(line, field: str):
 _FIELD_LABELS = {"en": "English", "zh": "original text", "bilingual": "English and original text"}
 
 
+REPLACED_NOTE = ("This section is replaced every time the drama is exported from Baihe. "
+                 "Add your own notes outside it.")
+
+
 def _details(drama: dict, total: int, translated: int, field: str, today: str) -> list:
-    blocks = []
+    blocks = [_paragraph(_rt(REPLACED_NOTE, italic=True, color="gray"))]
     rows = [("Original title", drama.get("title_zh")),
             ("Source language", drama.get("source_language")),
             ("Summary", drama.get("episode_summary"))]
