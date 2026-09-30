@@ -12,6 +12,7 @@ single line, rather than whole-drama batch operations.
 import re
 import json
 import os
+from core import LANGUAGE_NAMES
 from translate_engines import call_llm_json, matching_glossary_terms
 
 
@@ -22,7 +23,7 @@ def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
     if not getattr(engine, "supports_reference", False):
         return "This feature needs an LLM engine (Claude, DeepSeek, or Ollama)."
 
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     gloss = ""
     if glossary_terms:
         relevant = matching_glossary_terms(zh, glossary_terms)
@@ -49,7 +50,7 @@ def alternative_translations(zh: str, en: str, engine, count: int = 3,
     if not getattr(engine, "supports_reference", False):
         return []
 
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     prompt = (
         f"Give {count} alternative English translations of this {lang} line, each taking a "
         f"different valid approach (e.g. more literal, more natural, tighter, more formal).\n\n"
@@ -76,7 +77,7 @@ def improve_line(zh: str, en: str, engine, issue: str = "", source_language: str
     if not getattr(engine, "supports_reference", False):
         return en
 
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     issue_clause = (f"\n\nThe specific problem: {issue}" if issue.strip()
                     else "\n\nIdentify what's weak about it yourself and fix that.")
     prompt = (
@@ -97,7 +98,7 @@ def grammar_breakdown(zh: str, engine, source_language: str = "zh"):
     if not getattr(engine, "supports_reference", False):
         return []
 
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     prompt = (
         f"Break down this {lang} sentence for a learner:\n\n{zh}\n\n"
         "For each word or meaningful unit, give: the word, its reading (pinyin for Chinese, "

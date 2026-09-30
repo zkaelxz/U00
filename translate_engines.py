@@ -345,9 +345,7 @@ def redact_for_storage(text):
     return strip_url_queries(redact_secrets(str(text)))
 
 
-# Reused from forced_align.py rather than duplicated -- both files need
-# the same "zh"/"ja"/"ko" -> full language name mapping.
-from forced_align import LANGUAGE_NAMES
+from core import LANGUAGE_NAMES
 
 # How each of this app's own content_mode/media_type values reads in a
 # sentence, for the opening line of the system prompt. Falls back to

@@ -9,6 +9,12 @@ import difflib
 from dataclasses import dataclass, field, replace
 
 
+# The source languages the app handles, and the full names LLM and aligner
+# prompts use for them. Callers fall back to "Chinese" for anything else.
+SOURCE_LANGUAGES = ("zh", "ja", "ko")
+LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+
+
 # The per-line columns db.save_lines writes. `idx` is the line's current
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.

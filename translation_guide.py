@@ -17,6 +17,7 @@ depend on context only a person reading the story can settle.
 
 import re
 import json
+from core import LANGUAGE_NAMES
 from translate_engines import call_llm_json, _parse_json_array
 
 
@@ -372,7 +373,7 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
         known_block = ("\n\nAlready in the glossary (do NOT propose these again): "
                        + ", ".join(t["term_original"] for t in known_terms))
 
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
     categories_desc = "\n".join(f"  - {k}: {v}" for k, v in TERM_CATEGORIES.items())
     policies_desc = "\n".join(f"  - {k}: {v['label']} (e.g. {v['example']})"
                                for k, v in TERM_POLICIES.items())
@@ -614,7 +615,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
         return []
     en_samples = _sample_across_text(english_translation) if english_translation.strip() else []
 
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
     categories_desc = "\n".join(f"  - {k}: {v}" for k, v in TERM_CATEGORIES.items())
     policies_desc = "\n".join(f"  - {k}: {v['label']} (e.g. {v['example']})"
                                for k, v in TERM_POLICIES.items())
@@ -818,7 +819,7 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usa
     if not present:
         return {}
 
-    lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang = LANGUAGE_NAMES.get(source_language, "Chinese")
     listing = "\n".join(f"{k}: {v}" for k, v in present.items())
 
     prompt = (

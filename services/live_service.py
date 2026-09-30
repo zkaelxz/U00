@@ -30,11 +30,11 @@ from typing import Optional
 import background_jobs
 import live_translate
 import translate_engines
+from core import SOURCE_LANGUAGES
 from services import ownership_service, settings_service, translate_service, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
-SOURCE_LANGUAGES = ("zh", "ja", "ko")
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
 SEGMENT_RANGE = (10, 60)
 OVERLAP_RANGE = (0, 8)

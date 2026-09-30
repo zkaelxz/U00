@@ -12,6 +12,8 @@ import os
 import posixpath
 import re
 
+from core import SOURCE_LANGUAGES
+
 IMG_TOKEN_RE = re.compile(r"\[\[IMG:([^\]]+)\]\]")
 
 
@@ -103,7 +105,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     from ebooklib import epub
 
     lang = "en" if field == "en" else (
-        source_language if source_language in ("zh", "ja", "ko") else "zh")
+        source_language if source_language in SOURCE_LANGUAGES else "zh")
 
     book = epub.EpubBook()
     book.set_identifier(f"baihe-subtitler-{title}")

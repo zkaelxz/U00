@@ -10,12 +10,12 @@ path or a key.
 """
 
 import db
+from core import SOURCE_LANGUAGES
 import known_sites
 import title_library
 from services import drama_service
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
-LANGUAGES = ("zh", "ja", "ko")
 # The catalog also accepts "game" (schema comment) on top of the drama types.
 TITLE_MEDIA_TYPES = tuple(drama_service.MEDIA_TYPE_OPTIONS) + ("game",)
 SEARCH_LINK_FORMATS = ("audio_drama", "novel", "manhua", "manhwa", "manga")
@@ -48,9 +48,9 @@ def _check_query(name, value):
 def _check_language(value, allow_blank=True):
     if (value == "" or value is None) and allow_blank:
         return ""
-    if value not in LANGUAGES:
+    if value not in SOURCE_LANGUAGES:
         raise InvalidInputError("language must be one of zh, ja, ko.",
-                                details={"allowed": list(LANGUAGES)})
+                                details={"allowed": list(SOURCE_LANGUAGES)})
     return value
 
 

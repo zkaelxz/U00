@@ -20,6 +20,7 @@ import json
 import urllib.request
 
 import portable
+from core import LANGUAGE_NAMES
 
 CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
@@ -82,7 +83,7 @@ def define_words_llm(words, context_lines, engine, source_language: str = "zh", 
     Returns {word: {"reading": str|None, "definitions": [str]}}."""
     if not getattr(engine, "supports_reference", False) or not words:
         return {}
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
     context = "\n".join(context_lines[:50])  # cap context size
     out = {}
     unique_words = list(dict.fromkeys(words))

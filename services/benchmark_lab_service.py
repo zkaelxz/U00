@@ -50,6 +50,7 @@ import background_jobs
 import benchmark
 import db
 import translate_engines
+from core import SOURCE_LANGUAGES
 from services import settings_service, translate_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
@@ -58,7 +59,6 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 JOB_ID = "benchmark_lab"
 TIERS = ("public", "application", "regression")
 STAGES = ("translation", "transcription", "ocr")
-SOURCE_LANGUAGES = ("zh", "ja", "ko")
 REGRESSION_SET = "regressions"
 # A result at or above this counts as a pass (the per-example pass/fail).
 PASS_THRESHOLD = 0.8
@@ -72,7 +72,7 @@ OCR_BACKENDS = ("tesseract", "paddle", "manga_ocr", "paddle_vl_manga")
 # Engines whose spend counts toward the monthly cap (as translate_run_service).
 _CAP_ENGINES = ("claude", "deepseek", "gemini", "google", "deepl")
 # Languages whose transcripts are scored per character (no word spaces).
-_CHARACTER_LANGUAGES = ("zh", "ja", "ko")
+_CHARACTER_LANGUAGES = SOURCE_LANGUAGES
 
 
 # ---------------------------------------------------------------------------

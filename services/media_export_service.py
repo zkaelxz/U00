@@ -32,10 +32,10 @@ import db
 import dub
 import video_export
 from services import artifact_service, export_service
+from services.media_upload_service import VIDEO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError)
 
-_VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm")
 _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export requires."
 # Stream-copy and audio-only re-encodes are fast; this only stops a hung ffmpeg.
 _VIDEO_TIMEOUT_S = 4 * 3600
@@ -184,7 +184,7 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
     _require_ffmpeg()
     job_id = f"burned_video_{drama_id}"
     ext = os.path.splitext(video_path)[1].lower()
-    if ext not in _VIDEO_EXTS:
+    if ext not in VIDEO_EXTENSIONS:
         ext = ".mp4"
     return _start_video_job(drama_id, job_id, _burned_video_job, job_id, drama_id, video_path,
                             ass_text, ext,
@@ -276,7 +276,7 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
         raise ConflictError("The dub is still being generated; export the video when it finishes.")
     job_id = f"dubbed_video_{drama_id}"
     ext = os.path.splitext(video_path)[1].lower()
-    if ext not in _VIDEO_EXTS:
+    if ext not in VIDEO_EXTENSIONS:
         ext = ".mp4"
     return _start_video_job(drama_id, job_id, _dubbed_video_job, job_id, drama_id, video_path,
                             dub_path, ext, _DUB_ORIGINAL_DB if keep_original else None,
