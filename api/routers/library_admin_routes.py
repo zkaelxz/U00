@@ -83,7 +83,9 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
     return las.start_bulk_translate(body.drama_ids, body.default_locale,
                                     expected_engines=plan["by_drama"],
                                     allow_paid_summary=holds_paid_engines(request),
-                                    principal=principal)
+                                    principal=principal,
+                                    include_genre_notes=body.include_genre_notes,
+                                    default_female_pronouns=body.default_female_pronouns)
 
 
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,

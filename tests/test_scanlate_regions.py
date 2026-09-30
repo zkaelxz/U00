@@ -176,8 +176,7 @@ class TestEditedSourceTextIsTranslated:
         bubbles[0]["source_text"] = "你好"  # the person fixes an OCR mistake
         engine = _RecordingMT()
         scanlate.translate_page_bubbles(bubbles, engine, {})
-        sent, _ = engine.calls[0]
-        assert sent == ["你好", "再见"]
+        assert [c[0] for c in engine.calls] == [["你好"], ["再见"]]      # one region per call
         assert bubbles[0]["translated_text"] == "EN<你好>"
 
     def test_skipped_and_empty_regions_are_not_sent_and_keep_their_text(self):
@@ -190,12 +189,32 @@ class TestEditedSourceTextIsTranslated:
         assert bubbles[0]["translated_text"] == "keep"
 
     def test_mismatched_result_count_is_rejected_not_assigned_by_position(self, monkeypatch):
-        monkeypatch.setattr(scanlate, "translate_page_with_context",
-                            lambda texts, *a, **kw: (["only one"], ""))
+        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: json.dumps(
+            {"translations": ["only one"], "context_summary": "s"}))
         bubbles = [{"source_text": "一"}, {"source_text": "二"}]
         with pytest.raises(ValueError):
-            scanlate.translate_page_bubbles(bubbles, object(), {})
+            scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
         assert "translated_text" not in bubbles[0]
+
+    @pytest.mark.parametrize("answer", [
+        {"translations": {"1": "B", "0": "A", "2": "extra"}},       # padded: unknown id
+        {"translations": {"0": "A"}},                                # short
+        {"translations": ["A", "B"]},                                # positional list
+    ])
+    def test_padded_short_or_positional_answer_applies_nothing(self, monkeypatch, answer):
+        monkeypatch.setattr(translate_engines, "call_llm_json",
+                            lambda *a, **kw: json.dumps(answer))
+        bubbles = [{"source_text": "一"}, {"source_text": "二"}]
+        with pytest.raises(ValueError):
+            scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
+        assert all("translated_text" not in b for b in bubbles)
+
+    def test_reordered_answer_is_matched_by_id(self, monkeypatch):
+        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: json.dumps(
+            {"translations": {"1": "Two", "0": "One"}, "context_summary": "s"}))
+        bubbles = [{"source_text": "一"}, {"source_text": "二"}]
+        assert scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {}) == "s"
+        assert [b["translated_text"] for b in bubbles] == ["One", "Two"]
 
 
 # ---------------------------------------------------------------------------
@@ -341,10 +360,10 @@ class TestBatchProcessPages:
         detected, seen_contexts = [], []
         self._fake_pipeline(monkeypatch, detected)
 
-        def fake_translate(texts, engine, meta, previous_context="", **kw):
+        def fake_translate(texts_by_id, engine, meta, previous_context="", **kw):
             seen_contexts.append(previous_context)
-            return [f"t{len(seen_contexts)}"] * len(texts), f"ctx{len(seen_contexts)}"
-        monkeypatch.setattr(scanlate, "translate_page_with_context", fake_translate)
+            return {k: f"t{len(seen_contexts)}" for k in texts_by_id}, f"ctx{len(seen_contexts)}"
+        monkeypatch.setattr(scanlate, "translate_regions_by_id", fake_translate)
         report = scanlate.batch_process_pages(
             [{"id": i, "image_path": bubble_page} for i in range(3)], "zh",
             lambda *a: None, engine=object(), previous_context="start")
@@ -357,7 +376,7 @@ class TestBatchProcessPages:
 
         def boom(*a, **kw):
             raise RuntimeError("API down")
-        monkeypatch.setattr(scanlate, "translate_page_with_context", boom)
+        monkeypatch.setattr(scanlate, "translate_regions_by_id", boom)
         report = scanlate.batch_process_pages(
             [{"id": 1, "image_path": bubble_page}], "zh",
             lambda pid, bubbles: saved.__setitem__(pid, bubbles), engine=object())
@@ -460,7 +479,7 @@ class TestSfxSkipByDefault:
         engine = _RecordingMT()
         bubbles[0]["include_sfx"] = True
         scanlate.translate_page_bubbles(bubbles, engine, {})
-        assert engine.calls[0][0] == ["ドン", "やめて"]
+        assert [c[0] for c in engine.calls] == [["ドン"], ["やめて"]]
 
     def test_region_excluded_from_auto(self):
         assert scanlate.region_excluded_from_auto({"kind": "sfx"})

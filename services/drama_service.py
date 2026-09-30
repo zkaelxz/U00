@@ -259,12 +259,11 @@ def update_drama_metadata(drama_id, *, principal=None, **partial) -> dict:
     return library_service.get_library_drama(drama_id)
 
 
-# A job_records row still saying running/queued but untouched this long is
-# treated as left behind by a crashed process (records have no resume, see
-# db.save_job_record), so it must not block a delete forever. Generous
-# enough that a real long job (which rewrites its record on state changes)
-# is unlikely to be older than this.
-_STALE_JOB_RECORD_SECONDS = 6 * 60 * 60
+# A job_records row still saying running/queued but not heartbeated this
+# long is treated as left behind by a crashed process (records have no
+# resume, see db.save_job_record), so it must not block a delete forever.
+# Live owners heartbeat every background_jobs.HEARTBEAT_INTERVAL.
+_STALE_JOB_RECORD_SECONDS = background_jobs.STALE_JOB_SECONDS
 _DELETE_CONFIRM_TEXT = "DELETE"
 _LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of its files "
                            "could not be removed (a file may be in use). Close anything "

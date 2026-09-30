@@ -159,9 +159,9 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (16 sites)
+│   └── adapters/                  one file per supported site (17 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
-│       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
+│       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, fanjiao.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
 │           lightnovel_fun.py, ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
@@ -248,6 +248,12 @@ baihe-subtitler/
 │   │                             background jobs (deno_install, upgrade_check) behind the install guard
 │   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
 │   │                             must resolve inside the voice-bank folder, symlinks refused
+│   ├── maintenance_assistant_service.py  Step 42 -- in-app AI maintenance assistant, read-only v1: a fixed
+│   │                             table of read-only tools (list/read/search code, git status/log/diff, redacted
+│   │                             log, job history, support report, dependency/model checks, one test file),
+│   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
+│   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
+│   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
@@ -339,6 +345,12 @@ baihe-subtitler/
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
 │   ├── comic_view_service.py     comic viewer: page list, contained page-image lookup (magic-byte type,
 │   │                             no symlinks, 50 MB cap, no PIL), visible text regions, page progress
+│   ├── scanlate_pages_service.py Scanlate S1/S2: panel config, page detail by stable region id, run notes,
+│   │                             add_page_images (upload + link imports; the import limits live here), the
+│   │                             scanlate_<id> job id, upload claim, shared pipeline lock, note cleaner
+│   ├── scanlate_run_service.py   Scanlate S5: detect + OCR + id-keyed translate + render as one job per drama
+│   │                             (modes missing/page/all), conditional per-page writes, predecessor context
+│   ├── scanlate_render_service.py Scanlate S6/S8: typeset one page from DB regions; render and ZIP/PDF export jobs
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
@@ -449,6 +461,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── scanlate_schemas.py       automatic Scanlate request/response models (kept apart from schemas.py)
 │   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
 │   ├── backup_schemas.py         automatic backup / snapshot restore models (kept apart from schemas.py)
 │   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
@@ -466,6 +479,8 @@ baihe-subtitler/
 
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
+
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
@@ -555,6 +570,8 @@ baihe-subtitler/
 
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
+│       ├── scanlate_routes.py    /api/scanlate/dramas/{id}/config, run-notes, pages/{pid} (GET); pages (upload, PC-only),
+│       │                         run, render, export (jobs.start) -- tests/test_api_scanlate_auto.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
@@ -576,6 +593,8 @@ baihe-subtitler/
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
+│       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;

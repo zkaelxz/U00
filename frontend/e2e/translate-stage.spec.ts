@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 
 import { withTranslateLines } from './stageLineMocks'
 
+// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
+const TRANSLATION_ONLY = ['deepl', 'google', 'nllb', 'libretranslate']
+
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.
 
@@ -12,7 +15,10 @@ const job = (status: string, extra: object = {}) => ({
 
 test('shows config, estimates, and starts a run with the chosen options', async ({ page }) => {
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
-  const other = config.engines.find((e: { name: string }) => e.name !== config.translation_engine).name
+  // A fallback must be the same kind as the main engine (AI or translation-only).
+  const kind = (n: string) => TRANSLATION_ONLY.includes(n)
+  const other = config.engines.find((e: { name: string }) =>
+    e.name !== config.translation_engine && kind(e.name) === kind(config.translation_engine)).name
 
   const bodies: Record<string, unknown>[] = []
   let cancelled = false
@@ -72,6 +78,47 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
   await expect(page.getByTestId('job-status')).toContainText('cancelled')
+})
+
+test('fallback engines: the rule is shown, only same-kind engines are offered, Reflect turns them off (B-06)', async ({ page }) => {
+  const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
+  const names: string[] = config.engines.map((e: { name: string }) => e.name)
+  const main: string = config.translation_engine
+  const kind = (n: string) => TRANSLATION_ONLY.includes(n)
+  const sameKind = names.filter((n) => n !== main && kind(n) === kind(main))
+  const otherKind = names.find((n) => kind(n) !== kind(main))
+  test.skip(!sameKind.length || !otherKind, 'the seeded config needs engines of both kinds')
+
+  await withTranslateLines(page)
+  await page.goto('/#/drama/1/translate')
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await run.getByText('Advanced', { exact: true }).click()
+  const group = run.getByTestId('fallback-engines')
+  await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
+  await expect(group).toContainText('Not with Reflect or Bulk.')
+
+  await group.getByRole('button', { name: 'Add fallback engine' }).click()
+  const slot = group.getByLabel('Fallback engine 1')
+  const offered = await slot.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean))
+  expect(offered).toEqual(sameKind)
+  await slot.selectOption(sameKind[0])
+
+  // Switching the main engine to the other kind flags the chosen fallback.
+  await run.getByLabel('Engine', { exact: true }).selectOption(otherKind!)
+  await expect(group.getByRole('alert')).toHaveText(/must be the same kind as the main engine/)
+  await expect(slot.locator('option:checked')).toContainText("can't be used here")
+  await group.getByRole('button', { name: 'Remove' }).click()
+  await expect(group.getByRole('alert')).toHaveCount(0)
+
+  // Back on an AI engine, Reflect turns the picker off and says why.
+  if (!kind(main)) {
+    await run.getByLabel('Engine', { exact: true }).selectOption('')
+    await group.getByRole('button', { name: 'Add fallback engine' }).click()
+    await run.getByRole('switch', { name: 'Reflect' }).click()
+    await expect(group).toContainText('Off while Reflect is on; remove these to run.')
+    await expect(group.getByLabel('Fallback engine 1')).toBeDisabled()
+    await expect(group.getByRole('button', { name: 'Add fallback engine' })).toHaveCount(0)
+  }
 })
 
 test('a 409 on start says a translate job is already running', async ({ page }) => {

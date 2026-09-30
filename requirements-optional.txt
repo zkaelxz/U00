@@ -134,7 +134,7 @@ torch>=2.0
 safetensors>=0.4
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=4.0
+pypdf>=6.0        # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- scanlate: manual erase/heal brush (freeform paint-to-erase) ---
 # PyPI shows no release in the past 12 months -- confirmed directly
