@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { updateDramaMetadata } from '../../../api/library'
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { buttonClass } from '../../../components/uiClasses'
+import { MEDIA_TYPES } from '../../libraryForm'
 import { writeSectionOpen } from '../../../components/sectionStorage'
 import { wantsAutofill, withoutAutofill } from '../../libraryParity/libraryParity'
 import type { KnownPlatform, MediaAnalysis } from '../../../types/workspace'
@@ -13,7 +16,9 @@ import {
   analysisDetails,
   analysisSummary,
   autofillRequest,
+  contentTypeSuggestion,
   defaultSelection,
+  pipelineSteps,
   suggestionRows,
   type SuggestionRow,
 } from '../metadataForm'
@@ -180,16 +185,37 @@ export function AutofillPanel() {
 }
 
 export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
-  const { dramaId } = useStage()
+  const { dramaId, drama, refetchDrama } = useStage()
   const [result, setResult] = useState<MediaAnalysis | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [applying, setApplying] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const suggested = result ? contentTypeSuggestion(result, drama.media_type ?? null, MEDIA_TYPES) : null
+  // Parity P05: "Use this content type" sets the drama's media type, nothing else.
+  const applySuggestion = (mediaType: string) => {
+    setApplying(true)
+    updateDramaMetadata(dramaId, { media_type: mediaType }).then(
+      () => {
+        setApplying(false)
+        setError(null)
+        setNotice(`Media type set to ${humanize('mediaType', mediaType)}.`)
+        refetchDrama()
+      },
+      (e: unknown) => {
+        setApplying(false)
+        setError(e)
+      },
+    )
+  }
 
   const run = () => {
     setBusy(true)
     analyzeMedia(dramaId).then(
       (r) => {
         setError(null)
+        setNotice(null)
         setResult(r)
         setBusy(false)
       },
@@ -223,6 +249,30 @@ export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
               ))}
             </dl>
           )}
+          {result?.content_type_guess && (
+            <div className="source-suggestion" data-testid="analysis-suggestion">
+              <p>
+                Likely content type: <strong>{humanize('mediaType', result.content_type_guess)}</strong>
+                {result.content_type_reason ? ` (${result.content_type_reason})` : ''}.
+              </p>
+              {suggested ? (
+                <button type="button" className={buttonClass('secondary', 'sm')} disabled={applying} onClick={() => applySuggestion(suggested)}>
+                  Use this content type
+                </button>
+              ) : (
+                result.content_type_guess === drama.media_type && <p className="muted">This drama already uses it.</p>
+              )}
+            </div>
+          )}
+          {result && (result.suggested_pipeline ?? []).length > 0 && (
+            <div data-testid="analysis-pipeline">
+              <p className="muted">Suggested steps (nothing runs until you start it):</p>
+              <ol className="source-pipeline">
+                {pipelineSteps(result).map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </div>
+          )}
+          {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </div>
       </Section>
