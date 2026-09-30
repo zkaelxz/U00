@@ -322,7 +322,7 @@ python cli.py align --whisper-size medium                    # audio-drama mode
 python cli.py narrate-prep --engine claude --api-key $KEY     # novel-narration mode
 python cli.py translate --status aligned --engine claude --api-key $KEY
 python cli.py dub --status translated
-python cli.py export-video --style hardsub --subs english     # full subtitled episodes
+python cli.py export-video --subs english                     # full subtitled episodes (styled ASS, speaker colours; --style PRESET, --no-speaker-colors, --plain, --mode softsub)
 ```
 For CLI-driven audio-drama prep, place the transcript at
 `library/dramas/<id>/transcript.txt` and audio/video as

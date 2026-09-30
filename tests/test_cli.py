@@ -1012,12 +1012,67 @@ class TestExportVideoClampsOverlappingCues:
         monkeypatch.setattr(video_export, "burn_subtitles",
                             lambda video_path, srt_text, out_path: captured.update(srt=srt_text))
 
-        args = argparse.Namespace(id=did, style="hardsub", subs="english")
+        args = argparse.Namespace(id=did, style=None, mode=None, plain=True,
+                                  no_speaker_colors=False, subs="english")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_export_video(args)
 
         assert "00:00:00,000 --> 00:00:01,500" in captured["srt"]  # clamped
         assert "00:00:00,000 --> 00:00:02,000" not in captured["srt"]  # original, overlapping
+
+
+class TestExportVideoAss:
+    def _drama(self, isolated_db):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="translated",
+                                       source_video_filename="source.mp4")
+        with open(os.path.join(isolated_db.drama_dir(did), "source.mp4"), "wb") as f:
+            f.write(b"x")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="a", en="Hello", speaker="SPEAKER_00"),
+            Line(idx=1, start=1.0, end=2.0, zh="b", en="World", speaker="SPEAKER_01"),
+        ])
+        return did
+
+    def _run(self, monkeypatch, did, **kw):
+        import video_export
+        cap = {}
+        monkeypatch.setattr(video_export, "burn_ass",
+                            lambda v, ass, out: cap.update(ass=ass, out=out))
+        monkeypatch.setattr(video_export, "burn_subtitles",
+                            lambda v, srt, out: cap.update(srt=srt))
+        opts = dict(id=did, style=None, mode=None, plain=False, no_speaker_colors=False,
+                    subs="english")
+        opts.update(kw)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(argparse.Namespace(**opts))
+        return cap
+
+    def test_default_is_ass_with_speaker_colours(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db))
+        assert "[V4+ Styles]" in cap["ass"] and "srt" not in cap
+        assert "Style: Speaker 1," in cap["ass"] and "Style: Speaker 2," in cap["ass"]
+
+    def test_no_speaker_colors(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), no_speaker_colors=True)
+        assert "Style: Speaker 1," not in cap["ass"]
+
+    def test_style_preset_is_used(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), style="streamer clip")
+        assert "Arial Black" in cap["ass"]
+
+    def test_unknown_style_lists_valid_names(self, isolated_db, monkeypatch, capsys):
+        with pytest.raises(SystemExit):
+            self._run(monkeypatch, self._drama(isolated_db), style="Nope")
+        assert "Clean" in capsys.readouterr().err
+
+    def test_plain_burns_srt(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), plain=True)
+        assert "-->" in cap["srt"] and "ass" not in cap
+
+    def test_legacy_style_hardsub_still_ass(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), style="hardsub")
+        assert "ass" in cap
 
 
 class TestInspectLine:
