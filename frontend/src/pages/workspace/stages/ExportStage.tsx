@@ -9,6 +9,7 @@ import { buildAssRequest, emptyAssForm, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportFlags } from './ExportFlags'
+import { ExportJellyfin } from './ExportJellyfin'
 import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
 import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
 import './export.css'
@@ -139,6 +140,7 @@ export default function ExportStage() {
           }
         />
       </Section>
+      <ExportJellyfin field={form.field} />
     </div>
   )
 }
