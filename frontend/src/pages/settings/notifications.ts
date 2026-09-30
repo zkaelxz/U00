@@ -2,6 +2,7 @@
 // ever sees a saved URL: the API returns booleans and outcome words only.
 import { ApiError } from '../../api/client'
 import type {
+  NotificationCategories,
   NotificationChannel,
   NotificationOutcome,
   NotificationStatus,
@@ -30,6 +31,34 @@ export const CHANNELS: {
     placeholder: 'https://ntfy.sh/your-topic',
   },
 ]
+
+// "What to send": which events go to Discord/ntfy. `field` is the status
+// field, `body` the key POST .../categories takes.
+export type CategoryField = 'send_jobs' | 'send_chapters'
+
+export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategories; label: string; help: string }[] = [
+  {
+    field: 'send_jobs',
+    body: 'jobs',
+    label: 'Jobs finished or failed',
+    help: 'A message when a background job (transcribe, translate, dub, export and so on) finishes or fails.',
+  },
+  {
+    field: 'send_chapters',
+    body: 'chapters',
+    label: 'New chapters found',
+    help: 'A message when a check of your tracked sources finds new chapters.',
+  },
+]
+
+export const CATEGORIES_NOTE =
+  'These choose what goes to Discord and ntfy. The bell at the top of the page always lists every event.'
+
+/** The request body for one switch: only the field that changed. */
+export function categoryChange(field: CategoryField, next: boolean): NotificationCategories {
+  const c = CATEGORIES.find((x) => x.field === field)!
+  return { [c.body]: next }
+}
 
 export const WRITES_REFUSED =
   'Notification addresses can only be set on the Baihe PC itself, with key writes turned on (start the API with BAIHE_API_ALLOW_KEY_WRITES=1).'

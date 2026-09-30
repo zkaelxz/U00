@@ -13,29 +13,44 @@ notifications. Thin: see services/notification_service.py.
   rules exactly. Bodies are parsed only after the gate; `confirm=true` is
   required.
 
+- `POST /api/settings/notifications/categories` (`local_only()`): which
+  events (jobs, new chapters) go to Discord/ntfy. Not secret, so no
+  key-write gate.
+The in-app list (`GET /api/notifications`) is in notification_center_routes.
+
 The local-ntfy switch (BAIHE_NTFY_ALLOW_LOCAL) has no route on purpose.
 """
 
 from fastapi import APIRouter, Request
 
 from api.auth import local_only, require_permission
+from api.notification_schemas import NotificationCategoriesRequest, NotificationSettingsStatus
 from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
 from api.schemas import (ErrorResponse, NotificationChannelClearRequest,
                          NotificationChannelResult, NotificationChannelSetRequest,
-                         NotificationStatus, NotificationTestResult)
+                         NotificationTestResult)
 from services import notification_service as svc
 
 router = APIRouter(prefix="/api/settings/notifications", tags=["settings"])
 
 
 @router.get("", dependencies=[require_permission("admin.settings")],
-            response_model=NotificationStatus,
+            response_model=NotificationSettingsStatus,
             summary="Which notification channels are configured (booleans only)")
 def get_status():
     return svc.get_status()
 
 
-# Declared before /{channel} so "test" is never taken for a channel name.
+# Declared before /{channel} so "categories" and "test" are never taken for
+# a channel name.
+@router.post("/categories", dependencies=[local_only()],
+             response_model=NotificationSettingsStatus,
+             summary="PC only: choose which events go to Discord/ntfy",
+             responses={422: {"model": ErrorResponse}})
+def set_categories(body: NotificationCategoriesRequest):
+    return svc.set_categories(jobs=body.jobs, chapters=body.chapters)
+
+
 @router.post("/test", dependencies=[local_only()], response_model=NotificationTestResult,
              summary="PC only: send a test notification to every configured channel",
              responses={422: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})

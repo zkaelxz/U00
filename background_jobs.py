@@ -183,7 +183,7 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
-def _notify_job_finished(description, status):
+def _notify_job_finished(description, status, job_id=None, owner_user_id=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -192,10 +192,13 @@ def _notify_job_finished(description, status):
     Step 44: also queues a Discord/ntfy push when a channel is configured
     (services/notification_service; its own opt-in is configuring a
     channel, independent of the desktop toggle). That call only queues --
-    the send happens on a timer thread -- and never raises."""
+    the send happens on a timer thread -- and never raises. It also keeps
+    the event for the in-app list, shown by `job_id`/`owner_user_id`
+    visibility."""
     try:
         from services import notification_service
-        notification_service.notify_job_finished(description, status)
+        notification_service.notify_job_finished(description, status, job_id=job_id,
+                                                 owner_user_id=owner_user_id)
     except Exception:
         pass
     if not get_notify_on_completion():
@@ -311,16 +314,17 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
         logger.info(f"job {job_id} started")
         try:
             target(*args, **kwargs)
-            _description = None
+            _description = _owner = None
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
+                    _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
-            _notify_job_finished(_description, "done")
+            _notify_job_finished(_description, "done", job_id=job_id, owner_user_id=_owner)
         except JobCancelled:
             with _lock:
                 if job_id in _jobs:
@@ -331,7 +335,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
         except Exception as exc:
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
-            _description = None
+            _description = _owner = None
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "error"
@@ -339,9 +343,10 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _jobs[job_id]["traceback"] = tb
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
+                    _owner = _jobs[job_id].get("owner_user_id")
                     _mirror_locked(job_id)
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
-            _notify_job_finished(_description, "error")
+            _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
             _release_gpu_slot(job_id, gpu_touching)
             _promote_next_queued_gpu_job()
@@ -741,7 +746,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _mirror_locked(job_id)
             _final_status = _jobs[job_id]["status"]
             _description = _jobs[job_id].get("description")
-        _notify_job_finished(_description, _final_status)
+            _owner = _jobs[job_id].get("owner_user_id")
+        _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
     finally:
         _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()

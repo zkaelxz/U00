@@ -122,7 +122,8 @@ h3 { margin: var(--space-4) 0 var(--space-2); font-size: 1rem; }
 
 .app-header nav { display: flex; gap: var(--space-1); flex-wrap: wrap; }
 .app-header nav a {
-  padding: 6px 12px;
+  /* 10px sides: the title, nav and header buttons (bell included) fit one row at 1280px. */
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
   border-bottom: 2px solid transparent;
   color: var(--muted);

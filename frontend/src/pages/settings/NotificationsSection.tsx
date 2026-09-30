@@ -1,6 +1,7 @@
 /*
  * Settings > Notifications (Step 44): push a short message to Discord and/or
- * ntfy when a background job finishes or fails. PC only. The saved
+ * ntfy when a background job finishes or fails, or new chapters are found.
+ * "What to send" switches pick which of those events are pushed. PC only. The saved
  * addresses are secrets: the inputs are never pre-filled and the page only
  * ever learns "configured: yes/no". A typed address lives in this
  * component's state until it is sent, then is dropped.
@@ -15,6 +16,7 @@ import {
   clearNotificationChannel,
   getNotificationStatus,
   sendTestNotification,
+  setNotificationCategories,
   setNotificationChannel,
 } from '../../api/notifications'
 import { getPcMode, loadPcMode } from '../../api/pcOnly'
@@ -23,11 +25,16 @@ import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { NotificationChannel, NotificationStatus } from '../../types/notifications'
 import {
+  CATEGORIES,
+  CATEGORIES_NOTE,
   CHANNELS,
+  type CategoryField,
+  categoryChange,
   isConfigured,
   notificationErrorMessage,
   notificationSummary,
@@ -54,6 +61,7 @@ function NotificationControls() {
   const [testing, setTesting] = useState(false)
   const [testNote, setTestNote] = useState<string | null>(null)
   const [open, setOpen] = useState<NotificationChannel | null>(null)
+  const [savingCategory, setSavingCategory] = useState(false)
 
   // Wait for /api/meta first, so a viewer away from the PC makes no calls here.
   useEffect(() => {
@@ -87,6 +95,26 @@ function NotificationControls() {
     )
   }
 
+  // Saves at once; shows the new value while saving and rolls back on error.
+  const setCategory = (field: CategoryField, next: boolean) => {
+    if (!status) return
+    const previous = status[field]
+    setSavingCategory(true)
+    setError(null)
+    setStatus((cur) => (cur ? { ...cur, [field]: next } : cur))
+    setNotificationCategories(categoryChange(field, next)).then(
+      (s) => {
+        setStatus(s)
+        setSavingCategory(false)
+      },
+      (e: unknown) => {
+        setStatus((cur) => (cur ? { ...cur, [field]: previous } : cur))
+        setError(e)
+        setSavingCategory(false)
+      },
+    )
+  }
+
   return (
     <Card
       title={TITLE}
@@ -102,7 +130,8 @@ function NotificationControls() {
     >
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       <p className="settings-note">
-        A short message (job type, drama title, finished or failed) when a background job ends.
+        A short message when a background job finishes or fails (job type, drama title), or when a
+        check of your tracked sources finds new chapters.
       </p>
       {!status ? (
         !error && <p className="muted">Loading…</p>
@@ -148,6 +177,23 @@ function NotificationControls() {
           <p className="muted" role="status" data-testid="notify-test-result">
             {testNote ?? ''}
           </p>
+          <div className="settings-group" role="group" aria-labelledby="notify-categories-title">
+            <h4 className="settings-subhead" id="notify-categories-title">
+              What to send
+            </h4>
+            <div className="setting-list">
+              {CATEGORIES.map((c) => (
+                <Field key={c.field} label={c.label} help={c.help}>
+                  <Toggle
+                    checked={status[c.field]}
+                    disabled={savingCategory}
+                    onChange={(next) => setCategory(c.field, next)}
+                  />
+                </Field>
+              ))}
+            </div>
+            <p className="settings-note">{CATEGORIES_NOTE}</p>
+          </div>
           <p className="settings-note" data-testid="ntfy-local-note">
             {status.ntfy_allow_local
               ? 'A local ntfy server (on this PC or your home network) is allowed.'

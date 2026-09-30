@@ -9,7 +9,9 @@ import {
 } from '../../api/notifications'
 import { getPcMode, resetPcModeForTests } from '../../api/pcOnly'
 import {
+  CATEGORIES,
   WRITES_REFUSED,
+  categoryChange,
   notificationErrorMessage,
   notificationSummary,
   testResultText,
@@ -27,8 +29,10 @@ afterEach(() => resetPcModeForTests())
 
 describe('notification text helpers', () => {
   it('summarises which channels are on', () => {
-    expect(notificationSummary({ discord_configured: false, ntfy_configured: false, ntfy_allow_local: false })).toBe('Off')
-    expect(notificationSummary({ discord_configured: true, ntfy_configured: true, ntfy_allow_local: false })).toBe(
+    expect(notificationSummary({ discord_configured: false, ntfy_configured: false, ntfy_allow_local: false, send_jobs: true, send_chapters: true })).toBe('Off')
+    expect(
+      notificationSummary({ discord_configured: true, ntfy_configured: true, ntfy_allow_local: false, send_jobs: false, send_chapters: false }),
+    ).toBe(
       'On: Discord, ntfy',
     )
   })
@@ -42,6 +46,12 @@ describe('notification text helpers', () => {
       notificationErrorMessage(new ApiError(422, { code: 'invalid_input', message: 'That is not a Discord webhook address.' })),
     ).toBe('That is not a Discord webhook address.')
     expect(notificationErrorMessage(new Error('boom'))).toBe('That did not work. Try again.')
+  })
+
+  it('a category switch sends only its own field', () => {
+    expect(categoryChange('send_jobs', false)).toEqual({ jobs: false })
+    expect(categoryChange('send_chapters', true)).toEqual({ chapters: true })
+    expect(CATEGORIES.map((c) => c.label)).toEqual(['Jobs finished or failed', 'New chapters found'])
   })
 
   it('describes test results, skipping channels that are not set up', () => {

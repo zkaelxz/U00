@@ -51,6 +51,8 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
     auth_enabled: false, signed_in: true, sign_in_configured: false, zone: 'pc',
     user: { id: null, email: null, display_name: 'This PC', is_admin: true, is_local_owner: true }, permissions: [],
   }))
+  // The header bell (every page) polls this; not part of the Live flow.
+  await page.route('**/api/notifications', (route) => json(route, { items: [] }))
   await page.route('**/api/translate/engines', (route) => json(route, { items: ENGINES }))
   await page.route('**/api/live/sessions', (route) => {
     const r = route.request()
