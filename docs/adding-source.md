@@ -68,7 +68,11 @@ class ExampleSource(SourceAdapter):
     # text sources implement get_chapter_text(chapter) -> str instead of pages
 ```
 
-Then add the module name to `BUILTIN` in `sources/adapters/__init__.py`.
+Then add the module name to `BUILTIN` in `sources/adapters/__init__.py`, and add the
+source's row (status, date, notes) to `docs/source-status.json`, then run
+`python scripts/source_status.py` to regenerate `docs/known-working-sources.md`.
+`tests/test_source_status.py` fails until the doc is regenerated. A row with no
+recorded status shows as "no status recorded".
 
 Rules:
 
