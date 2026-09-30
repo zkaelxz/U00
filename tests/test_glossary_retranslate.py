@@ -394,6 +394,55 @@ class TestOwnLinesOnly:
         assert after[rows[1]["id"]]["en"] == "my edit"
         assert not after[rows[1]["id"]]["flag"] and not after[rows[1]["id"]]["flag_note"]
 
+    def test_edit_right_after_the_flag_read_gets_no_flag_and_is_reported(
+            self, isolated_db, monkeypatch):
+        did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
+
+        def flag_all(lines, field="en"):
+            for ln in lines:
+                ln.flag, ln.flag_note = "dense", "too fast"
+            return len(lines)
+        monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
+        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        edited = []
+
+        def load_then_edit(drama_id, *a, **kw):
+            out = real_load(drama_id, *a, **kw)
+            if not edited:
+                # The user saves an edit just after finish reads the lines,
+                # before the density flags are saved.
+                edited.append(db.update_line_fields_if(
+                    drama_id, rows[1]["id"], {"en": "my edit"}, {"en": "[TEST] 林晚二"}))
+            return out
+
+        def finish(*a, **kw):
+            monkeypatch.setattr(db, "load_line_objects", load_then_edit)
+            return real_finish(*a, **kw)
+        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        p, ids = _preview_ids(did)
+        job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                                   engine_name="test_offline")["job_id"])
+        assert edited and edited[0]
+        after = {r["id"]: r for r in db.load_lines(did)}
+        assert (after[rows[0]["id"]]["en"], after[rows[0]["id"]]["flag"],
+                after[rows[0]["id"]]["flag_note"]) == ("[TEST] 林晚一", "dense", "too fast")
+        assert after[rows[1]["id"]]["en"] == "my edit"
+        assert not after[rows[1]["id"]]["flag"] and not after[rows[1]["id"]]["flag_note"]
+        assert job["result"]["flags_needing_recheck"] == [rows[1]["id"]]
+        from services import jobs_service
+        projected = jobs_service.project_result(job["result"])
+        assert projected["flags_needing_recheck"] == [rows[1]["id"]]
+        assert "recheck" in jobs_service.derive_outcome("done", None, projected)[1]
+
+    def test_flag_guard_treats_empty_and_missing_english_alike(self, isolated_db):
+        # A content-blocked line has no English: its flag must still be saved.
+        did, _sid, _rows = _seed([("一", "")], series=None)
+        [ln] = db.load_line_objects(did)
+        ln.en, ln.flag = None, "content_blocked"
+        assert not db.save_lines(did, [ln], fields=("flag",), only_if_unchanged=True,
+                                 guard_fields=("en", "start", "end"))
+        assert db.load_lines(did)[0]["flag"] == "content_blocked"
+
     def test_reflect_note_is_dropped_for_a_skipped_write(self, isolated_db):
         did, _sid, rows = _seed([("一", "one"), ("二", "two")], series=None)
         lines = db.load_line_objects(did)

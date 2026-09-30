@@ -179,6 +179,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     )
 
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
+    recheck = set()
     # Shared with `cli.py translate` (Step 25c): glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
@@ -188,13 +189,16 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap_usd,
             line_scoped=target_ids is not None,
-            enforce_ids=set(target_ids) if own_lines_only and target_ids is not None else None):
+            enforce_ids=set(target_ids) if own_lines_only and target_ids is not None else None,
+            flags_needing_recheck=recheck):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
         return
 
     background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent"),
+                                        **({"flags_needing_recheck": sorted(recheck)}
+                                           if recheck else {}),
                                         **_fallback_result(engine)})
 
 

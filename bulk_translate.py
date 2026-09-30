@@ -1498,7 +1498,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            summary_engine=None, summary_engine_choice: str = None,
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float = None,
-                           enforce_ids=None) -> bool:
+                           enforce_ids=None, flags_needing_recheck: set = None) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
     so the two can't drift (the CLI used to skip most of it): applies
@@ -1539,7 +1539,10 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     only where the database still holds the English this run wrote. A
     line whose English differs (its write was skipped because it was
     edited mid-run, or it was edited since) is the user's: it gets no
-    substitution, and no flag computed from this run's text."""
+    substitution, and no flag computed from this run's text. A flag is
+    saved only while the line's English and timing in the database are
+    still what it was computed from; the ids of lines changed after the
+    read above are added to flags_needing_recheck (a set, if given)."""
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     landed = own_fresh = None
     if enforce_ids is not None:
@@ -1576,6 +1579,12 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                                   only_if_unchanged=enforce_ids is not None)
         for lid in unwritten or ():
             substituted.pop(lid, None)
+        if landed is not None:
+            # The density check below reads the run's own copies: give them
+            # the substituted English that is now in the database.
+            for ln in lines:
+                if ln.id in substituted:
+                    ln.en = substituted[ln.id][1]
         # The substitution is part of the machine translation: a line whose
         # provenance matched before still matches, so it isn't mistaken for
         # a hand-edited one.
@@ -1590,8 +1599,16 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # only ever exists on this run's in-memory copies.
     import subtitle_formats
     subtitle_formats.flag_dense_lines(lines)
-    db.save_lines(drama_id, lines if landed is None else [ln for ln in lines if ln.id in landed],
-                  fields=("flag", "flag_note"))
+    if landed is None:
+        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+    else:
+        # Compare-and-set on the analysed text too: an edit saved after the
+        # read above must not get a flag computed from this run's English.
+        stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],
+                              fields=("flag", "flag_note"), only_if_unchanged=True,
+                              guard_fields=("en", "start", "end"))
+        if flags_needing_recheck is not None:
+            flags_needing_recheck.update(stale or ())
 
     line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
     if line_ids and not db.line_ids_exist(drama_id, line_ids):

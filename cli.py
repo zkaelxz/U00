@@ -750,11 +750,17 @@ def cmd_translate(args):
         # persisted batch errors -- and "translated" only once no line is
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
+        recheck = set()
         bulk_translate.finish_translation_run(
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap,
-            line_scoped=target_ids is not None, enforce_ids=target_ids)
+            line_scoped=target_ids is not None, enforce_ids=target_ids,
+            flags_needing_recheck=recheck)
+        if recheck:
+            print(f"\n#{d['id']} {len(recheck)} line(s) changed while their reading-speed flag "
+                  f"was being saved; the flag was not saved, recheck line id(s) "
+                  f"{', '.join(map(str, sorted(recheck)))}.")
         for ev in getattr(engine, "events", None) or []:
             print(f"\n#{d['id']} switched from {ev['from']} to {ev['to']} ({ev['reason']}).")
         if "spent" in cap_reached:
