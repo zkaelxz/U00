@@ -770,3 +770,49 @@ def test_pdf_inflation_ceiling_is_applied_when_pypdf_has_one(monkeypatch):
                         raising=False)
     pages_svc._limit_pdf_inflation()
     assert filters.ZLIB_MAX_OUTPUT_LENGTH == pages_svc._PDF_INFLATE_CAP
+
+
+def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
+    import applog
+    import background_jobs
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+    monkeypatch.setattr(run_svc.render_svc, "_check_cancel", lambda jid: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
+    monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
+    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+
+    def page_fails(*a, **k):
+        raise RuntimeError("page broke")
+
+    def note_fails(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(run_svc, "_process_page", page_fails)
+    monkeypatch.setattr(run_svc.db, "update_page", note_fails)
+    monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
+    run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
+    assert len(seen) == 1 and "page 7" in seen[0] and "disk full" in seen[0]
+
+
+def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
+    import background_jobs
+    stored = []
+    monkeypatch.setattr(run_svc.render_svc, "_check_cancel", lambda jid: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(run_svc.settings_service, "resolve_ocr_backend", lambda lang: "auto")
+    monkeypatch.setattr(run_svc.settings_service, "resolve_key", lambda k: None)
+    monkeypatch.setattr(run_svc.settings_service, "get_tesseract_cmd", lambda: None)
+
+    def page_fails(*a, **k):
+        raise RuntimeError("bad key sk-ant-abcdefghijklmnopqrstuvwxyz0123")
+    monkeypatch.setattr(run_svc, "_process_page", page_fails)
+    monkeypatch.setattr(run_svc.db, "update_page", lambda pid, **f: stored.append(f["run_notes"]))
+    monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
+    run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
+    assert len(stored) == 1 and "This page failed" in stored[0]
+    assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in stored[0]

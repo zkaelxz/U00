@@ -798,13 +798,18 @@ def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_
                              job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
                              en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
                              max_tokens=2000)
-    except Exception:
-        # Recorded on the new stage-2 job row itself (status="failed",
-        # last_error set) by submit_reflect_stage before it raises --
-        # stage 1 (this function's caller) already applied successfully
-        # and must still be marked "applied", not swallowed into looking
-        # stuck because stage 2 couldn't be submitted right now.
-        pass
+    except Exception as exc:
+        # Only a provider.submit failure is recorded on the new job row by
+        # submit_reflect_stage; failures before that (building requests,
+        # creating the row) leave no trace, so log them. The caller's stage
+        # already applied and must still be marked "applied".
+        try:
+            import applog
+            applog.get_logger().warning(
+                "reflect stage %s could not be submitted for drama %s: %s", "reflect", job["drama_id"],
+                translate_engines.redact_secrets(str(exc)))
+        except Exception:
+            pass
 
 
 def _apply_reflect_reflection(job: dict, results, engine) -> dict:
@@ -896,11 +901,16 @@ def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critiq
                              job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
                              en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
                              max_tokens=4000)
-    except Exception:
-        # See _advance_to_reflection_stage's own comment -- stage 2
-        # already applied successfully regardless of whether stage 3
-        # could be submitted right now.
-        pass
+    except Exception as exc:
+        # See _advance_to_reflection_stage: stage 2 already applied, but a
+        # failure before the job row exists is otherwise invisible.
+        try:
+            import applog
+            applog.get_logger().warning(
+                "reflect stage %s could not be submitted for drama %s: %s", "expressive", job["drama_id"],
+                translate_engines.redact_secrets(str(exc)))
+        except Exception:
+            pass
 
 
 def _apply_reflect_expressive(job: dict, results) -> dict:

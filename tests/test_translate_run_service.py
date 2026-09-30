@@ -213,3 +213,23 @@ def test_api_config_carries_ollama_reachable(isolated_db, monkeypatch):
     assert r.status_code == 200 and r.json()["ollama_reachable"] is True
     r = c.get(f"/api/translate-run/dramas/{_drama(translation_engine='claude')}/config")
     assert r.status_code == 200 and r.json()["ollama_reachable"] is None
+
+
+def test_summary_engine_build_failure_is_logged_without_key(isolated_db, monkeypatch):
+    import applog
+    import translate_engines
+    from services import settings_service, translate_service, translate_run_service as trs
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+    monkeypatch.setattr(settings_service, "get_preference", lambda k: "claude")
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda c: "k")
+
+    def boom(*a, **k):
+        raise ValueError("bad config sk-ant-abcdefghijklmnopqrstuvwxyz0123")
+    monkeypatch.setattr(translate_engines, "get_engine", boom)
+    assert trs._summary_engine() == (None, None)
+    assert len(seen) == 1 and "bad config" in seen[0] and "sk-ant-abcdef" not in seen[0]

@@ -1083,3 +1083,28 @@ class TestFinishTranslationRunEpisodeSummary:
                                   glossary_terms=None, errors=[], summary_engine=engine)
 
         assert isolated_db.get_drama(did)["episode_summary"] == "Earlier good summary."
+
+
+class _ListLogger:
+    def __init__(self):
+        self.records = []
+
+    def warning(self, msg, *args):
+        self.records.append(msg % args if args else msg)
+
+
+def test_failed_next_reflect_stage_submit_is_logged_and_redacted(isolated_db, monkeypatch):
+    import applog
+    log = _ListLogger()
+    monkeypatch.setattr(applog, "get_logger", lambda: log)
+    monkeypatch.setattr(bt, "make_provider", lambda choice, engine: object())
+
+    def boom(*a, **k):
+        raise RuntimeError("no row created key=sk-ant-abcdefghijklmnopqrstuvwxyz0123")
+    monkeypatch.setattr(bt, "submit_reflect_stage", boom)
+    did = _drama(isolated_db, n=2)
+    ids = [ln.id for ln in isolated_db.load_line_objects(did)]
+    job = {"drama_id": did, "engine": "claude", "model": "m", "pipeline_id": "p"}
+    bt._advance_to_reflection_stage(job, ids, {i: "d" for i in ids}, {i: "" for i in ids}, NS(model="m"))
+    assert len(log.records) == 1 and "reflect" in log.records[0]
+    assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in log.records[0]

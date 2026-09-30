@@ -3178,3 +3178,20 @@ class TestCancelBetweenBatches:
             tg.generate_translation_notes_llm(lines, engine, batch_size=3,
                                               cancel_check=self._stop_after(0))
         assert engine.call_count == 0
+
+
+def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
+    import applog
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(te, "call_llm_json", boom)
+    lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
+    te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
+    assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]

@@ -724,3 +724,23 @@ def test_stages_route_with_auth_on_hides_other_users_jobs_and_runs(isolated_db):
     assert r.status_code == 200
     assert [x["run_started_at"] for x in r.json()["runs"]] == [200.0]
     assert c.get("/api/jobs/sources_search/stages").status_code == 401
+
+
+def test_provenance_record_failure_is_logged(isolated_db, monkeypatch):
+    import applog
+    from core import Line
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+
+    def boom(*a, **k):
+        raise RuntimeError("db locked")
+    monkeypatch.setattr(line_provenance_service, "record", boom)
+    lines = [Line(id=1, idx=0, start=0, end=1, zh="a", en="")]
+    on_save = line_provenance_service.tracker(1, lines, lambda: ("claude", "m"), "1", [])
+    lines[0].en = "hello"
+    on_save(lines)
+    assert len(seen) == 1 and "db locked" in seen[0]
