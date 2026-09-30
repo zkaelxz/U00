@@ -388,7 +388,7 @@ class TestCacheCeiling:
         c.put("https://a.invalid/1", b"x" * 100)
         c.put("https://b.invalid/1", b"x" * 100)
         c.put("https://c.invalid/1", b"y" * 100)
-        assert c.stats()["bytes"] == 300            # per URL
+        assert c.stats() == {"entries": 3, "bytes": 200, "mode": "keep_originals"}
         assert c.enforce_ceiling(max_mb=self._mb(200)) == 0
         assert len(self._urls()) == 3
         assert c.enforce_ceiling(max_mb=self._mb(100)) == 1
@@ -445,20 +445,50 @@ class TestCacheCeiling:
 
     def test_stale_part_files_are_dropped(self, isolated_db, monkeypatch):
         import os
-        import time as real_time
         root = store.cache_dir()
         os.makedirs(os.path.join(root, "ab"), exist_ok=True)
         old = os.path.join(root, "ab", "old.part")
         fresh = os.path.join(root, "ab", "fresh.part")
-        for p in (old, fresh):
+        now = 10 * 86400.0
+        for p, mtime in ((old, now - 86400 - 60), (fresh, now - 60)):
             with open(p, "wb") as f:
                 f.write(b"half")
-        stamp = real_time.time() - 2 * 86400
-        os.utime(old, (stamp, stamp))
-        now = real_time.time()
+            os.utime(p, (mtime, mtime))
         monkeypatch.setattr(cache_mod.time, "time", lambda: now)
         cache_mod.RawCache("keep_originals").enforce_ceiling()
         assert not os.path.exists(old) and os.path.exists(fresh)
+
+    def test_a_file_that_cannot_be_removed_does_not_stop_the_trim(self, isolated_db,
+                                                                   monkeypatch):
+        c = cache_mod.RawCache("keep_originals")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        real_remove = cache_mod.os.remove
+        a_path = c._path(__import__("hashlib").sha256(b"a" * 100).hexdigest())
+
+        def remove(path):
+            if path == a_path:
+                raise PermissionError("in use")
+            real_remove(path)
+        monkeypatch.setattr(cache_mod.os, "remove", remove)
+        assert c.enforce_ceiling(max_mb=self._mb(100)) == 1
+        assert self._urls() == ["https://c.invalid/c"]
+
+    def test_temporary_bytes_do_not_count_against_the_ceiling(self, isolated_db):
+        keep = cache_mod.RawCache("keep_originals")
+        keep.put("https://a.invalid/1", b"a" * 100)
+        cache_mod.RawCache("temporary").put("https://b.invalid/1", b"t" * 1000)
+        assert keep.enforce_ceiling(max_mb=self._mb(100)) == 0
+        assert len(self._urls()) == 2
+
+    def test_a_file_removed_under_a_hit_is_a_miss(self, isolated_db):
+        import os
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * 100)
+        with store.connect() as conn:
+            sha = conn.execute("SELECT sha256 FROM cache_index").fetchone()["sha256"]
+        os.remove(c._path(sha))
+        assert c.get("https://c.invalid/a") is None and self._urls() == []
 
     def test_lowering_the_setting_trims_now(self, isolated_db, monkeypatch):
         from services import sources_registry_service as svc

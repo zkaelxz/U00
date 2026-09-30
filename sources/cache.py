@@ -56,13 +56,14 @@ class RawCache:
         if not row:
             return None
         path = self._path(row["sha256"])
-        if not os.path.exists(path):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except FileNotFoundError:   # cleared or trimmed (enforce_ceiling) meanwhile
             with store.connect() as conn:
                 conn.execute("DELETE FROM cache_index WHERE url=?", (url,))
             return None
         self.hits += 1
-        with open(path, "rb") as f:
-            data = f.read()
         # A hit counts as use for the size ceiling (enforce_ceiling):
         # created_at doubles as "last used". put() already rewrites it on
         # every store and nothing else reads it, so this needs no new
@@ -131,13 +132,14 @@ class RawCache:
                 "SELECT sha256, MAX(size) AS size, MAX(created_at) AS used, "
                 "SUM(retention != 'keep') AS pinned FROM cache_index "
                 "GROUP BY sha256 ORDER BY used ASC").fetchall()
+            # Only kept content counts: an import's temporary rows are
+            # released when it ends and can't be trimmed before then.
+            rows = [r for r in rows if not r["pinned"]]
             total = sum(r["size"] for r in rows)
             doomed = []
             for r in rows:
                 if total <= ceiling:
                     break
-                if r["pinned"]:
-                    continue
                 doomed.append(r["sha256"])
                 total -= r["size"]
             conn.executemany("DELETE FROM cache_index WHERE sha256=?", [(s,) for s in doomed])
@@ -152,6 +154,9 @@ class RawCache:
                 removed += 1
             except FileNotFoundError:
                 pass
+            except OSError:   # e.g. open elsewhere on Windows; keep trimming the rest
+                import applog
+                applog.get_logger().warning("Could not remove a cached file", exc_info=True)
         return removed
 
     def _drop_stale_parts(self, max_age: float = 86400):
@@ -169,6 +174,10 @@ class RawCache:
 
     def stats(self) -> dict:
         with store.connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes "
-                               "FROM cache_index").fetchone()
-        return {"entries": row["n"], "bytes": row["bytes"], "mode": self.mode}
+            row = conn.execute("SELECT COUNT(*) AS n FROM cache_index").fetchone()
+            # Bytes on disk: content shared by several URLs is stored once,
+            # and the size ceiling (enforce_ceiling) measures it the same way.
+            size = conn.execute("SELECT COALESCE(SUM(size), 0) AS bytes FROM "
+                                "(SELECT MAX(size) AS size FROM cache_index GROUP BY sha256)"
+                                ).fetchone()
+        return {"entries": row["n"], "bytes": size["bytes"], "mode": self.mode}

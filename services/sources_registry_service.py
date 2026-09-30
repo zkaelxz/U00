@@ -355,7 +355,11 @@ def update_settings(changes: dict) -> dict:
     if clean.get("cache_max_mb"):
         # A lowered ceiling applies now, not only after the next import
         # (a raised one finds nothing to remove).
-        src_cache.RawCache().enforce_ceiling()
+        try:
+            src_cache.RawCache().enforce_ceiling()
+        except Exception:   # saved either way; the next import trims again
+            import applog
+            applog.get_logger().warning("Could not trim the source cache", exc_info=True)
     return get_settings()
 
 
