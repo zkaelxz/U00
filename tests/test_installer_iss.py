@@ -235,6 +235,8 @@ class TestWorkflow:
         assert "workflow_dispatch:" in on
         assert re.search(r"tags:\s*\n\s*-\s*\"installer-v\*\"", on)
         assert "pull_request" not in on
+        # TEMP (PR #498, round 2): removed together with the trigger.
+        on = on.replace("    branches:\n      - step-80b-windows-installer\n", "")
         assert "branches" not in on
 
     def test_windows_with_a_timeout(self, wf):
