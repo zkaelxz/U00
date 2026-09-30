@@ -206,14 +206,14 @@ baihe-subtitler/
 │   ├── jellyfin_service.py       Step 39 -- optional Jellyfin connector (off by default): settings (key in .env),
 │   │                             test connection, read-only scan for items missing a subtitle language, send
 │   │                             subtitles (+ optional video) into the library folder in Jellyfin's naming, refresh
+│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
+│   │                             also the in-app list for the header bell (last 50 events, memory only,
+│   │                             filtered by job visibility) and the jobs/new-chapters push categories
 │   ├── notion_service.py         roadmap 112 -- Notion export (companion to the Reader's Anki export): target
 │   │                             database/page in app_settings, token in .env (write-only), test connection,
 │   │                             export job notion_export_<id> that creates the drama's page once and then
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
-│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
-│   │                             also the in-app list for the header bell (last 50 events, memory only,
-│   │                             filtered by job visibility) and the jobs/new-chapters push categories
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -523,10 +523,10 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │                                 /dramas/{id}/send -- all local_only (Step 39)
-│       └── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
-│                                 /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
+│       └── notion_routes.py      /api/notion/config (GET/POST), /token, /token/clear, /test,
+│                                 /dramas/{id} (GET), /dramas/{id}/export -- all local_only (roadmap 112)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │

@@ -11,7 +11,6 @@ import { getPcMode, loadPcMode } from '../../../api/pcOnly'
 import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
-import { jobSucceeded } from '../../../types/jobs'
 import type { NotionConfig, NotionDramaPage, NotionField } from '../../../types/notion'
 import { notionErrorMessage, partlySetUp, readyToExport, safeNotionUrl } from '../../settings/notion'
 import { useStage } from '../StageContext'
@@ -50,8 +49,8 @@ export function ExportNotion({ field }: { field: NotionField }) {
 
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
-    onDone: (j) => {
-      if (!jobSucceeded(j)) return
+    // Any finish: a run that failed after creating the page has still stored it.
+    onDone: () => {
       getNotionDramaPage(dramaId).then(setPage, (e: unknown) => setError(notionErrorMessage(e)))
     },
   })

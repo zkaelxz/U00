@@ -95,12 +95,12 @@ function NotionControls() {
     const value = token.trim()
     setToken('') // the request already holds it; drop it now
     call(setNotionToken(value), (c) => {
-      load(c)
+      setCfg(c) // not load(): an unsaved target link stays in its box
       setNote('Token saved.')
     }, true)
   }
   const clearToken = () => call(clearNotionToken(), (c) => {
-    load(c)
+    setCfg(c)
     setNote('Token cleared.')
   }, true)
   const test = () => call(testNotion(), (r) => setNote(testResultText(r)))

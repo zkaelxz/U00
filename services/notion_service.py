@@ -71,7 +71,8 @@ MAX_RETRY_WAIT = 30.0
 TEST_RETRIES, TEST_RETRY_WAIT = 1, 5.0  # the synchronous Test connection route
 MAX_BLOCKS_PER_CALL = 100    # Notion's limit for one append
 MAX_PAYLOAD_BYTES = 400_000  # under Notion's 500 KB request cap
-MAX_TEXT = 2000              # Notion's limit for one rich-text item
+MAX_TEXT = 2000              # Notion's limit for one rich-text item (UTF-16 units)
+MAX_NOTION_MESSAGE = 120     # Notion's own error text passed on (job panel shows <= 200)
 MAX_LINE_TEXT = 10_000
 MAX_CHILD_PAGES = 50         # pages of 100 blocks scanned for an old transcript
 HEADING_TEXT = "Baihe transcript"
@@ -307,7 +308,7 @@ def _handle(status: int, payload: bytes, token: str) -> dict:
         except (ValueError, UnicodeDecodeError, AttributeError):
             message = None
         if isinstance(message, str) and message.strip():
-            text = redact(message, token).strip()[:300]
+            text = redact(message, token).strip()[:MAX_NOTION_MESSAGE]
             raise DependencyUnavailableError(f"Notion refused the export: {text}")
     log.info("Notion answered HTTP %s", status)
     raise DependencyUnavailableError(_UNREACHABLE)
@@ -362,12 +363,26 @@ def test_connection() -> dict:
 
 # --- building the page ------------------------------------------------------------
 
+def _utf16_pieces(text: str) -> list:
+    """`text` cut into pieces of at most MAX_TEXT UTF-16 units (how Notion
+    counts; an emoji is two), never inside a character."""
+    pieces, start, units = [], 0, 0
+    for i, ch in enumerate(text):
+        width = 2 if ord(ch) > 0xFFFF else 1
+        if units + width > MAX_TEXT:
+            pieces.append(text[start:i])
+            start, units = i, 0
+        units += width
+    if start < len(text):
+        pieces.append(text[start:])
+    return pieces
+
+
 def _rt(text: str, **annotations) -> list:
-    """Rich-text items for `text`, split at Notion's 2000-character limit."""
-    text = text or ""
+    """Rich-text items for `text`, split at Notion's 2000-unit limit."""
     items = []
-    for i in range(0, len(text), MAX_TEXT):
-        item = {"type": "text", "text": {"content": text[i:i + MAX_TEXT]}}
+    for piece in _utf16_pieces(text or ""):
+        item = {"type": "text", "text": {"content": piece}}
         if annotations:
             item["annotations"] = annotations
         items.append(item)
@@ -541,7 +556,9 @@ def _export_job(job_id: str, drama_id: int, field: str):
     try:
         _run_export(job_id, drama_id, field)
     except (DependencyUnavailableError, InvalidInputError, NotFoundError) as exc:
-        raise RuntimeError(exc.message) from None  # fixed text, without the class name
+        # Fixed text. background_jobs stores it as "RuntimeError: <message>" and
+        # the job panel shows at most 200 characters, so messages stay short.
+        raise RuntimeError(exc.message) from None
 
 
 def _run_export(job_id: str, drama_id: int, field: str):

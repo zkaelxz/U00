@@ -79,21 +79,23 @@ class FakeNotion:
     def headings(self, page_id):
         return [b for b in self.page_blocks(page_id) if ns._is_baihe_heading(b)]
 
-    def _add_block(self, parent, block):
+    def _add_block(self, parent, block, depth=1):
         assert len(json.dumps(block)) < 500_000
         bid = str(uuid.uuid4())
         kids = (block.get(block["type"]) or {}).pop("children", None)
         stored = dict(block, id=bid, has_children=bool(kids))
-        for item in (stored.get(stored["type"]) or {}).get("rich_text", []):
-            assert len(item["text"]["content"]) <= 2000
+        rich = (stored.get(stored["type"]) or {}).get("rich_text", [])
+        assert len(rich) <= 100
+        for item in rich:
+            assert len(item["text"]["content"].encode("utf-16-le")) // 2 <= 2000
             item["plain_text"] = item["text"]["content"]
         self.blocks[bid] = stored
         self.children.setdefault(parent, []).append(bid)
         self.children.setdefault(bid, [])
         if kids:
-            assert len(kids) <= 100
+            assert len(kids) <= 100 and depth < 3  # Notion: two levels per request
             for kid in kids:
-                self._add_block(bid, kid)
+                self._add_block(bid, kid, depth + 1)
         return stored
 
     # -- the API
@@ -434,7 +436,7 @@ def test_export_does_not_bump_updated_at(notion, drama):
     assert db.get_drama(drama)["updated_at"] == before
 
 
-@pytest.mark.parametrize("change", ["deleted", "trashed", "moved"])
+@pytest.mark.parametrize("change", ["deleted", "trashed", "archived", "moved"])
 def test_gone_or_moved_page_gets_a_new_one(notion, drama, change):
     _export(drama)
     old = db.get_drama(drama)["notion_page_id"]
@@ -442,6 +444,8 @@ def test_gone_or_moved_page_gets_a_new_one(notion, drama, change):
         del notion.pages[old]
     elif change == "trashed":
         notion.pages[old]["in_trash"] = True
+    elif change == "archived":
+        notion.pages[old]["archived"] = True
     else:
         ns.set_config(target_type="page", target_id=PAGE_HEX)
     _export(drama)
@@ -480,6 +484,32 @@ def test_chunks_respect_the_payload_cap(monkeypatch):
 def test_long_text_is_split_into_notion_sized_pieces():
     items = ns._rt("字" * 4500)
     assert [len(i["text"]["content"]) for i in items] == [2000, 2000, 500]
+    emoji = ns._rt("😀" * 1500)  # two UTF-16 units each, as Notion counts
+    assert [len(i["text"]["content"]) for i in emoji] == [1000, 500]
+    assert "".join(i["text"]["content"] for i in emoji) == "😀" * 1500
+
+
+def test_export_job_prefix_is_a_drama_job():
+    assert ns.JOB_PREFIX in background_jobs.DRAMA_JOB_PREFIXES
+
+
+def test_failed_heading_append_is_cleaned_up_next_time(notion, drama):
+    _export(drama)
+    page_id = db.get_drama(drama)["notion_page_id"]
+    real = notion.handle
+
+    def lands_then_fails(method, path, params, body):  # the write lands, the gateway says 502
+        real(method, path, params, body)
+        return Resp(502, {"message": "bad gateway"})
+    notion.handle = lambda m, p, pa, b: (lands_then_fails(m, p, pa, b)
+                                         if m == "PATCH" and p == f"/blocks/{page_id}/children"
+                                         else real(m, p, pa, b))
+    with pytest.raises(DependencyUnavailableError):
+        _export(drama)
+    assert len(notion.headings(page_id)) == 2  # not retried: no third copy
+    notion.handle = real
+    _export(drama)
+    assert len(notion.headings(page_id)) == 1
 
 
 def test_failed_append_keeps_the_old_transcript(notion, drama):
@@ -567,6 +597,13 @@ def test_job_error_text_is_fixed_and_token_free(notion, drama):
     job = _wait(started["job_id"])
     assert job["status"] == "error"
     assert "refused the token" in job["error"] and TOKEN not in job["error"]
+
+
+def test_long_notion_message_still_fits_the_job_panel(notion, drama):
+    notion.fail[("POST", "/pages")] = [(400, {"message": "body failed validation: " + "x" * 900})]
+    job = _wait(ns.start_export(drama)["job_id"])
+    assert job["status"] == "error" and "Notion refused the export" in job["error"]
+    assert len(job["error"]) <= 200  # frontend safeDetail drops longer text
 
 
 # --- routes ------------------------------------------------------------------------
