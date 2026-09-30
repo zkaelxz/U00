@@ -292,12 +292,19 @@ _SECRET_PATTERNS = [
 ]
 
 
+# scheme://user:pass@host or scheme://token@host: the userinfo is the secret,
+# host and path stay readable. Greedy so a raw "@" inside the password is
+# still covered.
+_URL_USERINFO_PATTERN = re.compile(r'(\b[a-z][a-z0-9+.-]*://)[^\s/?#"\'<>]+@', re.IGNORECASE)
+
+
 def redact_secrets(text: str) -> str:
     """Strips anything that looks like an API key or bearer token out of
     an error string before it's shown in the UI, stored on the drama, or
     written to the log file."""
     if not text:
         return text
+    text = _URL_USERINFO_PATTERN.sub(r'\1***@', text)
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(lambda m: m.group(1) + "[REDACTED]" if m.groups() else "[REDACTED]", text)
     return text
