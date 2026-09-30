@@ -520,10 +520,10 @@ baihe-subtitler/
 │       │                         key-write gate; Step 44)
 │       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │       │                         /dramas/{id}/send -- all local_only (Step 39)
-│       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
-│       │                         (local_only; address change also key-write gate) -- item 114
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
+│       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
+│       │                         (local_only; address change also key-write gate) -- item 114
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │

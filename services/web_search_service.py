@@ -22,7 +22,10 @@ are refused, and so are Baihe's own ports on loopback. The check is not
 pinned to the connection (the address is the PC owner's own, gated setting);
 its DNS lookup relies on the OS resolver's timeout. Requests carry timeout=,
 follow no redirects, ignore proxy settings and read at most
-MAX_RESPONSE_BYTES within READ_DEADLINE. One search runs at a time.
+MAX_RESPONSE_BYTES within READ_DEADLINE. One search runs at a time, and at
+most RATE_MAX searches start per RATE_WINDOW seconds for the whole app (429
+after that), so a loop cannot get the owner's SearXNG blocked by the engines
+it asks.
 Errors are fixed text: never the URL or the server's reply.
 
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
@@ -38,6 +41,7 @@ from urllib.parse import urlsplit
 
 import db
 from services import settings_service
+from services.auth_service import SlidingWindowRateLimiter
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError)
 
@@ -54,18 +58,23 @@ MAX_SNIPPET_LEN = 500
 MAX_RESULT_URL_LEN = 2000
 BAIHE_OWN_PORTS = (8501, 8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
+RATE_MAX = 10
+RATE_WINDOW = 60.0
 
 _UNREACHABLE = "Couldn't reach the SearXNG server. Check the address and that it is running."
 _REDIRECTED = ("The SearXNG server answered with a redirect, which is not followed. "
                "Use the address it redirects to.")
 _NO_JSON = ("SearXNG refused the JSON format. Add 'json' to search.formats in its "
             "settings.yml, then restart it.")
+_LIMITED = ("SearXNG's limiter refused the request. Turn off server.limiter in its "
+            "settings.yml, or add this PC's address to its pass list.")
 _BAD_REPLY = "The SearXNG server sent a reply this app could not read."
 _DISABLED = "Web search is off. Turn it on in Settings first."
 _NOT_SET = "Set the SearXNG address in Settings first."
 _BUSY = "A web search is already running. Try again in a moment."
 
 _lock = threading.Lock()
+_rate = SlidingWindowRateLimiter(RATE_MAX, RATE_WINDOW, max_keys=1)
 
 
 # --- settings ----------------------------------------------------------------
@@ -149,13 +158,16 @@ def _query_server(base_url: str, query: str) -> dict:
     try:
         resp = session.get(base_url + "/search",
                            params={"q": query, "format": "json"},
-                           headers={"Accept": "application/json"},
+                           headers={"Accept": "application/json", "Accept-Language": "en",
+                                    "User-Agent": "Baihe-Subtitler"},
                            timeout=HTTP_TIMEOUT, allow_redirects=False, stream=True)
         try:
             if 300 <= resp.status_code < 400:
                 raise DependencyUnavailableError(_REDIRECTED)
             if resp.status_code == 403:
                 raise DependencyUnavailableError(_NO_JSON)
+            if resp.status_code == 429:
+                raise DependencyUnavailableError(_LIMITED)
             if resp.status_code >= 400:
                 log.info("SearXNG answered HTTP %s", resp.status_code)
                 raise DependencyUnavailableError(_UNREACHABLE)
@@ -217,6 +229,7 @@ def _run(base_url: str, query: str) -> list:
     if not _lock.acquire(blocking=False):
         raise ConflictError(_BUSY, details={"reason": "busy"})
     try:
+        _rate.hit("searxng")
         data = _query_server(base_url, query)
     finally:
         _lock.release()

@@ -108,3 +108,19 @@ test('settings: a refused address change explains the key-write gate', async ({ 
   await card.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(card.getByRole('alert')).toContainText('key writes turned on')
 })
+
+test('settings: flipping the switch keeps an address typed but not saved', async ({ page }) => {
+  let cfg = { enabled: false, base_url: null as string | null }
+  await page.route('**/api/web-search/config', (route) => {
+    if (route.request().method() === 'POST') cfg = { ...cfg, ...route.request().postDataJSON() }
+    return route.fulfill({ json: cfg })
+  })
+  await page.goto('/#/settings')
+  const card = page.getByRole('region', { name: 'Web search' })
+  const box = card.getByRole('textbox', { name: 'SearXNG address' })
+  await box.fill('http://192.168.1.20:8888')
+  await card.getByRole('switch', { name: 'Use web search' }).click()
+  await expect(card.getByRole('switch', { name: 'Use web search' })).toHaveAttribute('aria-checked', 'true')
+  await expect(box).toHaveValue('http://192.168.1.20:8888')
+  await expect(card.getByRole('button', { name: 'Test' })).toHaveText('Test')
+})

@@ -34,7 +34,7 @@ export function WebSearchSection() {
 function WebSearchControls() {
   const [cfg, setCfg] = useState<WebSearchConfig | null>(null)
   const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'save' | 'toggle' | 'test' | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -58,30 +58,32 @@ function WebSearchControls() {
     }
   }, [])
 
-  const call = <T,>(p: Promise<T>, done: (r: T) => void, addressWrite = false) => {
-    setBusy(true)
+  const call = <T,>(what: 'save' | 'toggle' | 'test', p: Promise<T>, done: (r: T) => void) => {
+    const addressWrite = what === 'save'
+    setBusy(what)
     setNote(null)
     setError(null)
     p.then(
       (r) => {
         done(r)
-        setBusy(false)
+        setBusy(null)
       },
       (e: unknown) => {
         setError(webSearchErrorMessage(e, addressWrite))
-        setBusy(false)
+        setBusy(null)
       },
     )
   }
 
   const save = () =>
-    call(saveWebSearchConfig({ base_url: url.trim(), confirm: true }), (c) => {
+    call('save', saveWebSearchConfig({ base_url: url.trim(), confirm: true }), (c) => {
       load(c)
       setNote('Saved.')
-    }, true)
-  const toggle = (enabled: boolean) => call(saveWebSearchConfig({ enabled }), load)
+    })
+  // Only the switch changes: an address typed but not saved yet stays in the box.
+  const toggle = (enabled: boolean) => call('toggle', saveWebSearchConfig({ enabled }), setCfg)
   const test = () =>
-    call(testWebSearch(), (r) =>
+    call('test', testWebSearch(), (r) =>
       setNote(`SearXNG answered with ${r.result_count} result${r.result_count === 1 ? '' : 's'}.`),
     )
 
@@ -92,7 +94,7 @@ function WebSearchControls() {
       title={TITLE}
       meta={cfg ? webSearchSummary(cfg) : undefined}
       aria-label={TITLE}
-      actions={cfg && <Toggle checked={cfg.enabled} disabled={busy} onChange={toggle} aria-label="Use web search" />}
+      actions={cfg && <Toggle checked={cfg.enabled} disabled={!!busy} onChange={toggle} aria-label="Use web search" />}
     >
       <p className="settings-note">
         Optional. When a title search finds nothing on any source, Sources offers “Search the web” through your own
@@ -109,11 +111,11 @@ function WebSearchControls() {
             <input type="url" value={url} placeholder="http://localhost:8888" onChange={(e) => setUrl(e.target.value)} />
           </Field>
           <div className="actions">
-            <button type="button" className={buttonClass('primary', 'sm')} disabled={busy || !dirty} onClick={save}>
+            <button type="button" className={buttonClass('primary', 'sm')} disabled={!!busy || !dirty} onClick={save}>
               Save
             </button>
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !cfg.base_url || dirty} onClick={test}>
-              {busy && !dirty ? 'Testing…' : 'Test'}
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={!!busy || !cfg.base_url || dirty} onClick={test}>
+              {busy === 'test' ? 'Testing…' : 'Test'}
             </button>
           </div>
         </div>

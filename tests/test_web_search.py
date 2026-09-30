@@ -70,6 +70,8 @@ def fake(isolated_db, monkeypatch, tmp_path):
                         lambda host, port, **kw: [(2, 1, 6, "", ("192.168.1.30", port))])
     FakeSearx.calls, FakeSearx.reply = [], Resp(200, {"results": [_hit(1), _hit(2)]})
     monkeypatch.setattr(requests, "Session", FakeSearx)
+    monkeypatch.setattr(ws, "_rate", ws.SlidingWindowRateLimiter(ws.RATE_MAX, ws.RATE_WINDOW,
+                                                                 max_keys=1))
     return FakeSearx
 
 
@@ -196,6 +198,9 @@ def test_json_format_off_and_bad_replies(fake):
     fake.reply = Resp(403)
     with pytest.raises(DependencyUnavailableError, match="JSON"):
         ws.search("x")
+    fake.reply = Resp(429)
+    with pytest.raises(DependencyUnavailableError, match="limiter"):
+        ws.search("x")
     for reply in (Resp(500), Resp(200, raw=b"<html>"), Resp(200, raw=b"[1]"),
                   Resp(200, {"results": "nope"})):
         fake.reply = reply
@@ -236,6 +241,16 @@ def test_one_search_at_a_time(fake):
     finally:
         ws._lock.release()
     assert ws.search("x")["results"]
+
+
+def test_searches_are_rate_limited(fake):
+    from services.service_errors import RateLimitedError
+    _on()
+    for _ in range(ws.RATE_MAX):
+        ws.search("x")
+    with pytest.raises(RateLimitedError):
+        ws.search("x")
+    assert len(fake.calls) == ws.RATE_MAX
 
 
 def test_test_connection_works_while_off(fake):
