@@ -149,3 +149,21 @@
 .comic-scrubber { height: 44px; }
 .comic-text-btn[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-text); }
 .comic-phone.comic-chrome-off { padding-bottom: 0; }
+
+/* Translate panel (comic/ScanlatePanel.tsx): below the bar on desktop, in a Sheet on phones. */
+.comic-tools-btn[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.comic-phone .comic-tools-btn { min-height: 44px; }
+.comic-scanlate { max-width: 48rem; margin: var(--space-3) auto; display: grid; gap: var(--space-3); min-width: 0; }
+.comic-empty > p { margin: 0; }
+.scanlate-panel input[type='file'] { max-width: 100%; min-width: 0; }
+.scanlate-panel select { max-width: 100%; }
+.scanlate-limits, .scanlate-hint { margin: 0; font-size: 0.875rem; }
+.scanlate-notes h4 { margin: 0; }
+.scanlate-notes ul { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--space-1); }
+.scanlate-notes li { overflow-wrap: anywhere; }
+.sheet .scanlate-panel { border: 0; box-shadow: none; padding: 0; }
+.sheet .scanlate-panel .card-title { display: none; }

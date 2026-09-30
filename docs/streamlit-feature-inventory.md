@@ -440,20 +440,20 @@ Port fixes from plan section 8 are in `services/live_service.py` (`use_gpu`, a p
 
 ## 11. Scanlate (`tabs/scanlate_tab.py`, 639 lines): DEFERRED
 
-These are held until after the removal (plan section 8). `scanlate.py` and `page_server.py:268-363` stay. They are listed so the later React canvas port knows what existed. Spec: `docs/specs/scanlate-api-spec.md`.
+These are held until after the removal (plan section 8), except the automatic path (SC01, SC03, SC04, SC10), ported on branch `scanlate-auto-pipeline` (user approval 2026-09-29); the rest wait for the canvas editor. `scanlate.py` and `page_server.py:268-363` stay. They are listed so the later React canvas port knows what existed. Spec: `docs/specs/scanlate-api-spec.md`.
 
 | ID | Feature | Source | Calls | Tests |
 |---|---|---|---|---|
-| SC01 | Drama picker; upload pages or PDFs, optionally slicing webtoon strips | 17-47, `add_uploaded_pages` 598 | `scanlate.pdf_to_page_images`, `slice_webtoon_to_files`, `db.create_page` | test_emotion_manhua_ui TestWebtoonUpload |
+| SC01 | **DONE (API + React): PC-only upload in the Comic page's Translate panel, strips sliced by default.** Drama picker; upload pages or PDFs, optionally slicing webtoon strips | 17-47, `add_uploaded_pages` 598 | `scanlate.pdf_to_page_images`, `slice_webtoon_to_files`, `db.create_page` | test_emotion_manhua_ui TestWebtoonUpload |
 | SC02 | Page picker, engine, OCR backend (default from Settings), ML detector and inpainting choice | 49-110 | `scanlate.bubble_ml_weights_cached` | test_scanlate_tab TestOcrBackendDefaultFromSettings, TestAutoResolvesToCvWarning |
-| SC03 | Detect bubbles, clean and translate one page | 146-170 | `scanlate.detect_and_ocr_page`, `translate_page_bubbles` | test_scanlate_tab TestPerPageContextDoesNotLeakAcrossPages |
-| SC04 | Batch: detect, OCR and translate every page (skip existing) | 172-224 | `scanlate.batch_process_pages` | — |
+| SC03 | **DONE (API + React): Redo this page.** Detect bubbles, clean and translate one page | 146-170 | `scanlate.detect_and_ocr_page`, `translate_page_bubbles` | test_scanlate_tab TestPerPageContextDoesNotLeakAcrossPages |
+| SC04 | **DONE (API + React): Translate all pages (skips pages with regions) and Redo all (confirm).** Batch: detect, OCR and translate every page (skip existing) | 172-224 | `scanlate.batch_process_pages` | — |
 | SC05 | Review and adjust bubbles (source, translation, SFX), translate from source | 226-318 | `db.save_bubbles` | — |
 | SC06 | Custom fonts per category | 320-345 | — | test_scanlate_tab TestFontUploadDoesNotLeakAcrossDramas |
 | SC07 | Manual erase/heal brush (canvas) | 347-419 | `scanlate.inpaint_mask_region` | — |
 | SC08 | Save bubble edits, render the typeset page and download, export font styles as JSON | 421-465 | `scanlate.process_page`, `export_font_style_report` | — |
 | SC09 | Add a bubble manually (with OCR of a region) | 467-499 | `scanlate.ocr_box_region` | test_scanlate_tab TestAddBubbleManually |
-| SC10 | Bulk render all pages as ZIP or PDF | 501-546 | `scanlate.bulk_render_pages`, `pages_to_pdf` | — |
+| SC10 | **DONE (API + React): Export ZIP / PDF job, artifact kinds scanlate_zip / scanlate_pdf.** Bulk render all pages as ZIP or PDF | 501-546 | `scanlate.bulk_render_pages`, `pages_to_pdf` | — |
 | SC11 | Bulk find and replace over bubble text | 548-595 | `scanlate.bulk_find_replace_preview`, `db.update_bubble_text` | test_scanlate_tab TestBulkFindAndReplace |
 
 ## 12. App shell (`app.py`, 118 lines)
