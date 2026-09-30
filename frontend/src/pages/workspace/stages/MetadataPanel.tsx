@@ -1,17 +1,24 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { updateDramaMetadata } from '../../../api/library'
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { buttonClass } from '../../../components/uiClasses'
+import { MEDIA_TYPES } from '../../libraryForm'
+import { writeSectionOpen } from '../../../components/sectionStorage'
+import { wantsAutofill, withoutAutofill } from '../../libraryParity/libraryParity'
 import type { KnownPlatform, MediaAnalysis } from '../../../types/workspace'
 import {
   acceptedFields,
   analysisDetails,
   analysisSummary,
   autofillRequest,
+  contentTypeSuggestion,
   defaultSelection,
+  pipelineSteps,
   suggestionRows,
   type SuggestionRow,
 } from '../metadataForm'
@@ -57,6 +64,26 @@ export function AutofillPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const urlInput = useRef<HTMLInputElement>(null)
+  // Parity P03: arriving from Library "Create and auto-fill" (?autofill=1)
+  // opens this panel before its Section reads its remembered state.
+  const [arrived] = useState(() => {
+    const want = wantsAutofill(window.location.hash)
+    if (want) {
+      try {
+        writeSectionOpen(window.localStorage, 'source.autofill', true)
+      } catch {
+        // storage unavailable: defaultOpen still opens the panel
+      }
+    }
+    return want
+  })
+  useEffect(() => {
+    if (!arrived) return
+    window.history.replaceState(null, '', withoutAutofill(window.location.hash))
+    urlInput.current?.scrollIntoView({ block: 'center' })
+    urlInput.current?.focus()
+  }, [arrived])
 
   const req = autofillRequest(url, text)
   const problem = url.trim() && text.trim() ? 'Use either a URL or pasted text, not both.' : null
@@ -103,10 +130,10 @@ export function AutofillPanel() {
 
   return (
     <section className="panel" aria-label="Auto-fill metadata">
-      <Section storageKey="source.autofill" title="Auto-fill metadata" summary="from a listing page or pasted text">
+      <Section storageKey="source.autofill" defaultOpen={arrived} title="Auto-fill metadata" summary="from a listing page or pasted text">
         <div className="source-panel">
           <Field label="Listing URL" help="A public http(s) page. Nothing is saved until you accept the suggestions.">
-            <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <input ref={urlInput} type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
           </Field>
           <KnownPlatforms />
           <Field label="Or paste page text" help="Use this when the page needs a login or JavaScript.">
@@ -158,16 +185,37 @@ export function AutofillPanel() {
 }
 
 export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
-  const { dramaId } = useStage()
+  const { dramaId, drama, refetchDrama } = useStage()
   const [result, setResult] = useState<MediaAnalysis | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [applying, setApplying] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const suggested = result ? contentTypeSuggestion(result, drama.media_type ?? null, MEDIA_TYPES) : null
+  // Parity P05: "Use this content type" sets the drama's media type, nothing else.
+  const applySuggestion = (mediaType: string) => {
+    setApplying(true)
+    updateDramaMetadata(dramaId, { media_type: mediaType }).then(
+      () => {
+        setApplying(false)
+        setError(null)
+        setNotice(`Media type set to ${humanize('mediaType', mediaType)}.`)
+        refetchDrama()
+      },
+      (e: unknown) => {
+        setApplying(false)
+        setError(e)
+      },
+    )
+  }
 
   const run = () => {
     setBusy(true)
     analyzeMedia(dramaId).then(
       (r) => {
         setError(null)
+        setNotice(null)
         setResult(r)
         setBusy(false)
       },
@@ -201,6 +249,30 @@ export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
               ))}
             </dl>
           )}
+          {result?.content_type_guess && (
+            <div className="source-suggestion" data-testid="analysis-suggestion">
+              <p>
+                Likely content type: <strong>{humanize('mediaType', result.content_type_guess)}</strong>
+                {result.content_type_reason ? ` (${result.content_type_reason})` : ''}.
+              </p>
+              {suggested ? (
+                <button type="button" className={buttonClass('secondary', 'sm')} disabled={applying} onClick={() => applySuggestion(suggested)}>
+                  Use this content type
+                </button>
+              ) : (
+                result.content_type_guess === drama.media_type && <p className="muted">This drama already uses it.</p>
+              )}
+            </div>
+          )}
+          {result && (result.suggested_pipeline ?? []).length > 0 && (
+            <div data-testid="analysis-pipeline">
+              <p className="muted">Suggested steps (nothing runs until you start it):</p>
+              <ol className="source-pipeline">
+                {pipelineSteps(result).map((step) => <li key={step}>{step}</li>)}
+              </ol>
+            </div>
+          )}
+          {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </div>
       </Section>

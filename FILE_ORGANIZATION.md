@@ -203,14 +203,37 @@ baihe-subtitler/
 │   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
 │   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
+│   ├── jellyfin_service.py       Step 39 -- optional Jellyfin connector (off by default): settings (key in .env),
+│   │                             test connection, read-only scan for items missing a subtitle language, send
+│   │                             subtitles (+ optional video) into the library folder in Jellyfin's naming, refresh
+│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
+│   │                             also the in-app list for the header bell (last 50 events, memory only,
+│   │                             filtered by job visibility) and the jobs/new-chapters push categories
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
+│   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
+│   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
+
+│   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
+│   │                             from a static table: allowlisted https hops, timeouts, byte cap,
+│   │                             .sha256sum check) and "Test first" for an update target, both as
+│   │                             background jobs (deno_install, upgrade_check) behind the install guard
+│   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
+│   │                             must resolve inside the voice-bank folder, symlinks refused
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
+│   ├── engine_routing_service.py Step 36 -- capability-based task routing: resolve_capability("translation.cheap"|
+│   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
+│   │                             -> the engine chosen in Settings (else a default; never switches on its own);
+│   │                             per-engine status + one-call Test (router: engine_routing_routes.py)
+│   ├── stronger_engine_service.py Step 99 -- suggest (never switch to) the "translation.high_quality" engine for a
+│   │                             hard line (QC flag, glossary conflict, ambiguous term); single-line try that
+│   │                             returns text only, cap-checked, spend logged (router: stronger_engine_routes.py)
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
@@ -288,6 +311,9 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields),
 │   │                             romanize credits (writes only the *_romanized fields)
+│   ├── metadata_research_service.py  Step 37 -- "Research online": Gemini Google Search grounding,
+│   │                             per-field cited sources, entity-keyed cache, daily free-search budget,
+│   │                             Keep/Replace/Save-both apply with per-field provenance
 │   ├── cover_art_service.py      Drama cover art (P14): checked PNG/JPEG/WebP upload re-encoded without
 │   │                             metadata, stored as cover.<ext>; resolves the file to serve
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
@@ -304,6 +330,8 @@ baihe-subtitler/
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
+│   ├── sources_tools_service.py  Sources SO02/SO03/SO08/SO16 -- site check job, pasted page source preview and
+│   │                              import, identify-media job (+ PC-only full resource URL), pasted-URL diagnostics
 │   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler
 │   │                             also uses) and which drama a tracked series auto-imports into
 │   ├── sources_signin_service.py Sources S-6/SO17 (PC only) -- sign-in window job, forget the saved profile,
@@ -379,6 +407,16 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
+│   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
+│   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
+│   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
+│   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
+│   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
+│   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
+
+│   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
+│   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -392,6 +430,10 @@ baihe-subtitler/
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
+│       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
+│       │                         (admin.settings); PC-only POST capabilities/{capability}, engines/{engine}/test
+│       ├── stronger_engine_routes.py /api/stronger-engine/dramas/{id} (Step 99): GET suggestions (lines.read),
+│       │                         POST lines/{line_id}/try (review.use + paid-engine gate; writes nothing)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
@@ -436,6 +478,8 @@ baihe-subtitler/
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37), .../romanize-credits (admin.library + engines check)
+│       ├── metadata_research_routes.py  GET /api/metadata/research/budget, POST .../dramas/{id}/research,
+│       │                         .../research/apply, GET .../provenance (Step 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|attach-from-sources|ocr-chapter,
 │       │                         GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
@@ -445,6 +489,8 @@ baihe-subtitler/
 │       ├── blocked_retry_routes.py /api/lines/dramas/{id}/lines/{lid}/retry-blocked (POST, jobs.start + engine gate; R10)
 │       ├── series_people_routes.py POST /api/characters/series/{id}/characters[/{cid}] (add / edit, lines.edit; X15-X17)
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
+│       ├── benchmark_routes.py   /api/benchmark/options|cases|sets|runs|runs/{id}|arena (GET) + estimate (POST),
+│       │                         admin.diagnostics; cases, import, regression, runs (POST) local_only (Step 38)
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
@@ -460,8 +506,10 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
-│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import, GET /{name}/import-state
 │       │                         (sources.import; specs S-4, S-5)
+│       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
+│       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -470,6 +518,10 @@ baihe-subtitler/
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
 │       │                         model-cache/hf|piper/{name}/delete (POST, local_only + confirm; API batch 1,
 │       │                         react-misc-parity)
+│       ├── diagnostics_installs_routes.py /api/diagnostics/deno, /upgrade-check (GET, admin.diagnostics);
+│       │                         /deno/install, /dependencies/{pkg}/test-upgrade (POST, local_only +
+│       │                         confirm; background jobs, polled)
+│       ├── voice_bank_audio_routes.py GET/HEAD /api/library/voice-bank/{entry_id}/audio (media.stream)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -480,9 +532,15 @@ baihe-subtitler/
 │       │                         POST {id}/delete (local_only + confirm + folder stamp)
 │       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
 │       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
-│       └── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
-│                                 /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
-│                                 key-write gate; Step 44)
+│       ├── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
+│       │                         /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
+│       │                         key-write gate; Step 44)
+│       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
+│                                 /dramas/{id}/send -- all local_only (Step 39)
+│       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
+│       │                         also use the key-write gate; Step 44)
+│       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
+│                                 job-ended and new-chapter events (Step 44 item 5)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
@@ -493,7 +551,8 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList (+ libraryFilters.ts: the More filters, pure), DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
+│   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
@@ -526,8 +585,11 @@ baihe-subtitler/
 │   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
-│   │                              helpers, unit-tested), diagnostics.css; API in
-│   │                              src/api/diagnostics.ts
+│   │                              helpers, unit-tested), DenoInstall (Setup card: Install Deno job +
+│   │                              denoInstallText.ts), UpgradeTest ("Test first" result + upgradeTestText.ts),
+│   │                              useServerJobStatus + jobPoll.ts (poll a server job's status),
+│   │                              diagnostics.css; API in src/api/diagnostics.ts and
+│   │                              src/api/diagnosticsInstalls.ts (types/diagnosticsInstalls.ts)
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
@@ -566,13 +628,15 @@ baihe-subtitler/
 │   ├── src/pages/sources/         FindModeSwitch (search | link), SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
-│   │                              sourcesFormat.ts (pure, unit-tested), sources.css
+│   │                              sourcesFormat.ts (pure, unit-tested), sources.css; Sources tools:
+│   │                              SiteCheck, PastedSource, IdentifyMedia, RecentExtractions,
+│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts)
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),
 │   │                              bulk import; api/discover.ts, types/discover.ts
 │   ├── src/pages/discover/        CatalogPanel, FindPanel (+ PlatformList), BaihehubPanel, NavigationHelp,
-│   │                              AddTitle, BulkImport, ExternalLink (http(s)-only links), useDiscoverJob
+│   │                              AddTitle, BulkImport (+ PastedListing), ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
@@ -581,8 +645,10 @@ baihe-subtitler/
 │   │                              (Translate: review glossary before translating), useGlossaryRun
 │   │                              (shared run state across mounts), glossaryExtract.ts (pure,
 │   │                              unit-tested; types in src/types/glossaryHelpers.ts), SeriesCast (Characters > Series cast: list, add, inline edit of
-│   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
-│   │                              unit-tested), useRunStatus (per-drama run
+│   │                              name/pronouns/aliases/notes, bulk pronouns, PC-only remove; seriesPeopleForm.ts pure,
+│   │                              unit-tested), SeriesAssign (series picker + "Create series" in the
+│   │                              glossary box), transcribeEstimate.ts (pure, unit-tested: Transcribe /
+│   │                              Detect speakers time captions), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   │                              + src/api/seriesPeople.ts (add/edit series people)
@@ -655,7 +721,7 @@ baihe-subtitler/
 | `ui_theme.py` | design system (CSS, layout primitives) |
 | `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
 | `storage.py` | disk usage, cache cleanup |
-| `benchmark.py` | the Benchmark Lab: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
+| `benchmark.py` | the case runners the Benchmark Lab (services/benchmark_lab_service.py) builds on: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
 | `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
 
 **ASR / transcription & alignment**
