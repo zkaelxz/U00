@@ -71,7 +71,7 @@ import background_jobs
 import core as core_module
 import db
 import raw_transcript
-from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -310,7 +310,6 @@ def _require_qwen3_packages(feature: str) -> None:
             "Install it with: pip install qwen-asr torch")
 
 
-_SOURCE_LANGUAGES = ("zh", "ja", "ko")
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 
 
@@ -370,7 +369,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     source_language = source_language or drama.get("source_language") or "zh"
     chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
-    if source_language not in _SOURCE_LANGUAGES:
+    if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"Unknown source_language {source_language!r}.")
     if chinese_script not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
@@ -464,7 +463,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
             f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-    if (source_language or drama.get("source_language") or "zh") not in _SOURCE_LANGUAGES:
+    if (source_language or drama.get("source_language") or "zh") not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"Unknown source_language {source_language!r}.")
     if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")

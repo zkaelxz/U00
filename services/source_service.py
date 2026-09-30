@@ -30,10 +30,10 @@ values out, so a CLI or another service could call them too.
 """
 import os
 
+from core import SOURCE_LANGUAGES
 from db import drama_dir, get_drama, update_drama
 from services.service_errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
-_SOURCE_LANGUAGES = ("zh", "ja", "ko")
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 _CONTENT_MODES = ("audio_drama", "streamer_vod", "novel_narration")
 _TRANSCRIPT_MODES = ("have_transcript", "whisper", "hardsub_ocr")
@@ -99,7 +99,7 @@ def update_source_config(drama_id: int, *, source_language: str = None,
 
     fields = {}
     if source_language is not None:
-        if source_language not in _SOURCE_LANGUAGES:
+        if source_language not in SOURCE_LANGUAGES:
             raise InvalidInputError(f"Unknown source_language {source_language!r}.")
         fields["source_language"] = source_language
     if chinese_script is not None:

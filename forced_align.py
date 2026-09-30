@@ -51,12 +51,9 @@ import tempfile
 from core import (
     ModelDownloadError, _is_gpu_error, _is_network_error, diagnose_hostname,
     _lines_from_char_times, align_transcript_to_timing,
-    extract_audio_slice as _extract_audio_slice,
+    extract_audio_slice as _extract_audio_slice, LANGUAGE_NAMES,
 )
 
-# Qwen3-ForcedAligner's `language` parameter takes full capitalized names,
-# not the "zh"/"ja"/"ko" codes this project uses everywhere else.
-LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
 # The model's own documented cap is ~5 minutes (300s), but timing was
 # reported to drift out of sync after roughly 30s on long inputs, so chunks
