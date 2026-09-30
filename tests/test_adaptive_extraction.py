@@ -705,6 +705,190 @@ class TestDiagnostics:
 
 
 # ---------------------------------------------------------------------------
+# Following next-chapter links from a pasted novel URL
+# ---------------------------------------------------------------------------
+
+class TestFollowNovel:
+    """adaptive.follow_novel: one client, page by page, stopping cleanly."""
+
+    @staticmethod
+    def _routes(*numbers, **over):
+        routes = {chapter_url(n): html_resp(chapter_html(n)) for n in numbers}
+        routes.update(over)
+        return routes
+
+    @staticmethod
+    def _follow(routes, max_pages=10, clock=None, policy=None, **kw):
+        from .sources_helpers import FakeClock
+        clock = clock or FakeClock()
+        transport = ScriptedTransport(routes, clock)
+        client = make_client("generic", transport, clock, max_retries=0, **(policy or {}))
+        out = adaptive.follow_novel(chapter_url(12), max_pages, client=client,
+                                    allow_browser=False, allow_signed_in=False, **kw)
+        return out, transport
+
+    def test_follows_pages_in_order_up_to_the_cap(self, isolated_db):
+        out, t = self._follow(self._routes(12, 13, 14, 15), max_pages=3)
+        assert [p.url for p in out.pages] == [chapter_url(n) for n in (12, 13, 14)]
+        assert [p.title for p in out.pages] == ["第12章 重逢", "第13章 重逢", "第14章 重逢"]
+        assert out.pages[1].text.startswith("第13章第0段。")
+        assert out.stop == "cap" and t.urls() == [chapter_url(n) for n in (12, 13, 14)]
+        assert out.pages[0].text == out.first.text
+
+    def test_cap_is_bounded(self, isolated_db):
+        out, t = self._follow(self._routes(12, 13), max_pages=0)
+        assert out.stop == "cap" and len(out.pages) == 1 and len(t.calls) == 1
+        assert adaptive.MAX_FOLLOW_PAGES == 50
+
+    def test_stops_when_a_page_has_no_next_link(self, isolated_db):
+        last = chapter_html(13).replace('<a id="next" href="/book/77/1014.html">下一章</a>', "")
+        out, t = self._follow(self._routes(12, **{chapter_url(13): html_resp(last)}))
+        assert out.stop == "no_next" and len(out.pages) == 2 and len(t.calls) == 2
+
+    def test_stops_on_a_cycle(self, isolated_db):
+        # B links back to A (a fragment and a trailing slash don't make it new).
+        back = chapter_html(13).replace("/book/77/1014.html", "/book/77/1012.html/#top")
+        out, t = self._follow(self._routes(12, **{chapter_url(13): html_resp(back)}))
+        assert out.stop == "cycle" and len(out.pages) == 2
+        assert t.urls() == [chapter_url(12), chapter_url(13)]
+
+    def test_never_follows_a_self_link(self, isolated_db):
+        me = chapter_html(12).replace("/book/77/1013.html", "/book/77/1012.html")
+        out, t = self._follow({chapter_url(12): html_resp(me)})
+        assert out.stop in ("cycle", "no_next") and len(out.pages) == 1 and len(t.calls) == 1
+        seen = {adaptive._follow_key(chapter_url(12))}
+        assert adaptive._unfollowable(chapter_url(12) + "#x", chapter_url(11), seen) == "cycle"
+        assert adaptive._unfollowable("http://novel.example/book/77/1012.html/",
+                                      "http://novel.example/book/77/1011.html", seen) == "cycle"
+
+    def test_stops_at_another_host(self, isolated_db):
+        # Same registrable site, other host: the validator keeps the link,
+        # following refuses it.
+        away = chapter_html(12).replace('href="/book/77/1013.html"',
+                                        'href="https://m.novel.example/book/77/1013.html"')
+        out, t = self._follow({chapter_url(12): html_resp(away),
+                               "https://m.novel.example/book/77/1013.html": html_resp(chapter_html(13))})
+        assert out.stop == "other_host" and len(out.pages) == 1 and len(t.calls) == 1
+        assert adaptive._unfollowable("ftp://novel.example/2", chapter_url(11), set()) == "other_host"
+
+    def test_another_port_is_another_host(self):
+        here = "https://novel.example/book/1.html"
+        assert adaptive._unfollowable("https://novel.example:8443/book/2.html", here, set()) == "other_host"
+        assert adaptive._unfollowable("https://novel.example:443/book/2.html", here, set()) is None
+        assert adaptive._unfollowable("https://novel.example:99999/book/2.html", here,
+                                      set()) == "other_host"
+
+    def test_never_downgrades_from_https_to_http(self, isolated_db):
+        plain = chapter_html(12).replace('href="/book/77/1013.html"',
+                                         'href="http://www.novel.example/book/77/1013.html"')
+        out, t = self._follow({chapter_url(12): html_resp(plain),
+                               "http://www.novel.example/book/77/1013.html": html_resp(chapter_html(13))})
+        assert out.stop == "downgrade" and len(out.pages) == 1 and len(t.calls) == 1
+        # An upgrade is fine.
+        assert adaptive._unfollowable("https://novel.example/book/2.html",
+                                      "http://novel.example/book/1.html", set()) is None
+
+    def test_never_follows_a_sign_in_or_age_check_link(self):
+        here = "https://novel.example/book/1.html"
+        for u in ("https://novel.example/login?next=/book/2", "https://novel.example/user/signin.php",
+                  "https://novel.example/age-check/2", "https://novel.example/book/2?age_verification=1",
+                  "https://novel.example/logout", "https://novel.example/book/2/buy",
+                  "https://novel.example/chapter/2/unlock.html", "https://novel.example/pay?ch=2",
+                  "https://novel.example/purchase/2", "https://novel.example/subscribe/77",
+                  "https://novel.example/checkout", "https://novel.example/sign-out"):
+            assert adaptive._unfollowable(u, here, set()) == "gate", u
+        for u in ("https://novel.example/author/2", "https://novel.example/book/payload/2.html"):
+            assert adaptive._unfollowable(u, here, set()) is None, u
+
+    def test_url_check_refusal_stops_before_any_request(self, isolated_db):
+        out, t = self._follow(self._routes(12, 13), url_check=lambda u: u == chapter_url(12))
+        assert out.stop == "not_public" and len(t.calls) == 1
+
+    def test_challenge_stops_and_keeps_the_pages_so_far(self, isolated_db):
+        cf = html_resp("<title>Just a moment...</title>", 403, {"cf-mitigated": "challenge"})
+        out, t = self._follow(self._routes(12, 13, **{chapter_url(14): cf}))
+        assert out.stop == "handoff" and out.handoff["reason"] == "CLOUDFLARE_CHALLENGE"
+        assert [p.url for p in out.pages] == [chapter_url(12), chapter_url(13)]
+        assert len(t.calls) == 3
+
+    def test_challenge_on_the_first_page_is_the_single_page_hand_off(self, isolated_db):
+        cf = html_resp("<title>Just a moment...</title>", 403, {"cf-mitigated": "challenge"})
+        out, t = self._follow({chapter_url(12): cf})
+        assert out.stop == "handoff" and out.pages == [] and out.first.ladder.handoff
+        assert len(t.calls) == 1
+
+    def test_an_invalid_page_stops_the_chain(self, isolated_db):
+        out, t = self._follow(self._routes(12, **{chapter_url(13): html_resp("<p>短</p>")}))
+        assert out.stop == "invalid" and len(out.pages) == 1 and len(t.calls) == 2
+
+    def test_an_unreachable_page_stops_the_chain(self, isolated_db):
+        out, t = self._follow(self._routes(12))           # 13 answers 404
+        assert out.stop == "unreachable" and len(out.pages) == 1 and len(t.calls) == 2
+
+    def test_an_oversized_or_slow_page_stops_the_chain_keeping_the_pages(self, isolated_db):
+        from sources.http import ResponseTooLarge, ResponseTooSlow
+        for refused in (ResponseTooLarge(), ResponseTooSlow()):
+            out, t = self._follow(self._routes(12, 13, **{chapter_url(14): refused}))
+            assert out.stop == "unreachable" and len(t.calls) == 3
+            assert [p.url for p in out.pages] == [chapter_url(12), chapter_url(13)]
+
+    def test_an_oversized_first_page_still_fails_as_before(self, isolated_db):
+        from sources.http import ResponseTooLarge
+        with pytest.raises(ResponseTooLarge):
+            self._follow({chapter_url(12): ResponseTooLarge()})
+
+    def test_a_huge_title_is_capped_and_counted(self, isolated_db):
+        # No <h1>: the heading falls back to a multi-megabyte <title>.
+        huge = "题" * 1_000_000
+        page13 = chapter_html(13).replace("<title>第13章 重逢 - 某某小说网</title>", f"<title>{huge}</title>")
+        page13 = page13.replace("<h1>第13章 重逢</h1>", "")
+        out, _t = self._follow(self._routes(12, **{chapter_url(13): html_resp(page13)}), max_pages=2)
+        assert len(out.pages) == 2
+        assert out.pages[1].title == "题" * adaptive.MAX_TITLE_CHARS
+        # The capped title counts toward the budget.
+        body = len(out.pages[0].text) + len(out.pages[0].title) + len(out.pages[1].text)
+        out, _t = self._follow(self._routes(12, **{chapter_url(13): html_resp(page13)}), max_pages=2,
+                               max_chars=body + adaptive.MAX_TITLE_CHARS - 1)
+        assert out.stop == "chars" and len(out.pages) == 1
+
+    def test_a_followed_page_never_saves_a_site_profile(self, isolated_db, fake_llm, no_deterministic):
+        _page(12)
+        h13, u13 = _page(13, container_id="chaptercontent", title_wrap="chapterhead")
+        out, _t = self._follow({chapter_url(12): html_resp(_HTML_BY_URL[chapter_url(12)]),
+                                u13: html_resp(h13)}, max_pages=2,
+                               engine=FakeEngine(novel_answer()))
+        assert len(out.pages) == 2 and out.report.profile["saved"] == 1   # the first page, as today
+        vs = profiles.versions(DOMAIN, "novel")
+        assert [v["version"] for v in vs] == [1] and profiles.active(DOMAIN, "novel")["version"] == 1
+        assert not vs[0].get("failures")                 # the hop's misfit isn't recorded either
+
+    def test_character_budget(self, isolated_db):
+        out, t = self._follow(self._routes(12, 13, 14), max_chars=1)
+        assert out.stop == "chars" and len(out.pages) == 1 and len(t.calls) == 2
+
+    def test_cancel_between_pages(self, isolated_db):
+        from sources.http import Cancelled
+        routes = self._routes(12, 13)
+        with pytest.raises(Cancelled):
+            self._follow(routes, cancel_check=lambda: True)
+
+    def test_paced_through_one_client(self, isolated_db):
+        from .sources_helpers import FakeClock
+        clock = FakeClock()
+        _out, t = self._follow(self._routes(12, 13, 14), max_pages=3, clock=clock,
+                               policy={"min_delay": 4.0, "max_delay": 4.0})
+        times = [c["t"] for c in t.calls]
+        assert len(times) == 3 and all(b - a >= 4.0 for a, b in zip(times, times[1:]))
+        assert clock.slept >= 8.0
+
+    def test_progress_reports_each_followed_page(self, isolated_db):
+        seen = []
+        self._follow(self._routes(12, 13, 14), max_pages=3,
+                     progress=lambda done, cap: seen.append((done, cap)))
+        assert seen == [(1, 3), (2, 3)]
+
+
+# ---------------------------------------------------------------------------
 # The Sources tab: Review Extraction, diagnostics, the AI fallback picker
 # ---------------------------------------------------------------------------
 

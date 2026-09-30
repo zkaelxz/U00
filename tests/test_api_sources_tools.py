@@ -119,6 +119,7 @@ def test_preflight_novel_page(client, env):
     assert res["reachable"] is True and res["permitted"] is True
     assert res["display_url"] == "https://novel.example/book/1/ch2.html"
     assert res["verdict"] and isinstance(res["lines"], list)
+    assert isinstance(res["next_link"], bool) and isinstance(res["previous_link"], bool)
     assert [c["url"] for c in env.calls] == [PAGE]
 
 
