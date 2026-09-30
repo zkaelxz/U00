@@ -29,7 +29,7 @@ class TestServerEnv:
                                    "PIP_REQUIRE_VIRTUALENV": "true", "PATH": "x"})
         assert env["BAIHE_API_HOST"] == "127.0.0.1"
         assert env["BAIHE_API_ALLOW_KEY_WRITES"] == "1"
-        assert env["BAIHE_API_PORT"] == "8600"
+        assert env["BAIHE_API_PORT"] == str(launcher.DEFAULT_PORT)
         assert env["PYTHONNOUSERSITE"] == "1"
         assert "PIP_USER" not in env and "PIP_REQUIRE_VIRTUALENV" not in env
         assert env["PATH"] == "x"
@@ -65,7 +65,7 @@ class TestLaunch:
         monkeypatch.setattr(launcher, "start_server", lambda *a: started.append(a))
         monkeypatch.setattr(launcher, "open_window", opened.append)
         assert launcher.launch() == 0
-        assert started == [] and opened == ["http://127.0.0.1:8600/"]
+        assert started == [] and opened == [f"http://127.0.0.1:{launcher.DEFAULT_PORT}/"]
 
     def test_refuses_an_install_without_its_marker(self, monkeypatch, tmp_path):
         # No app\INSTALLED and no BAIHE_DATA_DIR: the library would land in
@@ -92,7 +92,7 @@ class TestLaunch:
         monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc: True)
         monkeypatch.setattr(launcher, "open_window", lambda url: calls.append(("open", url)))
         assert launcher.launch() == 0
-        assert calls == [("start", "127.0.0.1", False), ("open", "http://127.0.0.1:8600/")]
+        assert calls == [("start", "127.0.0.1", False), ("open", f"http://127.0.0.1:{launcher.DEFAULT_PORT}/")]
 
     def test_headless_never_opens_a_window(self, data_dir, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
@@ -127,13 +127,13 @@ class TestWaitForHealth:
             def poll(self):
                 return 1
         slept = []
-        assert launcher.wait_for_health(8600, Dead(), tries=50, sleep=slept.append) is False
+        assert launcher.wait_for_health(launcher.DEFAULT_PORT, Dead(), tries=50, sleep=slept.append) is False
         assert slept == []
 
     def test_answers_after_a_while(self, monkeypatch):
         answers = iter([False, False, True])
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: next(answers))
-        assert launcher.wait_for_health(8600, None, tries=5, sleep=lambda s: None) is True
+        assert launcher.wait_for_health(launcher.DEFAULT_PORT, None, tries=5, sleep=lambda s: None) is True
 
 
 class _Proc:
@@ -161,7 +161,7 @@ class TestStartServer:
         assert launcher.record_pid(_Proc(111, exited=True)) is False
         assert not pid_file.exists()
         assert launcher.record_pid(_Proc(222)) is True
-        assert pid_file.read_text().split() == ["222", "8600"]
+        assert pid_file.read_text().split() == ["222", str(launcher.DEFAULT_PORT)]
 
 
 class TestStartLock:
@@ -195,7 +195,7 @@ class TestStartLock:
         monkeypatch.setattr(launcher, "start_server", lambda py, env, headless: _Proc(4321))
         monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc=None: True)
         assert launcher.launch(headless=True) == 0
-        assert (data_dir / "launcher" / launcher.PID_FILE_NAME).read_text().split() == ["4321", "8600"]
+        assert (data_dir / "launcher" / launcher.PID_FILE_NAME).read_text().split() == ["4321", str(launcher.DEFAULT_PORT)]
         assert not (data_dir / "launcher" / launcher.START_LOCK_NAME).exists()
 
     def test_headless_errors_go_to_stderr(self, capsys):
@@ -392,7 +392,7 @@ class _FakeProc:
 
 
 class TestStopSequence:
-    def _setup(self, data_dir, pid="4242", port="8600", token="t" * 43):
+    def _setup(self, data_dir, pid="4242", port=str(launcher.DEFAULT_PORT), token="t" * 43):
         d = data_dir / "launcher"
         d.mkdir(parents=True, exist_ok=True)
         (d / launcher.PID_FILE_NAME).write_text(f"{pid}\n{port}\n")
@@ -524,7 +524,7 @@ class TestShutdownRequest:
         def boom(*a, **k):
             raise OSError("refused")
         monkeypatch.setattr(launcher, "_local_open", boom)
-        assert launcher.request_clean_shutdown(8600, "tok") is False
+        assert launcher.request_clean_shutdown(launcher.DEFAULT_PORT, "tok") is False
 
 
 class TestServerStartToken:
@@ -643,3 +643,40 @@ class TestCreatedFlag:
         assert postinstall.main(["--wheels", "w", "--data-dir", str(tmp_path), "--data-dir-created",
                                  "--data-dir-new"]) == 0
         assert seen == {"created": True, "new": True}
+
+
+class TestDefaultPortIsDefinedOnce:
+    """api/api_config.DEFAULT_PORT is the one place to change the default API
+    port. The files below cannot import it (batch files, PowerShell, Vite,
+    CI YAML, prose), so this fails when one of their literals drifts."""
+
+    LITERAL_FILES = (
+        "start.bat", "start.ps1", "README.md", "CLAUDE.md",
+        "frontend/vite.config.ts", "frontend/src/report/capture.test.ts",
+        ".github/workflows/windows-installer.yml", ".github/workflows/windows-bootstrap.yml",
+    )
+
+    def test_launcher_uses_the_api_config_constant(self):
+        from api import api_config
+        assert launcher.DEFAULT_PORT is api_config.DEFAULT_PORT
+
+    @pytest.mark.parametrize("rel", LITERAL_FILES)
+    def test_literal_ports_match(self, rel):
+        import re
+        from api import api_config
+        text = Path(ROOT, rel).read_text(encoding="utf-8")
+        # 8601 is the "pick another port" example in the docs and start scripts;
+        # 8611 is the e2e suite's own port (README).
+        ports = {int(p) for p in re.findall(r"\b86\d\d\b", text)} - {8601, 8611}
+        assert ports == {api_config.DEFAULT_PORT}, f"{rel} disagrees with api_config.DEFAULT_PORT"
+
+
+class TestPythonVersionMatchesTheInstaller:
+    @pytest.mark.parametrize("workflow", ["tests.yml", "windows-bootstrap.yml", "windows-installer.yml"])
+    def test_workflows_use_the_bundled_major_minor(self, workflow):
+        import re
+        import build_installer
+        want = ".".join(build_installer.PYTHON_VERSION.split(".")[:2])
+        text = Path(ROOT, ".github", "workflows", workflow).read_text(encoding="utf-8")
+        found = re.findall(r'python-version:\s*"([^"]+)"', text)
+        assert found and set(found) == {want}, f"{workflow} must test on Python {want}"
