@@ -27,6 +27,8 @@ import {
   tagsText,
   testBlockedReason,
   testedText,
+  unsetBadge,
+  unsetOptionLabel,
   withChoice,
   workingCount,
 } from './engineRouting'
@@ -115,7 +117,7 @@ export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props)
                     disabled={remote}
                     onChange={(e) => void choose(cap, choiceFromSelect(e.target.value))}
                   >
-                    <option value="">Use default ({humanize('engine', cap.default_engine)})</option>
+                    <option value="">{unsetOptionLabel(cap, (e) => humanize('engine', e))}</option>
                     {cap.choices.map((name) => (
                       <option key={name} value={name}>
                         {humanize('engine', name)}
@@ -125,7 +127,7 @@ export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props)
                 </Field>
                 {(cap.is_default || !cap.engine_supported) && (
                   <div className="routing-task-meta">
-                    {cap.is_default && <Badge>default</Badge>}
+                    {cap.is_default && <Badge>{unsetBadge(cap)}</Badge>}
                     {!cap.engine_supported && (
                       <span className="warn">
                         {humanize('engine', cap.engine)} can't do this task. Pick another engine.
