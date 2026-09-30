@@ -22,8 +22,10 @@ Which hosts ordinary fetches contact:
     source request: each hop is public-address checked, and Cookie and
     Authorization are dropped on a host change. A page that ends on a host
     that isn't on the list is discarded (the next domain is tried) and is
-    not cached under the listed URL. A 307/308 on a POST resends its form
-    body to the redirect target, as any HTTP client does.
+    not cached under the listed URL, nor is one that moved from https to
+    http. A POST is sent with redirects not followed by the transport: it is
+    re-sent only to an https host on the list, so a 307/308 never carries
+    the form body anywhere else.
   * A challenge on any domain stops everything and hands off to the person,
     exactly as elsewhere. It never starts discovery.
 
@@ -54,7 +56,9 @@ is the whole list: nothing is read from or saved to settings and no
 discovery runs.
 """
 
+import contextlib
 import re
+import sqlite3
 from urllib.parse import urljoin, urlsplit
 
 from translate_engines import redact_for_storage
@@ -70,8 +74,8 @@ _DEFAULT_PORTS = {"https": 443, "http": 80}
 
 # A plain DNS name with a dot and an alphabetic TLD: no scheme, port, path,
 # userinfo or IP literal (IPv4, IPv6 and IPv4-mapped forms all fail it).
-HOST_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
-                     r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+HOST_RE = re.compile(r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+                     r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 
 _unreachable_hook = None
 
@@ -86,15 +90,18 @@ def set_unreachable_hook(fn):
 def normalize_host(value, default_port: int = 443) -> str:
     """"host" or "host:port", lowercased, trailing dot dropped, the default
     port left implicit; "" for anything else (a scheme, path, IP literal,
-    or a port that is empty, non-numeric, 0 or above 65535)."""
-    text = str(value or "").strip().lower()
+    or a port that is empty, non-numeric, 0 or above 65535). Surrounding
+    spaces are trimmed; any other whitespace or control character refuses."""
+    text = str(value or "").strip(" ").lower()
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in text):
+        return ""
     host, sep, port = text.partition(":")
     if sep:
         if not (port.isascii() and port.isdigit()) or not 1 <= int(port) <= 65535:
             return ""
         port = int(port)
     host = host.rstrip(".")
-    if not HOST_RE.match(host):
+    if not HOST_RE.fullmatch(host):
         return ""
     return host if not sep or port == default_port else f"{host}:{port}"
 
@@ -153,6 +160,26 @@ def _safe_hop(url: str) -> str:
         return ""
     hp = hostport(url) if https else ""
     return hp if hp and _is_public_host(hp) else ""
+
+
+def _scheme(url: str) -> str:
+    try:
+        return urlsplit(url).scheme.lower()
+    except ValueError:
+        return ""
+
+
+def _redirect_target(url: str, location: str) -> str:
+    """The absolute https URL a Location names, else "" (none, malformed,
+    or not https)."""
+    if not location:
+        return ""
+    try:
+        target = urljoin(url, location)
+        urlsplit(target).port   # noqa: B018 -- raises ValueError on a bad port
+    except ValueError:
+        return ""
+    return target if _scheme(target) == "https" else ""
 
 
 def _location(resp) -> str:
@@ -229,8 +256,12 @@ class SiteDomains:
                 continue
             tried.add(base)
             url = urljoin(base + "/", path)
+            # A POST's redirect is handled here, never by the transport: a
+            # 307/308 would otherwise send the form body to any host.
+            no_follow = redirects_not_followed() if method == "POST" else contextlib.nullcontext()
             try:
-                resp = self.client.request(method, url, data=data, record_health=False, **kw)
+                with no_follow:
+                    resp = self.client.request(method, url, data=data, record_health=False, **kw)
             except NotModified:
                 health.record_success(self.source, 0.0)
                 self._worked(base)
@@ -245,8 +276,16 @@ class SiteDomains:
             except ChallengeDetected as e:
                 health.record_failure(self.source, e.reason.value, str(e))
                 raise
-            final = by_host.get(hostport(resp.url or url))
-            if final is None:
+            if method == "POST" and resp.status_code in _REDIRECT_CODES:
+                target = _redirect_target(url, _location(resp))
+                if target and by_host.get(hostport(target)) not in (None, base):
+                    queue.insert(0, by_host[hostport(target)])   # the listed host, https
+                else:
+                    errors.append(f"{hostport(base)}: redirected to a host that is not on the list")
+                continue
+            final_url = resp.url or url
+            final = by_host.get(hostport(final_url))
+            if final is None or _scheme(final_url) != _scheme(url):
                 errors.append(f"{hostport(base)}: redirected to a host that is not on the list")
                 continue
             if method == "POST" and final != base:
@@ -262,12 +301,18 @@ class SiteDomains:
     def _all_failed(self, listed: list, errors: list):
         msg = "Every domain on this source's list failed:\n" + "\n".join(errors)
         if not self.fixed:
-            ran, found = self.discover(listed)
-            if found:
-                msg += ("\nA possible new address was found. Confirm it on this PC under "
-                        "Sources to add it to the list.")
-            elif ran and not store.domain_proposals(self.source):
-                _notify_unreachable(self.source, self.adapter.display_name or self.source, errors)
+            try:
+                ran, found = self.discover(listed)
+                if found:
+                    msg += ("\nA possible new address was found. Confirm it on this PC under "
+                            "Sources to add it to the list.")
+                elif ran and not store.domain_proposals(self.source):
+                    _notify_unreachable(self.source, self.adapter.display_name or self.source,
+                                        errors)
+            except sqlite3.OperationalError:
+                # sources.db stayed locked past its busy timeout: no claim,
+                # so no probe; the failure below is still recorded.
+                pass
         health.record_failure(self.source, FailureReason.ALL_DOMAINS_UNREACHABLE.value, msg)
         raise SourceUnavailable(msg, FailureReason.ALL_DOMAINS_UNREACHABLE)
 
@@ -311,7 +356,10 @@ class SiteDomains:
         seen = set()
         for _ in range(MAX_DISCOVERY_HOPS + 1):
             hp = _safe_hop(url)
-            parts = urlsplit(url)
+            try:
+                parts = urlsplit(url)
+            except ValueError:
+                return None
             key = (hp, parts.path or "/", parts.query)
             if not hp or key in seen:
                 return None
@@ -321,10 +369,9 @@ class SiteDomains:
                                        action=f"Looking for {self.adapter.display_name or self.source}'s "
                                               "new address")
             if resp.status_code in _REDIRECT_CODES:
-                location = _location(resp)
-                if not location:
+                url = _redirect_target(url, _location(resp))
+                if not url:
                     return None
-                url = urljoin(url, location)
                 continue
             if not 200 <= resp.status_code < 300:
                 return None

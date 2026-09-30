@@ -805,6 +805,24 @@ def _host_key(url: str) -> str:
     return host
 
 
+def _same_cache_site(requested: str, final: str) -> bool:
+    """Whether a response that ended at `final` may be cached under
+    `requested`: same scheme, same effective port, and the same host name,
+    where `www.<host>` and `<host>` count as one (a site's usual bare-to-www
+    redirect). Any other host, a trailing-dot variant, another port or an
+    https->http move is not."""
+    def key(url):
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        host = (parts.hostname or "").lower()
+        port = parts.port if parts.port is not None else _DEFAULT_PORTS.get(scheme)
+        return scheme, host[4:] if host.startswith("www.") else host, port
+    try:
+        return key(requested) == key(final)
+    except ValueError:
+        return False
+
+
 def _host(host: str, min_interval: float) -> dict:
     """The host's shared pace state. Its minimum interval is the largest
     any client has declared for it, so a client that declares none (the
@@ -1055,7 +1073,7 @@ class SourceClient:
                         health.record_success(self.source, latency)
                     # Content a redirect fetched from another host is never
                     # stored under the URL that was asked for.
-                    if cacheable and _host_key(resp.url or url) == _host_key(url):
+                    if cacheable and _same_cache_site(url, resp.url or url):
                         self.cache.put(url, resp.content)
                     if poll is not None and method.upper() == "GET":
                         low = {k.lower(): v for k, v in resp.headers.items()}

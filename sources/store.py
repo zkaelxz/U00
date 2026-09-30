@@ -212,10 +212,14 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 """
 
 
+# Seconds a statement waits on another writer's lock before failing.
+BUSY_TIMEOUT = 30
+
+
 def connect() -> sqlite3.Connection:
     path = db_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT)
     conn.row_factory = sqlite3.Row
     # Every statement is CREATE ... IF NOT EXISTS, so this is cheap and
     # needs no "already initialized?" bookkeeping that could go stale when

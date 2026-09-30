@@ -430,7 +430,8 @@ class TestHostForms:
         assert n("toonkor1.org:443") == "toonkor1.org"
         assert n("toonkor1.org:8443") == "toonkor1.org:8443"
         for bad in ("toonkor1.org:", "toonkor1.org:0", "toonkor1.org:65536", "toonkor1.org:x",
-                    "toonkor1.org:８４４３", "10.0.0.1", "[::1]", "::ffff:10.0.0.1", "https://a.org",
+                    "toonkor1.org:８４４３", "example.com\n:8443", "example.com\n", "\nexample.com",
+                    "exa mple.com", "example.com\t", "example.com\x00", "10.0.0.1", "[::1]", "::ffff:10.0.0.1", "https://a.org",
                     "a.org/x", "localhost", ""):
             assert n(bad) == "", bad
 
@@ -548,11 +549,12 @@ class _Resp:
 
 class _Session:
     def __init__(self, routes):
-        self.routes, self.calls = routes, []
+        self.routes, self.calls, self.sent = routes, [], []
 
     def request(self, method, url, **kw):
         assert kw.get("allow_redirects") is False and kw.get("timeout")
         self.calls.append(url)
+        self.sent.append((method, url, kw.get("data")))
         route = self.routes.get(url)
         if isinstance(route, Exception):
             raise route
@@ -660,3 +662,162 @@ class TestCache:
         a2, t2 = self._adapter({})
         assert a2.get_series("webtoon-1").title == "Title"
         assert t2.urls() == []
+
+    def test_same_site_rule(self):
+        same = src_http._same_cache_site
+        assert same("https://xbanxia.cc/b/1", "https://www.xbanxia.cc/b/1")
+        assert same("https://www.xbanxia.cc/b/1", "https://xbanxia.cc/b/1")
+        assert same("https://a.example/x", "https://A.example:443/y")
+        for final in ("https://other.example/b/1", "https://xbanxia.cc:8443/b/1",
+                      "http://xbanxia.cc/b/1", "https://xbanxia.cc./b/1",
+                      "https://m.xbanxia.cc/b/1", "https://xbanxia.cc:bad/b/1"):
+            assert not same("https://xbanxia.cc/b/1", final), final
+
+    def test_a_bare_to_www_redirect_is_cached_again(self, world):
+        from sources.cache import RawCache
+        t = ScriptedTransport({"https://xbanxia.cc/b/1": html("<p>x</p>",
+                                                              url="https://www.xbanxia.cc/b/1")})
+        c = make_client("cachetest", t, FakeClock())
+        c.cache = RawCache("keep_originals")
+        c.get("https://xbanxia.cc/b/1")
+        assert c.cache.get("https://xbanxia.cc/b/1") is not None
+
+    def test_an_https_to_http_move_is_refused_and_not_cached(self, world):
+        routes = {f"{TK}/webtoon-1": html(TOONKOR_SERIES, url="http://toonkor0.org/webtoon-1"),
+                  f"{TK}/": _down()}
+        a, t = self._adapter(routes)
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert a.client.cache.get(f"{TK}/webtoon-1") is None
+
+
+# ---------------------------------------------------------------------------
+# Robustness: malformed redirects, a locked database, the no-follow flag
+# ---------------------------------------------------------------------------
+
+class TestRobustness:
+    @pytest.mark.parametrize("location", ["https://[oops/", "https://toonkor1.org:99x/", ""])
+    def test_a_malformed_location_ends_the_search(self, world, location):
+        a, t = _toonkor({f"{TK}/webtoon-1": _down(),
+                         f"{TK}/": html("", 301, {"Location": location} if location else {})})
+        with pytest.raises(SourceUnavailable):
+            a.get_series("webtoon-1")
+        assert store.domain_proposals() == []
+
+    def test_a_locked_database_fails_closed(self, world, monkeypatch):
+        import sqlite3
+        monkeypatch.setattr(store, "BUSY_TIMEOUT", 0.1)
+        store.connect().close()
+        real_claim = store.claim_discovery
+        raised = []
+
+        def claim_while_another_writer_holds_the_lock(*args, **kw):
+            holder = sqlite3.connect(store.db_path(), isolation_level=None)
+            holder.execute("BEGIN IMMEDIATE")
+            try:
+                return real_claim(*args, **kw)
+            except sqlite3.OperationalError:
+                raised.append(True)
+                raise
+            finally:
+                holder.execute("ROLLBACK")
+                holder.close()
+
+        monkeypatch.setattr(store, "claim_discovery", claim_while_another_writer_holds_the_lock)
+        a, t = _toonkor({f"{TK}/webtoon-1": _down(), f"{TK}/": html(TOONKOR_HOME)})
+        with pytest.raises(SourceUnavailable) as e:
+            a.get_series("webtoon-1")
+        assert raised == [True]
+        assert e.value.reason == FailureReason.ALL_DOMAINS_UNREACHABLE
+        assert f"{TK}/" not in t.urls()            # no probe without a claim
+        assert health.get("toonkor")["last_error_type"] == "ALL_DOMAINS_UNREACHABLE"
+        assert store.last_good_domain("toonkor") is None
+        assert store.get_setting("source_domain_discovery_at.toonkor") is None
+
+    def test_the_no_follow_flag_is_restored_after_an_error(self):
+        assert not getattr(src_http._redirect_local, "off", False)
+        with pytest.raises(RuntimeError):
+            with src_http.redirects_not_followed():
+                assert src_http._redirect_local.off is True
+                raise RuntimeError("boom")
+        assert src_http._redirect_local.off is False
+
+
+# ---------------------------------------------------------------------------
+# The search POST never carries its form off the list (real transport)
+# ---------------------------------------------------------------------------
+
+class TestPostRedirects:
+    SEARCH = "/modules/article/search_t.php"
+
+    def _search(self, monkeypatch, routes):
+        session = _Session(routes)
+        monkeypatch.setattr(src_http, "_thread_session", lambda: session)
+        a = xbanxia.XbanxiaSource(client=make_client("xbanxia", None, FakeClock(), max_retries=0))
+        return a, session
+
+    def test_a_307_to_an_off_list_host_sends_no_form_there(self, world, monkeypatch):
+        evil = "https://evil.example/collect"
+        a, session = self._search(monkeypatch, {
+            f"{XB}{self.SEARCH}": (307, "", {"Location": evil}),
+            f"{XB_BARE}{self.SEARCH}": (200, XB_RESULTS, {}),
+            evil: (200, XB_RESULTS, {})})
+        results = a.search("测试")
+        assert evil not in session.calls
+        assert [(m, u) for m, u, _ in session.sent] == [("POST", f"{XB}{self.SEARCH}"),
+                                                        ("POST", f"{XB_BARE}{self.SEARCH}")]
+        assert [r.series_id for r in results] == ["310978"]
+
+    def test_a_redirect_to_a_listed_host_resends_the_form_there(self, world, monkeypatch):
+        store.set_domain_list("xbanxia", [XB_BARE, XB])
+        a, session = self._search(monkeypatch, {
+            f"{XB_BARE}{self.SEARCH}": (301, "", {"Location": f"{XB}{self.SEARCH}"}),
+            f"{XB}{self.SEARCH}": (200, XB_RESULTS, {})})
+        a.search("测试")
+        assert [m for m, _, _ in session.sent] == ["POST", "POST"]
+        assert session.sent[1][1] == f"{XB}{self.SEARCH}"
+        assert session.sent[1][2]["searchkey"] == "测试"
+        assert store.last_good_domain("xbanxia") == XB
+
+    def test_a_redirect_to_http_on_a_listed_host_is_refused(self, world, monkeypatch):
+        store.set_domain_list("xbanxia", [XB_BARE])
+        a, session = self._search(monkeypatch, {
+            f"{XB_BARE}{self.SEARCH}": (307, "", {"Location": f"http://www.xbanxia.cc{self.SEARCH}"}),
+            f"{XB_BARE}/": _down()})
+        with pytest.raises(SourceUnavailable):
+            a.search("测试")
+        assert not any(u.startswith("http://") for u in session.calls)
+
+
+# ---------------------------------------------------------------------------
+# Two real processes sharing one sources.db
+# ---------------------------------------------------------------------------
+
+def _two_process_worker(library_dir, tag, barrier, results):
+    import db as child_db
+    child_db.configure_library_dir(library_dir)
+    from sources import store as child_store
+    barrier.wait(60)
+    proposed = [child_store.propose_domain("toonkor", f"{tag}{i}.example") for i in range(5)]
+    claimed = child_store.claim_discovery("toonkor", 3600.0)
+    results.put((tag, proposed.count(True), claimed))
+
+
+class TestTwoProcesses:
+    def test_cap_and_throttle_hold_across_processes(self, world):
+        import multiprocessing
+        import db
+        store.connect().close()                    # schema exists before the race
+        ctx = multiprocessing.get_context("spawn")
+        barrier, results = ctx.Barrier(2), ctx.Queue()
+        procs = [ctx.Process(target=_two_process_worker,
+                             args=(db.LIBRARY_DIR, tag, barrier, results)) for tag in ("a", "b")]
+        for p in procs:
+            p.start()
+        out = [results.get(timeout=120) for _ in procs]
+        for p in procs:
+            p.join(60)
+            assert p.exitcode == 0
+        assert sum(n for _, n, _ in out) == store.MAX_PENDING_PROPOSALS
+        assert len(store.domain_proposals("toonkor")) == store.MAX_PENDING_PROPOSALS
+        assert [c for _, _, c in out].count(True) == 1
