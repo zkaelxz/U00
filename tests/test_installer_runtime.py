@@ -329,7 +329,7 @@ class TestRun:
         assert (app / "INSTALLED").read_text(encoding="utf-8-sig").splitlines()[0] == str(data)
         log = (data / "launcher" / "install.log").read_text(encoding="utf-8")
         assert "Install finished OK." in log
-        assert "pip" in cmds[0][2] and cmds[1][2:4] == ["-m", "pip"]
+        assert cmds[0][2] == "-c" and "run_module('pip'" in cmds[0][3] and cmds[1][2:4] == ["-m", "pip"]
         assert cmds[2][2] == "-c"
         assert cmds[3][-1].endswith("check_setup.py")
 
