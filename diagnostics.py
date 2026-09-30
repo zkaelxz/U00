@@ -136,7 +136,7 @@ OPTIONAL_DEPENDENCIES = {
     "moss-transcribe-diarize": ("moss_transcribe_diarize",
                                 "experimental one-pass transcription + speaker labels "
                                 "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
-                                "can't share an install with Qwen3-ASR)", "feature"),
+                                "can't share an install with Qwen3-ASR)", "experimental"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
                                      "decryption (Sources tab); Google sign-in token checks",
                      "feature"),
@@ -869,6 +869,8 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
+# "experimental" (Step 104's MOSS) is listed but never installed from here:
+# it isn't on PyPI.
 INSTALLABLE_TIERS = ("feature", "engine")
 
 # Added to every install: pip's wheel cache can be unwritable or locked on
