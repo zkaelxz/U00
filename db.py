@@ -4156,6 +4156,21 @@ def assign_drama_series(drama_id: int, series_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def unassign_drama_series(drama_id: int) -> bool:
+    """Parity P11: takes a drama out of its series in one write. A drama
+    leaving a private series becomes private itself (assigning cleared its
+    own flag, so otherwise it would turn visible to everyone). False for an
+    unknown drama."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE dramas SET is_private = CASE WHEN EXISTS (SELECT 1 FROM series s "
+            "WHERE s.id = dramas.series_id AND COALESCE(s.is_private, 0) = 1) THEN 1 "
+            "ELSE COALESCE(is_private, 0) END, series_id = NULL, updated_at = ? WHERE id = ?",
+            (datetime.datetime.utcnow().isoformat(), drama_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def set_item_private(kind: str, item_id: int, private: bool) -> bool:
     """Auth slice B1: field-scoped write of is_private only. Making private
     is one conditional write, so it can't race a drama being moved: a
