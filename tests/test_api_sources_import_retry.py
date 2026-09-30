@@ -146,9 +146,10 @@ def test_retried_chapter_gone_from_the_site_leaves_the_manifest(client, fakes):
 
 
 def test_page_write_failure_marks_the_chapter_partial_not_retryable(client, fakes, monkeypatch):
-    """Lead review: an unexpected error while writing page 2 leaves page 1 in
-    the drama, so that chapter must not be auto-retried (it would duplicate
-    page 1); only the chapters after it are "not_attempted"."""
+    """Lead review: an unexpected error while writing page 2 must not leave
+    page 1 in the drama (the pipeline removes it). A crash the pipeline
+    can't clean up after would, so that chapter is still never auto-retried;
+    only the chapters after it are "not_attempted"."""
     from sources import pipeline
     fakes["comic"] = _make("comic", comic=True)
     did = db.create_drama(title_en="M", media_type="manhua")
@@ -164,7 +165,7 @@ def test_page_write_failure_marks_the_chapter_partial_not_retryable(client, fake
     client.post("/api/sources/comic/import",
                 json={"series_id": "s1", "chapter_ids": ["c1", "c2"], "drama_id": did})
     _wait(f"sourceimport_{did}")
-    assert len(db.list_pages(did)) == 1           # page 1 of c1 really was written
+    assert written and db.list_pages(did) == []   # page 1 of c1 was written, then removed
     body = _state(client, did, name="comic").json()
     rows = {x["chapter_id"]: x for x in body["retry"]}
     assert rows["c1"]["status"] == "partial" and "partly imported" in rows["c1"]["error"]

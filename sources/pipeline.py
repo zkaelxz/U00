@@ -16,9 +16,11 @@ needs to know where a page came from:
     next request..." progress, Cancel honoured between requests.
 """
 
+import contextlib
 import io
 import os
 import re
+import tempfile
 import threading
 import time
 
@@ -123,9 +125,13 @@ def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
                     except FileExistsError:  # a writer that doesn't claim (Scanlate upload)
                         idx += 1
                         continue
-                    with Image.open(fpath) as im:
-                        w, h = im.size
-                    pid = db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+                    try:
+                        with Image.open(fpath) as im:
+                            w, h = im.size
+                        pid = db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+                    except BaseException:
+                        os.remove(fpath)  # no page file without its row
+                        raise
                     if ids_out is not None:
                         ids_out.append(pid)
                 finally:
@@ -136,19 +142,63 @@ def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
     return added
 
 
-def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "") -> str:
+def _discard_pages(drama_id: int, page_ids):
+    """Removes pages this import just added (rows, then files), so a
+    chapter that could not be committed leaves nothing behind."""
+    rows = [p for p in (db.get_page(pid, drama_id) for pid in page_ids) if p]
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.executemany("DELETE FROM pages WHERE id = ? AND drama_id = ?",
+                         [(p["id"], int(drama_id)) for p in rows])
+        conn.commit()
+    for p in rows:
+        path = os.path.join(db.drama_dir(drama_id), p["filename"])
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def _as_written(text: str) -> bytes:
+    """The bytes a text-mode write of `text` puts on disk."""
+    return text.replace("\n", os.linesep).encode("utf-8")
+
+
+def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
+                    skip_if_present: bool = False) -> str:
     """Writes fetched novel text into the drama's raw-novel file, through
-    the same loader an uploaded .txt goes through. Returns the path."""
+    the same loader an uploaded .txt goes through. Returns the path.
+
+    The whole file is rewritten through a temp file and os.replace, so a
+    crash leaves either the old file or the new one, never half a chapter.
+    `skip_if_present`: a block (heading + text) already in the file is not
+    appended again, so re-importing a chapter whose record was lost doesn't
+    duplicate it."""
     import core
     loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     if heading:
         loaded = f"{heading}\n\n{loaded}"
-    path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
-    mode = "a" if append and os.path.exists(path) else "w"
-    with open(path, mode, encoding="utf-8") as f:
-        if mode == "a":
-            f.write("\n\n")
-        f.write(loaded)
+    folder = db.drama_dir(drama_id)
+    path = os.path.join(folder, RAW_NOVEL_FILENAME)
+    block = _as_written(loaded)
+    # The same per-drama lock as the page writer: a read-modify-write must
+    # not lose another in-process writer's chapter.
+    with _page_lock(drama_id):
+        old = None
+        if append and os.path.exists(path):
+            with open(path, "rb") as f:
+                old = f.read()
+        if old is not None and skip_if_present and block in old:
+            return path
+        data = block if old is None else old + _as_written("\n\n") + block
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".raw_novel_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
     return path
 
 
@@ -166,13 +216,46 @@ def import_job_id(drama_id: int) -> str:
     return f"{IMPORT_JOB_PREFIX}{int(drama_id)}"
 
 
-def _record_imported(source: str, ch, drama_id: int):
-    """Best effort: a failed bookkeeping write never fails the import."""
+# Fixed texts (no exception detail: it may hold a path or a URL).
+_IN_FLIGHT_TEXT = "Interrupted while saving this chapter; retrying it is safe."
+_IN_FLIGHT_PAGES = ("Interrupted while saving this chapter; some of its pages may be in the "
+                    "drama -- check the drama before retrying it.")
+_NO_BOOKKEEPING = "Could not update the import records; nothing was saved for this chapter."
+_NOT_RECORDED = "The chapter could not be recorded as imported; retry it."
+
+
+def _mark_in_flight(source: str, ch, drama_id: int, pages: bool):
+    """Written before any of the chapter's content, so a crash mid-chapter
+    leaves it in the retry manifest. Text re-imports are idempotent
+    (save_novel_text skip_if_present): retryable. Pages may be left behind
+    by a crash: "partial", shown but never retried automatically."""
+    from translate_engines import redact_secrets
+    store.record_import_retry(
+        source, ch.series_id, drama_id,
+        [(ch.chapter_id, redact_secrets(ch.title or ""), "partial" if pages else "failed",
+          _IN_FLIGHT_PAGES if pages else _IN_FLIGHT_TEXT)])
+
+
+def _clear_in_flight(source: str, ch, drama_id: int):
+    """Best effort: import_retry_rows already hides a recorded chapter."""
+    try:
+        store.record_import_retry(source, ch.series_id, drama_id, [],
+                                  done_ids=[ch.chapter_id])
+    except Exception:
+        import applog
+        applog.get_logger().warning("Could not clear an import retry marker", exc_info=True)
+
+
+def _record_imported(source: str, ch, drama_id: int) -> bool:
+    """False (logged) when the record could not be written; the caller
+    must then not report the chapter as imported."""
     try:
         store.record_imported(source, ch.series_id, ch.chapter_id, drama_id)
+        return True
     except Exception:
         import applog
         applog.get_logger().warning("Could not record an imported chapter", exc_info=True)
+        return False
 
 
 def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
@@ -229,7 +312,8 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                 continue
             try:
                 ladder.check_terms(source, adapter.capabilities())
-                if adapter.supports("get_pages"):
+                is_comic = adapter.supports("get_pages")
+                if is_comic:
                     pages = adapter.get_pages(ch)
                     state["pages"] = len(pages)
                     images = []
@@ -237,16 +321,45 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         state["page"] = j
                         publish(adapter.client.snapshot())
                         images.append(adapter.download_page(page))
-                    added = add_page_images(drama_id, images)
-                    _record_imported(source, ch, drama_id)
-                    results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                    "ok": True, "pages": added})
                 else:
                     text = adapter.get_chapter_text(ch)
-                    save_novel_text(drama_id, text, append=True, heading=ch.title)
-                    _record_imported(source, ch, drama_id)
+                try:
+                    _mark_in_flight(source, ch, drama_id, is_comic)
+                except Exception:
+                    import applog
+                    applog.get_logger().warning("Could not mark a chapter in flight",
+                                                exc_info=True)
                     results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                    "ok": True, "chars": len(text)})
+                                    "ok": False, "error": _NO_BOOKKEEPING})
+                    continue
+                if is_comic:
+                    page_ids = []
+                    try:
+                        outcome = {"pages": add_page_images(drama_id, images, ids_out=page_ids)}
+                    except BaseException:
+                        try:
+                            _discard_pages(drama_id, page_ids)
+                        except Exception:
+                            import applog
+                            applog.get_logger().warning("Could not remove a failed chapter's "
+                                                        "pages", exc_info=True)
+                        raise
+                    recorded = _record_imported(source, ch, drama_id)
+                    if not recorded:
+                        # Unrecorded pages would be imported again by a retry.
+                        _discard_pages(drama_id, page_ids)
+                else:
+                    save_novel_text(drama_id, text, append=True, heading=ch.title,
+                                    skip_if_present=True)
+                    outcome = {"chars": len(text)}
+                    recorded = _record_imported(source, ch, drama_id)
+                if not recorded:
+                    results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                    "ok": False, "error": _NOT_RECORDED})
+                    continue
+                _clear_in_flight(source, ch, drama_id)
+                results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                "ok": True, **outcome})
             except ChallengeDetected as e:
                 handoff = {"url": e.url, "reason": e.reason.value, "chapter": ch.title,
                            "chapter_id": ch.chapter_id}
