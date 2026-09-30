@@ -430,3 +430,39 @@ class TestRunServers:
         with pytest.raises(SystemExit) as exc:
             self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8756"})
         assert "8756" in str(exc.value)
+
+    @staticmethod
+    def _warned(capsys):
+        import applog
+        err = capsys.readouterr().err
+        logged = [ln for ln in applog.tail() if "single port" in ln]
+        return "Migrating from single-port sign-in" in err, logged
+
+    def test_single_port_sign_in_warns_but_starts(self, isolated_db, monkeypatch, capsys):
+        single, ran, _cleaned, _svc = self._serve(monkeypatch, {"BAIHE_API_AUTH": "on"})
+        assert len(single) == 1 and ran == []
+        printed, logged = self._warned(capsys)
+        assert printed and len(logged) == 1 and "WARNING" in logged[0]
+        assert "two-port setup" in logged[0]
+
+    def test_no_warning_with_auth_off(self, isolated_db, monkeypatch, capsys):
+        self._serve(monkeypatch, {"BAIHE_API_AUTH": "off"})
+        assert self._warned(capsys) == (False, [])
+
+    def test_no_warning_with_household_port_and_auth_off(self, isolated_db, monkeypatch, capsys):
+        self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610"})
+        assert self._warned(capsys) == (False, [])
+
+    def test_auth_on_with_household_port_still_refused(self, isolated_db, monkeypatch, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_AUTH": "on"})
+        assert "BAIHE_API_AUTH=off" in str(exc.value)
+        assert self._warned(capsys) == (False, [])
+
+    def test_warning_only_for_the_single_port_sign_in_setup(self):
+        from api.api_config import single_port_sign_in_warning
+        assert single_port_sign_in_warning(ApiSettings(auth_mode="on"))
+        assert not single_port_sign_in_warning(ApiSettings(auth_mode="off"))
+        assert not single_port_sign_in_warning(ApiSettings(auth_mode="off", household_port=8610))
+        assert not single_port_sign_in_warning(
+            household_settings(ApiSettings(auth_mode="off", household_port=8610)))

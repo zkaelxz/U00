@@ -333,7 +333,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       className="comic-tools-btn"
       aria-pressed={toolsOpen}
       aria-controls="comic-scanlate"
-      onClick={() => setToolsOpen((v) => !v)}
+      onClick={() => {
+        setToolsOpen((v) => !v)
+        // The panel sits above the stage and shifts every page; scroll back to the current one.
+        if (current !== null) requestJump(current)
+      }}
     >
       Translate
     </button>
