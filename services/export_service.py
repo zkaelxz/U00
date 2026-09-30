@@ -399,7 +399,8 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
     out_path = os.path.join(ddir, "translated.epub")
     title = drama.get("title_en") or drama.get("title_zh") or "Untitled"
     epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
-                        images_dir=os.path.join(ddir, "epub_images"))
+                        images_dir=os.path.join(ddir, "epub_images"),
+                        source_language=drama.get("source_language"))
 
     with open(out_path, "rb") as f:
         return f.read()
