@@ -4,10 +4,12 @@
  * title, author, tags and an audio-drama hint only, never chapters. Review
  * and untick before adding; the server skips titles already catalogued.
  * The optional pattern generator fills in paginated URLs from "{page}".
+ * A listing a plain fetch can't read can be pasted as text (PastedListing).
  */
 import { useState, type FormEvent } from 'react'
 
 import { BULK_JOB_ID, bulkCommit, getBulkExtractResult, startBulkExtract } from '../../api/discover'
+import { startBulkPasted } from '../../api/sourcesTools'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
@@ -15,6 +17,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { BulkCommitResult, BulkExtractResult } from '../../types/discover'
 import { MAX_BULK_URLS, bulkUrlsProblem, commitEntries, paginateUrls, parseUrlList } from './discoverFormat'
 import { ExternalLink } from './ExternalLink'
+import { PastedListing } from './PastedListing'
 import { useDiscoverJob } from './useDiscoverJob'
 
 export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiReady: boolean; onAdded: () => void }) {
@@ -90,6 +93,12 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
           )}
         </div>
       </form>
+      <PastedListing
+        aiReady={aiReady}
+        running={running}
+        suggested={!!job.result?.pages.some((p) => p.needs_manual)}
+        onExtract={(text) => job.start(() => startBulkPasted(text, label.trim(), engine || undefined))}
+      />
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} />
       <ErrorBanner error={job.error} />
       {job.status === 'done' && job.result && (
@@ -144,8 +153,8 @@ function BulkReview({ result, onAdded }: { result: BulkExtractResult; onAdded: (
           </ul>
           {failed.some((p) => p.needs_manual) && (
             <p className="muted">
-              Some sites build their listings with JavaScript. Open the page in your browser and add the titles with “Add a
-              title” instead.
+              Some sites build their listings with JavaScript. Open the page in your browser, copy the listing and use “Paste
+              the listing text instead” above.
             </p>
           )}
         </div>
