@@ -373,9 +373,9 @@ begin
     Exit;
   end;
   if IsAdmin() then
-    Result := Exec(Exe, Params, Base, SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    Result := Exec(Exe, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
   else
-    Result := ShellExec('runas', Exe, Params, Base, SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Result := ShellExec('runas', Exe, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Log('Service step result: ' + IntToStr(ResultCode));
   Result := Result and (ResultCode = 0);
 end;

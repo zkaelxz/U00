@@ -523,11 +523,22 @@ def is_admin() -> bool:
 def remove_folder_later(folder: Path) -> None:
     """Deletes what's left of the admin folder (this script's own
     interpreter) once this process has exited: a detached cmd.exe from
-    System32 waits a few seconds, then removes it. Only administrators can
-    change that folder, so nothing in it can have been swapped for a link."""
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-    subprocess.Popen([CMD, "/d", "/c", f'ping -n 5 127.0.0.1 >nul & rmdir /s /q "{folder}"'],
-                     creationflags=flags, close_fds=True, cwd=system_dir())
+    System32 retries the removal for about a minute. It breaks away from the
+    caller's job object where allowed, so a runner or installer that ends
+    its job when the process exits doesn't take it along. Only administrators
+    can change that folder, so nothing in it can have been swapped for a
+    link."""
+    script = (f'for /l %i in (1,1,30) do (ping -n 3 127.0.0.1 >nul & rmdir /s /q "{folder}" 2>nul '
+              f'& if not exist "{folder}" exit /b 0)')
+    base = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    for flags in (base | breakaway, base):
+        try:
+            subprocess.Popen([CMD, "/d", "/c", script], creationflags=flags, close_fds=True,
+                             cwd=system_dir())
+            return
+        except OSError:
+            continue
 
 
 # ---------------------------------------------------------- operations
