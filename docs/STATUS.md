@@ -24,7 +24,7 @@ Queue, in order (lead session merges once CI is green):
 4. Backup ownership #542
 5. Import cleanup #541
 6. Comic pager #538
-7. Step 142 export
+7. Step 142 export: done (#546, `POST /api/library/admin/backup/user`, PC only). Not included: tracked series and other `sources.db` data, the voice bank, settings, other profiles' reading data.
 8. WP5 boot service
 9. Step 141 build
 
@@ -42,7 +42,7 @@ Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldr
 ## Next
 - Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership and the D5 listeners are merged; left: the Caddy config, LAN test with a real certificate, router port last (140).
 - Step 141: spec only (migration-architect) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
-- Step 142 (move a library out to a standalone install; 143, the import side, is merged in #534).
+- Step 142 and 143 are both merged (#546 exports one person's items, #534 imports). Open owner decisions for the export: whether tracked series and the voice bank should travel, and whether a remote admin may run it (today it is PC only).
 
 ## Open bugs
 - B-20, B-23, B-24: fixed in #466 (merged); B-23's music level still needs the user's listening check.
