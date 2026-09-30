@@ -92,6 +92,7 @@ from api.routers import (
     review_records_routes,
     series_people_routes,
     settings_routes,
+    sharing_routes,
     source_routes,
     sources_catalog_routes,
     sources_extraction_routes,
@@ -279,6 +280,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
     app.include_router(assistant_routes.router)
+    app.include_router(sharing_routes.router)
     app.include_router(assistant_github_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first

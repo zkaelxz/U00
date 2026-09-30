@@ -237,6 +237,17 @@ def test_link_local_and_own_ports_refused(fake, monkeypatch):
     assert ws.search("x")["results"]
 
 
+def test_household_port_refused_only_when_set(fake, monkeypatch):
+    monkeypatch.setattr(ws.socket, "getaddrinfo",
+                        lambda host, port, **kw: [(2, 1, 6, "", ("127.0.0.1", port))])
+    monkeypatch.delenv(ws.HOUSEHOLD_PORT_ENV, raising=False)
+    ws._check_target("http://127.0.0.1:8610")  # unset: an ordinary local port
+    monkeypatch.setenv(ws.HOUSEHOLD_PORT_ENV, "8610")
+    with pytest.raises(InvalidInputError):
+        ws._check_target("http://127.0.0.1:8610")
+    ws._check_target("http://127.0.0.1:8888")
+
+
 def test_one_search_at_a_time_per_caller(fake):
     _on()
     ws._in_flight.add("user:1")
