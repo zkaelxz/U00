@@ -9,6 +9,7 @@ import type {
   SeriesChapter,
   OpenSeries,
   SeriesInfo,
+  SeriesLink,
   SeriesResult,
   SourceErrorView,
   SourceHealth,
@@ -161,6 +162,11 @@ export function seriesMeta(display: string, info: SeriesInfo | null, chapters: n
   if (info?.status) parts.push(humanizeValue(info.status))
   if (info?.language) parts.push(humanize('language', info.language))
   return parts.join(' · ')
+}
+
+/** A work's posted download links that are safe to render as links. */
+export function seriesLinks(info: SeriesInfo | null): SeriesLink[] {
+  return (info?.links ?? []).filter((l) => !!safeHref(l.url)).map((l) => ({ ...l, label: l.label || l.url }))
 }
 
 export function seriesExtra(info: SeriesInfo | null): string {
@@ -352,6 +358,7 @@ export type NumKey =
   | 'session_break_min_delay'
   | 'session_break_max_delay'
   | 'check_interval_hours'
+  | 'cache_max_mb'
 
 export type BoolKey = 'auto_queue_new_chapters' | 'demo_source_enabled' | 'extraction_diagnostics'
 
@@ -392,7 +399,12 @@ export const PACING_ROWS: NumField[][] = [
 
 export const CHECK_FIELD: NumField = { key: 'check_interval_hours', label: 'Check tracked (h)', min: 0, max: 168, help: '0 = off.' }
 
-export const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD]
+export const CACHE_MAX_FIELD: NumField = {
+  key: 'cache_max_mb', label: 'Cache limit (MB)', min: 0, max: 1_000_000,
+  help: '0 = no limit. Oldest-used pages go first.',
+}
+
+export const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD, CACHE_MAX_FIELD]
 
 export const BOOL_FIELDS: { key: BoolKey; label: string; help?: string }[] = [
   { key: 'auto_queue_new_chapters', label: 'Auto-import new chapters', help: 'Off: new chapters are announced, not downloaded.' },

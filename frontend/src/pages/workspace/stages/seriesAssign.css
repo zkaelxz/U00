@@ -1,0 +1,7 @@
+/* Series picker inside the glossary box (SeriesAssign.tsx). */
+.series-assign { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); min-width: 0; }
+.series-assign p { margin: 0; overflow-wrap: anywhere; }
+.series-assign-empty { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.series-assign-empty button { max-width: 100%; overflow-wrap: anywhere; white-space: normal; text-align: left; }
+.series-assign-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: var(--space-2) var(--space-3); min-width: 0; }
+.series-assign-row select, .series-assign-row input { width: 100%; min-width: 0; box-sizing: border-box; }

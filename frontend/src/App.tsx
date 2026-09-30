@@ -7,7 +7,9 @@ import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
+import { NotificationBell } from './components/NotificationBell'
 import ComicPage from './pages/Comic'
+import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
 import LibraryPage from './pages/Library'
@@ -106,7 +108,7 @@ const NAV: [string, Route, Route['name'][]][] = [
   ['Discover', { name: 'discover' }, ['discover']],
   ['Live', { name: 'live' }, ['live']],
   ['Settings', { name: 'settings' }, ['settings']],
-  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
+  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics', 'benchmark']],
 ]
 // Shown only with Developer Mode on (Settings; PC only).
 const ASSISTANT_NAV: [string, Route, Route['name'][]] = ['Assistant', { name: 'assistant' }, ['assistant']]
@@ -145,6 +147,7 @@ export default function App() {
           ))}
         </nav>
         <div className="header-end">
+          <NotificationBell />
           <ReportProblemButton />
           <ApiStatus />
           {user && <UserMenu user={user} />}
@@ -163,6 +166,7 @@ export default function App() {
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
         {route.name === 'assistant' && <AssistantPage />}
+        {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
     </>
   )

@@ -48,9 +48,11 @@ def _page_lock(drama_id: int) -> threading.Lock:
 
 
 def _next_page_index(drama_id: int, pages_dir: str) -> int:
-    """Past every page row and every page_NNNN.* file already on disk."""
+    """MAX(idx)+1 over every page row and every page_NNNN.* file already
+    on disk (never the row count: a deleted page leaves a gap). Called
+    under the per-drama page lock."""
     pages = db.list_pages(drama_id)
-    idx = len(pages)
+    idx = 0
     for p in pages:
         if isinstance(p.get("idx"), int):
             idx = max(idx, p["idx"] + 1)
@@ -259,6 +261,11 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         cancelled = True
     finally:
         cache.release()
+        try:
+            cache.enforce_ceiling()
+        except Exception:   # a cache trim must never lose the import's result
+            import applog
+            applog.get_logger().warning("Could not trim the source cache", exc_info=True)
         background_jobs.set_result(job_id, {"stats": adapter.client.snapshot(),
                                             "chapters": results, "handoff": handoff,
                                             "cancelled": cancelled, "partial": False,

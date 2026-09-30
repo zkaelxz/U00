@@ -70,6 +70,10 @@ class DramaDetail(DramaSummary):
     genre: Optional[str] = None
     publication_status: Optional[str] = None
     chapter_count: Optional[int] = None
+    # Parity P10: shown and edited in the Workspace's Edit details.
+    source_url: Optional[str] = None
+    episode_number: Optional[int] = None
+    episode_summary: Optional[str] = None
     narration_language: Optional[str] = None
     author_romanized: Optional[str] = None
     studio_romanized: Optional[str] = None
@@ -178,6 +182,9 @@ class JobRecord(BaseModel):
     result: Optional[Dict[str, Any]] = None
     outcome: Optional[str] = None
     outcome_message: Optional[str] = None
+    # Still queued/running on record, but no owner has heartbeated it for
+    # 15 minutes (server clock): left behind by a process that died.
+    stale: bool = False
 
 
 class JobListResponse(BaseModel):
@@ -414,6 +421,10 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    # Step 105: a speaker-count range for the chained speaker detection
+    # (pyannote min_speakers/max_speakers); not combined with expected_speakers.
+    min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     # Non-empty: replaces the automatic prompt entirely. Empty: the server
     # builds glossary names + extra_names + raw-novel excerpt.
     initial_prompt: str = ""
@@ -1439,6 +1450,11 @@ class MediaAnalysis(BaseModel):
     fps: Optional[float] = None
     subtitle_tracks: List["MediaSubtitleTrack"] = Field(default_factory=list)
     suggested_pipeline: List[str] = Field(default_factory=list)  # advisory; nothing is applied
+    # A media type value (streamer_vod / asmr / audio_drama / video_drama) and
+    # a one-line reason, from filename keywords and track shape; applied only
+    # when the user picks "Use this content type".
+    content_type_guess: Optional[str] = None
+    content_type_reason: Optional[str] = None
 
 
 class MediaSubtitleTrack(BaseModel):
@@ -1950,6 +1966,7 @@ class SourcesSettings(BaseModel):
     session_break_min_delay: float
     session_break_max_delay: float
     cache_mode: str
+    cache_max_mb: int = Field(0, description="Kept-cache size ceiling in MB; 0 = no limit.")
     check_interval_hours: int
     auto_queue_new_chapters: bool
     demo_source_enabled: bool
@@ -2017,6 +2034,7 @@ class SourcesSettingsUpdate(BaseModel):
     session_break_min_delay: Optional[float] = None
     session_break_max_delay: Optional[float] = None
     cache_mode: Optional[str] = Field(None, max_length=40)
+    cache_max_mb: Optional[int] = None
     check_interval_hours: Optional[int] = None
     auto_queue_new_chapters: Optional[StrictBool] = None
     demo_source_enabled: Optional[StrictBool] = None
