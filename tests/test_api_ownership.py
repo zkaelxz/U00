@@ -55,6 +55,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "voice": "a Piper voice in the model cache, not an item (PC-only delete)",
     "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
+    "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a

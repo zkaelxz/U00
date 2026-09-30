@@ -361,6 +361,8 @@ def _check_config(stage: str, cfg) -> dict:
                 if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                         or ".." in model or model.startswith("/"):
                     raise InvalidInputError("That model isn't offered for this engine.")
+            elif entry["models"] is None and model == _default_model(engine):
+                model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
         return {"engine": engine, "model": model}
