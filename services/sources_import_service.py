@@ -261,7 +261,7 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
     for ch in listed:
         by_id.setdefault(str(ch.chapter_id), ch)
     requested = set(chapter_ids)
-    wanted = [ch for ch in chapter_order.sort_chapters_grouped(list(by_id.values()))
+    wanted = [ch for ch in chapter_order.reading_order(adapter, by_id.values())
               if str(ch.chapter_id) in requested]
     already = store.imported_chapter_ids(name, series_id, drama_id)
     skip = {c for c in chapter_ids if c in already}

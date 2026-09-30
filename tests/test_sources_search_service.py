@@ -62,9 +62,9 @@ def _make(name, routes=None, search_exc=None, series_exc=None, on_request=None):
                           description=f"see C:\\Users\\kae\\lib and key {SECRET}")
 
     def get_chapters(self, series_id):
-        return [ChapterInfo(name, series_id, "c10", "第10话", f"{HOST}/c/10?x=1"),
+        return [ChapterInfo(name, series_id, "c1", "第1话", f"{HOST}/c/1?x=1"),
                 ChapterInfo(name, series_id, "c2", "第2话", f"{HOST}/c/2?x=1"),
-                ChapterInfo(name, series_id, "c1", "第1话", f"{HOST}/c/1?x=1")]
+                ChapterInfo(name, series_id, "c10", "第10话", f"{HOST}/c/10?x=1")]
 
     Fake.__init__ = __init__
     Fake.search = search
@@ -224,7 +224,7 @@ def test_search_exception_mapping_per_source(fakes):
     assert errs["beta"]["status"] == 409 and errs["beta"]["details"]["open_url"] == f"{HOST}/x"
 
 
-def test_series_result_sorted_and_redacted(fakes):
+def test_series_result_in_site_order_and_redacted(fakes):
     fakes["alpha"] = _make("alpha")
     svc.start_series("alpha", "s1")
     _wait("sources_series_alpha")
@@ -346,3 +346,16 @@ def test_purchase_hidden_is_not_the_adult_toggle():
     assert view["status"] == 400
     assert view["details"] == {"reason": "PURCHASE_REQUIRED"}
     assert "open it in the app" in view["message"]
+
+
+def test_series_chapters_keep_the_adapters_order(fakes):
+    Fake = _make("alpha")
+    titles = [("p", "序章"), ("c1", "第1话"), ("sp", "特别篇 温泉"), ("c2", "第2话"), ("af", "后记")]
+    Fake.get_chapters = lambda self, series_id: [
+        ChapterInfo("alpha", series_id, cid, t, f"{HOST}/c/{cid}", group="第1卷")
+        for cid, t in titles]
+    fakes["alpha"] = Fake
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    r = svc.get_job_result("sources_series_alpha")["result"]
+    assert [c["chapter_id"] for c in r["chapters"]] == ["p", "c1", "sp", "c2", "af"]

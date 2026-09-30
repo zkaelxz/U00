@@ -256,6 +256,9 @@ baihe-subtitler/
 │   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
 │   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
 │   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
+│   ├── assistant_github_service.py  Step 72 -- deliver an assistant proposed fix as a draft GitHub PR: off by
+│   │                             default, token in .env (never returned), strict pure-Python patch apply,
+│   │                             new baihe-assistant/ branch only (router: assistant_github_routes.py)
 │   ├── assistant_roles_service.py  Step 60 -- the assistant's implement -> independent review roles: reviewer
 │   │                             prompt, verdict parsing, cross-provider check (off by default; same read-only tools)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
@@ -597,6 +600,8 @@ baihe-subtitler/
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── assistant_github_routes.py /api/assistant/github (GET), /settings|token|token/clear|test|preview|
+│       │                         deliver (POST; all local_only; Step 72); tests/test_assistant_github.py
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -696,10 +701,11 @@ baihe-subtitler/
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
 │   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
-│   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
+│   │                              Defaults for new dramas, Spending, OCR, Offline and performance,
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
-│   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
-│   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
+│   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,
+│   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
+│   │                              components/ThemeMenu.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,

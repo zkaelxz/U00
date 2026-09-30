@@ -12,7 +12,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { NotionSection } from './settings/NotionSection'
-import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
@@ -23,6 +23,8 @@ const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
   notify_on_completion: 'Shows a notification when a background job finishes.',
   use_gpu: 'Transcribe on the graphics card when one is available (faster).',
   gemini_free_tier: 'Slows Gemini requests to stay inside the free tier rate limits.',
+  bulk_auto_resume:
+    'Resume interrupted translation batches when the app starts. Off by default: resumed batches can spend on your engine account.',
 }
 
 export default function SettingsPage() {
@@ -107,7 +109,6 @@ export default function SettingsPage() {
           <TranscriptionExperimentsCard />
           <WebSearchSection />
           <ExtensionSection />
-          <AppearanceCard />
           <DeveloperModeCard />
           <AdvancedCard {...prefProps} />
         </>

@@ -42,6 +42,34 @@ export const emptyAssForm = (preset: string): AssForm => ({
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
 
+const formKey = (dramaId: number) => `baihe.export.style.${dramaId}`
+
+// The Export stage's style form is kept per viewer so the Review burn preview
+// can render with the same style. Storage may be missing or throw.
+export function saveAssForm(dramaId: number, form: AssForm): void {
+  try {
+    window.localStorage.setItem(formKey(dramaId), JSON.stringify(form))
+  } catch {
+    // ignore
+  }
+}
+
+export function loadAssForm(dramaId: number): AssForm | null {
+  try {
+    const raw = window.localStorage.getItem(formKey(dramaId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null
+    if (!parsed || typeof parsed !== 'object') return null
+    const out: Record<string, unknown> = { ...emptyAssForm('') }
+    for (const [k, v] of Object.entries(out)) {
+      if (typeof parsed[k] === typeof v) out[k] = parsed[k]
+    }
+    return out as unknown as AssForm
+  } catch {
+    return null
+  }
+}
+
 // Blank means "not set"; otherwise an integer from min to max.
 export function parseWrap(text: string): { value?: number; error?: string } {
   const t = text.trim()
