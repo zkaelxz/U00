@@ -1,7 +1,7 @@
 """
 Tests for Migration Slice 24: write-only engine key endpoints. Temp .env
 via a patched default path; no network. The guard is a safeguard, not
-authentication (see docs/migration-review.md).
+authentication (see docs/archive/migration-review.md).
 """
 import logging
 import os

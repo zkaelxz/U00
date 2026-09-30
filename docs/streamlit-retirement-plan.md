@@ -10,7 +10,7 @@ Streamlit code is about 11,950 lines: tabs 10,876, `ui_theme.py` 468, `ui/` 363,
 - **Only one non-UI module imports a tab:** `services/workspace_job_service.py:684` lazily imports `tabs.workspace_tab` and calls `run_translate_job`, which is defined at `services/workspace_job_service.py:49` (the tab only re-exports it, `workspace_tab.py:19-23`). One-line fix. `library_tab.py:300` also imports `workspace_tab` (goes away with the tab). `cli.py` imports no tab and no `common`.
 - **`page_server.py` imports no Streamlit, but only Streamlit starts it** (`settings_tab.py:450` `ensure_server_started()`, `:468` pushes the translation config). The chapter-check scheduler is likewise started only by `sources_tab.py:975`. The API needs a startup hook for both, or the browser extension and tracking notifications die silently. (The "don't run the scheduler in the API" note in the Discover spec S-7 was a two-process concern that disappears once Streamlit is gone.)
 - **Streamlit is LAN-exposed with no auth today** (`start.bat:206-211` binds 0.0.0.0 and prints the LAN URL; README:282-303). `python -m api` is loopback. Retiring Streamlit closes that hole but also removes phone and household access until auth (steps 133+) exists.
-- **Prebuilt frontend is undecided:** `frontend/.gitignore:11` ignores `dist`; `start-react.bat:52-90` runs `npm ci` and `npm run build`; `docs/migration-react-fastapi.md:549` says end users must not need Node; `start-react.bat` is untested on Windows.
+- **Prebuilt frontend (since settled):** `frontend/.gitignore:11` ignores `dist`. `start-react.bat` has been removed; `start.bat` now runs `python -m api` and serves a prebuilt `frontend\dist` from the release zip (`docs/RELEASE.md`), so end users don't need Node (`start.bat --build-frontend` is for developers).
 - Handoff "Next" list is partly stale: per-line improve/explain exists (`line_ai_routes.py`), the restructure API exists (`restructure_routes.py`) but React never calls it, dub download exists.
 - UNK: what "slice 51" refers to; no doc defines it.
 
@@ -161,7 +161,7 @@ Guardrail 4 is done for the `tabs` imports: every logic test that lived in a fil
 - [ ] `check_setup.py:3-5`: the docstring still says it runs "before Streamlit starts" and refers to `app.py`; reword (no code change needed).
 - [ ] `.github/workflows/windows-bootstrap.yml`: no Streamlit step is left; its `paths:` filters list `requirements-core.txt` and `constraints.txt`, so the dependency PR triggers it (Actions minutes are exhausted, so run `start.bat --ci` locally instead).
 - [ ] Files to delete: `app.py`, `common.py`, `ui_theme.py`, `ui/`, `tabs/`, `.streamlit/config.toml`, `app_help.py`.
-- [ ] `FILE_ORGANIZATION.md`, `README.md` and `docs/migration-handoff.md`: remove the deleted modules and the Streamlit launch text.
+- [ ] `FILE_ORGANIZATION.md`, `README.md` and `docs/STATUS.md`: remove the deleted modules and the Streamlit launch text.
 
 ## 10. Prune decisions (user, 2026-09-29)
 

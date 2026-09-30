@@ -1,22 +1,16 @@
 # Engineering standards (shared across all sessions and roles)
 
-One short, durable set of principles for anyone (lead, implementer, reviewer, QA, planner, human) working in this repo.
-Role files (`.claude/agents/*.md`, `.claude/CLAUDE.md`) link here instead of copying these rules. Project-specific
-code rules ("Rules learned from real bugs") stay in the root `CLAUDE.md`; dated roadmap decisions stay in the roadmap.
-If two documents disagree, follow the precedence below and fix the lower one.
+Shared principles for anyone working in this repo. The root `CLAUDE.md` holds the repo layout, test commands,
+"Rules learned from real bugs" and the workflow; role files (`.claude/agents/*.md`) link here for the review policy.
 
 ## 1. Precedence
 
-From highest to lowest:
-
 1. The user's explicit instruction in the current session.
-2. The roadmap's working agreement and model table (`docs/baihe-roadmap.md` §4, on the planning branch; fetch command in the root `CLAUDE.md`) and, for who merges, the planning session's own `CLAUDE.md` (per the roadmap as last read on 2026-09-29; re-check it there). Dated decisions live there. Before changing a copy of one elsewhere, check the roadmap.
-3. The root `CLAUDE.md` (repo workflow and code rules).
-4. This file (shared principles).
-5. `.claude/CLAUDE.md` (delegation policy), then the role file for the agent you are.
-6. A lead's task packet. It narrows what to do; it cannot relax anything above it.
+2. The root `CLAUDE.md`.
+3. This file, then the role file for the agent you are.
+4. A lead's task packet. It narrows what to do; it cannot relax anything above it.
 
-`FILE_ORGANIZATION.md` is the map of what exists. Repo code and the roadmap's status table are the source of truth for state; a number or date copied into another doc is a snapshot and must say so.
+Code and git are the source of truth for state; `docs/STATUS.md` is a snapshot. A number or date copied into a doc must say it is a snapshot.
 
 ## 2. Scope discipline
 
@@ -44,24 +38,20 @@ Testing is risk-based. Details, gotchas and CI facts live in `docs/testing-and-c
 
 - While iterating: run the focused test file or selection for what you touched.
 - When the change crosses a shared module (database layer, background jobs, translation engines, API schemas): also run the relevant subsystem tests.
-- At the integration boundary the roadmap and merge policy require (every step finish runs the full suite, `python run_tests.py`, per the root `CLAUDE.md`; for the React/FastAPI migration also the frontend checks; GitHub Actions minutes are currently exhausted, so the local run is the gate): run the full suite on the integrated result and report the counts you saw.
+- Before handing work back or merging: run the full suite (command in the root `CLAUDE.md`; for frontend changes also the frontend checks) on the integrated result and report the counts you saw.
 - Do not re-run an identical check on an unchanged tree without a reason. Do not weaken, skip or narrow a required check to save time or minutes.
 - A failure is not "environmental" or "flaky" until the mechanism is confirmed. Say what was and was not run.
 
 ## 5. Git and safety
 
-Bullets marked **(proposed)** are new wording added by the 2026-09-29 instruction audit and need the user's confirmation; unmarked bullets restate rules that already exist elsewhere.
-
 - Work on your own branch. Never push to a branch you were not told to use.
-- **(proposed)** Never force-push, rewrite published history, skip hooks or checks (`--no-verify`), or delete branches, worktrees or files you did not create.
-- **(proposed)** Never commit generated or session-local folders (for example `.claude/worktrees/`, temporary screenshot folders, `node_modules`).
-- Who may open or merge a PR is decided by the roadmap working agreement (§4) and the planning session's `CLAUDE.md`, or by an explicit, dated user instruction (for the React/FastAPI migration: `docs/migration-handoff.md`). This file does not restate that policy. With no applicable instruction, push and stop.
+- Never force-push, rewrite published history, skip hooks or checks (`--no-verify`), or delete branches, worktrees or files you did not create.
+- Never commit generated or session-local folders (for example `.claude/worktrees/`, temporary screenshot folders, `node_modules`).
+- Merging: push and open a draft PR into `baihe-subtitler`; the lead session merges once CI is green (root `CLAUDE.md`).
 - Secrets, tokens and keys never appear in code, URLs, logs, errors, commits or docs (root `CLAUDE.md`, "Rules learned from real bugs").
 - Destructive or hard-to-reverse actions (deleting data, restoring backups, dropping tables) need the user's explicit go-ahead unless the task already grants it.
 - Delegating does not widen the user's requested scope, and does not give a subagent any authority its lead lacks.
 
-## 6. Delegation and models
+## 6. Delegation
 
-- The lead owns user communication, scope, integration and final verification; it delegates research, review and QA to the matching project agent (`.claude/CLAUDE.md`).
-- One writer per file. Read-only agents get what they cannot fetch (diff, base commit, changed files, roadmap text, task spec).
-- Agents default to Opus (user decision, 2026-09-29; the project agents set `model: opus`). The lead passes the model explicitly when it spawns an agent, and uses a different model only when the user asks.
+- Don't delegate by default (root `CLAUDE.md`). When you do, one writer per file, and read-only agents get what they cannot fetch (diff, base commit, changed files, task spec).

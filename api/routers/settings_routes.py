@@ -4,7 +4,7 @@ api/routers/settings_routes.py -- Settings endpoints (Migration Slices 10, 23).
 GET: whether each engine key/endpoint is configured, plus the app_settings
 toggles. Never returns a key's value (D2). POST (Slice 23): non-secret
 boolean toggles only -- writing a secret to disk over HTTP is a
-separate, higher-risk slice of its own (see docs/migration-review.md).
+separate, higher-risk slice of its own (see docs/archive/migration-review.md).
 
 Settings parity: POST also takes the persisted preferences (defaults for
 new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR

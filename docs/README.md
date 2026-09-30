@@ -9,34 +9,12 @@ is the authoritative, kept-current map; this page is just a shorter
 front door plus the roadmap pointer, since the roadmap itself isn't a
 file in this directory.
 
-## Start here: the roadmap
+## Start here
 
-**The numbered, build-order roadmap (`docs/baihe-roadmap.md`) does not
-live in this repo.** It's tracked on a separate planning branch and
-fetched read-only; the fetch command is in the root `CLAUDE.md`.
-Shared rules and precedence: `engineering-standards.md`; testing and CI:
-`testing-and-ci.md`.
-
-That file is the actual source of truth for what's merged, what's
-running, what's blocked, and what's deferred — its own `NEXT` pointer at
-the top and its §4 status table are kept current by the planning session
-and by every implementing session as they finish a step. **This index
-deliberately doesn't duplicate specific counts (how many steps are
-merged, how many need a manual check, etc.)** — those numbers are only
-accurate at the moment someone re-verifies every row against real git
-state (`git merge-base --is-ancestor <sha> origin/baihe-subtitler`, not a
-roadmap-table cell taken on faith), and a copy here would just be another
-place for that count to go stale. Ask for a fresh read of the roadmap
-itself rather than trusting a number written down anywhere else,
-including in this file.
-
-If you were told to "do Step X," that's Step X in the roadmap doc above.
-Roadmap sections worth knowing about by number: §2 is the build order,
-§4 is the merged/running/blocked status table plus decision-needed
-items, §5 explains how a step gets reviewed, §8 is a permanent,
-never-delete record of an external-tool review (13 third-party repos
-checked for adoptable techniques) folded in directly rather than kept
-only on a side branch.
+Current state, what's in flight and what's next: **`STATUS.md`**. Repo rules: the root `CLAUDE.md`.
+Shared review policy: `engineering-standards.md`; testing and CI: `testing-and-ci.md`.
+The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
+`claude/baihe-subtitle-planning-95qyvq`, not in this repo.
 
 ## What's in this directory
 
@@ -49,41 +27,25 @@ only on a side branch.
 - **`browser-extension.md`** — the Translate-the-page-you're-reading
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
-- **`handoff-browser-extension.md`** — that feature's original,
-  pre-build reasoning; superseded now that it's built — kept only as
-  historical record (its own banner says so and points at
-  `browser-extension.md`).
-- **`migration-react-fastapi.md`** — the React + FastAPI migration:
-  phase tables (backend phases 0-10 plus the React frontend), what
-  differs from the original Python-only design, and the original
-  foundation write-up kept as a labelled historical section. Merged into
-  `baihe-subtitler`.
-- **`migration-review.md`** — the whole-app migration review: per-tab/
-  stage plan, invariants, sequence, decisions.
-- **`migration-handoff.md`** — durable migration status, recipe and
-  queue for the next session.
 - **`migration-frontend-plan.md`** — the React frontend slice plan.
 - **`react-ui-guidelines.md`** — concise-UI rules for the React app and a per-screen change list.
-- **`baihe-roadmap-master.md`** — master index: status snapshot, bug
-  tracker, to-do queue, deferred/review-later steps.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
-- **`remote-access-design.md`** — M8-H (Tailscale Serve access) design
-  proposal; nothing built.
 - **`windows-installer-design.md`** — Step 80's installer/uninstaller
   architecture; design only, nothing built.
-- **`windows-installer-research-notes.md`** — follow-up research
-  stress-testing that design against prior art; discussion only, no
-  roadmap step id.
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the main `README.md` so
   that stays focused on using the app.
-- **`ux-click-through-audit.md`** — Step 19's live click-through UX
-  audit of every workflow against the roadmap's own spec.
 - **`migration-screenshots/`** — before/after screenshots referenced by
-  `migration-review.md`.
+  `archive/migration-review.md`.
+- **`STATUS.md`** — current state, in-flight work and what's next.
+- **`archive/`** — historical records kept for reference, not sources of
+  truth: the migration review, handoff and React/FastAPI phase log, the
+  old roadmap master tracker, the Streamlit test triage, the superseded
+  remote-access and browser-extension handoffs, the installer research
+  notes and the Step 19 click-through audit.
 
 ## `docs/secondary-review-notes.md` — not present here
 

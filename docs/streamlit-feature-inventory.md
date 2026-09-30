@@ -10,7 +10,7 @@ Written 2026-09-29 to prepare the Streamlit deletion (`docs/streamlit-retirement
   - **DEFERRED**: Scanlate. It is held until after the removal (plan section 8). It is not on this backlog.
   - **N/A**: Streamlit mechanics with no user-visible behaviour to port (rerun buttons, widget-cache clearing).
 - **API column:** the FastAPI endpoint that already exists, or "no API". Here, "no API" means no endpoint exists, even if a service or module function does.
-- **Tests column:** the test file and class that covered the feature at BASE. `wt` means `tests/test_workspace_tab.py`. See `docs/streamlit-test-triage.md` for what happens to each test.
+- **Tests column:** the test file and class that covered the feature at BASE. `wt` means `tests/test_workspace_tab.py`. See `docs/archive/streamlit-test-triage.md` for what happens to each test.
 - React paths are relative to `frontend/src/`. `stages/` means `pages/workspace/stages/`.
 
 ## 0. Corrections to the plan's coverage matrix (section 1)

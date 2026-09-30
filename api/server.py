@@ -2,7 +2,7 @@
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
 Stage one of the React + FastAPI migration (see
-`docs/migration-react-fastapi.md`). This runs *alongside* the Streamlit
+`docs/archive/migration-react-fastapi.md`). This runs *alongside* the Streamlit
 app, not instead of it: both import the same modules and read the same
 `library/` folder, and neither calls the other over HTTP. Streamlit
 still owns every feature; this API exposes only what has been moved

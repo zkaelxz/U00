@@ -2,7 +2,7 @@
 services/workspace_job_service.py -- the background-job runner functions
 started from the Workspace and Library tabs, moved out of
 `tabs/workspace_tab.py` and `tabs/library_tab.py` unchanged (Migration
-Slice 2, a pure move, zero logic change -- see `docs/migration-review.md`).
+Slice 2, a pure move, zero logic change -- see `docs/archive/migration-review.md`).
 
 These functions all share the same property that made them safe to run
 in a background thread in the first place: they touch nothing from

@@ -1,10 +1,10 @@
 """
 services/translate_service.py -- Streamlit-free metadata and translate
 action for the standalone translate tool (tabs/translate_tab.py).
-Migration Slice 11 (Phase 5, docs/migration-review.md section 3.7) added
+Migration Slice 11 (Phase 5, docs/archive/migration-review.md section 3.7) added
 the read-only "list engines" / "list history" half; Migration Slice 13
 adds translate() itself, resolving a server-side key per engine (D2 --
-docs/migration-review.md section 6) rather than accepting one from the
+docs/archive/migration-review.md section 6) rather than accepting one from the
 caller.
 
 Migration Slice 17 adds clear_history(), the one piece deliberately
