@@ -159,6 +159,11 @@ playwright>=1.40        # then run: playwright install chromium
 # CJK extraction quality hasn't been benchmarked; spot-check on real pages.
 trafilatura>=2.0
 
+# --- Benchmark Lab: standard CER/WER scoring (services/benchmark_lab_service.py) ---
+# Apache-2.0. Optional -- without it a built-in scorer is used; each result
+# records which scorer produced it. 3.0 is the oldest release checked.
+jiwer>=3.0
+
 # --- Sources tab: mangaz.com adapter's session-scoped RSA+AES page
 # --- decryption (sources/adapters/mangaz.py) ---
 # Without it, every other source still works. RSA-512 keygen is this

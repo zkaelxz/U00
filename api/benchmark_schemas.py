@@ -166,6 +166,9 @@ class BenchmarkResult(BaseModel):
     output_text: str
     score: Optional[float] = None
     metric: Optional[str] = None
+    # "jiwer" or "builtin" for CER/WER; None on results from before it was recorded
+    # (those were scored by the built-in scorer).
+    scorer: Optional[str] = None
     passed: Optional[bool] = None
     duration_seconds: Optional[float] = None
     cost_usd: float = 0.0

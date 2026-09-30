@@ -24,7 +24,7 @@ KNOWN_PYPI_DISTS = {
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
     "pypdf", "streamlit-drawable-canvas", "genanki", "ebooklib", "plyer", "playwright",
     "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
-    "numpy", "httpx", "qwen-asr",
+    "numpy", "httpx", "qwen-asr", "jiwer",
 }
 # Import names whose PyPI project is something else (or a squatter).
 IMPORT_ONLY_NAMES = {"cv2", "pil", "bs4", "sklearn", "yaml", "skimage", "dateutil",

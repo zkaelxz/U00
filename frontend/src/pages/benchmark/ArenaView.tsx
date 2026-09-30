@@ -7,7 +7,7 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import {
-  arenaRunNames, deltaTone, formatCost, formatDelta, formatLatency, formatScore, metricName, metricNote, plainError,
+  arenaRunNames, deltaTone, formatCost, formatDelta, formatLatency, formatScore, metricName, metricNote, mixedScorerNote, plainError,
   runConfigLabel, runStatusLabel, runStatusTone, tierLabel, tierTone,
 } from './benchmarkForm'
 
@@ -75,6 +75,11 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
         {arena && (
           <>
             <p className="muted">{metricNote(stage)}</p>
+            {mixedScorerNote(arena.rows) && (
+              <p className="warn" role="note" data-testid="bench-mixed-scorers">
+                {mixedScorerNote(arena.rows)}
+              </p>
+            )}
             <ol className="bench-arena-runs" data-cols={phone ? 1 : arena.runs.length} aria-label="Runs compared">
               {arena.runs.map((r, i) => (
                 <li key={r.id} className="bench-arena-run">
@@ -153,6 +158,7 @@ function ResultCell({ res, name, showRun }: { res: BenchmarkResult | null; name:
             {res.score != null && (
               <span className="muted num">
                 {formatScore(res.score)} {metricName(res.metric)}
+                {res.scorer === 'jiwer' ? ' (jiwer)' : ''}
               </span>
             )}
             {res.duration_seconds != null && <span className="muted num">{formatLatency(res.duration_seconds)}</span>}

@@ -1209,6 +1209,7 @@ def _init_benchmark_lab_schema():
             output_text TEXT,
             score REAL,
             metric TEXT,             -- 'similarity', 'cer', 'wer'
+            scorer TEXT,             -- 'jiwer', 'builtin'; NULL on rows from before it was recorded
             passed INTEGER,
             duration_seconds REAL,
             cost_usd REAL DEFAULT 0.0,
@@ -1224,6 +1225,9 @@ def _init_benchmark_lab_schema():
                              ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
+        result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
+        if "scorer" not in result_cols:
+            _safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
         conn.commit()
 
 
@@ -4252,10 +4256,10 @@ def save_benchmark_result(session_id: int, case: dict, result: dict):
     with contextlib.closing(get_conn()) as conn:
         conn.execute(
             "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
-            "metric, passed, duration_seconds, cost_usd, error, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "metric, scorer, passed, duration_seconds, cost_usd, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
-             result.get("score"), result.get("metric"),
+             result.get("score"), result.get("metric"), result.get("scorer"),
              None if result.get("passed") is None else int(bool(result["passed"])),
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
              datetime.datetime.utcnow().isoformat()))

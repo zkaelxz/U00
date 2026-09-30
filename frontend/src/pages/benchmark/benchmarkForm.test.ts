@@ -4,7 +4,7 @@ import { ApiError } from '../../api/client'
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../api/benchmark'
 import {
   arenaGroups, arenaRunNames, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, estimateKey,
-  formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, parseCompareParam, plainError, restoreConfigs,
+  formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   runRequestBody, selectionProblems, setOptions, startState, tierLabel, toggleCompare, type RunSelection,
 } from './benchmarkForm'
 
@@ -82,6 +82,19 @@ describe('formatting', () => {
     expect(metricNote('ocr')).not.toMatch(/translation/i)
     expect(metricNote('transcription')).toMatch(/WER/)
     expect(metricNote('transcription')).not.toMatch(/translation/i)
+  })
+
+  it('flags CER/WER scores from different scorers side by side', () => {
+    const cell = (metric: string, scorer?: string | null) => ({ metric, scorer })
+    expect(mixedScorerNote([{ results: [cell('cer', 'jiwer'), cell('cer', null)] }])).toMatch(/jiwer/)
+    // One run's per-case fallback is not a mix: each case matches across runs.
+    expect(mixedScorerNote([{ results: [cell('wer', 'jiwer'), cell('wer', 'jiwer')] },
+      { results: [cell('wer', 'builtin'), cell('wer', 'builtin')] }])).toBe('')
+    // Older results (no scorer recorded) were built-in: same scorer, no note.
+    expect(mixedScorerNote([{ results: [cell('cer', null), cell('cer', 'builtin'), null] }])).toBe('')
+    expect(mixedScorerNote([{ results: [cell('cer', 'jiwer'), cell('cer', 'jiwer')] }])).toBe('')
+    // Translation similarity is never compared across scorers.
+    expect(mixedScorerNote([{ results: [cell('similarity', 'builtin'), cell('cer', 'jiwer')] }])).toBe('')
   })
 })
 

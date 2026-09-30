@@ -122,6 +122,8 @@ OPTIONAL_DEPENDENCIES = {
                        "off by default)", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao; the "
                                  "Sources tab's browser tier)", "feature"),
+    "jiwer": ("jiwer", "Benchmark Lab: standard CER/WER scoring for transcription and OCR "
+                       "(falls back to a built-in scorer)", "feature"),
     "trafilatura": ("trafilatura", "Sources tab: pulling a novel chapter's main text out of a "
                                    "pasted URL (falls back to a simpler built-in extractor)",
                     "feature"),
@@ -198,6 +200,7 @@ APPROX_DOWNLOAD_MB = {
     "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
+    "jiwer": 3,
 }
 PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
                "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
@@ -366,6 +369,9 @@ INSTALL_TASKS = [
     {"id": "notifications", "group": "App", "label": "Desktop notifications",
      "help": "A notification when a background job finishes.",
      "packages": ["plyer"]},
+    {"id": "benchmark_scoring", "group": "App", "label": "Benchmark Lab: standard CER/WER",
+     "help": "Score transcription and OCR benchmarks with jiwer instead of the built-in scorer.",
+     "packages": ["jiwer"]},
 ]
 
 
