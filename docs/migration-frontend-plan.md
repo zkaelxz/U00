@@ -3,7 +3,7 @@
 UI conciseness rules and per-screen change list: `docs/react-ui-guidelines.md`.
 
 Source: read-only architect report; facts checked against the repo at `baihe-subtitler`. Roadmap was not readable by the agent.
-Backend queue status lives in `docs/migration-handoff.md`. Job statuses (from `background_jobs`): queued, running, done, error, cancelled.
+Current status lives in `docs/STATUS.md`. Job statuses (from `background_jobs`): queued, running, done, error, cancelled.
 
 ## Where the frontend is today
 Read-only Library preview: `frontend/src/App.tsx` (status badge, `LibraryList`, `DramaDetailPanel`, no router/state lib/writes),
@@ -42,7 +42,7 @@ serving `frontend/dist` from FastAPI and the launcher story are not built.
 Status (docs sync 2026-09-29, base 4b2d5e5): all slices in the table above are merged (#254-#271). Since built on the backend: structure ops (Slice 45) and bulk translate (Slice 41); media playback with Range (#352); stage index/progress endpoint (#372); Discover (#319, #372), Sources (#321, #372) and Live (#372, polling, no SSE) APIs; library admin routes (#376); Reader routes (#370); API-key writes (#289); serving `frontend/dist` (#287). Still not built: SSE/job push, Scanlate API. React since the table: Review editor rebuild (#377), bulk pending-batches panel (#379), parity fixes (#380); ~~React pages for library admin, Reader and auto-tune/glossary/deletes are open branches, not merged~~ (merged: library admin #385, auto-tune/glossary/deletes #387, Reader `#/read/<id>` #388). Docs sync after #402 (base f48ec58): also merged React Review AI checks/results #392, retry-blocked and translation versions #398, single-line re-transcribe #399, Sources page `#/sources` #401, Diagnostics admin sections + Danger zone and Settings > Browser extension #402. Still no React page for Discover or Live.
 
 ## Streamlit retirement
-Gate: `docs/migration-review.md` (Class S invariants need service-level tests, Class U need React/e2e tests, plus real-device checks). Per tab: every action reachable in React, e2e covers its Class U rows,
+Gate: `docs/archive/migration-review.md` (Class S invariants need service-level tests, Class U need React/e2e tests, plus real-device checks). Per tab: every action reachable in React, e2e covers its Class U rows,
 user has run real TTS/ffmpeg/GPU/paid-key paths, CLI parity holds. Order: Diagnostics, Library, Settings (after slice 24), Translate, Workspace stage by stage; Sources/Discover/Live/Scanlate wait for APIs.
 Risks: `tabs/workspace_tab.py` hidden behavior; `page_server.py` (browser-extension bridge) depends on Streamlit; no prebuilt-dist story yet.
 
