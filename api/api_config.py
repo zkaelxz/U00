@@ -103,6 +103,7 @@ class ApiSettings:
     google_client_secret: str = field(default="", repr=False)
     public_url: str = ""
     household_port: int = 0       # 0 = no household listener
+    public_url_error: str = ""    # why BAIHE_PUBLIC_URL was ignored (fixed text, never the value)
     session_idle_days: int = 14   # auth_service.DEFAULT_IDLE_TIMEOUT_DAYS
     session_max_days: int = 30    # auth_service.DEFAULT_ABSOLUTE_TIMEOUT_DAYS
     listener: str = "admin"       # "admin" | "household" (set by household_settings only)
@@ -183,7 +184,13 @@ def load_settings(environ=None) -> ApiSettings:
         raise ValueError("BAIHE_API_SESSION_IDLE_DAYS may not be more than "
                          f"BAIHE_API_SESSION_MAX_DAYS ({idle_days} > {max_days})")
     sign_in = _sign_in_values(env, from_env_file=environ is None)
-    public_url = normalize_public_url(sign_in["BAIHE_PUBLIC_URL"])
+    # A bad BAIHE_PUBLIC_URL must not stop the PC's own listener: it is ignored
+    # (sign-in counts as not configured) and the reason is kept for the warning.
+    public_url_error = ""
+    try:
+        public_url = normalize_public_url(sign_in["BAIHE_PUBLIC_URL"])
+    except ValueError as e:
+        public_url, public_url_error = "", str(e)
     return ApiSettings(host=host, port=port, environment=environment,
                        cors_origins=cors_origins, allow_key_writes=allow_key_writes,
                        serve_frontend=serve_frontend, auth_mode=auth_mode,
@@ -191,7 +198,8 @@ def load_settings(environ=None) -> ApiSettings:
                        google_client_id=sign_in["BAIHE_GOOGLE_CLIENT_ID"],
                        google_client_secret=sign_in["BAIHE_GOOGLE_CLIENT_SECRET"],
                        public_url=public_url, household_port=household_port,
-                       session_idle_days=idle_days, session_max_days=max_days)
+                       session_idle_days=idle_days, session_max_days=max_days,
+                       public_url_error=public_url_error)
 
 
 def _days(env, name: str, default: int, bounds: tuple) -> int:

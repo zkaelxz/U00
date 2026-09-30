@@ -349,6 +349,16 @@ def test_route_off_and_not_checked(env, no_network):
     assert r.json()["state"] == "unknown" and r.json()["checked_at"] is None
 
 
+def test_route_says_why_when_the_public_url_was_ignored(env, no_network):
+    from api.api_config import load_settings
+    settings = load_settings({"BAIHE_PUBLIC_URL": "http://bad.example/x",
+                              "BAIHE_API_HOUSEHOLD_PORT": str(PORT)})
+    assert settings.public_url == "" and "BAIHE_PUBLIC_URL" in settings.public_url_error
+    r = _local(create_app(settings)).get("/api/diagnostics/remote-health")
+    assert r.json()["state"] == "off"
+    assert "BAIHE_PUBLIC_URL" in r.json()["message"] and "bad.example" not in r.text
+
+
 def test_route_returns_states_without_secrets_hosts_or_paths(env, monkeypatch, listener_up):
     env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
     monkeypatch.setattr(rhs, "_peer_certificate", lambda host, port: _cert(9))
