@@ -102,10 +102,12 @@ def _serve_with_household(settings):
     from api.server import app as admin_app, create_app
     from services import shutdown_service
     household_app = create_app(settings, listener="household")
+    # No uvicorn access log for the household app: its lines carry the query
+    # string, which on the sign-in callback holds the Google code and state.
     servers = [_quiet_server(uvicorn.Config(app, host=settings.host, port=port,
-                                            timeout_graceful_shutdown=3))
-               for app, port in ((admin_app, settings.port),
-                                 (household_app, settings.household_port))]
+                                            timeout_graceful_shutdown=3, access_log=access_log))
+               for app, port, access_log in ((admin_app, settings.port, True),
+                                             (household_app, settings.household_port, False))]
     shutdown_service.register_stopper(lambda: _stop_all(servers))
     failed = _run_servers(servers)
     shutdown_service.clean_shutdown()

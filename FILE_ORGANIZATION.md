@@ -512,7 +512,7 @@ baihe-subtitler/
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
 │       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
-│       │                         /api/admin/audit (read-only, paged), all admin.users; tests/test_api_admin_users.py
+│       │                         /api/admin/audit (read-only, paged); reads admin.users.read, writes admin.users; tests/test_api_admin_users.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore

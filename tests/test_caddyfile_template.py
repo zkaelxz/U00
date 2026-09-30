@@ -3,11 +3,14 @@ The Caddy template for household access (deploy/caddy/Caddyfile.template).
 
 Parses the template with a small Caddyfile reader and checks what the guide
 (docs/household-access.md) promises: Caddy proxies only to the household
-listener, sets the forwarding headers itself and drops X-Baihe-*, and refuses
-every local_only() route at the proxy, so a new local_only() route that the
+listener, sets the forwarding headers itself and drops X-Baihe-*, refuses an
+uncleaned path first, and refuses every local_only() route at the proxy (defence
+in depth: Baihe refuses them itself), so a new local_only() route that the
 template doesn't cover fails here. Path matching follows Caddy's `path`
-matcher: a trailing `*` is a plain prefix match, a leading `*` a suffix match,
-and any other `*` matches within one path segment (Go's path.Match).
+matcher for the forms the template may use: a trailing `*` alone is a plain
+prefix match, a leading `*` alone a suffix match, and `*` inside a pattern
+matches within one path segment (Go's path.Match). A pattern mixing those forms
+is refused by the test rather than modelled.
 """
 
 import re
@@ -20,6 +23,7 @@ pytest.importorskip("fastapi")
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
+from services import auth_service
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "deploy" / "caddy" / "Caddyfile.template"
@@ -77,16 +81,28 @@ def _site():
     return sites[0]
 
 
+def _global():
+    tree = _parse(TEMPLATE.read_text(encoding="utf-8"))
+    (block,) = [n for n in tree["children"] if not n["tokens"]]
+    return block
+
+
 def _directive(node, name):
     return [c for c in node["children"] if c["tokens"][0] == name]
 
 
 # --- Caddy's path and method matching -------------------------------------
 
+def _check_pattern(pattern):
+    """Only the forms whose Caddy semantics the reader models: a leading or
+    trailing `*` must be the pattern's only `*`."""
+    if pattern.startswith("*") or pattern.endswith("*"):
+        assert pattern.count("*") == 1, f"multi-wildcard path pattern {pattern!r}"
+
+
 def _path_match(pattern, path):
+    _check_pattern(pattern)
     p, s = pattern.lower(), path.lower()
-    if len(p) > 1 and p.startswith("*") and p.endswith("*"):
-        return p[1:-1] in s
     if p.startswith("*"):
         return s.endswith(p[1:])
     if p.endswith("*"):
@@ -102,6 +118,8 @@ def _conditions(block):
         if kind == "method":
             methods = (methods or set()) | {a.upper() for a in args}
         elif kind == "path":
+            for a in args:
+                _check_pattern(a)
             paths = (paths or []) + args
         elif kind == "not":
             assert not args, "use the block form of `not` in PC-only matchers"
@@ -120,8 +138,20 @@ def _matches(cond, method, path):
     return not any(_matches(n, method, path) for n in nots)
 
 
+UNCLEAN = "@unclean_path"
+
+
+def _unclean_regex():
+    """The regexp of the uncleaned-path matcher (RE2 syntax; the parts used
+    here mean the same in Python's re)."""
+    (m,) = [c for c in _site()["children"] if c["tokens"][0] == UNCLEAN]
+    assert m["tokens"][1:3] == ["vars_regexp", "{http.request.uri.path}"] and not m["children"]
+    return re.compile(m["tokens"][3])
+
+
 def _blocking_matchers():
-    """Matchers of every `respond @x 4xx` placed before the proxy in the route."""
+    """Matchers of every `respond @x 4xx` placed before the proxy in the
+    route, except the uncleaned-path one (tested on its own)."""
     site = _site()
     named = {c["tokens"][0]: c for c in site["children"] if c["tokens"][0].startswith("@")}
     (route,) = _directive(site, "route")
@@ -130,6 +160,8 @@ def _blocking_matchers():
     out = []
     for c in _directive(route, "respond"):
         name, status = c["tokens"][1], c["tokens"][2]
+        if name == UNCLEAN:
+            continue
         assert status in ("403", "404")
         block = named[name]
         assert len(block["tokens"]) == 1 and block["children"], f"{name} must be a matcher block"
@@ -181,6 +213,8 @@ def test_no_real_domain_address_or_secret():
     for name in re.findall(r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b", text, re.I):
         if name.lower().endswith((".md", ".py", ".json", ".template", ".log")):
             continue
+        if name.lower().startswith("http.request."):   # a Caddy placeholder
+            continue
         assert name.lower().endswith("example.com") or name.lower() == "github.com", name
     assert set(re.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text)) == {"127.0.0.1"}
     assert not re.search(r"@(?!example\.com)[a-z0-9-]+\.[a-z]", text, re.I), "no real e-mail"
@@ -202,11 +236,35 @@ def test_forwarding_headers_set_by_caddy_and_x_baihe_stripped():
 @pytest.mark.parametrize("path", [
     "/api/system/shutdown", "/api/settings", "/api/settings/keys/openai",
     "/api/library/admin/storage", "/api/diagnostics", "/api/diagnostics/log",
-    "/api/admin/users", "/api/docs", "/api/openapi.json"])
+    "/api/admin/users/1/deactivate", "/api/admin/users/1", "/api/admin/other",
+    "/api/docs", "/api/openapi.json"])
 def test_admin_paths_refused_for_any_method(path):
     matchers = _blocking_matchers()
     for method in ("GET", "HEAD", "POST", "DELETE", "PUT", "PATCH"):
         assert _blocked(method, path, matchers), f"{method} {path}"
+
+
+ADMIN_VIEWS = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit")]
+
+
+def test_only_the_admin_views_pass_and_only_for_reads(routes):
+    """Admin view routes (admin.users.read) pass so an admin can see the
+    users and the audit log from away; every other method on them, and
+    every admin write route, is refused."""
+    matchers = _blocking_matchers()
+    views = {(m, p) for p, methods, decls in routes for m in methods
+             if decls and decls[0][0] == "permission"
+             and decls[0][1] in auth_service.ADMIN_VIEW_PERMISSIONS}
+    assert views == set(ADMIN_VIEWS)
+    for _m, path in ADMIN_VIEWS:
+        for method in ("GET", "HEAD"):
+            assert not _blocked(method, path, matchers), f"{method} {path}"
+        for method in ("POST", "PUT", "PATCH", "DELETE"):
+            assert _blocked(method, path, matchers), f"{method} {path}"
+    writes = sorted(f"{m} {p}" for p, methods, decls in routes for m in methods
+                    if p.startswith("/api/admin/") and (m, p) not in ADMIN_VIEWS
+                    and not _blocked(m, _sample(p), matchers))
+    assert not writes, writes
 
 
 def test_every_local_only_route_is_refused(routes):
@@ -231,7 +289,8 @@ def test_household_routes_are_not_refused(routes):
         if len(decls) != 1 or decls[0][0] == "local_only":
             continue
         kind, perm = decls[0]
-        if kind == "permission" and perm.startswith("admin."):
+        if (kind == "permission" and perm.startswith("admin.")
+                and perm not in auth_service.ADMIN_VIEW_PERMISSIONS):
             continue
         for m in methods:
             if (m, path) not in BLOCKED_ON_PURPOSE and _blocked(m, _sample(path), matchers):
@@ -254,8 +313,57 @@ def test_path_matcher_model_follows_caddy():
     assert not _path_match("/api/dramas/*/cover", "/api/dramas/7/x/cover")
     assert _path_match("/api/settings/*", "/api/settings/keys/x")
     assert not _path_match("/api/settings/*", "/api/settings")
-    # Caddy treats a trailing * as a literal prefix, even with another * earlier.
-    assert not _path_match("/api/a/*/b*", "/api/a/7/b")
+    for mixed in ("/api/a/*/b*", "*/api/*", "*a*"):
+        with pytest.raises(AssertionError):
+            _path_match(mixed, "/api/a/7/b")
+
+
+def test_no_multi_wildcard_path_patterns():
+    site = _site()
+    patterns = [a for n in _walk(site) if n["tokens"][0] == "path" for a in n["tokens"][1:]]
+    assert patterns
+    for pattern in patterns:
+        _check_pattern(pattern)
+
+
+BAD_PATHS = ["/api/../api/settings", "/api/./settings", "/api/settings/.", "/api/x/..",
+             "/api//settings", "//api/settings", "/api/%2e%2e/settings", "/api/%2E/settings",
+             "/api/.%2e/x", "/api%2f%2fsettings", "/api/%2f/x", "/..", "/."]
+GOOD_PATHS = ["/", "/api/health", "/assets/app.js", "/.well-known/x", "/api/a.b/c",
+              "/api/..x/y", "/api/x../y", "/api/%2e%2ex"]
+
+
+def test_unclean_paths_refused_first():
+    (route,) = _directive(_site(), "route")
+    first = route["children"][0]["tokens"]
+    assert first[:2] == ["respond", UNCLEAN] and first[2] == "400"
+    rx = _unclean_regex()
+    for path in BAD_PATHS:
+        assert rx.search(path), path
+    for path in GOOD_PATHS:
+        assert not rx.search(path), path
+
+
+def test_unclean_path_matcher_passes_every_route(routes):
+    rx = _unclean_regex()
+    hit = sorted({p for p, _m, _d in routes if rx.search(_sample(p))})
+    assert not hit, hit
+
+
+def test_caddy_admin_api_off():
+    assert ["admin", "off"] in [c["tokens"] for c in _global()["children"]]
+
+
+def test_site_top_level_directives_pinned():
+    """A new top-level directive (another proxy, a file server, a redirect)
+    must be reviewed and added here on purpose."""
+    tokens = sorted(c["tokens"][0] for c in _site()["children"])
+    assert tokens == sorted([
+        "request_body", "@compressible", "encode", "header", "header", "header", "header",
+        "header", "log", UNCLEAN, "@pc_only", "@pc_only_post", "@pc_only_delete", "route"])
+    (route,) = _directive(_site(), "route")
+    assert [c["tokens"][0] for c in route["children"]] == [
+        "respond", "respond", "respond", "respond", "rate_limit", "reverse_proxy"]
 
 
 def test_sign_in_is_rate_limited():
@@ -264,18 +372,31 @@ def test_sign_in_is_rate_limited():
     zones = [z for z in limit["children"] if z["tokens"][0] == "zone"]
     paths = {p for z in zones for n in _walk(z) if n["tokens"][0] == "path"
              for p in n["tokens"][1:]}
-    assert {"/api/auth/login", "/api/auth/callback"} <= paths
+    assert {"/api/auth/login", "/api/auth/callback", "/api/auth/handoff"} <= paths
     for z in zones:
         assert _directive(z, "key")[0]["tokens"][1] == "{remote_host}"
 
 
+def _filter_rules(log):
+    (fmt,) = [n for n in _walk(log) if n["tokens"][:2] == ["format", "filter"]]
+    return [c["tokens"] for c in fmt["children"]]
+
+
 def test_access_log_drops_query_strings_and_credentials():
     (log,) = _directive(_site(), "log")
-    (fmt,) = [n for n in _walk(log) if n["tokens"][:2] == ["format", "filter"]]
-    rules = [c["tokens"] for c in fmt["children"]]
+    rules = _filter_rules(log)
     assert ["request>uri", "regexp", "[?].*", ""] in rules
     for field in ("request>headers>Cookie", "request>headers>X-Csrf-Token",
                   "resp_headers>Set-Cookie", "resp_headers>Location"):
+        assert [field, "delete"] in rules
+
+
+def test_caddy_own_log_drops_query_strings_and_credentials():
+    (log,) = [c for c in _global()["children"] if c["tokens"] == ["log", "default"]]
+    rules = _filter_rules(log)
+    assert ["request>uri", "regexp", "[?].*", ""] in rules
+    for field in ("request>headers>Cookie", "request>headers>Authorization",
+                  "request>headers>X-Csrf-Token"):
         assert [field, "delete"] in rules
 
 

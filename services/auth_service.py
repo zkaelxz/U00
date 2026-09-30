@@ -42,8 +42,15 @@ OPT_IN_PERMISSIONS = (
     "media.import_url", "sources.import", "engines.paid", "extension.send", "media.stream",
 )
 ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
-    "admin.library", "admin.settings", "admin.diagnostics", "admin.users",
+    "admin.library", "admin.settings", "admin.diagnostics", "admin.users.read", "admin.users",
 )
+# Every admin permission is either view (GET routes only, kept by an admin
+# session on the internet-facing household listener) or write (dropped
+# there: admin changes are PC-only). A permission in neither list is
+# treated as write. The three families below mix reads with writes, so they
+# are write as a whole.
+ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
+ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics", "admin.users")
 PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
 
 IDLE_TIMEOUT_SECONDS = 14 * 24 * 3600

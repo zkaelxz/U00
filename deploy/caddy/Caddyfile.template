@@ -11,9 +11,30 @@
 #
 # Caddy proxies only to the household listener. Never point it at 8600 (the
 # PC's own admin listener) or 8756 (the extension bridge).
+#
+# Baihe enforces every refusal below itself (the household listener refuses
+# PC-only routes and never grants an admin write permission); the blocks here
+# are defence in depth. The only admin routes that pass are the two read-only
+# admin views, GET /api/admin/users and GET /api/admin/audit.
 {
+	# No admin API on localhost:2019: nothing on the PC may reconfigure Caddy.
+	admin off
+
 	# Uncomment to get certificate expiry mail from the certificate authority.
 	# email you@example.com
+
+	# Caddy's own log (errors, certificates) can record a failed request with
+	# its URL and headers; drop the query string and credentials there too.
+	log default {
+		format filter {
+			wrap json
+			request>uri regexp "[?].*" ""
+			request>headers>Cookie delete
+			request>headers>Authorization delete
+			request>headers>X-Csrf-Token delete
+			request>headers>Referer delete
+		}
+	}
 
 	servers {
 		# HTTP/3 would need UDP 443 forwarded as well; TCP 443 is enough.
@@ -45,8 +66,10 @@
 	header ?Content-Security-Policy "frame-ancestors 'none'"
 	header ?Referrer-Policy "same-origin"
 
-	# The query string can hold a Google sign-in code or state, so no URL is
-	# logged with it; cookies, the CSRF token and redirects are dropped too.
+	# The query string can hold a Google sign-in code or state, so this log
+	# drops it from the logged URI (as Caddy's own log does, above); cookies,
+	# the CSRF token and redirects are dropped too. Other logs (Baihe's, and
+	# anything a later module adds) are not covered by this filter.
 	log {
 		output file {$BAIHE_CADDY_LOG_DIR}/baihe-access.log {
 			roll_size 10MiB
@@ -64,8 +87,17 @@
 		}
 	}
 
-	# PC-only and admin paths, refused here as well as by Baihe itself. Every
-	# local_only() route must be matched by one of these three matchers.
+	# A path with a `.` or `..` segment or an empty one (`//`), also when
+	# written as %2e / %2f, is refused before anything else: Caddy's `path`
+	# matcher cleans the path before comparing, so the blocks below must never
+	# see one that the app might resolve differently. {http.request.uri.path}
+	# is the decoded but uncleaned path.
+	@unclean_path vars_regexp {http.request.uri.path} "(?i)(^|/|%2f)([.]|%2e)([.]|%2e)?(/|%2f|$)|(/|%2f)(/|%2f)"
+
+	# PC-only and admin paths, refused here as defence in depth: Baihe refuses
+	# them on the household listener itself. Every local_only() route must be
+	# matched by one of these three matchers. Of /api/admin/*, only reading the
+	# user list and the audit log passes; every admin change is PC-only.
 	@pc_only {
 		path /api/system/* /api/admin/*
 		path /api/settings /api/settings/* /api/sources/settings /api/sources/settings/*
@@ -79,6 +111,11 @@
 		not {
 			method POST
 			path /api/diagnostics/bug-reports
+		}
+		# An admin may view the users and the audit log from away.
+		not {
+			method GET HEAD
+			path /api/admin/users /api/admin/audit
 		}
 	}
 	@pc_only_post {
@@ -110,6 +147,7 @@
 	}
 
 	route {
+		respond @unclean_path 400
 		respond @pc_only 404
 		respond @pc_only_post 404
 		respond @pc_only_delete 404
@@ -119,7 +157,7 @@
 		rate_limit {
 			zone sign_in {
 				match {
-					path /api/auth/login /api/auth/callback
+					path /api/auth/login /api/auth/callback /api/auth/handoff
 				}
 				key {remote_host}
 				events 60

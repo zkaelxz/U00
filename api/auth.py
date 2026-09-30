@@ -41,8 +41,10 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   proxy. Auth on, and nothing on it is ever "the PC": `is_local_request` is
   False and `local_only()` refuses every request, however direct and
   loopback it looks, so a proxy that strips forwarding headers still can't
-  reach a PC-only route or a handler's own PC check. The PC's own listener
-  (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
+  reach a PC-only route or a handler's own PC check. A signed-in admin
+  there holds the household permissions and the admin view ones (user
+  list, audit log), never an admin write permission (`listener_principal`).
+  The PC's own listener (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
   multipart upload before being refused.
@@ -92,6 +94,20 @@ def _never_local(app) -> bool:
     return getattr(settings, "listener", None) != "admin"
 
 
+def listener_principal(app, principal):
+    """The principal as this listener lets it act. On the household listener
+    an admin account keeps its household permissions and the admin view
+    permissions (user list, audit log) but no admin write permission: admin
+    changes are PC-only (D5), and a remote admin session has no second
+    factor. Default-deny: any `admin.*` permission not listed as view is
+    dropped. None stays None."""
+    if principal is None or not _never_local(app):
+        return principal
+    return dict(principal, permissions=[
+        p for p in principal["permissions"]
+        if not p.startswith("admin.") or p in auth_service.ADMIN_VIEW_PERMISSIONS])
+
+
 def local_owner_principal() -> dict:
     return {"user_id": None, "email": None, "is_admin": True, "is_local_owner": True,
             "permissions": list(auth_service.PERMISSIONS)}
@@ -107,7 +123,7 @@ def _authenticate(request: Request) -> dict:
     or raises 401/403. Nothing is cached: permissions are re-read from the
     DB on every request so a grant/revoke applies to the next one."""
     token = session_token(request)
-    principal = auth_service.resolve_session(token)
+    principal = listener_principal(request.app, auth_service.resolve_session(token))
     if principal is None:
         raise UnauthenticatedError(_GENERIC_401)
     if request.method.upper() not in ("GET", "HEAD", "OPTIONS") and not auth_service.verify_csrf(

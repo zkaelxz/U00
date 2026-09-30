@@ -37,7 +37,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from api.auth import require_permission, session_token
+from api.auth import listener_principal, require_permission, session_token
 from api.notification_schemas import NotificationList
 from api.schemas import ErrorResponse, JobRecord, LiveSessionStatus
 from services import auth_service
@@ -79,7 +79,7 @@ def _revalidator(request: Request, principal):
     def check():
         # Not counted as activity: an open (even hidden) tab must not keep an
         # idle session alive.
-        fresh = auth_service.resolve_session(token, touch=False)
+        fresh = listener_principal(request.app, auth_service.resolve_session(token, touch=False))
         if fresh is None or PERMISSION not in fresh.get("permissions", ()):
             return None
         return fresh
