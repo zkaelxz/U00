@@ -41,7 +41,6 @@ class TestMergeSpeakers:
         lines = _lines()
         diarize.merge_speakers(lines, TWO)
         lines[2].speaker, lines[2].speaker_manual = "Xiaoling", True
-        assert [ln.idx for ln in diarize.manual_lines_that_would_change(lines, THREE)] == [2]
         result = diarize.merge_speakers(lines, THREE)
         assert lines[2].speaker == "Xiaoling" and lines[2].speaker_manual is True
         assert result == {"changed": 0, "kept_manual": 1}

@@ -191,7 +191,7 @@ baihe-subtitler/
 │   │                             Slice 2)
 │   ├── workflow_service.py       compute_workspace_stage_index (the
 │   │                             pipeline-stage index, Step 19 invariant)
-│   │                             + stage_statuses_from_index; get_drama_progress
+│   │                             + get_drama_progress
 │   │                             (per-stage state + counts for the API)
 │   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
 │   │                             Scanlate pages (API callers must pass

@@ -7,18 +7,6 @@ the Streamlit tab; the tab imports it back. Never imports streamlit/fastapi.
 import os
 
 
-def stage_statuses_from_index(stages, current_index):
-    """Convenience for the common linear case: everything before
-    current_index is done, current_index is current, everything after is
-    not started. current_index of None means nothing has started yet."""
-    if current_index is None:
-        return ["not_started"] * len(stages)
-    return [
-        "done" if i < current_index else "current" if i == current_index else "not_started"
-        for i in range(len(stages))
-    ]
-
-
 def compute_workspace_stage_index(drama, lines, ddir):
     """Maps a drama's real pipeline progress onto the 7 stage-tab indices
     the header's stepper uses (Source=0, Transcript=1, Diarize=2,

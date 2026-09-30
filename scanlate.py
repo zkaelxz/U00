@@ -1600,23 +1600,6 @@ def pdf_to_page_images(pdf_path: str, out_dir: str, prefix: str = "page") -> tup
     return image_paths, skipped_pages
 
 
-def pages_to_pdf(image_paths: list, out_path: str) -> str:
-    """
-    "Download as PDF" alongside the existing per-page download and bulk
-    ZIP (Torii added PDF download for the same reason, v2.0.8.1). Uses
-    Pillow -- already a hard dependency here, no new install -- which
-    can write a multi-page PDF directly, no separate PDF library needed
-    for export.
-    """
-    from PIL import Image as _PILImage
-
-    if not image_paths:
-        raise ValueError("No pages to export.")
-    images = [_PILImage.open(p).convert("RGB") for p in image_paths]
-    images[0].save(out_path, "PDF", save_all=True, append_images=images[1:])
-    return out_path
-
-
 # ---------------------------------------------------------------------------
 # Bulk find-and-replace across a drama's saved bubble text (Step 11 item 9)
 # ---------------------------------------------------------------------------

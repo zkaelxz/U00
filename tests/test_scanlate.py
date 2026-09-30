@@ -781,31 +781,14 @@ class TestOcrBoxRegion:
 class TestPdfImportExport:
     """Step 11 item 7."""
 
-    def test_pages_to_pdf_creates_a_valid_multi_page_pdf(self, synthetic_page, temp_dir):
-        from PIL import Image
-        page2 = os.path.join(temp_dir, "page2.png")
-        Image.new("RGB", (600, 400), (200, 200, 200)).save(page2)
-        out_pdf = os.path.join(temp_dir, "out.pdf")
-
-        result = scanlate.pages_to_pdf([synthetic_page, page2], out_pdf)
-
-        assert result == out_pdf
-        assert os.path.exists(out_pdf)
-        pypdf = pytest.importorskip("pypdf")
-        reader = pypdf.PdfReader(out_pdf)
-        assert len(reader.pages) == 2
-
-    def test_pages_to_pdf_raises_on_an_empty_list(self, temp_dir):
-        with pytest.raises(ValueError):
-            scanlate.pages_to_pdf([], os.path.join(temp_dir, "empty.pdf"))
-
     def test_pdf_to_page_images_round_trips_a_real_pdf(self, synthetic_page, temp_dir):
         # Builds a real PDF from a real (synthetic, non-copyrighted) page,
         # then splits it back apart -- exercises pypdf's own image
         # extraction against a real file instead of a hand-crafted one.
         pytest.importorskip("pypdf")
         pdf_path = os.path.join(temp_dir, "roundtrip.pdf")
-        scanlate.pages_to_pdf([synthetic_page], pdf_path)
+        from PIL import Image
+        Image.open(synthetic_page).convert("RGB").save(pdf_path, "PDF")
         out_dir = os.path.join(temp_dir, "extracted")
 
         image_paths, skipped = scanlate.pdf_to_page_images(pdf_path, out_dir)
