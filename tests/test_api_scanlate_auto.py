@@ -31,6 +31,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
+from services import page_import_limits as limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
 from services.service_errors import ConflictError, InvalidInputError
@@ -175,8 +176,8 @@ def test_upload_images_reencoded_and_named_by_idx(client):
     assert r.status_code == 200, r.text
     assert r.json()["added"] == 3
     pages = db.list_pages(did)
-    assert [p["filename"] for p in pages] == ["pages/page_0000.png", "pages/page_0001.jpg",
-                                              "pages/page_0002.png"]
+    assert [p["filename"] for p in pages] == ["pages/page_0000.png", "pages/page_0001.png",
+                                              "pages/page_0002.png"]      # rotated JPEG -> PNG
     assert (pages[1]["width"], pages[1]["height"]) == (20, 40)     # EXIF applied
     with Image.open(os.path.join(db.drama_dir(did), pages[1]["filename"])) as im:
         assert im.size == (20, 40) and not im.getexif().get(0x0112)
@@ -198,23 +199,40 @@ def test_upload_rejects_bad_types_and_adds_nothing(client):
 
 def test_pixel_cap_checked_before_decode(client, monkeypatch):
     did = _drama()
-    monkeypatch.setattr(pages_svc, "MAX_IMAGE_PIXELS", 1000)
-    monkeypatch.setattr(pages_svc, "_normalise",
-                        lambda img: (_ for _ in ()).throw(AssertionError("decoded")))
+    monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 1000)
+    monkeypatch.setattr(limits, "_prepare",
+                        lambda *a: (_ for _ in ()).throw(AssertionError("decoded")))
     r = _upload(client, did, [("big.png", _png(50, 50), "image/png")])
-    assert r.status_code == 422 and "megapixels" in r.json()["error"]["message"]
+    assert r.status_code == 422 and "megapixel" in r.json()["error"]["message"]
+
+
+def test_pages_are_written_through_the_pipeline_writer(isolated_db, monkeypatch):
+    from sources import pipeline
+    did = _drama()
+    calls = []
+    real = pipeline.add_page_images
+
+    def spy(drama_id, images, ids_out=None):
+        calls.append(drama_id)
+        return real(drama_id, images, ids_out=ids_out)
+    monkeypatch.setattr(pipeline, "add_page_images", spy)
+    out = pages_svc.add_page_images(did, [("a.png", io.BytesIO(_png())),
+                                          ("b.png", io.BytesIO(_png()))])
+    assert calls == [did]
+    assert out["page_ids"] == [p["id"] for p in db.list_pages(did)]
+    assert pages_svc.upload_limits()["max_files"] == limits.MAX_FILES_PER_IMPORT
 
 
 def test_size_count_and_total_caps(client, monkeypatch):
     did = _drama()
-    monkeypatch.setattr(pages_svc, "MAX_IMAGE_BYTES", 50)
+    monkeypatch.setattr(limits, "MAX_IMAGE_BYTES", 50)
     assert _upload(client, did, [("a.png", _png(200, 200, (1, 2, 3)), "image/png")]).status_code == 422
-    monkeypatch.setattr(pages_svc, "MAX_IMAGE_BYTES", 30 * 1024 * 1024)
-    monkeypatch.setattr(pages_svc, "MAX_FILES_PER_UPLOAD", 2)
+    monkeypatch.setattr(limits, "MAX_IMAGE_BYTES", 30 * 1024 * 1024)
+    monkeypatch.setattr(limits, "MAX_FILES_PER_IMPORT", 2)
     three = [(f"{i}.png", _png(), "image/png") for i in range(3)]
     assert _upload(client, did, three).status_code == 422
-    monkeypatch.setattr(pages_svc, "MAX_FILES_PER_UPLOAD", 300)
-    monkeypatch.setattr(pages_svc, "MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(limits, "MAX_FILES_PER_IMPORT", 300)
+    monkeypatch.setattr(limits, "MAX_IMPORT_BYTES", 10)
     r = _upload(client, did, [("a.png", _png(), "image/png")])
     assert r.status_code in (413, 422)
     assert db.list_pages(did) == []
@@ -240,11 +258,11 @@ def test_pdf_import(client, monkeypatch):
     r = _upload(client, did, [("book.pdf", buf.getvalue(), "application/pdf")])
     assert r.status_code == 200, r.text
     assert r.json()["added"] == 2
-    monkeypatch.setattr(pages_svc, "MAX_PDF_PAGES", 1)
+    monkeypatch.setattr(limits, "MAX_PDF_PAGES", 1)
     assert _upload(client, did, [("book.pdf", buf.getvalue(),
                                   "application/pdf")]).status_code == 422
-    monkeypatch.setattr(pages_svc, "MAX_PDF_PAGES", 500)
-    monkeypatch.setattr(pages_svc, "MAX_IMAGE_PIXELS", 100)       # embedded image too big
+    monkeypatch.setattr(limits, "MAX_PDF_PAGES", 500)
+    monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 100)       # embedded image too big
     assert _upload(client, did, [("book.pdf", buf.getvalue(),
                                   "application/pdf")]).status_code == 422
     assert len(db.list_pages(did)) == 2
@@ -448,6 +466,77 @@ def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypa
         rows = conn.execute("SELECT operation, input_tokens FROM usage_log WHERE drama_id = ?",
                             (did,)).fetchall()
     assert [tuple(r) for r in rows] == [("scanlate_translate", 100)]
+
+
+def test_failed_redo_keeps_the_translated_regions(client, fake_detect, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, text="旧", translated_text="good one"),
+                          _region(50, text="旧2", translated_text="good two")])
+    before = [b["id"] for b in db.load_bubbles(pid)]
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: "not json")
+    monkeypatch.setattr(run_svc, "_build_engine", lambda name: _LLM())
+    _run(client, did, mode="page", page_id=pid, engine="claude")
+    st = _wait(f"scanlate_{did}")
+    assert "kept unchanged" in st["message"]
+    rows = db.load_bubbles(pid)
+    assert [b["id"] for b in rows] == before
+    assert [b["translated_text"] for b in rows] == ["good one", "good two"]
+    assert "kept unchanged" in db.get_page(pid)["run_notes"]
+
+
+def test_redo_that_detects_nothing_keeps_the_regions(client, monkeypatch):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(1, translated_text="good")])
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
+    _run(client, did, mode="page", page_id=pid, engine="test_offline")
+    _wait(f"scanlate_{did}")
+    assert [b["translated_text"] for b in db.load_bubbles(pid)] == ["good"]
+
+
+def test_answers_are_applied_by_key_not_position(monkeypatch):
+    import services.scanlate_run_service as rs
+    monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k: json.dumps(
+        {"translations": {"2": "C", "0": "A"}, "context_summary": "s"}))
+    regions = [_region(1, text="甲"), _region(2, text="乙", skip=True), _region(3, text="丙")]
+    ok, ctx = rs._translate(regions, _LLM(), "claude", {"source_language": "ja"}, None, "", 1, [])
+    assert ok and ctx == "s"
+    assert [b["translated_text"] for b in regions] == ["A", "", "C"]
+
+
+def test_source_language_and_usage_reach_machine_translation(isolated_db):
+    class MT:
+        name = "deepl"
+        model = "deepl"
+        supports_reference = False
+        last_usage = {}
+
+        def __init__(self):
+            self.contexts = []
+
+        def translate_batch(self, lines, context):
+            self.contexts.append(context)
+            self.last_usage = {"input_tokens": len(lines[0])}
+            return ["T" + lines[0]]
+    spent, engine = [], MT()
+    result, _ = scanlate.translate_regions_by_id(
+        {"0": "こんにちは", "1": "さよなら"}, engine, {"source_language": "ja"},
+        usage_cb=lambda i, o: spent.append(i))
+    assert result == {"0": "Tこんにちは", "1": "Tさよなら"}
+    assert [c["source_language"] for c in engine.contexts] == ["ja", "ja"]
+    assert spent == [5, 4]
+
+
+def test_llm_prompt_names_the_source_language(monkeypatch):
+    prompts = []
+
+    def fake(engine, prompt, **kw):
+        prompts.append(prompt)
+        return json.dumps({"translations": {"0": "A"}})
+    monkeypatch.setattr(translate_engines, "call_llm_json", fake)
+    scanlate.translate_regions_by_id({"0": "あ"}, _LLM(), {"source_language": "ja"})
+    assert "Japanese" in prompts[0]
 
 
 def test_unmatched_answer_keeps_ocr_and_notes_it(client, fake_detect, monkeypatch):

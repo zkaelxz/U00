@@ -10,15 +10,14 @@ claim a job refuses to start under (and vice versa), the pipeline lock
 shared with the extension bridge, and the note cleaner (secrets redacted,
 paths stripped) every stored or returned note goes through.
 
-Import limits (user-set 2026-09-29; adjust them here, nowhere else):
-PNG/JPEG/WebP/PDF only (the file's own bytes decide, the extension must
-agree); per image 30 MB and 100 megapixels (checked from the header before
-any decode); per PDF 300 MB and 500 pages (each embedded image also
-pixel-capped before decode); per request 300 files and 1 GB. Images taller
-than 3x their width are sliced into pages (on by default). EXIF orientation
-is applied and every page is re-encoded from its pixels (no metadata kept,
-WebP stored as PNG). Nothing is stored under a client name; files land by
-atomic rename; idx is MAX(idx)+1 under a per-drama lock.
+Import limits live in services/page_import_limits.py (user-set
+2026-09-29, shared with the URL comic imports; change them there): PNG/JPEG/
+WebP/PDF only (the file's own bytes decide, the extension must agree); the
+per-image, per-PDF and per-request caps are checked from headers before any
+decode. Pages are prepared by page_import_limits.prepare_page (EXIF applied,
+tall strips sliced by default) and written ONLY through
+sources.pipeline.add_page_images (the one page writer: per-drama lock,
+exclusive index claim, exclusive file create). A bad file adds nothing.
 
 No FastAPI or Streamlit import. Plain dicts; errors from service_errors.
 """
@@ -34,19 +33,10 @@ import warnings
 
 import background_jobs
 import db
+from services import page_import_limits as limits
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
-# --- Import limits (the one place to change them) -------------------------
-IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
-PDF_EXTENSIONS = (".pdf",)
-MAX_IMAGE_BYTES = 30 * 1024 * 1024
-MAX_IMAGE_PIXELS = 100_000_000
-MAX_PDF_BYTES = 300 * 1024 * 1024
-MAX_PDF_PAGES = 500
-MAX_FILES_PER_UPLOAD = 300
-MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
-STRIP_SLICE_RATIO = 3          # slice when height > STRIP_SLICE_RATIO x width
 SLICE_STRIPS_DEFAULT = True
 
 JOB_PREFIX = "scanlate_"
@@ -80,12 +70,6 @@ def pipeline_lock():
 
 _claims_lock = threading.Lock()
 _uploading = set()
-_page_locks = {}
-
-
-def _page_lock(drama_id: int) -> threading.Lock:
-    with _claims_lock:
-        return _page_locks.setdefault(drama_id, threading.Lock())
 
 
 def job_busy(drama_id: int) -> bool:
@@ -219,12 +203,13 @@ def get_config(drama_id: int) -> dict:
 
 def upload_limits() -> dict:
     return {"image_types": ["png", "jpg", "jpeg", "webp"], "pdf": True,
-            "max_image_mb": MAX_IMAGE_BYTES // (1024 * 1024),
-            "max_image_megapixels": MAX_IMAGE_PIXELS // 1_000_000,
-            "max_pdf_mb": MAX_PDF_BYTES // (1024 * 1024), "max_pdf_pages": MAX_PDF_PAGES,
-            "max_files": MAX_FILES_PER_UPLOAD,
-            "max_total_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
-            "strip_slice_ratio": STRIP_SLICE_RATIO,
+            "max_image_mb": limits.MAX_IMAGE_BYTES // (1024 * 1024),
+            "max_image_megapixels": limits.MAX_IMAGE_PIXELS // 1_000_000,
+            "max_pdf_mb": limits.MAX_PDF_BYTES // (1024 * 1024),
+            "max_pdf_pages": limits.MAX_PDF_PAGES,
+            "max_files": limits.MAX_FILES_PER_IMPORT,
+            "max_total_mb": limits.MAX_IMPORT_BYTES // (1024 * 1024),
+            "strip_slice_ratio": int(limits.STRIP_SLICE_RATIO),
             "slice_strips_default": SLICE_STRIPS_DEFAULT}
 
 
@@ -275,7 +260,7 @@ def _safe_extension(name) -> str:
     if any(ord(c) < 32 or ord(c) == 127 for c in base):
         raise InvalidInputError("Unsupported file type. Upload PNG, JPEG, WebP or PDF files.")
     ext = os.path.splitext(base)[1].lower()
-    if ext not in IMAGE_EXTENSIONS + PDF_EXTENSIONS:
+    if ext not in limits.ALLOWED_EXTENSIONS:
         raise InvalidInputError("Unsupported file type. Upload PNG, JPEG, WebP or PDF files.")
     return ext
 
@@ -292,18 +277,12 @@ def _sniff(head: bytes):
     return None
 
 
-def _open_image(path: str):
-    """Pillow image, header only (no decode yet), limited to PNG/JPEG/WebP."""
-    from PIL import Image
-    return Image.open(path, formats=("PNG", "JPEG", "WEBP"))
-
-
 def _check_pixels(width: int, height: int, what: str):
     if width < 1 or height < 1:
         raise InvalidInputError(f"{what} is empty or corrupt.")
-    if width * height > MAX_IMAGE_PIXELS:
+    if width * height > limits.MAX_IMAGE_PIXELS:
         raise InvalidInputError(
-            f"{what} is too large (at most {MAX_IMAGE_PIXELS // 1_000_000} megapixels).")
+            f"{what} is too large (at most {limits.MAX_IMAGE_PIXELS // 1_000_000} megapixels).")
 
 
 def _normalise(img):
@@ -316,40 +295,23 @@ def _normalise(img):
     return Image.frombytes(img.mode, img.size, img.tobytes())
 
 
-def _stage_image(src: str, kind: str, out_dir: str, stem: str, slice_strips: bool) -> list:
-    """Checked, re-encoded page file(s) in out_dir, in reading order."""
-    what = "An image"
+def _stage_image(src: str, out_dir: str, stem: str, slice_strips: bool) -> list:
+    """Checked page file(s) in out_dir, in reading order: the shared page
+    rules (limits.prepare_page: caps from the header before any decode,
+    EXIF applied, a tall strip sliced when asked)."""
+    with open(src, "rb") as f:
+        content = f.read()
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")      # DecompressionBombWarning: capped below
-            with _open_image(src) as img:
-                _check_pixels(*img.size, what)
-                img.load()
-                clean = _normalise(img)
-    except InvalidInputError:
-        raise
-    except Exception:
-        raise InvalidInputError("An image could not be read (corrupt or unsupported).") from None
-    w, h = clean.size
-    keep_jpeg = kind == "jpeg" and clean.mode in ("RGB", "L")
-    if slice_strips and h > STRIP_SLICE_RATIO * w:
-        import scanlate
-        strip = os.path.join(out_dir, f"{stem}_strip.png")
-        clean.save(strip, "PNG")
-        slice_dir = os.path.join(out_dir, f"{stem}_slices")
-        os.makedirs(slice_dir)
-        try:
-            return scanlate.slice_webtoon_to_files(strip, slice_dir)
-        except Exception:
-            raise InvalidInputError("A tall strip could not be sliced into pages.") from None
-        finally:
-            os.remove(strip)
-    out = os.path.join(out_dir, f"{stem}.{'jpg' if keep_jpeg else 'png'}")
-    if keep_jpeg:
-        clean.save(out, "JPEG", quality=95)
-    else:
-        clean.save(out, "PNG")
-    return [out]
+        prepared = limits.prepare_page(content, slice_strips)
+    except limits.ImageRejected as exc:
+        raise InvalidInputError(f"An image was rejected: {exc}.") from None
+    outs = []
+    for i, (data, ext) in enumerate(prepared):
+        out = os.path.join(out_dir, f"{stem}_{i:04d}{ext}")
+        with open(out, "wb") as f:
+            f.write(data)
+        outs.append(out)
+    return outs
 
 
 def _pdf_best_image(page):
@@ -388,8 +350,8 @@ def _stage_pdf(src: str, out_dir: str, stem: str) -> tuple:
         raise
     except Exception:
         raise InvalidInputError("A PDF could not be read (corrupt or unsupported).") from None
-    if count > MAX_PDF_PAGES:
-        raise InvalidInputError(f"A PDF has too many pages (at most {MAX_PDF_PAGES}).")
+    if count > limits.MAX_PDF_PAGES:
+        raise InvalidInputError(f"A PDF has too many pages (at most {limits.MAX_PDF_PAGES}).")
     outputs, skipped = [], 0
     for i in range(count):
         try:
@@ -432,21 +394,12 @@ def _copy_capped(fileobj, dest: str, limit: int, budget: list) -> int:
                     f"A file is too large (at most {limit // (1024 * 1024)} MB).")
             if budget[0] < 0:
                 raise InvalidInputError(
-                    f"The upload is too large (at most {MAX_UPLOAD_BYTES // (1024 * 1024)} MB "
+                    f"The upload is too large (at most {limits.MAX_IMPORT_BYTES // (1024 * 1024)} MB "
                     "in total).")
             out.write(chunk)
     if size == 0:
         raise InvalidInputError("A file is empty.")
     return size
-
-
-def _unique_page_name(pages_dir: str, idx: int, ext: str) -> str:
-    name = f"page_{idx:04d}{ext}"
-    n = 1
-    while os.path.lexists(os.path.join(pages_dir, name)):
-        name = f"page_{idx:04d}_{n}{ext}"
-        n += 1
-    return name
 
 
 def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFAULT) -> dict:
@@ -461,18 +414,19 @@ def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFA
     files = list(files or [])
     if not files:
         raise InvalidInputError("Choose at least one page image or PDF.")
-    if len(files) > MAX_FILES_PER_UPLOAD:
-        raise InvalidInputError(f"Too many files (at most {MAX_FILES_PER_UPLOAD} at once).")
+    if len(files) > limits.MAX_FILES_PER_IMPORT:
+        raise InvalidInputError(f"Too many files (at most {limits.MAX_FILES_PER_IMPORT} at once).")
     exts = [_safe_extension(name) for name, _f in files]
     with upload_claim(drama_id):
         staging = tempfile.mkdtemp(prefix="baihe_scanlate_")
         try:
             staged, pdf_skipped, sliced = [], 0, 0
-            budget = [MAX_UPLOAD_BYTES]
+            budget = [limits.MAX_IMPORT_BYTES]
             for n, ((_name, fileobj), ext) in enumerate(zip(files, exts)):
-                is_pdf = ext in PDF_EXTENSIONS
+                is_pdf = ext == ".pdf"
                 raw = os.path.join(staging, f"in_{n:04d}{'.pdf' if is_pdf else '.img'}")
-                _copy_capped(fileobj, raw, MAX_PDF_BYTES if is_pdf else MAX_IMAGE_BYTES, budget)
+                _copy_capped(fileobj, raw, limits.MAX_PDF_BYTES if is_pdf
+                             else limits.MAX_IMAGE_BYTES, budget)
                 with open(raw, "rb") as f:
                     kind = _sniff(f.read(16))
                 if kind is None or (kind == "pdf") != is_pdf:
@@ -482,7 +436,7 @@ def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFA
                     outs, skipped = _stage_pdf(raw, staging, f"f{n:04d}")
                     pdf_skipped += skipped
                 else:
-                    outs = _stage_image(raw, kind, staging, f"f{n:04d}", slice_strips)
+                    outs = _stage_image(raw, staging, f"f{n:04d}", slice_strips)
                     sliced += 1 if len(outs) > 1 else 0
                 os.remove(raw)
                 staged.extend(outs)
@@ -494,26 +448,15 @@ def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFA
 
 
 def _commit_pages(drama_id: int, staged: list) -> list:
-    pages_dir = os.path.join(db.drama_dir(drama_id), "pages")
-    os.makedirs(pages_dir, exist_ok=True)
-    page_ids = []
-    with _page_lock(drama_id):
-        idx = db.next_page_idx(drama_id)
+    """Writes the staged files as the drama's next pages through the one
+    page writer (sources.pipeline.add_page_images), one file in memory at a
+    time. Returns the new page ids in order."""
+    from sources import pipeline
+
+    def images():
         for path in staged:
-            from PIL import Image
-            with Image.open(path) as im:
-                w, h = im.size
-            ext = os.path.splitext(path)[1].lower()
-            name = _unique_page_name(pages_dir, idx, ext)
-            fd, part = tempfile.mkstemp(prefix=".page_", suffix=".part", dir=pages_dir)
-            try:
-                with os.fdopen(fd, "wb") as out, open(path, "rb") as src:
-                    shutil.copyfileobj(src, out)
-                os.replace(part, os.path.join(pages_dir, name))
-            except BaseException:
-                if os.path.exists(part):
-                    os.remove(part)
-                raise
-            page_ids.append(db.create_page(drama_id, idx, f"pages/{name}", w, h))
-            idx += 1
+            with open(path, "rb") as f:
+                yield f.read(), os.path.splitext(path)[1].lower()
+    page_ids = []
+    pipeline.add_page_images(drama_id, images(), ids_out=page_ids)
     return page_ids

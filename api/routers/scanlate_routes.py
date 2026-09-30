@@ -31,8 +31,8 @@ from api.scanlate_schemas import (ScanlateConfig, ScanlateExportRequest, Scanlat
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
 from api.schemas import ErrorResponse
-from services import (scanlate_pages_service, scanlate_render_service, scanlate_run_service,
-                      settings_service)
+from services import (page_import_limits, scanlate_pages_service, scanlate_render_service,
+                      scanlate_run_service, settings_service)
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/scanlate", tags=["scanlate"])
@@ -85,19 +85,19 @@ async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1))
         length = int(request.headers.get("content-length", ""))
     except ValueError:
         raise InvalidInputError("An upload needs a Content-Length.")
-    cap = scanlate_pages_service.MAX_UPLOAD_BYTES + _MULTIPART_OVERHEAD
+    cap = page_import_limits.MAX_IMPORT_BYTES + _MULTIPART_OVERHEAD
     if length > cap:
         raise StarletteHTTPException(413, _TOO_LARGE)
     try:
         form = await _capped(request, cap).form(
-            max_files=scanlate_pages_service.MAX_FILES_PER_UPLOAD, max_fields=1,
+            max_files=page_import_limits.MAX_FILES_PER_IMPORT, max_fields=1,
             max_part_size=1024)
     except _BodyTooLarge:
         raise StarletteHTTPException(413, _TOO_LARGE)
     except (MultiPartException, StarletteHTTPException):
         raise InvalidInputError(
             "Send the pages as multipart/form-data 'files' parts (at most "
-            f"{scanlate_pages_service.MAX_FILES_PER_UPLOAD}).") from None
+            f"{page_import_limits.MAX_FILES_PER_IMPORT}).") from None
     try:
         uploads = [u for u in form.getlist("files") if isinstance(u, UploadFile)]
         if len(uploads) != len(form.getlist("files")) or not uploads:

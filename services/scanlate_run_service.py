@@ -17,6 +17,9 @@ Safety (spec §4):
 - A page's regions are replaced only if its region ids and rev are still
   what the job read before detecting (db.replace_bubbles_if_unchanged), so
   a page edited while the job ran keeps the edit; the job notes it.
+- A redo never trades a page's translated regions for nothing (no region
+  detected) or for OCR-only text (translation failed): the old regions are
+  kept and the page's notes say so.
 - Rolling context comes from the predecessor page's stored
   context_summary; each page stores its own afterwards.
 - SFX regions are not sent to the engine (region_excluded_from_auto).
@@ -113,16 +116,18 @@ def _detector_note(detect_backend: str, notes: list) -> tuple:
 
 def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, context: str,
                drama_id: int, notes: list):
-    """Translates the eligible regions in place, keyed by their position in
-    THIS detected list (an explicit key per region, never matched back by
-    order of the answer). Returns the new context, or None if nothing was
-    applied."""
+    """Translates the eligible regions in place. Each region is sent under
+    an explicit key and its answer is applied through a key -> region map
+    built here, never by the position of the answer. Returns (ok, context):
+    ok is False when a translation was wanted but not applied (the notes
+    say why); context is the new rolling context, or None if none."""
     import scanlate
-    keyed = {str(i): b["source_text"] for i, b in enumerate(bubbles)
-             if not b.get("skip") and not scanlate.region_excluded_from_auto(b)
-             and (b.get("source_text") or "").strip()}
-    if not keyed:
-        return None
+    by_key = {str(i): b for i, b in enumerate(bubbles)
+              if not b.get("skip") and not scanlate.region_excluded_from_auto(b)
+              and (b.get("source_text") or "").strip()}
+    if not by_key:
+        return True, None
+    keyed = {key: b["source_text"] for key, b in by_key.items()}
 
     def usage_cb(inp, out):
         db.log_usage(drama_id, engine_name, getattr(engine, "model", engine_name),
@@ -136,20 +141,31 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     except Exception as exc:
         notes.append(("warning", f"Translation failed ({type(exc).__name__}: {exc}). The OCR "
                                  "text was saved; use Redo this page to try again."))
-        return None
+        return False, None
     if result is None:
         notes.append(("warning", "The translation answer could not be matched to this page's "
                                  "regions, so none of it was applied. The OCR text was saved; "
                                  "use Redo this page to try again."))
-        return None
+        return False, None
     for key, text in result.items():
-        bubbles[int(key)]["translated_text"] = text
-    return new_context
+        by_key[key]["translated_text"] = text
+    return True, new_context
+
+
+def _redo_would_lose_work(existing: list, bubbles: list, translated_ok: bool) -> bool:
+    """A redo replaces the page's regions. It must not swap translated
+    regions for nothing (detection found none) or for OCR-only text (the
+    translation failed); the page then keeps what it has."""
+    if not bubbles:
+        return True
+    return not translated_ok and any((b.get("translated_text") or "").strip()
+                                     for b in existing)
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
                   detect_kwargs: dict, glossary) -> str:
-    """One page. Returns "skipped", "stale", "done" or "translated"."""
+    """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
+    old regions stay), "done" or "translated"."""
     import scanlate
     page = db.get_page(page_id, drama_id=drama_id)
     if page is None:
@@ -173,10 +189,17 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         notes.append(("warning", f"OCR ({detect_kwargs['ocr_backend']}) found no text in any "
                                  "region. Check that this OCR backend is installed "
                                  "(Diagnostics)."))
-    new_context = None
+    new_context, translated_ok = None, True
     if bubbles:
-        new_context = _translate(bubbles, engine, engine_name, drama, glossary,
-                                 _predecessor_context(drama_id, page_id), drama_id, notes)
+        translated_ok, new_context = _translate(
+            bubbles, engine, engine_name, drama, glossary,
+            _predecessor_context(drama_id, page_id), drama_id, notes)
+    if existing and _redo_would_lose_work(existing, bubbles, translated_ok):
+        notes.append(("warning", "Redo did not produce a usable result for this page, so its "
+                                 "existing regions were kept unchanged. Try Redo this page "
+                                 "again."))
+        db.update_page(page_id, run_notes=pages_svc.notes_to_json(notes))
+        return "kept"
     new_ids = db.replace_bubbles_if_unchanged(page_id, expected_ids, bubbles,
                                               expected_rev=expected_rev)
     if new_ids is None:
@@ -207,7 +230,7 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
                      "hf_token": settings_service.resolve_key("hf_token") or None,
                      "ocr_backend": ocr_backend,
                      "tesseract_cmd": settings_service.get_tesseract_cmd()}
-    counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "failed": 0}
+    counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
     for n, pid in enumerate(page_ids, start=1):
         render_svc._check_cancel(jid)
@@ -231,6 +254,8 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
         parts.append(f"{counts['skipped']} skipped (already done)")
     if counts["stale"]:
         parts.append(f"{counts['stale']} edited meanwhile")
+    if counts["kept"]:
+        parts.append(f"{counts['kept']} kept unchanged (redo failed)")
     if counts["failed"]:
         parts.append(f"{counts['failed']} failed")
     background_jobs.update_progress(jid, 1.0, "Pages: " + ", ".join(parts) + ".")

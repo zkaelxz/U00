@@ -1044,7 +1044,8 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     one id; they carry no rolling context."""
     import json
     import re
-    from translate_engines import _extract_first_json_value, call_llm_json
+    from translate_engines import (LANGUAGE_NAMES, _extract_first_json_value,
+                                   build_translation_context, call_llm_json)
     from translation_guide import build_glossary_block
 
     ids = [str(k) for k in texts_by_id]
@@ -1052,24 +1053,31 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
         return {}, previous_context
     if (not getattr(engine, "supports_reference", False)
             or getattr(engine, "name", None) in _PER_REGION_ENGINES):
+        # The shared context carries the drama's source_language (DeepL,
+        # Google and NLLB default to Chinese without it).
+        context = build_translation_context(engine, drama_meta, glossary_terms=glossary_terms)
         out = {}
         for key, text in zip(ids, texts_by_id.values()):
-            result = engine.translate_batch([text], {"drama_meta": drama_meta,
-                                                     "glossary_terms": glossary_terms})
+            result = engine.translate_batch([text], dict(context))
+            if usage_cb and hasattr(engine, "last_usage"):     # per call: it is reset each time
+                usage_cb(engine.last_usage.get("input_tokens", 0),
+                         engine.last_usage.get("output_tokens", 0))
             if not isinstance(result, (list, tuple)) or len(result) != 1 \
                     or not isinstance(result[0], str):
                 return None, previous_context
             out[key] = result[0]
         return out, previous_context
 
+    source_name = LANGUAGE_NAMES.get((drama_meta or {}).get("source_language") or "zh",
+                                     "source-language")
     context_block = f"\n\nContext from previous pages: {previous_context}" if previous_context else ""
     glossary_block = build_glossary_block(glossary_terms)
     glossary_block = f"\n\n{glossary_block}" if glossary_block else ""
     payload = json.dumps([{"id": k, "text": t} for k, t in zip(ids, texts_by_id.values())],
                          ensure_ascii=False)
     prompt = (
-        "Translate these manga/comic text regions into natural English, keeping character "
-        "voice and plot consistent with the context below if any. They are listed in reading "
+        f"Translate these {source_name} manga/comic text regions into natural English, keeping "
+        "character voice and plot consistent with the context below if any. They are listed in reading "
         "order; each has an id."
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
