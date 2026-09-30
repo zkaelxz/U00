@@ -198,6 +198,9 @@ baihe-subtitler/
 │   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
 │   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
+│   ├── remote_health_service.py  remote-access health: Caddy's certificate expiry (local TLS read), optional
+│   │                             public-name vs public-IP check, household listener up; scheduled by
+│   │                             api/background.py only while remote access is on; alerts once per change
 │   ├── jellyfin_service.py       Step 39 -- optional Jellyfin connector (off by default): settings (key in .env),
 │   │                             test connection, read-only scan for items missing a subtitle language, send
 │   │                             subtitles (+ optional video) into the library folder in Jellyfin's naming, refresh

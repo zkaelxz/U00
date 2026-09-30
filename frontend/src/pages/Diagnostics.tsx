@@ -6,6 +6,7 @@ import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { RemoteHealthLine } from '../components/RemoteHealthBanner'
 import { statusTone } from '../components/labels'
 import { Section } from '../components/Section'
 import { buttonClass } from '../components/uiClasses'
@@ -157,6 +158,7 @@ export default function DiagnosticsPage() {
           </ButtonLink>{' '}
           Test engines and prompts against golden sets.
         </p>
+        <RemoteHealthLine />
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 

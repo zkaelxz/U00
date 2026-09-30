@@ -166,6 +166,35 @@ class DiagnosticsOverview(BaseModel):
     recent_log_lines: List[str]
 
 
+RemoteHealthState = Literal["off", "unknown", "not_configured", "ok", "warn", "critical"]
+
+
+class RemoteHealthCheck(BaseModel):
+    state: RemoteHealthState
+    message: str
+
+
+class RemoteCertificateCheck(RemoteHealthCheck):
+    days_left: Optional[int] = None
+
+
+class RemoteDdnsCheck(RemoteHealthCheck):
+    configured: bool
+
+
+class RemoteHealth(BaseModel):
+    """GET /api/diagnostics/remote-health: the last scheduled check of remote
+    access. States, whole days, Unix times and fixed messages only: never the
+    public name, an address, a URL or a path."""
+    state: Literal["off", "unknown", "ok", "warn", "critical"]
+    message: str
+    checked_at: Optional[float] = None
+    since: Optional[float] = None
+    certificate: RemoteCertificateCheck
+    ddns: RemoteDdnsCheck
+    listener: RemoteHealthCheck
+
+
 class JobRecord(BaseModel):
     """One job's cross-process record (Migration Slice 8, reading
     Migration Slice 7's job_records mirror) -- the last status this app

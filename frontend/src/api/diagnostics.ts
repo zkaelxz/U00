@@ -19,6 +19,7 @@ import type {
   DiagnosticsResetResult,
   DiagnosticsSetupChecks,
   DiagnosticsSupportReport,
+  RemoteHealth,
 } from '../types/diagnostics'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -112,3 +113,6 @@ export const getBugBundles = (f?: Fetch) => getJson<DiagnosticsBugBundle[]>(`${B
 
 export const deleteBugBundle = (id: number, f?: Fetch) =>
   postJson<BugBundleDeleteResult>(`${BASE}/bug-bundles/${id}/delete`, { confirm: true }, pcOnlyFetch(f))
+
+// The last scheduled remote-access check; reading it starts no check.
+export const getRemoteHealth = (f?: Fetch) => getJson<RemoteHealth>(`${BASE}/remote-health`, f)

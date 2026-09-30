@@ -149,11 +149,13 @@ async def _lifespan(app: FastAPI):
     except Exception:
         logging.getLogger(__name__).warning("Stale session sweep failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
-                                start_reeval_scheduler, stop_gpu_queue_poller,
-                                stop_reeval_scheduler)
+                                start_reeval_scheduler, start_remote_health_monitor,
+                                stop_gpu_queue_poller, stop_reeval_scheduler,
+                                stop_remote_health_monitor)
     start_background_services()
     start_gpu_queue_poller()
     start_reeval_scheduler()
+    start_remote_health_monitor(app.state.settings)
     try:
         yield
     finally:
@@ -161,6 +163,7 @@ async def _lifespan(app: FastAPI):
         lncrawl_service.shutdown()
 
         stop_reeval_scheduler()
+        stop_remote_health_monitor()
 
 
 def create_app(settings: ApiSettings = None, frontend_dist=None,

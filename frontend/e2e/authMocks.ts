@@ -47,6 +47,11 @@ const DRAMA = {
   created_at: '2026-09-29T12:00:00', updated_at: '2026-09-29T12:00:00',
 }
 const EMPTY = { items: [] }
+const OFF_CHECK = { state: 'off', message: 'Remote access is off.' }
+export const REMOTE_HEALTH_OFF = {
+  state: 'off', message: 'Remote access is off.', checked_at: null, since: null,
+  certificate: { ...OFF_CHECK, days_left: null }, ddns: { ...OFF_CHECK, configured: false }, listener: OFF_CHECK,
+}
 
 /** What the app shell and the Library page GET, keyed by pathname. */
 const GET_FIXTURES: Record<string, unknown> = {
@@ -67,6 +72,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/voice-bank': EMPTY,
   // The header bell (every page) polls this.
   '/api/notifications': EMPTY,
+  // The remote-access banner reads this on the PC only (these specs are remote); off here.
+  '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
   // Settings > Signed-in devices, for a signed-in person: just this device.

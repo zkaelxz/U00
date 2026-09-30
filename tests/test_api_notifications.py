@@ -595,7 +595,8 @@ def test_status_is_booleans_only(env):
     r = _client().get("/api/settings/notifications")
     assert r.status_code == 200
     assert r.json() == {"discord_configured": True, "ntfy_configured": True,
-                        "ntfy_allow_local": False, "send_jobs": True, "send_chapters": True}
+                        "ntfy_allow_local": False, "send_jobs": True, "send_chapters": True,
+                        "send_remote": True}
     _no_secret(r.text)
 
 
@@ -812,13 +813,13 @@ def test_chapter_check_pushes_only_when_it_finds_new_chapters(env, no_timer):
 
 def test_categories_switch_external_pushes_but_not_the_in_app_list(env, no_timer):
     _write(env, discord=DISCORD)
-    assert ns.get_categories() == {"jobs": True, "chapters": True}
+    assert ns.get_categories() == {"jobs": True, "chapters": True, "remote": True}
     ns.set_categories(jobs=False)
     ns.notify_job_finished("Translation", "done", job_id="translate_1")
     _chapter_check({"new": 2})
     assert [c for _s, _m, c in ns._pending] == ["chapters"]
     ns.set_categories(jobs=True, chapters=False)
-    assert ns.get_categories() == {"jobs": True, "chapters": False}
+    assert ns.get_categories() == {"jobs": True, "chapters": False, "remote": True}
     _chapter_check({"new": 3})
     ns.notify_job_finished("Dub generation", "error", job_id="dub_1")
     assert [c for _s, _m, c in ns._pending] == ["chapters", "jobs"]
@@ -865,7 +866,7 @@ def test_categories_route_is_pc_only(env):
     admin = _session(True)
     assert remote.post("/api/settings/notifications/categories", json={"jobs": False},
                        headers=_h(admin)).status_code == 403
-    assert ns.get_categories() == {"jobs": True, "chapters": False}
+    assert ns.get_categories() == {"jobs": True, "chapters": False, "remote": True}
 
 
 def test_recent_route_lists_events_without_job_ids(env, no_timer):

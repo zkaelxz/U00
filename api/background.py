@@ -140,6 +140,50 @@ def stop_reeval_scheduler(timeout: float = 5.0) -> None:
         poller[0].join(timeout)
 
 
+# Remote-access health (services/remote_health_service.py): started only when
+# remote access is on (an https BAIHE_PUBLIC_URL and a household listener), so
+# with it off there is no thread and no call out. A first check shortly after
+# startup, then every CHECK_INTERVAL_SECONDS; alerts go out only on a change.
+_remote_health_poller = None   # (thread, stop_event) while running
+
+
+def start_remote_health_monitor(settings, interval: float = None,
+                                first: float = None) -> bool:
+    global _remote_health_poller
+    from services import remote_health_service as rhs
+    if not rhs.remote_access_enabled(settings.public_url, settings.household_port):
+        return False
+    interval = rhs.CHECK_INTERVAL_SECONDS if interval is None else float(interval)
+    first = rhs.FIRST_CHECK_SECONDS if first is None else float(first)
+    with _gpu_lock:
+        if _remote_health_poller is not None and _remote_health_poller[0].is_alive():
+            return False
+        stop = threading.Event()
+
+        def loop():
+            wait = min(interval, first)
+            while not stop.wait(wait):
+                wait = interval
+                try:
+                    rhs.run_check(settings.public_url, settings.household_port, settings.host)
+                except Exception as exc:
+                    _log("remote access health check failed: %s", type(exc).__name__)
+
+        thread = threading.Thread(target=loop, daemon=True, name="api-remote-health")
+        _remote_health_poller = (thread, stop)
+        thread.start()
+        return True
+
+
+def stop_remote_health_monitor(timeout: float = 5.0) -> None:
+    global _remote_health_poller
+    with _gpu_lock:
+        poller, _remote_health_poller = _remote_health_poller, None
+    if poller is not None:
+        poller[1].set()
+        poller[0].join(timeout)
+
+
 def start_background_services() -> dict:
     """Starts what is due (and runs the startup sweeps above); returns
     {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a

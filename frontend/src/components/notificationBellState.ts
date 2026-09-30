@@ -68,6 +68,7 @@ export const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: stri
   job_done: { tone: 'ok', label: 'Done' },
   job_failed: { tone: 'bad', label: 'Failed' },
   chapters: { tone: 'info', label: 'New chapters' },
+  remote: { tone: 'warn', label: 'Remote access' },
 }
 
 export function kindBadge(kind: string): { tone: BadgeTone; label: string } {
