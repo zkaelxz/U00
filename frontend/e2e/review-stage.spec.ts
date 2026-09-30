@@ -697,6 +697,23 @@ test('with a source video, it shows by default with English subtitles drawn on i
   await expect(video).toBeVisible()
 })
 
+test('on a tablet the video card sits beside the lines, with no sideways scroll', async ({ page }) => {
+  test.skip(!withVideo(), 'OpenCV is not installed, so there is no test video')
+  await page.setViewportSize({ width: 820, height: 1180 })
+  await open(page)
+  const card = page.getByRole('complementary', { name: 'Video with subtitles' })
+  await expect(card.locator('video.review-video')).toBeVisible()
+  await expect(card.getByLabel('Subtitles')).toBeVisible()
+  const lines = await page.locator('.review-lines').boundingBox()
+  const box = await card.boundingBox()
+  expect(lines && box && box.x >= lines.x + lines.width).toBe(true)
+  const { scroll, client } = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }))
+  expect(scroll).toBeLessThanOrEqual(client)
+})
+
 test('crossing the phone width keeps the same video, its position and its play state', async ({ page }) => {
   test.skip(!withVideo(), 'OpenCV is not installed, so there is no test video')
   await page.setViewportSize({ width: 1024, height: 800 })
