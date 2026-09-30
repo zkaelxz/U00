@@ -146,6 +146,71 @@ def _owned_routes(app):
             yield path, methods, decls
 
 
+def _service_names(tree, module_name):
+    """{local name: services module or function} for a module's imports."""
+    import ast
+    import importlib
+    names = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            mod = node.module
+            if node.level:
+                mod = module_name.rsplit(".", node.level)[0] + "." + mod
+            if mod.split(".")[0] != "services":
+                continue
+            for a in node.names:
+                names[a.asname or a.name] = (
+                    importlib.import_module(f"services.{a.name}") if mod == "services"
+                    else getattr(importlib.import_module(mod), a.name, None))
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.startswith("services.") and a.asname:
+                    names[a.asname] = importlib.import_module(a.name)
+    return names
+
+
+def _principal_calls(func, names, module):
+    """(call node, service function, the expression passed as `principal` or
+    None) for every call in `func` to a function whose `principal` defaults
+    to None (auth off, sees everything) -- called directly, or handed to a
+    runner such as run_in_threadpool(fn, ..., principal=...). A positional
+    principal counts. Names resolve through the module's service imports,
+    then the module's own globals (a same-module helper)."""
+    import ast
+    import inspect
+
+    def resolve(node):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+                and inspect.ismodule(names.get(node.value.id)):
+            return getattr(names[node.value.id], node.attr, None)
+        if isinstance(node, ast.Name):
+            return names.get(node.id) or getattr(module, node.id, None)
+        return None
+
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        candidates = [(resolve(node.func), node.args)]
+        candidates += [(resolve(a), node.args[i + 1:]) for i, a in enumerate(node.args)]
+        for fn, args in candidates:
+            if not inspect.isfunction(fn):
+                continue
+            params = inspect.signature(fn).parameters
+            param = params.get("principal")
+            if param is None or param.default is inspect.Parameter.empty:
+                continue
+            passed = {k.arg: k.value for k in node.keywords}.get("principal")
+            positional = [p for p in params.values()
+                          if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+            index = positional.index(param) if param in positional else None
+            if passed is None and index is not None and index < len(args) \
+                    and not any(isinstance(a, ast.Starred) for a in args[:index + 1]):
+                passed = args[index]
+            if passed is None and any(k.arg is None for k in node.keywords):
+                passed = node          # **kwargs: can't tell, treated as passed
+            yield node, fn, passed
+
+
 class TestEveryOwnedRouteIsGuarded:
     def test_owned_routes_use_a_guarded_declaration(self):
         app = _app()
@@ -219,6 +284,100 @@ class TestEveryOwnedRouteIsGuarded:
                     bad.append(f"{path.name}:{node.lineno} {fn.__qualname__}")
         assert checked > 20
         assert not bad, bad
+
+    def test_route_handlers_pass_the_request_principal(self):
+        # The test above checks every call from api/ by name. This one walks
+        # the dispatchable routes and also catches a principal-taking service
+        # handed to a runner (run_in_threadpool(fn, ..., principal=...)), and
+        # requires the value to be the request's own principal: an
+        # expression over request.state.principal, or a local name assigned
+        # from one in the same handler.
+        import ast
+        import inspect
+        import sys
+        import textwrap
+
+        def from_request(expr):
+            return any(isinstance(n, ast.Attribute) and n.attr == "state"
+                       for n in ast.walk(expr)) and "principal" in ast.unparse(expr)
+
+        checked, bad, seen = 0, [], set()
+        for route, path, _m, _d in api_auth.iter_route_declarations(_app()):
+            endpoint = getattr(route, "endpoint", None)
+            if endpoint is None or not (endpoint.__module__ or "").startswith("api.") \
+                    or endpoint in seen:
+                continue
+            seen.add(endpoint)
+            module = sys.modules[endpoint.__module__]
+            func = ast.parse(textwrap.dedent(inspect.getsource(endpoint))).body[0]
+            names = _service_names(ast.parse(inspect.getsource(module)), module.__name__)
+            from_req = {t.id for n in ast.walk(func) if isinstance(n, ast.Assign)
+                        and from_request(n.value) for t in n.targets if isinstance(t, ast.Name)}
+            for call, fn, passed in _principal_calls(func, names, module):
+                checked += 1
+                ok = passed is not None and (
+                    passed is call or from_request(passed)
+                    or (isinstance(passed, ast.Name) and passed.id in from_req))
+                if not ok:
+                    bad.append(f"{path} {endpoint.__name__} -> {fn.__qualname__}")
+        assert checked > 20
+        assert not bad, ("A route calls a service whose principal=None means 'auth off, "
+                         "sees everything' without passing request.state.principal: %r" % bad)
+
+    def test_services_forward_the_principal(self):
+        # A service that was handed a principal must pass it on to every
+        # principal-taking function it calls; a dropped one silently means
+        # "auth off" for the rest of the call.
+        import ast
+        import importlib
+        import inspect
+        import pathlib
+        import services
+
+        checked, bad = 0, []
+        for path in sorted(pathlib.Path(services.__file__).parent.glob("*.py")):
+            name = f"services.{path.stem}"
+            try:
+                module = importlib.import_module(name)
+            except Exception:
+                continue            # e.g. a test-only guard that refuses to import
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = _service_names(tree, name)
+            for func in ast.walk(tree):
+                if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                args = func.args
+                if "principal" not in {a.arg for a in args.posonlyargs + args.args
+                                       + args.kwonlyargs}:
+                    continue
+                for call, fn, passed in _principal_calls(func, names, module):
+                    checked += 1
+                    if passed is None or (isinstance(passed, ast.Constant)
+                                          and passed.value is None):
+                        bad.append(f"{path.name}:{call.lineno} {func.name} -> {fn.__qualname__}")
+        assert checked > 10
+        assert not bad, bad
+
+    def test_principal_call_finder_sees_every_form(self):
+        import ast
+        import types
+
+        def svc(drama_id, principal=None):
+            return drama_id
+
+        module = types.SimpleNamespace(svc=svc, run=lambda fn, *a, **k: fn(*a, **k))
+        src = ("def h(request, p):\n"
+               "    svc(1)\n"                                   # missing
+               "    svc(1, principal=None)\n"
+               "    svc(1, request.state.principal)\n"          # positional
+               "    run(svc, 1)\n"                              # handed off, missing
+               "    run(svc, 1, principal=p)\n"
+               "    svc(1, **k)\n")
+        found = [(c.lineno, ast.unparse(p) if isinstance(p, ast.expr) and p is not c
+                  else p is c) for c, _fn, p in _principal_calls(
+                      ast.parse(src).body[0], {}, module)]
+        assert found == [(2, False), (3, "None"), (4, "request.state.principal"),
+                         (5, False), (6, "p"), (7, True)]
 
     def test_body_drama_ids_reach_a_service_that_takes_the_principal(self):
         # The path guard only sees `{drama_id}` in the URL. A drama id from
