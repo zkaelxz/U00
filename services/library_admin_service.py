@@ -572,7 +572,8 @@ def start_database_backup() -> dict:
 #   page: rows of a kept page only; series: rows of a kept series only
 #   series_character: kept drama and kept series character only
 #   user: rows of the owner only, user column cleared
-#   profiles: household profiles that kept rows point at, plus the default
+#   profile_drama: rows of a kept drama on the default profile only
+#   profiles: the default profile only (the one reader data uses)
 #   style_scope: the learned style of a kept series only
 #   keep: household-wide, nothing personal
 #   empty: every row dropped
@@ -582,8 +583,10 @@ USER_BACKUP_TABLES = {
     "lines": ("drama", ""), "characters": ("drama", ""), "pages": ("drama", ""),
     "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
     "consistency_issues": ("drama", ""), "vocab_lookups": ("drama", ""),
-    "usage_log": ("drama", ""), "line_history": ("drama", ""), "progress": ("drama", ""),
-    "personal_notes": ("drama", ""), "reading_history": ("drama", ""),
+    "usage_log": ("drama", ""), "line_history": ("drama", ""),
+    "progress": ("profile_drama", "other household profiles' reading stays behind"),
+    "personal_notes": ("profile_drama", "other household profiles' notes stay behind"),
+    "reading_history": ("profile_drama", "other household profiles' history stays behind"),
     "translation_versions": ("drama", ""), "bug_reports": ("drama", ""),
     "wiki_entries": ("drama", ""), "edit_samples": ("drama", ""),
     "line_provenance": ("drama", ""), "metadata_research_results": ("drama", ""),
@@ -618,8 +621,8 @@ USER_BACKUP_TABLES = {
     "model_candidates": ("empty", "this PC's model choices"),
     "model_decisions": ("empty", "this PC's model choices"),
 }
-# Pre-Step-2 migration copies (_backup_step2_<table>) hold rows of every
-# drama; they are dropped from the copy.
+# Copies an old line-reference migration left behind (_backup_step2_<table>)
+# hold rows of every drama; they are dropped from the copy.
 _DROPPED_TABLE_PREFIX = "_backup_step2_"
 
 
@@ -658,6 +661,9 @@ def _user_backup_filter(path: str, owner_id) -> list:
                          "WHERE owner_user_id IS ?", (owner_id,))
             conn.execute("INSERT INTO temp.keep_series SELECT id FROM series "
                          "WHERE owner_user_id IS ?", (owner_id,))
+            default_profile = None
+            if "profiles" in tables:
+                default_profile = conn.execute("SELECT MIN(id) FROM profiles").fetchone()[0]
             in_dramas = "drama_id IN (SELECT id FROM temp.keep_dramas)"
             in_series = "series_id IN (SELECT id FROM temp.keep_series)"
             rules = {t: USER_BACKUP_TABLES.get(t, ("drop", ""))[0] for t in tables}
@@ -669,9 +675,15 @@ def _user_backup_filter(path: str, owner_id) -> list:
                     continue
                 rule = rules[t]
                 need = {"drama": "drama_id", "series_character": "drama_id", "page": "page_id",
-                        "series": "series_id", "user": "user_id"}.get(rule)
-                if rule == "empty" or (need and need not in cols(t)):
+                        "series": "series_id", "user": "user_id",
+                        "profile_drama": "profile_id"}.get(rule)
+                if rule == "empty" or (need and need not in cols(t)) or (
+                        rule == "profile_drama" and "drama_id" not in cols(t)):
                     conn.execute(f'DELETE FROM "{t}"')
+                elif rule == "profile_drama":
+                    # A NULL profile_id means the default profile.
+                    keep_only(t, in_dramas + " AND COALESCE(profile_id, ?) IS ?",
+                              (default_profile, default_profile))
                 elif rule in ("owned_dramas", "owned_series"):
                     keep = "keep_dramas" if rule == "owned_dramas" else "keep_series"
                     keep_only(t, f"id IN (SELECT id FROM temp.{keep})")
@@ -695,11 +707,7 @@ def _user_backup_filter(path: str, owner_id) -> list:
                 elif rule == "style_scope":
                     keep_only(t, "scope IN (SELECT 'series:' || id FROM temp.keep_series)")
                 elif rule == "profiles":
-                    used = [f'SELECT profile_id FROM "{u}"' for u in
-                            ("progress", "personal_notes", "reading_history")
-                            if rules.get(u) == "drama" and "profile_id" in cols(u)]
-                    used.append(f'SELECT MIN(id) FROM "{t}"')
-                    keep_only(t, f"id IN ({' UNION '.join(used)})")
+                    keep_only(t, "id IS ?", (default_profile,))
             if "series_id" in cols("dramas"):
                 conn.execute(f"UPDATE dramas SET series_id = NULL WHERE series_id IS NOT NULL "
                              f"AND NOT {in_series}")
@@ -707,12 +715,19 @@ def _user_backup_filter(path: str, owner_id) -> list:
                 conn.execute("UPDATE characters SET series_character_id = NULL "
                              "WHERE series_character_id IS NOT NULL AND series_character_id "
                              "NOT IN (SELECT id FROM temp.keep_chars)")
-            kept_tables = [t for t, r in rules.items() if r not in ("empty", "drop")
-                           and not t.startswith(_DROPPED_TABLE_PREFIX)]
+            # Each AUTOINCREMENT counter is reset to the highest kept id, so
+            # it doesn't tell how many rows the whole household has.
             if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
-                marks = ", ".join("?" for _ in kept_tables) or "NULL"
-                conn.execute(f"DELETE FROM sqlite_sequence WHERE name NOT IN ({marks})",
-                             kept_tables)
+                live = set(r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"))
+                for (name,) in conn.execute("SELECT name FROM sqlite_sequence").fetchall():
+                    top = (conn.execute(f'SELECT MAX(rowid) FROM "{name}"').fetchone()[0]
+                           if name in live else None)
+                    if top is None:
+                        conn.execute("DELETE FROM sqlite_sequence WHERE name = ?", (name,))
+                    else:
+                        conn.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = ?",
+                                     (top, name))
             for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
                                         "AND name LIKE 'sqlite_stat%'").fetchall():
                 conn.execute(f'DROP TABLE "{name}"')
@@ -744,12 +759,18 @@ def _drama_media_files(drama_id: int):
             yield full, os.path.relpath(full, db.LIBRARY_DIR).replace(os.sep, "/")
 
 
-def write_user_backup_zip(dest: str, owner_id=None):
+def write_user_backup_zip(dest: str, owner_id=None, cancelled=None):
     """A backup zip of one owner's items (owner_id None: the PC owner):
     the snapshot cut down by _user_backup_filter, plus only the kept
     dramas' own folders under dramas/. Nothing else from the library
     folder (voice bank, benchmark files, sources.db, other dramas'
-    folders) is included. The live library is only read."""
+    folders) is included. The live library is only read. `cancelled`, if
+    given, is polled between files; when it returns True the job stops
+    with background_jobs.JobCancelled (the caller removes the partial file)."""
+    def check():
+        if cancelled is not None and cancelled():
+            raise background_jobs.JobCancelled()
+
     with tempfile.TemporaryDirectory() as snapdir:
         snap = os.path.join(snapdir, "library.db")
         _sanitized_snapshot(snap)
@@ -757,13 +778,40 @@ def write_user_backup_zip(dest: str, owner_id=None):
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             for did in kept:
                 for full, arcname in _drama_media_files(did):
+                    check()
                     zf.write(full, arcname)
             zf.write(snap, "library.db")
+    check()
+
+
+_USER_BACKUP_NAME = re.compile(r"baihe_my_items_backup_\d{8}_\d{6}\.zip")
+
+
+def _remove_older_user_backups(keep: str):
+    """Only the newest per-person backup is kept: each one holds a person's
+    private items. Only regular files with the generated name are removed."""
+    folder = _artifact_dir("user_backup", create=False)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(folder, name)
+        if (name == keep or not _USER_BACKUP_NAME.fullmatch(name) or os.path.islink(path)
+                or not os.path.isfile(path)):
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            log.warning("An older per-person backup could not be removed")
 
 
 def _user_backup_job(job_id, owner_id):
-    name, size = _write_artifact("user_backup", ".zip", "The backup could not be written.",
-                                 lambda dest: write_user_backup_zip(dest, owner_id))
+    name, size = _write_artifact(
+        "user_backup", ".zip", "The backup could not be written.",
+        lambda dest: write_user_backup_zip(
+            dest, owner_id, cancelled=lambda: background_jobs.is_cancel_requested(job_id)))
+    _remove_older_user_backups(name)
     background_jobs.set_result(job_id, {"name": name, "size": size})
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 

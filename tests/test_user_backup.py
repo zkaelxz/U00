@@ -58,7 +58,9 @@ def test_every_table_is_classified(isolated_db):
             rule = las.USER_BACKUP_TABLES[t][0]
             cols = set(_cols(conn, t))
             if "drama_id" in cols:
-                assert rule in ("drama", "series_character", "empty"), t
+                assert rule in ("drama", "profile_drama", "series_character", "empty"), t
+            if "profile_id" in cols:
+                assert rule in ("profile_drama", "empty"), t
             if "series_id" in cols and t != "dramas":
                 assert rule in ("series", "empty"), t
             if "page_id" in cols:
@@ -188,7 +190,11 @@ def _build_library():
             _seed_row(conn, "translate_history", {"user_id": uid}, marker)
         for scope, marker in (("global", OTHER), (f"series:{sa}", MINE), (f"series:{sb}", OTHER)):
             _seed_row(conn, "style_profile", {"scope": scope}, marker)
-        _seed_row(conn, "profiles", {}, OTHER)                    # an unreferenced profile
+        _seed_row(conn, "profiles", {}, OTHER)                    # a second household profile
+        other_profile = conn.execute("SELECT MAX(id) FROM profiles").fetchone()[0]
+        for did in mine:                          # its reading data on A's dramas stays behind
+            for t in ("progress", "personal_notes", "reading_history"):
+                _seed_row(conn, t, {"drama_id": did, "profile_id": other_profile}, OTHER)
         seeded = set(drama_tables) | {"series_characters", "glossary_terms", "bubbles",
                                       "translation_memory", "translate_history",
                                       "style_profile", "profiles", "dramas", "series", "users",
@@ -235,6 +241,28 @@ def _assert_clean_db_file(path):
             assert not leaked, p
 
 
+def _assert_sequences_match_kept_rows(data):
+    """Every AUTOINCREMENT counter in the zip is the highest kept id (no
+    household-wide counts); an emptied table has none."""
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        raw = zf.read("library.db")
+    path = os.path.join(os.path.dirname(db.LIBRARY_DIR), "seq_check.db")
+    with open(path, "wb") as f:
+        f.write(raw)
+    conn = sqlite3.connect(path)
+    try:
+        seqs = dict(conn.execute("SELECT name, seq FROM sqlite_sequence").fetchall())
+        assert seqs, "expected kept AUTOINCREMENT tables"
+        for name, seq in seqs.items():
+            assert seq == conn.execute(f'SELECT MAX(rowid) FROM "{name}"').fetchone()[0], name
+        for t, (rule, _why) in las.USER_BACKUP_TABLES.items():
+            if rule == "empty":
+                assert t not in seqs, t
+    finally:
+        conn.close()
+        os.remove(path)
+
+
 def _assert_no_other_rows(conn):
     for t in _tables(conn):
         for row in conn.execute(f'SELECT * FROM "{t}"'):
@@ -272,6 +300,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
                                 for f in ("audio.wav", "pages/p1.png")}
     assert set(names) == allowed
     las.validate_backup_zip(data)
+    _assert_sequences_match_kept_rows(data)
 
     # Restore into an empty library.
     fresh = tmp_path / "fresh" / "library"
@@ -299,7 +328,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
                             (d["a_private"],)).fetchone()[0] == 1
         # Every drama table: A's rows, each drama's intact.
         for t in drama_tables:
-            if las.USER_BACKUP_TABLES[t][0] != "drama":
+            if las.USER_BACKUP_TABLES[t][0] not in ("drama", "profile_drama"):
                 continue
             got = {r[0] for r in conn.execute(f'SELECT drama_id FROM "{t}"')}
             assert got == mine, t
@@ -373,3 +402,38 @@ def test_user_backup_refused_during_maintenance(isolated_db):
     finally:
         background_jobs.exit_maintenance()
     assert background_jobs.list_all_jobs() == {}
+
+
+def _user_backup_names():
+    folder = os.path.join(db.LIBRARY_DIR, "backups", "user_backups")
+    return sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+
+
+def test_cancel_leaves_no_artifact(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="PC drama")
+    _write(f"dramas/{did}/a.wav", b"pc")
+    monkeypatch.setattr(background_jobs, "is_cancel_requested",
+                        lambda job_id: job_id == las.USER_BACKUP_JOB_ID)
+    las.start_user_backup(None)
+    end = time.time() + 20
+    while background_jobs.get_status(las.USER_BACKUP_JOB_ID)["status"] in ("queued", "running"):
+        assert time.time() < end, "job did not finish"
+        time.sleep(0.05)
+    assert background_jobs.get_status(las.USER_BACKUP_JOB_ID)["status"] == "cancelled"
+    assert _user_backup_names() == []                # no artifact, no partial file
+    with pytest.raises(NotFoundError):
+        las.latest_admin_artifact("user_backup")
+
+
+def test_only_the_newest_user_backup_is_kept(isolated_db):
+    db.create_drama(title_en="PC drama")
+    old = "baihe_my_items_backup_20200101_000000.zip"
+    unrelated = ("notes.zip", "baihe_my_items_backup_x.zip", "baihe_library_backup_20200101_000000.zip")
+    for name in (old,) + unrelated:
+        _write(f"backups/user_backups/{name}", b"x")
+    st = _wait(las.start_user_backup(None)["job_id"])
+    assert st["status"] == "done", st.get("error")
+    new = st["result"]["name"]
+    assert new != old
+    assert _user_backup_names() == sorted((new,) + unrelated)
+    assert las.latest_admin_artifact("user_backup")["name"] == new
