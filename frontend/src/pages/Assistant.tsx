@@ -11,14 +11,16 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { addBacklogItem, getAssistantSettings, listBacklog, saveAssistantSettings } from '../api/assistant'
+import { getGithubStatus } from '../api/assistantGithub'
 import { getPcMode, loadPcMode } from '../api/pcOnly'
 import { Card } from '../components/Card'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
-import type { AssistantSettings, BacklogItem, BacklogKind } from '../types/assistant'
+import type { AssistantSettings, BacklogItem, BacklogKind, GithubStatus } from '../types/assistant'
 import { BacklogCard } from './assistant/BacklogCard'
 import { ChangelogCard } from './assistant/ChangelogCard'
 import { ChatCard } from './assistant/ChatCard'
+import { GithubCard } from './assistant/GithubCard'
 import { DEVELOPER_MODE_HELP, PC_ONLY_TEXT, assistantErrorText, isForbidden } from './assistant/assistantFormat'
 import { announceDeveloperMode } from './assistant/developerMode'
 import { ToolsCard } from './assistant/ToolsCard'
@@ -30,6 +32,8 @@ export default function AssistantPage() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [backlog, setBacklog] = useState<BacklogItem[] | null>(null)
   const [backlogError, setBacklogError] = useState<string | null>(null)
+  // Null until loaded (or when the status call fails: the card and Deliver stay hidden).
+  const [github, setGithub] = useState<GithubStatus | null>(null)
   // The engine and model for this visit's asks and changelogs; blank = the saved default / server default.
   const [engine, setEngine] = useState('')
   const [model, setModel] = useState('')
@@ -64,6 +68,10 @@ export default function AssistantPage() {
     listBacklog().then(
       (r) => live && setBacklog(r.items),
       (e: unknown) => live && setBacklogError(assistantErrorText(e)),
+    )
+    getGithubStatus().then(
+      (s) => live && setGithub(s),
+      () => live && setGithub(null),
     )
     return () => {
       live = false
@@ -114,9 +122,11 @@ export default function AssistantPage() {
           onSettings={(s) => setLoad({ state: 'ready', settings: s })}
           onModeOff={refresh}
           onAddToBacklog={addToBacklog}
+          github={github}
         />
         <BacklogCard items={backlog} loadError={backlogError} onItems={setBacklog} onAdd={addToBacklog} />
         <ChangelogCard engine={engine} model={model} onModeOff={refresh} />
+        {github && <GithubCard status={github} onStatus={setGithub} />}
         <ToolsCard />
       </>
     )
