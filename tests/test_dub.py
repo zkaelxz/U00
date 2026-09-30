@@ -764,7 +764,7 @@ class TestTimeStretch:
     def test_runs_a_pitch_preserving_atempo_and_leaves_no_partial_file(self, monkeypatch, tmp_path):
         seen = []
 
-        def fake_run(cmd, check, capture_output):
+        def fake_run(cmd, check, capture_output, timeout):
             seen.append(cmd)
             _write_ms(cmd[-1], 1000)
         monkeypatch.setattr("subprocess.run", fake_run)
@@ -775,7 +775,7 @@ class TestTimeStretch:
         assert os.listdir(tmp_path) == [os.path.basename(out)]
 
     def test_a_failed_stretch_leaves_nothing_behind_for_the_next_run(self, monkeypatch, tmp_path):
-        def fake_run(cmd, check, capture_output):
+        def fake_run(cmd, check, capture_output, timeout):
             _write_ms(cmd[-1], 10)  # half-written, then ffmpeg dies
             raise RuntimeError("ffmpeg died")
         monkeypatch.setattr("subprocess.run", fake_run)

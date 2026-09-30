@@ -362,6 +362,7 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     cues = hardsub_ocr.extract_hardsub_subtitles(
         video_path, language=language, sample_interval=sample_interval,
         ocr_backend=ocr_backend, chinese_script=chinese_script, tesseract_cmd=tesseract_cmd,
+        job_id=job_id, cancel_check=lambda: _raise_if_cancelled(job_id),
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
     if not cues:
@@ -405,6 +406,7 @@ def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
     try:
         tags = sensevoice_tags.tag_lines(
             audio_path, lines, use_gpu=use_gpu,
+            cancel_check=lambda: _raise_if_cancelled(job_id),
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Listening for emotion and sounds... {frac * 100:.0f}%"))
     finally:
