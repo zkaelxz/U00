@@ -2009,10 +2009,15 @@ class TestLeadReviewFollowUps:
             return real_remove(path, *args, **kw)
         monkeypatch.setattr(abs_.os, "replace", cross_device)
         monkeypatch.setattr(abs_.os, "remove", locked)
+        (tmp_path / abs_.SNAPSHOT_NAME).write_bytes(b"older file already there")
         with pytest.raises(ServiceError):
             abs_.set_settings(folder=str(tmp_path))
         monkeypatch.undo()
-        assert os.listdir(tmp_path) == []           # the copy was removed again
+        # The temp copy is gone and the file already at the destination was
+        # never touched (the copy is only renamed over it after the source
+        # is removed).
+        assert os.listdir(tmp_path) == [abs_.SNAPSHOT_NAME]
+        assert (tmp_path / abs_.SNAPSHOT_NAME).read_bytes() == b"older file already there"
         assert _read(src) == data
         assert abs_.get_settings()["folder"] == ""
 
@@ -2045,3 +2050,44 @@ class TestLeadReviewFollowUps:
             row = c.execute("SELECT profile_id, line_idx FROM reading_history "
                             "WHERE drama_id = ?", (res["drama_id"],)).fetchone()
         assert tuple(row) == (None, 3)
+
+
+class TestSeriesIdReuse:
+    """Lead re-review: after a whole-library restore of an older library the
+    auto snapshot survives, and a new series can reuse an id the snapshot
+    used for a different series."""
+
+    def _setup(self, private, other_owner):
+        from services import auth_service
+        owner = auth_service.add_user("owner@example.com")
+        kid = auth_service.add_user("kid@example.com")
+        with contextlib.closing(_conn()) as c:
+            sid = _insert(c, "series", name="Old", owner_user_id=owner["id"], is_private=0)
+            a = _insert(c, "dramas", title_en="D", series_id=sid, owner_user_id=kid["id"],
+                        is_private=0, status="aligned")
+            c.commit()
+        _snap()
+        _delete_drama(a)
+        with contextlib.closing(_conn()) as c:   # the id now names an unrelated series
+            c.execute("UPDATE series SET name = 'Unrelated', is_private = ?, owner_user_id = ? "
+                      "WHERE id = ?", (int(private), owner["id"] if other_owner else kid["id"],
+                                       sid))
+            c.commit()
+        return sid, a
+
+    def test_same_id_other_name_is_recreated_not_linked(self, isolated_db):
+        sid, a = self._setup(private=False, other_owner=True)
+        before = _series_rows()
+        res = _restore(a)
+        new_sid = db.get_drama(a)["series_id"]
+        assert res["series"] == "recreated" and new_sid not in (None, sid)
+        assert _series_rows()[new_sid]["name"] == "Old"
+        assert _series_rows()[sid] == before[sid]
+
+    def test_same_id_other_name_private_is_still_dropped(self, isolated_db):
+        sid, a = self._setup(private=True, other_owner=True)
+        before = _series_rows()
+        res = _restore(a)
+        assert res["series"] == "dropped_private"
+        assert db.get_drama(a)["series_id"] is None
+        assert _series_rows() == before

@@ -184,15 +184,15 @@ def _move_snapshot(old_folder: str, new_folder: str):
     """Keeps the one-snapshot rule across a folder change: the existing
     snapshot moves to the new folder (replacing a stale file of the same
     name there). The caller holds _snapshot_lock and has checked no
-    backup runs. On failure nothing changes: a copy made for a cross-drive
-    move is removed again if the original can't be deleted."""
+    backup runs. On failure nothing changes: a cross-drive copy is made
+    under a temp name and only renamed over dest once the original is
+    removed."""
     src = os.path.join(_folder_path(old_folder), SNAPSHOT_NAME)
     if os.path.islink(src) or not os.path.isfile(src):
         return
     dest_dir = _folder_path(new_folder)
     dest = os.path.join(dest_dir, SNAPSHOT_NAME)
     tmp = None
-    copied = False
     try:
         os.makedirs(dest_dir, exist_ok=True)
         if os.path.islink(dest):
@@ -202,18 +202,22 @@ def _move_snapshot(old_folder: str, new_folder: str):
             return
         except OSError:
             pass
+        # Across drives: copy under a temp name, remove the original, and
+        # only then rename over whatever is at dest, so a failure before
+        # that point leaves both folders exactly as they were.
         fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
                                    dir=dest_dir)
         os.close(fd)
         shutil.copyfile(src, tmp)
-        os.replace(tmp, dest)
-        tmp = None
-        copied = True
         os.remove(src)
+        try:
+            os.replace(tmp, dest)
+        except OSError:
+            # The original is gone: put the copy back where it came from.
+            shutil.copyfile(tmp, src)
+            raise
+        tmp = None
     except OSError:
-        if copied:
-            with contextlib.suppress(OSError):
-                os.remove(dest)
         raise ServiceError("The existing snapshot could not be moved to the new folder; "
                            "the folder was not changed.") from None
     finally:
@@ -702,26 +706,31 @@ def _free_series_name(dst, name) -> str:
 def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
     """(live series id or None, {old series_character id: live id},
     outcome "none" | "linked" | "recreated" | "dropped_private").
-    When the drama's series still exists (same id; ids are never reused)
-    it is linked if the private-series rule allows the drama in it (the
-    db.assign_drama_series predicate: a private series takes only its
-    owner's and the PC owner's dramas); if not, the drama comes back with
-    no series ("dropped_private") and nothing of that series is copied, so
-    a series its owner has since made private is never re-shared. A name
-    match alone never links. Only when the series is gone does it come
-    back from the snapshot as a new series (renamed "... (restored <date>)"
-    if its name is taken) with its glossary, characters and memory."""
+    A live series with the snapshot's id that is now someone else's
+    private series (the db.assign_drama_series predicate: a private series
+    takes only its owner's and the PC owner's dramas) means the drama comes
+    back with no series ("dropped_private") and nothing of it is copied --
+    checked on the id alone, so a series its owner has since made private
+    is never re-shared. Otherwise the drama is linked only when the live
+    series has the same id AND name (after a whole-library restore of an
+    older library a new series can reuse an id the snapshot used for a
+    different one), and a name match alone never links. In every other case
+    the series comes back from the snapshot as a new series (renamed
+    "... (restored <date>)" if its name is taken) with its glossary,
+    characters and memory."""
     if series_id is None:
         return None, {}, "none"
     srows = _rows(src, "series", "id = ?", (series_id,))
     if not srows:
         return None, {}, "none"
     series = srows[0]
-    live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0) FROM series "
+    live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0), name FROM series "
                        "WHERE id = ?", (series_id,)).fetchone()
-    if live is not None:
-        if live[2] and drama_owner is not None and drama_owner != live[1]:
-            return None, {}, "dropped_private"
+    if live is not None and live[2] and drama_owner is not None and drama_owner != live[1]:
+        # Checked on the id alone, whatever the name: never copy or re-share
+        # a series that is now someone else's private series.
+        return None, {}, "dropped_private"
+    if live is not None and live[3] == series.get("name"):
         live_chars = {r[0] for r in dst.execute(
             "SELECT id FROM series_characters WHERE series_id = ?", (series_id,))}
         return series_id, {c: c for c in live_chars}, "linked"
