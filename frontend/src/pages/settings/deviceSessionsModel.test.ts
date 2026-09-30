@@ -4,6 +4,8 @@ import type { AuthMe } from '../../api/auth'
 import type { SessionState } from '../../hooks/useSession'
 import type { DeviceSession } from '../../types/deviceSessions'
 import {
+  ADMIN_DEVICES_PC_ONLY,
+  adminDevicesBlock,
   agoText,
   deviceDetails,
   deviceName,
@@ -66,9 +68,20 @@ describe('signed-in devices helpers', () => {
 
   it('blocks "sign out others" when this is the only device', () => {
     const here = dev({ id: 1, current: true })
-    expect(signOutOthersBlock([here])).toBe('No other devices are signed in.')
-    expect(signOutOthersBlock([here, dev({ id: 2 })])).toBeNull()
+    expect(signOutOthersBlock([here], null)).toBe('No other devices are signed in.')
+    expect(signOutOthersBlock([here, dev({ id: 2 })], null)).toBeNull()
+    expect(signOutOthersBlock([here, dev({ id: 2 })], ADMIN_DEVICES_PC_ONLY)).toBe(ADMIN_DEVICES_PC_ONLY)
+    expect(signOutOthersBlock([here], ADMIN_DEVICES_PC_ONLY)).toBe('No other devices are signed in.')
     expect(otherDevices([here, dev({ id: 2 })]).map((d) => d.id)).toEqual([2])
+  })
+
+  it('an admin signs devices out only on the main PC', () => {
+    const admin = me({ user: { id: 1, email: 'a@example.com', display_name: 'A', is_admin: true, is_local_owner: false } })
+    expect(adminDevicesBlock(admin, 'remote')).toBe(ADMIN_DEVICES_PC_ONLY)
+    expect(adminDevicesBlock(admin, 'unknown')).toBe(ADMIN_DEVICES_PC_ONLY)
+    expect(adminDevicesBlock(admin, 'local')).toBeNull()
+    expect(adminDevicesBlock(me({}), 'remote')).toBeNull()
+    expect(adminDevicesBlock({ status: 'loading' }, 'remote')).toBeNull()
   })
 
   it('words timeouts and results', () => {

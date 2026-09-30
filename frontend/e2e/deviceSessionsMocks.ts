@@ -57,7 +57,11 @@ export async function mockDevices(page: Page, me: MeBody = ME.signedIn): Promise
     if (path === '/api/auth/sessions/revoke-others') {
       const n = s.list.filter((d) => !d.current).length
       s.list = s.list.filter((d) => d.current)
-      return route.fulfill({ json: { revoked: n } })
+      // Like the server: this device's session is rotated, so both cookies are set again.
+      return route.fulfill({
+        json: { revoked: n },
+        headers: { 'set-cookie': 'baihe_csrf=csrf-rotated; Path=/; SameSite=Strict' },
+      })
     }
     const m = path.match(/^\/api\/auth\/sessions\/(\d+)\/revoke$/)
     if (!m) return route.abort()

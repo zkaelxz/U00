@@ -32,7 +32,8 @@ test('lists my devices, this one first, and signs one out after a confirm', asyn
   expect(s.unmocked).toEqual([])
 })
 
-test('signs out every other device, then the button explains why it is off', async ({ page }) => {
+test('signs out every other device, then the button explains why it is off', async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-devices', url: baseURL! }])
   const s = await mockDevices(page)
   await page.goto('/#/settings')
   const card = page.getByRole('region', { name: 'Signed-in devices' })
@@ -43,6 +44,26 @@ test('signs out every other device, then the button explains why it is off', asy
   await expect(card.getByRole('button', { name: 'Sign out all other devices' })).toBeDisabled()
   await expect(card).toContainText('No other devices are signed in.')
   expect(s.sent.map((r) => new URL(r.url()).pathname)).toEqual(['/api/auth/sessions/revoke-others'])
+  // This device got a new sign-in: later writes echo the rotated CSRF cookie.
+  expect((await context.cookies()).find((c) => c.name === 'baihe_csrf')?.value).toBe('csrf-rotated')
+  await expect(card).toContainText('also remove it there (Google Account, Security, Your devices)')
+  expect(s.unmocked).toEqual([])
+})
+
+test('an admin away from the main PC can list devices but not sign them out', async ({ page }) => {
+  const s = await mockDevices(page, { ...ME.signedIn, user: { ...ME.signedIn.user!, is_admin: true } })
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await page.goto('/#/settings')
+  const card = page.getByRole('region', { name: 'Signed-in devices' })
+  await expect(card.getByRole('list', { name: 'Signed-in devices' }).locator('li')).toHaveCount(3)
+  const why = "An admin account's devices can only be signed out on the main PC."
+  await expect(card).toContainText(why)
+  await expect(card.getByRole('button', { name: 'Sign out all other devices' })).toBeDisabled()
+  const one = card.getByRole('button', { name: 'Sign out Chrome on Android (network 198.51.100.x)' })
+  await expect(one).toBeDisabled()
+  await expect(one).toHaveAccessibleDescription(new RegExp(why))
+  expect(s.sent).toEqual([])
   expect(s.unmocked).toEqual([])
 })
 

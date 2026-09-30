@@ -17,7 +17,9 @@ caller's sessions is a 404 whether or not it exists (auth_service). They
 return a coarse device label ("Chrome on Android") and IP prefix only: no
 token, hash, user agent or full address. Writes need the CSRF header like
 every other one. A revoked device's next request is a 401, and its open
-event streams end at once.
+event streams end at once. An admin may list their devices anywhere but
+sign them out only at the PC (403 elsewhere; D5). Signing out every other
+device also rotates this device's session (new session and CSRF cookies).
 
 With `BAIHE_API_AUTH=off` login, callback and logout answer 404 and `/me`
 reports the local owner (signed in, every permission), so nothing changes
@@ -241,8 +243,14 @@ def list_sessions(request: Request):
              response_model=DeviceSessionsRevoked, summary="Sign out every other device")
 def revoke_other_sessions(request: Request):
     principal = _own(request)
-    return _no_store(DeviceSessionsRevoked(**auth_service.revoke_other_sessions(
-        principal["user_id"], principal["session_id"], ip=client_ip(request))))
+    result = auth_service.revoke_other_sessions(
+        principal["user_id"], principal["session_id"], ip=client_ip(request),
+        is_admin=principal["is_admin"], at_pc=is_local_request(request))
+    resp = _no_store(DeviceSessionsRevoked(revoked=result["revoked"]))
+    # This device's session was rotated: a copy of its old cookie is dead too.
+    set_session_cookie(resp, request, result["session_token"])
+    set_csrf_cookie(resp, request, result["csrf_token"])
+    return resp
 
 
 @router.post("/sessions/{auth_session_id}/revoke", dependencies=[authenticated()],
@@ -251,4 +259,5 @@ def revoke_session(request: Request, auth_session_id: int = Path(..., ge=1, le=_
     principal = _own(request)
     return _no_store(DeviceSessionsRevoked(**auth_service.revoke_own_session(
         principal["user_id"], auth_session_id, principal["session_id"],
-        ip=client_ip(request))))
+        ip=client_ip(request), is_admin=principal["is_admin"],
+        at_pc=is_local_request(request))))

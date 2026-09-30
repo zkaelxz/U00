@@ -1,6 +1,7 @@
 // Pure helpers for Settings > Signed-in devices (DevicesCard.tsx). The
 // server decides everything (own sessions only, 404 for anything else, 409
 // for this device); these only word it.
+import type { PcMode } from '../../hooks/usePcOnly'
 import type { SessionState } from '../../hooks/useSession'
 import type { DeviceSession } from '../../types/deviceSessions'
 
@@ -41,9 +42,19 @@ export function otherDevices(list: DeviceSession[]): DeviceSession[] {
   return list.filter((d) => !d.current)
 }
 
+export const ADMIN_DEVICES_PC_ONLY =
+  "An admin account's devices can only be signed out on the main PC. Away from it, ask another admin to use Sign out everywhere."
+
+/** Why an admin can't sign devices out from here (server: 403 away from the PC),
+ * or null. 'unknown' waits for 'local' like the other admin blocks. */
+export function adminDevicesBlock(s: SessionState, pc: PcMode): string | null {
+  const admin = s.status === 'ready' && !!s.me.user?.is_admin
+  return admin && pc !== 'local' ? ADMIN_DEVICES_PC_ONLY : null
+}
+
 /** Why "Sign out all other devices" is off, or null when it can run. */
-export function signOutOthersBlock(list: DeviceSession[]): string | null {
-  return otherDevices(list).length === 0 ? 'No other devices are signed in.' : null
+export function signOutOthersBlock(list: DeviceSession[], adminBlock: string | null): string | null {
+  return otherDevices(list).length === 0 ? 'No other devices are signed in.' : adminBlock
 }
 
 export function timeoutText(idleDays: number, maxDays: number): string {

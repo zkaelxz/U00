@@ -3,9 +3,12 @@
  * (a coarse "Chrome on Android" label, when it was used, its network), this
  * one first. Any other device can be signed out on its own, or all of them
  * at once, each after a confirm step; a lost phone is signed out at once
- * (its next request, and its live updates, stop). This device signs out
- * with the usual Sign out. Shown only to a signed-in person: the owner at
- * the PC with sign-in off has no sessions.
+ * (its next request, and its live updates, stop). Signing out all other
+ * devices also gives this one a new sign-in (the server sets new cookies).
+ * This device signs out with the usual Sign out. An admin can sign devices
+ * out only on the main PC (the server answers 403 elsewhere), so away from
+ * it the buttons are off with the reason. Shown only to a signed-in person:
+ * the owner at the PC with sign-in off has no sessions.
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -14,9 +17,11 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { useSession } from '../../hooks/useSession'
+import { usePcOnly } from '../../hooks/usePcOnly'
+import { useSession, type SessionState } from '../../hooks/useSession'
 import type { DeviceSession, DeviceSessionList } from '../../types/deviceSessions'
 import {
+  adminDevicesBlock,
   deviceDetails,
   deviceName,
   showDevices,
@@ -32,10 +37,11 @@ type Busy = number | 'others' | null
 export function DevicesCard() {
   const session = useSession()
   if (!showDevices(session)) return null
-  return <DevicesBody />
+  return <DevicesBody session={session} />
 }
 
-function DevicesBody() {
+function DevicesBody({ session }: { session: SessionState }) {
+  const adminBlock = adminDevicesBlock(session, usePcOnly())
   const [data, setData] = useState<DeviceSessionList | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<Busy>(null)
@@ -73,7 +79,7 @@ function DevicesBody() {
   }
 
   const list = data?.sessions ?? []
-  const othersBlock = signOutOthersBlock(list)
+  const othersBlock = signOutOthersBlock(list, adminBlock)
   return (
     <Card title={TITLE} aria-label={TITLE} className="devices-card"
       meta={data ? timeoutText(data.idle_timeout_days, data.absolute_timeout_days) : undefined}>
@@ -93,7 +99,8 @@ function DevicesBody() {
                 {!d.current && (
                   <div className="settings-actions">
                     <ConfirmButton name={deviceName(d)} label="Sign out…" verb="sign out"
-                      busy={busy === d.id} disabled={busy !== null}
+                      busy={busy === d.id} disabled={busy !== null || !!adminBlock}
+                      describedBy={adminBlock ? 'devices-others-why' : undefined}
                       onConfirm={() => void run(d.id, d)} />
                   </div>
                 )}
@@ -112,7 +119,9 @@ function DevicesBody() {
           </div>
         )}
         <p className="settings-note">
-          Lost a phone? Sign it out here: it can't do anything more until someone signs in on it with Google again.
+          Lost a phone? Sign it out here: it can't do anything more here until someone signs in on it with Google again.
+          It may still be signed in to your Google account, so also remove it there (Google Account, Security, Your devices).
+          Signing out all other devices also renews this device's sign-in, so a copy of it stops working too.
           To sign out this device, use Sign out in the account menu.
         </p>
         <span className="muted" aria-live="polite">{note}</span>

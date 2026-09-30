@@ -18,7 +18,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from services import auth_service
-from services.service_errors import ConflictError, NotFoundError
+from services.service_errors import ConflictError, ForbiddenError, NotFoundError
 
 REMOTE = "https://baihe.example.com"
 PHONE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
@@ -37,6 +37,11 @@ def _remote(app, ip="203.0.113.9"):
     return TestClient(app, base_url=REMOTE, client=(ip, 5000), raise_server_exceptions=False)
 
 
+def _local(app):
+    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
+                      raise_server_exceptions=False)
+
+
 def _h(session, csrf=True):
     h = {"Cookie": f"{api_auth.COOKIE_NAME}={session['session_token']}"}
     if csrf:
@@ -44,8 +49,8 @@ def _h(session, csrf=True):
     return h
 
 
-def _member(email="kid@example.com"):
-    u = auth_service.add_user(email)
+def _member(email="kid@example.com", admin=False):
+    u = auth_service.grant_admin_local(email) if admin else auth_service.add_user(email)
     phone = auth_service.create_session(u["id"], PHONE_UA, "203.0.113.77")
     pc = auth_service.create_session(u["id"], PC_UA, "2001:db8:1:2::5")
     return u, phone, pc
@@ -180,11 +185,104 @@ def test_revoke_others_keeps_this_device_and_other_users(isolated_db):
     c = _remote(_app(), ip="203.0.113.50")
     r = c.post("/api/auth/sessions/revoke-others", headers=_h(phone))
     assert r.status_code == 200 and r.json() == {"revoked": 2}
-    assert _alive(phone) and not _alive(pc) and not _alive(third) and _alive(theirs)
+    assert r.headers["cache-control"] == "no-store"
+    assert not _alive(pc) and not _alive(third) and _alive(theirs)
     assert [(a["user_id"], a["detail_redacted"]) for a in _audit("session.revoke_others")] == [
         (u["id"], f"user {u['id']}: 2 ip 203.0.113")]
-    rows = c.get("/api/auth/sessions", headers=_h(phone, csrf=False)).json()["sessions"]
-    assert [s["id"] for s in rows] == [phone["session_id"]]
+    # This device was rotated: its old cookie (and any copy of it) is dead,
+    # and the response set a new session and CSRF cookie.
+    assert not _alive(phone)
+    new = {"session_token": r.cookies.get(api_auth.COOKIE_NAME),
+           "csrf_token": r.cookies.get(api_auth.CSRF_COOKIE_NAME)}
+    assert new["session_token"] and new["csrf_token"]
+    assert new["session_token"] not in r.text and new["csrf_token"] not in r.text
+    assert new["session_token"] != phone["session_token"]
+    assert new["csrf_token"] != phone["csrf_token"]
+    assert c.get("/api/auth/sessions", headers=_h(phone, csrf=False)).status_code == 401
+    rows = c.get("/api/auth/sessions", headers=_h(new, csrf=False)).json()["sessions"]
+    assert len(rows) == 1 and rows[0]["current"] and rows[0]["id"] != phone["session_id"]
+    assert rows[0]["device"] == "Safari on iPhone" and rows[0]["ip_prefix"] == "203.0.113"
+    # The old CSRF token doesn't pass with the new session; the new one does.
+    stale = dict(_h(new, csrf=False), **{api_auth.CSRF_HEADER: phone["csrf_token"]})
+    assert c.post("/api/auth/sessions/revoke-others", headers=stale).status_code == 403
+    again = c.post("/api/auth/sessions/revoke-others", headers=_h(new))
+    assert again.status_code == 200 and again.json() == {"revoked": 0}
+    # Nothing to sign out: not audited.
+    assert len(_audit("session.revoke_others")) == 1
+
+
+def test_rotation_keeps_the_sign_in_time_and_expiry(isolated_db):
+    u = auth_service.add_user("kid@example.com")
+    now = time.time()
+    s = auth_service.create_session(u["id"], PHONE_UA, "203.0.113.7", now=now - 5 * 86400)
+    auth_service.resolve_session(s["session_token"], now=now - 60)
+    out = auth_service.revoke_other_sessions(u["id"], s["session_id"], "198.51.100.3",
+                                             is_admin=False, at_pc=False, now=now)
+    assert out["revoked"] == 0 and _audit("session.revoke_others") == []
+    [row] = db.auth_list_sessions(u["id"])
+    assert row["id"] == out["session_id"] != s["session_id"]
+    assert row["created_at"] == now - 5 * 86400
+    assert row["expires_at"] == s["expires_at"]
+    assert row["last_seen_at"] == now
+    assert (row["device_label"], row["ip_prefix"]) == ("Safari on iPhone", "198.51.100")
+    assert auth_service.resolve_session(out["session_token"], touch=False)["session_id"] == row["id"]
+    assert auth_service.verify_csrf(out["session_token"], out["csrf_token"])
+
+
+def test_rotation_of_a_session_revoked_meanwhile_is_401(isolated_db, monkeypatch):
+    u, phone, pc = _member()
+    real = db.auth_delete_user_sessions
+
+    def racing(user_id, except_id=None):
+        n = real(user_id, except_id=except_id)
+        db.auth_delete_session(phone["session_id"])   # signed out elsewhere meanwhile
+        return n
+    monkeypatch.setattr(db, "auth_delete_user_sessions", racing)
+    r = _remote(_app()).post("/api/auth/sessions/revoke-others", headers=_h(phone))
+    assert r.status_code == 401
+    assert api_auth.COOKIE_NAME not in r.cookies
+    assert db.auth_list_sessions(u["id"]) == []
+
+
+# --- admins: PC-only (D5) ------------------------------------------------------------------
+
+def test_admin_away_from_the_pc_can_list_but_not_revoke(isolated_db):
+    u, phone, pc = _member("admin@example.com", admin=True)
+    c = _remote(_app())
+    assert c.get("/api/auth/sessions", headers=_h(phone, csrf=False)).status_code == 200
+    for url in (f"/api/auth/sessions/{pc['session_id']}/revoke",
+                "/api/auth/sessions/revoke-others",
+                "/api/auth/sessions/999999/revoke",
+                f"/api/auth/sessions/{phone['session_id']}/revoke"):
+        r = c.post(url, headers=_h(phone))
+        assert r.status_code == 403, url
+        assert r.json()["error"]["code"] == "forbidden"
+        assert "at the PC" in r.json()["error"]["message"]
+        assert api_auth.COOKIE_NAME not in r.cookies
+    assert _alive(phone) and _alive(pc)
+    assert _audit("session.revoke") == _audit("session.revoke_others") == []
+
+
+def test_admin_on_the_household_listener_is_refused(isolated_db):
+    app = create_app(ApiSettings(household_port=8610, serve_frontend=False), frontend_dist=None,
+                     listener="household")
+    _u, phone, pc = _member("admin@example.com", admin=True)
+    c = TestClient(app, base_url="http://127.0.0.1:8610", client=("127.0.0.1", 5000),
+                   raise_server_exceptions=False)
+    assert c.post(f"/api/auth/sessions/{pc['session_id']}/revoke",
+                  headers=_h(phone)).status_code == 403
+    assert _alive(pc)
+
+
+def test_admin_at_the_pc_can_revoke(isolated_db):
+    u, phone, pc = _member("admin@example.com", admin=True)
+    third = auth_service.create_session(u["id"], PC_UA, "203.0.113.80")
+    c = _local(_app())
+    r = c.post(f"/api/auth/sessions/{third['session_id']}/revoke", headers=_h(pc))
+    assert r.status_code == 200 and not _alive(third)
+    r = c.post("/api/auth/sessions/revoke-others", headers=_h(pc))
+    assert r.status_code == 200 and r.json() == {"revoked": 1}
+    assert not _alive(phone) and not _alive(pc) and r.cookies.get(api_auth.COOKIE_NAME)
 
 
 # --- CSRF ----------------------------------------------------------------------------
@@ -317,22 +415,42 @@ def test_service_scopes_everything_to_the_caller(isolated_db):
     u, phone, pc = _member()
     other = auth_service.add_user("other@example.com")
     theirs = auth_service.create_session(other["id"])
+    member = dict(is_admin=False, at_pc=False)
     with pytest.raises(NotFoundError):
-        auth_service.revoke_own_session(u["id"], theirs["session_id"], phone["session_id"])
+        auth_service.revoke_own_session(u["id"], theirs["session_id"], phone["session_id"],
+                                        **member)
     with pytest.raises(ConflictError):
-        auth_service.revoke_own_session(u["id"], phone["session_id"], phone["session_id"])
+        auth_service.revoke_own_session(u["id"], phone["session_id"], phone["session_id"],
+                                        **member)
+    with pytest.raises(ForbiddenError):
+        auth_service.revoke_own_session(u["id"], pc["session_id"], phone["session_id"],
+                                        is_admin=True, at_pc=False)
+    with pytest.raises(ForbiddenError):
+        auth_service.revoke_other_sessions(u["id"], phone["session_id"], is_admin=True,
+                                           at_pc=False)
+    assert _alive(pc)
     assert [s["id"] for s in auth_service.list_own_sessions(other["id"], None)] == [
         theirs["session_id"]]
-    assert auth_service.revoke_other_sessions(u["id"], phone["session_id"]) == {"revoked": 1}
-    assert _alive(theirs) and _alive(phone) and not _alive(pc)
+    out = auth_service.revoke_other_sessions(u["id"], phone["session_id"], **member)
+    assert out["revoked"] == 1
+    assert _alive(theirs) and not _alive(pc) and _alive(out)
 
 
-def test_old_rows_fall_back_to_a_label_from_the_stored_prefix(isolated_db):
+def test_init_db_labels_old_rows_from_the_stored_prefix_then_blanks_it(isolated_db):
     u = auth_service.add_user("kid@example.com")
-    s = auth_service.create_session(u["id"])
+    old = auth_service.create_session(u["id"])
+    kept = auth_service.create_session(u["id"], PC_UA)
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE auth_sessions SET device_label = '', user_agent_short = ? "
-                     "WHERE id = ?", (PHONE_UA[:60], s["session_id"]))
+                     "WHERE id = ?", (PHONE_UA[:60], old["session_id"]))
         conn.commit()
-    rows = auth_service.list_own_sessions(u["id"], s["session_id"])
-    assert rows[0]["device"] == "Browser on iPhone"
+    db.init_db()
+    rows = {r["id"]: r for r in db.auth_list_sessions(u["id"])}
+    assert rows[old["session_id"]]["device_label"] == "Browser on iPhone"
+    assert rows[kept["session_id"]]["device_label"] == "Edge on Windows"
+    assert all(r["user_agent_short"] == "" for r in rows.values())
+    assert "Mozilla" not in repr(rows)
+    db.init_db()   # idempotent
+    assert {r["id"]: r for r in db.auth_list_sessions(u["id"])} == rows
+    listed = auth_service.list_own_sessions(u["id"], old["session_id"])
+    assert listed[0]["device"] == "Browser on iPhone"

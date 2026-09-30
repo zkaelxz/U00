@@ -31,7 +31,7 @@ from collections import OrderedDict, deque
 
 import db
 from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
-                                     NotFoundError, RateLimitedError)
+                                     NotFoundError, RateLimitedError, UnauthenticatedError)
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
@@ -525,6 +525,16 @@ def list_sessions(user_id: int) -> list:
 
 _SESSION_NOT_FOUND = "That device isn't signed in."
 _USE_SIGN_OUT = "This is the device you're using. Use Sign out instead."
+ADMIN_DEVICES_AT_PC_ONLY = ("An admin account's devices can only be signed out at the PC. "
+                            "Away from it, ask another admin to use Sign out everywhere, "
+                            "or run python -m api deactivate <email> at the PC.")
+
+
+def _require_pc_for_own_admin(is_admin: bool, at_pc: bool):
+    """D5: anything involving an admin account is PC-only, so a stolen admin
+    session away from the PC can't sign the owner's other devices out."""
+    if is_admin and not at_pc:
+        raise ForbiddenError(ADMIN_DEVICES_AT_PC_ONLY)
 
 
 def list_own_sessions(user_id: int, current_session_id: int, now: float = None) -> list:
@@ -532,8 +542,7 @@ def list_own_sessions(user_id: int, current_session_id: int, now: float = None) 
     recently used: {id, device, created_at, last_seen_at, expires_at,
     ip_prefix, current}. No token, hash, user agent or full address."""
     now = time.time() if now is None else now
-    out = [{"id": s["id"],
-            "device": s.get("device_label") or device_label(s.get("user_agent_short")),
+    out = [{"id": s["id"], "device": s.get("device_label") or device_label(""),
             "created_at": s["created_at"], "last_seen_at": s["last_seen_at"],
             "expires_at": _expires_at(s), "ip_prefix": s["ip_prefix"] or "",
             "current": s["id"] == current_session_id}
@@ -543,11 +552,13 @@ def list_own_sessions(user_id: int, current_session_id: int, now: float = None) 
 
 
 def revoke_own_session(user_id: int, session_id: int, current_session_id: int,
-                       ip: str = "") -> dict:
+                       ip: str = "", *, is_admin: bool, at_pc: bool) -> dict:
     """Signs out one of the caller's other devices at once: its next
-    request is a 401 and its open event streams end. 404 for any id that
-    isn't one of the caller's sessions; 409 for the session making the
-    request (Sign out also clears this device's cookies)."""
+    request is a 401 and its open event streams end. 403 for an admin away
+    from the PC; 404 for any id that isn't one of the caller's sessions; 409
+    for the session making the request (Sign out also clears this device's
+    cookies)."""
+    _require_pc_for_own_admin(is_admin, at_pc)
     if session_id == current_session_id:
         raise ConflictError(_USE_SIGN_OUT)
     if not db.auth_delete_session(session_id, user_id):
@@ -557,12 +568,24 @@ def revoke_own_session(user_id: int, session_id: int, current_session_id: int,
     return {"revoked": 1}
 
 
-def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "") -> dict:
-    """Signs out every device of the caller except the one asking."""
+def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *,
+                          is_admin: bool, at_pc: bool, now: float = None) -> dict:
+    """Signs out every device of the caller except the one asking, and
+    gives the one asking a new session token and CSRF token (returned once,
+    for its cookies): a copy of this device's cookie taken earlier dies too.
+    The new session keeps the old one's sign-in time and expiry."""
+    _require_pc_for_own_admin(is_admin, at_pc)
+    now = time.time() if now is None else now
     n = db.auth_delete_user_sessions(user_id, except_id=current_session_id)
+    token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    sid = db.auth_rotate_session(current_session_id, user_id, _hash(token), _hash(csrf),
+                                 now, _ip_prefix(ip))
     _recheck_streams(user_id)
-    write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {_ip_prefix(ip)}")
-    return {"revoked": n}
+    if n:
+        write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {_ip_prefix(ip)}")
+    if sid is None:   # this session was revoked meanwhile (sign-out elsewhere)
+        raise UnauthenticatedError("Authentication required.")
+    return {"revoked": n, "session_token": token, "csrf_token": csrf, "session_id": sid}
 
 
 # --- rate limiting -----------------------------------------------------------
