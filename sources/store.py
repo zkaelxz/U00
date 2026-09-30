@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import time
 
 import db
@@ -211,16 +212,107 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 """
 
 
-def connect() -> sqlite3.Connection:
-    path = db_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+BUSY_TIMEOUT_SECONDS = 10
+
+BUSY_MESSAGE = "The sources database is busy, try again."
+
+
+class SourcesDatabaseBusy(sqlite3.OperationalError):
+    """sources.db stayed locked past the busy timeout. The message is fixed
+    text, safe to show as is (the raw sqlite error is not)."""
+
+    def __init__(self):
+        super().__init__(BUSY_MESSAGE)
+
+
+def _is_busy(exc) -> bool:
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+class _Connection(sqlite3.Connection):
+    """Turns a lock timeout from any statement into SourcesDatabaseBusy, so
+    the dozens of `with connect() as conn:` callers need no handling."""
+
+    def _guard(self, name, *args):
+        try:
+            return getattr(super(), name)(*args)
+        except SourcesDatabaseBusy:
+            raise
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+    def execute(self, *args):
+        return self._guard("execute", *args)
+
+    def executemany(self, *args):
+        return self._guard("executemany", *args)
+
+    def executescript(self, *args):
+        return self._guard("executescript", *args)
+
+    def commit(self):
+        return self._guard("commit")
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            return super().__exit__(exc_type, exc, tb)
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+
+def log_dropped(what: str) -> None:
+    """Notes a best-effort write that was dropped because sources.db stayed
+    locked. Never raises."""
+    try:
+        import applog
+        applog.get_logger().warning("Dropped %s: %s", what, BUSY_MESSAGE)
+    except Exception:
+        pass
+
+
+# Database files whose schema and migrations have already run in this
+# process. A file deleted since (a moved library, a test's temp dir) is
+# initialised again.
+_initialised = set()
+_init_lock = threading.Lock()
+
+
+def _open(path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, factory=_Connection)
     conn.row_factory = sqlite3.Row
-    # Every statement is CREATE ... IF NOT EXISTS, so this is cheap and
-    # needs no "already initialized?" bookkeeping that could go stale when
-    # the library folder moves.
-    conn.executescript(_SCHEMA)
-    _add_missing_columns(conn)
+    return conn
+
+
+def _initialise(path: str) -> None:
+    with _init_lock:
+        if path in _initialised and os.path.exists(path):
+            return
+        conn = _open(path)
+        try:
+            # WAL is stored in the file, so it is set here once rather than
+            # per connection: readers then never wait on the writer.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.executescript(_SCHEMA)
+            _add_missing_columns(conn)
+        finally:
+            conn.close()
+        _initialised.add(path)
+
+
+def connect() -> sqlite3.Connection:
+    path = os.path.abspath(db_path())
+    if path not in _initialised or not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _initialise(path)
+    conn = _open(path)
+    # synchronous is per connection (journal_mode is not).
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 

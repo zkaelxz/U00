@@ -155,8 +155,18 @@ class SiteDomains:
 
     def _worked(self, base: str):
         self.base = base
-        if not self.fixed and store.last_good_domain(self.source) != base:
-            store.set_last_good_domain(self.source, base)
+        try:
+            if not self.fixed and store.last_good_domain(self.source) != base:
+                store.set_last_good_domain(self.source, base)
+        except store.SourcesDatabaseBusy:
+            store.log_dropped("a last-good domain record")
+
+    def _proposals_pending(self) -> bool:
+        try:
+            return bool(store.domain_proposals(self.source))
+        except store.SourcesDatabaseBusy:
+            store.log_dropped("a domain proposal lookup")
+            return True   # unknown: do not notify on a guess
 
     def _maybe_propose(self, final_url: str, resp) -> bool:
         """Proposes the host an off-list result came from, if it is https
@@ -169,8 +179,12 @@ class SiteDomains:
                 return False
         except Exception:
             return False
-        return store.propose_domain(self.source, hp) or \
-            hp in {p["host"] for p in store.domain_proposals(self.source)}
+        try:
+            return store.propose_domain(self.source, hp) or \
+                hp in {p["host"] for p in store.domain_proposals(self.source)}
+        except store.SourcesDatabaseBusy:
+            store.log_dropped("a domain proposal")
+            return False
 
     def get(self, path_or_url: str, **kw):
         return self.request("GET", path_or_url, **kw)
@@ -226,7 +240,7 @@ class SiteDomains:
         if found:
             msg += ("\nA possible new address was found. Confirm it on this PC under "
                     "Sources to add it to the list.")
-        elif not self.fixed and not store.domain_proposals(self.source):
+        elif not self.fixed and not self._proposals_pending():
             _notify_unreachable(self.source, self.adapter.display_name or self.source, errors)
         health.record_failure(self.source, FailureReason.ALL_DOMAINS_UNREACHABLE.value, msg)
         raise SourceUnavailable(msg, FailureReason.ALL_DOMAINS_UNREACHABLE)
