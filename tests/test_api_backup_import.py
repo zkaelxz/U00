@@ -945,6 +945,20 @@ def test_a_folder_that_replaced_a_moved_one_is_kept_and_reported(client, monkeyp
     assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
 
 
+def test_a_replacement_folder_with_a_reused_inode_is_kept(client, monkeypatch):
+    # Inode numbers are reused: a folder someone put in the moved folder's place
+    # can report the very identity the journal recorded. Without the import's
+    # marker it must still be kept, never removed.
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+    new_b = os.path.join(db.DRAMAS_DIR, str(g + 2))
+    recorded = db._folder_identity(new_b)
+    shutil.rmtree(new_b)
+    _folder_with(new_b, "theirs.txt", b"theirs")
+    monkeypatch.setattr(db, "_folder_identity", lambda path: recorded)
+    assert db.recover_media_imports() == {"settled": 0, "failed_ids": [g + 2]}
+    assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
+
+
 def test_recovery_proves_a_folder_by_its_marker_when_the_inode_changed(client, monkeypatch):
     # FAT/exFAT/SMB: the rename gave the folder another inode number, or none.
     (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
