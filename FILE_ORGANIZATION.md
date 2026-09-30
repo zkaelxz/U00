@@ -139,6 +139,8 @@ baihe-subtitler/
 │   ├── registry.py                which adapters exist and which are switched on
 │   ├── pipeline.py                hands fetched content to the rest of the app
 │   ├── detect.py                  names what happened when a fetch didn't go as expected
+│   ├── domains.py                 domain lists for sites that move: ordered failover, last good domain,
+│   │                              discovery of a redirected new host as a pending proposal
 │   ├── ladder.py                  the access-method ladder (try the cheap method, then the next)
 │   ├── adaptive.py                the order methods are tried in for a pasted URL, learned over time
 │   ├── ai_extract.py              LLM-based extraction, used only as a fallback
@@ -431,6 +433,8 @@ baihe-subtitler/
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── source_domains_service.py  source domain lists (read/edit/reset), confirm or dismiss discovered
+│   │                             hosts (host names only), one assistant backlog item per unreachable source
 │   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
 │   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
 │   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
@@ -602,6 +606,8 @@ baihe-subtitler/
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── source_domains_routes.py /api/source-domains (GET), /proposals (GET), /proposals/confirm|dismiss,
+│       │                         /{name}, /{name}/reset (POST; all local_only); tests/test_source_domains.py
 │       ├── assistant_github_routes.py /api/assistant/github (GET), /settings|token|token/clear|test|preview|
 │       │                         deliver (POST; all local_only; Step 72); tests/test_assistant_github.py
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)

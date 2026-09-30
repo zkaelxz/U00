@@ -44,9 +44,11 @@ inline script does with `atob()`.
 history of moving domains (the reason the roadmap explicitly calls out
 re-verifying at build time rather than trusting the vetting-time domain).
 Re-confirmed live immediately before writing this file: still the correct,
-reachable, unchallenged domain. Kept as an overridable `base_url`
-constructor argument, same pattern as `xbanxia.py`, so a future rotation
-doesn't need a code change beyond passing a new default.
+reachable, unchallenged domain. The domain is a list (`base_urls`,
+sources/domains.py): the owner can edit it, the last one that worked is
+remembered, and when every listed domain is unreachable a redirect to a
+new host that passes `verify_site` becomes a proposal for the owner to
+confirm -- a rotation needs no code change.
 
 `robots.txt` is fully permissive (`Allow: /`, no disallow lines);
 Cloudflare (observed via response headers) acts only as a CDN in front of
@@ -58,6 +60,7 @@ import re
 from urllib.parse import quote, urljoin
 
 from ..base import SourceAdapter
+from ..domains import SiteDomains
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
 from ..registry import register
 
@@ -126,15 +129,33 @@ class ToonkorSource(SourceAdapter):
     # only anchors on "toonkor" plus a trailing digit and common TLDs
     # rather than hardcoding the current numeral.
     url_patterns = [r"toonkor\d*\.(?:org|com|net)"]
+    base_urls = [BASE_URL]
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
-        self.base_url = base_url or BASE_URL
+        self.site = SiteDomains(self, base_url)
         self._series_pages = {}
 
+    @property
+    def base_url(self) -> str:
+        """The listed origin that last answered (links are resolved against it)."""
+        return self.site.base
+
+    @classmethod
+    def verify_site(cls, text: str) -> bool:
+        """The home page: 툰코/ToonKor in the <title> and at least three
+        webtoon cards in the listing markup search results also use
+        (div.section-item-inner with a titled link), with distinct slugs."""
+        soup = _soup(text)
+        title = soup.title.get_text() if soup.title is not None else ""
+        if "툰코" not in title and "toonkor" not in title.lower():
+            return False
+        slugs = {href.strip("/").rsplit("/", 1)[-1] for href, title_text, _ in _parse_listing(soup)
+                 if title_text and href.strip("/")}
+        return len(slugs) >= 3
+
     def _get(self, path: str, action: str) -> str:
-        resp = self.client.get(urljoin(self.base_url, path), action=action)
-        return resp.text
+        return self.site.get(path, action=action).text
 
     def search(self, query: str, page: int = 1):
         html = self._get(f"/bbs/search.php?sfl=wr_subject%7C%7Cwr_content&stx={quote(query.strip())}",

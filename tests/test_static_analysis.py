@@ -122,7 +122,8 @@ class TestHttpCallsHaveTimeouts:
         # Sources S-4/S-5 and the URL download: the modules those routes
         # reach outside services/ and api/.
         for name in ("video_download.py", "sources/pipeline.py", "sources/front_door.py",
-                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py"):
+                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py",
+                     "sources/domains.py"):
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 

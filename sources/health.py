@@ -32,13 +32,15 @@ _CATEGORIES = {
     "layout_changed": ("LAYOUT_CHANGED",),
     "slow": ("TIMEOUT", "RATE_LIMIT"),
     "needs_sign_in": ("AUTHENTICATION_REQUIRED", "COOKIE_REQUIRED", "PURCHASE_REQUIRED"),
+    "domains_unreachable": ("ALL_DOMAINS_UNREACHABLE",),
 }
 _CATEGORY_OF = {t: c for c, types in _CATEGORIES.items() for t in types}
 
 
 def category(error_type) -> str:
     """blocked / site_down / page_missing / layout_changed / slow /
-    needs_sign_in, "other" for any other error type, None for no error."""
+    needs_sign_in / domains_unreachable, "other" for any other error type,
+    None for no error."""
     if not error_type:
         return None
     return _CATEGORY_OF.get(str(error_type), "other")

@@ -95,6 +95,7 @@ from api.routers import (
     series_people_routes,
     settings_routes,
     sharing_routes,
+    source_domains_routes,
     source_routes,
     sources_catalog_routes,
     sources_extraction_routes,
@@ -261,6 +262,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(discover_routes.router)
     app.include_router(web_search_routes.router)
     app.include_router(sources_catalog_routes.router)
+    app.include_router(source_domains_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
     app.include_router(discover_lookup_routes.router)

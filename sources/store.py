@@ -191,6 +191,13 @@ CREATE TABLE IF NOT EXISTS import_retry (
     updated_at REAL NOT NULL,
     PRIMARY KEY (source, series_id, drama_id, chapter_id)
 );
+CREATE TABLE IF NOT EXISTS domain_proposals (
+    source TEXT NOT NULL,
+    host TEXT NOT NULL,
+    found_at REAL NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, host)
+);
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -581,3 +588,71 @@ def delete_extraction(kind: str, content_hash: str):
     with connect() as conn:
         conn.execute("DELETE FROM extraction_cache WHERE kind=? AND content_hash=?",
                      (kind, content_hash))
+
+
+# ---------------------------------------------------------------------------
+# Domain lists (sources/domains.py). The list and the last domain that
+# worked are settings, one pair of keys per source; a host found by
+# discovery is only a proposal until the owner confirms it.
+# ---------------------------------------------------------------------------
+
+def _domains_key(source: str) -> str:
+    return f"source_domains.{source}"
+
+
+def _last_good_key(source: str) -> str:
+    return f"source_domain_last_good.{source}"
+
+
+def domain_list(source: str):
+    """The owner's saved domain list (https origins), or None when the
+    adapter's own `base_urls` apply."""
+    value = get_setting(_domains_key(source))
+    return [str(v) for v in value] if isinstance(value, list) and value else None
+
+
+def set_domain_list(source: str, origins):
+    set_setting(_domains_key(source), list(origins) if origins else None)
+
+
+def last_good_domain(source: str):
+    value = get_setting(_last_good_key(source))
+    return str(value) if value else None
+
+
+def set_last_good_domain(source: str, origin):
+    set_setting(_last_good_key(source), origin or None)
+
+
+def propose_domain(source: str, host: str, now: float = None) -> bool:
+    """Records a pending proposal. False when the host was already proposed
+    or was dismissed before (a dismissed host is not proposed again)."""
+    with connect() as conn:
+        cur = conn.execute("INSERT OR IGNORE INTO domain_proposals(source, host, found_at) "
+                           "VALUES(?, ?, ?)", (source, host, time.time() if now is None else now))
+    return cur.rowcount > 0
+
+
+def domain_proposals(source: str = None) -> list:
+    """Pending (not dismissed) proposals, newest first."""
+    sql = "SELECT source, host, found_at FROM domain_proposals WHERE dismissed=0"
+    args = ()
+    if source is not None:
+        sql += " AND source=?"
+        args = (source,)
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY found_at DESC", args)]
+
+
+def dismiss_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("UPDATE domain_proposals SET dismissed=1 "
+                           "WHERE source=? AND host=? AND dismissed=0", (source, host))
+    return cur.rowcount > 0
+
+
+def delete_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM domain_proposals WHERE source=? AND host=? AND dismissed=0",
+                           (source, host))
+    return cur.rowcount > 0
