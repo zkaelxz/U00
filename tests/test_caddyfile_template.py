@@ -181,7 +181,7 @@ def _sample(path):
 
 @pytest.fixture(scope="module")
 def routes():
-    app = create_app(ApiSettings(household_port=8610), listener="household")
+    app = create_app(ApiSettings(household_port=8610, google_client_id="cid", google_client_secret="s3cr3t-value", public_url="https://baihe.example.com"), listener="household")
     return [(path, methods, decls) for _r, path, methods, decls
             in api_auth.iter_route_declarations(app)]
 

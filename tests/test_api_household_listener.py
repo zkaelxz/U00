@@ -358,7 +358,7 @@ class TestNoAdminPermissionsOnHousehold:
         # an admin session keeps every admin.* permission there.
         app = create_app(ApiSettings(auth_mode="on", serve_frontend=False))
         s = _admin_session()
-        c = _client(app, 8600)
+        c = _client(app, "http://127.0.0.1:8600")
         assert c.get("/api/admin/users", headers=_h(s)).status_code == 200
         member = auth_service.add_user("kid@example.com")
         r = c.post(f"/api/admin/users/{member['id']}/deactivate", headers=_h(s))
