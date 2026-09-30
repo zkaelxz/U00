@@ -152,7 +152,7 @@ test('with every line translated, the reason offers Re-translate in one tap', as
   await expect(run.getByTestId('translate-blocker')).toHaveCount(0)
 })
 
-test('glossary and characters panels load; a term for a drama without a series shows a banner', async ({ page }) => {
+test('glossary and characters panels load; a drama without a series is told it cannot hold terms (X09)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
   // Both panels are collapsed Sections with a count badge; open them to reach the body.
   await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
@@ -161,10 +161,27 @@ test('glossary and characters panels load; a term for a drama without a series s
   await expect(glossary.getByLabel('Project instructions')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Characters' })).toBeVisible()
 
+  // Terms belong to a series: Add term waits for one, and the reason says so.
+  await expect(glossary.getByTestId('series-assign')).toContainText("can't hold glossary terms")
+  await expect(glossary.getByRole('button', { name: 'Add term' })).toBeDisabled()
+  await expect(glossary.getByText('Still needed: a series (above).')).toBeVisible()
+  await expect(glossary.getByRole('button', { name: /^Create series/ })).toBeVisible()
+})
+
+test('in a series, the term form checks required fields and shows a failed save', async ({ page }) => {
+  // The drama read says series 7; the term save is mocked to fail, so nothing is written.
+  const drama = await (await page.request.get('/api/library/dramas/1')).json()
+  await page.route('**/api/library/dramas/1', (r) => r.fulfill({ json: { ...drama, series_id: 7 } }))
+  await page.route('**/api/glossary/dramas/1/terms', (r) =>
+    r.request().method() === 'GET'
+      ? r.fulfill({ json: [] })
+      : r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That term already exists.' } } }))
+  await page.goto('/#/drama/1/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossary.getByRole('button', { name: 'Add term' }).click()
   await glossary.getByRole('button', { name: 'Save term' }).click()
   await expect(glossary.getByRole('alert')).toContainText('required')
-
   await glossary.getByRole('textbox', { name: 'Original', exact: true }).fill('Wei')
   await glossary.getByRole('textbox', { name: 'Translation', exact: true }).fill('Wei Wuxian')
   await glossary.getByRole('button', { name: 'Save term' }).click()
