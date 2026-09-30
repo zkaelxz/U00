@@ -4877,7 +4877,44 @@ def auth_insert_audit(user_id, action: str, detail_redacted: str):
         conn.commit()
 
 
-def auth_list_audit(limit: int = 100):
+def auth_list_audit(limit: int = 100, before_id: int = None, action: str = None,
+                    user_id: int = None):
+    """Newest first. `before_id` pages back (rows with a smaller id);
+    `action` and `user_id` are exact-match filters."""
+    where, args = [], []
+    if before_id is not None:
+        where.append("id < ?")
+        args.append(int(before_id))
+    if action is not None:
+        where.append("action = ?")
+        args.append(action)
+    if user_id is not None:
+        where.append("user_id = ?")
+        args.append(int(user_id))
+    sql = "SELECT id, ts, user_id, action, detail_redacted FROM audit_log"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     with contextlib.closing(get_conn()) as conn:
-        return [dict(r) for r in conn.execute(
-            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()]
+        return [dict(r) for r in conn.execute(sql + " ORDER BY id DESC LIMIT ?",
+                                              (*args, int(limit))).fetchall()]
+
+
+def auth_list_audit_actions(limit: int = 200):
+    with contextlib.closing(get_conn()) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT DISTINCT action FROM audit_log ORDER BY action LIMIT ?",
+            (int(limit),)).fetchall()]
+
+
+def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
+    """Sets is_active=0 unless that would leave no active admin. One
+    statement, so two admins deactivating each other at once can't both
+    succeed. False when refused or the user doesn't exist."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
+            "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
+            "AND COALESCE(o.is_admin, 0) = 1 AND COALESCE(o.is_active, 0) = 1))",
+            (user_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0

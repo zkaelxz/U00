@@ -17,6 +17,7 @@ import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
 import type { JobRecord } from '../types/jobs'
+import { AuditLogSection } from './diagnostics/AuditLogSection'
 import { BugBundlesSection } from './diagnostics/BugBundlesSection'
 import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
@@ -29,6 +30,7 @@ import { PackagesSection } from './diagnostics/PackagesSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
+import { UsersSection } from './diagnostics/UsersSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
 import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel, upsertJob } from './diagnosticsFormat'
@@ -202,6 +204,8 @@ export default function DiagnosticsPage() {
         <LogSection />
         <BugReportsSection pc={pc} />
         <BugBundlesSection pc={pc} />
+        <UsersSection />
+        <AuditLogSection />
       </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />

@@ -1,0 +1,281 @@
+"""User administration and the read-only audit log view
+(api/routers/admin_users_routes.py, services/auth_service.py)."""
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
+
+import db
+from api import auth as api_auth
+from api.api_config import ApiSettings
+from api.server import create_app
+from services import auth_service
+from services.service_errors import ConflictError, NotFoundError
+
+REMOTE = "https://baihe.example.com"
+LOCAL_POST = {"X-Baihe-Local": "1"}
+ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
+          ("POST", "/api/admin/users/{id}/deactivate"), ("POST", "/api/admin/users/{id}/activate"),
+          ("POST", "/api/admin/users/{id}/revoke-sessions")]
+
+
+def _app(auth="on"):
+    return create_app(ApiSettings(auth_mode=auth, serve_frontend=False), frontend_dist=None)
+
+
+def _remote(app):
+    return TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
+
+
+def _local(app):
+    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
+                      raise_server_exceptions=False)
+
+
+def _h(session, csrf=True):
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={session['session_token']}"}
+    if csrf:
+        h[api_auth.CSRF_HEADER] = session["csrf_token"]
+    return h
+
+
+def _admin(email="admin@example.com"):
+    u = auth_service.grant_admin_local(email)
+    return u, auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+
+
+def _member(email="kid@example.com"):
+    u = auth_service.add_user(email)
+    return u, auth_service.create_session(u["id"], "pytest", "198.51.100.4")
+
+
+def _audit(action):
+    return [a for a in auth_service.list_audit(500) if a["action"] == action]
+
+
+# --- permissions ---------------------------------------------------------------
+
+def test_every_route_is_admin_users(isolated_db):
+    decls = {(m, p): d for _r, p, ms, d in api_auth.iter_route_declarations(_app())
+             for m in ms if p.startswith("/api/admin/")}
+    assert {(m, p.replace("{id}", "{user_id}")) for m, p in ROUTES} == set(decls)
+    assert all(d == [("permission", "admin.users")] for d in decls.values())
+
+
+def test_anonymous_and_household_refused(isolated_db):
+    c = _remote(_app())
+    target, _ = _member("other@example.com")
+    _u, s = _member()
+    auth_service.grant_permission(_u["id"], "media.stream")
+    for method, path in ROUTES:
+        url = path.format(id=target["id"])
+        assert c.request(method, url).status_code == 401
+        r = c.request(method, url, headers=_h(s))
+        assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
+    assert db.auth_get_user(target["id"])["is_active"] == 1
+    assert _audit("user.deactivate") == [] and _audit("session.revoke_all") == []
+
+
+def test_admin_write_needs_csrf(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    target, _ = _member()
+    r = c.post(f"/api/admin/users/{target['id']}/deactivate", headers=_h(s, csrf=False))
+    assert r.status_code == 403 and r.json()["error"]["code"] == "csrf_failed"
+    assert db.auth_get_user(target["id"])["is_active"] == 1
+
+
+def test_remote_admin_lists_users_without_session_details(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, ms = _member()
+    r = c.get("/api/admin/users", headers=_h(s))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    users = {u["id"]: u for u in r.json()["users"]}
+    assert users[a["id"]]["is_self"] and not users[m["id"]]["is_self"]
+    assert users[m["id"]]["active_sessions"] == 1 and users[m["id"]]["is_active"]
+    text = r.text
+    for secret in (s["session_token"], s["csrf_token"], ms["session_token"], "203.0.113",
+                   "pytest", "id_hash", "csrf_hash", "google_sub"):
+        assert secret not in text
+
+
+# --- deactivate / activate / revoke ------------------------------------------------
+
+def test_admin_deactivates_activates_and_revokes_with_audit(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, ms = _member()
+    extra = auth_service.create_session(m["id"])
+    r = c.post(f"/api/admin/users/{m['id']}/revoke-sessions", headers=_h(s))
+    assert r.status_code == 200 and r.json() == {"user_id": m["id"], "revoked": 2}
+    assert auth_service.resolve_session(ms["session_token"]) is None
+    assert auth_service.resolve_session(extra["session_token"]) is None
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("session.revoke_all")] == \
+        [(a["id"], f"user {m['id']}: 2")]
+
+    again = auth_service.create_session(m["id"])
+    r = c.post(f"/api/admin/users/{m['id']}/deactivate", headers=_h(s))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == m["id"] and not body["is_active"] and body["active_sessions"] == 0
+    assert auth_service.resolve_session(again["session_token"]) is None
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.deactivate")] == \
+        [(a["id"], f"user {m['id']}")]
+
+    r = c.post(f"/api/admin/users/{m['id']}/activate", headers=_h(s))
+    assert r.status_code == 200 and r.json()["is_active"]
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.activate")] == \
+        [(a["id"], f"user {m['id']}")]
+    # The admin's own session is untouched by all of it.
+    assert auth_service.resolve_session(s["session_token"])["user_id"] == a["id"]
+
+
+def test_unknown_user_is_404_and_not_audited(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    for action in ("deactivate", "activate", "revoke-sessions"):
+        r = c.post(f"/api/admin/users/9999/{action}", headers=_h(s))
+        assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
+    for bad in ("0", "-1", str(2 ** 70), "abc"):
+        assert c.post(f"/api/admin/users/{bad}/deactivate", headers=_h(s)).status_code == 422
+    assert not _audit("user.deactivate") and not _audit("user.activate") \
+        and not _audit("session.revoke_all")
+
+
+def test_admin_cannot_deactivate_or_sign_out_self(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    _admin("second@example.com")   # another admin exists, so only the self rule applies
+    r = c.post(f"/api/admin/users/{a['id']}/deactivate", headers=_h(s))
+    assert r.status_code == 409 and "your own account" in r.json()["error"]["message"]
+    r = c.post(f"/api/admin/users/{a['id']}/revoke-sessions", headers=_h(s))
+    assert r.status_code == 409 and "Sign out" in r.json()["error"]["message"]
+    assert db.auth_get_user(a["id"])["is_active"] == 1
+    assert auth_service.resolve_session(s["session_token"])
+    assert not _audit("user.deactivate") and not _audit("session.revoke_all")
+
+
+def test_last_active_admin_cannot_be_deactivated(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    b, _ = _admin("second@example.com")
+    assert c.post(f"/api/admin/users/{b['id']}/deactivate", headers=_h(s)).status_code == 200
+    # a is now the only active admin: the local owner can't deactivate them either.
+    r = _local(_app("off")).post(f"/api/admin/users/{a['id']}/deactivate", headers=LOCAL_POST)
+    assert r.status_code == 409 and "last active admin" in r.json()["error"]["message"]
+    assert db.auth_get_user(a["id"])["is_active"] == 1
+    assert len(_audit("user.deactivate")) == 1
+    # An inactive admin doesn't count; deactivating them again is harmless.
+    assert _local(_app("off")).post(f"/api/admin/users/{b['id']}/deactivate",
+                                    headers=LOCAL_POST).status_code == 200
+
+
+def test_guarded_write_refuses_the_second_of_two(isolated_db):
+    """Two admins deactivating each other: the second write is refused (the
+    check and the write are one statement, so they can't interleave)."""
+    a = auth_service.grant_admin_local("a@example.com")
+    b = auth_service.grant_admin_local("b@example.com")
+    assert db.auth_deactivate_user_keeping_an_admin(a["id"]) is True
+    assert db.auth_deactivate_user_keeping_an_admin(b["id"]) is False
+    assert db.auth_get_user(b["id"])["is_active"] == 1
+    m = auth_service.add_user("m@example.com")
+    assert db.auth_deactivate_user_keeping_an_admin(m["id"]) is True   # not an admin
+    assert db.auth_deactivate_user_keeping_an_admin(9999) is False
+
+
+def test_service_guards_and_cli_path_unchanged(isolated_db):
+    a = auth_service.grant_admin_local("a@example.com")
+    with pytest.raises(ConflictError):
+        auth_service.admin_set_active(a["id"], False, actor_id=None)
+    with pytest.raises(NotFoundError):
+        auth_service.admin_revoke_sessions(4242, actor_id=None)
+    # The CLI recovery path (deactivate_user without keep_an_admin) is not guarded.
+    assert not auth_service.deactivate_user(a["id"])["is_active"]
+
+
+def test_local_owner_manages_users_with_auth_off(isolated_db):
+    c = _local(_app("off"))
+    m, _ = _member()
+    r = c.get("/api/admin/users")
+    assert r.status_code == 200 and not r.json()["users"][0]["is_self"]
+    r = c.post(f"/api/admin/users/{m['id']}/deactivate", headers=LOCAL_POST)
+    assert r.status_code == 200 and not r.json()["is_active"]
+    assert [e["user_id"] for e in _audit("user.deactivate")] == [None]
+    # Off mode serves loopback only.
+    assert _remote(_app("off")).get("/api/admin/users").status_code == 403
+
+
+# --- audit view --------------------------------------------------------------------
+
+def test_audit_newest_first_paged_and_filtered(isolated_db):
+    for i in range(7):
+        auth_service.write_audit(1 if i % 2 else 2, "user.add" if i < 5 else "logout", f"n {i}")
+    page = auth_service.audit_page(3)
+    assert [e["detail"] for e in page["events"]] == ["n 6", "n 5", "n 4"]
+    assert page["next_before_id"] == page["events"][-1]["id"]
+    assert set(page["actions"]) == {"user.add", "logout"}
+    page2 = auth_service.audit_page(3, before_id=page["next_before_id"])
+    assert [e["detail"] for e in page2["events"]] == ["n 3", "n 2", "n 1"]
+    last = auth_service.audit_page(3, before_id=page2["next_before_id"])
+    assert [e["detail"] for e in last["events"]] == ["n 0"] and last["next_before_id"] is None
+    assert [e["detail"] for e in auth_service.audit_page(50, action="logout")["events"]] == \
+        ["n 6", "n 5"]
+    assert [e["detail"] for e in auth_service.audit_page(50, user_id=2)["events"]] == \
+        ["n 6", "n 4", "n 2", "n 0"]
+    assert auth_service.audit_page(50, action="user.add", user_id=1)["events"][0]["detail"] == "n 3"
+    assert len(auth_service.audit_page(10 ** 6)["events"]) == 7   # clamped, not an error
+
+
+def test_audit_page_is_bounded(isolated_db):
+    for i in range(auth_service.AUDIT_PAGE_MAX + 5):
+        db.auth_insert_audit(None, "x", str(i))
+    page = auth_service.audit_page(10 ** 6)
+    assert len(page["events"]) == auth_service.AUDIT_PAGE_MAX
+    assert page["next_before_id"] is not None
+
+
+def test_audit_details_scrubbed_on_the_way_out(isolated_db):
+    # Written straight to the table, as a row from before a scrub rule would be.
+    raw = ("key sk-abcdefghijklmnopqrstuvwxyz0123456789 token "
+           "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_- file C:\\Users\\bob\\library.db "
+           "and /home/bob/.baihe/library.db url https://example.com/x?key=1 "
+           "ip 203.0.113 ip6 2001:db8:1::/48")
+    db.auth_insert_audit(3, "login.success", raw)
+    detail = auth_service.audit_page(5)["events"][0]["detail"]
+    for leaked in ("sk-abc", "AbCdEfGhIjKlMnOp", "Users", "bob", "example.com", "key=1"):
+        assert leaked not in detail
+    assert "ip 203.0.113" in detail and "2001:db8:1::/48" in detail   # coarse prefixes kept
+
+
+def test_audit_route(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, ms = _member()
+    r = c.get("/api/admin/audit", headers=_h(s))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body = r.json()
+    ids = [e["id"] for e in body["events"]]
+    assert ids == sorted(ids, reverse=True) and body["events"][0]["action"] == "session.create"
+    assert set(body["events"][0]) == {"id", "ts", "user_id", "action", "detail"}
+    for secret in (s["session_token"], s["csrf_token"], ms["session_token"],
+                   auth_service._hash(s["session_token"])):
+        assert secret not in r.text
+    r = c.get("/api/admin/audit", params={"action": "user.add", "limit": 1}, headers=_h(s))
+    assert [e["detail"] for e in r.json()["events"]] == [f"user {m['id']}"]
+    assert r.json()["next_before_id"] is None
+    r = c.get("/api/admin/audit", params={"user_id": m["id"]}, headers=_h(s))
+    assert {e["user_id"] for e in r.json()["events"]} == {m["id"]}
+    for bad in ({"limit": 0}, {"limit": auth_service.AUDIT_PAGE_MAX + 1}, {"before_id": 0},
+                {"user_id": "x"}, {"action": "a" * 81}):
+        assert c.get("/api/admin/audit", params=bad, headers=_h(s)).status_code == 422
+
+
+def test_audit_is_read_only(isolated_db):
+    c = _remote(_app())
+    _a, s = _admin()
+    for method in ("POST", "PUT", "PATCH", "DELETE"):
+        assert c.request(method, "/api/admin/audit", headers=_h(s)).status_code == 405

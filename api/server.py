@@ -32,6 +32,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSi
                       LoopbackOnlyGate, local_only_matchers, public_api_paths)
 from api.error_handlers import install_error_handlers
 from api.routers import (
+    admin_users_routes,
     artifact_routes,
     assistant_routes,
     asr_options_routes,
@@ -246,6 +247,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
+    app.include_router(admin_users_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)

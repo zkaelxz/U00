@@ -54,6 +54,13 @@ _MAX_TOKEN_LEN = 200
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _TOKENISH_RE = re.compile(r"[A-Za-z0-9_-]{32,}")
 _MAX_AUDIT_DETAIL = 500
+AUDIT_PAGE_MAX = 200
+# A URL, a Windows drive path, a UNC path, or an absolute POSIX path of two
+# or more segments ("::/48" in an IPv6 prefix is not one: the slash follows
+# a colon).
+_PATHISH_RE = re.compile(
+    r"(?:\b[a-z][a-z0-9+.-]*://|\b[A-Za-z]:[\\/]|\\\\|(?<![\w.:/])/(?=[^\s/]+/))\S*",
+    re.I)
 
 
 def _hash(token: str) -> str:
@@ -82,15 +89,38 @@ def _require_user(user_id: int) -> dict:
 
 # --- audit ---------------------------------------------------------------
 
-def write_audit(user_id, action: str, detail: str = ""):
+def _scrub_detail(detail) -> str:
     from translate_engines import redact_secrets
     text = redact_secrets(str(detail or ""))
-    text = _TOKENISH_RE.sub("[REDACTED]", text)[:_MAX_AUDIT_DETAIL]
-    db.auth_insert_audit(user_id, str(action)[:80], text)
+    return _TOKENISH_RE.sub("[REDACTED]", text)[:_MAX_AUDIT_DETAIL]
+
+
+def write_audit(user_id, action: str, detail: str = ""):
+    db.auth_insert_audit(user_id, str(action)[:80], _scrub_detail(detail))
 
 
 def list_audit(limit: int = 100) -> list:
     return db.auth_list_audit(max(1, min(int(limit), 500)))
+
+
+def audit_page(limit: int = 50, before_id: int = None, action: str = None,
+               user_id: int = None) -> dict:
+    """The admin audit view: newest first, at most AUDIT_PAGE_MAX rows,
+    `next_before_id` for the next (older) page or None at the end. Details
+    are scrubbed again on the way out (rows written before a scrub rule
+    existed) and any path-like text is dropped. Coarse IP prefixes that the
+    sign-in audit stores (IPv4 /24, IPv6 /48) are kept."""
+    limit = max(1, min(int(limit), AUDIT_PAGE_MAX))
+    rows = db.auth_list_audit(limit + 1, before_id=before_id, action=action or None,
+                              user_id=user_id)
+    more = len(rows) > limit
+    rows = rows[:limit]
+    events = [{"id": r["id"], "ts": r["ts"], "user_id": r["user_id"],
+               "action": r["action"],
+               "detail": _PATHISH_RE.sub("[hidden]", _scrub_detail(r["detail_redacted"]))}
+              for r in rows]
+    return {"events": events, "next_before_id": rows[-1]["id"] if more and rows else None,
+            "actions": db.auth_list_audit_actions()}
 
 
 # --- allowlist / users -----------------------------------------------------
@@ -121,9 +151,16 @@ def list_users() -> list:
             for r in db.auth_list_users()]
 
 
-def deactivate_user(user_id: int, actor_id=None) -> dict:
+def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False) -> dict:
+    """`keep_an_admin` refuses (409) to deactivate the last active admin.
+    The CLI leaves it off: it is the local recovery path, and
+    `grant-admin` brings an admin back."""
     _require_user(user_id)
-    db.auth_update_user(user_id, is_active=0)
+    if keep_an_admin:
+        if not db.auth_deactivate_user_keeping_an_admin(user_id):
+            raise ConflictError(_LAST_ADMIN)
+    else:
+        db.auth_update_user(user_id, is_active=0)
     db.auth_delete_user_sessions(user_id)
     write_audit(actor_id, "user.deactivate", f"user {user_id}")
     return get_user(user_id)
@@ -134,6 +171,52 @@ def activate_user(user_id: int, actor_id=None) -> dict:
     db.auth_update_user(user_id, is_active=1)
     write_audit(actor_id, "user.activate", f"user {user_id}")
     return get_user(user_id)
+
+
+_LAST_ADMIN = ("This is the last active admin. Baihe needs at least one, so it can't be "
+               "deactivated.")
+
+
+def _live_session_count(user_id: int, now: float) -> int:
+    return sum(1 for s in db.auth_list_sessions(user_id)
+               if now < s["expires_at"] and now - s["last_seen_at"] < IDLE_TIMEOUT_SECONDS)
+
+
+def admin_list_users(actor_id=None, now: float = None) -> list:
+    """The admin Users view: list_users plus each user's live session count
+    and whether the row is the caller. No session details (no IP prefix or
+    user agent)."""
+    now = time.time() if now is None else now
+    return [_admin_view(u, actor_id, now) for u in list_users()]
+
+
+def _admin_view(user: dict, actor_id, now: float) -> dict:
+    return dict(user, active_sessions=_live_session_count(user["id"], now),
+                is_self=actor_id is not None and user["id"] == actor_id)
+
+
+def admin_set_active(user_id: int, active: bool, actor_id=None) -> dict:
+    """Admin activate/deactivate; returns the admin_list_users row. The
+    caller can't deactivate their own account, nor the last active admin
+    (409). `actor_id` None is the local owner, who has no users row and so
+    can never be the target."""
+    if active:
+        user = activate_user(user_id, actor_id=actor_id)
+    else:
+        _require_user(user_id)
+        if actor_id is not None and user_id == actor_id:
+            raise ConflictError("You can't deactivate your own account.")
+        user = deactivate_user(user_id, actor_id=actor_id, keep_an_admin=True)
+    return _admin_view(user, actor_id, time.time())
+
+
+def admin_revoke_sessions(user_id: int, actor_id=None) -> dict:
+    """Ends every session of another user (they can sign in again). Not the
+    caller's own: that would sign them out mid-action (409; use Sign out)."""
+    _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("To end your own sessions, use Sign out.")
+    return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id)}
 
 
 def grant_admin_local(email: str) -> dict:
