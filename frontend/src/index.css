@@ -639,7 +639,6 @@ a.drama-card-title:focus-visible { outline: none; }
 .tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .tool-list > li { display: grid; gap: 2px; }
 .tool-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-.series-dramas { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: var(--text-sm); }
 
 /* Sheets on this page: flat folds, detail layout, sticky actions on phone */
 dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
