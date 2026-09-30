@@ -589,6 +589,29 @@ def exclusive_active() -> bool:
         return _exclusive_label is not None
 
 
+_stopping = False
+STOPPING_MESSAGE = "Baihe is stopping, so no new job can start. Start Baihe again to run it."
+
+
+def refuse_new_jobs() -> None:
+    """The server's clean stop has begun (services/shutdown_service.py):
+    from here on start_job/start_process_job raise instead of starting, so
+    nothing started during the grace wait is killed mid-write when the
+    process ends. Set under _lock, so a start either finished before this
+    (and the stop's active_job_ids() sees it) or is refused. Never undone
+    for the life of the process."""
+    global _stopping
+    with _lock:
+        _stopping = True
+
+
+def _refuse_if_stopping_locked():
+    """Caller holds _lock."""
+    if _stopping:
+        from services.service_errors import ConflictError
+        raise ConflictError(STOPPING_MESSAGE)
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str = None, **kwargs) -> bool:
     """
@@ -608,9 +631,13 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     The job records who started it (auth B2): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
     the PC owner, auth off, Streamlit, the CLI and jobs started by jobs.
+
+    Raises ConflictError once the server's clean stop has begun
+    (refuse_new_jobs).
     """
     owner_user_id = _acting_user_id()
     with _lock:
+        _refuse_if_stopping_locked()
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -678,10 +705,11 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     passes on_done so it can apply its own result. If on_done raises, the
     job ends "error" with a redacted message. Not called on error/cancel.
     Carried through the GPU queue like target/args. Records its starter
-    like start_job().
+    and refuses during a clean stop like start_job().
     """
     owner_user_id = _acting_user_id()
     with _lock:
+        _refuse_if_stopping_locked()
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
