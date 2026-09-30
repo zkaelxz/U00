@@ -7,7 +7,11 @@ need the zip below (user decision, 2026-09-30). To build
 `BaiheStudio-Setup-<version>.exe`, go to Actions → **Windows Installer** →
 Run workflow, or push a tag `installer-v<version>`. The workflow builds the
 installer, smoke-tests a silent install and uninstall, and uploads the
-`.exe` as a run artifact. Attach it to a GitHub release by hand. To build
+`.exe` as a run artifact. A `v<version>` tag also publishes it: once the
+smoke tests pass, the workflow attaches the `.exe` and its `.sha256` to a
+GitHub release named after the tag, which the app's Settings → App updates
+finds (docs/runbook.md §1). Keep `frontend-v*` releases separate; the app
+skips any release without the installer. To build
 locally on Windows (Python 3.12, Node.js 22 and Inno Setup 6 needed), run
 `python installer/build_installer.py --version <version>`. Design and
 behaviour: `docs/windows-installer-design.md`.

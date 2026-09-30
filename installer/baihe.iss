@@ -67,6 +67,9 @@ ExtraDiskSpaceRequired={#ExtraDiskSpace}
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
+; One Setup at a time: a second click on "Install" in the app (or a second
+; double-click) finds this mutex and Setup says it is already running.
+SetupMutex=BaiheStudioSetupMutex,Global\BaiheStudioSetupMutex
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

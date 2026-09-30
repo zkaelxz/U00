@@ -165,6 +165,16 @@ jobs:
           if ($left) { $left | Format-Table ProcessId, ExecutablePath; Write-Error "processes from the install folder are still running"; exit 1 }
           Write-Host "Stop ended the server and its children."
 
+      # The server's job lets a CREATE_BREAKAWAY_FROM_JOB child out only
+      # inside the short window around the update installer's Setup launch
+      # (Setup stops the server); ordinary and nested-job children, and
+      # breakaway requests outside that window, stay in and end with it.
+      - name: Smoke test -- only the Setup launch path leaves the server's job
+        shell: pwsh
+        run: |
+          python installer/smoke_child.py --breakaway-check
+          if ($LASTEXITCODE -ne 0) { Write-Error "breakaway check failed"; exit 1 }
+
       - name: Smoke test -- stop and silent uninstall
         shell: pwsh
         run: |

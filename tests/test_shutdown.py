@@ -429,6 +429,37 @@ class TestProcessGuard:
         assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, 555)]
         assert process_guard._job_handle is None
 
+    def test_breakaway_is_allowed_only_inside_the_window(self, win32):
+        # The server's job refuses breakaway (0x2000 only); the window adds
+        # BREAKAWAY_OK (0x800, never the silent 0x1000) for one launch and
+        # puts kill-on-close alone back, even when the launch fails.
+        assert process_guard.contain_children() is True
+        assert win32.calls[1] == ("limits", 101, 9, 0x2000)
+        win32.calls.clear()
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is True
+            assert win32.calls == [("limits", 101, 9, 0x2000 | 0x0800)]
+        assert win32.calls == [("limits", 101, 9, 0x2800), ("limits", 101, 9, 0x2000)]
+        win32.calls.clear()
+        with pytest.raises(OSError):
+            with process_guard.breakaway_allowed():
+                raise OSError("CreateProcess failed")
+        assert win32.calls[-1] == ("limits", 101, 9, 0x2000)
+
+    def test_breakaway_window_changes_nothing_without_a_job(self, win32):
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is False
+        assert win32.calls == []
+
+    def test_breakaway_window_when_windows_refuses(self, win32):
+        assert process_guard.contain_children() is True
+        win32.calls.clear()
+        win32._set_info = 0
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is False
+        # Nothing was set, so nothing is cleared.
+        assert win32.calls == [("limits", 101, 9, 0x2800)]
+
     def test_console_close_runs_the_clean_stop(self, win32):
         stops = []
         assert process_guard.install_console_close_handler(lambda: stops.append(1)) is True

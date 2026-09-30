@@ -11,6 +11,13 @@ stop, a forced one, its console window being closed, a crash) Windows ends
 every process still in the job -- and only those, never another program.
 This works the same for start.bat and for the installed launcher.
 
+The job refuses breakaway, except inside breakaway_allowed(): the update
+installer's Setup (services/update_service.py) is started there with
+CREATE_BREAKAWAY_FROM_JOB, because Setup stops the server and must not end
+with its job. The flag is set just before that one launch and cleared right
+after, so a child that asks for breakaway on its own (Chromium, Node) stays
+in the job the rest of the time.
+
 The installed launcher (installer/launcher.py) also passes a per-install name
 in BAIHE_PROCESS_GROUP_NAME, so its `--stop` can end the whole job by name
 (terminate_group) as its last resort. Without a name (start.bat) the job is
@@ -25,15 +32,18 @@ Everything here is a no-op returning False outside Windows
 the launcher uses it too.
 """
 
+import contextlib
 import hashlib
 import os
 import sys
+import threading
 
 GROUP_NAME_ENV = "BAIHE_PROCESS_GROUP_NAME"
 
 _JOB_OBJECT_ASSIGN_PROCESS = 0x0001
 _JOB_OBJECT_QUERY = 0x0004
 _JOB_OBJECT_TERMINATE = 0x0008
+_JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x0800
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _PROCESS_TERMINATE = 0x0001
@@ -48,6 +58,7 @@ _CLOSING_EVENTS = (CTRL_CLOSE_EVENT, CTRL_SHUTDOWN_EVENT)
 
 _job_handle = None       # kept open for the life of the process, on purpose
 _console_handler = None  # the ctypes callback; must stay referenced
+_breakaway_lock = threading.Lock()
 
 
 def _is_windows() -> bool:
@@ -167,6 +178,34 @@ def contain_children(name=None) -> bool:
         return False
     _job_handle = job
     return True
+
+
+def _set_own_job_limits(flags) -> bool:
+    try:
+        import ctypes
+        info = _extended_limit_info(flags)
+        return bool(_kernel32().SetInformationJobObject(
+            _job_handle, _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION, ctypes.byref(info),
+            ctypes.sizeof(info)))
+    except Exception:
+        return False
+
+
+@contextlib.contextmanager
+def breakaway_allowed():
+    """While inside: this process's own job (contain_children) also lets a
+    child started with CREATE_BREAKAWAY_FROM_JOB leave it; kill on close
+    stays. Cleared again on the way out, error or not. Yields True if the
+    flag was set; False (nothing changed) outside Windows or without a job,
+    where CREATE_BREAKAWAY_FROM_JOB then works or fails on its own."""
+    with _breakaway_lock:
+        opened = (_is_windows() and _job_handle is not None and _set_own_job_limits(
+            _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | _JOB_OBJECT_LIMIT_BREAKAWAY_OK))
+        try:
+            yield opened
+        finally:
+            if opened:
+                _set_own_job_limits(_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
 
 
 def handle_console_event(event, on_close) -> bool:
