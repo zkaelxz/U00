@@ -281,21 +281,30 @@ def cmd_export_video(args):
         out_ext = os.path.splitext(video_path)[1]
         out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
         print(f"#{d['id']} rendering {mode} video...")
-        if use_ass:
-            ass_text = export_service.generate_ass_text(
-                d["id"], field={"english": "en", "bilingual": "bilingual", "chinese": "zh"}[args.subs],
-                preset=preset or "Clean",
-                per_speaker_colors=not getattr(args, "no_speaker_colors", False))
-            video_export.burn_ass(video_path, ass_text, out_path)
-        else:
-            srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
-                        "chinese": lines_to_srt(lines, "zh")}[args.subs]
-            if mode == "hardsub":
-                video_export.burn_subtitles(video_path, srt_text, out_path)
+        soft = not use_ass and mode != "hardsub"
+        if soft and out_ext.lower() not in (".mp4", ".mkv"):
+            out_path = os.path.splitext(out_path)[0] + ".mp4"
+        # Render beside the final file and replace it only on success, so a
+        # failed or interrupted run never leaves a partial file under the real name.
+        tmp_path = os.path.splitext(out_path)[0] + ".partial" + os.path.splitext(out_path)[1]
+        try:
+            if use_ass:
+                ass_text = export_service.generate_ass_text(
+                    d["id"], field={"english": "en", "bilingual": "bilingual", "chinese": "zh"}[args.subs],
+                    preset=preset or "Clean",
+                    per_speaker_colors=not getattr(args, "no_speaker_colors", False))
+                video_export.burn_ass(video_path, ass_text, tmp_path)
             else:
-                if out_ext.lower() not in (".mp4", ".mkv"):
-                    out_path = os.path.splitext(out_path)[0] + ".mp4"
-                video_export.mux_soft_subtitles(video_path, srt_text, out_path)
+                srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
+                            "chinese": lines_to_srt(lines, "zh")}[args.subs]
+                if mode == "hardsub":
+                    video_export.burn_subtitles(video_path, srt_text, tmp_path)
+                else:
+                    video_export.mux_soft_subtitles(video_path, srt_text, tmp_path)
+            os.replace(tmp_path, out_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
         print(f"#{d['id']} exported: {out_path}")
 
     _run_batch(dramas, step, "export-video")

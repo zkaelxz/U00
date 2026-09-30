@@ -95,12 +95,14 @@ def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
         if end is not None:
             cmd += ["-t", str(max(end - start, 0.1))]
         cmd += ["-vf", vf, "-c:v", "libx264", "-c:a", "aac", out_path]
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=EXPORT_TIMEOUT_SECONDS)
     finally:
         os.unlink(ass_path)
     return out_path
 
 
+# Full-length exports re-encode the whole video; the same ceiling the API export jobs use.
+EXPORT_TIMEOUT_SECONDS = 4 * 3600
 PREVIEW_CLIP_TIMEOUT_SECONDS = 120.0
 # ffmpeg stops writing the preview clip at this size (-fs), so a
 # pathological source can't fill the disk within the timeout.
@@ -180,7 +182,7 @@ def burn_subtitles(video_path: str, srt_text: str, out_path: str,
             "-vf", f"subtitles='{escaped}':force_style='{style}'",
             "-c:a", "copy", out_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=EXPORT_TIMEOUT_SECONDS)
     finally:
         os.unlink(srt_path)
     return out_path
@@ -199,7 +201,7 @@ def burn_ass(video_path: str, ass_text: str, out_path: str):
             "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
             "-c:a", "copy", out_path,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=EXPORT_TIMEOUT_SECONDS)
     finally:
         os.unlink(ass_path)
     return out_path
@@ -231,7 +233,7 @@ def mux_soft_subtitles(video_path: str, srt_text: str, out_path: str, language: 
     srt_path = _write_srt_tempfile(srt_text)
     try:
         subprocess.run(mux_soft_subtitles_cmd(video_path, srt_path, out_path, language),
-                       check=True, capture_output=True)
+                       check=True, capture_output=True, timeout=EXPORT_TIMEOUT_SECONDS)
     finally:
         os.unlink(srt_path)
     return out_path
@@ -261,7 +263,7 @@ def replace_audio_with_dub(video_path: str, dub_audio_path: str, out_path: str,
     quietly underneath instead of fully replacing it."""
     subprocess.run(replace_audio_with_dub_cmd(video_path, dub_audio_path, out_path,
                                               keep_original_at_db),
-                   check=True, capture_output=True)
+                   check=True, capture_output=True, timeout=EXPORT_TIMEOUT_SECONDS)
     return out_path
 
 

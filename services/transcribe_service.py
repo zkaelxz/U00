@@ -98,6 +98,11 @@ _DEFAULT_TUNING = {
 }
 
 
+def _raise_if_job_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
 def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
     """Mirrors source_service._audio_available's own file-exists check."""
     audio_filename = drama.get("audio_filename")
@@ -590,7 +595,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         segments = hardsub_ocr.extract_hardsub_subtitles(
             video_path, language=source_language, sample_interval=hardsub_interval,
             ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
-            tesseract_cmd=tesseract_cmd,
+            tesseract_cmd=tesseract_cmd, job_id=job_id,
+            cancel_check=lambda: _raise_if_job_cancelled(job_id),
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
         if not segments:

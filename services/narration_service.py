@@ -149,6 +149,11 @@ def finish_tagging_checkpoint(drama_id):
         pass
 
 
+def _raise_if_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+
+
 def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
@@ -176,7 +181,9 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
-        done=done, on_batch=_checkpoint)
+        done=done, on_batch=_checkpoint,
+        cancel_check=lambda: _raise_if_cancelled(job_id))
+    _raise_if_cancelled(job_id)
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 

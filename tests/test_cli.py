@@ -1703,3 +1703,45 @@ def test_cli_and_translate_run_build_the_same_style_guidelines(isolated_db, monk
     _, expected, _ = workspace_job_service.build_run_style_context(
         did, d, lines, "audio_drama", include_genre_notes=False, default_female_pronouns=True)
     assert seen["style_guidelines"] == expected and "sad" in expected
+
+
+class TestExportVideoAtomic(TestExportVideoAss):
+    def _export(self, monkeypatch, did, render):
+        import video_export
+        monkeypatch.setattr(video_export, "burn_ass", lambda v, ass, out: render(out))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(argparse.Namespace(
+                id=did, style=None, mode=None, plain=False, no_speaker_colors=False,
+                subs="english"))
+
+    def test_failed_render_leaves_no_partial_file_and_keeps_the_old_export(self, isolated_db, monkeypatch):
+        import os
+        did = self._drama(isolated_db)
+        final = os.path.join(isolated_db.drama_dir(did), "subtitled_episode.mp4")
+        with open(final, "wb") as f:
+            f.write(b"old")
+
+        def render(out):
+            with open(out, "wb") as f:
+                f.write(b"half")
+            raise RuntimeError("ffmpeg died")
+        # _run_batch reports the failure; the export must not have touched the final file.
+        try:
+            self._export(monkeypatch, did, render)
+        except BaseException:
+            pass
+        assert open(final, "rb").read() == b"old"
+        assert [n for n in os.listdir(isolated_db.drama_dir(did)) if "partial" in n] == []
+
+    def test_successful_render_replaces_the_final_file(self, isolated_db, monkeypatch):
+        import os
+        did = self._drama(isolated_db)
+
+        def render(out):
+            assert "partial" in os.path.basename(out)
+            with open(out, "wb") as f:
+                f.write(b"new")
+        self._export(monkeypatch, did, render)
+        final = os.path.join(isolated_db.drama_dir(did), "subtitled_episode.mp4")
+        assert open(final, "rb").read() == b"new"
+        assert [n for n in os.listdir(isolated_db.drama_dir(did)) if "partial" in n] == []
