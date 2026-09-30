@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
+import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
@@ -66,6 +67,7 @@ export default function SettingsPage() {
               )
             }
           />
+          <EngineRoutingCard settings={settings} />
           <DefaultsCard {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
