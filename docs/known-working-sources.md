@@ -31,6 +31,7 @@ not investigated further
 | ゼロサムオンライン Zero-Sum Online | ja | manga | ✅ | Own protobuf reader for the real API. |
 | マンガ図書館Z Mangaz | ja | manga | ⚠️ | search/series/chapters ✅. Page capture proven (real descrambled page, real `blob:` capture) but a full uninterrupted book (43/43 pages) is unproven — throttling-limited, not a code gap. |
 | 轻之国度 LightNovel (`www.lightnovel.fun`) | zh | novel | ✅ | Search, series, chapters (across volumes) and chapter text confirmed live 2026-09-30. Public `/book` and `/reader` pages only; locked 轻币 chapters are reported, never unlocked; EPUB/file-locker links never followed. `lightnovel.us` returned 503. |
+| 小説家になろう Syosetu (`ncode.syosetu.com`) | ja | novel | ⚠️ | Page structure read live 2026-09-30 and the adapter run offline against saved pages; no import run through the app. **Terms: the ToS (第14条 23) forbid automated access except via the official API** (recorded, not enforced). 18+ works (`novel18.syosetu.com`) unsupported; 18+/login/removed-work handling unverified live. |
 
 ## Generic paste-a-URL (no adapter) — confirmed on real, specific sites
 
