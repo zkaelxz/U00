@@ -65,8 +65,12 @@ export async function mockAiResegment(
 ): Promise<Calls> {
   const calls: Calls = { previewStarts: [], applies: [] }
   const preview = opts.preview ?? PREVIEW
+  // The real config is read once and reused: re-fetching it in every
+  // handler call fails with "Response has been disposed" when reads overlap.
+  let realConfig: Promise<Record<string, unknown>> | null = null
   await page.route('**/api/translate-run/dramas/3/config', async (route) => {
-    const real = await (await route.fetch()).json()
+    realConfig ??= route.fetch().then((r) => r.json())
+    const real = await realConfig
     await route.fulfill({
       json: {
         ...real,

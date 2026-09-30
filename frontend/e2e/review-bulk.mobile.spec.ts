@@ -12,10 +12,11 @@ const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
 
 test('Bulk switches: 44px targets, no sideways scroll, the warning shows', async ({ page }) => {
+  // Read the real config once: re-fetching per call can fail with "Response has been disposed".
+  let real: Promise<Record<string, unknown>> | null = null
   await page.route('**/api/translate-run/dramas/3/config', async (route) => {
-    const r = await route.fetch()
-    const body = await r.json()
-    await route.fulfill({ response: r, json: { ...body, translation_engine: 'claude', bulk_supported_engines: ['claude', 'gemini', 'deepseek'] } })
+    real ??= route.fetch().then((r) => r.json())
+    await route.fulfill({ json: { ...(await real), translation_engine: 'claude', bulk_supported_engines: ['claude', 'gemini', 'deepseek'] } })
   })
   await page.goto('/#/drama/3/review')
   const ai = section(page, 'AI review')

@@ -33,10 +33,11 @@ const batch = {
 
 // The drama's engine and the server's bulk list (free tier off: Gemini is in it).
 async function mockConfig(page: Page, engine: string, bulk = ['claude', 'gemini', 'deepseek']) {
+  // Read the real config once: re-fetching per call can fail with "Response has been disposed".
+  let real: Promise<Record<string, unknown>> | null = null
   await page.route('**/api/translate-run/dramas/3/config', async (route) => {
-    const r = await route.fetch()
-    const body = await r.json()
-    await route.fulfill({ response: r, json: { ...body, translation_engine: engine, bulk_supported_engines: bulk } })
+    real ??= route.fetch().then((r) => r.json())
+    await route.fulfill({ json: { ...(await real), translation_engine: engine, bulk_supported_engines: bulk } })
   })
 }
 
