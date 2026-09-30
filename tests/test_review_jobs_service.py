@@ -312,3 +312,18 @@ def test_emotion_cancel_stops_between_batches_and_skips_save(monkeypatch):
     job = _wait(svc.start_emotion_tagging(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled"
     assert len(calls) == 1 and saved == []
+
+
+def test_flag_count_reflects_hand_edits_on_lines_the_job_left_alone(monkeypatch):
+    """A flag the user cleared (or set) by hand on a line the job didn't
+    change is counted as it is saved, not as the job first read it."""
+    did = _seed(rows=(("你好", "hello", "uncertain"), ("再见", "bye", None)))
+    rows = db.load_lines(did)
+
+    def fake_flag(lines, engine, **kw):
+        db.update_line_fields_if(did, rows[0]["id"], {"flag": None, "flag_note": ""},
+                                 {"flag": "uncertain", "flag_note": ""})
+    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    assert db.load_lines(did)[0]["flag"] is None
+    assert job["result"]["flagged_count"] == 0

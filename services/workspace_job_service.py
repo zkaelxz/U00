@@ -421,12 +421,13 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
         if (ln.flag or "", ln.flag_note or "") != before:
             items.append((ln.id, {"flag": ln.flag or None, "flag_note": ln.flag_note or ""},
                           {"flag": before[0], "flag_note": before[1]}))
-    kept_user = set(db.update_lines_fields_if_many(drama_id, items))
-    flagged = {ln.id: bool(ln.flag) for ln in lines if ln.id not in kept_user}
-    if kept_user:
-        flagged.update({r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)
-                        if r["id"] in kept_user})
-    background_jobs.set_result(job_id, {"flagged_count": sum(flagged.values())})
+    db.update_lines_fields_if_many(drama_id, items)
+    # Counted from the saved rows, so flags the user set or cleared by hand
+    # while the job ran are reflected (read-only; nothing is written here).
+    saved = {r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)}
+    flagged = sum(saved.get(ln.id, False) if ln.id is not None else bool(ln.flag)
+                  for ln in lines)
+    background_jobs.set_result(job_id, {"flagged_count": flagged})
 
 
 def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
