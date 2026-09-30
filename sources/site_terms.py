@@ -233,6 +233,28 @@ SITE_TERMS = [
                           "clause.",
         },
     },
+    {
+        # Has an adapter (sources/adapters/syosetu.py), whose own capability
+        # record carries the same notes. Not syosetu.org: a different site.
+        "domains": ("syosetu.com",),
+        "platform": "小説家になろう (Syosetu / Narou)",
+        "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "https://syosetu.com/site/rule/ (利用規約, revision dated 令和8年6月9日), "
+                    "read directly (2026-09-30). robots.txt on ncode.syosetu.com and "
+                    "yomou.syosetu.com (fetched the same day): `User-agent: *` with "
+                    "`Crawl-delay: 1` and no Disallow lines.",
+            "clause": "第14条 (禁止事項) 23: \"なろうデベロッパーで提供しているAPIを利用する以外の"
+                      "方法で、本サービスに自動化された手段を用いてアクセスしたり、データを収集した"
+                      "りすること。\" (no automated access or data collection except through the "
+                      "site's own なろうデベロッパー API, which returns work metadata, not "
+                      "episode text).",
+            "unverified": "Applies to the 本サービス as a whole; that novel18.syosetu.com and "
+                          "yomou.syosetu.com fall under it is inferred from the shared domain "
+                          "and footer, not from a separate read of each.",
+        },
+    },
 ]
 
 
