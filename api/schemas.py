@@ -1966,6 +1966,7 @@ class SourcesSettings(BaseModel):
     session_break_min_delay: float
     session_break_max_delay: float
     cache_mode: str
+    cache_max_mb: int = Field(0, description="Kept-cache size ceiling in MB; 0 = no limit.")
     check_interval_hours: int
     auto_queue_new_chapters: bool
     demo_source_enabled: bool
@@ -2033,6 +2034,7 @@ class SourcesSettingsUpdate(BaseModel):
     session_break_min_delay: Optional[float] = None
     session_break_max_delay: Optional[float] = None
     cache_mode: Optional[str] = Field(None, max_length=40)
+    cache_max_mb: Optional[int] = None
     check_interval_hours: Optional[int] = None
     auto_queue_new_chapters: Optional[StrictBool] = None
     demo_source_enabled: Optional[StrictBool] = None
