@@ -114,6 +114,7 @@ from api.routers import (
 )
 from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
+from services import auth_service
 
 
 @asynccontextmanager
@@ -193,6 +194,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     # `python -m api`); a bind given straight to uvicorn (--host) isn't
     # visible here, which is why LoopbackOnlyGate refuses remote requests too.
     check_bind_safety(settings)
+    # Process-wide: both listeners are built from the same settings.
+    auth_service.configure_timeouts(settings.session_idle_days * 86400,
+                                    settings.session_max_days * 86400)
     if settings.auth_enabled:
         # Innermost: gives each request a holder for "who started this job"
         # (auth B2, api.auth.ActingPrincipalMiddleware).

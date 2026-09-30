@@ -178,7 +178,9 @@ class TestEveryRouteDeclared:
         app = _app("on")
         uses = sorted(f"{sorted(m)} {p}" for _r, p, m, d in api_auth.iter_route_declarations(app)
                       if ("authenticated", None) in d)
-        assert uses == ["['POST'] /api/auth/logout"]
+        assert uses == ["['GET'] /api/auth/sessions", "['POST'] /api/auth/logout",
+                        "['POST'] /api/auth/sessions/revoke-others",
+                        "['POST'] /api/auth/sessions/{auth_session_id}/revoke"]
         kinds = {d[0] for _r, _p, _m, decls in api_auth.iter_route_declarations(app)
                  for d in decls}
         assert kinds == {"permission", "public", "local_only", "authenticated"}

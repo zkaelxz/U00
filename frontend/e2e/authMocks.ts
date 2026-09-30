@@ -69,6 +69,12 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/notifications': EMPTY,
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
+  // Settings > Signed-in devices, for a signed-in person: just this device.
+  '/api/auth/sessions': {
+    sessions: [{ id: 1, device: 'Chrome on Windows', created_at: 1759000000, last_seen_at: 1759000000, expires_at: 1761592000, ip_prefix: '203.0.113', current: true }],
+    idle_timeout_days: 14,
+    absolute_timeout_days: 30,
+  },
 }
 
 // The Library admin panel polls its last backup/export job and artifact;

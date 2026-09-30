@@ -469,6 +469,30 @@ class TestSessionsAndCookies:
         assert auth_service.resolve_session(planted["session_token"]) is None
         assert auth_service.resolve_session(new)["user_id"] == user["id"]
 
+    def test_sign_in_again_rotates_and_lists_one_device(self, isolated_db, app, fake):
+        """Signing in again from the same browser replaces its session (one
+        device in the list, a new token); another browser adds a device.
+        Only the coarse label and prefix are kept, never the user agent."""
+        user = _add()
+        ua = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36")
+        c = _client(app)
+        c.headers["User-Agent"] = ua
+        _sign_in(c, fake, code="code-1")
+        first = c.cookies.get("__Host-baihe_session")
+        _sign_in(c, fake, code="code-2")
+        second = c.cookies.get("__Host-baihe_session")
+        assert first != second and auth_service.resolve_session(first) is None
+        rows = c.get("/api/auth/sessions").json()["sessions"]
+        assert [(r["device"], r["ip_prefix"], r["current"]) for r in rows] == [
+            ("Chrome on Android", "203.0.113", True)]
+        other = _client(app, peer=("198.51.100.20", 1000))
+        _sign_in(other, fake, code="code-3")
+        assert len(c.get("/api/auth/sessions").json()["sessions"]) == 2
+        stored = db.auth_list_sessions(user["id"])
+        assert all(s["user_agent_short"] == "" for s in stored)
+        assert "Pixel" not in repr(stored)
+
     def test_secure_mode_cookie_flags(self, isolated_db, app, fake):
         _add()
         r = _sign_in(_client(app), fake)
