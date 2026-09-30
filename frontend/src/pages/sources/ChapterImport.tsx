@@ -4,7 +4,8 @@
  *
  *   useChapterImport(source, seriesId)  (useChapterImport.ts) the remembered
  *                                       drama and the sourceimport_<drama> job
- *   <ImportSetup>  drama picker (+ New drama…), Track, progress, outcomes
+ *   <ImportSetup>  drama picker (+ New drama…), Retry failed chapters (N),
+ *                  Track, progress, outcomes
  *   <ImportBar>    "Import N chapters" (sticky at the bottom of the list)
  *   <TrackRow>     "Track for new chapters" (also for sources without import)
  *
@@ -24,7 +25,7 @@ import { DramaPicker } from './DramaPicker'
 import type { ChapterImportState } from './useChapterImport'
 import { describeSourceError, percent } from './sourcesFormat'
 import {
-  comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, outcomeTone,
+  comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, outcomeTone, retryLabel, retryNote,
 } from './urlImportFormat'
 
 type SetupProps = {
@@ -63,6 +64,15 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
         help={comic ? 'Comic pages go into a manhua, manga or manhwa drama.' : 'Chapter text is added to a novel drama’s text.'}
       />
       <ErrorBanner error={dramas.error} />
+      <ErrorBanner error={imp.importState.error} describe={{ serverText: true }} />
+      {imp.retry.length > 0 && (
+        <div className="actions" data-testid="import-retry">
+          <button type="button" className={buttonClass('secondary')} disabled={running} onClick={imp.startRetry}>
+            {retryLabel(imp.retry.length)}
+          </button>
+          {retryNote(imp.retry.length) && <span className="muted">{retryNote(imp.retry.length)}</span>}
+        </div>
+      )}
       {!tracked && <TrackRow source={source} seriesId={seriesId} dramaId={imp.dramaId} onTracked={onTracked} />}
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
 
@@ -76,7 +86,7 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
         {failed && <p className="warn" role="alert">{describeSourceError(failed, display).text}</p>}
         {shownResult && (
           <div className="sources-outcomes" data-testid="import-outcomes">
-            <p className={shownResult.failed_count ? 'warn' : undefined}>
+            <p className={shownResult.failed_count || shownResult.not_attempted_count ? 'warn' : undefined}>
               <strong>{outcomeSummary(shownResult)}</strong>
               {imp.dramaId && (
                 <>
