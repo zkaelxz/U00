@@ -1640,8 +1640,12 @@ def _is_journalled_folder(final: str, entry: dict) -> bool:
     recorded: a real directory whose marker token or identity matches."""
     if not _real_dir(final):
         return False
-    if _marker_matches(final, entry.get("marker")):
-        return True
+    marker = entry.get("marker")
+    if marker:
+        # A marker was written into the staged folder, so it is the proof.
+        # Inode numbers are reused: a folder someone else put in its place
+        # can carry the same identity, so identity alone must not count.
+        return _marker_matches(final, marker)
     ident = entry.get("ident")
     return ident is not None and _folder_identity(final) == ident
 
