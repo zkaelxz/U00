@@ -11,7 +11,11 @@ Restore and delete need confirm=true plus the typed word (RESTORE, DELETE).
 The drama to restore is a body field (an id inside the snapshot, not a live
 drama), so there is no path parameter to guard. A copy is chosen by its
 file name (query or body field), which the service matches against the
-backup folder's own listing and never uses as a path. The two import
+backup folder's own listing and never uses as a path. With no copy named,
+the dramas list and the restore use the service's default pick, or answer
+409 with details {reason: "choose_copy", candidates} when the newest copy
+can't be told for sure.
+The two import
 routes read their multipart body themselves so the upload cap
 (BAIHE_MAX_UPLOAD_MB) is enforced before the body is spooled.
 """
@@ -75,14 +79,16 @@ def get_snapshot():
 
 @router.get("/snapshot/dramas", dependencies=[local_only()], response_model=SnapshotDramaList,
             responses=_ERR_404,
-            summary="The dramas inside a copy (snapshot=<name>, else the newest readable)")
+            summary="The dramas inside a copy (snapshot=<name>, else the default copy; "
+                    "409 choose_copy when there is none)")
 def get_snapshot_dramas(snapshot: Optional[str] = Query(None, min_length=1, max_length=64)):
     return abs_.list_snapshot_dramas(snapshot)
 
 
 @router.post("/snapshot/restore-drama", dependencies=[local_only()],
              response_model=RestoreDramaDone, responses=_ERR_404,
-             summary="Restore one drama from the snapshot (confirm=true, confirm_text=RESTORE)")
+             summary="Restore one drama from a copy (confirm=true, confirm_text=RESTORE; "
+                     "409 choose_copy when no copy is named and none is the clear default)")
 def post_restore_drama(body: RestoreDramaRequest, request: Request):
     principal = getattr(request.state, "principal", None) or {}
     return abs_.restore_drama(body.drama_id, confirm=body.confirm,
@@ -92,11 +98,13 @@ def post_restore_drama(body: RestoreDramaRequest, request: Request):
 
 @router.post("/snapshot/delete", dependencies=[local_only()], response_model=DeleteSnapshotDone,
              responses=_ERR_404,
-             summary="Delete one copy (snapshot=<name>) or every copy (all=true); "
-                     "confirm=true, confirm_text=DELETE")
+             summary="Delete one copy (snapshot=<name>) or every managed copy (all=true); "
+                     "unmanaged copies need include_unmanaged=true; confirm=true, "
+                     "confirm_text=DELETE")
 def post_delete_snapshot(body: DeleteSnapshotRequest):
     return abs_.delete_snapshot(confirm=body.confirm, confirm_text=body.confirm_text,
-                                snapshot=body.snapshot, all_copies=body.all)
+                                snapshot=body.snapshot, all_copies=body.all,
+                                include_unmanaged=body.include_unmanaged)
 
 
 # Room for the multipart boundaries and the small form fields.

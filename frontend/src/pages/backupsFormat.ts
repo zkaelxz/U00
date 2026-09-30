@@ -7,6 +7,7 @@ import type {
   AutoBackupSettings,
   AutoBackupSettingsUpdate,
   BackupFrequency,
+  CopyCandidate,
   RestoreDramaDone,
   SnapshotCopy,
   SnapshotDrama,
@@ -22,7 +23,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 ]
 
 export const ROTATION_NOTE =
-  'Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks; older copies are deleted after each new backup.'
+  'Keeps one copy per day for the last 2 days, plus the first copy of each of the last 2 weeks; older copies this library made are deleted after each new backup.'
 export const DEFAULT_FOLDER_TEXT = 'Library backups folder (default)'
 
 type DateOpts = { locale?: string; timeZone?: string }
@@ -49,25 +50,69 @@ export function snapshotFacts(s: SnapshotInfo): string {
   return parts.join(' · ')
 }
 
+export const CHOOSE_COPY_TEXT =
+  "The newest copy can't be told for sure (copies from another library or from before this update, or dates that disagree), so none is picked for you. Choose the copy to restore from."
+
 /** One line for the current snapshot, for both places that show it. */
 export function describeSnapshot(s: SnapshotInfo | null, opts: DateOpts = {}): string {
   if (!s) return 'Checking for a snapshot…'
   if (!s.exists) return 'No snapshot yet.'
   if (s.readable === false) return "A snapshot file is there, but it can't be read. Back up again to replace it."
+  if (s.choose_copy) return "Can't be told for sure — choose a copy when restoring."
   const when = formatWhen(s.created_at, opts)
   return `${when ? `${when} · ` : ''}${snapshotFacts(s)}`
 }
 
 /**
  * One copy in the copies list: "30 Sept 2026, 08:00 · Database only · 12.3 MB · daily".
- * A copy that can't be read says so instead of its kind and size.
+ * A copy that can't be read says so instead of its kind and size; one this
+ * library doesn't manage says "not managed".
  */
 export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
   const when = formatWhen(c.created_at, opts) ?? c.name
-  if (!c.readable) return `${when} · can't be read`
+  const tail = isManaged(c) ? [] : ['not managed']
+  if (!c.readable) return [when, "can't be read", ...tail].join(' · ')
   const parts = [when, snapshotKindLabel(c.kind), formatBytes(c.size)]
   if (c.kept_as) parts.push(c.kept_as)
-  return parts.join(' · ')
+  return [...parts, ...tail].join(' · ')
+}
+
+// Copies this library doesn't manage: listed, never rotated or removed by
+// "delete all", restorable or deletable only when chosen by name.
+export const UNMANAGED_LABEL = 'Other or older copies (not managed)'
+export const UNMANAGED_NOTE =
+  "Made by another library sharing this folder, before this update, or can't be read. Automatic rotation and \"delete all\" never remove them."
+export const UNMANAGED_RESTORE_WARNING =
+  "This copy wasn't made by this library (it may be another PC's library, or from before this update). Check its date and dramas before restoring."
+export const UNMANAGED_DELETE_WARNING =
+  "Not managed by this library: it may be another PC's backup, and that PC won't know it is gone."
+
+/** A copy with no `managed` field (an older server) counts as managed. */
+export const isManaged = (c: Pick<SnapshotCopy, 'managed'>) => c.managed !== false
+
+/** The copies (order kept) split into this library's and the unmanaged ones. */
+export function splitCopies(copies: readonly SnapshotCopy[]): { managed: SnapshotCopy[]; unmanaged: SnapshotCopy[] } {
+  return { managed: copies.filter(isManaged), unmanaged: copies.filter((c) => !isManaged(c)) }
+}
+
+/**
+ * The copy the restore picker starts on: the server's default copy, or ""
+ * when there is none (choose_copy), so the owner must pick one. Never a guess
+ * from the list's order.
+ */
+export function initialRestoreCopy(s: SnapshotInfo | null, readable: readonly SnapshotCopy[]): string {
+  if (!s || s.choose_copy || !s.default_copy) return ''
+  return readable.some((c) => c.name === s.default_copy) ? s.default_copy : ''
+}
+
+/** The candidates of a 409 "choose_copy" answer, or null for any other error. */
+export function chooseCopyCandidates(e: unknown): CopyCandidate[] | null {
+  if (!(e instanceof ApiError) || e.status !== 409) return null
+  const d = e.details as { reason?: unknown; candidates?: unknown } | null | undefined
+  if (!d || typeof d !== 'object' || d.reason !== 'choose_copy' || !Array.isArray(d.candidates)) return null
+  return d.candidates.filter(
+    (c): c is CopyCandidate => !!c && typeof c === 'object' && typeof (c as CopyCandidate).name === 'string',
+  )
 }
 
 /** The Card's one-line meta: "Off" or "Weekly · database only". */

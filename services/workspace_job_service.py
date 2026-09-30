@@ -633,6 +633,13 @@ def _restore_kept_names():
 # session is revoked). See _build_staged_databases.
 _RESTORE_KEPT_AUTH_TABLES = ("users", "user_permissions", "auth_sessions", "audit_log")
 
+# app_settings keys a restore takes from the current library, never from the
+# upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY).
+# A backup from another library must not bring that library's id (its
+# copies in a shared folder would then look like this one's and be rotated
+# out), and an older backup must not roll the copy sequence back.
+_RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity",)
+
 
 # SQLite side files a restore never extracts: the validated library.db /
 # sources.db image must be exactly what goes live.
@@ -817,6 +824,25 @@ def _checkpoint(path: str):
         conn.close()
 
 
+def _carry_app_settings(conn, live_path: str):
+    """Replaces the staged library's _RESTORE_KEPT_APP_SETTINGS rows with the
+    live library's (none there = none in the restored one, so a new
+    identity is made on first use)."""
+    marks = ", ".join("?" for _ in _RESTORE_KEPT_APP_SETTINGS)
+    conn.execute(f"DELETE FROM main.app_settings WHERE key IN ({marks})",
+                 _RESTORE_KEPT_APP_SETTINGS)
+    if not os.path.isfile(live_path):
+        return
+    conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
+    try:
+        if "app_settings" in _table_names(conn, "cur"):
+            conn.execute(f"INSERT INTO main.app_settings (key, value) SELECT key, value "
+                         f"FROM cur.app_settings WHERE key IN ({marks})",
+                         _RESTORE_KEPT_APP_SETTINGS)
+    finally:
+        conn.execute("DETACH DATABASE cur")
+
+
 def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
@@ -860,6 +886,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
                 conn.execute("DELETE FROM gpu_lock")
+                _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
                 conn.close()

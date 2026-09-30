@@ -46,12 +46,32 @@ export interface SnapshotCopy {
   readable: boolean
   // Which rotation slot keeps it; null for a copy that can't be read.
   kept_as: 'daily' | 'weekly' | null
+  // Made by this library (or, in its own default folder, before copies were
+  // tagged). Only managed copies are rotated or removed by "delete all";
+  // the others (another library's in a shared folder, unreadable ones) stay
+  // until deleted by name.
+  managed?: boolean
+  // This library's copy number; the highest is the newest.
+  sequence?: number | null
 }
 
-// The newest readable copy's facts, plus every copy.
+// One copy offered by a 409 "choose_copy" answer (details.candidates).
+export interface CopyCandidate {
+  name: string
+  created_at: string
+  sequence: number | null
+  size: number
+  managed: boolean
+}
+
+// The default copy's facts, plus every copy.
 export interface SnapshotInfo {
   exists: boolean
   readable?: boolean | null
+  // true = the newest copy can't be told for sure; a restore must name one.
+  choose_copy?: boolean | null
+  // The copy a restore uses when none is named.
+  default_copy?: string | null
   created_at?: string | null
   kind?: SnapshotKind | null
   size?: number | null
@@ -98,6 +118,8 @@ export interface RestoreDramaDone {
 export interface DeleteSnapshotDone {
   deleted: boolean
   count: number
+  // Unmanaged copies "delete all" left in place.
+  kept_unmanaged?: number
 }
 
 // Importing dramas from a backup file (POST /api/backups/import/list, /import).
