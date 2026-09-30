@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test'
 test('transcription experiments save, and MOSS appears as a backend only while on', async ({ page }) => {
   await page.goto('/#/settings')
   const card = page.getByRole('region', { name: 'Transcription experiments' })
-  const batch = card.getByLabel('Qwen3-ASR batch size')
+  const batch = card.getByLabel('Qwen3-ASR batch size', { exact: true })
   await expect(batch).toHaveValue('1')
   const saved = () => page.waitForResponse((r) => r.url().endsWith('/api/settings/asr-options') && r.request().method() === 'POST')
 
@@ -17,7 +17,7 @@ test('transcription experiments save, and MOSS appears as a backend only while o
   await batch.fill('4')
   await Promise.all([saved(), card.getByRole('button', { name: 'Save batch size' }).click()])
   await page.reload()
-  await expect(page.getByRole('region', { name: 'Transcription experiments' }).getByLabel('Qwen3-ASR batch size')).toHaveValue('4')
+  await expect(page.getByRole('region', { name: 'Transcription experiments' }).getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveValue('4')
 
   const moss = page.getByRole('switch', { name: 'MOSS-Transcribe-Diarize (experimental)' })
   await expect(moss).toBeChecked({ checked: false })
@@ -32,7 +32,7 @@ test('transcription experiments save, and MOSS appears as a backend only while o
   // Restore both settings.
   await page.goto('/#/settings')
   const card2 = page.getByRole('region', { name: 'Transcription experiments' })
-  await card2.getByLabel('Qwen3-ASR batch size').fill('1')
+  await card2.getByLabel('Qwen3-ASR batch size', { exact: true }).fill('1')
   await Promise.all([saved(), card2.getByRole('button', { name: 'Save batch size' }).click()])
   await Promise.all([saved(), page.getByRole('switch', { name: 'MOSS-Transcribe-Diarize (experimental)' }).click()])
 
