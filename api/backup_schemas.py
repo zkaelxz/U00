@@ -4,7 +4,9 @@ routes (api/routers/backup_routes.py, roadmap Step 43 as redefined
 2026-09-29). Kept out of api/schemas.py so this slice could be built
 alongside other branches editing that file; the shared ErrorResponse still
 lives there. The only path on any model is `folder`, the backup folder the
-owner typed themselves (every route here is local_only).
+owner typed themselves (every route here is local_only). Backup copies are
+named by file name only; a name sent back is matched against the backup
+folder's own listing, never used as a path.
 """
 
 from typing import Dict, List, Literal, Optional
@@ -13,6 +15,18 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 BackupFrequency = Literal["daily", "weekly", "monthly"]
 SnapshotKind = Literal["db-only", "full"]
+
+
+class SnapshotCopy(BaseModel):
+    name: str
+    created_at: Optional[str] = None
+    size: int
+    kind: Optional[SnapshotKind] = None
+    drama_count: Optional[int] = None
+    readable: bool
+    kept_as: Optional[Literal["daily", "weekly"]] = Field(
+        None, description="Which rotation slot keeps this copy (the 2 newest are daily, then "
+                          "the first copy of each of the 2 most recent older weeks).")
 
 
 class AutoBackupSettings(BaseModel):
@@ -26,6 +40,7 @@ class AutoBackupSettings(BaseModel):
     last_error: Optional[str] = None
     next_run_at: Optional[str] = None
     running: bool
+    copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
 
 
 class AutoBackupSettingsUpdate(BaseModel):
@@ -38,8 +53,9 @@ class AutoBackupSettingsUpdate(BaseModel):
 
 
 class BackupNowRequest(BaseModel):
-    """replace=true is needed when a snapshot exists (it is replaced).
-    include_media left out = the setting."""
+    """include_media left out = the setting. replace is accepted from older
+    clients and ignored: each backup adds a new copy and old copies rotate
+    out."""
     model_config = ConfigDict(extra="forbid")
     replace: StrictBool = False
     include_media: Optional[StrictBool] = None
@@ -57,6 +73,7 @@ class SnapshotInfo(BaseModel):
     size: Optional[int] = None
     app_version: Optional[str] = None
     drama_count: Optional[int] = None
+    copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
 
 
 class SnapshotDrama(BaseModel):
@@ -69,18 +86,22 @@ class SnapshotDrama(BaseModel):
 
 
 class SnapshotDramaList(BaseModel):
+    name: str
     created_at: Optional[str] = None
     kind: SnapshotKind
     dramas: List[SnapshotDrama]
 
 
 class RestoreDramaRequest(BaseModel):
-    """drama_id is the drama's id inside the snapshot. Needs confirm=true
+    """drama_id is the drama's id inside the copy. Needs confirm=true
     and confirm_text "RESTORE"."""
     model_config = ConfigDict(extra="forbid")
     drama_id: StrictInt = Field(..., ge=1, le=2**31 - 1)
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=32)
+    snapshot: Optional[str] = Field(None, min_length=1, max_length=64,
+                                    description="A copy's name from the copies list; left "
+                                                "out = the newest readable copy.")
 
 
 class RestoreDramaDone(BaseModel):
@@ -98,11 +119,15 @@ class RestoreDramaDone(BaseModel):
 
 
 class DeleteSnapshotRequest(BaseModel):
-    """Needs confirm=true and confirm_text "DELETE"."""
+    """Needs confirm=true and confirm_text "DELETE". snapshot names the copy
+    to delete; left out = every copy."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=32)
+    snapshot: Optional[str] = Field(None, min_length=1, max_length=64,
+                                    description="A copy's name; left out = every copy.")
 
 
 class DeleteSnapshotDone(BaseModel):
     deleted: bool
+    count: int = 0

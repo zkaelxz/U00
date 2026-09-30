@@ -1,12 +1,12 @@
 /*
  * Settings > Automatic backups (roadmap Step 43): an opt-in scheduled backup
- * that keeps ONE snapshot (each new one replaces it), plus "Back up now".
+ * that keeps rotating copies (the last 2 daily and 2 weekly), plus "Back up
+ * now", which adds a copy. The copies are listed newest first; restoring a
+ * drama from one, or deleting one, is in Library tools (SnapshotBlock).
  * PC only: away from the PC the Card shows the "Run this on the main PC."
  * note, and nothing is fetched until /api/meta has answered.
  *
- * Each change sends only the field that changed. "Back up now" asks first
- * when a snapshot exists (it names that snapshot's date, kind and size) and
- * only then sends replace: true.
+ * Each change sends only the field that changed.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
@@ -26,8 +26,8 @@ import {
 } from '../../types/backups'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import {
-  DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ONE_SNAPSHOT_NOTE, backupNowStep, changedSettings, describeSnapshot,
-  folderChange, formatWhen, needsReplaceConfirm, nextRunText, replaceWarning, serverSentence, settingsSummary,
+  DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ROTATION_NOTE, changedSettings, describeCopy, describeSnapshot,
+  folderChange, formatWhen, nextRunText, serverSentence, settingsSummary,
 } from '../backupsFormat'
 import { percent } from '../libraryAdmin/libraryAdmin'
 import '../backups.css'
@@ -55,7 +55,6 @@ function AutoBackupControls() {
   const [folderError, setFolderError] = useState<string | null>(null)
   const [folderNote, setFolderNote] = useState<string | null>(null)
   const savingFolder = useRef(false)
-  const [confirming, setConfirming] = useState(false)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<unknown>(null)
   const [finished, setFinished] = useState<string | null>(null)
@@ -144,36 +143,21 @@ function AutoBackupControls() {
     )
   }
 
-  const start = (replace: boolean) => {
+  // A new copy never replaces one, so there is nothing to confirm.
+  const start = () => {
     setStarting(true)
     setStartError(null)
     setFinished(null)
-    backUpNow(replace).then(
+    backUpNow().then(
       () => {
         setStarting(false)
-        setConfirming(false)
         setRun(AUTO_BACKUP_JOB_ID)
       },
       (e: unknown) => {
         setStarting(false)
-        if (needsReplaceConfirm(e)) {
-          // A snapshot appeared since this page loaded: show it and ask.
-          void loadSnapshot().then(() => setConfirming(true))
-          return
-        }
-        setConfirming(false)
         setStartError(e)
       },
     )
-  }
-
-  const pressBackUp = () => {
-    const step = backupNowStep(snapshot, confirming)
-    if (step.kind === 'confirm') {
-      setFinished(null)
-      setStartError(null)
-      setConfirming(true)
-    } else start(step.replace)
   }
 
   const folderDirty = !!settings && folderChange(folderDraft, settings.folder) !== null
@@ -181,6 +165,7 @@ function AutoBackupControls() {
   const lastAttempt = settings && formatWhen(settings.last_attempt_at)
   const next = settings && nextRunText(settings)
   const j = job
+  const copies = snapshot?.copies ?? []
 
   return (
     <Card
@@ -189,7 +174,7 @@ function AutoBackupControls() {
       aria-label={TITLE}
       className="auto-backup"
     >
-      <p className="settings-note">{ONE_SNAPSHOT_NOTE}</p>
+      <p className="settings-note">{ROTATION_NOTE}</p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={SERVER} />
       {!settings ? (
         !error && <p className="muted">Loading…</p>
@@ -275,34 +260,27 @@ function AutoBackupControls() {
               </p>
             )}
             <p className="muted" data-testid="auto-backup-snapshot">
-              Snapshot: {describeSnapshot(snapshot)}
+              Newest copy: {describeSnapshot(snapshot)}
             </p>
+            {copies.length > 0 && (
+              <ul className="backup-copies" aria-label="Backup copies, newest first" data-testid="auto-backup-copies">
+                {copies.map((c) => (
+                  <li key={c.name}>{describeCopy(c)}</li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {confirming ? (
-            <div className="backup-confirm" role="group" aria-label="Replace the snapshot?">
-              <p>{replaceWarning(snapshot)}</p>
-              <div className="settings-actions">
-                <button type="button" className={buttonClass('danger')} disabled={starting} onClick={pressBackUp}>
-                  {starting ? 'Starting…' : 'Replace snapshot'}
-                </button>
-                <button type="button" className="link" onClick={() => setConfirming(false)}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="settings-actions">
-              <button
-                type="button"
-                className={buttonClass('primary')}
-                disabled={running || settings.running}
-                onClick={pressBackUp}
-              >
-                Back up now
-              </button>
-            </div>
-          )}
+          <div className="settings-actions">
+            <button
+              type="button"
+              className={buttonClass('primary')}
+              disabled={running || settings.running}
+              onClick={start}
+            >
+              {starting ? 'Starting…' : 'Back up now'}
+            </button>
+          </div>
           <div aria-live="polite">
             {running && (
               <p className="muted" data-testid="auto-backup-job">

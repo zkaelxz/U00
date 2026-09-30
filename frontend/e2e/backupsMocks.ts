@@ -4,6 +4,16 @@ import type { Page, Route } from '@playwright/test'
 // and the backup job's /api/jobs poll. Every write is recorded in `posts`;
 // settings changes are kept, so a reload shows what was saved.
 
+export interface CopyBody {
+  name: string
+  created_at: string | null
+  size: number
+  kind: 'db-only' | 'full' | null
+  drama_count: number | null
+  readable: boolean
+  kept_as: 'daily' | 'weekly' | null
+}
+
 export interface SnapshotBody {
   exists: boolean
   readable?: boolean
@@ -12,11 +22,18 @@ export interface SnapshotBody {
   size?: number
   app_version?: string
   drama_count?: number
+  copies?: CopyBody[]
 }
+
+export const COPIES: CopyBody[] = [
+  { name: 'baihe_snapshot-20260928-093000.zip', created_at: '2026-09-28T09:30:00+00:00', size: 12_345_678, kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily' },
+  { name: 'baihe_snapshot-20260927-093000.zip', created_at: '2026-09-27T09:30:00+00:00', size: 12_000_000, kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily' },
+  { name: 'baihe_snapshot-20260921-093000.zip', created_at: '2026-09-21T09:30:00+00:00', size: 11_000_000, kind: 'full', drama_count: 2, readable: true, kept_as: 'weekly' },
+]
 
 export const SNAPSHOT: SnapshotBody = {
   exists: true, readable: true, created_at: '2026-09-28T09:30:00+00:00', kind: 'db-only',
-  size: 12_345_678, app_version: '1.0', drama_count: 3,
+  size: 12_345_678, app_version: '1.0', drama_count: 3, copies: COPIES,
 }
 
 export const SNAPSHOT_DRAMAS = [
@@ -25,10 +42,26 @@ export const SNAPSHOT_DRAMAS = [
   { id: 3, title: 'Signal', media_type: 'video_drama', line_count: 1204, exists_now: false },
 ]
 
+const NEW_COPY: CopyBody = {
+  name: 'baihe_snapshot-20260930-080000.zip', created_at: '2026-09-30T08:00:00+00:00', size: 12_400_000,
+  kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily',
+}
+
+/** The info for a list of copies (newest first), the way the server builds it. */
+function infoFor(copies: CopyBody[]): SnapshotBody {
+  const newest = copies.find((c) => c.readable)
+  if (!copies.length) return { exists: false, copies: [] }
+  if (!newest) return { exists: true, readable: false, copies }
+  return {
+    exists: true, readable: true, created_at: newest.created_at ?? undefined, kind: newest.kind ?? undefined,
+    size: newest.size, app_version: '1.0', drama_count: newest.drama_count ?? undefined, copies,
+  }
+}
+
 export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPollsBeforeDone?: number } = {}) {
   const state = {
     settings: {
-      enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+      enabled: false, frequency: 'daily', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
       last_run_at: null as string | null, last_attempt_at: null as string | null, last_error: null as string | null,
       next_run_at: null as string | null, running: false,
     },
@@ -38,15 +71,23 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
     polls: 0,
   }
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
+  const copies = () => state.snapshot.copies ?? []
+  const notFound = (route: Route) =>
+    json(route, { error: { code: 'not_found', message: "That backup copy doesn't exist (it may have been rotated out)." } }, 404)
 
   const handler = async (route: Route) => {
     const req = route.request()
-    const path = new URL(req.url()).pathname
+    const url = new URL(req.url())
+    const path = url.pathname
     if (req.method() === 'GET') {
-      if (path === '/api/backups/settings') return json(route, state.settings)
+      if (path === '/api/backups/settings') return json(route, { ...state.settings, copies: copies() })
       if (path === '/api/backups/snapshot') return json(route, state.snapshot)
       if (path === '/api/backups/snapshot/dramas') {
-        return json(route, { created_at: state.snapshot.created_at, kind: state.snapshot.kind, dramas: SNAPSHOT_DRAMAS })
+        const wanted = url.searchParams.get('snapshot')
+        const copy = wanted ? copies().find((c) => c.name === wanted) : copies().find((c) => c.readable)
+        if (!copy) return notFound(route)
+        const dramas = copy.drama_count === 2 ? SNAPSHOT_DRAMAS.slice(1) : SNAPSHOT_DRAMAS
+        return json(route, { name: copy.name, created_at: copy.created_at, kind: copy.kind, dramas })
       }
       return route.abort()
     }
@@ -57,17 +98,15 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
         return json(route, { error: { code: 'invalid_input', message: 'The backup folder must be a full folder path.' } }, 422)
       }
       Object.assign(state.settings, body)
-      state.settings.next_run_at = state.settings.enabled ? '2026-10-05T09:30:00+00:00' : null
-      return json(route, state.settings)
+      state.settings.next_run_at = state.settings.enabled ? '2026-10-01T08:00:00+00:00' : null
+      return json(route, { ...state.settings, copies: copies() })
     }
     if (path === '/api/backups/now') {
-      if (state.snapshot.exists && body.replace !== true) {
-        return json(route, { error: { code: 'invalid_input', message: 'A backup snapshot already exists; backing up now replaces it. Send replace=true to confirm.' } }, 422)
-      }
       state.jobStarted = true
       return json(route, { job_id: 'library_auto_backup' })
     }
     if (path === '/api/backups/snapshot/restore-drama') {
+      if (body.snapshot !== undefined && !copies().some((c) => c.name === body.snapshot)) return notFound(route)
       const d = SNAPSHOT_DRAMAS.find((x) => x.id === body.drama_id)
       if (!d) return json(route, { error: { code: 'not_found', message: "That drama isn't in the snapshot." } }, 404)
       return json(route, {
@@ -77,8 +116,14 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
       })
     }
     if (path === '/api/backups/snapshot/delete') {
-      state.snapshot = { exists: false }
-      return json(route, { deleted: true })
+      if (body.snapshot === undefined) {
+        const count = copies().length
+        state.snapshot = infoFor([])
+        return json(route, { deleted: true, count })
+      }
+      if (!copies().some((c) => c.name === body.snapshot)) return notFound(route)
+      state.snapshot = infoFor(copies().filter((c) => c.name !== body.snapshot))
+      return json(route, { deleted: true, count: 1 })
     }
     return route.abort()
   }
@@ -87,8 +132,9 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
     if (!state.jobStarted) return json(route, { error: { code: 'not_found', message: 'No job.' } }, 404)
     state.polls += 1
     const done = state.polls > (opts.jobPollsBeforeDone ?? 1)
-    if (done) {
-      state.snapshot = { ...SNAPSHOT, created_at: '2026-09-30T08:00:00+00:00' }
+    if (done && copies()[0]?.name !== NEW_COPY.name) {
+      // A new copy on top; the rotation keeps at most 4.
+      state.snapshot = infoFor([NEW_COPY, ...copies()].slice(0, 4))
       state.settings.last_run_at = '2026-09-30T08:00:00+00:00'
     }
     return json(route, {

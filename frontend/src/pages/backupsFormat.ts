@@ -8,6 +8,7 @@ import type {
   AutoBackupSettingsUpdate,
   BackupFrequency,
   RestoreDramaDone,
+  SnapshotCopy,
   SnapshotDrama,
   SnapshotInfo,
   SnapshotKind,
@@ -20,7 +21,7 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
   ['monthly', 'Monthly'],
 ]
 
-export const ONE_SNAPSHOT_NOTE = 'Keeps one snapshot; each new backup replaces it.'
+export const ROTATION_NOTE = 'Keeps the last 2 daily and 2 weekly copies; older copies are deleted after each new backup.'
 export const DEFAULT_FOLDER_TEXT = 'Library backups folder (default)'
 
 type DateOpts = { locale?: string; timeZone?: string }
@@ -56,6 +57,18 @@ export function describeSnapshot(s: SnapshotInfo | null, opts: DateOpts = {}): s
   return `${when ? `${when} · ` : ''}${snapshotFacts(s)}`
 }
 
+/**
+ * One copy in the copies list: "30 Sept 2026, 08:00 · Database only · 12.3 MB · daily".
+ * A copy that can't be read says so instead of its kind and size.
+ */
+export function describeCopy(c: SnapshotCopy, opts: DateOpts = {}): string {
+  const when = formatWhen(c.created_at, opts) ?? c.name
+  if (!c.readable) return `${when} · can't be read`
+  const parts = [when, snapshotKindLabel(c.kind), formatBytes(c.size)]
+  if (c.kept_as) parts.push(c.kept_as)
+  return parts.join(' · ')
+}
+
 /** The Card's one-line meta: "Off" or "Weekly · database only". */
 export function settingsSummary(s: AutoBackupSettings): string {
   if (!s.enabled) return 'Off'
@@ -73,34 +86,6 @@ export function nextRunText(s: AutoBackupSettings, now: Date = new Date(), opts:
   if (Number.isNaN(at.getTime())) return null
   if (at.getTime() <= now.getTime()) return 'Next backup: due now (within the hour while Baihe is running).'
   return `Next backup: ${formatWhen(s.next_run_at, opts)}.`
-}
-
-/**
- * "Back up now" as a small state machine. Pressed with no snapshot: start
- * (replace: false). Pressed with a snapshot: ask first. Pressed again while
- * asking: start with replace: true. Unknown snapshot (still loading or
- * failed): start with replace: false; the server refuses with a 422 when one
- * exists, and the caller reloads the snapshot and asks (see needsReplaceConfirm).
- */
-export type BackupNowStep = { kind: 'confirm' } | { kind: 'start'; replace: boolean }
-
-export function backupNowStep(snapshot: SnapshotInfo | null, confirming: boolean): BackupNowStep {
-  if (confirming) return { kind: 'start', replace: true }
-  if (snapshot?.exists) return { kind: 'confirm' }
-  return { kind: 'start', replace: false }
-}
-
-/** The server said a snapshot exists and replace was not sent. */
-export function needsReplaceConfirm(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 422 && e.code === 'invalid_input' && /already exists/i.test(e.message)
-}
-
-/** What the replace confirmation says about the snapshot about to go. */
-export function replaceWarning(s: SnapshotInfo | null, opts: DateOpts = {}): string {
-  if (!s?.exists) return 'This replaces the current snapshot.'
-  const when = formatWhen(s.created_at, opts)
-  const which = when ? `the snapshot from ${when}` : 'the current snapshot'
-  return `This replaces ${which} (${snapshotFacts(s)}). Only one snapshot is kept.`
 }
 
 /**

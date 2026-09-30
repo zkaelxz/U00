@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
-import type { AutoBackupSettings, RestoreDramaDone, SnapshotDrama, SnapshotInfo } from '../types/backups'
+import type { AutoBackupSettings, RestoreDramaDone, SnapshotCopy, SnapshotDrama, SnapshotInfo } from '../types/backups'
 import {
-  FOLDER_RULES, backupNowStep, changedSettings, describeRestore, describeSnapshot, filterSnapshotDramas, folderChange, formatWhen,
-  isoDay, needsReplaceConfirm, nextRunText, replaceWarning, serverSentence, settingsSummary, snapshotFacts,
-  snapshotKindLabel, restoreNotes,
+  FOLDER_RULES, changedSettings, describeCopy, describeRestore, describeSnapshot, filterSnapshotDramas, folderChange,
+  formatWhen, isoDay, nextRunText, serverSentence, settingsSummary, snapshotFacts, snapshotKindLabel, restoreNotes,
 } from './backupsFormat'
 
 const UTC = { locale: 'en-GB', timeZone: 'UTC' }
@@ -59,32 +58,23 @@ describe('dates and snapshot lines', () => {
   })
 })
 
-describe('Back up now: replace confirmation', () => {
-  it('no snapshot: starts without replace', () => {
-    expect(backupNowStep({ exists: false }, false)).toEqual({ kind: 'start', replace: false })
+describe('the copies list', () => {
+  const COPY: SnapshotCopy = {
+    name: 'baihe_snapshot-20260930-080000.zip', created_at: '2026-09-30T08:00:00+00:00', size: 12_345_678,
+    kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily',
+  }
+
+  it('one line per copy: date, kind, size and its rotation slot', () => {
+    expect(describeCopy(COPY, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB · daily')
+    expect(describeCopy({ ...COPY, kind: 'full', size: 900, kept_as: 'weekly' }, UTC))
+      .toBe('30 Sept 2026, 08:00 · Database + media · 900 B · weekly')
+    expect(describeCopy({ ...COPY, kept_as: null }, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB')
   })
 
-  it('a snapshot: asks first, then starts with replace', () => {
-    expect(backupNowStep(SNAP, false)).toEqual({ kind: 'confirm' })
-    expect(backupNowStep(SNAP, true)).toEqual({ kind: 'start', replace: true })
-  })
-
-  it('snapshot unknown: starts without replace and lets the server refuse', () => {
-    expect(backupNowStep(null, false)).toEqual({ kind: 'start', replace: false })
-    const refused = new ApiError(422, {
-      code: 'invalid_input',
-      message: 'A backup snapshot already exists; backing up now replaces it. Send replace=true to confirm.',
-    })
-    expect(needsReplaceConfirm(refused)).toBe(true)
-    expect(needsReplaceConfirm(new ApiError(409, { code: 'conflict', message: 'A backup is already running.' }))).toBe(false)
-    expect(needsReplaceConfirm(new Error('x'))).toBe(false)
-  })
-
-  it('the warning names the date, kind and size of the snapshot being replaced', () => {
-    expect(replaceWarning(SNAP, UTC)).toBe(
-      'This replaces the snapshot from 28 Sept 2026, 09:30 (Database only · 12.3 MB · 3 dramas). Only one snapshot is kept.',
-    )
-    expect(replaceWarning(null)).toBe('This replaces the current snapshot.')
+  it('an unreadable copy says so; a bad date falls back to the name', () => {
+    expect(describeCopy({ ...COPY, readable: false, kind: null, drama_count: null, kept_as: null }, UTC))
+      .toBe("30 Sept 2026, 08:00 · can't be read")
+    expect(describeCopy({ ...COPY, created_at: null }, UTC)).toMatch(/^baihe_snapshot-20260930-080000\.zip · /)
   })
 })
 

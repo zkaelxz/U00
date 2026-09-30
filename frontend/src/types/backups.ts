@@ -24,6 +24,8 @@ export interface AutoBackupSettings {
   last_error: string | null
   next_run_at: string | null
   running: boolean
+  // Every copy, newest first.
+  copies?: SnapshotCopy[]
 }
 
 export type AutoBackupSettingsUpdate = Partial<Pick<AutoBackupSettings, 'enabled' | 'frequency' | 'include_media' | 'folder'>>
@@ -32,6 +34,21 @@ export interface BackupJobStarted {
   job_id: string
 }
 
+// One of the rotating copies automatic backups keep (2 daily + 2 weekly).
+// Named by file name only; the server matches a name sent back against its
+// own listing.
+export interface SnapshotCopy {
+  name: string
+  created_at: string | null
+  size: number
+  kind: SnapshotKind | null
+  drama_count: number | null
+  readable: boolean
+  // Which rotation slot keeps it; null for a copy that can't be read.
+  kept_as: 'daily' | 'weekly' | null
+}
+
+// The newest readable copy's facts, plus every copy.
 export interface SnapshotInfo {
   exists: boolean
   readable?: boolean | null
@@ -40,6 +57,7 @@ export interface SnapshotInfo {
   size?: number | null
   app_version?: string | null
   drama_count?: number | null
+  copies?: SnapshotCopy[]
 }
 
 export interface SnapshotDrama {
@@ -53,6 +71,8 @@ export interface SnapshotDrama {
 }
 
 export interface SnapshotDramaList {
+  // The copy these dramas are from.
+  name: string
   created_at: string | null
   kind: SnapshotKind
   dramas: SnapshotDrama[]
@@ -75,4 +95,5 @@ export interface RestoreDramaDone {
 
 export interface DeleteSnapshotDone {
   deleted: boolean
+  count: number
 }
