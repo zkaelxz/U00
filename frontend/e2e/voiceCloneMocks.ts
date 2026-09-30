@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { untilTestEnds } from './stageLineMocks'
 
 // Shared page.route mocks for the voice-clone specs. The seeded drama has no
 // speakers, audio or series, so the characters, candidates, dub config, job and
@@ -82,10 +83,12 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
 
   await page.route('**/api/meta', (route) =>
     json(route, { app: 'baihe', api_version: '1', environment: 'development', local: !opts.remote }))
-  await page.route('**/api/library/dramas/1', async (route) => {
-    const resp = await route.fetch()
-    await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
-  })
+  await page.route('**/api/library/dramas/1', (route) =>
+    untilTestEnds(async () => {
+      const resp = await route.fetch()
+      await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
+    }),
+  )
   await page.route('**/api/dub/dramas/1/config', (route) => json(route, dubConfig()))
   await page.route('**/api/dub/dramas/1/pacing', (route) => json(route, { available: false, counts: {}, lines: [] }))
   await page.route('**/api/characters/dramas/1', (route) => json(route, m.state.entries))
