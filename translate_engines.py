@@ -304,10 +304,11 @@ def redact_secrets(text: str) -> str:
     written to the log file."""
     if not text:
         return text
-    text = _URL_USERINFO_PATTERN.sub(r'\1***@', text)
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(lambda m: m.group(1) + "[REDACTED]" if m.groups() else "[REDACTED]", text)
-    return text
+    # After the token patterns: userinfo they already replaced stays as is.
+    return _URL_USERINFO_PATTERN.sub(
+        lambda m: m.group(0) if "[REDACTED]" in m.group(0) else m.group(1) + "***@", text)
 
 
 # Reused from forced_align.py rather than duplicated -- both files need
