@@ -2,7 +2,9 @@
 `python -m api` -- start the Baihe API server with the settings from
 `BAIHE_API_*` (see `api/api_config.py`). Loopback-only unless
 `BAIHE_API_HOST` says otherwise, and a non-loopback host is refused
-unless `BAIHE_API_AUTH=on`.
+unless `BAIHE_API_AUTH=on`. With `BAIHE_API_HOUSEHOLD_PORT` set it also
+serves the household app on that loopback port, in the same process (one
+job list); stopping either stops both.
 
 Local user administration (Step 133). These touch the library database
 directly, so only someone at the PC (with file access) can run them; they
@@ -26,10 +28,12 @@ import sys
 
 def _serve():
     import uvicorn
-    from api.api_config import check_bind_safety, load_settings
+    from api.api_config import check_bind_safety, check_household_bind_safety, load_settings
     try:
         settings = load_settings()   # also refuses a non-https BAIHE_PUBLIC_URL
         check_bind_safety(settings)
+        if settings.household_port:
+            check_household_bind_safety(settings)
     except ValueError as e:
         raise SystemExit(f"ERROR: {e}")
     if settings.is_development:
@@ -53,12 +57,15 @@ def _serve():
     # Neither value is for the processes the server starts.
     shutdown_service.take_token_from_environment()
     os.environ.pop(process_guard.GROUP_NAME_ENV, None)
+    shutdown_service.register_background_stopper(stop_gpu_queue_poller)
+    if settings.household_port:
+        _serve_with_household(settings)
+        return
     # timeout_graceful_shutdown: an open connection (a media stream the app
     # window holds) can't keep a clean stop past the launcher's grace period.
     server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
                                            port=settings.port, timeout_graceful_shutdown=3))
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
-    shutdown_service.register_background_stopper(stop_gpu_queue_poller)
     try:
         server.run()
     except KeyboardInterrupt:
@@ -66,6 +73,85 @@ def _serve():
     # However the server stopped (Ctrl+C included): cancel what's still
     # running before the process, and with it the job's children, ends.
     shutdown_service.clean_shutdown()
+
+
+def _serve_with_household(settings):
+    """The admin app on BAIHE_API_PORT and the household app on
+    BAIHE_API_HOUSEHOLD_PORT, as two uvicorn servers in one event loop, so
+    they share the in-memory job list. Only the admin app's lifespan runs
+    the background services and their shutdown work."""
+    import uvicorn
+    from api.server import app as admin_app, create_app
+    from services import shutdown_service
+    household_app = create_app(settings, listener="household")
+    servers = [_quiet_server(uvicorn.Config(app, host=settings.host, port=port,
+                                            timeout_graceful_shutdown=3))
+               for app, port in ((admin_app, settings.port),
+                                 (household_app, settings.household_port))]
+    shutdown_service.register_stopper(lambda: _stop_all(servers))
+    failed = _run_servers(servers)
+    shutdown_service.clean_shutdown()
+    if failed:
+        raise SystemExit(1)
+
+
+def _quiet_server(config):
+    """A uvicorn.Server that leaves signal handling to _run_servers: two
+    servers each installing (and on exit restoring and re-raising) their
+    own handlers would stop only one of them on Ctrl+C."""
+    import contextlib
+    import uvicorn
+
+    class QuietServer(uvicorn.Server):
+        @contextlib.contextmanager
+        def capture_signals(self):
+            yield
+    return QuietServer(config)
+
+
+def _stop_all(servers, force=False):
+    for s in servers:
+        s.should_exit = True
+        if force:
+            s.force_exit = True
+
+
+def _run_servers(servers) -> bool:
+    """Runs every server until any one of them stops (a clean stop, Ctrl+C,
+    or a failed start such as a port already in use), then stops the rest.
+    A second Ctrl+C forces the stop. Returns True if any failed to start."""
+    import asyncio
+    import signal
+    import threading
+    failed = []
+
+    async def run_one(server):
+        try:
+            await server.serve()
+        except SystemExit:   # uvicorn exits this way when it can't start
+            failed.append(server)
+        finally:
+            _stop_all(servers)
+
+    async def run_all():
+        await asyncio.gather(*(run_one(s) for s in servers))
+
+    def on_signal(sig, frame):
+        _stop_all(servers, force=sig == signal.SIGINT and all(s.should_exit for s in servers))
+
+    handled = [signal.SIGINT, signal.SIGTERM] + (
+        [signal.SIGBREAK] if hasattr(signal, "SIGBREAK") else [])
+    previous = {}
+    if threading.current_thread() is threading.main_thread():
+        previous = {sig: signal.signal(sig, on_signal) for sig in handled}
+    try:
+        asyncio.run(run_all())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    return bool(failed)
 
 
 def _grant_admin(email: str) -> int:

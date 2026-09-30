@@ -15,7 +15,7 @@ Slice 24: write-only engine key endpoints (`POST /keys/{engine}` and
 `/keys/{engine}/clear`). Off by default (BAIHE_API_ALLOW_KEY_WRITES=1) and
 guarded by `_require_local_admin`. The guard is a safeguard against
 proxied/remote/cross-site requests, NOT authentication; real isolation is
-the separate admin listener (D5), not built yet.
+the separate admin listener (D5): on the household listener it always refuses.
 """
 
 from urllib.parse import urlsplit
@@ -90,6 +90,8 @@ def _require_local_admin(request: Request):
 
     settings = getattr(request.app.state, "settings", None)
     if not getattr(settings, "allow_key_writes", False):
+        deny()
+    if not is_local_request(request):   # also False on the household listener
         deny()
     peer = request.client.host if request.client else None
     if not _is_loopback_peer(peer):
