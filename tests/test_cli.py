@@ -1021,6 +1021,80 @@ class TestExportVideoClampsOverlappingCues:
         assert "00:00:00,000 --> 00:00:02,000" not in captured["srt"]  # original, overlapping
 
 
+class TestAlignTranscriptOption:
+    def _setup(self, isolated_db, monkeypatch, with_file=True):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="not started",
+                                       audio_filename="audio.wav")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        if with_file:
+            with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
+                f.write("旧的")
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        seen = []
+        real = cli.split_user_transcript
+        monkeypatch.setattr(cli, "split_user_transcript",
+                            lambda text: seen.append(text) or real(text))
+        return did, ddir, seen
+
+    def _align(self, **kw):
+        opts = dict(id=None, whisper_size=None, fast=False, transcript=None)
+        opts.update(kw)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(argparse.Namespace(**opts))
+        return out.getvalue()
+
+    def test_transcript_file_wins_over_drama_folder_file(self, isolated_db, monkeypatch, tmp_path):
+        did, _, seen = self._setup(isolated_db, monkeypatch)
+        f = tmp_path / "mine.txt"
+        f.write_text("你好", encoding="utf-8")
+        self._align(id=did, transcript=str(f))
+        assert seen == ["你好"]
+
+    def test_transcript_from_stdin(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch, with_file=False)
+        monkeypatch.setattr("sys.stdin", io.StringIO("你好"))
+        self._align(id=did, transcript="-")
+        assert seen == ["你好"]
+
+    def test_falls_back_to_transcript_txt(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch)
+        self._align(id=did)
+        assert seen == ["旧的"]
+
+    def test_missing_transcript_skips_and_names_both_options(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch, with_file=False)
+        out = self._align(id=did)
+        assert seen == [] and "--transcript" in out and "transcript.txt" in out
+
+    def test_unreadable_transcript_file_is_a_clear_error(self, isolated_db, monkeypatch, capsys):
+        did, _, _ = self._setup(isolated_db, monkeypatch)
+        with pytest.raises(SystemExit):
+            self._align(id=did, transcript="/no/such/file.txt")
+        assert "Couldn't read the transcript" in capsys.readouterr().err
+
+    def test_transcript_without_id_is_an_error(self, isolated_db, monkeypatch, capsys):
+        self._setup(isolated_db, monkeypatch)
+        with pytest.raises(SystemExit):
+            self._align(transcript="whatever.txt")
+        assert "--id" in capsys.readouterr().err
+
+    def test_run_passes_transcript_through(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(cli, "cmd_align", lambda a: seen.update(t=a.transcript))
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: None)
+        cli.cmd_run(argparse.Namespace(transcript="x.txt"))
+        assert seen["t"] == "x.txt"
+        monkeypatch.setattr("sys.argv", ["cli.py", "run", "--id", "1", "--transcript", "x.txt"])
+        monkeypatch.setattr(cli, "cmd_run", lambda a: seen.update(parsed=a.transcript))
+        cli.main()
+        assert seen["parsed"] == "x.txt"
+
+
 class TestExportVideoAss:
     def _drama(self, isolated_db):
         import os

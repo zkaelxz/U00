@@ -383,7 +383,29 @@ def _qwen3_missing(exc) -> RuntimeError:
         f"or change this drama's alignment method. ({detail})")
 
 
+def _read_transcript_option(args):
+    """The --transcript text (FILE, or - for stdin), or None when not given.
+    One transcript can only belong to one drama, so it needs --id."""
+    source = getattr(args, "transcript", None)
+    if not source:
+        return None
+    if not args.id:
+        print("--transcript needs --id: one transcript can't be aligned to several dramas.",
+              file=sys.stderr)
+        sys.exit(2)
+    try:
+        if source == "-":
+            return sys.stdin.read()
+        with open(source, "r", encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"Couldn't read the transcript: {translate_engines.redact_secrets(str(exc))}",
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_align(args):
+    given_transcript = _read_transcript_option(args)
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
 
     def step(d):
@@ -393,12 +415,15 @@ def cmd_align(args):
         if not audio_path or not os.path.exists(audio_path):
             print(f"#{d['id']} skipped: no audio file found in {ddir}")
             return
-        if not os.path.exists(transcript_path):
-            print(f"#{d['id']} skipped: no transcript.txt found in {ddir} "
-                  f"(place your Chinese transcript there)")
+        if given_transcript is not None:
+            transcript_text = given_transcript
+        elif os.path.exists(transcript_path):
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                transcript_text = f.read()
+        else:
+            print(f"#{d['id']} skipped: no transcript. Pass --transcript FILE (or - for stdin), "
+                  f"or place your Chinese transcript at {transcript_path}")
             return
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            transcript_text = f.read()
         # UI parity (Step 25d item 10): this command used to always use
         # args.whisper_size (or its own hardcoded default), plain
         # character-diff alignment, and no recognition priming at all --
@@ -896,6 +921,9 @@ def main():
                               "has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
+    p_align.add_argument("--transcript", default=None, metavar="FILE",
+                         help="Chinese transcript to align (- for stdin); needs --id. "
+                              "Default: <drama folder>/transcript.txt.")
     p_align.set_defaults(func=cmd_align)
 
     p_diarize = sub.add_parser("diarize", help="Re-run speaker detection on stored audio (no re-transcription)")
@@ -1037,6 +1065,9 @@ def main():
     p_run.add_argument("--no-genre-notes", action="store_true",
                            help="Leave out the baihe/GL genre guidance (on by default, "
                                 "as in the Workspace).")
+    p_run.add_argument("--transcript", default=None, metavar="FILE",
+                       help="Chinese transcript to align (- for stdin); needs --id. "
+                            "Default: <drama folder>/transcript.txt.")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
