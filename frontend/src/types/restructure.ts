@@ -49,12 +49,23 @@ export interface ResegmentPreview {
   needs_confirm: boolean
 }
 
+// The rules path; the AI path is ResegmentLlmPreviewStart then apply.
 export interface ResegmentStart {
   expected_line_ids: number[]
   confirm: boolean
-  use_llm: boolean
-  engine?: string | null
-  model?: string | null
+}
+
+// Parity R47: an LLM re-segmentation worked out as a preview (writes no lines).
+// Blank fields are left out: the drama's engine and the engine's model apply.
+export interface ResegmentLlmPreviewStart {
+  engine?: string
+  model?: string
+}
+
+// The rules preview's shape plus the engine that made it. There is no cost
+// figure: the LLM usage is logged server-side with the drama's usage.
+export interface ResegmentLlmPreview extends ResegmentPreview {
+  engine: string
 }
 
 export interface ResegmentStarted {

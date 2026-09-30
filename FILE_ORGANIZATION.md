@@ -183,6 +183,10 @@ baihe-subtitler/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
+│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup keeping ONE
+│   │                             snapshot (temp file, validated, atomic replace), due-check (startup +
+│   │                             hourly via api/background.py), restore one drama from the snapshot
+│   │                             (same id, or a new "(restored <date>)" copy); router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
@@ -212,6 +216,14 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── job_checkpoint_service.py Step 41 -- per-unit checkpoints so a re-run resumes an interrupted
+│   │                             job (narration tagging uses it) + an opt-in result cache keyed on
+│   │                             (kind, input hash, model, settings) (glossary-from-novel uses it)
+│   ├── job_timing_service.py     Step 41 -- per-stage duration + estimated spend of every real job
+│   │                             (background_jobs starts/finishes a run; jobs call mark_stage)
+│   ├── line_provenance_service.py Step 41 -- per-line engine/model/prompt/glossary/software version
+│   │                             of the latest translation (recorded by the translate job)
+│   ├── vram_service.py           Step 41 -- free-VRAM fit check before a GPU model load (dub loaders)
 │   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
 │   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
 │   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
@@ -231,6 +243,9 @@ baihe-subtitler/
 │   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
 │   │                             -> the engine chosen in Settings (else a default; never switches on its own);
 │   │                             per-engine status + one-call Test (router: engine_routing_routes.py)
+│   ├── stronger_engine_service.py Step 99 -- suggest (never switch to) the "translation.high_quality" engine for a
+│   │                             hard line (QC flag, glossary conflict, ambiguous term); single-line try that
+│   │                             returns text only, cap-checked, spend logged (router: stronger_engine_routes.py)
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
@@ -325,10 +340,14 @@ baihe-subtitler/
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
-│   │                             S-5 novel text from a pasted URL
+│   │                             S-5 novel text and SO06 comic pages from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
 │   ├── sources_tools_service.py  Sources SO02/SO03/SO08/SO16 -- site check job, pasted page source preview and
 │   │                              import, identify-media job (+ PC-only full resource URL), pasted-URL diagnostics
+│   ├── page_import_limits.py     the comic page-upload rules (types, per-image bytes/pixels, per-import files/bytes,
+│   │                             strip slicing, EXIF orientation); used by the SO06 import, later the Scanlate upload
+│   ├── sources_extraction_service.py Sources parity SO09/SO10 -- the pasted-URL AI fallback engine (opt-in, key
+│   │                             on the PC) and Review extraction (per-drama in-memory review, corrections, profile save)
 │   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler
 │   │                             also uses) and which drama a tracked series auto-imports into
 │   ├── sources_signin_service.py Sources S-6/SO17 (PC only) -- sign-in window job, forget the saved profile,
@@ -404,14 +423,18 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
+│   ├── backup_schemas.py         automatic backup / snapshot restore models (kept apart from schemas.py)
+│   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
 │   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
+│   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
-
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -421,12 +444,18 @@ baihe-subtitler/
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
+│       ├── backup_routes.py      /api/backups/* (Step 43): auto-backup settings, back up now, snapshot
+│       │                         info/dramas, restore one drama, delete snapshot; all local_only;
+│       │                         tests/test_api_backups.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
+│       ├── job_stage_routes.py   GET /api/jobs/{id}/stages (library.read, job visibility): per-stage timing (Step 41)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
 │       │                         (admin.settings); PC-only POST capabilities/{capability}, engines/{engine}/test
+│       ├── stronger_engine_routes.py /api/stronger-engine/dramas/{id} (Step 99): GET suggestions (lines.read),
+│       │                         POST lines/{line_id}/try (review.use + paid-engine gate; writes nothing)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
@@ -499,10 +528,12 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
-│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import, GET /{name}/import-state
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
 │       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
+│       ├── sources_extraction_routes.py GET /api/sources/url/ai-engines, POST /url/import-comic, Review
+│       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -625,7 +656,10 @@ baihe-subtitler/
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
 │   │                              sourcesFormat.ts (pure, unit-tested), sources.css; Sources tools:
 │   │                              SiteCheck, PastedSource, IdentifyMedia, RecentExtractions,
-│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts)
+│   │                              sourcesToolsFormat.ts, sources-tools.css (api/sourcesTools.ts, types/sourcesTools.ts);
+│   │                              AiFallback + useAiEngines (SO09 AI fallback picker), NovelUrlImport,
+│   │                              ComicUrlImport (SO06), ExtractionReview (SO10), extractionFormat.ts
+│   │                              (pure, unit-tested), extraction.css
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),

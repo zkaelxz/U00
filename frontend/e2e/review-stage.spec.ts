@@ -819,13 +819,11 @@ test.describe('phone', () => {
   })
 })
 
-test('a pending bulk review batch keeps the checks off and points to Bulk batches', async ({ page }) => {
+test('a pending bulk review batch does not lock the checks on a revisit', async ({ page }) => {
   await page.route('**/api/jobs/bulk_flag_3', (route) =>
     route.fulfill({ json: { ...job('running'), job_id: 'bulk_flag_3', updated_at: Date.now() / 1000 } }))
   await open(page)
   await page.locator('summary', { hasText: 'AI review' }).click()
-  const note = page.getByTestId('review-bulk-pending')
-  await expect(note).toContainText('cancel it under Bulk batches on the Translate stage')
-  await expect(note.getByRole('link', { name: 'Open Bulk batches' })).toHaveAttribute('href', /#\/drama\/3\/translate$/)
-  await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeEnabled()
+  await expect(page.getByTestId('job-status')).toHaveCount(0)
 })

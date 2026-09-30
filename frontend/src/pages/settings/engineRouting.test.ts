@@ -10,6 +10,8 @@ import {
   tagsText,
   testBlockedReason,
   testedText,
+  unsetBadge,
+  unsetOptionLabel,
   withChoice,
   workingCount,
 } from './engineRouting'
@@ -81,6 +83,18 @@ describe('engine routing view', () => {
     expect(withChoice(cap({ engine: 'claude', is_default: false }), null)).toMatchObject({ engine: 'gemini', is_default: true })
     expect(withChoice(cap(), 'gemini').is_default).toBe(true)
     expect(withChoice(cap({ default_engine: 'deepl' }), null).engine_supported).toBe(false)
+  })
+
+  it('treats unset as "off" where the capability says so (Step 99)', () => {
+    const off = cap({ unset_label: 'Off (no suggestions)' })
+    // Picking the default engine is a real choice, not "off".
+    expect(withChoice(off, 'gemini').is_default).toBe(false)
+    expect(selectValue(withChoice(off, 'gemini'))).toBe('gemini')
+    expect(withChoice(off, null).is_default).toBe(true)
+    expect(unsetOptionLabel(off, (e) => e)).toBe('Off (no suggestions)')
+    expect(unsetBadge(off)).toBe('off')
+    expect(unsetOptionLabel(cap(), (e) => e.toUpperCase())).toBe('Use default (GEMINI)')
+    expect(unsetBadge(cap())).toBe('default')
   })
 
   it('replaces one entry and counts working engines', () => {
