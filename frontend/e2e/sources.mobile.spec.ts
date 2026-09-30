@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
-import { mockSources, searchResult } from './sourcesMocks'
+import { SERIES_LINKS, mockSources, searchResult } from './sourcesMocks'
 
 // Phone project (390x844, touch): the Sources page. Every Sources job and
 // write is mocked (sourcesMocks.ts).
@@ -58,6 +58,23 @@ test('phone: series replaces results, ‹ Results restores them, no sideways scr
   await expect(page.getByTestId('search-results')).toBeVisible()
   await expect(opener).toBeFocused()
   await expect(page.locator('img')).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('phone: download links are 44 px tall and wrap without sideways scroll', async ({ page }) => {
+  const s = await mockSources(page, { searchBody: { ...searchResult(3), errors: {} }, seriesLinks: SERIES_LINKS })
+  await page.goto('/#/sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  s.search = 'done'
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
+  const links = page.getByRole('region', { name: 'Series' }).getByRole('group', { name: 'Download links' })
+  await links.scrollIntoViewIfNeeded()
+  for (const name of ['百度网盘 (Baidu Pan) ↗', '蓝奏云 (Lanzou) ↗']) {
+    expect((await links.getByRole('link', { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  }
+  await expect(links.getByText('roh1')).toBeVisible()
+  await noSideways(page)
   expect(s.unmocked).toEqual([])
 })
 

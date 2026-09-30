@@ -224,6 +224,21 @@ def start_search(query, sources=None) -> dict:
 # Series and chapters
 # ---------------------------------------------------------------------------
 
+def _link_views(links) -> list:
+    """A work's posted download links, for the person to open themselves
+    (the app never fetches them): scheme+host+path only, so a `?pwd=` query
+    is dropped -- the extraction code travels as its own field."""
+    out = []
+    for link in links or []:
+        if not isinstance(link, dict):
+            continue
+        url = safe_url(link.get("url"))
+        if url.startswith(("https://", "http://")):
+            out.append({"label": _scrub(str(link.get("label") or ""))[:80] or url,
+                        "url": url, "password": _scrub(str(link.get("password") or ""))[:40]})
+    return out
+
+
 def _series_job(job_id: str, name: str, series_id: str):
     cancelled = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     adapter = registry.get_adapter(name, cancel_check=cancelled)
@@ -248,6 +263,7 @@ def _series_job(job_id: str, name: str, series_id: str):
             "authors": [_scrub(a) for a in (info.authors or [])],
             "description": _scrub(info.description), "genres": [_scrub(g) for g in (info.genres or [])],
             "status": info.status, "content_type": info.content_type, "language": info.language,
+            "links": _link_views(info.links),
         },
         "chapters": [{"chapter_id": str(c.chapter_id), "title": _scrub(c.title),
                       "group": _scrub(c.group or ""), "url": safe_url(c.url)} for c in chapters],

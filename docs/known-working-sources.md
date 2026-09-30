@@ -30,6 +30,7 @@ not investigated further
 | 漫画库 Manhuaku | zh | manhua | ⚠️ | Both content paths (baozimh-aggregated + native `blob:`) confirmed working 2026-09-26 with real page bytes. **2026-09-27: two consecutive live end-to-end runs hung — one past 120s, a retry past 240s. The second produced no output at all, not even the first progress marker printed before any network call, suggesting the stall (or a background-capture buffering issue) may sit earlier than the actual site request. Not re-confirmed working today; cause still unknown (site slowdown, a regression, or an artifact of this environment). Stopped at two attempts deliberately, not retried further.** `search()` unsupported (real endpoint, empty for every query tried). `robots.txt` inaccessible (403), not reviewed for ToS. |
 | ゼロサムオンライン Zero-Sum Online | ja | manga | ✅ | Own protobuf reader for the real API. |
 | マンガ図書館Z Mangaz | ja | manga | ⚠️ | search/series/chapters ✅. Page capture proven (real descrambled page, real `blob:` capture) but a full uninterrupted book (43/43 pages) is unproven — throttling-limited, not a code gap. |
+| 轻之国度 LightNovel (`www.lightnovel.fun`) | zh | novel | ✅ | Search, series, chapters (across volumes) and chapter text confirmed live 2026-09-30. Public `/book` and `/reader` pages only; locked 轻币 chapters are reported, never unlocked; EPUB/file-locker links never followed. `lightnovel.us` returned 503. |
 
 ## Generic paste-a-URL (no adapter) — confirmed on real, specific sites
 
@@ -52,6 +53,9 @@ every WordPress/reader-template site does.
 | `dl-raw.si` | Not a reading aggregator — its own framing is bulk ZIP/RAR volume downloads sourced from third-party file lockers (Rapidgator). Declined to build automated fetch+translate for this: it's volume-scale distribution of commercially published work via a piracy channel, not a page someone is already reading. robots.txt itself is permissive; the refusal is about what the site *is*, not a technical/ToS block. |
 | `fucknovelpia.com` | A mirror redistributing translated content from Novelpia, a real paid Korean platform, without anything establishing that's authorized. Not vetted further. |
 | `mh03.com` | `robots.txt` names `ClaudeBot` and `Claude-SearchBot` with `Disallow: /` (alongside GPTBot, Bytespider, etc.) — refused outright, not investigated past reading that one file. |
+| Novgo | Mirrors Wuxiaworld's licensed *Against the Gods* word for word, including a chapter Wuxiaworld itself serves only as a teaser. Not an independent source. (Vetted 2026-09-30.) |
+| NovelFull, NovelBin | English sites, unreachable from the vetting network (403 / DNS failure) on 2026-09-30. Not vetted further. |
+| wenku8 | 403 on every page tried on 2026-09-30. Unvetted. |
 
 ## SFACG (idea reviewed, site itself out of scope)
 

@@ -11,7 +11,7 @@ import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
 import {
-  CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesMeta,
+  CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesLinks, seriesMeta,
   type SeriesView,
 } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
@@ -81,6 +81,7 @@ export function SeriesPanel({
   const siteUrl = safeHref(info?.url)
   const description = info?.description?.trim() ?? ''
   const extra = seriesExtra(info)
+  const links = seriesLinks(info)
   // Import (S-4): ticked chapter ids, the drama and the import job.
   const [selected, setSelected] = useState<string[]>([])
   // A pasted chapter link ticks its chapter, also when the series is already open.
@@ -174,6 +175,28 @@ export function SeriesPanel({
                   {more ? 'Less' : 'More'}
                 </button>
               )}
+            </div>
+          )}
+          {links.length > 0 && (
+            <div className="sources-links" role="group" aria-label="Download links">
+              <p className="muted">
+                Posted with this work. Open them yourself: the app never downloads from them. Then add the EPUB
+                in Workspace → Source → Novel text → Attach EPUB.
+              </p>
+              <ul>
+                {links.map((l) => (
+                  <li key={l.url}>
+                    <a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}>
+                      {l.label} ↗
+                    </a>
+                    {l.password && (
+                      <span>
+                        Code <code>{l.password}</code>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </>

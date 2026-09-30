@@ -60,7 +60,7 @@ export function searchResult(n = 3) {
 }
 
 
-export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1') {
+export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1', links?: unknown[]) {
   return {
     kind: 'series',
     source: 'alpha',
@@ -69,12 +69,19 @@ export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven B
       title, url: 'https://alpha.example/a', cover_url: 'https://alpha.example/c.jpg',
       authors: ['Mo Xiang'], description: 'A long description. '.repeat(20), genres: ['xianxia'],
       status: 'ongoing', content_type: 'manhua', language: 'zh',
+      ...(links ? { links } : {}),
     },
     chapters: Array.from({ length: chapters }, (_, i) => ({
       chapter_id: `c${i + 1}`, title: `Chapter ${i + 1}`, group: i < chapters - 2 ? 'Main' : 'Extras', url: 'https://alpha.example/c',
     })),
   }
 }
+
+// A work's posted EPUB links as the service sends them (no query string).
+export const SERIES_LINKS = [
+  { label: '百度网盘 (Baidu Pan)', url: 'https://pan.baidu.com/s/1UW8fzsl6WfJ1RRIXRt_MPw', password: 'roh1' },
+  { label: '蓝奏云 (Lanzou)', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
+]
 
 export function sourceDetail(summary: (typeof SOURCES)[number]) {
   const tier = { tested: false, ok: false, reason: null, detail: '', at: null }
@@ -109,6 +116,8 @@ export interface MockState {
   // Which series the job holds; its result is seriesResult(124, seriesId, seriesTitle).
   seriesId: string
   seriesTitle: string
+  // Download links the series posts (info.links), if any.
+  seriesLinks?: unknown[]
   // Keep a running series job running (no auto-finish on the next poll).
   seriesHold: boolean
   tracked: unknown[]
@@ -214,7 +223,7 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     return json(route, {
       job_id: 'sources_series_alpha', status: 'done', progress: 1, message: null,
       source: 'alpha', series_id: s.seriesId,
-      result: seriesResult(124, s.seriesId, s.seriesTitle),
+      result: seriesResult(124, s.seriesId, s.seriesTitle, s.seriesLinks),
     })
   })
   // The paste-a-link box looks for an earlier preview on load: none here

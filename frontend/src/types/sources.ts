@@ -200,6 +200,15 @@ export interface SearchResult {
   per_source_counts: Record<string, number>
 }
 
+// A download link a work's page posts (an EPUB on a file locker): shown for
+// the person to open themselves; the app never fetches it. The URL has no
+// query string, so an extraction code travels as `password`.
+export interface SeriesLink {
+  label: string
+  url: string
+  password: string
+}
+
 export interface SeriesInfo {
   title: string | null
   url: string | null
@@ -210,6 +219,7 @@ export interface SeriesInfo {
   status: string | null
   content_type: string | null
   language: string | null
+  links?: SeriesLink[]
 }
 
 export interface SeriesChapter {

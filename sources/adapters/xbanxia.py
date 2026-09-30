@@ -2,7 +2,8 @@
 sources/adapters/xbanxia.py -- xbanxia.cc (zh web novels), roadmap Step 23e.
 
 No Keiyoushi/Mihon extension exists for this site either. Real technique
-read from lncrawl/lightnovel-crawler (MIT), `sources/zh/xbanxia.py`:
+read from lncrawl/lightnovel-crawler (GPL-3.0 -- technique only, no code
+ported), `sources/zh/xbanxia.py`:
 
   search         POST /modules/article/search_t.php    searchkey/Submit form
                                                         fields, spoofed Firefox
@@ -219,7 +220,8 @@ class XbanxiaSource(SourceAdapter):
                                        "the earlier caveat that it was only lncrawl's selector "
                                        "for a sibling domain. The largest-text-block fallback is "
                                        "kept regardless, in case that changes.",
-            "reference": "lncrawl/lightnovel-crawler sources/zh/xbanxia.py (MIT)",
+            "reference": "lncrawl/lightnovel-crawler sources/zh/xbanxia.py (GPL-3.0; technique "
+                         "only, no code ported)",
         }
         caps.terms = {
             "robots_txt": "User-agent: * with zero Disallow lines -- no restrictions declared "
