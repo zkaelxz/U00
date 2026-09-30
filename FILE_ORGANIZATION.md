@@ -581,8 +581,10 @@ baihe-subtitler/
 │   │                              (Translate: review glossary before translating), useGlossaryRun
 │   │                              (shared run state across mounts), glossaryExtract.ts (pure,
 │   │                              unit-tested; types in src/types/glossaryHelpers.ts), SeriesCast (Characters > Series cast: list, add, inline edit of
-│   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
-│   │                              unit-tested), useRunStatus (per-drama run
+│   │                              name/pronouns/aliases/notes, bulk pronouns, PC-only remove; seriesPeopleForm.ts pure,
+│   │                              unit-tested), SeriesAssign (series picker + "Create series" in the
+│   │                              glossary box), transcribeEstimate.ts (pure, unit-tested: Transcribe /
+│   │                              Detect speakers time captions), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   │                              + src/api/seriesPeople.ts (add/edit series people)
