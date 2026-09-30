@@ -1203,6 +1203,11 @@ def init_db():
                 "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
             conn.execute("UPDATE users SET share_by_default = 0")
             conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+        session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
+        if "device_label" not in session_cols:
+            # A coarse "Chrome on Android" label (auth_service.device_label),
+            # the only device detail the signed-in-devices list shows.
+            _safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
@@ -4902,12 +4907,14 @@ def auth_revoke_permission(user_id: int, permission: str):
 
 
 def auth_insert_session(id_hash: str, user_id: int, created_at: float, expires_at: float,
-                        user_agent_short: str, ip_prefix: str, csrf_hash: str) -> int:
+                        device_label: str, ip_prefix: str, csrf_hash: str) -> int:
+    """The raw user agent is not stored: only the coarse `device_label`."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
             "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, last_seen_at, "
-            "user_agent_short, ip_prefix, csrf_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (id_hash, user_id, created_at, expires_at, created_at, user_agent_short,
+            "user_agent_short, device_label, ip_prefix, csrf_hash) "
+            "VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)",
+            (id_hash, user_id, created_at, expires_at, created_at, device_label,
              ip_prefix, csrf_hash))
         conn.commit()
         return cur.lastrowid
@@ -4937,9 +4944,14 @@ def auth_delete_session(session_id: int, user_id: int = None) -> bool:
         return cur.rowcount > 0
 
 
-def auth_delete_user_sessions(user_id: int) -> int:
+def auth_delete_user_sessions(user_id: int, except_id: int = None) -> int:
+    """Every session of the user, or every one but `except_id` (the caller's own)."""
+    sql, args = "DELETE FROM auth_sessions WHERE user_id = ?", [user_id]
+    if except_id is not None:
+        sql += " AND id != ?"
+        args.append(except_id)
     with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        cur = conn.execute(sql, args)
         conn.commit()
         return cur.rowcount
 
@@ -4949,7 +4961,8 @@ def auth_list_sessions(user_id: int):
     with contextlib.closing(get_conn()) as conn:
         return [dict(r) for r in conn.execute(
             "SELECT id, user_id, created_at, expires_at, last_seen_at, user_agent_short, "
-            "ip_prefix FROM auth_sessions WHERE user_id = ? ORDER BY id", (user_id,)).fetchall()]
+            "device_label, ip_prefix FROM auth_sessions WHERE user_id = ? ORDER BY id",
+            (user_id,)).fetchall()]
 
 
 def auth_insert_audit(user_id, action: str, detail_redacted: str):

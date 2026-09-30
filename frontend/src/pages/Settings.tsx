@@ -7,6 +7,7 @@ import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
+import { DevicesCard } from './settings/DevicesCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
@@ -120,6 +121,8 @@ export default function SettingsPage() {
       )}
       {/* Outside the settings gate: every signed-in person has a share-new-items choice. */}
       <SharingCard />
+      {/* Also outside it: every signed-in person manages their own devices. */}
+      <DevicesCard />
     </section>
   )
 }

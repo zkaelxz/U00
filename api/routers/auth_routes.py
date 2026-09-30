@@ -6,6 +6,18 @@ token checks and user resolution live in `services/oidc_service.py`.
     GET  /api/auth/callback                public_route()   302 back into the app
     POST /api/auth/logout                  authenticated()  ends this session
     GET  /api/auth/me                      public_route()   who am I (the React gate)
+    GET  /api/auth/sessions                authenticated()  my signed-in devices
+    POST /api/auth/sessions/{auth_session_id}/revoke
+                                           authenticated()  sign out one other device
+    POST /api/auth/sessions/revoke-others  authenticated()  sign out every other device
+
+The three device routes act only on the caller's own sessions: the user id
+comes from the session, never the request, and an id that isn't one of the
+caller's sessions is a 404 whether or not it exists (auth_service). They
+return a coarse device label ("Chrome on Android") and IP prefix only: no
+token, hash, user agent or full address. Writes need the CSRF header like
+every other one. A revoked device's next request is a 401, and its open
+event streams end at once.
 
 With `BAIHE_API_AUTH=off` login, callback and logout answer 404 and `/me`
 reports the local owner (signed in, every permission), so nothing changes
@@ -34,7 +46,7 @@ import threading
 import time
 from typing import List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Path, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -73,6 +85,29 @@ class MeResponse(BaseModel):
 
 class LogoutResponse(BaseModel):
     signed_in: bool
+
+
+class DeviceSession(BaseModel):
+    id: int
+    device: str                 # "Chrome on Android"; never the user agent
+    created_at: float           # epoch seconds
+    last_seen_at: float
+    expires_at: float           # signed out by then at the latest
+    ip_prefix: str              # IPv4 /24 ("203.0.113") or IPv6 /48; "" if unknown
+    current: bool               # the device making this request
+
+
+class DeviceSessionList(BaseModel):
+    sessions: List[DeviceSession]
+    idle_timeout_days: int
+    absolute_timeout_days: int
+
+
+class DeviceSessionsRevoked(BaseModel):
+    revoked: int
+
+
+_MAX_ID = 2 ** 62   # past SQLite's integer range the lookup would raise, not 404
 
 
 def _sign_in(request: Request) -> "oidc_service.SignIn":
@@ -180,3 +215,40 @@ def me(request: Request):
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})
     return JSONResponse(MeResponse(**body).model_dump(), headers=dict(_NO_STORE))
+
+
+def _own(request: Request) -> dict:
+    """The caller's session principal; only ever from their own cookie."""
+    _require_auth_on(request)
+    return request.state.principal
+
+
+def _no_store(body: BaseModel) -> JSONResponse:
+    return JSONResponse(body.model_dump(), headers=dict(_NO_STORE))
+
+
+@router.get("/sessions", dependencies=[authenticated()], response_model=DeviceSessionList,
+            summary="My signed-in devices")
+def list_sessions(request: Request):
+    principal = _own(request)
+    rows = auth_service.list_own_sessions(principal["user_id"], principal["session_id"])
+    return _no_store(DeviceSessionList(
+        sessions=rows, idle_timeout_days=auth_service.IDLE_TIMEOUT_SECONDS // 86400,
+        absolute_timeout_days=auth_service.ABSOLUTE_TIMEOUT_SECONDS // 86400))
+
+
+@router.post("/sessions/revoke-others", dependencies=[authenticated()],
+             response_model=DeviceSessionsRevoked, summary="Sign out every other device")
+def revoke_other_sessions(request: Request):
+    principal = _own(request)
+    return _no_store(DeviceSessionsRevoked(**auth_service.revoke_other_sessions(
+        principal["user_id"], principal["session_id"], ip=client_ip(request))))
+
+
+@router.post("/sessions/{auth_session_id}/revoke", dependencies=[authenticated()],
+             response_model=DeviceSessionsRevoked, summary="Sign out one of my other devices")
+def revoke_session(request: Request, auth_session_id: int = Path(..., ge=1, le=_MAX_ID)):
+    principal = _own(request)
+    return _no_store(DeviceSessionsRevoked(**auth_service.revoke_own_session(
+        principal["user_id"], auth_session_id, principal["session_id"],
+        ip=client_ip(request))))
