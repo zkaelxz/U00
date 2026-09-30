@@ -543,6 +543,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_forced_align_is_used_when_saved_on_the_drama(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -557,20 +558,18 @@ class TestCmdAlignUsesDramaSettings:
             cli.cmd_align(self._args(id=did))
         assert calls == ["zh"]
 
-    def test_missing_qwen3_fails_clearly_instead_of_falling_back(self, isolated_db, monkeypatch):
-        """Parity with the API (failed_reason dependency_missing): a drama
-        saved to use Qwen3 forced alignment must not silently get the
-        default method when qwen-asr isn't installed."""
+    def test_missing_qwen3_fails_clearly_before_transcribing(self, isolated_db, monkeypatch):
+        """Parity with the API (checked up front, dependency_missing): a
+        drama saved to use Qwen3 forced alignment must not silently get
+        the default method when qwen-asr isn't installed, and shouldn't
+        spend a whole Whisper pass finding that out."""
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        import importlib.util
+        real_find_spec = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a: None if name == "qwen_asr" else real_find_spec(name, *a))
         monkeypatch.setattr(cli, "transcribe_for_timing",
-                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
-        import forced_align
-
-        def missing(*a, **k):
-            raise ImportError("No module named 'qwen_asr'")
-        monkeypatch.setattr(forced_align, "align_with_qwen3", missing)
-        monkeypatch.setattr(cli, "align_transcript_to_timing",
-                            lambda *a, **k: pytest.fail("fell back to the default method"))
+                            lambda *a, **k: pytest.fail("transcribed before the dependency check"))
 
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -580,6 +579,29 @@ class TestCmdAlignUsesDramaSettings:
         assert "1 failed" in text
         assert isolated_db.load_lines(did) == []
         assert isolated_db.get_drama(did)["status"] != "aligned"
+
+    def test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        import forced_align
+
+        def missing(*a, **k):
+            raise ImportError("No module named 'qwen_asr'")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", missing)
+        monkeypatch.setattr(cli, "align_transcript_to_timing",
+                            lambda *a, **k: pytest.fail("fell back to the default method"))
+        released = []
+        monkeypatch.setattr(cli, "release_gpu_models", lambda: released.append(True))
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue() + err.getvalue()
+        assert "Qwen3-ASR isn't installed" in text and "1 failed" in text
+        assert released == [True]
+        assert isolated_db.load_lines(did) == []
 
     def test_default_whisper_diff_alignment_is_unaffected(self, isolated_db, monkeypatch):
         """No alignment_method saved -- must still use the plain
