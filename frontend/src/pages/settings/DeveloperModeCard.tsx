@@ -10,6 +10,8 @@ import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
+import type { AssistantSettings } from '../../types/assistant'
+import { CloudConsent } from '../assistant/CloudConsent'
 import { announceDeveloperMode } from '../assistant/developerMode'
 import { DEVELOPER_MODE_HELP, assistantErrorText, isForbidden } from '../assistant/assistantFormat'
 
@@ -20,6 +22,7 @@ export function DeveloperModeCard() {
   const [on, setOn] = useState<boolean | null | 'hidden'>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [settings, setSettings] = useState<AssistantSettings | null>(null)
 
   useEffect(() => {
     let live = true
@@ -27,7 +30,11 @@ export function DeveloperModeCard() {
       if (!live) return
       if (getPcMode() === 'remote') return setOn('hidden')
       getAssistantSettings().then(
-        (s) => live && setOn(s.developer_mode),
+        (s) => {
+          if (!live) return
+          setOn(s.developer_mode)
+          setSettings(s)
+        },
         (e: unknown) => {
           if (!live) return
           if (isForbidden(e)) setOn('hidden')
@@ -48,6 +55,7 @@ export function DeveloperModeCard() {
     saveAssistantSettings({ developer_mode: next }).then(
       (s) => {
         setOn(s.developer_mode)
+        setSettings(s)
         setBusy(false)
         announceDeveloperMode(s.developer_mode)
       },
@@ -70,6 +78,7 @@ export function DeveloperModeCard() {
           </Field>
         </div>
       )}
+      {on === true && settings && <CloudConsent settings={settings} onSettings={setSettings} />}
       {error && (
         <p className="error" role="alert">
           {error}

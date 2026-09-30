@@ -11,6 +11,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { AssistantSettings, AssistantSettingsPatch } from '../../types/assistant'
 import { assistantErrorText } from './assistantFormat'
+import { CloudConsent } from './CloudConsent'
 import { reviewEngineProblem } from './reviewFormat'
 
 type Props = {
@@ -91,6 +92,7 @@ export function ReviewRolesSection({ settings, implementEngine, onSettings }: Pr
         </button>
       </div>
       {problem && <p className="muted">{problem}</p>}
+      {settings.review_engine && <CloudConsent settings={settings} onSettings={onSettings} only={[settings.review_engine]} />}
       {error && (
         <p className="error" role="alert">
           {error}

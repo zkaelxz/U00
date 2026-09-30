@@ -398,3 +398,76 @@ def test_real_git_read_tools_smoke():
                        ("git_diff", {"ref": "HEAD", "path": "db.py"})):
         out = svc.run_tool(tool, args)
         assert out["ok"], (tool, out["output"])
+
+
+# --- lead review: cloud consent and git_diff ---------------------------------------
+
+@pytest.fixture
+def real_build(monkeypatch):
+    """The real build_engine, with the engine constructor and cap check faked."""
+    from services import line_ai_service, reader_service
+    built = []
+    monkeypatch.setattr(reader_service, "_llm_engine", lambda name, model: built.append(name) or object())
+    monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
+    return built
+
+
+def test_default_engine_is_local(dev_mode, real_build):
+    out = svc.ask("x", chat=ScriptedChat("fine"))
+    assert out["engine"] == "ollama" and real_build == ["ollama"]
+    s = svc.get_settings()
+    assert s["default_engine"] == "ollama" and "ollama" in s["local_engines"]
+    assert s["cloud_consent"] == {"claude": False, "deepseek": False, "gemini": False}
+
+
+def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_build, monkeypatch):
+    with pytest.raises(svc.ConflictError) as e:
+        svc.ask("x", engine_name="claude", chat=ScriptedChat("fine"))
+    assert e.value.details == {"reason": "cloud_consent_required", "engine": "claude"}
+    monkeypatch.setattr(svc, "_git", lambda *a: "1" if a[0] == "rev-list" else "abc 2026 x\n")
+    with pytest.raises(svc.ConflictError):
+        svc.changelog("HEAD~1", engine_name="gemini", chat=ScriptedChat("notes"))
+    assert real_build == []  # refused before the engine is even built
+    svc.set_settings({"cloud_consent": {"claude": True}})
+    assert svc.ask("x", engine_name="claude", chat=ScriptedChat("fine"))["engine"] == "claude"
+    with pytest.raises(svc.ConflictError):  # consent is per provider
+        svc.ask("x", engine_name="gemini", chat=ScriptedChat("fine"))
+    svc.set_settings({"cloud_consent": {"claude": False}})
+    with pytest.raises(svc.ConflictError):
+        svc.ask("x", engine_name="claude", chat=ScriptedChat("fine"))
+
+
+def test_cloud_consent_is_validated(isolated_db):
+    for bad in ({"ollama": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
+        with pytest.raises(svc.InvalidInputError):
+            svc.set_settings({"cloud_consent": bad})
+
+
+def test_api_consent_409_then_pass(isolated_db, real_build, monkeypatch):
+    c = _client()
+    c.post("/api/assistant/settings", json={"developer_mode": True})
+    monkeypatch.setattr(svc, "_chat", ScriptedChat("fine"))
+    r = c.post("/api/assistant/ask", json={"question": "x", "engine": "claude"})
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "cloud_consent_required"
+    r = c.post("/api/assistant/settings", json={"cloud_consent": {"claude": True}})
+    assert r.json()["cloud_consent"]["claude"] is True
+    assert c.post("/api/assistant/ask", json={"question": "x", "engine": "claude"}).status_code == 200
+
+
+@pytest.mark.skipif(__import__("shutil").which("git") is None, reason="git not installed")
+def test_git_diff_without_a_path_shows_a_modified_tracked_file(tmp_path, monkeypatch):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)
+    run("init", "-q")
+    run("config", "user.email", "t@example.com")
+    run("config", "user.name", "t")
+    (repo / "mod.py").write_text("x = 1\n")
+    run("add", "mod.py")
+    run("commit", "-q", "-m", "init")
+    (repo / "mod.py").write_text("x = 2\n")
+    monkeypatch.setattr(svc, "repo_root", lambda: str(repo))
+    out = svc.run_tool("git_diff", {})
+    assert out["ok"] and "mod.py" in out["output"] and "+x = 2" in out["output"]
+    assert "mod.py" in svc.run_tool("git_diff", {"stat": True})["output"]
