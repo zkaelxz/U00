@@ -573,18 +573,83 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
         raise RuntimeError(job.get("last_error") or "The bulk job failed.")
 
 
+def _bulk_engine_factory(engine_name, model):
+    key = translate_service.resolve_api_key(engine_name)
+    return translate_engines.get_engine(engine_name, key, model or None) if key else None
+
+
 def resume_bulk_translations(drama_id: int) -> dict:
     """After a restart: starts a poller for each of this drama's pending
     bulk jobs (bulk_translate.resume_pending, the call the tab's Bulk jobs
     panel makes), with engines built from server-side keys only."""
     _require_drama(drama_id)
-
-    def factory(engine_name, model):
-        key = translate_service.resolve_api_key(engine_name)
-        return translate_engines.get_engine(engine_name, key, model or None) if key else None
-    out = bulk_translate.resume_pending(drama_id, factory, _monthly_cap() or None)
+    out = bulk_translate.resume_pending(drama_id, _bulk_engine_factory, _monthly_cap() or None)
     return {"drama_id": drama_id,
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
+
+
+def _spend_cap_used_up(engine_name: str) -> bool:
+    if not _cap_applies(engine_name, settings_service.get_gemini_free_tier()):
+        return False
+    monthly = _monthly_cap()
+    _cap, refusal = translate_engines.resolve_cost_cap(
+        None, monthly, db.get_month_spend() if monthly else 0.0)
+    return bool(refusal)
+
+
+def resume_interrupted_at_startup() -> dict:
+    """API startup, only while the "bulk.auto_resume" setting is on: resumes
+    every drama's pending bulk jobs through resume_pending, the same call as
+    the manual resume. A job whose engine has no key, or whose month's
+    spending cap is used up, is left pending and one notification says so.
+    Nothing starts while a restore or maintenance holds the library. Never
+    raises; returns {"enabled", "resumed", "skipped"} counts."""
+    out = {"enabled": False, "resumed": 0, "skipped": 0}
+    try:
+        if not settings_service.get_bulk_auto_resume():
+            return out
+        out["enabled"] = True
+        pending = db.list_bulk_jobs(statuses=("submitted", "scheduled", "running"))
+        if not pending:
+            return out
+        if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+            out["skipped"] = len(pending)
+            _notify_bulk_resume_skipped("the library is busy with a restore or maintenance")
+            return out
+        why = {}
+
+        def factory(engine_name, model):
+            if _spend_cap_used_up(engine_name):
+                why[engine_name] = "the monthly spending cap is used up"
+                return None
+            engine = _bulk_engine_factory(engine_name, model)
+            if engine is None:
+                why[engine_name] = "no API key is set for the engine"
+            return engine
+        cap = _monthly_cap() or None
+        for drama_id in sorted({j["drama_id"] for j in pending}):
+            for state in bulk_translate.resume_pending(drama_id, factory, cap).values():
+                if state == "polling":
+                    out["resumed"] += 1
+                elif state == "needs_key":
+                    out["skipped"] += 1
+        if out["skipped"]:
+            _notify_bulk_resume_skipped("; ".join(sorted(set(why.values()))) or "not possible")
+    except Exception as exc:
+        try:
+            from applog import get_logger
+            get_logger().warning("Resuming bulk batches at startup failed: %s",
+                                 translate_engines.redact_secrets(str(exc)))
+        except Exception:
+            pass
+    return out
+
+
+def _notify_bulk_resume_skipped(reason: str) -> None:
+    from services import notification_service
+    notification_service.record_event(
+        "job_failed", f"Translation batches were not resumed after the restart: {reason}. "
+        "Resume them from the drama's Translate page.")
 
 
 _BULK_CANCELLABLE = ("submitting",) + db.BULK_PENDING_STATUSES

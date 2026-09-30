@@ -16,6 +16,7 @@ const overview = {
   notify_on_completion: true,
   use_gpu: false,
   gemini_free_tier: false,
+  bulk_auto_resume: false,
 }
 const ok = (body: unknown, status = 200) =>
   vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
@@ -24,11 +25,21 @@ describe('settings api', () => {
   it('builds a body with only the one boolean', () => {
     expect(buildUpdate('use_gpu', true)).toEqual({ use_gpu: true })
     expect(TOGGLES.map((t) => t.key).sort()).toEqual([
+      'bulk_auto_resume',
       'gemini_free_tier',
       'gpu_limit_enabled',
       'notify_on_completion',
       'use_gpu',
     ])
+  })
+
+  it('has an opt-in toggle for resuming translation batches, sent as one boolean', async () => {
+    expect(TOGGLES.find((t) => t.key === 'bulk_auto_resume')?.label).toBe('Resume batches on start')
+    expect(buildUpdate('bulk_auto_resume', true)).toEqual({ bulk_auto_resume: true })
+    const f = ok({ ...overview, bulk_auto_resume: true })
+    await updateSetting('bulk_auto_resume', true, f)
+    const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({ bulk_auto_resume: true })
   })
 
   it('POSTs that body and returns the overview', async () => {

@@ -33,6 +33,7 @@ function overview() {
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,
+    bulk_auto_resume: false,
     preferences: { ...PREFS },
     endpoints: { ollama_url: null as string | null, libretranslate_url: null, gpt_sovits_url: null },
     monthly_cap_env_usd: 0,
