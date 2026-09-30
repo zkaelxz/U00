@@ -97,6 +97,7 @@ baihe-subtitler/
 │   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
+│   ├── runbook.md                one-page maintainer steps: installer lock, tests, restore, certificate, benchmark [reference]
 │   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
 │   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
 │   │                             [design proposal, nothing built]
