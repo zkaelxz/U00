@@ -22,10 +22,13 @@ are refused, and so are Baihe's own ports on loopback. The check is not
 pinned to the connection (the address is the PC owner's own, gated setting);
 its DNS lookup relies on the OS resolver's timeout. Requests carry timeout=,
 follow no redirects, ignore proxy settings and read at most
-MAX_RESPONSE_BYTES within READ_DEADLINE. One search runs at a time, and at
-most RATE_MAX searches start per RATE_WINDOW seconds for the whole app (429
-after that), so a loop cannot get the owner's SearXNG blocked by the engines
-it asks.
+MAX_RESPONSE_BYTES within READ_DEADLINE. Limits, so a loop cannot get the
+owner's SearXNG blocked by the engines it asks, nor one account keep web
+search busy for everyone: each caller (signed-in user, else client address)
+runs one search at a time and starts at most PER_CALLER_MAX per RATE_WINDOW
+seconds; at most MAX_CONCURRENT run at once and RATE_MAX start per window in
+the whole app (409 busy / 429 after that). The PC-only Test has its own lock
+and bucket, so searches never block it.
 Errors are fixed text: never the URL or the server's reply.
 
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
@@ -59,7 +62,10 @@ MAX_RESULT_URL_LEN = 2000
 BAIHE_OWN_PORTS = (8501, 8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
 RATE_MAX = 10
+PER_CALLER_MAX = 4
+TEST_RATE_MAX = 5
 RATE_WINDOW = 60.0
+MAX_CONCURRENT = 3
 
 _UNREACHABLE = "Couldn't reach the SearXNG server. Check the address and that it is running."
 _REDIRECTED = ("The SearXNG server answered with a redirect, which is not followed. "
@@ -73,8 +79,13 @@ _DISABLED = "Web search is off. Turn it on in Settings first."
 _NOT_SET = "Set the SearXNG address in Settings first."
 _BUSY = "A web search is already running. Try again in a moment."
 
-_lock = threading.Lock()
+_slots = threading.BoundedSemaphore(MAX_CONCURRENT)
+_in_flight_lock = threading.Lock()
+_in_flight = set()
 _rate = SlidingWindowRateLimiter(RATE_MAX, RATE_WINDOW, max_keys=1)
+_caller_rate = SlidingWindowRateLimiter(PER_CALLER_MAX, RATE_WINDOW, max_keys=1000)
+_test_lock = threading.Lock()
+_test_rate = SlidingWindowRateLimiter(TEST_RATE_MAX, RATE_WINDOW, max_keys=1)
 
 
 # --- settings ----------------------------------------------------------------
@@ -225,14 +236,27 @@ def _clean_query(query) -> str:
     return text
 
 
-def _run(base_url: str, query: str) -> list:
-    if not _lock.acquire(blocking=False):
-        raise ConflictError(_BUSY, details={"reason": "busy"})
+def _search_as(caller: str, base_url: str, query: str) -> dict:
+    """The shared-search limits (module docstring) around one request."""
+    with _in_flight_lock:
+        if caller in _in_flight:
+            raise ConflictError(_BUSY, details={"reason": "busy"})
+        _in_flight.add(caller)
     try:
-        _rate.hit("searxng")
-        data = _query_server(base_url, query)
+        _caller_rate.hit(caller)
+        if not _slots.acquire(blocking=False):
+            raise ConflictError(_BUSY, details={"reason": "busy"})
+        try:
+            _rate.hit("searxng")
+            return _query_server(base_url, query)
+        finally:
+            _slots.release()
     finally:
-        _lock.release()
+        with _in_flight_lock:
+            _in_flight.discard(caller)
+
+
+def _links(data: dict) -> list:
     results, seen = [], set()
     for item in data.get("results") or []:
         row = _result(item)
@@ -244,22 +268,32 @@ def _run(base_url: str, query: str) -> list:
     return results
 
 
-def search(query) -> dict:
+def search(query, caller: str = "local") -> dict:
     """Web results for `query` from the configured SearXNG instance: links
-    only, labelled as web results by the caller. 409 while off."""
+    only, labelled as web results by the caller. 409 while off. `caller`
+    names the per-caller bucket (the route passes the user or address)."""
     q = _clean_query(query)
     s = _stored()
     if not s.get("enabled"):
         raise ConflictError(_DISABLED, details={"reason": "disabled"})
     if not s.get("base_url"):
         raise InvalidInputError(_NOT_SET)
-    return {"query": q, "source": "searxng", "results": _run(s["base_url"], q)}
+    caller = str(caller or "unknown")[:200]
+    return {"query": q, "source": "searxng",
+            "results": _links(_search_as(caller, s["base_url"], q))}
 
 
 def test_connection() -> dict:
     """Works while the fallback is off, so it can be checked before turning
-    it on."""
+    it on. PC only; its own lock and bucket, so searches never block it."""
     base_url = _stored().get("base_url")
     if not base_url:
         raise InvalidInputError(_NOT_SET)
-    return {"ok": True, "result_count": len(_run(base_url, "baihe"))}
+    if not _test_lock.acquire(blocking=False):
+        raise ConflictError("A test is already running.", details={"reason": "busy"})
+    try:
+        _test_rate.hit("test")
+        data = _query_server(base_url, "baihe")
+    finally:
+        _test_lock.release()
+    return {"ok": True, "result_count": len(_links(data))}

@@ -70,8 +70,13 @@ def fake(isolated_db, monkeypatch, tmp_path):
                         lambda host, port, **kw: [(2, 1, 6, "", ("192.168.1.30", port))])
     FakeSearx.calls, FakeSearx.reply = [], Resp(200, {"results": [_hit(1), _hit(2)]})
     monkeypatch.setattr(requests, "Session", FakeSearx)
+    # Fresh buckets per test; the per-caller cap is raised here (most tests
+    # search several times as one caller) and tested on its own below.
     monkeypatch.setattr(ws, "_rate", ws.SlidingWindowRateLimiter(ws.RATE_MAX, ws.RATE_WINDOW,
                                                                  max_keys=1))
+    monkeypatch.setattr(ws, "_caller_rate", ws.SlidingWindowRateLimiter(100, ws.RATE_WINDOW))
+    monkeypatch.setattr(ws, "_test_rate", ws.SlidingWindowRateLimiter(ws.TEST_RATE_MAX,
+                                                                      ws.RATE_WINDOW, max_keys=1))
     return FakeSearx
 
 
@@ -232,25 +237,81 @@ def test_link_local_and_own_ports_refused(fake, monkeypatch):
     assert ws.search("x")["results"]
 
 
-def test_one_search_at_a_time(fake):
+def test_one_search_at_a_time_per_caller(fake):
     _on()
-    assert ws._lock.acquire(blocking=False)
+    ws._in_flight.add("user:1")
     try:
         with pytest.raises(ConflictError):
-            ws.search("x")
+            ws.search("x", caller="user:1")
+        assert ws.search("x", caller="user:2")["results"]  # others are not blocked
     finally:
-        ws._lock.release()
-    assert ws.search("x")["results"]
+        ws._in_flight.discard("user:1")
+    assert ws.search("x", caller="user:1")["results"]
 
 
-def test_searches_are_rate_limited(fake):
+def test_concurrent_searches_are_capped(fake):
+    _on()
+    for _ in range(ws.MAX_CONCURRENT):
+        assert ws._slots.acquire(blocking=False)
+    try:
+        with pytest.raises(ConflictError):
+            ws.search("x", caller="user:9")
+    finally:
+        for _ in range(ws.MAX_CONCURRENT):
+            ws._slots.release()
+
+
+def test_each_caller_has_its_own_bucket_inside_the_global_cap(fake, monkeypatch):
+    from services.service_errors import RateLimitedError
+    monkeypatch.setattr(ws, "_caller_rate", ws.SlidingWindowRateLimiter(ws.PER_CALLER_MAX,
+                                                                        ws.RATE_WINDOW))
+    _on()
+    for _ in range(ws.PER_CALLER_MAX):
+        ws.search("x", caller="user:1")
+    with pytest.raises(RateLimitedError):
+        ws.search("x", caller="user:1")
+    # user:1 is capped, but the others still get through until the global cap.
+    callers = ["user:2", "user:2", "user:3", "user:3", "user:3", "user:4"]
+    for c in callers:
+        ws.search("x", caller=c)
+    assert len(fake.calls) == ws.RATE_MAX == ws.PER_CALLER_MAX + len(callers)
+    with pytest.raises(RateLimitedError):
+        ws.search("x", caller="user:5")
+    assert len(fake.calls) == ws.RATE_MAX
+
+
+def test_the_pc_test_is_not_blocked_by_searches(fake):
     from services.service_errors import RateLimitedError
     _on()
-    for _ in range(ws.RATE_MAX):
-        ws.search("x")
+    for i in range(ws.RATE_MAX):
+        ws.search("x", caller=f"user:{i}")
     with pytest.raises(RateLimitedError):
-        ws.search("x")
-    assert len(fake.calls) == ws.RATE_MAX
+        ws.search("x", caller="user:99")
+    ws._in_flight.add("local")
+    for _ in range(ws.MAX_CONCURRENT):
+        ws._slots.acquire(blocking=False)
+    try:
+        assert ws.test_connection()["ok"] is True
+    finally:
+        ws._in_flight.discard("local")
+        for _ in range(ws.MAX_CONCURRENT):
+            ws._slots.release()
+    for _ in range(ws.TEST_RATE_MAX - 1):
+        ws.test_connection()
+    with pytest.raises(RateLimitedError):
+        ws.test_connection()
+
+
+def test_route_buckets_by_user_or_address(fake):
+    from api.routers import web_search_routes as r
+
+    class Req:
+        def __init__(self, principal, host):
+            self.state = type("S", (), {"principal": principal})()
+            self.client = type("C", (), {"host": host})()
+            self.headers = type("H", (), {"getlist": lambda self, k: []})()
+    assert r._caller(Req({"user_id": 7}, "203.0.113.5")) == "user:7"
+    assert r._caller(Req({"user_id": None}, "203.0.113.5")) == "ip:203.0.113.5"
 
 
 def test_test_connection_works_while_off(fake):

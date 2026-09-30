@@ -12,7 +12,7 @@ endpoint-URL gate (`_require_local_admin`) and confirm=true.
 
 from fastapi import APIRouter, Request
 
-from api.auth import local_only, require_permission
+from api.auth import client_ip, local_only, require_permission
 from api.routers.settings_routes import _require_confirm, _require_local_admin
 from api.schemas import ErrorResponse
 from api.web_search_schemas import (WebSearchConfig, WebSearchConfigUpdate, WebSearchRequest,
@@ -22,7 +22,7 @@ from services import web_search_service
 router = APIRouter(prefix="/api/web-search", tags=["web-search"])
 
 _ERRS = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-         503: {"model": ErrorResponse}}
+         429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
 
 
 @router.get("/status", dependencies=[require_permission("library.read")],
@@ -36,8 +36,15 @@ def get_status():
              response_model=WebSearchResults,
              summary="Search the web through the configured SearXNG server (links only; "
                      "409 while off)", responses=_ERRS)
-def post_search(payload: WebSearchRequest):
-    return web_search_service.search(payload.query)
+def post_search(payload: WebSearchRequest, request: Request):
+    return web_search_service.search(payload.query, caller=_caller(request))
+
+
+def _caller(request: Request) -> str:
+    """The per-caller bucket: the signed-in user, else the client address."""
+    principal = getattr(request.state, "principal", None) or {}
+    user_id = principal.get("user_id") if isinstance(principal, dict) else None
+    return f"user:{user_id}" if user_id is not None else f"ip:{client_ip(request)}"
 
 
 @router.get("/config", dependencies=[local_only()], response_model=WebSearchConfig,
