@@ -334,6 +334,10 @@ baihe-subtitler/
 │   │                             read-only option catalogues; glossary proposals from the novel
 │   │                             or (parity X10) the source lines, as jobs; apply by term text
 │   │                             with optional per-term edits
+│   ├── glossary_retranslate_service.py Lines a glossary change affects (term/alias in the
+│   │                             source, or a banned translation in the English), with a
+│   │                             hand-edited flag from line provenance; re-translates only the
+│   │                             chosen ones through the normal translate job (stale preview 409)
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
