@@ -319,13 +319,15 @@ python -m api     # then open http://127.0.0.1:8600/
 ```bash
 python cli.py list
 python cli.py align --whisper-size medium                    # audio-drama mode
+python cli.py align --id 3 --transcript script.txt            # or --transcript - for stdin
 python cli.py narrate-prep --engine claude --api-key $KEY     # novel-narration mode
 python cli.py translate --status aligned --engine claude --api-key $KEY
 python cli.py dub --status translated
-python cli.py export-video --style hardsub --subs english     # full subtitled episodes
+python cli.py export-video --subs english                     # full subtitled episodes (styled ASS, speaker colours; --style PRESET, --no-speaker-colors, --plain, --mode softsub)
 ```
-For CLI-driven audio-drama prep, place the transcript at
-`library/dramas/<id>/transcript.txt` and audio/video as
+For CLI-driven audio-drama prep, pass the transcript with `--transcript FILE`
+(with `--id`; also accepted by `run`) or place it at
+`library/dramas/<id>/transcript.txt`, and audio/video as
 `library/dramas/<id>/source.<ext>`. For novel-narration mode, place the
 novel text at `library/dramas/<id>/novel_narration_source.txt` and set
 `content_mode = 'novel_narration'` on that drama row (the GUI does all
