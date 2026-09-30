@@ -42,13 +42,6 @@ def _drama(apply):
     return did
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 def _wait(job_id):
     for _ in range(200):
         job = background_jobs.get_status(job_id)
