@@ -209,6 +209,8 @@ baihe-subtitler/
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
 │   │                             also the in-app list for the header bell (last 50 events, memory only,
 │   │                             filtered by job visibility) and the jobs/new-chapters push categories
+│   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
+│   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -398,6 +400,7 @@ baihe-subtitler/
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
+│   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 
@@ -515,8 +518,10 @@ baihe-subtitler/
 │       ├── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
 │       │                         /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
 │       │                         key-write gate; Step 44)
-│       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
-│                                 /dramas/{id}/send -- all local_only (Step 39)
+│       ├── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
+│       │                         /dramas/{id}/send -- all local_only (Step 39)
+│       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
+│       │                         (local_only; address change also key-write gate) -- item 114
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent

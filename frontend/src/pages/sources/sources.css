@@ -239,3 +239,8 @@ ul.source-cards > li {
   .source-access .actions > button, .source-signin .actions > button { flex: 1 1 100%; }
 }
 .sources-find details.section { margin-bottom: 0; }
+
+/* Web-search fallback (item 114) */
+.web-search { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.web-search .list-head { flex-wrap: wrap; }
+.web-result-domain { overflow-wrap: anywhere; }

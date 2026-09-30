@@ -15,7 +15,7 @@
  * typed link once without importing. The link is kept in memory only: a preview
  * found on load (an earlier run) shows, but importing needs the link again.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../../api/client'
 import { sourceImportJobId, startUrlImport, startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
@@ -50,13 +50,26 @@ type Props = {
   // Source name -> display name.
   display: (name: string) => string
   onOpenSeries: (s: OpenSeries, chapterId: string | null) => void
+  // A link handed over by the web-search fallback: fills the box; the user
+  // still presses Preview.
+  handoff?: { url: string; n: number } | null
 }
 
 const isHandoff = (e: unknown) =>
   e instanceof ApiError && e.status === 409 && !!(e.details as { handoff?: unknown } | null)?.handoff
 
-export function UrlBox({ display, onOpenSeries }: Props) {
+export function UrlBox({ display, onOpenSeries, handoff }: Props) {
   const [text, setText] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+  // Each hand-off is a new object, so only a new one refills the box.
+  const [takenHandoff, setTakenHandoff] = useState<Props['handoff']>(null)
+  if (handoff && handoff !== takenHandoff) {
+    setTakenHandoff(handoff)
+    setText(handoff.url.slice(0, MAX_URL_LEN))
+  }
+  useEffect(() => {
+    if (handoff) requestAnimationFrame(() => input.current?.focus())
+  }, [handoff])
   // The link the shown preview is for (null: a preview found on load).
   const [previewed, setPreviewed] = useState<string | null>(null)
   // SO03: a preview read from page source pasted after a verification page.
@@ -96,6 +109,7 @@ export function UrlBox({ display, onOpenSeries }: Props) {
             spellCheck={false}
             maxLength={MAX_URL_LEN}
             placeholder="https://…"
+            ref={input}
             value={text}
             onChange={(e) => setText(e.target.value)}
           />

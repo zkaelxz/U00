@@ -9,6 +9,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
 
@@ -71,6 +72,7 @@ export default function SettingsPage() {
           <SpendingCard {...prefProps} />
           <NotificationsSection />
           <JellyfinSection />
+          <WebSearchSection />
           <ExtensionSection />
           <AppearanceCard />
           <AdvancedCard {...prefProps} />

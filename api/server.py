@@ -85,6 +85,7 @@ from api.routers import (
     translation_version_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
+    web_search_routes,
     workflow_routes,
 )
 from api.schemas import API_VERSION
@@ -186,6 +187,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
+    app.include_router(web_search_routes.router)
     app.include_router(sources_catalog_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
