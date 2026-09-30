@@ -133,6 +133,8 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
+                             "(line timing); best in its own Python 3.12 environment", "feature"),
     # Step 104: not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
     # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
     "moss-transcribe-diarize": ("moss_transcribe_diarize",
@@ -627,6 +629,69 @@ def delete_piper_voice(voice: str, voices_dir: str = None) -> bool:
         return False
 
 
+def model_folder(kind: str) -> str:
+    """The other model download folders, outside the Hugging Face cache:
+    "torch" is torch.hub's checkpoints folder under TORCH_HOME (demucs
+    weights; resolved like torch.hub.get_dir(), without importing torch),
+    "audio_separator" the Mel-Band RoFormer model folder
+    (BAIHE_AUDIO_SEP_MODEL_DIR). Both follow portable mode's redirects."""
+    if kind == "torch":
+        home = os.environ.get("TORCH_HOME") or os.path.join(
+            os.environ.get("XDG_CACHE_HOME") or os.path.join("~", ".cache"), "torch")
+        return os.path.join(os.path.expanduser(home), "hub", "checkpoints")
+    if kind == "audio_separator":
+        import audio_preprocess
+        return audio_preprocess._MODEL_DIR
+    raise ValueError(f"Unknown model folder {kind!r}")
+
+
+MODEL_FOLDERS = ("torch", "audio_separator")
+
+
+def scan_model_folder(kind: str, folder: str = None) -> list:
+    """[{"name", "size_bytes"}, ...] for every file or folder directly in
+    one of model_folder()'s folders, largest first (symlinks are skipped).
+    [] if it doesn't exist yet -- never raises, like scan_hf_cache."""
+    folder = folder or model_folder(kind)
+    try:
+        entries = []
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            if os.path.islink(path):
+                continue
+            if os.path.isdir(path):
+                size = sum(os.path.getsize(os.path.join(root, f))
+                           for root, _dirs, files in os.walk(path) for f in files
+                           if not os.path.islink(os.path.join(root, f)))
+            else:
+                size = os.path.getsize(path)
+            entries.append({"name": name, "size_bytes": size})
+        return sorted(entries, key=lambda e: -e["size_bytes"])
+    except OSError:
+        return []
+
+
+def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
+    """Deletes one entry scan_model_folder lists: a plain name directly in
+    that folder, never a path or a symlink. False, not raised, if it isn't
+    there or the delete fails."""
+    folder = folder or model_folder(kind)
+    if (not isinstance(name, str) or name in ("", ".", "..")
+            or os.path.basename(name) != name or "\\" in name or "\x00" in name):
+        return False
+    path = os.path.join(folder, name)
+    try:
+        if os.path.islink(path) or not os.path.lexists(path):
+            return False
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        return True
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Step 9b.2: model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
@@ -719,8 +784,8 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     row's own Install button, straight from the registry rather than
     re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
     use import-style names -- "faster_whisper", "manga_ocr" -- that don't
-    all match the real pip names here, and some registry packages, like
-    Qwen3-ASR's "qwen-asr", have no OPTIONAL_DEPENDENCIES entry at all).
+    all match the real pip names here, and some registry packages have no
+    OPTIONAL_DEPENDENCIES entry at all).
     "help" is a short plain-English description of what the row is and
     which app feature uses it, for a "?" affordance in the UI."""
     out = []

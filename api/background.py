@@ -89,6 +89,52 @@ def stop_gpu_queue_poller(timeout: float = 5.0) -> None:
         poller[0].join(timeout)
 
 
+# Step 40b: scheduled model re-evaluation. The loop only asks
+# model_reeval_service.run_if_due(), which does nothing unless the user turned
+# the schedule on (which needs a monthly cap or a per-run limit), added a
+# candidate and the interval has passed, and never while another job is
+# running or queued; the run itself is an ordinary Benchmark Lab run, and
+# nothing is ever promoted by it.
+REEVAL_POLL_SECONDS = 3600.0
+REEVAL_FIRST_CHECK_SECONDS = 120.0
+_reeval_poller = None       # (thread, stop_event) while running
+
+
+def start_reeval_scheduler(interval: float = None) -> bool:
+    global _reeval_poller
+    interval = REEVAL_POLL_SECONDS if interval is None else float(interval)
+    with _gpu_lock:
+        if _reeval_poller is not None and _reeval_poller[0].is_alive():
+            return False
+        stop = threading.Event()
+
+        def loop():
+            # First look soon after startup (a short desktop session would
+            # otherwise never reach the first hourly tick), then hourly.
+            wait = min(interval, REEVAL_FIRST_CHECK_SECONDS)
+            while not stop.wait(wait):
+                wait = interval
+                try:
+                    from services import model_reeval_service
+                    model_reeval_service.run_if_due()
+                except Exception as exc:
+                    _log("model re-evaluation check failed: %s", exc)
+
+        thread = threading.Thread(target=loop, daemon=True, name="api-model-reeval")
+        _reeval_poller = (thread, stop)
+        thread.start()
+        return True
+
+
+def stop_reeval_scheduler(timeout: float = 5.0) -> None:
+    global _reeval_poller
+    with _gpu_lock:
+        poller, _reeval_poller = _reeval_poller, None
+    if poller is not None:
+        poller[1].set()
+        poller[0].join(timeout)
+
+
 def start_background_services() -> dict:
     """Starts what is due (and runs the startup sweeps above); returns
     {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a

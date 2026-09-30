@@ -11,23 +11,27 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
   Don't expose the API beyond loopback until the Caddy/LAN checks (step 140) are done.
 - Streamlit (`app.py`, `tabs/`, `ui/`, `ui_theme.py`, `common.py`) is frozen and being deleted by 2026-10-30
   (`docs/streamlit-retirement-plan.md`). Only crash/data-loss fixes that block the migration, deletions, and moves into `services/`.
-- Recently merged: Steps 36 (#469), 37 (#464), 38 Benchmark Lab (#471), 39 Jellyfin (#474), 44 follow-up (#470),
-  43 auto-backups (#473), 99 stronger-engine suggestion (#475), 107 failed-chapter retry (#467).
+- Streamlit-only features, decided 2026-09-30 (user): learned-style opt-out is ported (#493 pins it);
+  auto-resume of pending batches and EPUB image placeholders are dropped, not ported.
+- Recently merged: Steps 36 (#469), 37 (#464), 38 Benchmark Lab (#471), 39 Jellyfin (#474), 41 (#476),
+  43 auto-backups (#473), 44 follow-up (#470), 99 (#475), 101-105 (#468), 106 (#460), 107 (#467), 110 (#461);
+  parity B5 (#480) and Sources SO06/SO09/SO10 (#457); Steps 142-143 proposed (#496).
 
-## In flight (open draft PRs into baihe-subtitler)
-- Parity: B5 Review gaps #480; Sources SO06/SO09/SO10 #457.
-- Roadmap steps: 40 #478 and 40b #481 (stacked on #471); 41 #476; 42 #465; 60 #472; 72 #479;
-  101-105 #468; 106 #460; 110 #461; 111 #486; 112 #485; 114 #482; 116 #484.
-- Bug fixes: steps 122-131 (B-02..B-07, B-20, B-23, B-24) #466.
+## In flight (open PRs into baihe-subtitler)
+- Roadmap steps: 40 #478 and 40b #481 (stacked); 42 #465; 60 #472; 72 #479; 80b Windows installer #498;
+  111 #486; 112 #485; 113 Fanjiao #489; 114 #482; 115 lightnovel.fun #488; 115b lncrawl #490; 116 #484.
+- Platform: SSE push `GET /api/events` #494; React job reattach #495; test isolation from the real library #492.
+- Bug fixes: steps 122-131 #466; small review bugs bundle #491; undo restores flags/SFX #487.
+- Parity: learned-style opt-out #493.
 - Other: Scanlate automatic path #463; Benchmark jiwer scoring #483.
-- This docs cleanup: branch `docs-instruction-diet`.
+- SSE push (`GET /api/events`: jobs, the bell and Live pushed; polling only as fallback) #494, branch `migration-sse-push`.
 
 ## Next
 1. Land the open PRs above (lead session merges once CI is green).
 2. Streamlit deletion: parity re-check, the user's go-ahead, `pre-streamlit-removal` tag + `legacy/streamlit` branch, then the deletion PRs (retirement plan, section 9).
 3. Remote access, steps 133-140 (user needs this, 2026-09-30: other household members and phones use the PC's library). Sign-in (133-134) and ownership are merged; left: the D5 admin listener (PC-only admin, before anyone else logs in), Caddy config, LAN test with a real certificate, router port last (140).
 4. Step 141: spec only (migration-architect) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
-5. Steps 142-143: move a library between the hosted setup and a standalone install (143 reuses Step 43's single-drama restore).
+5. Steps 142-143 (proposed, not scheduled): move a library between the hosted setup and a standalone install (143 reuses Step 43's single-drama restore).
 
 ## Open bugs
 - B-20, B-23, B-24: being fixed in #466 (B-23's music level also needs the user's listening check).
