@@ -135,3 +135,14 @@ test('Gemini on its free tier: Bulk points to Settings', async ({ page }) => {
   await expect(ai.getByText(/Still needed for Bulk: Gemini's free tier turned off in Settings/)).toBeVisible()
   await expect(ai.getByRole('link', { name: 'Open Settings' })).toHaveAttribute('href', '#/settings')
 })
+
+test('Bulk says why it is off when the engine settings could not be loaded', async ({ page }) => {
+  await page.route('**/api/translate-run/dramas/3/config', (route) =>
+    route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
+  await page.goto('/#/drama/3/review')
+  const ai = page.getByRole('group', { name: 'AI checks' })
+  const summary = ai.locator('summary', { hasText: 'AI review' }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+  await expect(ai.getByRole('switch', { name: 'Bulk: Check consistency' })).toBeDisabled()
+  await expect(ai).toContainText("Bulk is off: couldn't load the engine settings. Reload to try again.")
+})

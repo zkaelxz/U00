@@ -101,6 +101,8 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   const [jobsDone, setJobsDone] = useState(0)
   // Engine and model choices for every AI job; without them only the defaults are offered.
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
+  // The config read failed: the Bulk switches say why they are off.
+  const [configFailed, setConfigFailed] = useState(false)
   // R49: Bulk per check (not remembered: a slow run should be a fresh choice).
   const [bulkOn, setBulkOn] = useState<BulkChoice>({})
   const [bulkRuns, setBulkRuns] = useState<BulkRunInfo[]>([])
@@ -120,7 +122,14 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
 
   useEffect(() => {
     let cancelled = false
-    getTranslateConfig(dramaId).then((c) => !cancelled && setConfig(c), () => {})
+    getTranslateConfig(dramaId).then(
+      (c) => {
+        if (cancelled) return
+        setConfig(c)
+        setConfigFailed(false)
+      },
+      () => !cancelled && setConfigFailed(true),
+    )
     return () => {
       cancelled = true
     }
@@ -172,7 +181,11 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
   const bulkEngines = config?.bulk_supported_engines ?? []
   const engineNow = effectiveEngine(checks, defaultEngine)
   const bulkOk = config !== null && reviewBulkAvailable(engineNow, bulkEngines)
-  const bulkReason = config ? bulkBlocker(engineNow, bulkEngines) : null
+  const bulkReason = config
+    ? bulkBlocker(engineNow, bulkEngines)
+    : configFailed
+      ? "Bulk is off: couldn't load the engine settings. Reload to try again."
+      : null
   const anyBulk = bulkOk && KINDS.some(({ kind }) => bulkOn[kind])
   const capHelp =
     'Stops the fix at this many dollars; blank means no per-job cap.' +

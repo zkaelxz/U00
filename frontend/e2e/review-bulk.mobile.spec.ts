@@ -28,8 +28,10 @@ test('Bulk switches: 44px targets, no sideways scroll, the warning shows', async
   await expect(switches).toHaveCount(4)
   await expect(switches.first()).toBeEnabled() // the engine config has loaded
   for (const sw of await switches.all()) {
-    await sw.scrollIntoViewIfNeeded() // elementFromPoint only sees the viewport
     const hit = await sw.evaluate((el) => {
+      // elementFromPoint only sees the viewport, and the sticky toolbar and the
+      // phone edit bar cover its edges: hit-test with the switch centred.
+      el.scrollIntoView({ block: 'center' })
       const r = el.getBoundingClientRect()
       const cx = r.left + r.width / 2
       const cy = r.top + r.height / 2

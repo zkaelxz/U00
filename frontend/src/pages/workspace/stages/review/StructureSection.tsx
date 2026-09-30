@@ -119,7 +119,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
       // A refusal the apply job found at run time: nothing was written.
       const problem = llmApplyProblem(j.error ?? '')
       if (problem === 'confirm') setConfirmAsked(true)
-      if (problem === 'changed') setAiPreview(null)
+      if (problem === 'changed') dropStale()
       if (problem) {
         setNotice(llmApplyProblemText(problem))
         setJobId(null)
@@ -175,10 +175,16 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
         const problem = llmApplyProblem(e)
         if (!problem) return setError(e)
         if (problem === 'confirm') setConfirmAsked(true)
-        if (problem === 'changed' || problem === 'gone') setAiPreview(null)
+        if (problem === 'changed' || problem === 'gone') dropStale()
         setNotice(llmApplyProblemText(problem))
       },
     )
+  }
+  // A refused apply: the server may still hold this preview (the line ids
+  // can match while text changed), so don't let turning Use AI on bring it back.
+  const dropStale = () => {
+    if (aiPreview) discarded.current = previewKey(aiPreview)
+    setAiPreview(null)
   }
   const discardAi = () => {
     if (aiPreview) discarded.current = previewKey(aiPreview)

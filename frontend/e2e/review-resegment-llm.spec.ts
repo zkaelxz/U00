@@ -87,6 +87,12 @@ test('a server refusal for want of confirm asks for it; lines changed says previ
   await shown.getByRole('button', { name: 'Apply' }).click()
   await expect(group.getByTestId('resegment-ai-notice')).toHaveText('The lines changed since this preview. Preview again.')
   await expect(page.getByTestId('resegment-ai-preview')).toHaveCount(0)
+  // The server may still hold that preview: turning Use AI off and on doesn't bring it back.
+  const useAi = group.getByRole('switch', { name: 'Use AI' })
+  await useAi.click()
+  await useAi.click()
+  await expect(group.getByRole('button', { name: 'Preview with AI' })).toBeEnabled()
+  await expect(page.getByTestId('resegment-ai-preview')).toHaveCount(0)
   expect(calls.applies).toEqual([
     { expected_line_ids: [101, 102, 103], use_preview: true, confirm: false },
     { expected_line_ids: [101, 102, 103], use_preview: true, confirm: true },
