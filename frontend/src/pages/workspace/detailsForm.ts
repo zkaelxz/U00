@@ -8,6 +8,10 @@ import { MAX_NAME_LEN, MAX_SUMMARY_LEN, MEDIA_TYPES, SOURCE_LANGUAGES } from '..
 // api/schemas.py DramaMetadataUpdate; the server re-validates everything.
 
 export const MAX_TAGS_LEN = 2000
+export const MAX_URL_LEN = 2000
+export const MAX_COUNT = 2147483647
+// services/drama_service.py PUBLICATION_STATUSES.
+export const PUBLICATION_STATUSES = ['unknown', 'ongoing', 'completed', 'hiatus']
 
 export interface DetailsForm {
   title_en: string
@@ -17,6 +21,12 @@ export interface DetailsForm {
   director: string
   voice_actors: string
   summary: string
+  genre: string
+  source_url: string
+  chapter_count: string // '' = not set
+  episode_number: string // '' = not set
+  episode_summary: string
+  publication_status: string // '' = not set
   custom_tags: string // comma-separated, as stored
   media_type: string
   source_language: string
@@ -25,7 +35,12 @@ export interface DetailsForm {
 
 export type DetailsErrors = Partial<Record<keyof DetailsForm, string>>
 
-const TEXT_KEYS = ['title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary'] as const
+const TEXT_KEYS = [
+  'title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary', 'genre', 'source_url',
+  'episode_summary',
+] as const
+const COUNT_KEYS = ['chapter_count', 'episode_number'] as const
+const LONG_KEYS: readonly string[] = ['summary', 'episode_summary']
 
 export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   title_en: 'English title',
@@ -35,6 +50,12 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   director: 'Director',
   voice_actors: 'Voice actors',
   summary: 'Summary',
+  genre: 'Genre',
+  source_url: 'Source URL',
+  chapter_count: 'Chapter count',
+  episode_number: 'Episode number',
+  episode_summary: 'Running episode summary',
+  publication_status: 'Publication status',
   custom_tags: 'Tags',
   media_type: 'Media type',
   source_language: 'Source language',
@@ -57,6 +78,12 @@ export function formFromDrama(d: DramaDetail): DetailsForm {
     director: d.director ?? '',
     voice_actors: d.voice_actors ?? '',
     summary: d.summary ?? '',
+    genre: d.genre ?? '',
+    source_url: d.source_url ?? '',
+    chapter_count: d.chapter_count ? String(d.chapter_count) : '',
+    episode_number: d.episode_number ? String(d.episode_number) : '',
+    episode_summary: d.episode_summary ?? '',
+    publication_status: d.publication_status ?? '',
     custom_tags: (d.custom_tags ?? []).join(', '),
     media_type: d.media_type ?? 'audio_drama',
     source_language: d.source_language ?? 'zh',
@@ -73,8 +100,17 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
   const e: DetailsErrors = {}
   if (!f.title_en.trim() && !f.title_zh.trim()) e.title_en = 'Enter an English or original title.'
   for (const k of TEXT_KEYS) {
-    const cap = k === 'summary' ? MAX_SUMMARY_LEN : MAX_NAME_LEN
+    const cap = LONG_KEYS.includes(k) ? MAX_SUMMARY_LEN : k === 'source_url' ? MAX_URL_LEN : MAX_NAME_LEN
     if (f[k].length > cap) e[k] = `Too long (max ${cap} characters).`
+  }
+  const url = f.source_url.trim()
+  if (url && !e.source_url && !/^https?:\/\//i.test(url)) e.source_url = 'Start the link with http:// or https://.'
+  for (const k of COUNT_KEYS) {
+    const v = f[k].trim()
+    if (v && (!/^\d+$/.test(v) || Number(v) > MAX_COUNT)) e[k] = 'Enter a whole number, or leave it empty.'
+  }
+  if (f.publication_status !== initial.publication_status && !PUBLICATION_STATUSES.includes(f.publication_status)) {
+    e.publication_status = 'Choose a publication status.'
   }
   if (normalizeTags(f.custom_tags).length > MAX_TAGS_LEN) e.custom_tags = `Too long (max ${MAX_TAGS_LEN} characters).`
   if (!SOURCE_LANGUAGES.includes(f.source_language)) e.source_language = 'Choose a source language.'
@@ -90,7 +126,18 @@ export interface DetailsPayload {
 // Only fields that differ from what was loaded are sent.
 export function buildDetailsPayload(f: DetailsForm, initial: DetailsForm): DetailsPayload {
   const metadata: DramaMetadataUpdate = {}
-  for (const k of TEXT_KEYS) if (f[k] !== initial[k]) metadata[k] = f[k]
+  for (const k of TEXT_KEYS) {
+    const v = k === 'source_url' ? f[k].trim() : f[k]
+    if (v !== initial[k]) metadata[k] = v
+  }
+  // Counts: '' (or 0) clears, sent as 0.
+  for (const k of COUNT_KEYS) {
+    const v = Number(f[k].trim() || 0)
+    if (v !== Number(initial[k] || 0)) metadata[k] = v
+  }
+  if (f.publication_status !== initial.publication_status && f.publication_status) {
+    metadata.publication_status = f.publication_status
+  }
   const tags = normalizeTags(f.custom_tags)
   if (tags !== normalizeTags(initial.custom_tags)) metadata.custom_tags = tags
   if (f.media_type !== initial.media_type) metadata.media_type = f.media_type
@@ -116,7 +163,8 @@ export function serverFieldErrors(details: unknown, message: string): DetailsErr
     }
   }
   if (!Object.keys(out).length) {
-    const k = keys.find((key) => message.includes(key))
+    // Longest name first: "episode_summary" must not match "summary".
+    const k = [...keys].sort((x, y) => y.length - x.length).find((key) => message.includes(key))
     if (k) out[k] = message
   }
   return out

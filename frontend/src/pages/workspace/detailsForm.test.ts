@@ -82,6 +82,52 @@ describe('validateDetails', () => {
   })
 })
 
+describe('P10 fields (genre, status, counts, source URL, episode summary)', () => {
+  const full = {
+    ...drama, genre: 'xianxia', publication_status: 'ongoing', chapter_count: 120,
+    source_url: 'https://example.com/d/1', episode_number: 3, episode_summary: 'Before.',
+  } as unknown as DramaDetail
+  const init = formFromDrama(full)
+  it('seeds from the drama, counts as text and nulls as empty', () => {
+    expect(init).toMatchObject({
+      genre: 'xianxia', publication_status: 'ongoing', chapter_count: '120', source_url: 'https://example.com/d/1',
+      episode_number: '3', episode_summary: 'Before.',
+    })
+    expect(formFromDrama(drama)).toMatchObject({ chapter_count: '', episode_number: '', publication_status: '', source_url: '' })
+  })
+  it('sends only changed values; an emptied count is sent as 0 (clear)', () => {
+    const p = buildDetailsPayload(
+      { ...init, genre: 'romance', publication_status: 'completed', chapter_count: '', episode_number: '4', source_url: ' https://x.org/a ', episode_summary: '' },
+      init,
+    )
+    expect(p.metadata).toEqual({
+      genre: 'romance', publication_status: 'completed', chapter_count: 0, episode_number: 4,
+      source_url: 'https://x.org/a', episode_summary: '',
+    })
+    expect(isEmptyPayload(buildDetailsPayload({ ...init, chapter_count: '0120' }, init))).toBe(true)
+  })
+  it('never sends a blank publication status (the API cannot clear it)', () => {
+    const blank = formFromDrama(drama)
+    expect(buildDetailsPayload({ ...blank }, blank).metadata.publication_status).toBeUndefined()
+  })
+  it('validates the URL scheme, whole-number counts and caps', () => {
+    const e = validateDetails(
+      { ...init, source_url: 'ftp://x', chapter_count: '1.5', episode_number: '-2', episode_summary: 'x'.repeat(5001), genre: 'x'.repeat(301) },
+      init,
+    )
+    expect(e.source_url).toMatch(/http/)
+    expect(e.chapter_count).toMatch(/whole number/)
+    expect(e.episode_number).toMatch(/whole number/)
+    expect(e.episode_summary).toMatch(/5000/)
+    expect(e.genre).toMatch(/300/)
+    expect(validateDetails({ ...init, source_url: '', chapter_count: '', episode_number: '' }, init)).toEqual({})
+    expect(validateDetails({ ...init, publication_status: 'dropped' }, init).publication_status).toBeDefined()
+  })
+  it('maps an episode_summary server error to that field, not Summary', () => {
+    expect(serverFieldErrors(null, 'episode_summary is too long.')).toEqual({ episode_summary: 'episode_summary is too long.' })
+  })
+})
+
 describe('serverFieldErrors', () => {
   it('maps request-validation loc to a field', () => {
     expect(serverFieldErrors([{ loc: ['body', 'author'], msg: 'too long' }], 'The request is invalid.')).toEqual({

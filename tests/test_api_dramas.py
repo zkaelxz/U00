@@ -281,3 +281,21 @@ def test_metadata_new_series_name_and_unassign(client):
     assert client.post(f"/api/dramas/{did}/metadata",
                        json={"series_id": -1}).status_code == 422
     assert [s["name"] for s in db.list_series()] == ["Saga"]
+
+
+def test_metadata_p10_fields_round_trip_through_the_detail(client):
+    # Parity P10: the Workspace's Edit details reads these back to show them.
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    body = {"genre": "xianxia", "publication_status": "ongoing", "chapter_count": 120,
+            "episode_number": 3, "source_url": "https://example.com/d/1",
+            "episode_summary": "Key events."}
+    r = client.post(f"/api/dramas/{did}/metadata", json=body)
+    assert r.status_code == 200, r.text
+    assert {k: r.json()[k] for k in body} == body
+    got = client.get(f"/api/library/dramas/{did}").json()
+    assert {k: got[k] for k in body} == body
+    r = client.post(f"/api/dramas/{did}/metadata", json={"chapter_count": 0, "episode_number": 0,
+                                                         "source_url": "", "episode_summary": ""})
+    assert r.status_code == 200, r.text
+    assert (r.json()["chapter_count"], r.json()["episode_number"]) == (None, None)
+    assert r.json()["source_url"] == "" and r.json()["episode_summary"] == ""

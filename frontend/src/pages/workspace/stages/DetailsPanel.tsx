@@ -5,7 +5,7 @@ import { getSeries, updateDramaMetadata } from '../../../api/library'
 import { getSourceConfig, updateSourceConfig } from '../../../api/source'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
-import { humanize } from '../../../components/labels'
+import { humanize, humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import type { LibrarySeries } from '../../../types/library'
 import type { SourceConfig } from '../../../types/workspace'
@@ -18,6 +18,7 @@ import {
   isEmptyPayload,
   mediaTypeOptions,
   modeLabel,
+  PUBLICATION_STATUSES,
   modeUpdate,
   serverFieldErrors,
   validateDetails,
@@ -97,9 +98,14 @@ export function DetailsPanel() {
   const reason = !dirty ? 'Still needed: a change to save.' : null
   const title = drama.title_en || drama.title_zh || `#${dramaId}`
 
-  const text = (k: keyof DetailsForm, help?: string) => (
+  const text = (k: keyof DetailsForm, help?: string, type = 'text') => (
     <Field label={FIELD_LABELS[k]} help={help} error={errors[k]}>
-      <input value={form[k]} onChange={set(k)} />
+      <input type={type} value={form[k]} onChange={set(k)} />
+    </Field>
+  )
+  const count = (k: 'chapter_count' | 'episode_number', help: string) => (
+    <Field label={FIELD_LABELS[k]} help={help} error={errors[k]}>
+      <input type="number" inputMode="numeric" min={0} step={1} value={form[k]} onChange={set(k)} />
     </Field>
   )
 
@@ -157,9 +163,28 @@ export function DetailsPanel() {
             {text('director')}
             {text('voice_actors', 'Comma-separated.')}
           </div>
+          <div className="source-grid">
+            {text('genre', 'e.g. xianxia, romance, mystery.')}
+            <Field label={FIELD_LABELS.publication_status} help="Whether the original is still coming out." error={errors.publication_status}>
+              <select value={form.publication_status} onChange={set('publication_status')}>
+                {initial.publication_status === '' && <option value="">Not set</option>}
+                {PUBLICATION_STATUSES.map((p) => <option key={p} value={p}>{humanizeValue(p)}</option>)}
+              </select>
+            </Field>
+            {count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
+            {count('episode_number', 'Orders this drama within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
+          </div>
+          {text('source_url', 'The public listing or info page this drama came from.', 'url')}
           {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
           <Field label="Summary" error={errors.summary}>
             <textarea rows={3} value={form.summary} onChange={set('summary')} />
+          </Field>
+          <Field
+            label={FIELD_LABELS.episode_summary}
+            help="Key events, open threads and character state. Given to the next episode's translation as context. Filled in after a translation run; edit it freely."
+            error={errors.episode_summary}
+          >
+            <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
           </Field>
         </form>
       </Section>

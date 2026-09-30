@@ -70,6 +70,10 @@ class DramaDetail(DramaSummary):
     genre: Optional[str] = None
     publication_status: Optional[str] = None
     chapter_count: Optional[int] = None
+    # Parity P10: shown and edited in the Workspace's Edit details.
+    source_url: Optional[str] = None
+    episode_number: Optional[int] = None
+    episode_summary: Optional[str] = None
     narration_language: Optional[str] = None
     author_romanized: Optional[str] = None
     studio_romanized: Optional[str] = None
