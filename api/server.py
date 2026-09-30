@@ -65,6 +65,7 @@ from api.routers import (
     media_routes,
     metadata_research_routes,
     metadata_routes,
+    model_registry_routes,
     narration_routes,
     notification_center_routes,
     notification_routes,
@@ -224,6 +225,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
     app.include_router(benchmark_routes.router)
+    app.include_router(model_registry_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
