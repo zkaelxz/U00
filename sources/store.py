@@ -136,6 +136,15 @@ CREATE TABLE IF NOT EXISTS known_chapters (
     first_seen REAL NOT NULL,
     PRIMARY KEY (source, series_id, chapter_id)
 );
+CREATE TABLE IF NOT EXISTS chapter_poll_validators (
+    source TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    etag TEXT NOT NULL DEFAULT '',
+    last_modified TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (source, series_id)
+);
 CREATE TABLE IF NOT EXISTS chapter_notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -165,6 +174,17 @@ CREATE TABLE IF NOT EXISTS imported_chapters (
     drama_id INTEGER NOT NULL,
     imported_at REAL NOT NULL,
     PRIMARY KEY (source, series_id, chapter_id, drama_id)
+);
+CREATE TABLE IF NOT EXISTS import_retry (
+    source TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    drama_id INTEGER NOT NULL,
+    chapter_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (source, series_id, drama_id, chapter_id)
 );
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
@@ -304,6 +324,45 @@ def imported_chapter_ids(source: str, series_id: str, drama_id: int) -> set:
             "AND drama_id=?", (source, str(series_id), int(drama_id)))}
 
 
+RETRY_STATUSES = ("failed", "not_attempted")
+# "partial": the chapter an unexpected error interrupted mid-write -- some of
+# its pages or text may be in the drama already, so it is shown (check it
+# first) but never part of the automatic retry.
+MANIFEST_STATUSES = RETRY_STATUSES + ("partial",)
+
+
+def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):
+    """Step 107's failed-chapter manifest for one (series, drama). `pending`
+    is (chapter_id, title, status, error) per chapter that failed or was not
+    attempted (status in MANIFEST_STATUSES; title and error already redacted by
+    the caller); `done_ids` are chapters this import imported or skipped,
+    which leave the manifest."""
+    now = time.time()
+    with connect() as conn:
+        conn.executemany("DELETE FROM import_retry WHERE source=? AND series_id=? AND "
+                         "drama_id=? AND chapter_id=?",
+                         [(source, str(series_id), int(drama_id), str(c)) for c in done_ids])
+        conn.executemany(
+            "INSERT INTO import_retry(source, series_id, drama_id, chapter_id, title, status, "
+            "error, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source, series_id, "
+            "drama_id, chapter_id) DO UPDATE SET title=excluded.title, status=excluded.status, "
+            "error=excluded.error, updated_at=excluded.updated_at",
+            [(source, str(series_id), int(drama_id), str(cid), title or "", status, error or "",
+              now) for cid, title, status, error in pending if status in MANIFEST_STATUSES])
+
+
+def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
+    """The manifest's chapters still waiting for a retry, oldest first. A
+    chapter imported since (by any path, e.g. the auto-import) is left out."""
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT chapter_id, title, status, error, updated_at FROM import_retry r "
+            "WHERE source=? AND series_id=? AND drama_id=? AND NOT EXISTS (SELECT 1 FROM "
+            "imported_chapters i WHERE i.source=r.source AND i.series_id=r.series_id AND "
+            "i.drama_id=r.drama_id AND i.chapter_id=r.chapter_id) ORDER BY updated_at, rowid",
+            (source, str(series_id), int(drama_id)))]
+
+
 def set_tracked_drama(source: str, series_id: str, drama_id) -> bool:
     """Points a tracked series' auto-import at another drama (None = no
     auto-import target). Touches nothing else; False if not tracked."""
@@ -317,6 +376,39 @@ def untrack_series(source: str, series_id: str):
     with connect() as conn:
         conn.execute("DELETE FROM tracked_series WHERE source=? AND series_id=?", (source, series_id))
         conn.execute("DELETE FROM known_chapters WHERE source=? AND series_id=?", (source, series_id))
+        conn.execute("DELETE FROM chapter_poll_validators WHERE source=? AND series_id=?",
+                     (source, series_id))
+
+
+def poll_validators(source: str, series_id: str, max_age: float = None) -> dict:
+    """The ETag / Last-Modified the last chapter-list poll of this series
+    got for its one URL (Step 106), as conditional_poll() kwargs; {} if
+    none, or if they were saved more than `max_age` seconds ago (a 304
+    doesn't refresh them, so the list is fetched in full now and then)."""
+    with connect() as conn:
+        row = conn.execute("SELECT url, etag, last_modified, updated_at FROM "
+                           "chapter_poll_validators WHERE source=? AND series_id=?",
+                           (source, series_id)).fetchone()
+    if not row or (max_age is not None and time.time() - float(row["updated_at"]) > max_age):
+        return {}
+    return {"url": row["url"], "etag": row["etag"], "last_modified": row["last_modified"]}
+
+
+def save_poll_validators(source: str, series_id: str, validators) -> None:
+    """Stores (url, etag, last_modified) for the next poll; None forgets
+    them, so the next poll is an ordinary full fetch."""
+    with connect() as conn:
+        if not validators:
+            conn.execute("DELETE FROM chapter_poll_validators WHERE source=? AND series_id=?",
+                         (source, series_id))
+            return
+        url, etag, last_modified = validators
+        conn.execute("INSERT INTO chapter_poll_validators(source, series_id, url, etag, "
+                     "last_modified, updated_at) VALUES(?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT(source, series_id) DO UPDATE SET url=excluded.url, "
+                     "etag=excluded.etag, last_modified=excluded.last_modified, "
+                     "updated_at=excluded.updated_at",
+                     (source, series_id, url, etag or "", last_modified or "", time.time()))
 
 
 def list_tracked_series() -> list:

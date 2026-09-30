@@ -29,6 +29,7 @@ import datetime
 import inspect
 import json
 import os
+import re
 import threading
 import time
 
@@ -150,6 +151,39 @@ def _offered(engine: str) -> list:
     return [default] if default else []
 
 
+# A dated snapshot suffix: "-20260101" (Anthropic), "-2026-01-01", "-09-2025",
+# or a numbered version such as "-001" (Google).
+_DATED_SUFFIX = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2}|\d{2}-\d{4}|\d{3})$")
+
+
+def _listed(engine: str, model: str, ids) -> "bool | None":
+    """True when the provider lists `model`, or (for an alias) a dated
+    snapshot of it; False when it clearly doesn't; None when `model` is an
+    alias the list can't confirm either way.
+
+    Aliases: any "-latest" id, and an undated Claude id (Anthropic's list may
+    return only dated snapshots, e.g. "claude-sonnet-5-20260101" for
+    "claude-sonnet-5"). An undated Claude id that isn't matched is only
+    "no longer listed" when the same list also shows undated ids, i.e. the
+    provider does list ids in that form."""
+    ids = set(ids)
+    if model in ids:
+        return True
+    latest = model.endswith("-latest")
+    base = model[:-len("-latest")] if latest else model
+    if latest and base in ids:
+        return True
+    if any(i.startswith(base + "-") and _DATED_SUFFIX.fullmatch(i[len(base):]) for i in ids):
+        return True
+    if latest:
+        return None
+    if engine == "claude" and not _DATED_SUFFIX.search(model):
+        claude_ids = [i for i in ids if i.startswith("claude-")]
+        if claude_ids and all(_DATED_SUFFIX.search(i) for i in claude_ids):
+            return None
+    return False
+
+
 def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
     """status: retired / deprecated / not_listed / legacy / current / unknown,
     with a plain message naming the model and engine."""
@@ -157,11 +191,10 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
     engines_checked = (check.get("engines") or {})
     provider = engines_checked.get(engine) or {}
     listed = None
+    alias_unconfirmed = False
     if provider.get("ok"):
-        ids = set(provider.get("models") or [])
-        # An alias (e.g. "claude-sonnet-5") may be listed only as its dated
-        # snapshot ("claude-sonnet-5-20260101"): that counts as listed.
-        listed = model in ids or any(i.startswith(model + "-") for i in ids)
+        listed = _listed(engine, model, provider.get("models") or [])
+        alias_unconfirmed = listed is None
     replacement = entry.get("replacement") if entry else None
     if entry and entry["status"] == "retired":
         status = "retired"
@@ -171,11 +204,12 @@ def _assess(engine: str, model: str, registry: dict, check: dict) -> dict:
         status = "deprecated"
         msg = f"{model} ({engine}) is deprecated"
         msg += f" and retires on {entry['retires_on']}." if entry.get("retires_on") else "."
-    elif listed is False and model.endswith("-latest") and model in _offered(engine):
-        # A "-latest" alias the app offers may not appear in a provider's
-        # list; not proof it is gone.
+    elif alias_unconfirmed and model in _offered(engine):
+        # An alias the app offers may not appear in a provider's list (which
+        # can show only dated snapshots); not proof it is gone.
         status = "unknown"
-        msg = f"{model} ({engine}) is an alias the provider's list doesn't show; it may still work."
+        msg = (f"{model} ({engine}) is an alias the provider's list doesn't show, so it "
+               "can't be confirmed; it may still work.")
     elif listed is False:
         status = "not_listed"
         msg = (f"{model} is no longer in {engine}'s model list (checked "
