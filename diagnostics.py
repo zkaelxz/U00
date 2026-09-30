@@ -24,21 +24,20 @@ import threading
 import diarize
 import storage
 
-# Every top-level .py file and tabs/*.py file expected to exist for the
+# Every top-level .py file expected to exist for the
 # app to run. Kept as an explicit list (not auto-discovered) so a
 # missing file shows up as "missing" rather than just not being checked.
 EXPECTED_TOP_LEVEL_FILES = [
-    "app.py", "common.py", "core.py", "db.py", "translate_engines.py",
+    "core.py", "db.py", "translate_engines.py",
     "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
     "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
     "known_sites.py", "title_library.py", "vocab_export.py",
     "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
     "export_package.py", "run_tests.py", "translation_guide.py",
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
-    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "ui_theme.py", "page_fetch.py",
+    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "page_fetch.py",
     "page_server.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    "app_help.py",
     # Step 25d item 9: this list had drifted -- these were all real,
     # hard-imported modules missing from it, which meant the missing-file
     # health check below could no longer actually catch one of them going
@@ -49,18 +48,9 @@ EXPECTED_TOP_LEVEL_FILES = [
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
 ]
-EXPECTED_TABS_FILES = [
-    "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
-    "reader_tab.py", "scanlate_tab.py", "discover_tab.py",
-    "diagnostics_tab.py",
-    # Step 25d item 9: same drift as EXPECTED_TOP_LEVEL_FILES above.
-    "live_tab.py", "sources_tab.py", "translate_tab.py",
-]
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
-    "streamlit": ("streamlit", "the GUI itself", "required"),
-    "pandas": ("pandas", "Library tab tables", "required"),
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
@@ -112,10 +102,6 @@ OPTIONAL_DEPENDENCIES = {
     "huggingface_hub": ("huggingface_hub", "ML bubble detection/inpainting, voice cloning model downloads",
                         "feature"),
     "pypdf": ("pypdf", "Scanlate PDF import (splitting a PDF into pages)", "feature"),
-    "streamlit_drawable_canvas": ("streamlit_drawable_canvas",
-                                  "Scanlate manual erase/heal brush -- confirmed incompatible "
-                                  "with this app's pinned streamlit>=1.56 as of this check "
-                                  "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
     "plyer": ("plyer", "desktop notification when a background job finishes (Settings toggle, "
@@ -197,7 +183,7 @@ APPROX_DOWNLOAD_MB = {
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
-    "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
+    "genanki": 1, "ebooklib": 1, "plyer": 1,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
     "jiwer": 3,
@@ -247,9 +233,6 @@ NOT_OFFERED_FOR_INSTALL = {
                                "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
                                "environment, and it upgrades Transformers to 5.x, which stops "
                                "Qwen3-ASR and Qwen3 forced alignment working.",
-    "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
-                                 "Streamlit, and the Scanlate brush that uses it is deferred "
-                                 "until Scanlate moves to the new interface.",
 }
 
 # Exact pins a package declares on another one the app shares, for a
@@ -352,10 +335,10 @@ INSTALL_TASKS = [
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
-                  "safetensors", "huggingface_hub", "streamlit_drawable_canvas"],
+                  "safetensors", "huggingface_hub"],
      "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
                      "huggingface_hub"],
-     "optional": ["streamlit_drawable_canvas"]},
+     "optional": []},
     {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
      "help": "Translate offline on this PC.",
      "packages": ["transformers", "sentencepiece", "torch"]},
@@ -467,16 +450,11 @@ def check_all_dependencies():
 def check_file_completeness(project_root: str):
     missing_top_level = [f for f in EXPECTED_TOP_LEVEL_FILES
                           if not os.path.exists(os.path.join(project_root, f))]
-    tabs_dir = os.path.join(project_root, "tabs")
-    if not os.path.isdir(tabs_dir):
-        missing_tabs = list(EXPECTED_TABS_FILES)
-    else:
-        missing_tabs = [f for f in EXPECTED_TABS_FILES
-                         if not os.path.exists(os.path.join(tabs_dir, f))]
     return {
         "missing_top_level": missing_top_level,
-        "missing_tabs": missing_tabs,
-        "all_present": not missing_top_level and not missing_tabs,
+        # Kept (always empty) so the API/React response shape is unchanged.
+        "missing_tabs": [],
+        "all_present": not missing_top_level,
     }
 
 
@@ -871,8 +849,7 @@ def format_diagnostics_report(results: dict, hf_cache: list = None,
 
 def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict):
     """api_keys_set: dict like {"claude": bool, "deepseek": bool, ...}
-    -- pass whatever's currently in session state, since diagnostics.py
-    itself has no access to Streamlit session state."""
+    -- pass whatever keys are currently set."""
     return {
         "python": check_python_version(),
         "ffmpeg": check_ffmpeg(),
@@ -1043,8 +1020,7 @@ def stream_deno_install():
 # check_pyannote_gated_access above, this reaches the network (PyPI's own
 # public JSON API, a plain unauthenticated GET) -- so it must only ever run
 # from an explicit button click, never automatically on page load, and the
-# caller (tabs/diagnostics_tab.py) caches the result in session state
-# rather than re-querying on every rerun.
+# caller must cache the result rather than re-querying on every request.
 # ---------------------------------------------------------------------------
 
 def get_installed_version(pip_name: str):
@@ -1125,7 +1101,7 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
 def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     """pip args for `python -m pip install --upgrade <pip_name>`, adding
     constraints.txt's existing version caps (pyannote.audio<5,
-    transformers<6, torch<3, streamlit<2, faster-whisper<2, ...) via pip's
+    transformers<6, torch<3, faster-whisper<2, ...) via pip's
     own `-c` flag whenever the file exists -- the same mechanism
     stream_gpu_torch_reinstall already uses for torch/torchaudio,
     generalized here since an Upgrade click can just as easily target any

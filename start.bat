@@ -14,8 +14,6 @@ REM
 REM Loopback only (127.0.0.1) on purpose: the API has no login yet, so it
 REM must not be reachable from other devices (docs/remote-access-decision.md).
 REM This script forces BAIHE_API_HOST=127.0.0.1 even if it is set elsewhere.
-REM The old Streamlit UI (app.py) is no longer launched from here
-REM (docs/streamlit-retirement-plan.md).
 REM
 REM   start.bat            -- normal launch
 REM   start.bat --portable -- also turns on portable mode for this run
@@ -159,7 +157,7 @@ REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
 REM less clear error (Step 53). Keep this import list in sync with
 REM requirements-core.txt's own packages.
-%PY% -c "import streamlit, pandas, requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
+%PY% -c "import requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies -- this can take a few minutes the first time...
     if exist constraints.lock.txt (

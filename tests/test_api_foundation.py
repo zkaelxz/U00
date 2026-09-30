@@ -301,7 +301,7 @@ class TestDiagnosticsEndpoint:
             "model_engine_versions", "running_jobs", "recent_log_lines",
         }
         assert isinstance(body["dependencies"], dict)
-        assert "streamlit" in body["dependencies"]
+        assert "fastapi" in body["dependencies"]
         assert isinstance(body["file_completeness"]["all_present"], bool)
 
     def test_no_admin_action_is_exposed(self, client, isolated_db):

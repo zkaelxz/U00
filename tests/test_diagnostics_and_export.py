@@ -129,17 +129,10 @@ class TestDiagnostics:
         assert missing_from_list == set(), \
             f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
 
-    def test_expected_tabs_files_list_is_not_stale(self):
-        real_files = {f for f in os.listdir(os.path.join(PROJECT_ROOT, "tabs")) if f.endswith(".py")}
-        missing_from_list = real_files - set(diagnostics.EXPECTED_TABS_FILES)
-        assert missing_from_list == set(), \
-            f"real tabs/*.py files missing from EXPECTED_TABS_FILES: {missing_from_list}"
-
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)
         assert result["all_present"] is False
         assert len(result["missing_top_level"]) > 0
-        assert len(result["missing_tabs"]) > 0
 
     def test_library_writable_true_for_temp_dir(self, tmp_path_str):
         assert diagnostics.check_library_writable(os.path.join(tmp_path_str, "lib")) is True

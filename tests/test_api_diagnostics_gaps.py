@@ -122,7 +122,7 @@ def test_install_presets(client):
     cv2 = b["packages"]["cv2"]
     assert cv2["dist"] == "opencv-python" and cv2["installed"] is True   # fakes: all installed
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
-    assert b["packages"]["streamlit_drawable_canvas"]["not_offered_reason"]
+    assert b["packages"]["moss-transcribe-diarize"]["not_offered_reason"]
 
 
 def test_install_failure_hint(client, monkeypatch):
@@ -154,7 +154,7 @@ def test_install_refusals(client, fakes, monkeypatch):
     for body in ({}, {"confirm": False}, {"confirm": "yes"}, {"confirm": 1}):
         assert client.post(url, json=body).status_code == 422, body
     assert client.post(url, json={"confirm": True, "extra": 1}).status_code == 422
-    r = client.post("/api/diagnostics/dependencies/streamlit/install", json={"confirm": True})
+    r = client.post("/api/diagnostics/dependencies/fastapi/install", json={"confirm": True})
     assert r.status_code == 404 and r.json()["error"]["code"] == "not_found"
     assert client.post("/api/diagnostics/dependencies/evil;rm/install",
                        json={"confirm": True}).status_code in (404, 422)

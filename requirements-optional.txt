@@ -136,14 +136,6 @@ safetensors>=0.4
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
 pypdf>=4.0
 
-# --- scanlate: manual erase/heal brush (freeform paint-to-erase) ---
-# PyPI shows no release in the past 12 months -- confirmed directly
-# while wiring this up: with this app's pinned streamlit>=1.56, its
-# component fails to load at all (StreamlitAPIException), not just a
-# hypothetical risk. The brush UI degrades to a clear message rather
-# than crashing when that happens.
-streamlit-drawable-canvas>=0.9
-
 # --- exports ---
 genanki>=0.13           # Anki decks
 ebooklib>=0.18          # EPUB

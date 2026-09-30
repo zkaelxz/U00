@@ -9,8 +9,7 @@ persistent filterable library for managing dozens of titles.
 
 It is a Python app with a FastAPI server and React frontend, started with
 `start.bat` (or `python -m api`), plus a headless CLI (`cli.py`). The
-older Streamlit UI (`app.py`) is being retired and is no longer what the
-launcher opens; see
+older Streamlit UI has been removed; see
 [Project status and architecture](#project-status-and-architecture).
 
 **Important:** this tool works on files you already have legal access
@@ -43,32 +42,30 @@ URL you have the right to download from, only.
 - **Launcher.** `start.bat` starts `python -m api` on
   `http://127.0.0.1:8600/` (loopback only), which serves the prebuilt
   React app from `frontend/dist` (a release zip, see
-  [`docs/RELEASE.md`](docs/RELEASE.md)). It no longer starts Streamlit.
-- **Streamlit app (being retired).** `app.py` plus `tabs/*.py`. It is no
-  longer launched by `start.bat`, but much of this README still describes
-  its screens.
+  [`docs/RELEASE.md`](docs/RELEASE.md)).
+- **Streamlit app (removed).** The old UI (`app.py`, `tabs/`) was deleted;
+  `legacy/streamlit` and the `pre-streamlit-removal` tag hold the last version
+  once they are created (`docs/streamlit-retirement-plan.md`). Much of this
+  README still describes its screens; the React app is the only UI.
 - **FastAPI + React app (the app going forward).** An HTTP API (`api/`)
   and a React frontend (`frontend/`) over the *same* library, database and
-  background jobs. The Streamlit UI is frozen and is being removed
-  (`docs/streamlit-retirement-plan.md`). What works in React today: Library, Diagnostics,
+  background jobs. What works in React today: Library, Diagnostics,
   Settings, the standalone Translate page, and the per-drama Workspace
   stages Source, Translate, Review, Export and Dub. Everything else
   (for example Reader, Discover, Live, Scanlate and Sources) is
-  Streamlit-only for now.
+  not yet ported to React (see `docs/streamlit-retirement-plan.md`).
 - **Layers.** `db.py` (plain `sqlite3`) and the domain modules at the
   repo root hold the logic; `services/` wraps them in UI-independent
   functions; `api/` exposes those as HTTP routes; `frontend/` is the
-  React client and calls `/api`. `cli.py` and the Streamlit tabs use the
-  same underlying modules.
+  React client and calls `/api`. `cli.py` uses the same underlying
+  modules.
 - **Not a production deployment story yet.** `python -m api` serves the
   built `frontend/dist` at `/` (`api/static_frontend.py`). It is
   loopback-only with no login, so other devices on your network can't
   reach it until authentication exists (`docs/remote-access-decision.md`).
-- **Known limitations.** The browser-extension bridge (`page_server.py`)
-  and the scheduled chapter check are still only started by the
-  Streamlit app. Launching through `start.bat` / `python -m api` does
-  not start them yet; starting them with the API is a follow-up after
-  step 133.
+- **Background services.** `python -m api` also starts the browser-extension
+  bridge (`page_server.py`) and the scheduled chapter check
+  (`api/background.py`).
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
@@ -256,7 +253,7 @@ pulls in `pytest`, via `requirements-optional.txt`).
 
 **First run:** start the app, open **Settings** and add the API key for
 the translation engine you'll use (or pick `test_offline`, see below).
-Keys are read from a `.env` file next to `app.py` (copy `.env.example`
+Keys are read from a `.env` file next to `start.bat` (copy `.env.example`
 to `.env`; it is excluded from version control) or from environment
 variables. Models such as Whisper download on first use.
 
@@ -283,7 +280,7 @@ together — can be copied to a USB stick or a different PC and just work
 there. Turn it on either way:
 
 - Run `start.bat --portable` (or `.\start.ps1 -Portable`), or
-- Create an empty file named `PORTABLE` next to `app.py` — the simplest
+- Create an empty file named `PORTABLE` next to `start.bat` — the simplest
   way to make it "part of the folder" so a copy keeps the setting.
 
 **The real limit, stated plainly**: this moves *the app and its data*,
@@ -1031,8 +1028,8 @@ Install what you need: `pip install jieba pypinyin` for Chinese,
 **Follow-along playback**: with click-to-seek enabled, the line
 currently being spoken is highlighted and scrolled into view as the
 audio plays, with a toggle to stop auto-scrolling. This only works with
-the reader's own embedded clip (Streamlit can't observe a separate
-`<audio>` element's playback position from Python), and the embedded
+the reader's own embedded clip (a separate
+`<audio>` element's playback position can't be observed from Python), and the embedded
 clip covers only the current page, so its `t=0` is that page's first
 line — absolute line timestamps have that offset added back before
 matching.
@@ -1055,10 +1052,10 @@ applies to the whole app. The Reader keeps its own separate theme
 (light/sepia/dark) for the reading surface, since reading preferences
 and UI preferences aren't always the same. Tables (glossary, bulk
 import review, library filtering) may still show light cell backgrounds
-in dark mode — a genuine Streamlit/glide-data-grid rendering constraint,
+in dark mode — a data-grid rendering constraint of the old UI,
 not a missed style; see `docs/technical-notes.md` for why.
 
-A restrained design system in `ui_theme.py` and `.streamlit/config.toml`:
+A restrained design system:
 one accent colour carrying emphasis (when five things are highlighted,
 nothing is), a fixed spacing scale for vertical rhythm, status shown as
 colour-coded pills rather than prose, deliberate empty states that say
@@ -1317,9 +1314,8 @@ before final render.
 **Also available:**
 - **Custom fonts** — upload `.ttf`/`.otf` files per style category for
   rendering.
-- **Manual erase/heal brush** — paint over art the auto-clean missed
-  (needs `pip install streamlit-drawable-canvas`; degrades to a
-  warning if that package or your Streamlit version doesn't support it).
+- **Manual erase/heal brush** — not available since the Streamlit UI was
+  removed; it returns when Scanlate moves to React.
 - **Bulk find & replace** — across every saved bubble in a drama, with
   a preview before applying.
 - **Export detected font styles** — as JSON, for reuse.
@@ -1737,11 +1733,7 @@ around long-term as your reference set.
 
 ## Code organization
 
-`app.py` is a thin orchestrator; each tab's actual UI logic lives in
-`tabs/*.py` (`library_tab.py`, `workspace_tab.py`, `translate_tab.py`,
-`reader_tab.py`, `scanlate_tab.py`, `discover_tab.py`, `sources_tab.py`,
-`live_tab.py`, `settings_tab.py`, `diagnostics_tab.py`), with shared
-imports centralized in `common.py`. `services/`, `api/` and `frontend/`
+`services/`, `api/` and `frontend/`
 hold the API/React layers described under
 [Project status and architecture](#project-status-and-architecture);
 `FILE_ORGANIZATION.md` has the full file map. If you're extending this yourself, that's

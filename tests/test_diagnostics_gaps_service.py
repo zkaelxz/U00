@@ -269,7 +269,7 @@ def test_install_rejects_unknown_package(monkeypatch):
     with pytest.raises(svc.AdminActionRefused):
         svc.install_dependency("evil-package; rm -rf /", confirm=True)
     with pytest.raises(svc.AdminActionRefused):
-        svc.install_dependency("streamlit", confirm=True)  # required tier
+        svc.install_dependency("fastapi", confirm=True)  # required tier
 
 
 def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
