@@ -443,7 +443,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     engines = [translate_engines.get_engine(
         name, key, mdl, free_tier=free_tier,
         base_url=(settings_service.resolve_key("ollama_url") or None)
-        if name == "ollama" else None) for name, key, mdl, free_tier in built]
+        if name == "ollama" else None,
+        libretranslate_url=(settings_service.resolve_key("libretranslate_url") or None)
+        if name == "libretranslate" else None) for name, key, mdl, free_tier in built]
     if len(engines) > 1:
         engine = translate_engines.FallbackEngine(engines, [c["engine"] for c in chain], caps)
         cost_cap = None  # each engine's own cap is enforced by the FallbackEngine

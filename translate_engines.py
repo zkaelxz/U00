@@ -1919,7 +1919,9 @@ class LibreTranslateEngine:
     supports_reference = False
 
     def __init__(self, api_key: str = None, base_url: str = "http://localhost:5000"):
-        self.api_key = api_key  # None for local LTEngine; LibreTranslate hosted instances may need a key
+        # None for local LTEngine; hosted instances may need a key. The
+        # "local" placeholder services use for "no key needed" is not a key.
+        self.api_key = None if api_key == "local" else api_key
         self.base_url = base_url.rstrip("/")
 
     def translate_batch(self, zh_lines, context: dict):
@@ -2301,13 +2303,16 @@ def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str
 
 
 def get_engine(engine_name: str, api_key: str = None, model: str = None,
-               free_tier: bool = False, base_url: str = None):
+               free_tier: bool = False, base_url: str = None,
+               libretranslate_url: str = None):
     cls = ENGINES[engine_name]
     kwargs = {}
     if engine_name == "gemini":
         kwargs["free_tier"] = free_tier
     if engine_name == "ollama" and base_url:
         kwargs["base_url"] = base_url
+    if engine_name == "libretranslate" and libretranslate_url:
+        kwargs["base_url"] = libretranslate_url
     if model:
         return cls(api_key, model, **kwargs)
     return cls(api_key, **kwargs)

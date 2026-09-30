@@ -480,7 +480,9 @@ def cmd_translate(args):
                  else translate_service.resolve_api_key(name)),
                 args.model if own_flags else None,
                 free_tier=_gemini_free_tier(name),
-                base_url=_ollama_url(args) if name == "ollama" else None)
+                base_url=_ollama_url(args) if name == "ollama" else None,
+                libretranslate_url=(settings_service.resolve_key("libretranslate_url") or None)
+                if name == "libretranslate" else None)
         return _engines[name]
     # Step 74: UI parity -- Workspace's own Translate button builds this
     # same optional summary_engine before starting the job (defaulting to

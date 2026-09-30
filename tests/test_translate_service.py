@@ -109,6 +109,29 @@ class TestTranslate:
         with pytest.raises(UnsupportedOperationError):
             translate_service.translate("hello", "libretranslate", "en", "zh")
 
+    def test_libretranslate_uses_saved_url_and_sends_no_placeholder_key(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setenv("BAIHE_LIBRETRANSLATE_URL", "http://lt.example:5001/")
+        calls = []
+
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"translatedText": "Hello"}
+
+        def fake_post(url, json=None, timeout=None):
+            calls.append((url, json))
+            return _Resp()
+
+        import requests
+        monkeypatch.setattr(requests, "post", fake_post)
+        result = translate_service.translate("你好", "libretranslate", "zh", "en")
+        assert result == {"translated_text": "Hello"}
+        assert calls[0][0] == "http://lt.example:5001/translate"
+        assert "api_key" not in calls[0][1]
+
     def test_missing_key_raises_dependency_unavailable(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("BAIHE_CLAUDE_KEY", raising=False)
