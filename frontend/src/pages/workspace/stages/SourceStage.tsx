@@ -17,6 +17,7 @@ import { useStage } from '../StageContext'
 import { CreditsCoverPanel } from './CreditsCoverPanel'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
 import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
+import { ResearchPanel } from './ResearchPanel'
 import { JobPanel } from './JobPanel'
 import { NovelGlossary } from './NovelGlossary'
 import { NovelPanel } from './NovelPanel'
@@ -207,6 +208,7 @@ export default function SourceStage() {
       <DetailsPanel />
       <CreditsCoverPanel />
       <AutofillPanel />
+      <ResearchPanel />
       <AnalyzePanel hasMedia={hasMedia} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
     </div>
