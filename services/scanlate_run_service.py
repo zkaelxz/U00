@@ -245,8 +245,10 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             try:
                 db.update_page(pid, run_notes=pages_svc.notes_to_json(
                     [("error", f"This page failed: {type(exc).__name__}: {exc}")]))
-            except Exception:
-                pass
+            except Exception as note_exc:
+                from applog import get_logger
+                get_logger().warning("Could not save the error note for page %s: %s", pid,
+                                     translate_engines.redact_secrets(str(note_exc)))
     parts = [f"{counts['translated']} translated"]
     if counts["done"]:
         parts.append(f"{counts['done']} without translation")
