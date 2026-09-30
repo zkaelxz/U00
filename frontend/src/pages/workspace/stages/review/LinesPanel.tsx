@@ -1072,6 +1072,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
 
         <LineActionsSheet
+          dramaId={dramaId}
           state={sheet}
           line={sheetLine}
           run={sheetRun}
