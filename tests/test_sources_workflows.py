@@ -531,6 +531,52 @@ class TestChapterImport:
         assert calls == ["release", "ceiling"]
         background_jobs.clear_job(job)
 
+    def test_an_import_ending_keeps_another_running_imports_cache(self, isolated_db):
+        """Import B finishing while import A is mid-chapter releases only
+        B's temporary downloads: A's already-cached page stays cached."""
+        import threading
+
+        import background_jobs
+        from sources import cache as cache_mod
+
+        def importer(cid, seed):
+            clock = FakeClock()
+            routes = {f"https://img.fake.invalid/{cid}/{i}.png": image(600, 900, seed + i)
+                      for i in range(2)}
+            return FakeComicSource(make_client("fake_comic", ScriptedTransport(routes, clock),
+                                               clock), chapters=[(cid, cid)])
+
+        a, b = importer("a1", 0), importer("b1", 10)
+        a_first = "https://img.fake.invalid/a1/0.png"
+        seen = {}
+        orig = a.download_page
+
+        def download(page):
+            if page.index == 1:   # A has cached page 0; B runs start to finish now
+                t = threading.Thread(target=pipeline.run_import_job, args=(
+                    "source_import_b", "fake_comic", b.get_chapters("s"), drama_b),
+                    kwargs={"adapter": b})
+                t.start()
+                t.join()
+                seen["a_cached"] = cache_mod.RawCache("temporary").get(a_first) is not None
+            return orig(page)
+        a.download_page = download
+
+        drama_a = isolated_db.create_drama(title_zh="a", media_type="manhua")
+        drama_b = isolated_db.create_drama(title_zh="b", media_type="manhua")
+        for job in ("source_import_a", "source_import_b"):
+            background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                          "cancel_requested": False, "result": None}
+        pipeline.run_import_job("source_import_a", "fake_comic", a.get_chapters("s"), drama_a,
+                                adapter=a)
+        assert len(b.downloaded) == 2
+        assert seen == {"a_cached": True}
+        # Once both have ended, nothing temporary is left behind.
+        with store.connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM cache_index").fetchone()[0] == 0
+        for job in ("source_import_a", "source_import_b"):
+            background_jobs.clear_job(job)
+
     def test_a_real_text_source_lands_in_the_novel_import_path_unchanged(self, isolated_db):
         """Step 23e's own manual-check pattern, run as a real automated
         test instead: a text-content adapter's get_chapter_text() output

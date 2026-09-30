@@ -134,6 +134,8 @@ async function mockPage(page: Page) {
     hf_total_bytes: 3_100_000_000,
     piper_voices: [{ voice: 'en_US-amy-medium', size_bytes: 63_000_000 }],
     piper_total_bytes: 63_000_000,
+    model_files: [],
+    model_files_total_bytes: 0,
   } }))
   await page.route('**/api/diagnostics/job-history', (r) => r.fulfill({ json: [
     { job_id: 'a', label: 'Transcribing', status: 'done', description: 'Transcribe Signal ep 3', message: null, error: null,

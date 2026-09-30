@@ -40,7 +40,7 @@ NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PER
 # covers the parent; the service scopes the child to it) or not drama-scoped.
 OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
-    "name": "a source adapter name, not an item",
+    "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
     "domain": "source profile domain (admin.settings)",
     "kind": "an artifact/profile kind, not an item",

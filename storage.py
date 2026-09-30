@@ -30,16 +30,12 @@ CLEANABLE_CATEGORIES = {
     },
     "typeset_pages": {
         "label": "Rendered typeset pages",
+        # The comic editor renders pages/typeset_NNNN.png (plus the
+        # typeset_pages.zip/.pdf bundles) next to the source scans in pages/.
+        "pattern_subdir": "pages",
         "pattern_prefixes": ["typeset_"],
         "regenerable": True,
         "note": "Re-renderable from saved bubbles at no API cost.",
-    },
-    "export_artifacts": {
-        "label": "Export artifacts",
-        "pattern_names": ["export_package.zip", "typeset_pages.zip", "subtitled_episode.mp4",
-                           "subtitled_episode.mkv", "dubbed_episode.mp4", "translated.epub"],
-        "regenerable": True,
-        "note": "Finished exports. Rebuildable from the source + translation.",
     },
     "temp_files": {
         "label": "Leftover temp files",
@@ -83,6 +79,27 @@ def _dir_size(path: str) -> int:
     return total
 
 
+def _matching_files(drama_dir: str, cfg: dict) -> list:
+    """(relative name, full path) of the files a category's name patterns
+    match, in the drama folder itself or in its `pattern_subdir`."""
+    subdir = cfg.get("pattern_subdir", "")
+    folder = os.path.join(drama_dir, subdir) if subdir else drama_dir
+    try:
+        entries = sorted(os.listdir(folder))
+    except OSError:
+        return []
+    out = []
+    for entry in entries:
+        full = os.path.join(folder, entry)
+        if not os.path.isfile(full):
+            continue
+        if (any(entry.startswith(pre) for pre in cfg.get("pattern_prefixes", []))
+                or entry in cfg.get("pattern_names", [])
+                or any(entry.endswith(suf) for suf in cfg.get("pattern_suffixes", []))):
+            out.append((os.path.join(subdir, entry) if subdir else entry, full))
+    return out
+
+
 def format_bytes(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024:
@@ -105,17 +122,11 @@ def scan_drama_storage(drama_dir: str) -> dict:
             p = os.path.join(drama_dir, d)
             if os.path.isdir(p):
                 size += _dir_size(p)
-        for entry in os.listdir(drama_dir):
-            full = os.path.join(drama_dir, entry)
-            if not os.path.isfile(full):
-                continue
-            if (any(entry.startswith(pre) for pre in cfg.get("pattern_prefixes", []))
-                    or entry in cfg.get("pattern_names", [])
-                    or any(entry.endswith(suf) for suf in cfg.get("pattern_suffixes", []))):
-                try:
-                    size += os.path.getsize(full)
-                except OSError:
-                    pass
+        for _rel, full in _matching_files(drama_dir, cfg):
+            try:
+                size += os.path.getsize(full)
+            except OSError:
+                pass
         result["categories"][key] = size
         result["reclaimable_bytes"] += size
     return result
@@ -164,19 +175,14 @@ def clean_drama_storage(drama_dir: str, categories) -> dict:
                 freed += _dir_size(p)
                 shutil.rmtree(p, ignore_errors=True)
                 removed.append(d + "/")
-        for entry in list(os.listdir(drama_dir)):
-            full = os.path.join(drama_dir, entry)
-            if not os.path.isfile(full):
+        for rel, full in _matching_files(drama_dir, cfg):
+            try:
+                size = os.path.getsize(full)
+                os.remove(full)
+            except OSError:
                 continue
-            if (any(entry.startswith(pre) for pre in cfg.get("pattern_prefixes", []))
-                    or entry in cfg.get("pattern_names", [])
-                    or any(entry.endswith(suf) for suf in cfg.get("pattern_suffixes", []))):
-                try:
-                    freed += os.path.getsize(full)
-                    os.remove(full)
-                    removed.append(entry)
-                except OSError:
-                    pass
+            freed += size
+            removed.append(rel)
     return {"freed_bytes": freed, "removed": removed}
 
 
