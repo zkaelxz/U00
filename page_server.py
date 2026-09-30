@@ -121,6 +121,7 @@ _PIPELINE_LOCK = threading.Lock()
 _server_lock = threading.Lock()
 _server_started = False
 _server_port = None
+_server = None          # the running ThreadingHTTPServer, for stop_server()
 
 _config_lock = threading.Lock()
 _config = {
@@ -761,8 +762,9 @@ def _serve(port: int):
     server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
     server.timeout = REQUEST_TIMEOUT_SECONDS
     server.daemon_threads = True
-    global _server_port
+    global _server_port, _server
     _server_port = port
+    _server = server
     server.serve_forever()
 
 
@@ -796,6 +798,21 @@ def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     # A moment to let a port conflict surface, so Settings can report it
     # rather than claiming a server that immediately died is running.
     time.sleep(0.05)
+    return True
+
+
+def stop_server() -> bool:
+    """Stops the endpoint if it's running (the app's clean shutdown,
+    services/shutdown_service.py). Call it from any thread but the
+    server's own. True if it stopped one."""
+    global _server, _server_started
+    with _server_lock:
+        server, _server = _server, None
+        _server_started = False
+    if server is None:
+        return False
+    server.shutdown()
+    server.server_close()
     return True
 
 

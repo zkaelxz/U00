@@ -25,7 +25,9 @@ Both `ensure_*` functions are once-per-process and safe to call again, so
 this is idempotent. Off when `ApiSettings.background_services` is False:
 the dataclass default (every test that builds `ApiSettings(...)`) and
 `BAIHE_API_BACKGROUND=0` (tests/conftest.py sets it for `load_settings`).
-Nothing is stopped at shutdown: both are daemon threads.
+Both are daemon threads; the clean stop (`services/shutdown_service.py`,
+run when `python -m api` stops) stops the scheduler, the extension endpoint
+and the poller below.
 
 The extension's translation engine: Streamlit pushed it (and its key) into
 `page_server.set_translation_config` from session state. The API saves the

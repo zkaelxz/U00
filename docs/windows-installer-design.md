@@ -207,18 +207,27 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 
 **Stopping stops everything.**
 
-- **Job Object.** The launcher starts the server with a per-install name in
-  `BAIHE_PROCESS_GROUP_NAME`. `python -m api` then puts itself into a named
-  Windows Job Object with "kill on job close" (`process_guard.py`). Every
-  process it starts joins the job: ffmpeg, yt-dlp, Playwright's Chromium,
-  lncrawl, pip. When the server ends for any reason, Windows ends them all,
-  including when you just close its window.
+- **Job Object.** `python -m api` (however it's started: this launcher or
+  `start.bat`) puts itself into a Windows Job Object with "kill on job close"
+  (`process_guard.py`). Every process it starts joins the job: ffmpeg,
+  yt-dlp, Playwright's Node driver and its Chromium, lncrawl, pip. When the
+  server ends for any reason, Windows ends them all, and nothing else. The
+  launcher passes a per-install name in `BAIHE_PROCESS_GROUP_NAME` so
+  `--stop` can end the job by name; from `start.bat` the job is anonymous.
+- **Closing the server's window** (or Windows shutting down) runs the same
+  clean stop as below first, in the ~5 s Windows allows
+  (`SetConsoleCtrlHandler`); then the process ends and the job takes its
+  children. Ctrl+C in `start.bat` stops uvicorn and then runs the clean stop.
+- **The clean stop** (`services/shutdown_service.py`): no new scheduled
+  chapter check, backup tick or browser; cancel every running and queued job
+  through the normal cancel path; an open site sign-in window closes itself;
+  wait for the jobs; stop the browser-extension endpoint (`page_server`).
 - **Shutdown token.** The launcher also gives the server a fresh one-time
   token (`BAIHE_SHUTDOWN_TOKEN`, kept in `<data>\launcher\shutdown.token`).
 - **What `--stop` does:**
   1. **Clean shutdown.** It sends `POST /api/system/shutdown` with that token.
-     The server cancels its running and queued jobs through the normal cancel
-     path, gives them up to 8 s, and exits. The launcher waits up to 15 s.
+     The server runs the clean stop, giving jobs up to 6 s, and exits. The
+     launcher waits up to 10 s.
   2. **Forced stop.** If the server is still running, the launcher ends it.
      The recorded pid is opened once, and its image is checked to be this
      install's own `python.exe`. Waiting and ending both go through that
@@ -235,7 +244,7 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
   an open media stream can't hold the clean stop past the launcher's grace.
 - **Routes.** The shutdown route is `local_only()` and needs the token. A
   server not started by the installed launcher has no token, so the route is
-  a 404 there, and `start.bat` behaves as before.
+  a 404 there (`start.bat` stops through its window or Ctrl+C).
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,

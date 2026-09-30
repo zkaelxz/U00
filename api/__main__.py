@@ -35,13 +35,21 @@ def _serve():
     if settings.is_development:
         uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True)
         return
-    # Step 80b: when the installed launcher started us, every child process
-    # (ffmpeg, Chromium, pip...) ends with this one (process_guard), and its
-    # clean-stop route can make the server exit (shutdown_service).
+    # Stopping stops everything. On Windows every child process (ffmpeg,
+    # Playwright's Node driver and Chromium, pip...) is in this process's
+    # kill-on-close Job Object, so it ends with this one however that
+    # happens (process_guard), and closing the console window runs the
+    # clean stop first. The installed launcher's clean-stop route can make
+    # the server exit (shutdown_service). No-ops off Windows.
     import os
     import process_guard
+    from api.background import stop_gpu_queue_poller
     from services import shutdown_service
-    process_guard.contain_children()
+    if not process_guard.contain_children() and sys.platform == "win32":
+        print("WARNING: couldn't tie child processes to the server; if it is ended "
+              "abruptly, some (ffmpeg, the browser) may keep running.", file=sys.stderr)
+    process_guard.install_console_close_handler(
+        lambda: shutdown_service.clean_shutdown(shutdown_service.CONSOLE_GRACE_SECONDS))
     # Neither value is for the processes the server starts.
     shutdown_service.take_token_from_environment()
     os.environ.pop(process_guard.GROUP_NAME_ENV, None)
@@ -50,10 +58,14 @@ def _serve():
     server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
                                            port=settings.port, timeout_graceful_shutdown=3))
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
+    shutdown_service.register_background_stopper(stop_gpu_queue_poller)
     try:
         server.run()
     except KeyboardInterrupt:
         pass   # Ctrl+C: a normal stop, as with uvicorn.run
+    # However the server stopped (Ctrl+C included): cancel what's still
+    # running before the process, and with it the job's children, ends.
+    shutdown_service.clean_shutdown()
 
 
 def _grant_admin(email: str) -> int:
