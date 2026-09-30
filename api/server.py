@@ -70,6 +70,7 @@ from api.routers import (
     narration_routes,
     notification_center_routes,
     notification_routes,
+    notion_routes,
     novel_files_routes,
     novel_routes,
     reader_routes,
@@ -195,6 +196,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(metadata_routes.router)
     app.include_router(metadata_research_routes.router)
     app.include_router(jellyfin_routes.router)
+    app.include_router(notion_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)

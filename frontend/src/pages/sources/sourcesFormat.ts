@@ -9,6 +9,7 @@ import type {
   SeriesChapter,
   OpenSeries,
   SeriesInfo,
+  SeriesLink,
   SeriesResult,
   SourceErrorView,
   SourceHealth,
@@ -161,6 +162,11 @@ export function seriesMeta(display: string, info: SeriesInfo | null, chapters: n
   if (info?.status) parts.push(humanizeValue(info.status))
   if (info?.language) parts.push(humanize('language', info.language))
   return parts.join(' · ')
+}
+
+/** A work's posted download links that are safe to render as links. */
+export function seriesLinks(info: SeriesInfo | null): SeriesLink[] {
+  return (info?.links ?? []).filter((l) => !!safeHref(l.url)).map((l) => ({ ...l, label: l.label || l.url }))
 }
 
 export function seriesExtra(info: SeriesInfo | null): string {
