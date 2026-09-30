@@ -33,6 +33,8 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
+- **`household-access.md`** — step-by-step guide to reach Baihe from
+  household devices through Caddy (`deploy/caddy/Caddyfile.template`).
 - **`media-server-metadata-design.md`** — Step 116: how Baihe's title
   metadata could reach or come from Jellyfin/Plex (NFO sidecars, pulling
   Jellyfin's metadata, a provider endpoint); design only, nothing built.
