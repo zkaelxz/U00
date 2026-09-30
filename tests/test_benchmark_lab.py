@@ -448,3 +448,43 @@ class TestLeadReviewFixes:
         started = time.monotonic()
         rate = svc.error_rate("x" * 200000, "你好")
         assert rate > 1 and time.monotonic() - started < 2
+
+
+class TestJobCostCap:
+    """max_cost_usd: a per-run cap enforced on real spend, not the estimate."""
+
+    def _setup(self, monkeypatch, n=5):
+        svc.import_golden_set("g", "".join(f"句{i}\tS{i}\n" for i in range(n)), "tsv")
+        monkeypatch.setattr(svc, "_estimate_config", lambda cfg, cases: 0.0)
+
+    def test_real_cost_above_estimate_stops_run(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch)
+        (sid,) = _run(configs=[{"engine": "claude"}], max_cost_usd=0.015)["session_ids"]
+        run = svc.get_run(sid)["run"]
+        assert run["status"] == "stopped_cap"
+        assert run["total_cost_usd"] < 5 * 0.018 and run["total_cost_usd"] > 0
+
+    def test_zero_cap_means_free_engines_only(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch)
+        (sid,) = _run(configs=[{"engine": "claude"}], max_cost_usd=0)["session_ids"]
+        run = svc.get_run(sid)["run"]
+        assert run["status"] == "stopped_cap" and not run["total_cost_usd"]
+        # A free engine still runs under a cap of 0.
+        (free,) = _run(configs=[{"engine": "test_offline"}], max_cost_usd=0)["session_ids"]
+        assert svc.get_run(free)["run"]["status"] == "done"
+
+    def test_spend_is_cumulative_across_configs(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch, n=2)
+        one = _run(configs=[{"engine": "claude"}], max_cost_usd=100)["session_ids"][0]
+        per_config = svc.get_run(one)["run"]["total_cost_usd"]
+        assert per_config > 0
+        # Room for the first config in full but not for the second.
+        a, b = _run(configs=[{"engine": "claude"}, {"engine": "claude", "model": "claude-sonnet-4-6"}],
+                    max_cost_usd=per_config * 1.2)["session_ids"]
+        assert svc.get_run(a)["run"]["status"] == "done"
+        assert svc.get_run(b)["run"]["status"] == "stopped_cap"
+
+    def test_no_job_cap_is_unchanged(self, isolated_db, paid_engine, monkeypatch):
+        self._setup(monkeypatch, n=2)
+        (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
+        assert svc.get_run(sid)["run"]["status"] == "done"

@@ -369,16 +369,36 @@ class TestSpendAndBusyGuards:
         import threading
         c = svc.add_candidate("nllb")["candidate"]
         results = []
-        svc._promote_lock.acquire()
+        svc._decision_lock.acquire()
         t = threading.Thread(target=lambda: results.append(svc.promote(c["id"], confirm=True)))
         t.start()
         try:
             t.join(0.3)
             assert t.is_alive() and not results     # waits for the lock
         finally:
-            svc._promote_lock.release()
+            svc._decision_lock.release()
         t.join(5)
         assert results and results[0]["production"]["engine"] == "nllb"
         with pytest.raises(ConflictError):
             svc.promote(c["id"], confirm=True)
         assert len(svc.list_decisions()["decisions"]) == 1
+
+    def test_reject_after_promote_is_refused(self, world):
+        c = svc.add_candidate("nllb")["candidate"]
+        svc.promote(c["id"], confirm=True)
+        with pytest.raises(ConflictError):
+            svc.reject(c["id"])
+        assert db.get_model_candidate(c["id"])["status"] == "promoted"
+        assert len(svc.list_decisions()["decisions"]) == 1
+
+    def test_scheduled_run_passes_its_limit_to_the_lab(self, world, monkeypatch):
+        svc.add_candidate("nllb")
+        svc.set_settings(False, 30, tier="public", set_name="g", max_cost_usd=0)
+        seen = []
+        real = lab.start_run
+        monkeypatch.setattr(lab, "start_run", lambda *a, **kw: (seen.append(kw.get("max_cost_usd")), real(*a, **kw))[1])
+        svc.run_now(scheduled=True)
+        _wait()
+        svc.run_now()
+        _wait()
+        assert seen == [0.0, None]

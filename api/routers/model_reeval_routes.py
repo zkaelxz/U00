@@ -52,7 +52,8 @@ def post_estimate():
 @router.post("/settings", dependencies=[local_only()], response_model=ReevalSettingsSaved,
              responses=_ERRS,
              summary="PC only: the re-evaluation schedule and golden set (turning the schedule "
-                     "on needs a monthly cap or a per-run limit)")
+                     "on needs a monthly cap or a per-run limit; a scheduled run is skipped above the "
+                     "limit and stopped when its real spend reaches it)")
 def post_settings(body: ReevalSettingsRequest):
     return svc.set_settings(body.schedule_enabled, body.interval_days, body.tier, body.set_name,
                             body.max_cost_usd)

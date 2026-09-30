@@ -51,8 +51,9 @@ _LAST_RUN_KEY = "model_reeval_last_run"
 # A scheduled attempt that was refused is kept apart from the last good run,
 # so the report and later decisions keep that run's scores.
 _LAST_ATTEMPT_KEY = "model_reeval_last_attempt"
-_add_lock = threading.Lock()
-_promote_lock = threading.Lock()
+# One lock for every candidate decision (add, promote, reject, reopen), so a
+# status check and its write can't interleave with another decision.
+_decision_lock = threading.Lock()
 MAX_REASON_CHARS = 300
 
 
@@ -111,8 +112,10 @@ def _spend_limit_set(max_cost_usd) -> bool:
 
 def set_settings(schedule_enabled: bool, interval_days: int, tier: str = None,
                  set_name: str = None, max_cost_usd: float = None) -> dict:
-    """max_cost_usd: a scheduled run whose estimate is above it is skipped
-    (None = only the monthly cap applies, and then a cap must be set).
+    """max_cost_usd: a scheduled run whose estimate is above it is skipped,
+    and a scheduled run that starts stops (stopped_cap) once its real spend
+    across all models reaches it; 0 means free engines only. None = only
+    the monthly cap applies, and then a cap must be set.
     Turning the schedule on is refused without either. "Run now" shows its
     own estimate. An enabled schedule's answer carries schedule_estimate
     (what one scheduled run would cost now, or None with the reason)."""
@@ -233,7 +236,7 @@ def add_candidate(engine: str, model: str = None, note: str = "",
     cfg = benchmark_lab_service._check_config("translation", {"engine": engine, "model": model})
     model = cfg["model"] or benchmark_lab_service._default_model(cfg["engine"])
     note = (note or "").strip()[:200]
-    with _add_lock:
+    with _decision_lock:
         return _add_candidate_locked(capability, cfg, model, note)
 
 
@@ -254,13 +257,14 @@ def _add_candidate_locked(capability, cfg, model, note) -> dict:
 def reopen_candidate(candidate_id: int) -> dict:
     """Puts a rejected candidate back in the running, explicitly. Its
     earlier decision stays recorded."""
-    c = _require_candidate(candidate_id)
-    if c["status"] not in ("rejected", "superseded"):
-        raise ConflictError("Only a rejected or superseded candidate can be reopened.")
-    if len(open_candidates(c["capability"])) >= MAX_OPEN_CANDIDATES:
-        raise UnsupportedOperationError(f"At most {MAX_OPEN_CANDIDATES} open candidates.")
-    db.set_model_candidate_status(candidate_id, "candidate")
-    return _candidate_out(db.get_model_candidate(candidate_id))
+    with _decision_lock:
+        c = _require_candidate(candidate_id)
+        if c["status"] not in ("rejected", "superseded"):
+            raise ConflictError("Only a rejected or superseded candidate can be reopened.")
+        if len(open_candidates(c["capability"])) >= MAX_OPEN_CANDIDATES:
+            raise UnsupportedOperationError(f"At most {MAX_OPEN_CANDIDATES} open candidates.")
+        db.set_model_candidate_status(candidate_id, "candidate")
+        return _candidate_out(db.get_model_candidate(candidate_id))
 
 
 def _require_candidate(candidate_id: int) -> dict:
@@ -303,7 +307,7 @@ def run_now(capability: str = "translation", scheduled: bool = False) -> dict:
     started = benchmark_lab_service.start_run(
         "translation", configs, tier=s["tier"], set_name=s["set_name"],
         label="Scheduled re-evaluation" if scheduled else "Re-evaluation",
-        prompt_version="")
+        prompt_version="", max_cost_usd=s["max_cost_usd"] if scheduled else None)
     db.set_app_setting(_LAST_RUN_KEY, json.dumps({
         "started_at": _now(), "arena_group": started["arena_group"],
         "production_run_id": started["session_ids"][0],
@@ -442,7 +446,7 @@ def promote(candidate_id: int, confirm: bool, reason: str = "") -> dict:
         raise InvalidInputError("Confirmation required (confirm=true).")
     # One promotion at a time: two concurrent confirms can't both pass the
     # status check and leave two "promoted" records.
-    with _promote_lock:
+    with _decision_lock:
         return _promote_locked(candidate_id, reason)
 
 
@@ -470,13 +474,15 @@ def _promote_locked(candidate_id: int, reason: str) -> dict:
 
 
 def reject(candidate_id: int, reason: str = "") -> dict:
-    c = _require_candidate(candidate_id)
-    if c["status"] != "candidate":
-        raise ConflictError(f"This candidate is already {c['status']}.")
-    db.set_model_candidate_status(candidate_id, "rejected")
-    db.record_model_decision(candidate_id, "rejected", _clean_reason(reason),
-                             json.dumps(_scores_for(candidate_id)))
-    return {"candidate": _candidate_out(db.get_model_candidate(candidate_id))}
+    reason = _clean_reason(reason)
+    with _decision_lock:
+        c = _require_candidate(candidate_id)
+        if c["status"] != "candidate":
+            raise ConflictError(f"This candidate is already {c['status']}.")
+        db.set_model_candidate_status(candidate_id, "rejected")
+        db.record_model_decision(candidate_id, "rejected", reason,
+                                 json.dumps(_scores_for(candidate_id)))
+        return {"candidate": _candidate_out(db.get_model_candidate(candidate_id))}
 
 
 def list_decisions(capability: str = "translation") -> dict:
