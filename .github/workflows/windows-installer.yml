@@ -7,9 +7,12 @@ name: Windows Installer
 # library landed in the data folder (not the program folder), stop, silent
 # uninstall, and check the data folder survived.
 #
-# On demand only (Run workflow, or pushing an installer-v* tag) -- never on
-# every PR: Actions minutes have run out before, and windows-latest bills at
-# 2x. A tag's version is the tag without "installer-v".
+# On demand only (Run workflow, or pushing a tag) -- never on every PR:
+# Actions minutes have run out before, and windows-latest bills at 2x. An
+# installer-v* tag builds and tests only; its version is the tag without
+# "installer-v". A v* tag (v0.1.0) does the same, and once every smoke test
+# has passed the release job attaches the installer and its SHA-256 to a
+# GitHub Release named after the tag; the version is the tag without "v".
 on:
   workflow_dispatch:
     inputs:
@@ -20,6 +23,7 @@ on:
   push:
     tags:
       - "installer-v*"
+      - "v*"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -79,6 +83,8 @@ jobs:
         run: |
           if ($env:GITHUB_REF -like "refs/tags/installer-v*") {
             $v = $env:GITHUB_REF.Substring("refs/tags/installer-v".Length)
+          } elseif ($env:GITHUB_REF -like "refs/tags/v*") {
+            $v = $env:GITHUB_REF.Substring("refs/tags/v".Length)
           } else {
             $v = $env:INPUT_VERSION
             if (-not $v) { $v = "0.1.0-dev" }
@@ -219,3 +225,34 @@ jobs:
           foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log")) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
           }
+
+  # Only for a v* tag, and only after every smoke test above has passed. The
+  # job that runs npm ci and the package installs keeps read-only access; this
+  # one gets write access and runs nothing from the repository.
+  release:
+    needs: installer
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Attach the installer and its SHA-256 to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "BaiheStudio-Setup-$version" --dir out
+          exe="$(find out -name 'BaiheStudio-Setup-*.exe' | head -n 1)"
+          test -n "$exe"
+          name="$(basename "$exe")"
+          (cd "$(dirname "$exe")" && sha256sum "$name" > "$name.sha256")
+          flags=""
+          case "$version" in *-*) flags="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --generate-notes $flags \
+            --title "Baihe Studio $version" \
+            "$(dirname "$exe")/$name" "$(dirname "$exe")/$name.sha256"
