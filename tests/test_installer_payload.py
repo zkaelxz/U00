@@ -362,8 +362,14 @@ class TestStageService:
         winsw = tmp_path / "winsw.exe"
         winsw.write_bytes(b"winsw")
         monkeypatch.setattr(bi, "WINSW_SHA256", hashlib.sha256(b"winsw").hexdigest())
+        caddy = tmp_path / "caddy.exe"
+        caddy.write_bytes(b"caddy")
+        monkeypatch.setattr(bi, "CADDY_SHA256", hashlib.sha256(b"caddy").hexdigest())
+        licenses = tmp_path / "caddy-licenses"
+        (licenses / "github.com_caddyserver_caddy_v2").mkdir(parents=True)
+        (licenses / "github.com_caddyserver_caddy_v2" / "LICENSE").write_text("Apache", encoding="utf-8")
         payload = tmp_path / "payload"
-        bi.stage_service(payload, z, winsw)
+        bi.stage_service(payload, z, winsw, caddy, licenses)
         return payload / "service"
 
     def test_pins_are_sha256(self):
@@ -386,6 +392,19 @@ class TestStageService:
         assert "import site" not in pth and "site-packages" not in pth and "app" not in pth
         assert not (helper / "Lib").exists()
 
+    def test_caddy_layout(self, tmp_path, monkeypatch):
+        service = self._stage(tmp_path, monkeypatch)
+        assert (service / "caddy" / "caddy.exe").read_bytes() == b"caddy"
+        assert (service / "caddy" / "BaiheCaddy.exe").read_bytes() == b"winsw"
+        assert (service / "caddy" / "licenses" / "WinSW-LICENSE.txt").is_file()
+        assert (service / "caddy" / "licenses" / "github.com_caddyserver_caddy_v2" / "LICENSE").is_file()
+        # The elevated script reads the template from its own copy, not from app/.
+        assert ((service / "helper" / "lib" / "deploy" / "caddy" / "Caddyfile.template").read_bytes()
+                == bi.CADDY_TEMPLATE.read_bytes())
+        # Nothing but the binary, its wrapper and licences: no Caddyfile ships.
+        assert sorted(p.name for p in (service / "caddy").iterdir()) == [
+            "BaiheCaddy.exe", "caddy.exe", "licenses"]
+
     def test_service_script_ships_only_there(self):
         assert "service.py" not in bi.RUNTIME_INSTALLER_FILES
 
@@ -393,7 +412,81 @@ class TestStageService:
         winsw = tmp_path / "winsw.exe"
         winsw.write_bytes(b"something else")
         with pytest.raises(bi.BuildError, match="winsw.exe: SHA-256"):
-            bi.stage_service(tmp_path / "payload", tmp_path / "z.zip", winsw)
+            bi.stage_service(tmp_path / "payload", tmp_path / "z.zip", winsw, winsw, tmp_path)
+
+    def test_refuses_an_unpinned_caddy(self, tmp_path, monkeypatch):
+        winsw = tmp_path / "winsw.exe"
+        winsw.write_bytes(b"winsw")
+        monkeypatch.setattr(bi, "WINSW_SHA256", hashlib.sha256(b"winsw").hexdigest())
+        caddy = tmp_path / "caddy.exe"
+        caddy.write_bytes(b"not the pinned build")
+        with pytest.raises(bi.BuildError, match="caddy.exe: SHA-256"):
+            bi.stage_service(tmp_path / "payload", tmp_path / "z.zip", winsw, caddy, tmp_path)
+
+
+class TestCaddyBuild:
+    def test_pins(self):
+        assert len(bi.CADDY_SHA256) == 64 and all(c in "0123456789abcdef" for c in bi.CADDY_SHA256)
+        assert bi.CADDY_GO_VERSION.startswith("go1.")
+        go_mod = (bi.CADDY_SOURCE_DIR / "go.mod").read_text(encoding="utf-8")
+        assert f"toolchain {bi.CADDY_GO_VERSION}" in go_mod
+        assert f"github.com/caddyserver/caddy/v2 v{bi.CADDY_VERSION}" in go_mod
+        assert "github.com/mholt/caddy-ratelimit" in go_mod
+        assert (bi.CADDY_SOURCE_DIR / "go.sum").stat().st_size > 0
+
+    def test_workflow_go_matches_the_pinned_toolchain(self):
+        wf = (Path(bi.REPO_ROOT) / ".github" / "workflows" / "windows-installer.yml").read_text(encoding="utf-8")
+        assert f"go/{bi.CADDY_GO_VERSION[2:]}.windows" in wf or f"{bi.CADDY_GO_VERSION}.windows-amd64.zip" in wf
+
+    def test_source_is_pinned_to_lf_so_the_hash_is_the_same_on_a_windows_checkout(self):
+        # A CRLF main.go builds a different binary (03e740b... instead of e09cc7eb...).
+        attrs = (Path(bi.REPO_ROOT) / ".gitattributes").read_text(encoding="utf-8")
+        assert "installer/caddy/* text eol=lf" in attrs.splitlines()
+        for name in ("go.mod", "go.sum", "main.go"):
+            assert b"\r" not in (bi.CADDY_SOURCE_DIR / name).read_bytes()
+
+    def test_environment_and_command_are_reproducible(self):
+        env = bi.caddy_build_env({"PATH": "x", "GOFLAGS": "-mod=mod", "GOTOOLCHAIN": "local"})
+        assert (env["GOOS"], env["GOARCH"], env["GOAMD64"], env["CGO_ENABLED"]) == (
+            "windows", "amd64", "v1", "0")
+        assert env["GOFLAGS"] == "-mod=readonly" and env["GOTOOLCHAIN"] == bi.CADDY_GO_VERSION
+        cmd = bi.caddy_build_command("go", "out.exe")
+        assert "-trimpath" in cmd and "-buildvcs=false" in cmd and "-ldflags=-s -w" in cmd
+
+    def _fake_run(self, content, calls):
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if cmd[1] == "build":
+                Path(cmd[cmd.index("-o") + 1]).write_bytes(content)
+            out = "" if cmd[1] == "build" else ("/goroot\n" if cmd[1] == "env" else "")
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+        return run
+
+    def test_a_build_with_the_wrong_hash_is_refused(self, tmp_path):
+        with pytest.raises(bi.BuildError, match="not the pinned"):
+            bi.build_caddy(tmp_path, run=self._fake_run(b"other", []))
+
+    def test_a_build_with_the_pinned_hash_is_accepted(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(bi, "CADDY_SHA256", hashlib.sha256(b"caddy").hexdigest())
+        calls = []
+        exe, licenses = bi.build_caddy(tmp_path, run=self._fake_run(b"caddy", calls))
+        assert exe.read_bytes() == b"caddy" and licenses.parent == tmp_path
+        assert calls[0][1] == "build"
+
+    def test_licences_of_compiled_modules_are_collected(self, tmp_path):
+        mod = tmp_path / "mod"
+        mod.mkdir()
+        (mod / "LICENSE").write_text("a", encoding="utf-8")
+        (mod / "NOTICE.txt").write_text("b", encoding="utf-8")
+        (mod / "main.go").write_text("c", encoding="utf-8")
+        goroot = tmp_path / "goroot"
+        goroot.mkdir()
+        (goroot / "LICENSE").write_text("go", encoding="utf-8")
+        dest = tmp_path / "out"
+        n = bi.collect_licenses(f"github.com/x/y\t{mod}\n{bi.CADDY_MODULE}\t{tmp_path}\n", goroot, dest)
+        assert n == 3
+        assert (dest / "github.com_x_y" / "LICENSE").is_file() and (dest / "go" / "LICENSE").is_file()
+        assert not (dest / "github.com_x_y" / "main.go").exists()
 
 
 class TestVersionAndIscc:

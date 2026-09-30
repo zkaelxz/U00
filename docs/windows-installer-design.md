@@ -533,6 +533,7 @@ per-user.
   decision (2026-09-30): accepted on the condition that only the owner uses
   this PC. If it has other Windows accounts, untick the service task (it is
   ticked by default for now).**
+- **Caddy and a crashed Baihe.** If Baihe's process exits on its own, Caddy keeps forwarding to the household port until the service restarts (about 10 s). Another program on this PC could bind that port in the gap and receive household requests. Accepted on the same condition: only the owner uses this PC.
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing
@@ -542,8 +543,9 @@ per-user.
 **What it does not do.**
 
 - No other listener, no firewall rule, no certificate, no DNS or router
-  change, no household or remote access. `docs/remote-access-decision.md` and
-  the API permissions are unchanged; remote access is separate work.
+  change, and no household or remote access until the owner runs
+  `enable-remote` (next subsection). `docs/remote-access-decision.md` and the
+  API permissions are unchanged.
 - The server runs as its own account, so it sees the machine's `PATH`, not the
   user's, and Diagnostics' Install buttons can't add packages to the
   read-only program folder while the service runs; per-user caches outside the
@@ -553,3 +555,54 @@ per-user.
 - The program folder stays user-writable, so a changed file there runs as the
   low-privilege service account, not as LocalSystem.
 - No health monitoring or banner.
+
+**Caddy and remote access (owner's opt-in).** Four rules, owner decisions:
+
+1. Baihe never exposes its own API to the network. The household listener is
+   opt-in and binds `127.0.0.1` only (`api_config.check_household_bind_safety`);
+   remote requests reach it only through Caddy.
+2. Caddy is the only internet-facing component: it gets and renews the HTTPS
+   certificate and rate-limits sign-in (`rate_limit`, from
+   `deploy/caddy/Caddyfile.template`). The template still refuses every
+   `local_only()` route (`@pc_only`, checked by `tests/test_caddyfile_template.py`).
+   `render_caddyfile` refuses a template that lost `admin off`, that refusal,
+   or the loopback `reverse_proxy`.
+3. **Nothing here creates a firewall rule or opens a port.** `enable-remote`
+   and `status` print the exact command for the owner to run by hand in an
+   administrator prompt (`firewall_rule_command`): inbound TCP 443, for
+   `caddy.exe` only, private and domain profiles. Forwarding 443 on the router
+   and the domain name (and any dynamic DNS) are the owner's steps
+   (`docs/household-access.md`). The script only ever runs `netsh ... show rule`.
+4. The service stays local-only until `enable-remote` is run.
+
+A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
+cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
+`caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every
+module pinned by `go.sum`, Go `go1.26.8` pinned by SHA-256 in the workflow, and
+the binary pinned by `CADDY_SHA256` in `build_installer.py`. Its certificates
+and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
+(Caddy, SYSTEM and Administrators only).
+
+`enable-remote [--household-port 8610]` (administrator prompt) refuses, exit
+code 2 and nothing changed, unless the data folder's `.env` has the Google
+sign-in settings and a `BAIHE_PUBLIC_URL` that is just `https://` and an ASCII
+DNS name on the default port, and the port is free and not one of Baihe's own
+(`settings_service.baihe_own_ports()`, and 8601). The server no longer refuses
+to start over a bad household setting (it skips the household listener and
+keeps the PC one), so these checks run first. Then it sets the household
+port in the `BaiheStudio` service definition (the only place it can come
+from: every other `BAIHE_API_*` value is blanked), restarts the service,
+waits for the household listener to answer `/api/meta` for the public name,
+writes the Caddyfile from the template with the domain and port filled in (no
+secret goes in it), and starts Caddy; any failure turns it all off again.
+`disable-remote` undoes it. An update keeps remote access on if its settings
+still pass and the household listener comes back, else turns it off and says
+so. Uninstall removes both services and Caddy's folders (with `rmtree` before
+the rest of the admin folder, so a link Caddy made in them is never followed)
+and tells the owner the command to delete a rule they added.
+
+*Reproducible Caddy build.* The same `go build -trimpath -buildvcs=false`
+gives `e09cc7eb...` on Linux and on Windows only from the same source bytes:
+CRLF line endings in `installer/caddy/main.go` (what a Windows checkout gives
+without `.gitattributes`) produce `03e740b8...`. `.gitattributes` pins
+`installer/caddy/*` to LF, and a test checks it.

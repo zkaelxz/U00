@@ -23,7 +23,7 @@ These need your accounts or an administrator prompt on the PC. None of them open
 
 1. **Domain and dynamic DNS.** Pick a name such as `baihe.<your-domain>`. Create an A record (and AAAA if your ISP gives the PC a public IPv6 address) pointing at your home IP, and set up a dynamic DNS updater (the router's built-in client or your DNS provider's) so the record follows IP changes. Use the public record only: don't add a LAN DNS entry pointing the name at the PC's private address (split DNS); the planned PC shell refuses a name that resolves to a private address.
 2. **Google OAuth client.** In Google Cloud Console: OAuth consent screen (External, Testing; add each household member as a test user), then Credentials > Create OAuth client ID > Web application, with the authorised redirect URI `https://baihe.<your-domain>/api/auth/callback`. Put the client id and secret in `.env` yourself; never paste the secret into a chat, issue or PR.
-3. **Caddy with the rate-limit module.** Download Caddy for Windows from caddyserver.com/download with the package `github.com/mholt/caddy-ratelimit` added (or build it with `xcaddy build --with github.com/mholt/caddy-ratelimit`). A plain Caddy refuses to load the template. Put it at, for example, `C:\caddy\caddy.exe`. If your DNS provider has a Caddy module, you can add it too and get the real certificate by DNS challenge without forwarding any port (not in the template).
+3. **Caddy with the rate-limit module.** (The Windows installer bundles one, off until you run `enable-remote`; see `docs/windows-installer-design.md` section 11. It never adds the firewall rule or touches the router or DNS: it prints the `netsh advfirewall firewall add rule` command for you to run yourself.) Download Caddy for Windows from caddyserver.com/download with the package `github.com/mholt/caddy-ratelimit` added (or build it with `xcaddy build --with github.com/mholt/caddy-ratelimit`). A plain Caddy refuses to load the template. Put it at, for example, `C:\caddy\caddy.exe`. If your DNS provider has a Caddy module, you can add it too and get the real certificate by DNS challenge without forwarding any port (not in the template).
 4. **Keep the PC awake:** Windows power settings, sleep "Never".
 
 ## LAN test (Claude Code on the PC can do this)
@@ -73,7 +73,7 @@ Certificate renewal:
 ## Rollback
 
 1. **Close the router port forward (443 and 80) first.**
-2. Stop Caddy.
+2. Stop Caddy. On a service install, run `python service.py disable-remote` from an administrator prompt instead: it disables the Caddy service (so it doesn't come back at boot), stops it, and restarts Baihe without the household listener. Setting a variable does nothing there, because the service sets every `BAIHE_API_*` value itself.
 3. Remove the firewall rule, in an administrator PowerShell: `Remove-NetFirewallRule -DisplayName "Caddy for Baihe"`.
 4. Sign out every session issued remotely: at the PC, Diagnostics > Users > "Sign out everywhere..." for each user (every session was issued through the household listener; the PC's own window has none).
 5. Unset the household port (`setx BAIHE_API_HOUSEHOLD_PORT ""`, or remove it in System Properties > Environment Variables) and restart Baihe. The PC's window on 8600 is unaffected.
@@ -84,5 +84,6 @@ Certificate renewal:
 - Caddy's access log: floods of 401, 404 or 429 (sign-in is limited to 60 attempts per 10 minutes per address at Caddy, and more tightly by Baihe).
 - Baihe's audit log (Diagnostics, at the PC or signed in as an admin from away) for sign-ins you don't recognise.
 - Certificate expiry and your public IP versus the DNS record (dynamic DNS drift).
-- Updates: you own patching Caddy and Baihe. After updating Baihe, restart Caddy so a changed template is loaded.
+- Sign-in limit: Caddy counts attempts per connecting address. With a router that loops LAN traffic back through its public address, every device on your LAN shares one count, so one device can lock the others out of sign-in for up to 10 minutes.
+- Updates: you own patching Baihe. On a service install Caddy is bundled, so its fixes arrive with new Baihe releases. After updating Baihe, restart Caddy so a changed template is loaded.
 - Windows restarts: Caddy and Baihe must come back after an update reboot (running both on boot is WP5).
