@@ -34,7 +34,7 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   PC-only refusal). Messages are generic. `local_only()` needs no session but requires a
   direct loopback connection (peer, Host, no proxy headers, loopback
   Origin): the owner at the PC. That is a safeguard, not authentication
-  (see the key-write note in docs/migration-handoff.md); the real admin
+  (see the key-write note in docs/archive/migration-handoff.md); the real admin
   isolation is the separate admin listener (D5), not built yet.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large

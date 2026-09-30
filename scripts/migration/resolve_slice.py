@@ -7,7 +7,7 @@ usage: resolve_slice.py <service_stem> <router_stem>
 - api/server.py: take the base version and add this slice's router (import name + include_router).
 - FILE_ORGANIZATION.md: take the base version and append this slice's services/ and api/routers/ entries
   (extracted from this branch's own version) as the new last entries, fixing tree connectors.
-- api/schemas.py, docs/migration-review.md: keep BOTH sides of every conflict (base first, then branch).
+- api/schemas.py: keep BOTH sides of every conflict (base first, then branch).
 Run from the repo root while a conflicted merge is in progress.
 """
 import re
@@ -155,24 +155,6 @@ def fix_schemas():
     print("api/schemas.py = base + branch appended block (%d lines)" % add.count("\n"))
 
 
-def fix_docs():
-    import difflib
-    base = git_show("origin/baihe-subtitler:docs/migration-review.md")
-    mb = git_show(merge_base() + ":docs/migration-review.md").split("\n")
-    tip = git_show("HEAD:docs/migration-review.md").split("\n")
-    ins = []
-    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, mb, tip, autojunk=False).get_opcodes():
-        if tag in ("insert", "replace"):
-            ins += tip[j1:j2]
-    add = "\n".join(ins).strip("\n")
-    marker = "**Next candidates:**"
-    k = base.index(marker)
-    out = base[:k] + add + "\n\n" + base[k:]
-    open("docs/migration-review.md", "w", encoding="utf-8").write(out)
-    print("docs/migration-review.md = base + branch paragraph (%d lines)" % (add.count("\n") + 1))
-
-
 fix_server()
 fix_file_org()
 fix_schemas()
-fix_docs()
