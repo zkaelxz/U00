@@ -21,6 +21,8 @@ import { Section } from '../../../components/Section'
 import { buttonClass } from '../../../components/uiClasses'
 import { VoiceBankPlayButton } from '../../../components/VoiceBankPlayButton'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
+import { voiceCloneJobId } from '../stageJobIds'
 import { usePcOnly, type PcMode } from '../../../hooks/usePcOnly'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import type { DubConfig } from '../../../types/dub'
@@ -287,6 +289,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
   const [jobError, setJobError] = useState<unknown>(null)
   const [extractFor, setExtractFor] = useState<string | null>(null)
   const [jobId, setJobId, runKey] = useJobRun()
+  useReattachJob([voiceCloneJobId(dramaId)], jobId, setJobId)
   const [candReload, setCandReload] = useState(0)
 
   useEffect(() => {
@@ -354,7 +357,7 @@ export function VoiceClonePanel({ cfg, onChanged }: { cfg: DubConfig | null; onC
         {jobId && (
           <div className="voice-job" data-testid="voice-extract-status">
             <span>
-              Finding clips for {extractFor}: {job ? job.status : 'starting'}
+              Finding clips{extractFor ? ` for ${extractFor}` : ''}: {job ? job.status : 'starting'}
               {job?.message ? ` · ${job.message}` : ''}
               {job && jobFailed(job) && job.error ? ` · ${safeDetail(job.error) ?? 'failed'}` : ''}
             </span>

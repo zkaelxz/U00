@@ -9,6 +9,8 @@ import { humanize } from '../../../../components/labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { reviewJobIds } from '../../stageJobIds'
 import type { ReviewJobBody, ReviewJobKind } from '../../../../types/review'
 import type { TranslateEngine } from '../../../../types/translate'
 import type { TranslateRunConfig } from '../../../../types/translateStage'
@@ -104,6 +106,7 @@ interface Props {
 export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCount }: Props) {
   const { onJobDone, drama } = useStage()
   const [jobId, setJobId, runKey] = useJobRun()
+  useReattachJob(reviewJobIds(dramaId), jobId, setJobId)
   const [error, setError] = useState<unknown>(null)
   const [fix, setFix] = useState<FixForm>(EMPTY_FIX_FORM)
   const [checks, setChecks] = useState<CheckForm>(EMPTY_CHECK_FORM)

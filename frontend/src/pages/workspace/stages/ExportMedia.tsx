@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { artifactUrl } from '../../../api/client'
 import {
@@ -15,6 +15,7 @@ import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
 import { jobSucceeded } from '../../../types/jobs'
 import type {
   ArtifactInfo,
@@ -24,6 +25,7 @@ import type {
   SoftsubVideoRequest,
 } from '../../../types/export'
 import { formatBytes } from '../exportForm'
+import { mediaExportJobId } from '../stageJobIds'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
 
@@ -76,6 +78,16 @@ function MediaJobSection({ title, label, kind, start, note, testId, children }: 
   const [error, setError] = useState<unknown>(null)
   const [artifact, setArtifact] = useState<ArtifactInfo | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  useReattachJob([mediaExportJobId(dramaId, kind)], jobId, setJobId)
+
+  // A file exported on an earlier visit stays downloadable; none yet (404) shows nothing.
+  useEffect(() => {
+    let cancelled = false
+    getArtifactInfo(dramaId, kind).then((a) => !cancelled && setArtifact(a), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, kind])
 
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
@@ -112,7 +124,7 @@ function MediaJobSection({ title, label, kind, start, note, testId, children }: 
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
-      {artifact && jobSucceeded(job) && (
+      {artifact && (jobId === null || jobSucceeded(job)) && (
         <p data-testid={`artifact-${testId ?? kind}`}>
           <a href={artifactUrl(dramaId, kind)} download>Download {artifact.name}</a>{' '}
           <span className="muted">({formatBytes(artifact.size)})</span>

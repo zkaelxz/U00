@@ -8,6 +8,8 @@ import { TypedConfirm } from '../../../../components/TypedConfirm'
 import { humanize } from '../../../../components/labels'
 import { Toggle } from '../../../../components/Toggle'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
+import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { resegmentJobId } from '../../stageJobIds'
 import type { ResegmentPreview } from '../../../../types/restructure'
 import { useStage } from '../../StageContext'
 import { JobPanel } from '../JobPanel'
@@ -33,6 +35,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [jobId, setJobId, runKey] = useJobRun()
+  useReattachJob([resegmentJobId(dramaId)], jobId, setJobId)
   const { job, done, error: pollError } = useJob(jobId, {
     runKey,
     onDone: () => {

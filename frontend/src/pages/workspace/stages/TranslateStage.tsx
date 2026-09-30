@@ -19,6 +19,8 @@ import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
+import { translateJobIds } from '../stageJobIds'
 import { routeHref } from '../../../router'
 import type { LibraryPreset } from '../../../types/library'
 import type {
@@ -413,7 +415,7 @@ function RunPanel({
           type="button"
           className="primary"
           disabled={busy || reviewing > 0 || blocker !== null}
-          aria-describedby={blocker ? 'translate-blocker' : undefined}
+          aria-describedby={blocker ? 'translate-blocker' : busy ? 'translate-busy' : undefined}
           onClick={() => start()}
         >
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
@@ -486,7 +488,7 @@ function RunPanel({
         />
       )}
       {reviewNote && <p className="muted" role="status">Glossary: {reviewNote}</p>}
-      {busy && <p className="muted">A translate job is running. Progress is shown below.</p>}
+      {busy && <p className="muted" id="translate-busy" data-testid="translate-busy">A translate job is running. Progress is shown below.</p>}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
       {error instanceof ApiError && error.status === 409 && (
@@ -624,6 +626,7 @@ export default function TranslateStage() {
   const [config, setConfig] = useState<TranslateRunConfig | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [jobId, setJobId, runKey] = useJobRun()
+  useReattachJob(translateJobIds(dramaId), jobId, setJobId)
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
