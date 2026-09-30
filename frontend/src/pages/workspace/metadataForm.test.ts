@@ -6,6 +6,7 @@ import {
   analysisDetails,
   analysisSummary,
   contentTypeSuggestion,
+  pipelineSteps,
   autofillRequest,
   defaultSelection,
   formatDuration,
@@ -63,6 +64,14 @@ describe('P05 analysis details', () => {
     expect(d.Resolution).toBe('1920×1080')
     expect(d['Frame rate']).toBe('29.97 fps')
     expect(d['Subtitle tracks']).toBe('2 (Chinese ASS, unknown language SubRip)')
+  })
+  it('rebuilds the subtitle-import step without raw codes', () => {
+    expect(pipelineSteps(video)).toEqual([
+      'Import the existing subtitle tracks (Chinese ASS, unknown language SubRip) instead of transcribing',
+      'Translate',
+    ])
+    expect(Object.fromEntries(analysisDetails({ ...video, subtitle_tracks: [{ index: 1, codec: 'webvtt', language: 'fre' }] }))['Subtitle tracks'])
+      .toBe('1 (French WebVTT)')
   })
   it('handles audio only and an older server without the new fields', () => {
     const d = Object.fromEntries(analysisDetails({ drama_id: 1, duration_seconds: 5, has_video: false, has_audio: true, audio_track_count: 1, sample_rate: null }))

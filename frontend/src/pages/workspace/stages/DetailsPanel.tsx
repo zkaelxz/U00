@@ -16,6 +16,7 @@ import {
   FIELD_LABELS,
   formFromDrama,
   isEmptyPayload,
+  reseedForm,
   mediaTypeOptions,
   modeLabel,
   modeUpdate,
@@ -38,18 +39,15 @@ export function DetailsPanel() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [seriesReloads, setSeriesReloads] = useState(0)
-  // After a save, the next drama read replaces the form (a new series only
-  // gets its id then).
-  const [adoptNext, setAdoptNext] = useState(false)
 
-  // Re-seed from the drama when it changes elsewhere (Auto-fill apply, another
-  // drama), but never over the user's unsaved edits.
+  // Re-seed from the drama when it changes elsewhere (Auto-fill apply, Use
+  // this content type, a URL download finishing): only the fields the user
+  // has edited keep their value, so a save never sends a stale one back.
   const [seededFrom, setSeededFrom] = useState(drama)
   if (seededFrom !== drama) {
     setSeededFrom(drama)
     const next = formFromDrama(drama)
-    if (adoptNext || isEmptyPayload(buildDetailsPayload(form, initial))) setForm(next)
-    setAdoptNext(false)
+    setForm(reseedForm(form, initial, next))
     setInitial(next)
   }
 
@@ -77,6 +75,7 @@ export function DetailsPanel() {
     const bad = validateDetails(form, initial)
     setErrors(bad)
     if (Object.keys(bad).length || !dirty) return
+    const sent = form
     setBusy(true)
     const writes: Promise<unknown>[] = []
     if (Object.keys(payload.metadata).length) writes.push(updateDramaMetadata(dramaId, payload.metadata))
@@ -87,7 +86,9 @@ export function DetailsPanel() {
         setError(null)
         setNotice('Details saved.')
         if (payload.metadata.new_series_name) setSeriesReloads((n) => n + 1)
-        setAdoptNext(true)
+        // What was sent is now saved: the next drama read replaces those
+        // fields (a new series only gets its id then).
+        setInitial(sent)
         refetchDrama()
       },
       (e: unknown) => {
@@ -122,6 +123,7 @@ export function DetailsPanel() {
       <Section storageKey="source.details" title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
         <form
           className="source-panel"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault()
             save()
@@ -192,7 +194,7 @@ export function DetailsPanel() {
             {count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
             {count('episode_number', 'Orders this drama within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
           </div>
-          {text('source_url', 'The public listing or info page this drama came from.', 'url')}
+          {text('source_url', 'The public listing or info page this drama came from. Shown without any ?query part, which can hold a download token.', 'url')}
           {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
           <Field label="Summary" error={errors.summary}>
             <textarea rows={3} value={form.summary} onChange={set('summary')} />

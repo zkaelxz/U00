@@ -1,5 +1,6 @@
 import type { DramaDetail } from '../../api/types'
 import type { AutofillRequest, MediaAnalysis } from '../../types/workspace'
+import { humanize } from '../../components/labels'
 
 // Pure logic for the Source stage's Auto-fill and Analyze-media panels.
 
@@ -87,10 +88,11 @@ export function analysisDetails(a: MediaAnalysis): [string, string][] {
 // "2 (Chinese ASS, unknown language SubRip)" style list of embedded subtitles.
 export function subtitleTrackList(a: MediaAnalysis): string {
   const tracks = a.subtitle_tracks ?? []
-  const one = (t: { codec: string; language: string | null }) =>
-    `${t.language ? languageName(t.language) : 'unknown language'} ${codecName(t.codec)}`
-  return `${tracks.length} (${tracks.map(one).join(', ')})`
+  return `${tracks.length} (${tracks.map(trackName).join(', ')})`
 }
+
+const trackName = (t: { codec: string; language: string | null }) =>
+  `${t.language ? languageName(t.language) : 'unknown language'} ${codecName(t.codec)}`
 
 const CODECS: Record<string, string> = {
   ass: 'ASS', ssa: 'SSA', subrip: 'SubRip', srt: 'SubRip', mov_text: 'MP4 text', webvtt: 'WebVTT',
@@ -98,12 +100,28 @@ const CODECS: Record<string, string> = {
 }
 const codecName = (c: string) => CODECS[c.toLowerCase()] ?? c
 
-// ffprobe tags are ISO 639-2 (chi/zho, jpn, kor, eng); unknown codes stay as they are.
-const LANGS: Record<string, string> = {
-  chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', jpn: 'Japanese', ja: 'Japanese', kor: 'Korean', ko: 'Korean',
-  eng: 'English', en: 'English',
+// ffprobe tags are ISO 639-2 (chi/zho, jpn, kor, eng); mapped to the app's
+// codes for humanize, with a few common others named here.
+const ISO3: Record<string, string> = { chi: 'zh', zho: 'zh', jpn: 'ja', kor: 'ko', eng: 'en' }
+const OTHER_LANGS: Record<string, string> = {
+  fre: 'French', fra: 'French', spa: 'Spanish', ger: 'German', deu: 'German', rus: 'Russian',
+  por: 'Portuguese', ita: 'Italian', tha: 'Thai', vie: 'Vietnamese', ind: 'Indonesian', ara: 'Arabic',
 }
-const languageName = (l: string) => LANGS[l.toLowerCase()] ?? l
+const languageName = (l: string) => {
+  const code = l.toLowerCase()
+  return OTHER_LANGS[code] ?? humanize('language', ISO3[code] ?? code)
+}
+
+// The suggested steps in words. The server's "Import existing subtitle
+// track (chi, unknown) …" carries raw codes; it is rebuilt from the tracks.
+export function pipelineSteps(a: MediaAnalysis): string[] {
+  const tracks = a.subtitle_tracks ?? []
+  return (a.suggested_pipeline ?? []).map((step) =>
+    step.startsWith('Import existing subtitle track') && tracks.length
+      ? `Import the existing subtitle track${tracks.length === 1 ? '' : 's'} (${tracks.map(trackName).join(', ')}) instead of transcribing`
+      : step,
+  )
+}
 
 // The media type to offer from "Use this content type", or null when there is
 // no usable guess or the drama already has it.

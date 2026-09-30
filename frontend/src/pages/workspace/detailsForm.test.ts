@@ -9,6 +9,7 @@ import {
   mediaTypeOptions,
   modeUpdate,
   NEW_SERIES,
+  reseedForm,
   newSeriesProblem,
   serverFieldErrors,
   seriesUpdate,
@@ -126,6 +127,11 @@ describe('P10 fields (genre, status, counts, source URL, episode summary)', () =
     expect(validateDetails({ ...init, source_url: '', chapter_count: '', episode_number: '' }, init)).toEqual({})
     expect(validateDetails({ ...init, publication_status: 'dropped' }, init).publication_status).toBeDefined()
   })
+  it('checks the URL only when it changed, so an old free-text value never blocks a save', () => {
+    const old = { ...init, source_url: 'example.com/novel' }
+    expect(validateDetails({ ...old, genre: 'x' }, old)).toEqual({})
+    expect(validateDetails({ ...old, source_url: 'example.com/other' }, old).source_url).toMatch(/http/)
+  })
   it('maps an episode_summary server error to that field, not Summary', () => {
     expect(serverFieldErrors(null, 'episode_summary is too long.')).toEqual({ episode_summary: 'episode_summary is too long.' })
   })
@@ -173,5 +179,23 @@ describe('P11/X09 series choice', () => {
     expect(serverFieldErrors(null, 'new_series_name must not be blank.')).toEqual({
       new_series_name: 'new_series_name must not be blank.',
     })
+  })
+})
+
+describe('reseedForm (the drama changed under unsaved edits)', () => {
+  const init = formFromDrama(drama)
+  it('keeps only the edited fields and takes the new value for the rest', () => {
+    const edited = { ...init, genre: 'romance' }
+    const next = { ...init, media_type: 'video_drama', source_url: 'https://x.org/a' }
+    const out = reseedForm(edited, init, next)
+    expect(out).toEqual({ ...next, genre: 'romance' })
+    // So the save sends only the genre, never the old media type or URL.
+    expect(buildDetailsPayload(out, next).metadata).toEqual({ genre: 'romance' })
+  })
+  it('a pending "+ New series…" stays with its name; otherwise the name clears', () => {
+    const pending = { ...init, series_id: NEW_SERIES, new_series_name: 'Saga' }
+    expect(reseedForm(pending, init, init)).toMatchObject({ series_id: NEW_SERIES, new_series_name: 'Saga' })
+    const saved = reseedForm(pending, pending, { ...init, series_id: '41' })
+    expect(saved).toMatchObject({ series_id: '41', new_series_name: '' })
   })
 })

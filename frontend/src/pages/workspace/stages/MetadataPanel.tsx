@@ -16,6 +16,7 @@ import {
   autofillRequest,
   contentTypeSuggestion,
   defaultSelection,
+  pipelineSteps,
   suggestionRows,
   type SuggestionRow,
 } from '../metadataForm'
@@ -245,7 +246,7 @@ export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
             <div data-testid="analysis-pipeline">
               <p className="muted">Suggested steps (nothing runs until you start it):</p>
               <ol className="source-pipeline">
-                {(result.suggested_pipeline ?? []).map((step) => <li key={step}>{step}</li>)}
+                {pipelineSteps(result).map((step) => <li key={step}>{step}</li>)}
               </ol>
             </div>
           )}

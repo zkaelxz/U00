@@ -121,6 +121,26 @@ test('glossary and characters panels load; a drama without a series is told it c
   await expect(glossary.getByRole('button', { name: /^Create series/ })).toBeVisible()
 })
 
+test('in a series, the term form checks required fields and shows a failed save', async ({ page }) => {
+  // The drama read says series 7; the term save is mocked to fail, so nothing is written.
+  const drama = await (await page.request.get('/api/library/dramas/1')).json()
+  await page.route('**/api/library/dramas/1', (r) => r.fulfill({ json: { ...drama, series_id: 7 } }))
+  await page.route('**/api/glossary/dramas/1/terms', (r) =>
+    r.request().method() === 'GET'
+      ? r.fulfill({ json: [] })
+      : r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That term already exists.' } } }))
+  await page.goto('/#/drama/1/translate')
+  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
+  const glossary = page.getByRole('region', { name: 'Glossary' })
+  await glossary.getByRole('button', { name: 'Add term' }).click()
+  await glossary.getByRole('button', { name: 'Save term' }).click()
+  await expect(glossary.getByRole('alert')).toContainText('required')
+  await glossary.getByRole('textbox', { name: 'Original', exact: true }).fill('Wei')
+  await glossary.getByRole('textbox', { name: 'Translation', exact: true }).fill('Wei Wuxian')
+  await glossary.getByRole('button', { name: 'Save term' }).click()
+  await expect(glossary.getByRole('alert')).toBeVisible()
+})
+
 test('the last run\'s failed batches show a notice; Dismiss clears it (X01)', async ({ page }) => {
   const real = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
   const errors = [

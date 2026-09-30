@@ -109,7 +109,7 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
     if (f[k].length > cap) e[k] = `Too long (max ${cap} characters).`
   }
   const url = f.source_url.trim()
-  if (url && !e.source_url && !/^https?:\/\//i.test(url)) e.source_url = 'Start the link with http:// or https://.'
+  if (f.source_url !== initial.source_url && url && !e.source_url && !/^https?:\/\//i.test(url)) e.source_url = 'Start the link with http:// or https://.'
   for (const k of COUNT_KEYS) {
     const v = f[k].trim()
     if (v && (!/^\d+$/.test(v) || Number(v) > MAX_COUNT)) e[k] = 'Enter a whole number, or leave it empty.'
@@ -169,6 +169,16 @@ export function newSeriesProblem(choice: string, newName: string): string | null
   if (!name) return 'Enter a name for the new series.'
   if (name.length > MAX_NAME_LEN) return `Too long (max ${MAX_NAME_LEN} characters).`
   return null
+}
+
+// The form after the drama changed underneath it: fields the user edited
+// (form differs from what was loaded) stay; everything else takes the new value.
+export function reseedForm(form: DetailsForm, initial: DetailsForm, next: DetailsForm): DetailsForm {
+  const out = { ...next }
+  for (const k of Object.keys(next) as (keyof DetailsForm)[]) if (form[k] !== initial[k]) out[k] = form[k]
+  // A half-typed new series name only matters while "+ New series…" is picked.
+  if (out.series_id !== NEW_SERIES) out.new_series_name = ''
+  return out
 }
 
 export const isEmptyPayload = (p: DetailsPayload) => !Object.keys(p.metadata).length && p.sourceLanguage === null
