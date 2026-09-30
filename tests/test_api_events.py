@@ -359,3 +359,25 @@ def test_permission_revoked_mid_stream_ends_it(world, monkeypatch):
     r = _remote(create_app(ApiSettings(auth_mode="on"))).get("/api/events",
                                                              headers=_cookie(world["b"]))
     assert r.status_code == 200 and time.time() - started < 3
+
+
+def test_stream_rechecks_do_not_keep_an_idle_session_alive(world, monkeypatch):
+    """The per-heartbeat re-check is not activity (security review LOW-1)."""
+    touched = []
+    real = db.auth_touch_session
+    monkeypatch.setattr(db, "auth_touch_session", lambda *a, **k: (touched.append(a), real(*a, **k)))
+    monkeypatch.setattr(auth_service, "_TOUCH_INTERVAL_SECONDS", 0)
+    r = _remote(create_app(ApiSettings(auth_mode="on"))).get("/api/events",
+                                                             headers=_cookie(world["b"]))
+    assert _parse(r.text).count(("ping", None)) >= 2   # re-checked at each
+    assert len(touched) <= 2  # only the request's own checks (gate + route)
+
+
+def test_one_sweep_per_process(isolated_db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(db, "list_job_record_fingerprints", lambda: calls.append(1) or {})
+    monkeypatch.setattr(ev, "_sweep_snapshot", None)
+    ev.sweep_jobs(now=100.0)
+    ev.sweep_jobs(now=100.1)
+    ev.sweep_jobs(now=100.0 + ev.JOB_SWEEP_SECONDS + 0.1)
+    assert len(calls) == 2

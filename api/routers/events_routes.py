@@ -74,7 +74,9 @@ def _revalidator(request: Request, principal):
     token = session_token(request)
 
     def check():
-        fresh = auth_service.resolve_session(token)
+        # Not counted as activity: an open (even hidden) tab must not keep an
+        # idle session alive.
+        fresh = auth_service.resolve_session(token, touch=False)
         if fresh is None or PERMISSION not in fresh.get("permissions", ()):
             return None
         return fresh
@@ -91,7 +93,7 @@ async def _stream(sub, revalidate):
         while loop.time() - started < events.MAX_STREAM_SECONDS:
             if loop.time() >= next_sweep:
                 try:
-                    await run_in_threadpool(events.sweep_jobs, sub)
+                    await run_in_threadpool(events.sweep_jobs)
                 except Exception:
                     pass  # a DB hiccup skips one sweep, never ends the stream
                 next_sweep = loop.time() + events.JOB_SWEEP_SECONDS

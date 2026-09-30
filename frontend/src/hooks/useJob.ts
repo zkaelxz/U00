@@ -144,7 +144,10 @@ export function useJob(
     return startJobPolling(jobId, {
       intervalMs,
       once: !polling,
-      onUpdate: (job) => setState({ id: jobId, runKey, job }),
+      // A GET that left before a pushed terminal record must not undo it.
+      onUpdate: (job) => {
+        if (finished.current !== tag) setState({ id: jobId, runKey, job })
+      },
       onError: (error) => setState((s) => ({ ...(s?.id === jobId && s.runKey === runKey ? s : { id: jobId, runKey }), error })),
       onDone: (j) => {
         if (finished.current === tag) return

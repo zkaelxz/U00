@@ -143,6 +143,43 @@ describe('createEventHub', () => {
     expect(hub.state().mode).toBe('connecting')
   })
 
+  it('closes while the tab is hidden (no polling) and reopens with a sync when shown', () => {
+    const sources: FakeSource[] = []
+    let hidden = false
+    let onVis: () => void = () => {}
+    const hub = createEventHub({
+      create: (url) => {
+        const s = new FakeSource(url)
+        sources.push(s)
+        return s
+      },
+      setTimer: () => 0,
+      clearTimer: () => {},
+      isHidden: () => hidden,
+      onVisibilityChange: (fn) => (onVis = fn),
+    })
+    hub.subscribe({})
+    sources[0].open()
+    expect(hub.state()).toEqual({ mode: 'push', syncs: 1 })
+    hidden = true
+    onVis()
+    expect(sources[0].closed).toBe(true)
+    expect(hub.state()).toEqual({ mode: 'connecting', syncs: 1 })
+    hidden = false
+    onVis()
+    expect(sources).toHaveLength(2)
+    sources[1].open()
+    expect(hub.state()).toEqual({ mode: 'push', syncs: 2 })
+  })
+
+  it('does not open while hidden', () => {
+    const create = vi.fn()
+    const hub = createEventHub({ create, isHidden: () => true, onVisibilityChange: () => {} })
+    hub.subscribe({})
+    expect(create).not.toHaveBeenCalled()
+    expect(hub.state().mode).toBe('connecting')
+  })
+
   it('polls from the start when EventSource is unavailable', () => {
     const hub = createEventHub({ create: null })
     hub.subscribe({})

@@ -19,8 +19,9 @@ changed ids, and more than MAX_PENDING of them collapse into one "resync"
 threads: they only mark sets under a lock and wake the connection's asyncio
 loop with call_soon_threadsafe, never block, and never raise.
 
-A job another process runs (the CLI, Streamlit) fires no hook here, so a
-connection also compares job_records every JOB_SWEEP_SECONDS.
+A job another process runs (the CLI, Streamlit) fires no hook here, so one
+process-wide sweep compares job_records every JOB_SWEEP_SECONDS while any
+stream is open.
 
 No Streamlit or FastAPI import.
 """
@@ -91,7 +92,6 @@ class Subscription:
         self.sent_jobs = {}           # job id -> digest of what was last shown
         self.live_cursor = {}         # live session id -> cues already counted
         self.last_notifications = None
-        self.job_fingerprint = None   # job_records snapshot for the sweep
 
     # --- any thread -------------------------------------------------------
     def mark(self, kind: str, key=None) -> None:
@@ -201,8 +201,11 @@ def open_subscription(principal, topics, loop=None) -> Subscription:
 
 
 def close_subscription(sub) -> None:
+    global _sweep_snapshot
     with _lock:
         _subs.discard(sub)
+        if len(_subs) == 0:
+            _sweep_snapshot = None   # the next first stream takes a fresh baseline
 
 
 def open_count(key: str = None) -> int:
@@ -212,28 +215,36 @@ def open_count(key: str = None) -> int:
 
 # --- building a batch (runs in a worker thread) ------------------------------
 
-def _job_fingerprint() -> dict:
+_sweep_lock = threading.Lock()
+_sweep_at = 0.0
+_sweep_snapshot = None
+
+
+def sweep_jobs(now: float = None) -> None:
+    """One process-wide pass (at most every JOB_SWEEP_SECONDS, whichever
+    stream calls it): marks, on every stream, the job ids whose job_records
+    row changed or vanished since the last pass. Catches jobs another
+    process runs, which fire no hook here. The first pass only takes the
+    baseline. Reads a few columns, keeps one snapshot for the process."""
+    global _sweep_at, _sweep_snapshot
+    import time
     import db
-    out = {}
-    for r in db.list_job_records():
-        out[r.get("job_id")] = json.dumps(
-            [r.get(k) for k in ("status", "progress", "message", "error", "finished_at",
-                                "result_json", "cancel_requested")], default=str)
-    return out
-
-
-def sweep_jobs(sub: Subscription) -> None:
-    """Marks job ids whose job_records row changed (or vanished) since the
-    last sweep; the first sweep only takes the baseline."""
-    if "jobs" not in sub.topics:
-        return
-    current = _job_fingerprint()
-    previous, sub.job_fingerprint = sub.job_fingerprint, current
+    now = time.monotonic() if now is None else now
+    if not _sweep_lock.acquire(blocking=False):
+        return   # another stream is sweeping right now
+    try:
+        if _sweep_snapshot is not None and now - _sweep_at < JOB_SWEEP_SECONDS:
+            return
+        _sweep_at = now
+        current = db.list_job_record_fingerprints()
+        previous, _sweep_snapshot = _sweep_snapshot, current
+    finally:
+        _sweep_lock.release()
     if previous is None:
         return
     for job_id in set(previous) | set(current):
         if previous.get(job_id) != current.get(job_id):
-            sub.mark("job", job_id)
+            _on_job_change(job_id)
 
 
 def build_events(sub: Subscription, batch: dict, principal) -> list:

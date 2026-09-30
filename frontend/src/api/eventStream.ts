@@ -13,7 +13,11 @@
  * browser's own auto-reconnect is not used: an HTTP error (401, 429) would
  * stop it for good, and the backoff should be ours.
  *
- * Framework-free and injectable (EventSource factory, timers), so the
+ * While the tab is hidden the stream is closed (no polling either) and it
+ * reopens, with a sync, when the tab is shown: a background tab never keeps
+ * an idle sign-in alive, and a hidden job page catches up on return.
+ *
+ * Framework-free and injectable (EventSource factory, timers, visibility), so the
  * reconnect and fallback rules are unit-tested with fakes.
  */
 
@@ -52,6 +56,11 @@ export interface HubDeps {
   create?: ((url: string) => EventSourceLike) | null
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (t: unknown) => void
+  // Page visibility: the stream is closed while the tab is hidden (so a
+  // background tab never keeps an idle sign-in alive) and reopened, with a
+  // sync, when it is shown again.
+  isHidden?: () => boolean
+  onVisibilityChange?: (fn: () => void) => void
 }
 
 export interface EventHub {
@@ -73,6 +82,13 @@ export function createEventHub(deps: HubDeps = {}): EventHub {
   const create = deps.create === undefined ? defaultCreate() : deps.create
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
   const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(t as ReturnType<typeof setTimeout>))
+  const hasDocument = typeof document !== 'undefined'
+  const isHidden = deps.isHidden ?? (() => hasDocument && document.visibilityState === 'hidden')
+  const onVisibilityChange =
+    deps.onVisibilityChange ??
+    ((fn: () => void) => {
+      if (hasDocument) document.addEventListener('visibilitychange', fn)
+    })
 
   const listeners = new Set<StreamListener>()
   let state: StreamState = { mode: create ? 'connecting' : 'poll', syncs: 0 }
@@ -109,7 +125,7 @@ export function createEventHub(deps: HubDeps = {}): EventHub {
 
   const connect = () => {
     timer = null
-    if (!create || listeners.size === 0) return
+    if (!create || listeners.size === 0 || isHidden()) return
     let es: EventSourceLike
     try {
       es = create(url)
@@ -151,6 +167,20 @@ export function createEventHub(deps: HubDeps = {}): EventHub {
     failures += 1
     if (failures >= FALLBACK_AFTER) setState({ mode: 'poll', syncs: state.syncs })
     if (listeners.size > 0) timer = setTimer(connect, backoffMs(failures))
+  }
+
+  if (create) {
+    onVisibilityChange(() => {
+      if (isHidden()) {
+        if (!source && timer === null) return
+        // Hidden: no stream and no polling; the next open re-reads.
+        stop()
+        failures = 0
+        setState({ mode: 'connecting', syncs: state.syncs })
+      } else if (listeners.size > 0 && !source && timer === null) {
+        connect()
+      }
+    })
   }
 
   return {

@@ -3461,6 +3461,19 @@ def list_job_records() -> list:
         return [dict(r) for r in rows]
 
 
+def list_job_record_fingerprints() -> dict:
+    """{job_id: (status, progress, message, error, finished_at,
+    cancel_requested, result length)} for every job_records row: the cheap
+    change check behind the SSE stream's sweep (services/
+    event_stream_service.py). updated_at is left out on purpose: the
+    heartbeat bumps it without any visible change."""
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT job_id, status, progress, message, error, finished_at, cancel_requested, "
+            "LENGTH(result_json) FROM job_records").fetchall()
+    return {r[0]: tuple(r[1:]) for r in rows}
+
+
 def get_job_record(job_id: str):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM job_records WHERE job_id = ?", (job_id,)).fetchone()

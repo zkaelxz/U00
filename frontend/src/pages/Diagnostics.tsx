@@ -108,6 +108,12 @@ export default function DiagnosticsPage() {
     const t = setInterval(() => void refreshJobs(), POLL_MS)
     return () => clearInterval(t)
   }, [watch, refreshJobs])
+  // Elapsed times keep counting while a job runs, with or without polls.
+  useEffect(() => {
+    if (!active) return
+    const t = setInterval(() => setNow(Date.now() / 1000), POLL_MS)
+    return () => clearInterval(t)
+  }, [active])
   // A job just finished: it moves to the history.
   useEffect(() => {
     if (!active) refreshHistory()
