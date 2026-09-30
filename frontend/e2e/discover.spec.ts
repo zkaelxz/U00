@@ -79,6 +79,11 @@ test('find on platforms translates an English title with the picked engine', asy
   await expect(page.getByTestId('search-links')).toBeVisible()
   expect(posts(s, '/translate-query')).toHaveLength(1)
 
+  await page.getByLabel('Genre').selectOption('any')
+  await page.getByLabel('JJWXC tag').fill('言情')
+  await page.getByRole('button', { name: 'Find', exact: true }).click()
+  await expect.poll(() => s.calls.some((c) => c.path.includes('genre=any&tag=%E8%A8%80%E6%83%85'))).toBe(true)
+
   await page.getByText('Known official platforms').click()
   const platforms = page.getByTestId('platforms')
   await expect(platforms.getByRole('link', { name: 'JJWXC (晋江文学城)' })).toHaveAttribute('target', '_blank')

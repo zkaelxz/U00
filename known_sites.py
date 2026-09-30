@@ -165,7 +165,7 @@ def _q(text: str) -> str:
 
 
 def build_search_links(query: str, language: str = None, content_type: str = None,
-                        genre_hint: str = "百合"):
+                        genre_hint: str = "百合", baihe_only: bool = True, tag: str = ""):
     """
     Builds real search URLs for finding a title across the official
     platforms, rather than pretending to search them from inside the app.
@@ -176,6 +176,10 @@ def build_search_links(query: str, language: str = None, content_type: str = Non
     with JavaScript so a scraped query returns nothing anyway. A
     site-scoped search works for every one of them and stays working.
 
+    With baihe_only=False the baihe genre hint is dropped from the web
+    searches and the JJWXC tag-browse link points at their general listing,
+    or at `tag` when one is given.
+
     Returns [{"site", "url", "kind"}] -- 'kind' is "web" for a scoped web
     search, "direct" where the platform has a stable search URL worth
     using directly.
@@ -183,6 +187,8 @@ def build_search_links(query: str, language: str = None, content_type: str = Non
     if not (query or "").strip():
         return []
     q = query.strip()
+    if not baihe_only:
+        genre_hint = ""
     links = []
 
     for site in list_sites(content_type=content_type, language=language):
@@ -212,10 +218,19 @@ def build_search_links(query: str, language: str = None, content_type: str = Non
             "note": "baihehub's own search -- renders with JavaScript, so open it in a browser",
         })
 
+    if not language or language == "zh":
+        tag_label = "百合" if baihe_only else (tag or "").strip()
+        links.append({
+            "site": f"JJWXC ({tag_label} tag)" if tag_label else "JJWXC (all novels)",
+            "url": jjwxc_tag_url(tag_label),
+            "kind": "direct",
+            "note": "Opens JJWXC's tag listing in a browser; the app doesn't read it",
+        })
+
     # A general search is often the fastest way to find which platform carries a work.
     links.insert(0, {
         "site": "General web search",
-        "url": f"https://www.google.com/search?q={_q(f'{q} {genre_hint} 广播剧 OR 小说')}",
+        "url": f"https://www.google.com/search?q={_q(f'{q} {genre_hint} 广播剧 OR 小说'.replace('  ', ' '))}",
         "kind": "web",
         "note": "Broad search across all sites -- usually the quickest way to find who has it",
     })
@@ -229,4 +244,6 @@ def jjwxc_tag_url(tag: str = "百合", page: int = 1) -> str:
     behind their own search interface, so this is a starting point for
     browsing, not something the app reads automatically.
     """
+    if not tag:
+        return f"https://www.jjwxc.net/bookbase.php?page={page}"
     return f"https://www.jjwxc.net/bookbase.php?bq={_q(tag)}&page={page}"
