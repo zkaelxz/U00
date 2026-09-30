@@ -604,7 +604,8 @@ class TestDueCheck:
         def boom():
             raise RuntimeError("db gone")
         monkeypatch.setattr(abs_, "get_settings", boom)
-        assert abs_.check_and_run() == "busy"
+        assert abs_.check_and_run() == "error"
+        assert abs_._get_state()["last_error"] == abs_._CHECK_FAILED
 
     def test_real_scheduled_run_then_not_due(self, isolated_db):
         a = db.create_drama(title_en="A")

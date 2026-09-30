@@ -1674,3 +1674,86 @@ class TestProcessWatcherRobustness:
         assert bg.get_status("w_normal")["status"] == "done"
         assert proc.joins >= 1
         assert q.closed
+
+
+_FAKE_KEY = "AIzaSyFAKESECRETVALUE12345"
+
+
+def _log_text():
+    import applog
+    return "\n".join(applog.tail(200))
+
+
+def _boom(*a, **k):
+    raise sqlite3.OperationalError(f"disk I/O error key={_FAKE_KEY}")
+
+
+class TestSwallowedFailuresAreVisible:
+    def test_gpu_lock_db_error_queues_the_job_and_logs(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        bg.set_gpu_limit_enabled(True)
+        real = db.try_acquire_gpu_lock
+        monkeypatch.setattr(db, "try_acquire_gpu_lock", _boom)
+        ran = threading.Event()
+        assert bg.start_job("gl_err", ran.set, gpu_touching=True) is True
+        assert bg.get_status("gl_err")["status"] == "queued"
+        assert not ran.is_set()
+        log = _log_text()
+        assert "could not take the GPU lock" in log and _FAKE_KEY not in log
+        monkeypatch.setattr(db, "try_acquire_gpu_lock", real)
+        bg.recheck_gpu_queue()
+        assert ran.wait(5)
+
+    def test_external_gpu_check_error_is_logged_and_ignored(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", _boom)
+        assert bg.start_job("ext_err", lambda: None, gpu_touching=True) is True
+        _wait("ext_err")
+        assert bg.get_status("ext_err")["status"] == "done"
+        log = _log_text()
+        assert "external GPU load check failed" in log and _FAKE_KEY not in log
+
+    def test_gpu_limit_setting_error_is_logged(self, monkeypatch):
+        monkeypatch.setattr(db, "get_app_setting", _boom)
+        assert bg.get_gpu_limit_enabled() is True
+        assert "could not read the GPU-limit setting" in _log_text()
+
+    def test_db_cancel_check_error_is_logged_once_and_retried(self, monkeypatch):
+        calls = []
+
+        def failing(job_id):
+            calls.append(job_id)
+            raise sqlite3.OperationalError(f"database is locked key={_FAKE_KEY}")
+
+        monkeypatch.setattr(db, "is_job_record_cancel_requested", failing)
+        # Set the log handler up before the job thread logs: two threads
+        # doing it at once can attach it twice and write every line twice.
+        import applog
+        applog.get_logger()
+        release = threading.Event()
+        bg.start_job("dc_err", lambda: release.wait(5))
+        try:
+            assert bg.is_cancel_requested("dc_err") is False
+            assert bg.is_cancel_requested("dc_err") is False
+            assert len(calls) == 2    # not held back by the check interval
+            log = _log_text()
+            assert log.count("could not read a cancel request") == 1
+            assert _FAKE_KEY not in log
+        finally:
+            release.set()
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX process-group kill")
+    def test_kill_tree_failure_is_logged(self, monkeypatch):
+        def denied(pid, sig):
+            raise PermissionError("not permitted")
+
+        class _Proc:
+            pid = 999999
+
+            def kill(self):
+                raise OSError("kill failed")
+
+        monkeypatch.setattr(os, "killpg", denied)
+        bg._kill_tree(_Proc())
+        log = _log_text()
+        assert "could not kill process tree 999999" in log
+        assert "could not kill process 999999" in log

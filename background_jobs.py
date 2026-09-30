@@ -189,14 +189,26 @@ _gpu_queue = []  # [{"job_id", "target", "args", "kwargs", "description"}, ...],
 # itself started, so there's nothing cross-process to reconcile here.
 
 
+def _warn(what, exc):
+    """Logs a swallowed failure at warning, secret-redacted. Never raises."""
+    try:
+        import applog
+        from translate_engines import redact_secrets
+        applog.get_logger().warning(
+            f"{what}: " + redact_secrets(f"{type(exc).__name__}: {exc}")[:300])
+    except Exception:
+        pass
+
+
 def get_gpu_limit_enabled() -> bool:
     import db
     try:
         return bool(db.get_app_setting("gpu_limit_enabled", True))
-    except Exception:
+    except Exception as exc:
         # Never let a DB hiccup block a job from starting -- the GPU
         # guard is a soft, best-effort convenience, not a correctness
         # requirement. Fails open (limit stays on, the safer default).
+        _warn("could not read the GPU-limit setting; keeping the limit on", exc)
         return True
 
 
@@ -329,24 +341,28 @@ def _gpu_slot_available_locked(job_id, description):
     "running" -- so a caller must be about to actually start the job right
     after this returns True, not just probe.
 
-    Best-effort throughout: this module is deliberately usable with no
-    library DB and no nvidia-smi at all (plain in-process job tracking, per
-    its own docstring, and several tests exercise it standalone) -- if
-    either check isn't reachable/available, this falls back to whatever
-    checks still are, rather than blocking a job from starting."""
+    No nvidia-smi (or a failing external check) is ignored. A failing
+    cross-process lock is not: the job queues (False) until the lock can
+    be taken, since starting anyway could share the GPU with a CLI run."""
     if _other_gpu_job_running_locked(job_id):
         return False
     try:
         import diagnostics
         if diagnostics.external_gpu_is_busy():
             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        # Fails open on purpose: this check is optional (no nvidia-smi is
+        # normal and returns False without raising), the two locks remain.
+        _warn("external GPU load check failed; ignoring it", exc)
     try:
         import db
         return db.try_acquire_gpu_lock(f"ui:{job_id}", description)
-    except Exception:
-        return True
+    except Exception as exc:
+        # Fails closed: without the cross-process lock a CLI GPU run could
+        # share the card. The job queues and the API's GPU-queue poller
+        # (api/background.py) retries it.
+        _warn(f"job {job_id}: could not take the GPU lock; queuing", exc)
+        return False
 
 
 def _release_gpu_slot(job_id, gpu_touching):
@@ -1168,6 +1184,7 @@ def request_cancel(job_id: str):
 
 _DB_CANCEL_CHECK_INTERVAL = 2.0
 _last_db_cancel_check = {}
+_db_cancel_check_failed = set()   # job ids whose check failure was already logged
 
 
 def _db_cancel_requested(job_id: str) -> bool:
@@ -1190,7 +1207,16 @@ def _db_cancel_requested(job_id: str) -> bool:
     try:
         import db
         requested = db.is_job_record_cancel_requested(job_id)
-    except Exception:
+    except Exception as exc:
+        # Retried on the next call rather than after the interval, and
+        # logged once per job: an unseen failure hides a cross-process Cancel.
+        with _lock:
+            if _last_db_cancel_check.get(job_id) == now:
+                _last_db_cancel_check.pop(job_id, None)
+            first = job_id not in _db_cancel_check_failed
+            _db_cancel_check_failed.add(job_id)
+        if first:
+            _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False
     if requested:
         request_cancel(job_id)
@@ -1217,12 +1243,14 @@ def _kill_tree(proc):
         else:
             import signal
             os.killpg(proc.pid, signal.SIGKILL)
-    except Exception:
-        pass
+    except ProcessLookupError:
+        pass   # the group already exited
+    except Exception as exc:
+        _warn(f"could not kill process tree {proc.pid}", exc)
     try:
         proc.kill()
-    except Exception:
-        pass
+    except Exception as exc:
+        _warn(f"could not kill process {proc.pid}", exc)
 
 
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,

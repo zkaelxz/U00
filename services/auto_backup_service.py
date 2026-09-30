@@ -171,6 +171,7 @@ _UNMANAGED = ("That copy isn't managed by this library (another library's, one m
               "copies were tagged, or one that can't be read). Confirm deleting it "
               "explicitly.")
 _FAILED = "The backup could not be written; the existing copies were kept."
+_CHECK_FAILED = "The automatic backup check failed, so no backup was started."
 
 # Held while a copy is added, pruned, moved, deleted, or read for a restore,
 # so none of those see a half-written folder (and Windows never deletes or
@@ -1157,8 +1158,9 @@ def start_now(replace: bool = False, include_media=None) -> dict:
 
 def check_and_run(now=None) -> str:
     """The scheduled due-check. Returns "disabled", "not_due", "busy" (a job,
-    restore or maintenance is in progress; tried again at the next check)
-    or "started". Never raises."""
+    restore or maintenance is in progress; tried again at the next check),
+    "started" or "error" (the check itself failed; recorded as last_error
+    so the settings page shows it). Never raises."""
     try:
         settings = get_settings()
         if not settings["enabled"]:
@@ -1171,7 +1173,9 @@ def check_and_run(now=None) -> str:
         return "started" if _start(settings["include_media"]) else "busy"
     except Exception as exc:
         log.warning("Automatic backup check failed: %s", type(exc).__name__)
-        return "busy"
+        with contextlib.suppress(Exception):
+            _update_state(last_error=_CHECK_FAILED)
+        return "error"
 
 
 def periodic_tick(interval: float = None) -> bool:
