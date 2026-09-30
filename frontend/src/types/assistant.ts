@@ -11,10 +11,16 @@ export interface AssistantSettings {
   roles_enabled?: boolean
   review_engine?: string | null
   review_model?: string | null
+  // The engine used when none is picked or saved (local: Ollama).
+  default_engine?: string
+  // Engines that run on this PC; code and logs never leave it.
+  local_engines?: string[]
+  // Per cloud engine: has the owner allowed sending code and logs to it?
+  cloud_consent?: Record<string, boolean>
 }
 
 export type AssistantSettingsPatch = Partial<
-  Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model'>
+  Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
 >
 
 export interface AssistantTool {

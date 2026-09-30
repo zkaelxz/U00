@@ -1,7 +1,7 @@
 // Pure helpers for the Maintenance assistant page (kept out of the .tsx for tests).
 import { ApiError } from '../../api/client'
 import { describeError, safeDetail } from '../../components/errorMessages'
-import type { BadgeTone } from '../../components/labels'
+import { humanize, type BadgeTone } from '../../components/labels'
 import type { AskResponse, AssistantSettings, AssistantSettingsPatch, BacklogKind, ChatTurn } from '../../types/assistant'
 
 export const DEVELOPER_MODE_HELP = 'Shows maintenance tools (the AI maintenance assistant) in the menu. Off by default.'
@@ -26,9 +26,31 @@ export function isForbidden(e: unknown): boolean {
 }
 
 /** Plain text for an assistant call's failure. Server text only when it is safe (no paths or keys). */
+/** The engine a 409 names when it needs the owner's consent to send code and logs, else null. */
+export function consentEngineOf(e: unknown): string | null {
+  const err = e as Partial<ApiError> | null
+  const d = err?.details as { reason?: string; engine?: unknown } | undefined
+  if (err?.status !== 409 || d?.reason !== 'cloud_consent_required') return null
+  return typeof d.engine === 'string' ? d.engine : ''
+}
+
+export function consentNeededText(engine: string): string {
+  const name = engine ? humanize('engine', engine) : 'that engine'
+  return `Sending this app's code and logs to ${name} isn't allowed yet. Allow it below (Engine), or use Ollama to keep everything on this PC.`
+}
+
+/** Cloud engines the owner hasn't allowed yet; a local engine never needs it. */
+export function needsConsent(s: Pick<AssistantSettings, 'cloud_consent' | 'local_engines' | 'default_engine'>, engine: string): boolean {
+  const e = engine || s.default_engine || 'ollama'
+  if ((s.local_engines ?? ['ollama']).includes(e)) return false
+  return s.cloud_consent?.[e] !== true
+}
+
 export function assistantErrorText(e: unknown): string {
   const err = e as Partial<ApiError> | null
   const status = err?.status
+  const consent = consentEngineOf(e)
+  if (consent !== null) return consentNeededText(consent)
   if (status === 403 || err?.code === 'forbidden') return PC_ONLY_TEXT
   if (status === 409) return MODE_OFF_TEXT
   if (status === 503) return NO_KEY_TEXT

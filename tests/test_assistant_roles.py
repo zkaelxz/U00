@@ -167,3 +167,19 @@ def test_the_reviewer_shares_the_one_test_run(engines, monkeypatch):
     chat = EngineChat(claude=[call, PATCH], gemini=[call, "VERDICT: AGREES\nok"])
     out = svc.ask("x", chat=chat)
     assert len(ran) == 1 and out["review"]["tool_calls"][0]["ok"] is False
+
+
+def test_review_engine_without_cloud_consent_is_not_reviewed(engines, monkeypatch):
+    from services import line_ai_service, reader_service
+    monkeypatch.undo()
+    monkeypatch.setattr(svc, "build_engine",
+                        lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
+    monkeypatch.setattr(reader_service, "_llm_engine", lambda n, m: FakeEngine(n))
+    monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
+    chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nok"])
+    out = svc.ask("x", chat=chat)
+    assert out["review"]["verdict"] == "unavailable" and "isn't allowed yet" in out["review"]["notes"]
+    assert [c[0] for c in chat.calls] == ["claude"] and out["proposed_patches"]
+    svc.set_settings({"cloud_consent": {"gemini": True}})
+    chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nok"])
+    assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"

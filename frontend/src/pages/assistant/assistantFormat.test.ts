@@ -77,3 +77,20 @@ describe('assistant page helpers', () => {
     expect(plural(3, 'item')).toBe('3 items')
   })
 })
+
+describe('cloud consent (lead review)', () => {
+  it('reads the engine from a consent 409 and leaves other 409s alone', async () => {
+    const { ApiError } = await import('../../api/client')
+    const { consentEngineOf, assistantErrorText, needsConsent, MODE_OFF_TEXT } = await import('./assistantFormat')
+    const consent = new ApiError(409, { code: 'conflict', message: 'x', details: { reason: 'cloud_consent_required', engine: 'claude' } })
+    expect(consentEngineOf(consent)).toBe('claude')
+    expect(assistantErrorText(consent)).toMatch(/isn't allowed yet/)
+    const off = new ApiError(409, { code: 'conflict', message: 'Developer Mode is off.' })
+    expect(consentEngineOf(off)).toBeNull()
+    expect(assistantErrorText(off)).toBe(MODE_OFF_TEXT)
+    const s = { default_engine: 'ollama', local_engines: ['ollama'], cloud_consent: { claude: true, gemini: false } }
+    expect(needsConsent(s, '')).toBe(false)
+    expect(needsConsent(s, 'claude')).toBe(false)
+    expect(needsConsent(s, 'gemini')).toBe(true)
+  })
+})

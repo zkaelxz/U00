@@ -11,6 +11,7 @@ import { humanize } from '../../components/labels'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, SuggestedBacklogItem } from '../../types/assistant'
+import { CloudConsent } from './CloudConsent'
 import { CopyButton } from './CopyButton'
 import { ReviewRolesSection } from './ReviewRolesSection'
 import { verdictInfo } from './reviewFormat'
@@ -277,7 +278,9 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   const [error, setError] = useState<string | null>(null)
   const changes = engineChanges(settings, engine, model)
   const changed = Object.keys(changes).length > 0
-  const summary = `${engine ? humanize('engine', engine) : 'Server default'}${model.trim() ? ` · ${model.trim()}` : ''}`
+  const defaultName = humanize('engine', settings.default_engine ?? 'ollama')
+  const summary = `${engine ? humanize('engine', engine) : `Default (${defaultName})`}${model.trim() ? ` · ${model.trim()}` : ''}`
+  const picked = engine || settings.engine || settings.default_engine || 'ollama'
 
   const save = () => {
     setBusy(true)
@@ -299,7 +302,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   return (
     <Section title="Engine" summary={summary} storageKey="assistant.engine">
       <div className="assistant-engine">
-        <Field label="Engine" help="Which AI answers. Server default uses the app's usual engine.">
+        <Field label="Engine" help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
           <select
             value={engine}
             onChange={(e) => {
@@ -307,7 +310,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
               setNote(null)
             }}
           >
-            <option value="">Server default</option>
+            <option value="">{`Default (${defaultName})`}</option>
             {settings.engine_choices.map((c) => (
               <option key={c} value={c}>
                 {humanize('engine', c)}
@@ -337,6 +340,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
           {note ?? ''}
         </span>
       </div>
+      <CloudConsent settings={settings} onSettings={onSettings} only={[picked]} />
       {error && (
         <p className="error" role="alert">
           {error}
