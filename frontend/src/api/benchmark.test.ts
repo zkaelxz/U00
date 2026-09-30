@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
+  addRegressionCase, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
   getBenchmarkOptions, getBenchmarkRun, getBenchmarkSets, importGoldenSet, listBenchmarkRuns, startBenchmarkRun,
 } from './benchmark'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -83,5 +83,14 @@ describe('benchmark api', () => {
     const { f } = reply(403, { error: { code: 'forbidden', message: 'PC only.' } })
     await expect(deleteBenchmarkCase(1, f)).rejects.toMatchObject({ status: 403 })
     expect(getPcMode()).toBe('remote')
+  })
+
+  it('adds a regression case from a line through the PC-only path', async () => {
+    const { mock, f } = reply(200, { case: {}, replaced: false })
+    await addRegressionCase(3, 42, f)
+    const [url, init] = mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/benchmark/dramas/3/lines/42/regression')
+    expect(init.method).toBe('POST')
+    expect(localHeader(init)).toBe('1')
   })
 })

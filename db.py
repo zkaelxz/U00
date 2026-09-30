@@ -4114,6 +4114,12 @@ def update_benchmark_session(session_id: int, **fields):
         conn.commit()
 
 
+def delete_benchmark_sessions(session_ids):
+    with contextlib.closing(get_conn()) as conn:
+        conn.executemany("DELETE FROM benchmark_sessions WHERE id = ?", [(i,) for i in session_ids])
+        conn.commit()
+
+
 def get_benchmark_session(session_id: int):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone()
