@@ -53,6 +53,28 @@ class TestSetup:
         assert _setup_value(iss, "ExtraDiskSpaceRequired") == "{#ExtraDiskSpace}"
 
 
+class TestExistingDataWarning:
+    def test_setup_warns_about_an_existing_library_or_keys(self, iss):
+        # The data-folder page asks before reusing a folder that already
+        # holds library\\, .env or model_cache, defaulting to No.
+        m = re.search(r"function ExistingDataItems.*?\nend;", iss, re.S)
+        assert m
+        for name in ("library", ".env", "model_cache"):
+            assert f"'{name}'" in m.group(0) or f"'{name}" in m.group(0)
+        nb = re.search(r"function NextButtonClick.*?\nend;", iss, re.S).group(0)
+        assert "ExistingDataItems(DataDir())" in nb
+        assert "keeps them unless you tick" in nb
+        warn = nb[nb.index("ExistingDataItems(DataDir())"):]
+        assert "MB_DEFBUTTON2" in warn
+
+    def test_deletion_stays_opt_in_and_by_name(self, iss):
+        # Uninstall boxes start unticked and a folder Setup didn't create is
+        # never removed wholesale.
+        assert iss.count("Result.Checked := False;") == 1
+        assert "if CleanAll and UninstDataDirCreated then" in iss
+        assert "DataDirCreatedBySetup := DataDirIsNew or" in iss
+
+
 class TestNoSecrets:
     SECRET_PATTERNS = [
         r"sk-ant-[A-Za-z0-9]", r"sk-[A-Za-z0-9]{20,}", r"AIza[0-9A-Za-z_-]{20,}",
