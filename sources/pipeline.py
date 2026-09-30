@@ -48,9 +48,11 @@ def _page_lock(drama_id: int) -> threading.Lock:
 
 
 def _next_page_index(drama_id: int, pages_dir: str) -> int:
-    """Past every page row and every page_NNNN.* file already on disk."""
+    """MAX(idx)+1 over every page row and every page_NNNN.* file already
+    on disk (never the row count: a deleted page leaves a gap). Called
+    under the per-drama page lock."""
     pages = db.list_pages(drama_id)
-    idx = len(pages)
+    idx = 0
     for p in pages:
         if isinstance(p.get("idx"), int):
             idx = max(idx, p["idx"] + 1)
@@ -80,9 +82,10 @@ def _claim_page_index(pages_dir: str, idx: int):
     return claim
 
 
-def add_page_images(drama_id: int, images) -> int:
+def add_page_images(drama_id: int, images, ids_out: list = None) -> int:
     """`images`: iterable of (bytes, ext). Returns how many pages were
-    added. Same files and rows as Scanlate's own upload path.
+    added (and appends each new page's id to `ids_out` when given). Same
+    files and rows as Scanlate's own upload path.
 
     Safe against a second writer (security review MED-2): a per-drama lock
     covers the index computation and the writes in this process, and each
@@ -122,7 +125,9 @@ def add_page_images(drama_id: int, images) -> int:
                         continue
                     with Image.open(fpath) as im:
                         w, h = im.size
-                    db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+                    pid = db.create_page(drama_id, idx, os.path.join("pages", fname), w, h)
+                    if ids_out is not None:
+                        ids_out.append(pid)
                 finally:
                     os.remove(claim)
                 break
@@ -259,6 +264,11 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         cancelled = True
     finally:
         cache.release()
+        try:
+            cache.enforce_ceiling()
+        except Exception:   # a cache trim must never lose the import's result
+            import applog
+            applog.get_logger().warning("Could not trim the source cache", exc_info=True)
         background_jobs.set_result(job_id, {"stats": adapter.client.snapshot(),
                                             "chapters": results, "handoff": handoff,
                                             "cancelled": cancelled, "partial": False,

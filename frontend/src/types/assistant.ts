@@ -11,6 +11,8 @@ export interface AssistantSettings {
   roles_enabled?: boolean
   review_engine?: string | null
   review_model?: string | null
+  // Engines the review role may use (no offline test engine).
+  review_engine_choices?: string[]
   // The engine used when none is picked or saved (local: Ollama).
   default_engine?: string
   // Engines that run on this PC; code and logs never leave it.

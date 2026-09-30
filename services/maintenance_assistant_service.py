@@ -159,9 +159,24 @@ def _get(key: str, default=None):
         return default
 
 
-# Engines that run on this PC: code and logs never leave it.
+# Engines that run on this PC: code and logs never leave it. Ollama only
+# counts while its endpoint is loopback (_ollama_is_local).
 LOCAL_ENGINES = frozenset({"ollama", "test_offline"})
 DEFAULT_ENGINE = "ollama"
+# Never offered or accepted as the review role's engine: it can't read
+# code, so its "verdict" would be noise shown as an independent review.
+_NOT_REVIEWERS = frozenset({"test_offline"})
+
+
+def _is_local_engine(name: str) -> bool:
+    if name == "ollama":
+        return _ollama_is_local()
+    return name in LOCAL_ENGINES
+
+
+def _review_engine_choices(choices=None) -> list:
+    return [c for c in (choices if choices is not None else _llm_engine_choices())
+            if c not in _NOT_REVIEWERS]
 
 
 def _cloud_consent() -> dict:
@@ -169,10 +184,30 @@ def _cloud_consent() -> dict:
     return {k: True for k, v in raw.items() if v is True} if isinstance(raw, dict) else {}
 
 
+def _ollama_is_local() -> bool:
+    """Ollama is local only when its endpoint is this PC (loopback); a
+    remote or LAN Ollama server needs consent like a cloud engine."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    from services import settings_service
+    url = settings_service.resolve_key("ollama_url") or "http://localhost:11434"
+    try:
+        host = urlsplit(url if "://" in url else "http://" + url).hostname or ""
+    except ValueError:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def cloud_consent_given(engine_name: str) -> bool:
-    """A local engine needs no consent; a cloud one needs the owner's
-    saved, per-provider "allow sending code and logs" consent."""
-    return engine_name in LOCAL_ENGINES or _cloud_consent().get(engine_name) is True
+    """A local engine needs no consent; a cloud one (or Ollama on another
+    machine) needs the owner's saved, per-provider "allow sending code
+    and logs" consent."""
+    return _is_local_engine(engine_name) or _cloud_consent().get(engine_name) is True
 
 
 def require_cloud_consent(engine_name: str):
@@ -194,6 +229,8 @@ def get_settings() -> dict:
     review_engine = _get("review_engine")
     review_model = _get("review_model")
     choices = _llm_engine_choices()
+    review_choices = _review_engine_choices(choices)
+    local = {c for c in choices if _is_local_engine(c)}
     return {
         "developer_mode": developer_mode_enabled(),
         "engine": engine if engine in choices else None,
@@ -201,19 +238,22 @@ def get_settings() -> dict:
         "engine_choices": choices,
         # Step 60: implement -> independent review, off by default.
         "roles_enabled": _get("roles_enabled", False) is True,
-        "review_engine": review_engine if review_engine in choices else None,
+        "review_engine": review_engine if review_engine in review_choices else None,
+        "review_engine_choices": review_choices,
         "review_model": review_model if isinstance(review_model, str) and review_model else None,
         "default_engine": DEFAULT_ENGINE,
-        "local_engines": sorted(LOCAL_ENGINES & set(choices)),
-        # Per cloud engine: may the assistant send code and logs to it?
-        "cloud_consent": {c: cloud_consent_given(c) for c in choices if c not in LOCAL_ENGINES},
+        "local_engines": sorted(local),
+        # Per cloud engine (and Ollama on another machine): may the
+        # assistant send code and logs to it?
+        "cloud_consent": {c: cloud_consent_given(c) for c in choices if c not in local},
     }
 
 
 def _check_engine_name(name, field="engine"):
     if name is None:
         return None
-    if not isinstance(name, str) or name not in _llm_engine_choices():
+    choices = _review_engine_choices() if field == "review_engine" else _llm_engine_choices()
+    if not isinstance(name, str) or name not in choices:
         raise InvalidInputError(f"{field} must be one of the chat-capable engines.")
     return name
 
@@ -248,7 +288,8 @@ def set_settings(updates: dict) -> dict:
             merged = _cloud_consent()
             for eng, allowed in value.items():
                 _check_engine_name(eng, "cloud_consent engine")
-                if eng in LOCAL_ENGINES or not isinstance(allowed, bool):
+                # Ollama can be on another machine, so it may need consent too.
+                if (eng in LOCAL_ENGINES and eng != "ollama") or not isinstance(allowed, bool):
                     raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
                 merged[eng] = allowed
             cleaned[key] = {k: v for k, v in merged.items() if v is True}
@@ -517,6 +558,18 @@ def tool_git_diff(args: dict) -> str:
     if to_ref:
         cmd.append(to_ref)
     cmd.append("--")
+    if not path:
+        # Obey the deny-list: drop changed tracked files the assistant may
+        # not read (secret-named files, dot-dirs) and name the rest.
+        names_cmd = ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", ref]
+        if to_ref:
+            names_cmd.append(to_ref)
+        names = [n for n in _git(*names_cmd, "--").split("\0") if n]
+        allowed = [n for n in names if not _denied_rel([x for x in n.split("/") if x], False)]
+        if len(allowed) != len(names):
+            if not allowed:
+                return "No differences."
+            cmd.extend(allowed)
     if path:
         full = os.path.realpath(os.path.join(repo_root(), path.replace("\\", "/")))
         # Same rules as reading; a deleted file can't be resolved, so

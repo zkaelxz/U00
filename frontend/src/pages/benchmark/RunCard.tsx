@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   estimateBenchmark, startBenchmarkRun, type BenchmarkConfig, type BenchmarkEstimate,
@@ -13,9 +13,9 @@ import { routeHref } from '../../router'
 import type { JobRecord } from '../../types/jobs'
 import { engineOptionLabel } from '../translatePage'
 import {
-  OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, configLabel, defaultConfig, enginesMissingKey,
-  estimateKey, formatCost, plainError, restoreConfigs, runRequestBody, selectionProblems, setOptions, startState,
-  type RunSelection,
+  OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, comparePrefill, configLabel, defaultConfig, enginesMissingKey,
+  estimateKey, formatCost, parseCompareParam, plainError, restoreConfigs, runRequestBody, selectionProblems, setOptions,
+  startState, type ComparePrefill, type RunSelection,
 } from './benchmarkForm'
 
 type Props = {
@@ -26,12 +26,14 @@ type Props = {
   running: boolean
   onStarted: (res: BenchmarkRunStarted) => void
   onStop: () => void
+  // The raw ?compare= value of a "Compare in Benchmark Lab" link (Model health).
+  compare?: string
 }
 
 const STAGES: BenchmarkStage[] = ['translation', 'transcription', 'ocr']
 
 /** "Run a benchmark": what to run, on which cases; estimate first, then Start. */
-export function RunCard({ options, sets, pcRemote, job, running, onStarted, onStop }: Props) {
+export function RunCard({ options, sets, pcRemote, job, running, onStarted, onStop, compare }: Props) {
   const [stage, setStage] = usePersistedState<string>('benchmark.stage', 'translation')
   const st: BenchmarkStage = STAGES.includes(stage as BenchmarkStage) ? (stage as BenchmarkStage) : 'translation'
   const [tier, setTier] = usePersistedState<string>('benchmark.tier', '')
@@ -47,6 +49,23 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
 
   const configs = useMemo(() => restoreConfigs(st, savedConfigs[st], options), [st, savedConfigs, options])
   const setConfigs = (next: BenchmarkConfig[]) => setSavedConfigs({ ...savedConfigs, [st]: next })
+
+  // A compare link sets up a translation run of those engines once (and is
+  // remembered like any other pick); the query then leaves the address bar
+  // so a reload doesn't undo later changes.
+  const [prefill, setPrefill] = useState<ComparePrefill | null>(null)
+  const appliedCompare = useRef<string | null>(null)
+  useEffect(() => {
+    if (!compare || appliedCompare.current === compare) return
+    appliedCompare.current = compare
+    const p = comparePrefill(parseCompareParam(compare), options)
+    if (p.configs.length) {
+      setStage('translation')
+      setSavedConfigs({ ...savedConfigs, translation: p.configs })
+    }
+    setPrefill(p)
+    if (window.location.hash.startsWith('#/benchmark?')) window.history.replaceState(window.history.state, '', '#/benchmark')
+  }, [compare, options, savedConfigs, setStage, setSavedConfigs])
 
   const tierValue = (options.tiers as string[]).includes(tier) ? (tier as BenchmarkTier) : ''
   const setChoices = setOptions(sets, st, tierValue)
@@ -139,6 +158,8 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
           can only add translation cases.
         </p>
       )}
+
+      {prefill && <PrefillNote prefill={prefill} onDismiss={() => setPrefill(null)} />}
 
       <fieldset className="bench-configs">
         <legend>Engines to compare</legend>
@@ -284,7 +305,32 @@ function ConfigRow({ stage, options, config, index, onChange }: {
   )
 }
 
-function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: BenchmarkStage }) {
+function PrefillNote({ prefill, onDismiss }: { prefill: ComparePrefill; onDismiss: () => void }) {
+  const names = prefill.configs.map((c) => configLabel('translation', c.engine, c.model))
+  return (
+    <div className="bench-prefill" role="status" data-testid="bench-compare-note">
+      <p>
+        {names.length >= 2
+          ? `Set up from Model health: ${names.join(' vs ')}. Pick a golden set, then estimate the cost.`
+          : names.length === 1
+            ? `Set up from Model health: ${names[0]}. Add another engine to compare, or estimate the cost.`
+            : 'Nothing from that Model health link can be run here; your engine picks are unchanged.'}
+      </p>
+      {prefill.notes.length > 0 && (
+        <ul>
+          {prefill.notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className={buttonClass('ghost', 'sm')} onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  )
+}
+
+export function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: BenchmarkStage }) {
   const capLine = est.monthly_cap_usd > 0
     ? `This month: ${formatCost(est.month_spend_usd)} spent of a ${formatCost(est.monthly_cap_usd)} cap${
         est.remaining_usd != null ? ` · ${formatCost(est.remaining_usd)} left` : ''}`
@@ -317,7 +363,7 @@ function EstimateBlock({ est, stage }: { est: BenchmarkEstimate; stage: Benchmar
   )
 }
 
-function JobProgress({ job, onStop }: { job: JobRecord | null; onStop: () => void }) {
+export function JobProgress({ job, onStop }: { job: JobRecord | null; onStop: () => void }) {
   const pct = job?.progress != null ? Math.round(job.progress * 100) : null
   return (
     <div className="bench-progress" data-testid="bench-progress" role="status">

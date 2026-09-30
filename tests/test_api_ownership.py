@@ -40,7 +40,7 @@ NON_ADMIN = auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS + auth_service.OPT_IN_PER
 # covers the parent; the service scopes the child to it) or not drama-scoped.
 OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
-    "name": "a source adapter name, not an item",
+    "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
     "domain": "source profile domain (admin.settings)",
     "kind": "an artifact/profile kind, not an item",
@@ -57,6 +57,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "backlog_id": "maintenance-assistant backlog item: app-wide, PC-only (Step 42)",
     "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
+    "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a

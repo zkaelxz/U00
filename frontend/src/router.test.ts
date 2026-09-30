@@ -58,6 +58,20 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'comic', id: 3, page: null })).toBe('#/comic/3')
   })
 
+  it('keeps the benchmark compare query raw; the plain route still works', () => {
+    expect(parseRoute('#/benchmark?compare=claude:claude-sonnet-4-6,claude:claude-sonnet-5')).toEqual({
+      name: 'benchmark', compare: 'claude:claude-sonnet-4-6,claude:claude-sonnet-5',
+    })
+    expect(parseRoute('#/benchmark?x=1&compare=ollama:qwen3%3A8b')).toEqual({ name: 'benchmark', compare: 'ollama:qwen3%3A8b' })
+    expect(parseRoute('#/benchmark?compare=')).toEqual({ name: 'benchmark' })
+    expect(parseRoute('#/benchmark?other=1')).toEqual({ name: 'benchmark' })
+    expect(parseRoute(`#/benchmark?compare=${'a'.repeat(1001)}`)).toEqual({ name: 'benchmark' })
+    expect(parseRoute('#/benchmark/x?compare=a:b')).toEqual({ name: 'library' })
+    expect(routeHref({ name: 'benchmark', compare: 'a:b,a:c' })).toBe('#/benchmark?compare=a:b,a:c')
+    expect(routeHref({ name: 'benchmark' })).toBe('#/benchmark')
+    expect(parseRoute(routeHref({ name: 'benchmark', compare: 'ollama:qwen3%3A8b' }))).toEqual({ name: 'benchmark', compare: 'ollama:qwen3%3A8b' })
+  })
+
   it('round-trips through routeHref', () => {
     for (const r of [{ name: 'library' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)

@@ -49,19 +49,19 @@ import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
-    DEFAULT_WHISPER_SIZE, ModelDownloadError,
+    DEFAULT_WHISPER_SIZE, ModelDownloadError, line_from_row,
 )
+import subtitle_formats
 import translate_engines
 import translation_guide as tguide
 import bulk_translate
 import raw_transcript
-import adaptive_style
-import emotion
 import dub as dub_module
 import background_jobs
 from services import (engine_routing_service, line_provenance_service, narration_service,
-                      settings_service, transcribe_service, translate_service)
+                      settings_service, transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
+from services.service_errors import DependencyUnavailableError
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
 
 
@@ -140,10 +140,12 @@ def _run_batch(dramas, step_fn, label: str):
             step_fn(d)
             succeeded.append(d["id"])
         except Exception as e:
-            failed.append((d["id"], str(e)))
-            print(f"\n#{d['id']} FAILED during {label}: {e}", file=sys.stderr)
+            err = translate_engines.redact_secrets(str(e))
+            failed.append((d["id"], err))
+            print(f"\n#{d['id']} FAILED during {label}: {err}", file=sys.stderr)
             if os.environ.get("BAIHE_CLI_DEBUG"):
-                traceback.print_exc()
+                print(translate_engines.redact_secrets(traceback.format_exc()),
+                      file=sys.stderr, end="")
 
     print(f"\n--- {label} summary: {len(succeeded)} succeeded, {len(failed)} failed ---")
     if failed:
@@ -214,11 +216,39 @@ def cmd_narrate_prep(args):
     _run_batch(dramas, step, "narrate-prep")
 
 
+def _resolve_export_options(args):
+    """(mode, preset) for export-video. --style used to mean hardsub/softsub;
+    those two values still work there, anything else is an ASS preset name."""
+    mode = getattr(args, "mode", None)
+    style = getattr(args, "style", None)
+    if style in ("hardsub", "softsub"):
+        mode, style = mode or style, None
+    mode = mode or "hardsub"
+    preset = None
+    if style:
+        presets = subtitle_formats.ASS_PRESETS
+        matches = [n for n in presets if n.lower() == style.lower()]
+        if not matches:
+            print(f"Unknown style {style!r}. Valid styles: {', '.join(presets)}.",
+                  file=sys.stderr)
+            sys.exit(2)
+        preset = matches[0]
+    if mode == "softsub" and (preset or getattr(args, "no_speaker_colors", False)):
+        print("--style and --no-speaker-colors only apply to burned-in (hardsub) video.",
+              file=sys.stderr)
+        sys.exit(2)
+    return mode, preset
+
+
 def cmd_export_video(args):
     import video_export
-    import subtitle_formats
     from core import lines_to_srt, lines_to_bilingual_srt
+    from services import export_service
 
+    mode, preset = _resolve_export_options(args)
+    # Burned-in video uses the same ASS the API/React export produces (styled,
+    # one colour per speaker); --plain keeps the flat SRT burn.
+    use_ass = mode == "hardsub" and not getattr(args, "plain", False)
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
 
     def step(d):
@@ -230,11 +260,8 @@ def cmd_export_video(args):
         if not os.path.exists(video_path):
             print(f"#{d['id']} skipped: source video file missing on disk.")
             return
-        rows = db.load_lines(d["id"])
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
-                      sfx=bool(r.get("sfx"))) for r in rows]
-        # Step 25d item 6: same clamp Workspace's own export already applies --
-        # never burn in an overlapping (invalid) cue.
+        lines = [line_from_row(r) for r in db.load_lines(d["id"])]
+        # Never burn in an overlapping (invalid) cue.
         lines, _ = subtitle_formats.clamp_overlaps(lines)
 
         # A timed-but-textless subtitle track burns in fine and produces no
@@ -250,18 +277,24 @@ def cmd_export_video(args):
             print(f"#{d['id']} warning: {len(lines) - filled}/{len(lines)} lines have no "
                   f"{field_for_track} text and will appear blank in the burned-in subtitles.")
 
-        srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
-                    "chinese": lines_to_srt(lines, "zh")}[args.subs]
-
         out_ext = os.path.splitext(video_path)[1]
         out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
-        print(f"#{d['id']} rendering {args.style} video...")
-        if args.style == "hardsub":
-            video_export.burn_subtitles(video_path, srt_text, out_path)
+        print(f"#{d['id']} rendering {mode} video...")
+        if use_ass:
+            ass_text = export_service.generate_ass_text(
+                d["id"], field={"english": "en", "bilingual": "bilingual", "chinese": "zh"}[args.subs],
+                preset=preset or "Clean",
+                per_speaker_colors=not getattr(args, "no_speaker_colors", False))
+            video_export.burn_ass(video_path, ass_text, out_path)
         else:
-            if out_ext.lower() not in (".mp4", ".mkv"):
-                out_path = os.path.splitext(out_path)[0] + ".mp4"
-            video_export.mux_soft_subtitles(video_path, srt_text, out_path)
+            srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
+                        "chinese": lines_to_srt(lines, "zh")}[args.subs]
+            if mode == "hardsub":
+                video_export.burn_subtitles(video_path, srt_text, out_path)
+            else:
+                if out_ext.lower() not in (".mp4", ".mkv"):
+                    out_path = os.path.splitext(out_path)[0] + ".mp4"
+                video_export.mux_soft_subtitles(video_path, srt_text, out_path)
         print(f"#{d['id']} exported: {out_path}")
 
     _run_batch(dramas, step, "export-video")
@@ -291,9 +324,11 @@ def cmd_diarize(args):
     are kept unless --overwrite-manual is given."""
     import diarize
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
-    hf_token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+    hf_token = (args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+                or settings_service.resolve_key("hf_token"))
     if not hf_token:
-        print("Needs a Hugging Face token: --hf-token or the HF_TOKEN environment variable.")
+        print("Needs a Hugging Face token: --hf-token, the HF_TOKEN environment variable, "
+              "or one saved in Settings.")
         return
     try:
         num_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
@@ -340,7 +375,39 @@ def cmd_diarize(args):
         _run_batch(dramas, step, "diarize")
 
 
+def _qwen3_missing(exc) -> RuntimeError:
+    """Same as the API (dependency_missing): a drama saved to use Qwen3
+    forced alignment fails rather than quietly using a method nobody chose."""
+    detail = translate_engines.redact_secrets(str(exc))
+    return RuntimeError(
+        "Qwen3-ASR isn't installed, so Qwen3 forced alignment can't run. "
+        "Install qwen-asr from Diagnostics (or: pip install qwen-asr torch), "
+        f"or change this drama's alignment method. ({detail})")
+
+
+def _read_transcript_option(args):
+    """The --transcript text (FILE, or - for stdin), or None when not given.
+    One transcript can only belong to one drama, so it needs --id."""
+    source = getattr(args, "transcript", None)
+    if not source:
+        return None
+    if not args.id:
+        print("--transcript needs --id: one transcript can't be aligned to several dramas.",
+              file=sys.stderr)
+        sys.exit(2)
+    try:
+        if source == "-":
+            return sys.stdin.read()
+        with open(source, "r", encoding="utf-8") as f:
+            return f.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"Couldn't read the transcript: {translate_engines.redact_secrets(str(exc))}",
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_align(args):
+    given_transcript = _read_transcript_option(args)
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
 
     def step(d):
@@ -350,12 +417,15 @@ def cmd_align(args):
         if not audio_path or not os.path.exists(audio_path):
             print(f"#{d['id']} skipped: no audio file found in {ddir}")
             return
-        if not os.path.exists(transcript_path):
-            print(f"#{d['id']} skipped: no transcript.txt found in {ddir} "
-                  f"(place your Chinese transcript there)")
+        if given_transcript is not None:
+            transcript_text = given_transcript
+        elif os.path.exists(transcript_path):
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                transcript_text = f.read()
+        else:
+            print(f"#{d['id']} skipped: no transcript. Pass --transcript FILE (or - for stdin), "
+                  f"or place your Chinese transcript at {transcript_path}")
             return
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            transcript_text = f.read()
         # UI parity (Step 25d item 10): this command used to always use
         # args.whisper_size (or its own hardcoded default), plain
         # character-diff alignment, and no recognition priming at all --
@@ -367,6 +437,12 @@ def cmd_align(args):
         # never applies here and there's nothing to read for it.)
         whisper_size = args.whisper_size or d.get("whisper_size") or DEFAULT_WHISPER_SIZE
         alignment_method = d.get("alignment_method") or "whisper_diff"
+        if alignment_method == "qwen3_forced_align":
+            # Checked before any transcription, as the API does.
+            try:
+                transcribe_service._require_qwen3_packages("Qwen3 forced alignment")
+            except DependencyUnavailableError as exc:
+                raise _qwen3_missing(exc) from exc
         # Glossary names plus raw-novel excerpt, shared with the API path.
         initial_prompt = transcribe_service.build_auto_initial_prompt(d["id"])
         # Same saved tuning the service's transcribe job uses
@@ -395,18 +471,27 @@ def cmd_align(args):
             except word_align.WordAlignError as exc:
                 print(f"#{d['id']} long-line realignment skipped: {exc}")
         user_lines = split_user_transcript(transcript_text)
-        if alignment_method == "qwen3_forced_align":
-            try:
-                import forced_align
-                lines = forced_align.align_with_qwen3(
-                    audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
-            except (ImportError, ModelDownloadError, ValueError) as exc:
-                print(f"#{d['id']} Qwen3 forced alignment unavailable ({exc}) -- using the "
-                      "default character-alignment method for this run.")
+        try:
+            if alignment_method == "qwen3_forced_align":
+                try:
+                    import forced_align
+                    lines = forced_align.align_with_qwen3(
+                        audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
+                except ImportError as exc:
+                    raise _qwen3_missing(exc) from exc
+                except ModelDownloadError as exc:
+                    detail = translate_engines.redact_secrets(str(exc))
+                    raise RuntimeError(
+                        f"Qwen3 forced alignment model download failed: {detail}") from exc
+                except ValueError as exc:
+                    print(f"#{d['id']} Qwen3 forced alignment couldn't align this transcript "
+                          f"({translate_engines.redact_secrets(str(exc))}) -- using the default character-alignment method for this run.")
+                    lines = align_transcript_to_timing(user_lines, segments)
+            else:
                 lines = align_transcript_to_timing(user_lines, segments)
-        else:
-            lines = align_transcript_to_timing(user_lines, segments)
-        release_gpu_models()
+        finally:
+            # Also on a failure: _run_batch carries on with the next drama.
+            release_gpu_models()
         if not _replace_drama_lines(d["id"], lines, "before re-transcribe"):
             return
         # Same untouched-output record the Workspace transcription writes.
@@ -431,7 +516,29 @@ def _flag_or(args, name, defaults):
     return defaults[name] if value is None else value
 
 
+def _parse_fallback_arg(value, reflect=False) -> list:
+    """--fallback "<engine>[,<engine>]" as a list of engine names, checked
+    the way the translate run API checks fallback_chain (at most
+    translate_engines.MAX_FALLBACK_ENGINES, known engines, normal runs
+    only); the chain rules against the primary engine are checked per
+    drama (translate_engines.fallback_chain_error)."""
+    names = [n.strip() for n in (value or "").split(",") if n.strip()]
+    if not names:
+        return []
+    if len(names) > translate_engines.MAX_FALLBACK_ENGINES:
+        raise SystemExit(f"translate: --fallback takes at most "
+                         f"{translate_engines.MAX_FALLBACK_ENGINES} engines.")
+    if reflect:
+        raise SystemExit("translate: --fallback only applies to a normal translation run, "
+                         "not --reflect.")
+    if any(n not in translate_engines.ENGINES for n in names):
+        raise SystemExit("translate: --fallback names an unknown translate engine.")
+    return names
+
+
 def cmd_translate(args):
+    fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
+                                         reflect=getattr(args, "reflect", False))
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
@@ -446,7 +553,7 @@ def cmd_translate(args):
         # --api-key/--model belong to --engine when it's given, else to the
         # old default engine (claude). A drama saved with another engine
         # uses that engine's own configured key -- never someone else's.
-        own_flags = bool(args.engine) or name == _API_KEY_DEFAULT_ENGINE
+        own_flags = (name == args.engine) if args.engine else name == _API_KEY_DEFAULT_ENGINE
         if name not in _engines:
             _engines[name] = translate_engines.get_engine(
                 name,
@@ -454,7 +561,9 @@ def cmd_translate(args):
                  else translate_service.resolve_api_key(name)),
                 args.model if own_flags else None,
                 free_tier=_gemini_free_tier(name),
-                base_url=_ollama_url(args) if name == "ollama" else None)
+                base_url=_ollama_url(args) if name == "ollama" else None,
+                libretranslate_url=(settings_service.resolve_key("libretranslate_url") or None)
+                if name == "libretranslate" else None)
         return _engines[name]
     # Step 74: UI parity -- Workspace's own Translate button builds this
     # same optional summary_engine before starting the job (defaulting to
@@ -470,6 +579,7 @@ def cmd_translate(args):
             raise ValueError("no key for the episode-summary engine")
         summary_engine = translate_engines.get_engine(
             summary_engine_choice, summary_key,
+            free_tier=_gemini_free_tier(summary_engine_choice),
             base_url=_ollama_url(args) if summary_engine_choice == "ollama" else None)
     except Exception:
         summary_engine = None
@@ -490,6 +600,16 @@ def cmd_translate(args):
             print(f"#{d['id']} skipped: saved engine {engine_name}; pass --engine {engine_name} "
                   f"and its key, or omit --api-key to use the saved keys.")
             return
+        chain_names = [engine_name] + fallback_names
+        chain_error = translate_engines.fallback_chain_error(chain_names)
+        if chain_error:
+            print(f"#{d['id']} skipped: {chain_error}")
+            return
+        missing = [n for n in fallback_names
+                   if n != "nllb" and not translate_service.resolve_api_key(n)]
+        if missing:
+            print(f"#{d['id']} skipped: no {missing[0]} key is configured for --fallback.")
+            return
         engine = _engine_for(engine_name)
         # Same defaults the service/React use (10/6/30 for novel narration).
         tdefaults = get_translate_config_defaults(d.get("content_mode") == "novel_narration")
@@ -498,31 +618,19 @@ def cmd_translate(args):
         # series glossary, craft/style guidelines, and locale entirely --
         # a real, confirmed gap between what the Workspace Translate
         # button sends and what this command sent for the same drama.
-        glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else None
-        series_chars = db.list_series_characters(d["series_id"]) if d.get("series_id") else []
-        drama_chars = db.list_characters_with_series_names(d["id"])
-        # Step 25r: Workspace's own translate path also folds in the learned
-        # style profile and per-line emotion guidance -- both DB-backed, so
-        # there's no structural reason for the CLI to leave them out. The
-        # pronoun-default/genre-notes toggles aren't stored on the drama, so
-        # they come from --female-pronouns / --no-genre-notes (defaults match
-        # the Workspace checkboxes and the API: she/her off, genre notes on).
-        _scope = f"series:{d['series_id']}" if d.get("series_id") else "global"
-        _prof = db.get_style_profile(_scope)
-        _learned = adaptive_style.profile_to_prompt_block(_prof["profile"]) if _prof else ""
-        _emap = db.load_emotions(d["id"])
-        _emotion_block = emotion.build_emotion_guidance(
-            _emap, [ln.idx for ln in lines]) if _emap else ""
+        # The pronoun-default/genre-notes toggles aren't stored on the drama,
+        # so they come from --female-pronouns / --no-genre-notes (defaults
+        # match the API: she/her off, genre notes on). Everything else --
+        # series glossary, learned style profile, emotion guidance, gender
+        # hints, speaker names -- comes from the same builder the translate
+        # run service uses (B-20).
         style_preset = args.style_preset or (
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
-        style_guidelines = tguide.build_style_guidelines(
-            style_preset=style_preset, glossary_terms=glossary_terms,
-            include_genre_notes=not getattr(args, "no_genre_notes", False),
-            default_female_pronouns=getattr(args, "female_pronouns", False),
-            custom_notes="\n\n".join(b for b in (
-                _learned, _emotion_block,
-                tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
-        character_names = tguide.build_speaker_labels(drama_chars, series_chars)
+        glossary_terms, style_guidelines, character_names = \
+            workspace_job_service.build_run_style_context(
+                d["id"], d, lines, style_preset,
+                include_genre_notes=not getattr(args, "no_genre_notes", False),
+                default_female_pronouns=getattr(args, "female_pronouns", False))
         print(f"#{d['id']} translating {len(lines)} lines with {engine_name}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
@@ -530,16 +638,33 @@ def cmd_translate(args):
         # and per calendar month (--monthly-cap, or BAIHE_MONTHLY_CAP_USD).
         # Like the service, the monthly cap only covers paid engines
         # (_cap_applies: not local/free engines, not Gemini's free tier).
-        monthly_cap = getattr(args, "monthly_cap", None)
-        if monthly_cap is None:
-            monthly_cap = _monthly_cap_setting()
-        if not _cap_applies(engine_name, _gemini_free_tier(engine_name)):
-            monthly_cap = None
-        cost_cap, refusal = translate_engines.resolve_cost_cap(
-            getattr(args, "cost_cap", None), monthly_cap,
-            db.get_month_spend() if monthly_cap else 0.0)
-        if refusal:
-            raise RuntimeError(refusal)
+        # With --fallback, each engine in the chain gets its own cap
+        # (FallbackEngine enforces it), as the translate run API does.
+        monthly_setting = getattr(args, "monthly_cap", None)
+        if monthly_setting is None:
+            monthly_setting = _monthly_cap_setting()
+        month_spend = db.get_month_spend() if monthly_setting else 0.0
+        caps = []
+        for name in chain_names:
+            monthly_cap = (monthly_setting if _cap_applies(name, _gemini_free_tier(name))
+                           else None)
+            cap, refusal = translate_engines.resolve_cost_cap(
+                getattr(args, "cost_cap", None), monthly_cap, month_spend if monthly_cap else 0.0)
+            if refusal:
+                raise RuntimeError(refusal)
+            caps.append(cap)
+        if fallback_names:
+            engine = translate_engines.FallbackEngine(
+                [engine] + [_engine_for(n) for n in fallback_names], chain_names, caps,
+                failed_usage_cb=lambda choice, eng, inp, out, cache_read=0, cache_write=0,
+                did=d["id"]: db.log_usage(
+                    did, choice, getattr(eng, "model", choice), "translate", inp, out,
+                    translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
+                                                               cache_write),
+                    cache_read_tokens=cache_read))
+            cost_cap = None
+        else:
+            cost_cap = caps[0]
         cap_reached = {}
         def _progress(frac, did=d["id"]):
             if _gpu_holder:
@@ -561,6 +686,10 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             style_note=style_note or "", style_guidelines=style_guidelines or "")
+        if args.force and any(ln.en for ln in lines):
+            # Same data-loss guard as translate_run_service: keep the old
+            # translation restorable from history before it's overwritten.
+            db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
@@ -582,7 +711,9 @@ def cmd_translate(args):
             save_cb=lambda lines, did=d["id"]: (db.save_lines(did, lines, fields=("en",)),
                                                provenance(lines)),
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
-                did, engine_name, getattr(engine, "model", engine_name), "translate", inp, out,
+                did, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+                      else engine_name),
+                getattr(engine, "model", engine_name), "translate", inp, out,
                 translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
                 cache_read_tokens=cache_read),
             cost_cap_usd=cost_cap,
@@ -597,6 +728,8 @@ def cmd_translate(args):
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap)
+        for ev in getattr(engine, "events", None) or []:
+            print(f"\n#{d['id']} switched from {ev['from']} to {ev['to']} ({ev['reason']}).")
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")
@@ -610,7 +743,7 @@ def cmd_translate(args):
     # other translate engine is a remote API call) -- the cross-process
     # lock only needs to guard that case, not every translate run.
     _gpu_ctx = (_gpu_lock(f"CLI translate --engine ollama ({len(dramas)} drama(s))")
-               if any(_engine_name_for(d) == "ollama" for d in dramas if d)
+               if any("ollama" in (_engine_name_for(d), *fallback_names) for d in dramas if d)
                else contextlib.nullcontext(None))
     with _gpu_ctx as _gpu_holder:
         _run_batch(dramas, step, "translate")
@@ -797,6 +930,9 @@ def main():
                               "has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
+    p_align.add_argument("--transcript", default=None, metavar="FILE",
+                         help="Chinese transcript to align (- for stdin); needs --id. "
+                              "Default: <drama folder>/transcript.txt.")
     p_align.set_defaults(func=cmd_align)
 
     p_diarize = sub.add_parser("diarize", help="Re-run speaker detection on stored audio (no re-transcription)")
@@ -881,6 +1017,12 @@ def main():
                                 "narration). More lines per "
                                 "request is cheaper/faster overall but a bigger single point "
                                 "of failure.")
+    p_translate.add_argument("--fallback", default=None, metavar="ENGINE[,ENGINE]",
+                             help="Up to 2 engines tried in order if the main engine keeps "
+                                  "failing (rate limit, timeout, connection, bad key) after "
+                                  "its retries -- same kind as the main engine (AI with AI, "
+                                  "translation-only with translation-only); not with --reflect. "
+                                  "Same rules as the Translate stage's fallback engines.")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
@@ -932,6 +1074,9 @@ def main():
     p_run.add_argument("--no-genre-notes", action="store_true",
                            help="Leave out the baihe/GL genre guidance (on by default, "
                                 "as in the Workspace).")
+    p_run.add_argument("--transcript", default=None, metavar="FILE",
+                       help="Chinese transcript to align (- for stdin); needs --id. "
+                            "Default: <drama folder>/transcript.txt.")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
@@ -950,7 +1095,16 @@ def main():
 
     p_export_video = sub.add_parser("export-video")
     p_export_video.add_argument("--id", type=int, default=None)
-    p_export_video.add_argument("--style", default="hardsub", choices=["hardsub", "softsub"])
+    p_export_video.add_argument("--mode", default=None, choices=["hardsub", "softsub"],
+                                help="hardsub (burned in, default) or softsub (selectable track, SRT).")
+    p_export_video.add_argument("--style", default=None, metavar="PRESET",
+                                help="ASS style preset for the burned-in subtitles, by the export "
+                                     "stage's names: " + ", ".join(subtitle_formats.ASS_PRESETS)
+                                     + " (default Clean). The old hardsub/softsub values still work.")
+    p_export_video.add_argument("--no-speaker-colors", action="store_true",
+                                help="One colour for every speaker (default: a colour per speaker).")
+    p_export_video.add_argument("--plain", action="store_true",
+                                help="Burn a plain SRT (flat style, no speaker colours) instead of ASS.")
     p_export_video.add_argument("--subs", default="english", choices=["english", "bilingual", "chinese"])
     p_export_video.set_defaults(func=cmd_export_video)
 

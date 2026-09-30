@@ -3,10 +3,11 @@
  * sources_url_preview), then act on it:
  *
  *   series / chapter link  "Open series" (the chapter is ticked)
- *   novel page             pick a drama, "Import text" (R2, sourceimport_<drama>)
+ *   novel page             pick a drama, "Import text" (R2, NovelUrlImport)
+ *   comic page             pick a drama, "Import pages" (SO06, ComicUrlImport)
  *   video                  pick a drama, download it (R5, PC only, urlmedia_<drama>);
  *                          no adapter: "Identify media" picks a resource (SO08)
- *   comic / unknown        a short explanation
+ *   unknown                a short explanation
  *
  * A browser check shows a handoff card ("Open in your browser", "Try again",
  * or paste the page source once past the check: PastedSource, SO03, whose
@@ -15,11 +16,10 @@
  * typed link once without importing. The link is kept in memory only: a preview
  * found on load (an earlier run) shows, but importing needs the link again.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../../api/client'
-import { sourceImportJobId, startUrlImport, startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
-import { startPastedImport } from '../../api/sourcesTools'
+import { startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
 import { getMediaStatus } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
@@ -29,20 +29,21 @@ import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { OpenSeries } from '../../types/sources'
-import type { UrlImportResult, UrlPreview } from '../../types/sourcesImport'
+import type { UrlPreview } from '../../types/sourcesImport'
 import type { PastedPreview } from '../../types/sourcesTools'
 import type { MediaStatus } from '../../types/workspace'
 import { JobPanel } from '../workspace/stages/JobPanel'
 import { URL_PC_ONLY, UrlDownload } from '../workspace/stages/UrlDownload'
+import { ComicUrlImport } from './ComicUrlImport'
 import { DramaPicker } from './DramaPicker'
 import { IdentifyMedia } from './IdentifyMedia'
+import { NovelUrlImport } from './NovelUrlImport'
 import { PastedSource } from './PastedSource'
 import { SiteCheck } from './SiteCheck'
 import { useDramaList } from './useDramaList'
 import { describeSourceError, percent, safeHref } from './sourcesFormat'
 import {
-  MAX_URL_LEN, PREVIEW_NOTES, chapterImportDramas, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts,
-  urlImportText, videoDramas,
+  MAX_URL_LEN, PASTED_COMIC_NOTE, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts, videoDramas,
 } from './urlImportFormat'
 import { useSourcesJob } from './useSourcesJob'
 
@@ -50,13 +51,26 @@ type Props = {
   // Source name -> display name.
   display: (name: string) => string
   onOpenSeries: (s: OpenSeries, chapterId: string | null) => void
+  // A link handed over by the web-search fallback: fills the box; the user
+  // still presses Preview.
+  handoff?: { url: string; n: number } | null
 }
 
 const isHandoff = (e: unknown) =>
   e instanceof ApiError && e.status === 409 && !!(e.details as { handoff?: unknown } | null)?.handoff
 
-export function UrlBox({ display, onOpenSeries }: Props) {
+export function UrlBox({ display, onOpenSeries, handoff }: Props) {
   const [text, setText] = useState('')
+  const input = useRef<HTMLInputElement>(null)
+  // Each hand-off is a new object, so only a new one refills the box.
+  const [takenHandoff, setTakenHandoff] = useState<Props['handoff']>(null)
+  if (handoff && handoff !== takenHandoff) {
+    setTakenHandoff(handoff)
+    setText(handoff.url.slice(0, MAX_URL_LEN))
+  }
+  useEffect(() => {
+    if (handoff) requestAnimationFrame(() => input.current?.focus())
+  }, [handoff])
   // The link the shown preview is for (null: a preview found on load).
   const [previewed, setPreviewed] = useState<string | null>(null)
   // SO03: a preview read from page source pasted after a verification page.
@@ -96,6 +110,7 @@ export function UrlBox({ display, onOpenSeries }: Props) {
             spellCheck={false}
             maxLength={MAX_URL_LEN}
             placeholder="https://…"
+            ref={input}
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
@@ -193,7 +208,7 @@ function PreviewCard({ preview: p, url, html = null, display, onOpenSeries }: {
   const facts = previewFacts(p)
   const link = safeHref(p.display_url)
   const title = p.title?.trim() || p.chapter?.trim() || 'Untitled page'
-  const needLink = (action === 'novel' || action === 'video') && !url
+  const needLink = (action === 'novel' || action === 'video' || action === 'comic') && !url
   return (
     <article className="sources-card sources-preview" aria-label="Link preview" data-testid="url-preview">
       <div className="sources-series-head">
@@ -227,72 +242,12 @@ function PreviewCard({ preview: p, url, html = null, display, onOpenSeries }: {
         </div>
       )}
       {needLink && <p className="muted">Paste the link again and press Preview to import it.</p>}
-      {action === 'novel' && url && <NovelImport url={url} html={html} title={title} language={p.language} />}
+      {action === 'novel' && url && <NovelUrlImport url={url} html={html} title={title} language={p.language} />}
       {action === 'video' && url && <VideoImport url={url} html={html} identify={!p.adapter} />}
-      {(action === 'comic' || action === 'unknown') && <p className="muted">{PREVIEW_NOTES[action]}</p>}
+      {action === 'comic' && url && !html && <ComicUrlImport url={url} title={title} language={p.language} />}
+      {action === 'comic' && html && <p className="muted">{PASTED_COMIC_NOTE}</p>}
+      {action === 'unknown' && <p className="muted">{PREVIEW_NOTES[action]}</p>}
     </article>
-  )
-}
-
-function NovelImport({ url, html, title, language }: {
-  url: string
-  html: string | null
-  title: string
-  language: string | null
-}) {
-  const dramas = useDramaList()
-  const [dramaId, setDramaId] = useState<number | null>(null)
-  // No reattach on 409: the server answers 409 while any job for the drama
-  // runs, so the running one may not be this import; its text shows instead.
-  const job = useSourcesJob<UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
-  const running = job.status === 'running'
-  const result = job.startedHere && job.status === 'done' && job.result?.kind === 'url_import' ? job.result : null
-  const failed = job.startedHere && job.status === 'error' ? job.error : null
-
-  const start = () => {
-    if (!dramaId || running) return
-    job.start(() => (html ? startPastedImport(url, html, dramaId) : startUrlImport(url, dramaId)))
-  }
-
-  return (
-    <div className="sources-import" role="group" aria-label="Import text">
-      <DramaPicker
-        dramas={dramas.items ? chapterImportDramas(dramas.items, false) : null}
-        value={dramaId}
-        onChange={setDramaId}
-        disabled={running}
-        newDrama={{ title, language, comic: false }}
-        onCreated={dramas.add}
-        help="The chapter text is added to the end of the drama’s novel text."
-      />
-      <ErrorBanner error={dramas.error} />
-      <div className="actions">
-        <button type="button" className={buttonClass('primary')} disabled={!dramaId || running} onClick={start}>
-          {running ? 'Importing…' : 'Import text'}
-        </button>
-        {running && (
-          <button type="button" className={buttonClass('secondary')} onClick={() => void job.cancel()}>
-            Cancel
-          </button>
-        )}
-        {!dramaId && !running && <span className="muted">Still needed: a drama to import into.</span>}
-      </div>
-      <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
-      <div aria-live="polite">
-        {running && <p>{job.message || 'Importing…'}{percent(job.progress)}</p>}
-        {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
-        {result && (
-          <p className={result.needs_review ? 'warn' : undefined} data-testid="url-import-result">
-            {urlImportText(result)}{' '}
-            {dramaId && (
-              <ButtonLink href={`#/drama/${dramaId}/source`} size="sm">
-                Open workspace
-              </ButtonLink>
-            )}
-          </p>
-        )}
-      </div>
-    </div>
   )
 }
 

@@ -83,7 +83,7 @@ Service modules: `scanlate_pages_service` (S1, S2, S6 fonts), `scanlate_regions_
 - S6: blank text untouched (`tests/test_scanlate.py:304`); shape mask applied (`tests/test_scanlate_regions.py:249`); concurrent render does not collide on the tmp file; font cap and invalid font rejected; explicit save only (Class U+S 25p; `tests/test_scanlate_tab.py:217`).
 - S7: brush survives re-render; mask shape mismatch 422. S8: one failing page does not stop the rest; artifact download works; kinds whitelist.
 - Class U (React/e2e): drama-switch isolation (4j/25j), refetch after find/replace or job done, per-drama upload only on explicit submit.
-- `docs/migration-review.md` §4 has no Scanlate-specific rows beyond the §3.4 mentions of 25n/25o/25p. Missing rows to add: SFX default, dedupe, blank-text, per-page context.
+- `docs/archive/migration-review.md` §4 has no Scanlate-specific rows beyond the §3.4 mentions of 25n/25o/25p. Missing rows to add: SFX default, dedupe, blank-text, per-page context.
 - Real-model, real-OCR and real-LaMa runs stay owed to the user.
 
 ## 7. Open questions for the user (ranked)
@@ -105,6 +105,18 @@ Service modules: `scanlate_pages_service` (S1, S2, S6 fonts), `scanlate_regions_
 
 - **Q1 Coexistence:** Streamlit and the browser-extension bridge (`page_server.py`) may be frozen from writing bubbles once the editor ships (the user is not using Streamlit now). S0 can therefore assume the API is the only bubble writer at that point: keep S0 additive as specced (no change to `save_bubbles` until the freeze), and make the freeze itself an explicit later step that turns those two write paths off or read-only.
 - Still open: Q2 to Q12 (text preview approach, durable brush masks, Scanlate spend cap, detect overwrite policy, page delete/reorder, new columns, job semantics, upload caps, content-type gating, tesseract/OCR defaults, EXIF/strip height).
+
+**Automatic path (user, 2026-09-29):** port the automatic path now (S0, S1 subset, S2, S5, S6 render, S8); the canvas editor (S3, S4, S7, fonts, region preview) comes later. Run modes: "Translate all pages" skips pages that already have regions; "Redo this page" replaces that page's regions; "Redo all" replaces every page and needs `confirm=true` (409 without it) (Q5). Upload caps (Q9): PNG/JPEG/WebP/PDF; per image 30 MB and 100 megapixels (checked from the header before decode); per PDF 300 MB and 500 pages; per request 300 files and 1 GB; named constants in `services/page_import_limits.py` (shared with the URL comic imports; pages are written only through `sources.pipeline.add_page_images`).
+
+**Lead defaults, adjustable (2026-09-30, branch `scanlate-auto-pipeline`):**
+- Q6: page delete and reorder stay out of scope.
+- Redo safety (review, 2026-09-30): a redo that detects no region, or whose translation fails on a page that already has translations, keeps the page's existing regions and adds a warning note; the job summary counts it as "N kept unchanged (redo failed)". Bridge and API translate through the same id-keyed path (`scanlate.translate_regions_by_id`): a short, padded or unknown-id answer applies nothing. PDF export is capped at 200 pages (ZIP is not); PDF import sets pypdf's inflate caps (needs pypdf 6).
+- Q7: the new page columns `rev`, `context_summary` and `run_notes` are accepted (added with `_safe_alter`; `rev` is bumped only by the new id-preserving writes, not by the legacy `save_bubbles`).
+- Q8: one job per drama, `scanlate_<drama_id>`, shared by run, render and export; `gpu_touching=True`.
+- Q10: any drama may use Scanlate (no `content_mode`/`media_type` gate).
+- Q11: the OCR backend and the Tesseract program come from the saved settings (`settings_service.resolve_ocr_backend`, `get_tesseract_cmd`); the API never takes a backend path.
+- Q12: EXIF orientation is applied on import and pages are re-encoded from their pixels (WebP stored as PNG); strips taller than 3x their width are sliced by default (`slice_strips=false` turns it off).
+- Still open for the editor batch: Q2 preview endpoint, Q3 cleanup layers (S7), fonts endpoints.
 
 ## 9. Research on other tools and further decisions (2026-09-29)
 

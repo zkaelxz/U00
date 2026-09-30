@@ -1,18 +1,19 @@
 import { useState } from 'react'
 
-import { deleteHfRevision, deletePiperVoice } from '../../api/diagnostics'
+import { deleteHfRevision, deleteModelFile, deletePiperVoice } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
 import type { DiagnosticsModelCache } from '../../types/diagnostics'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
-import { hasModelCache, modelCacheSummary } from './diagnosticsAdmin'
+import { MODEL_FOLDER_LABELS, hasModelCache, modelCacheSummary } from './diagnosticsAdmin'
 
 /**
- * "Model cache": Hugging Face downloads and Piper voices with their sizes.
- * Deleting one is PC only (two-step confirm); it downloads again the next time
- * a feature needs it. Hidden when both lists are empty.
+ * "Model cache": Hugging Face downloads, Piper voices and the files in the other
+ * model folders (PyTorch hub checkpoints, vocal separation models) with their
+ * sizes. Deleting one is PC only (two-step confirm); it downloads again the next
+ * time a feature needs it. Hidden when every list is empty.
  */
 export function ModelCacheSection({ cache, pc, onChanged }: {
   cache: DiagnosticsModelCache | null
@@ -82,6 +83,31 @@ export function ModelCacheSection({ cache, pc, onChanged }: {
                       busy={busy === key}
                       disabled={busy !== null && busy !== key}
                       onConfirm={() => run(key, v.voice, () => deletePiperVoice(v.voice))}
+                    />
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+      {cache.model_files.length > 0 && (
+        <>
+          <h4>Other model files</h4>
+          <ul className="diag-rows diag-cache" aria-label="Model files">
+            {cache.model_files.map((m) => {
+              const key = `file:${m.folder}:${m.name}`
+              return (
+                <li key={key}>
+                  <span>
+                    {m.name} ({MODEL_FOLDER_LABELS[m.folder]}) · {formatBytes(m.size_bytes)}
+                  </span>
+                  {canDelete && (
+                    <ConfirmButton
+                      name={m.name}
+                      busy={busy === key}
+                      disabled={busy !== null && busy !== key}
+                      onConfirm={() => run(key, m.name, () => deleteModelFile(m.folder, m.name))}
                     />
                   )}
                 </li>

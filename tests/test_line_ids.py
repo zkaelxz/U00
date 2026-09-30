@@ -13,7 +13,7 @@ import sqlite3
 import pytest
 
 import db
-from core import Line, merge_adjacent_short_lines, adopt_ids, restore_saved_lines
+from core import LINE_FIELDS, Line, merge_adjacent_short_lines, adopt_ids, restore_saved_lines
 
 
 def _lines(*texts, short=True):
@@ -262,9 +262,10 @@ class TestMigrationFromPositionKeys:
     line_id, with a backup first, and the whole thing safe to interrupt."""
 
     @pytest.fixture(autouse=True)
-    def _restore_db_paths(self, monkeypatch):
-        for name in ("LIBRARY_DIR", "DRAMAS_DIR", "DB_PATH", "BENCHMARK_DIR"):
-            monkeypatch.setattr(db, name, getattr(db, name))
+    def _restore_db_paths(self):
+        previous = db.LIBRARY_DIR
+        yield
+        db.configure_library_dir(previous)
 
     def _old_library(self, tmp_path):
         db.configure_library_dir(str(tmp_path))
@@ -414,3 +415,83 @@ class TestRestoreSavedLines:
         restored = restore_saved_lines(version, self._current(), translation_only=True)
         assert [(l.id, l.end, l.zh, l.en, l.speaker_manual) for l in restored] == [
             (10, 2, "ab", "AB v1", True)]
+
+    def test_a_version_records_flags_and_sfx_and_restores_them_per_line(self, isolated_db):
+        """A version restored whole (structure changed since) puts each flag
+        and SFX mark back on its own line, not the merged line's."""
+        did = isolated_db.create_drama(title_en="D")
+        a, b = self._current()
+        b.flag, b.flag_note, b.sfx = "idiom", "b note", True
+        a.id = b.id = None
+        isolated_db.save_lines(did, [a, b])
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v")
+        rows = isolated_db.get_translation_version(vid)["lines"]
+        assert (rows[1]["flag"], rows[1]["flag_note"], rows[1]["sfx"]) == ("idiom", "b note", True)
+        # now a and b are merged into a, which picked up b's flag
+        merged = isolated_db.load_line_objects(did)[:1]
+        merged[0].flag, merged[0].flag_note = "idiom", "b note"
+        restored = restore_saved_lines(rows, merged, translation_only=True)
+        assert [(l.zh, l.flag, l.flag_note, l.sfx) for l in restored] == [
+            ("a", None, "", False), ("b", "idiom", "b note", True)]
+
+
+# One distinct saved value and one different "since then" value per field.
+_SAVED = {"idx": 0, "start": 1.0, "end": 2.0, "zh": "saved zh", "en": "saved en",
+          "speaker": "Saved", "dub_filename": "saved.wav", "flag": "idiom",
+          "flag_note": "saved note", "speaker_manual": True, "sfx": True}
+_SINCE = {"idx": 0, "start": 3.0, "end": 4.0, "zh": "later zh", "en": "later en",
+          "speaker": "Later", "dub_filename": "later.wav", "flag": "name",
+          "flag_note": "later note", "speaker_manual": False, "sfx": False}
+# A version is a pick of translation; the dub clip from when it was saved may
+# have been regenerated or deleted since, so it isn't stored and the line
+# keeps its current clip.
+_NOT_IN_VERSIONS = {"dub_filename"}
+
+
+class TestEveryLineFieldRoundTrips:
+    """Every core.LINE_FIELDS field survives undo through a snapshot and a
+    version, so a field added later can't silently fall out of undo."""
+
+    def test_the_value_tables_cover_every_line_field(self):
+        assert set(_SAVED) == set(_SINCE) == set(LINE_FIELDS)
+
+    def _restore_after_change(self, db_, did, rows):
+        # change every field since the save, then restore and save back
+        current = db_.load_line_objects(did)
+        for f, v in _SINCE.items():
+            setattr(current[0], f, v)
+        db_.save_lines(did, current)
+        db_.save_lines(did, restore_saved_lines(rows, db_.load_line_objects(did)))
+        return db_.load_line_objects(did)[0]
+
+    def _saved_drama(self, db_):
+        did = db_.create_drama(title_en="D")
+        db_.save_lines(did, [Line(**_SAVED)])
+        return did
+
+    def test_a_snapshot_restores_every_field(self, isolated_db):
+        did = self._saved_drama(isolated_db)
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "s")
+        rows = isolated_db.get_line_history_snapshot(isolated_db.list_line_history(did)[0]["id"])
+        got = self._restore_after_change(isolated_db, did, rows)
+        assert {f: getattr(got, f) for f in LINE_FIELDS} == _SAVED
+
+    def test_a_version_restores_every_field_but_the_dub_clip(self, isolated_db):
+        did = self._saved_drama(isolated_db)
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v")
+        rows = isolated_db.get_translation_version(vid)["lines"]
+        assert not _NOT_IN_VERSIONS & set(rows[0])
+        got = self._restore_after_change(isolated_db, did, rows)
+        expected = {f: (_SINCE if f in _NOT_IN_VERSIONS else _SAVED)[f] for f in LINE_FIELDS}
+        assert {f: getattr(got, f) for f in LINE_FIELDS} == expected
+
+    def test_an_old_snapshot_without_the_new_keys_restores_as_before(self, isolated_db):
+        did = self._saved_drama(isolated_db)
+        old = [{k: _SAVED[k] for k in ("idx", "start", "end", "zh", "en", "speaker",
+                                       "dub_filename", "speaker_manual")}]
+        old[0]["id"] = isolated_db.load_line_objects(did)[0].id
+        got = self._restore_after_change(isolated_db, did, old)
+        # flag, note and SFX mark stay as the line has them now
+        expected = dict(_SAVED, flag=_SINCE["flag"], flag_note=_SINCE["flag_note"],
+                        sfx=_SINCE["sfx"])
+        assert {f: getattr(got, f) for f in LINE_FIELDS} == expected

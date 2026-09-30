@@ -20,7 +20,7 @@ import db
 from services.service_errors import InvalidInputError, NotFoundError
 
 ARTIFACT_KINDS = ("subtitle", "epub", "audio", "video", "softsub_video", "dubbed_video",
-                  "archive")
+                  "archive", "scanlate_zip", "scanlate_pdf")
 
 _BAD_NAME = "Invalid artifact filename."
 _MISSING = "No artifact available."
@@ -68,6 +68,8 @@ def get_artifact(drama_id: int, kind: str) -> Dict:
         raise NotFoundError(_MISSING)
     best = None
     for name in names:
+        if name.startswith(".") or name.endswith(".part"):
+            continue                       # an unfinished write
         path = os.path.join(base, name)
         if os.path.islink(path) or not os.path.isfile(path) or not _inside(base, path):
             continue

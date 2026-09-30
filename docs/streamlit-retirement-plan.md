@@ -10,7 +10,7 @@ Streamlit code is about 11,950 lines: tabs 10,876, `ui_theme.py` 468, `ui/` 363,
 - **Only one non-UI module imports a tab:** `services/workspace_job_service.py:684` lazily imports `tabs.workspace_tab` and calls `run_translate_job`, which is defined at `services/workspace_job_service.py:49` (the tab only re-exports it, `workspace_tab.py:19-23`). One-line fix. `library_tab.py:300` also imports `workspace_tab` (goes away with the tab). `cli.py` imports no tab and no `common`.
 - **`page_server.py` imports no Streamlit, but only Streamlit starts it** (`settings_tab.py:450` `ensure_server_started()`, `:468` pushes the translation config). The chapter-check scheduler is likewise started only by `sources_tab.py:975`. The API needs a startup hook for both, or the browser extension and tracking notifications die silently. (The "don't run the scheduler in the API" note in the Discover spec S-7 was a two-process concern that disappears once Streamlit is gone.)
 - **Streamlit is LAN-exposed with no auth today** (`start.bat:206-211` binds 0.0.0.0 and prints the LAN URL; README:282-303). `python -m api` is loopback. Retiring Streamlit closes that hole but also removes phone and household access until auth (steps 133+) exists.
-- **Prebuilt frontend is undecided:** `frontend/.gitignore:11` ignores `dist`; `start-react.bat:52-90` runs `npm ci` and `npm run build`; `docs/migration-react-fastapi.md:549` says end users must not need Node; `start-react.bat` is untested on Windows.
+- **Prebuilt frontend (since settled):** `frontend/.gitignore:11` ignores `dist`. `start-react.bat` has been removed; `start.bat` now runs `python -m api` and serves a prebuilt `frontend\dist` from the release zip (`docs/RELEASE.md`), so end users don't need Node (`start.bat --build-frontend` is for developers).
 - Handoff "Next" list is partly stale: per-line improve/explain exists (`line_ai_routes.py`), the restructure API exists (`restructure_routes.py`) but React never calls it, dub download exists.
 - UNK: what "slice 51" refers to; no doc defines it.
 
@@ -55,7 +55,7 @@ React today: routes library/drama/settings/diagnostics/translate (`frontend/src/
 5. **`MEDIA_TYPE_OPTIONS` (11 values):** real branching is on `content_mode`, not `media_type`. `streamer_vod` is real (syncs `content_mode`); `video_drama` and `asmr` have small uses; the manga family is a label plus prompt phrase; `music` is label-only (Step 89; absent from the prompt label map, `translate_engines.py:294-297`); `other` is the fallback; `anime` has no branch found. Safe cut: `music` and `other` as UI options while still accepting them on read.
 6. Vertical/shorts export and "package" export (no API, Slice 30 out of scope).
 7. Diagnostics extras: accuracy benchmark, bug bundles, App Assistant (usage UNK).
-8. Sources leftovers: missevan import (no caller of `get_audio_url`), bilibili_manga (untested), manhuaku (hung 2026-09-27), mangaz full book unproven, the Review-Extraction session UI. Do NOT prune the verified adapters: manhuagui, 52shuku, xbanxia, toonkor, guazimanhua, miaoqumh, baozimh, kuaikan, zerosum.
+8. Sources leftovers: missevan import (no caller of `get_audio_url`), bilibili_manga (untested), manhuaku (hung 2026-09-27), mangaz full book unproven, the Review-Extraction session UI. **User decision 2026-09-29: build, not prune, every remaining Sources parity row; the pasted-URL comic import (SO06), the AI fallback (SO09) and Review extraction (SO10) are built on `parity-b7b-sources-extraction`, so the Review-Extraction UI is off this list.** Do NOT prune the verified adapters: manhuagui, 52shuku, xbanxia, toonkor, guazimanhua, miaoqumh, baozimh, kuaikan, zerosum.
 9. Discover D-2 extras: bulk import (no dedup), navigator help, baihehub search. Keep the catalog.
 10. Household profile picker (26e): Google users (steps 133-134) may supersede it.
 
@@ -161,7 +161,7 @@ Guardrail 4 is done for the `tabs` imports: every logic test that lived in a fil
 - [ ] `check_setup.py:3-5`: the docstring still says it runs "before Streamlit starts" and refers to `app.py`; reword (no code change needed).
 - [ ] `.github/workflows/windows-bootstrap.yml`: no Streamlit step is left; its `paths:` filters list `requirements-core.txt` and `constraints.txt`, so the dependency PR triggers it (Actions minutes are exhausted, so run `start.bat --ci` locally instead).
 - [ ] Files to delete: `app.py`, `common.py`, `ui_theme.py`, `ui/`, `tabs/`, `.streamlit/config.toml`, `app_help.py`.
-- [ ] `FILE_ORGANIZATION.md`, `README.md` and `docs/migration-handoff.md`: remove the deleted modules and the Streamlit launch text.
+- [ ] `FILE_ORGANIZATION.md`, `README.md` and `docs/STATUS.md`: remove the deleted modules and the Streamlit launch text.
 
 ## 10. Prune decisions (user, 2026-09-29)
 

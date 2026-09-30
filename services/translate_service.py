@@ -1,10 +1,10 @@
 """
 services/translate_service.py -- Streamlit-free metadata and translate
 action for the standalone translate tool (tabs/translate_tab.py).
-Migration Slice 11 (Phase 5, docs/migration-review.md section 3.7) added
+Migration Slice 11 (Phase 5, docs/archive/migration-review.md section 3.7) added
 the read-only "list engines" / "list history" half; Migration Slice 13
 adds translate() itself, resolving a server-side key per engine (D2 --
-docs/migration-review.md section 6) rather than accepting one from the
+docs/archive/migration-review.md section 6) rather than accepting one from the
 caller.
 
 Migration Slice 17 adds clear_history(), the one piece deliberately
@@ -127,7 +127,9 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         free_tier=(settings_service.resolve_gemini_free_tier(free_tier)
                    if engine_name == "gemini" else False),
         base_url=((settings_service.resolve_key("ollama_url") or None)
-                  if engine_name == "ollama" else None))
+                  if engine_name == "ollama" else None),
+        libretranslate_url=((settings_service.resolve_key("libretranslate_url") or None)
+                            if engine_name == "libretranslate" else None))
 
     try:
         translated_text = translate_engines.standalone_translate(

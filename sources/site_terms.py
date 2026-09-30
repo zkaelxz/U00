@@ -19,7 +19,7 @@ Add a site only with a directly-read finding, quoted where possible.
 
 from urllib.parse import urlsplit
 
-from .models import AiMlUse, AutomationPermission, SourceCapabilities
+from .models import AiMlUse, AutomationPermission, SourceCapabilities, TechnicalProtection
 
 SITE_TERMS = [
     {
@@ -190,6 +190,49 @@ SITE_TERMS = [
                                  "path is even reached.",
         },
     },
+    {
+        # roadmap Step 113 vetting (2026-09-30). Has a metadata adapter
+        # (sources/adapters/fanjiao.py); recorded here too so a pasted
+        # fanjiao.co link the adapter doesn't recognize carries the same
+        # finding.
+        "domains": ("fanjiao.co",),
+        "platform": "饭角 Fanjiao (深圳热蓝科技有限公司)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "technical_protection": TechnicalProtection.DETECTED.value,
+        "terms": {
+            "read": "The user agreement is only viewable inside the app. The public "
+                    "www.fanjiao.co/pages/useragree.html is the privacy policy, read directly "
+                    "(2026-09-30); it has no automation clause.",
+            "robots_txt": "None: every unknown path, /robots.txt included, returns the homepage.",
+            "technical_protection": "DETECTED: the site's API needs an md5 `signature` header "
+                                    "(query plus a secret salt); the app adds Shumei risk "
+                                    "control and 360 hardening. Recorded, not worked around.",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. The in-app agreement was not "
+                          "read.",
+        },
+    },
+    {
+        # roadmap Step 115. Has an adapter (sources/adapters/lightnovel_fun.py),
+        # whose own capability record carries the same notes; recorded here
+        # too as the directly-read finding for the domain as a whole.
+        "domains": ("lightnovel.fun",),
+        "platform": "轻之国度 (LightNovel)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "robots.txt fetched directly (2026-09-30): User-agent: * disallows only "
+                    "/settings/ and /publish_mgr/; AhrefsBot, DotBot, MJ12bot and SemrushBot "
+                    "get Disallow: /. The site rules page (LK站规) couldn't be located: the "
+                    "footer's rules links have no target and /site_rule returns 404.",
+            "notices": "Per-work notices uploaders put on their releases: \"仅供个人学习交流使用，"
+                       "禁作商业用途\" (personal study only, no commercial use), \"禁止转载\" (no "
+                       "reposting), \"禁止二改二传\" (no re-editing or re-uploading).",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. The per-work notices restrict "
+                          "redistribution, not reading; they are not a site-wide automation "
+                          "clause.",
+        },
+    },
 ]
 
 
@@ -214,5 +257,7 @@ def capabilities_for(url: str):
     caps = SourceCapabilities(platform=entry["platform"],
                               automation_permission=entry["automation_permission"],
                               ai_ml_use=entry["ai_ml_use"], terms=dict(entry["terms"]))
+    caps.technical_protection = entry.get("technical_protection",
+                                          TechnicalProtection.UNKNOWN.value)
     caps.terms["tos_prohibited"] = bool(caps.terms_restrictions())
     return caps

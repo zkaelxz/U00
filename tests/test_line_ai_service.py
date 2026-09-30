@@ -125,3 +125,18 @@ def test_untranslated_line_refused():
     lid = db.load_lines(did)[0]["id"]
     with pytest.raises(UnsupportedOperationError):
         svc.explain_line(did, lid)
+
+
+def test_improve_uses_the_shared_style_context_with_emotion(monkeypatch):
+    """B-20: improve_line builds its guidelines with the same builder as a
+    translate run, so the line's emotion guidance is included."""
+    did, ids = _seed()
+    db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": "shouting"}})
+    seen = {}
+
+    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines=""):
+        seen["style"] = style_guidelines
+        return en
+    monkeypatch.setattr(line_tools, "improve_line", fake)
+    svc.improve_line(did, ids[1])
+    assert "angry" in seen["style"] and "shouting" in seen["style"]

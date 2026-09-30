@@ -2,7 +2,7 @@
 services/workspace_job_service.py -- the background-job runner functions
 started from the Workspace and Library tabs, moved out of
 `tabs/workspace_tab.py` and `tabs/library_tab.py` unchanged (Migration
-Slice 2, a pure move, zero logic change -- see `docs/migration-review.md`).
+Slice 2, a pure move, zero logic change -- see `docs/archive/migration-review.md`).
 
 These functions all share the same property that made them safe to run
 in a background thread in the first place: they touch nothing from
@@ -42,11 +42,15 @@ def _id_by_idx(lines):
     return {ln.idx: ln.id for ln in lines}
 
 
-def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True):
-    """(glossary_terms, style_guidelines, character_names) for one drama,
-    built exactly as translate_run_service.start_translate_run builds them:
-    series glossary, the learned style profile, emotion guidance and
-    character gender hints in custom_notes, and named-speaker labels."""
+def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
+                            include_genre_notes=True, default_female_pronouns=False):
+    """(glossary_terms, style_guidelines, character_names) for one drama --
+    the one builder shared by translate_run_service.start_translate_run,
+    `cli.py translate`, line_ai_service and the review jobs (B-20): series
+    glossary, the learned style profile, emotion guidance for `lines` and
+    character gender hints in custom_notes, and named-speaker labels.
+    include_genre_notes/default_female_pronouns are the Translate toggles
+    (defaults as the API: genre notes on, she/her off)."""
     series_id = (drama or {}).get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
     series_chars = db.list_series_characters(series_id) if series_id else []
@@ -57,6 +61,8 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
+        include_genre_notes=bool(include_genre_notes),
+        default_female_pronouns=bool(default_female_pronouns),
         custom_notes="\n\n".join(b for b in (
             learned, emotion_block,
             tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
@@ -107,6 +113,14 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     start) -- only those lines are translated; None = every eligible line.
     """
     cap_reached = {}
+    if isinstance(engine, translate_engines.FallbackEngine):
+        # Tokens a provider reported for an attempt that then failed are
+        # billed too: logged against the engine that spent them.
+        engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \
+            db.log_usage(drama_id, choice, getattr(eng, "model", choice), "translate", inp, out,
+                         translate_engines.estimate_cost_for_engine(eng, inp, out, cache_read,
+                                                                    cache_write),
+                         cache_read_tokens=cache_read)
     # {speaker_label: "Name (pronouns)"}, named characters only -- a line
     # whose speaker has no name set is shown to the translator with no
     # name at all (see translate_lines_with_engine's own docstring),
@@ -360,7 +374,9 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
             job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+        cancel_check=lambda: _raise_if_cancelled(job_id))
+    _raise_if_cancelled(job_id)
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
     background_jobs.set_result(job_id, {"emotions": emap})
 
@@ -395,9 +411,11 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
     later, potentially after closing the app, not just within this
     session.
 
-    Compare-and-set: a line whose flag/flag_note the user changed while the
-    job ran (differs from what the job started with) keeps the user's value;
-    the job's result for that line is dropped.
+    Compare-and-set: each line's flag/flag_note is written by one
+    conditional UPDATE keyed on the value the job started with
+    (db.update_lines_fields_if_many), so a line the user changed while the
+    job ran -- even between the job's last read and its write -- keeps the
+    user's value; the job's result for that line is dropped.
     """
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
     translate_engines.flag_uncertain_lines(
@@ -409,14 +427,21 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
         cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
-    current = {r["id"]: (r["flag"] or "", r["flag_note"] or "") for r in db.load_lines(drama_id)}
+    items = []
     for ln in lines:
-        if ln.id in current and current[ln.id] != started_with[ln.id]:
-            ln.flag, ln.flag_note = current[ln.id][0] or None, current[ln.id][1]
-            if getattr(ln, "orig", None) is not None:
-                ln.orig = {**ln.orig, "flag": ln.flag, "flag_note": ln.flag_note}
-    db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-    background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
+        if ln.id is None:
+            continue
+        before = started_with[ln.id]
+        if (ln.flag or "", ln.flag_note or "") != before:
+            items.append((ln.id, {"flag": ln.flag or None, "flag_note": ln.flag_note or ""},
+                          {"flag": before[0], "flag_note": before[1]}))
+    db.update_lines_fields_if_many(drama_id, items)
+    # Counted from the saved rows, so flags the user set or cleared by hand
+    # while the job ran are reflected (read-only; nothing is written here).
+    saved = {r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)}
+    flagged = sum(saved.get(ln.id, False) if ln.id is not None else bool(ln.flag)
+                  for ln in lines)
+    background_jobs.set_result(job_id, {"flagged_count": flagged})
 
 
 def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
@@ -462,7 +487,8 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
                                source_language, engine, engine_choice, cost_cap_usd=None,
-                               locale="en-US"):
+                               locale="en-US", include_genre_notes=True,
+                               default_female_pronouns=False):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -488,7 +514,9 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     drama = db.get_drama(drama_id) or {}
     style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     glossary_terms, style_guidelines, character_names = build_run_style_context(
-        drama_id, drama, lines, style_preset, with_emotions=False)
+        drama_id, drama, lines, style_preset, with_emotions=False,
+        include_genre_notes=include_genre_notes,
+        default_female_pronouns=default_female_pronouns)
     base_context = translate_engines.build_translation_context(
         engine, drama, locale=locale, glossary_terms=glossary_terms,
         style_guidelines=style_guidelines)
@@ -982,7 +1010,9 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
                                   ollama_base_url: str = None, gemini_free_tier: bool = False,
                                   models: dict = None, monthly_cap: float = 0,
-                                  expected_engines: dict = None, allow_paid_summary: bool = True):
+                                  expected_engines: dict = None, allow_paid_summary: bool = True,
+                                  include_genre_notes: bool = True,
+                                  default_female_pronouns: bool = False):
     """Step 9b.3: translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -1014,6 +1044,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     checked before each paid episode-summary call. allow_paid_summary=False
     (a caller without engines.paid) skips a cloud summary engine picked in
     Settings, so only the engines the caller was authorized for run.
+    include_genre_notes/default_female_pronouns: the Translate toggles,
+    applied to every drama in the queue (defaults as the API).
     """
     # Imported here: translate_run_service imports this module.
     from services import settings_service, translate_run_service
@@ -1091,7 +1123,8 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         is_novel = drama.get("content_mode") == "novel_narration"
         style_preset = "novel" if is_novel else "audio_drama"
         glossary_terms, style_guidelines, _ = build_run_style_context(
-            did, drama, lines, style_preset)
+            did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
+            default_female_pronouns=default_female_pronouns)
         defaults = translate_run_service.get_translate_config_defaults(is_novel)
         novel_reference = None
         if drama.get("novel_reference_filename"):

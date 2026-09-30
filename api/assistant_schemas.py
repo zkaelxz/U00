@@ -8,7 +8,7 @@ carries a key, a token or an absolute path.
 
 from typing import Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 BacklogKind = Literal["bug", "feature", "note"]
 Scalar = Union[str, int, float, bool, None]
@@ -22,6 +22,7 @@ class AssistantSettings(BaseModel):
     roles_enabled: bool = False
     review_engine: Optional[str] = None
     review_model: Optional[str] = None
+    review_engine_choices: List[str] = Field(default_factory=list)
     default_engine: str = "ollama"
     local_engines: List[str] = Field(default_factory=list)
     cloud_consent: Dict[str, bool] = Field(default_factory=dict)
@@ -35,7 +36,7 @@ class AssistantSettingsUpdate(BaseModel):
     roles_enabled: Optional[bool] = None
     review_engine: Optional[str] = Field(None, max_length=40)
     review_model: Optional[str] = Field(None, max_length=100)
-    cloud_consent: Optional[Dict[str, bool]] = None
+    cloud_consent: Optional[Dict[str, StrictBool]] = None
 
 
 class AssistantTool(BaseModel):

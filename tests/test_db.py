@@ -1444,6 +1444,8 @@ class TestImportTimeSafety:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         shutil.copy(os.path.join(project_root, "db.py"), os.path.join(temp_dir, "db.py"))
         shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
+        # db.py takes its library location from portable.data_dir() (Step 80b).
+        shutil.copy(os.path.join(project_root, "portable.py"), os.path.join(temp_dir, "portable.py"))
 
     def test_bare_import_does_not_touch_any_library_dir(self):
         temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
@@ -1676,12 +1678,12 @@ class TestStep26eProfilesMigration:
         conn.close()
 
     def _with_redirected_library(self, temp_dir, fn):
-        previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+        previous = db.LIBRARY_DIR
         try:
             db.configure_library_dir(temp_dir)
             fn()
         finally:
-            db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+            db.configure_library_dir(previous)
 
     def test_upgrading_a_pre_profiles_install_preserves_its_data(self, tmp_path_str):
         self._make_old_schema_db(tmp_path_str)

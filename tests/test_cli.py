@@ -543,6 +543,7 @@ class TestCmdAlignUsesDramaSettings:
 
     def test_qwen3_forced_align_is_used_when_saved_on_the_drama(self, isolated_db, monkeypatch):
         did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
         monkeypatch.setattr(cli, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         import forced_align
@@ -556,6 +557,83 @@ class TestCmdAlignUsesDramaSettings:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_align(self._args(id=did))
         assert calls == ["zh"]
+
+    def test_missing_qwen3_fails_clearly_before_transcribing(self, isolated_db, monkeypatch):
+        """Parity with the API (checked up front, dependency_missing): a
+        drama saved to use Qwen3 forced alignment must not silently get
+        the default method when qwen-asr isn't installed, and shouldn't
+        spend a whole Whisper pass finding that out."""
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        import importlib.util
+        real_find_spec = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a: None if name == "qwen_asr" else real_find_spec(name, *a))
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: pytest.fail("transcribed before the dependency check"))
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue() + err.getvalue()
+        assert "Qwen3-ASR isn't installed" in text and "Diagnostics" in text
+        assert "1 failed" in text
+        assert isolated_db.load_lines(did) == []
+        assert isolated_db.get_drama(did)["status"] != "aligned"
+
+    def test_a_late_qwen3_import_error_still_fails_and_frees_the_gpu(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        import forced_align
+
+        def missing(*a, **k):
+            raise ImportError("No module named 'qwen_asr'")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", missing)
+        monkeypatch.setattr(cli, "align_transcript_to_timing",
+                            lambda *a, **k: pytest.fail("fell back to the default method"))
+        released = []
+        monkeypatch.setattr(cli, "release_gpu_models", lambda: released.append(True))
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue() + err.getvalue()
+        assert "Qwen3-ASR isn't installed" in text and "1 failed" in text
+        assert released == [True]
+        assert isolated_db.load_lines(did) == []
+
+    def test_debug_traceback_and_failure_text_are_redacted(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db)
+        monkeypatch.setenv("BAIHE_CLI_DEBUG", "1")
+
+        def boom(*a, **k):
+            raise RuntimeError("fetch http://bob:hunter2@proxy.example/x?key=ABCDEF123456 failed")
+        monkeypatch.setattr(cli, "transcribe_for_timing", boom)
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue() + err.getvalue()
+        assert "Traceback" in text and "proxy.example" in text
+        assert "hunter2" not in text and "ABCDEF123456" not in text
+
+    def test_qwen3_fallback_message_redacts_the_error(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli.transcribe_service, "_require_qwen3_packages", lambda feature: None)
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        import forced_align
+
+        def bad(*a, **k):
+            raise ValueError("no align http://bob:hunter2@host.example/m")
+        monkeypatch.setattr(forced_align, "align_with_qwen3", bad)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(self._args(id=did))
+        assert "couldn't align" in out.getvalue() and "host.example" in out.getvalue()
+        assert "hunter2" not in out.getvalue()
 
     def test_default_whisper_diff_alignment_is_unaffected(self, isolated_db, monkeypatch):
         """No alignment_method saved -- must still use the plain
@@ -934,12 +1012,141 @@ class TestExportVideoClampsOverlappingCues:
         monkeypatch.setattr(video_export, "burn_subtitles",
                             lambda video_path, srt_text, out_path: captured.update(srt=srt_text))
 
-        args = argparse.Namespace(id=did, style="hardsub", subs="english")
+        args = argparse.Namespace(id=did, style=None, mode=None, plain=True,
+                                  no_speaker_colors=False, subs="english")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_export_video(args)
 
         assert "00:00:00,000 --> 00:00:01,500" in captured["srt"]  # clamped
         assert "00:00:00,000 --> 00:00:02,000" not in captured["srt"]  # original, overlapping
+
+
+class TestAlignTranscriptOption:
+    def _setup(self, isolated_db, monkeypatch, with_file=True):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="not started",
+                                       audio_filename="audio.wav")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        if with_file:
+            with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
+                f.write("旧的")
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        seen = []
+        real = cli.split_user_transcript
+        monkeypatch.setattr(cli, "split_user_transcript",
+                            lambda text: seen.append(text) or real(text))
+        return did, ddir, seen
+
+    def _align(self, **kw):
+        opts = dict(id=None, whisper_size=None, fast=False, transcript=None)
+        opts.update(kw)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_align(argparse.Namespace(**opts))
+        return out.getvalue()
+
+    def test_transcript_file_wins_over_drama_folder_file(self, isolated_db, monkeypatch, tmp_path):
+        did, _, seen = self._setup(isolated_db, monkeypatch)
+        f = tmp_path / "mine.txt"
+        f.write_text("你好", encoding="utf-8")
+        self._align(id=did, transcript=str(f))
+        assert seen == ["你好"]
+
+    def test_transcript_from_stdin(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch, with_file=False)
+        monkeypatch.setattr("sys.stdin", io.StringIO("你好"))
+        self._align(id=did, transcript="-")
+        assert seen == ["你好"]
+
+    def test_falls_back_to_transcript_txt(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch)
+        self._align(id=did)
+        assert seen == ["旧的"]
+
+    def test_missing_transcript_skips_and_names_both_options(self, isolated_db, monkeypatch):
+        did, _, seen = self._setup(isolated_db, monkeypatch, with_file=False)
+        out = self._align(id=did)
+        assert seen == [] and "--transcript" in out and "transcript.txt" in out
+
+    def test_unreadable_transcript_file_is_a_clear_error(self, isolated_db, monkeypatch, capsys):
+        did, _, _ = self._setup(isolated_db, monkeypatch)
+        with pytest.raises(SystemExit):
+            self._align(id=did, transcript="/no/such/file.txt")
+        assert "Couldn't read the transcript" in capsys.readouterr().err
+
+    def test_transcript_without_id_is_an_error(self, isolated_db, monkeypatch, capsys):
+        self._setup(isolated_db, monkeypatch)
+        with pytest.raises(SystemExit):
+            self._align(transcript="whatever.txt")
+        assert "--id" in capsys.readouterr().err
+
+    def test_run_passes_transcript_through(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(cli, "cmd_align", lambda a: seen.update(t=a.transcript))
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: None)
+        cli.cmd_run(argparse.Namespace(transcript="x.txt"))
+        assert seen["t"] == "x.txt"
+        monkeypatch.setattr("sys.argv", ["cli.py", "run", "--id", "1", "--transcript", "x.txt"])
+        monkeypatch.setattr(cli, "cmd_run", lambda a: seen.update(parsed=a.transcript))
+        cli.main()
+        assert seen["parsed"] == "x.txt"
+
+
+class TestExportVideoAss:
+    def _drama(self, isolated_db):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="translated",
+                                       source_video_filename="source.mp4")
+        with open(os.path.join(isolated_db.drama_dir(did), "source.mp4"), "wb") as f:
+            f.write(b"x")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="a", en="Hello", speaker="SPEAKER_00"),
+            Line(idx=1, start=1.0, end=2.0, zh="b", en="World", speaker="SPEAKER_01"),
+        ])
+        return did
+
+    def _run(self, monkeypatch, did, **kw):
+        import video_export
+        cap = {}
+        monkeypatch.setattr(video_export, "burn_ass",
+                            lambda v, ass, out: cap.update(ass=ass, out=out))
+        monkeypatch.setattr(video_export, "burn_subtitles",
+                            lambda v, srt, out: cap.update(srt=srt))
+        opts = dict(id=did, style=None, mode=None, plain=False, no_speaker_colors=False,
+                    subs="english")
+        opts.update(kw)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(argparse.Namespace(**opts))
+        return cap
+
+    def test_default_is_ass_with_speaker_colours(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db))
+        assert "[V4+ Styles]" in cap["ass"] and "srt" not in cap
+        assert "Style: Speaker 1," in cap["ass"] and "Style: Speaker 2," in cap["ass"]
+
+    def test_no_speaker_colors(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), no_speaker_colors=True)
+        assert "Style: Speaker 1," not in cap["ass"]
+
+    def test_style_preset_is_used(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), style="streamer clip")
+        assert "Arial Black" in cap["ass"]
+
+    def test_unknown_style_lists_valid_names(self, isolated_db, monkeypatch, capsys):
+        with pytest.raises(SystemExit):
+            self._run(monkeypatch, self._drama(isolated_db), style="Nope")
+        assert "Clean" in capsys.readouterr().err
+
+    def test_plain_burns_srt(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), plain=True)
+        assert "-->" in cap["srt"] and "ass" not in cap
+
+    def test_legacy_style_hardsub_still_ass(self, isolated_db, monkeypatch):
+        cap = self._run(monkeypatch, self._drama(isolated_db), style="hardsub")
+        assert "ass" in cap
 
 
 class TestInspectLine:
@@ -1207,6 +1414,36 @@ class TestCliServiceParity:
                         api_key=None, monthly_cap=None)
         assert seen_caps[-1] == 8.0
 
+    def test_force_translate_saves_a_history_snapshot_first(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="T", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Old")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, force=True, engine=None, style_preset=None))
+        assert [h["label"] for h in isolated_db.list_line_history(did)] == [
+            "before force re-translate"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, force=False, engine=None, style_preset=None))
+        assert len(isolated_db.list_line_history(did)) == 1
+
+    def test_summary_engine_gets_the_gemini_free_tier_flag(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="T", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        built = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, key=None, model=None, **k: built.append((name, k)) or object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(
+                id=did, engine=None, style_preset=None, api_key="k",
+                episode_summary_engine="gemini", episode_summary_api_key="g"))
+        summary = [k for n, k in built if n == "gemini"]
+        assert summary and summary[0]["free_tier"] is True
+
     def test_translate_uses_the_dramas_saved_engine_and_its_own_key(self, isolated_db, monkeypatch):
         engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
                                         api_key=None, model="claude-x")
@@ -1387,3 +1624,82 @@ class TestCliSavedSettingsFallbacks:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
         assert seen.get("url") == "http://sovits"
+
+
+class TestCmdTranslateFallback:
+    """B-06 parity: `translate --fallback` builds the same chain, with the
+    same rules, as the translate run API's fallback_chain."""
+
+    def _drama(self, db_):
+        did = db_.create_drama(title_en="Test", status="aligned")
+        db_.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        return did
+
+    def _run(self, monkeypatch, args):
+        seen = {}
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: type(name, (), {"name": name, "model": "m"})())
+        monkeypatch.setattr(cli.translate_service, "resolve_api_key", lambda n: "k")
+
+        def fake_translate(lines, engine, **kw):
+            seen["engine"], seen["cost_cap"] = engine, kw["cost_cap_usd"]
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(args)
+        return seen, out.getvalue()
+
+    def test_builds_a_fallback_engine_in_order(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        seen, _ = self._run(monkeypatch, _translate_args(id=did, fallback="deepseek, gemini"))
+        eng = seen["engine"]
+        assert isinstance(eng, translate_engines.FallbackEngine)
+        assert eng.choices == ["claude", "deepseek", "gemini"]
+        assert seen["cost_cap"] is None  # per-engine caps live on the FallbackEngine
+
+    def test_no_fallback_keeps_the_plain_engine(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        seen, _ = self._run(monkeypatch, _translate_args(id=did))
+        assert not isinstance(seen["engine"], translate_engines.FallbackEngine)
+
+    @pytest.mark.parametrize("value", ["deepl", "claude"])
+    def test_chain_rules_skip_the_drama(self, isolated_db, monkeypatch, value):
+        did = self._drama(isolated_db)
+        seen, out = self._run(monkeypatch, _translate_args(id=did, fallback=value))
+        assert "engine" not in seen and "skipped" in out
+
+    @pytest.mark.parametrize("value,reflect", [
+        ("deepseek,gemini,openrouter", False), ("nope", False), ("deepseek", True)])
+    def test_bad_flag_values_refused_up_front(self, value, reflect):
+        with pytest.raises(SystemExit):
+            cli._parse_fallback_arg(value, reflect=reflect)
+
+    def test_real_parser_has_the_flag(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(sys, "argv", ["cli.py", "translate", "--id", "1",
+                                          "--fallback", "deepseek"])
+        cli.main()
+        assert captured["args"].fallback == "deepseek"
+
+
+def test_cli_and_translate_run_build_the_same_style_guidelines(isolated_db, monkeypatch):
+    """B-20 parity: `translate` and the translate run service use one builder,
+    so the same drama and toggles give the same guidelines."""
+    from services import workspace_job_service
+    series_id = isolated_db.get_or_create_series("S")
+    did = isolated_db.create_drama(title_en="T", series_id=series_id, status="aligned")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+    isolated_db.save_emotions(did, {0: {"emotion": "sad", "intensity": 0.8, "note": "n"}})
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    seen = {}
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                        lambda lines, engine, **kw: (seen.update(kw), (lines, []))[1])
+    with contextlib.redirect_stdout(io.StringIO()):
+        cli.cmd_translate(_translate_args(id=did, female_pronouns=True, no_genre_notes=True))
+    d = isolated_db.get_drama(did)
+    lines = cli.lines_from_rows(isolated_db.load_lines(did))
+    _, expected, _ = workspace_job_service.build_run_style_context(
+        did, d, lines, "audio_drama", include_genre_notes=False, default_female_pronouns=True)
+    assert seen["style_guidelines"] == expected and "sad" in expected

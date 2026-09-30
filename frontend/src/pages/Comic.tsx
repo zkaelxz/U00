@@ -6,6 +6,8 @@
  * image and the text boxes (a side panel on desktop, a bottom Sheet on
  * phones). Without ?page it resumes at the saved page; progress is saved a
  * second after the page changes. Server text is rendered as text only.
+ * "Translate" opens the Scanlate panel (comic/ScanlatePanel.tsx: upload,
+ * translate, redo, export); it is shown at once when there are no pages.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -19,6 +21,7 @@ import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
+import { ScanlatePanel } from './comic/ScanlatePanel'
 import {
   clampPage,
   comicHref,
@@ -93,6 +96,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   const [forbidden, setForbidden] = useState(false)
   const [regions, setRegions] = useState<Record<number, RegionsState>>({})
   const [linesOpen, setLinesOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
   const [initialPage] = useState(routePage)
 
   const stageRef = useRef<HTMLDivElement>(null)
@@ -119,6 +123,14 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       // Unknown (refused or failed): start at page 1 but don't save it.
       () => setSavedPage(1),
     )
+  }, [id])
+
+  // After an upload or a Scanlate job: reload the page list (new pages, new
+  // typeset images via image_version) and drop the cached text boxes.
+  const refreshPages = useCallback(() => {
+    comicApi.pages(id).then(setData, setError)
+    requested.current.clear()
+    setRegions({})
   }, [id])
 
   const count = data?.page_count ?? data?.pages.length ?? 0
@@ -315,6 +327,26 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     else figures.current.delete(n)
   }
 
+  const toolsButton = (
+    <button
+      type="button"
+      className="comic-tools-btn"
+      aria-pressed={toolsOpen}
+      aria-controls="comic-scanlate"
+      onClick={() => setToolsOpen((v) => !v)}
+    >
+      Translate
+    </button>
+  )
+  const panel = (
+    <ScanlatePanel
+      dramaId={id}
+      pageId={currentPage?.id ?? null}
+      pageNumber={currentPage ? current : null}
+      onChanged={refreshPages}
+    />
+  )
+
   const view = (
     <ComicViewControl prefs={prefs} onChange={setPrefs} canTypeset={canTypeset} phone={phone}>
       {phone && current !== null && count > 1 && <ComicGoTo count={count} onGo={go} />}
@@ -390,6 +422,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
           <span className="reader-title">{title ?? 'Loading…'}</span>
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
+          {!empty && toolsButton}
           {view}
         </header>
       ) : (
@@ -401,7 +434,13 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           </nav>
           {current !== null && count > 0 && <ComicPager page={current} count={count} rtl={rtl} onGo={go} />}
           {toggles}
+          {!empty && toolsButton}
           {view}
+        </div>
+      )}
+      {!phone && toolsOpen && !empty && (
+        <div id="comic-scanlate" className="comic-scanlate">
+          {panel}
         </div>
       )}
 
@@ -419,10 +458,10 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       <ErrorBanner error={error} />
 
       {empty ? (
-        <section className="panel">
-          <p>No pages to read yet.</p>
-          <a href={workspaceHref}>Open the workspace</a>
-        </section>
+        <div className="comic-scanlate comic-empty">
+          <p>No pages to read yet. Upload page images or a PDF to translate them.</p>
+          {panel}
+        </div>
       ) : !data || current === null ? (
         !error && <p className="muted">Loading…</p>
       ) : (
@@ -452,6 +491,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
             Text
           </button>
         </div>
+      )}
+      {phone && !empty && (
+        <Sheet open={toolsOpen} title="Translate pages" onClose={() => setToolsOpen(false)}>
+          <div id="comic-scanlate">{toolsOpen && panel}</div>
+        </Sheet>
       )}
       {phone && currentPage && current !== null && (
         <Sheet open={linesOpen} title={`Page ${current} text`} onClose={() => setLinesOpen(false)}>

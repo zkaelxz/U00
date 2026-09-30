@@ -200,3 +200,102 @@ def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch)
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def test_job_record_says_when_a_running_record_is_stale(client):
+    """The record's `stale` flag uses the server's clock: a running record
+    with no heartbeat for STALE_JOB_SECONDS reads stale (a viewer's own
+    clock is never consulted); a fresh one, an in-process one and a
+    finished one do not."""
+    db.save_job_record("dead", "running")
+    _age("dead", 3600)
+    db.save_job_record("alive", "running")
+    _age("alive", 60)
+    db.save_job_record("mine", "running")
+    _age("mine", 3600)
+    _own("mine")
+    db.save_job_record("finished", "done")
+    _age("finished", 3600)
+    try:
+        assert client.get("/api/jobs/dead").json()["stale"] is True
+        assert client.get("/api/jobs/alive").json()["stale"] is False
+        assert client.get("/api/jobs/mine").json()["stale"] is False
+        assert client.get("/api/jobs/finished").json()["stale"] is False
+        # listing sweeps dead owners' records first, so "dead" is closed
+        # (not merely stale) by the time it is listed
+        items = {j["job_id"]: j for j in client.get("/api/jobs").json()["items"]}
+        assert items["dead"]["status"] == "cancelled"
+        assert items["alive"]["stale"] is False
+    finally:
+        _disown("mine")
+
+
+def test_listing_jobs_sweeps_dead_owners_records(client):
+    """B-04 leftover: a dead owner's record is closed without anyone
+    cancelling it -- listing jobs sweeps it; fresh and in-process ones stay."""
+    db.save_job_record("dead", "running")
+    _age("dead", 3600)
+    db.save_job_record("alive", "running")
+    _age("alive", 60)
+    db.save_job_record("mine", "running")
+    _age("mine", 3600)
+    _own("mine")
+    try:
+        jobs = {j["job_id"]: j["status"] for j in client.get("/api/jobs").json()["items"]}
+    finally:
+        _disown("mine")
+    assert jobs["dead"] == "cancelled"
+    assert jobs["alive"] == "running" and jobs["mine"] == "running"
+
+
+def test_api_startup_sweeps_dead_owners_records(isolated_db, monkeypatch):
+    import api.background as bg
+    monkeypatch.setattr(bg, "start_background_services", lambda: {})
+    monkeypatch.setattr(bg, "start_gpu_queue_poller", lambda: None)
+    monkeypatch.setattr(bg, "stop_gpu_queue_poller", lambda: None)
+    db.save_job_record("dead_at_start", "running")
+    _age("dead_at_start", 3600)
+    with TestClient(create_app(ApiSettings(background_services=True))):
+        pass
+    assert db.get_job_record("dead_at_start")["status"] == "cancelled"
+
+
+def test_one_staleness_cutoff_everywhere():
+    from services import drama_service, jobs_service, novel_files_service
+    assert (jobs_service.STALE_JOB_SECONDS == drama_service._STALE_JOB_RECORD_SECONDS
+            == novel_files_service._STALE_JOB_RECORD_SECONDS
+            == background_jobs.STALE_JOB_SECONDS)
+
+
+def test_heartbeat_write_failure_is_logged_redacted(isolated_db, monkeypatch):
+    """A heartbeat that can't be written is logged (secrets stripped), not
+    silently dropped; the job itself is unaffected."""
+    import applog
+    logged = []
+    monkeypatch.setattr(applog, "get_logger",
+                        lambda: type("L", (), {"warning": lambda self, m, **k: logged.append(m)})())
+
+    def boom(ids):
+        raise RuntimeError("db locked sk-ant-SECRET1234567890abcdef")
+    monkeypatch.setattr(db, "touch_job_records", boom)
+    _own("hb_fail")
+    try:
+        background_jobs._heartbeat_once()
+    finally:
+        _disown("hb_fail")
+    assert logged and "heartbeat" in logged[0]
+    assert "SECRET1234567890" not in logged[0]
+
+
+def test_sweep_skips_a_job_live_in_this_process(isolated_db):
+    """Even with a missed heartbeat (stale row), an in-process job is never
+    closed by this process's sweep."""
+    from services import jobs_service
+    db.save_job_record("live_stale", "running")
+    _age("live_stale", 3600)
+    _own("live_stale")
+    try:
+        assert jobs_service.sweep_stale_job_records() == 0
+    finally:
+        _disown("live_stale")
+    assert db.get_job_record("live_stale")["status"] == "running"

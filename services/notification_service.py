@@ -548,6 +548,22 @@ def _schedule_flush():
 _recent = collections.deque(maxlen=RECENT_KEEP)
 _recent_lock = threading.Lock()
 _last_id = 0
+# Push hook (SSE, services/event_stream_service.py): called with no
+# arguments after an event is recorded; listeners re-read list_recent for
+# their own principal. One that raises is ignored.
+_listeners = []
+
+
+def add_listener(fn) -> None:
+    if fn not in _listeners:
+        _listeners.append(fn)
+
+
+def remove_listener(fn) -> None:
+    try:
+        _listeners.remove(fn)
+    except ValueError:
+        pass
 
 
 def _record(kind, text, job_id, owner_user_id):
@@ -560,6 +576,11 @@ def _record(kind, text, job_id, owner_user_id):
         _last_id = max(_last_id + 1, int(now * 1000))
         _recent.append({"id": _last_id, "at": now, "kind": kind, "text": text,
                         "job_id": job_id, "owner_user_id": owner_user_id})
+    for fn in list(_listeners):
+        try:
+            fn()
+        except Exception:
+            pass
 
 
 def list_recent(principal=None, limit=RECENT_MAX) -> list:

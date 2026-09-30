@@ -68,7 +68,7 @@ class TestDiagnostics:
         for name, info in results.items():
             assert "installed" in info
             assert "powers" in info
-            assert info["tier"] in ("required", "engine", "feature", "dev")
+            assert info["tier"] in ("required", "engine", "feature", "dev", "experimental")
 
     def test_step_6_optional_dependencies_are_registered(self):
         """CLAUDE.md: every optional dependency must be listed here, or
@@ -91,6 +91,32 @@ class TestDiagnostics:
             assert pip_name in deps, pip_name
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
+
+    def test_lazy_optional_imports_in_asr_modules_are_registered(self):
+        """CLAUDE.md: every optional import must be in OPTIONAL_DEPENDENCIES,
+        or Diagnostics never reports it missing. asr_backend/forced_align
+        import their optional packages inside functions (qwen_asr, torch)."""
+        import ast
+        registered = {imp.split(".")[0] for imp, _f, _t in diagnostics.OPTIONAL_DEPENDENCIES.values()}
+        for module in ("asr_backend.py", "forced_align.py"):
+            with open(os.path.join(PROJECT_ROOT, module), encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            for fn in ast.walk(tree):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Import):
+                        names = [a.name for a in node.names]
+                    elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                        names = [node.module]
+                    else:
+                        continue
+                    for name in names:
+                        top = name.split(".")[0]
+                        if top in sys.stdlib_module_names or os.path.exists(os.path.join(PROJECT_ROOT, f"{top}.py")):
+                            continue
+                        assert top in registered, f"{module}: {top}"
+        assert diagnostics.OPTIONAL_DEPENDENCIES["qwen-asr"][0] == "qwen_asr"
 
     def test_upload_and_numpy_deps_are_registered(self):
         """python-multipart (requirements-core; the upload routes) and numpy
@@ -432,6 +458,55 @@ class TestPiperVoiceScanAndDelete:
 
     def test_delete_of_an_unknown_voice_fails_cleanly(self, tmp_path_str):
         assert diagnostics.delete_piper_voice("does-not-exist", tmp_path_str) is False
+
+
+class TestModelFolders:
+    """torch.hub checkpoints (TORCH_HOME) and the audio-separator models
+    live outside the Hugging Face cache; the model panel lists and deletes
+    their entries, never anything outside those folders."""
+
+    def test_folders_follow_their_env_vars(self, monkeypatch, tmp_path_str):
+        import audio_preprocess
+        monkeypatch.setenv("TORCH_HOME", tmp_path_str)
+        assert diagnostics.model_folder("torch") == os.path.join(tmp_path_str, "hub", "checkpoints")
+        monkeypatch.delenv("TORCH_HOME")
+        monkeypatch.setenv("XDG_CACHE_HOME", tmp_path_str)
+        assert diagnostics.model_folder("torch") == os.path.join(
+            tmp_path_str, "torch", "hub", "checkpoints")
+        monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", tmp_path_str)
+        assert diagnostics.model_folder("audio_separator") == tmp_path_str
+
+    def test_lists_files_and_folders_largest_first_skipping_symlinks(self, tmp_path_str):
+        folder = os.path.join(tmp_path_str, "models")
+        os.makedirs(os.path.join(folder, "repo"))
+        with open(os.path.join(folder, "htdemucs.th"), "wb") as f:
+            f.write(b"x" * 300)
+        with open(os.path.join(folder, "repo", "w.bin"), "wb") as f:
+            f.write(b"x" * 500)
+        outside = os.path.join(tmp_path_str, "outside.bin")
+        with open(outside, "wb") as f:
+            f.write(b"x" * 900)
+        try:
+            os.symlink(outside, os.path.join(folder, "link.bin"))
+        except (OSError, NotImplementedError):
+            pass
+        assert diagnostics.scan_model_folder("torch", folder) == [
+            {"name": "repo", "size_bytes": 500}, {"name": "htdemucs.th", "size_bytes": 300}]
+        assert diagnostics.scan_model_folder("torch", os.path.join(tmp_path_str, "nope")) == []
+
+    def test_delete_stays_inside_the_folder(self, tmp_path_str):
+        folder = os.path.join(tmp_path_str, "models")
+        os.makedirs(os.path.join(folder, "repo"))
+        with open(os.path.join(folder, "m.ckpt"), "wb") as f:
+            f.write(b"x")
+        with open(os.path.join(tmp_path_str, "keep.txt"), "wb") as f:
+            f.write(b"x")
+        for bad in ("../keep.txt", "..", ".", "", "repo/../../keep.txt", "missing.ckpt"):
+            assert diagnostics.delete_model_folder_entry("torch", bad, folder) is False
+        assert os.path.exists(os.path.join(tmp_path_str, "keep.txt"))
+        assert diagnostics.delete_model_folder_entry("audio_separator", "m.ckpt", folder) is True
+        assert diagnostics.delete_model_folder_entry("audio_separator", "repo", folder) is True
+        assert os.listdir(folder) == []
 
 
 class TestModelEngineVersions:

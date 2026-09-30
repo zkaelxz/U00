@@ -239,6 +239,29 @@ def test_series_result_sorted_and_redacted(fakes):
     assert svc.known_chapter_ids(r) == ["c1", "c2", "c10"]
 
 
+def test_series_download_links_are_listed_without_their_query(fakes):
+    fake = _make("alpha")
+    base_series = fake.get_series
+
+    def get_series(self, series_id):
+        info = base_series(self, series_id)
+        info.links = [{"label": "百度网盘 (Baidu Pan)", "url": f"https://pan.baidu.com/s/1abc?pwd=roh1&t={SECRET}",
+                       "password": "roh1"},
+                      {"label": "bad", "url": "javascript:alert(1)", "password": ""},
+                      {"label": "bad2", "url": "javascript://pan.baidu.com/%0aalert(1)", "password": ""},
+                      "not a dict"]
+        return info
+
+    fake.get_series = get_series
+    fakes["alpha"] = fake
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    out = svc.get_job_result("sources_series_alpha")
+    assert out["result"]["info"]["links"] == [
+        {"label": "百度网盘 (Baidu Pan)", "url": "https://pan.baidu.com/s/1abc", "password": "roh1"}]
+    assert SECRET not in json.dumps(out, ensure_ascii=False)
+
+
 def test_search_result_has_no_query_strings_or_secrets(fakes):
     fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
     svc.start_search("abc")
@@ -296,3 +319,30 @@ def test_refused_response_with_an_unmapped_status_is_a_500_not_a_keyerror():
     exc.status = 418
     view = svc._error_view(exc, "alpha")
     assert view["status"] == 500 and view["code"] == svc.ServiceError.code
+
+
+@pytest.mark.parametrize("local", [True, False])
+def test_series_job_passes_local_as_allow_browser(fakes, local):
+    """Step 113: a request not from this PC must not open a browser, so the
+    series job tells the adapter (docs/remote-access-decision.md)."""
+    seen = []
+    Fake = _make("alpha")
+    real = Fake.get_series
+
+    def get_series(self, series_id):
+        seen.append(self.allow_browser)
+        return real(self, series_id)
+
+    Fake.get_series = get_series
+    fakes["alpha"] = Fake
+    svc.start_series("alpha", "s1", local=local)
+    assert _wait("sources_series_alpha")["status"] == "done"
+    assert seen == [local]
+
+
+def test_purchase_hidden_is_not_the_adult_toggle():
+    view = svc._error_view(ContentHidden("paid, open it in the app",
+                                         FailureReason.PURCHASE_REQUIRED), "fanjiao")
+    assert view["status"] == 400
+    assert view["details"] == {"reason": "PURCHASE_REQUIRED"}
+    assert "open it in the app" in view["message"]

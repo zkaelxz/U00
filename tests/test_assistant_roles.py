@@ -183,3 +183,68 @@ def test_review_engine_without_cloud_consent_is_not_reviewed(engines, monkeypatc
     svc.set_settings({"cloud_consent": {"gemini": True}})
     chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nok"])
     assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
+
+
+def _client():
+    return TestClient(create_app(ApiSettings()), base_url="http://127.0.0.1:8600",
+                      client=("127.0.0.1", 50000), raise_server_exceptions=False)
+
+
+def _real_review_build(monkeypatch):
+    from services import line_ai_service, reader_service
+    monkeypatch.undo()
+    monkeypatch.setattr(svc, "build_engine",
+                        lambda name=None, model=None: (FakeEngine("claude"), "claude", None))
+    monkeypatch.setattr(reader_service, "_llm_engine", lambda n, m: FakeEngine(n))
+    monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", lambda *a: None)
+
+
+def test_remote_ollama_reviewer_needs_consent(engines, monkeypatch):
+    from services import settings_service
+    _real_review_build(monkeypatch)
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://192.168.1.5:11434")
+    svc.set_settings({"review_engine": "ollama"})
+    chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
+    out = svc.ask("x", chat=chat)
+    assert out["review"]["verdict"] == "unavailable" and "isn't allowed yet" in out["review"]["notes"]
+    assert [c[0] for c in chat.calls] == ["claude"]  # the remote server was never asked
+    svc.set_settings({"cloud_consent": {"ollama": True}})
+    chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
+    assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
+
+
+def test_local_ollama_reviewer_needs_no_consent(engines, monkeypatch):
+    from services import settings_service
+    _real_review_build(monkeypatch)
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://127.0.0.1:11434")
+    svc.set_settings({"review_engine": "ollama"})
+    chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
+    assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
+
+
+def test_cloud_reviewer_without_consent_is_refused_through_the_api(engines, monkeypatch):
+    _real_review_build(monkeypatch)
+    monkeypatch.setattr(svc, "_chat", EngineChat(claude=[PATCH], deepseek=["VERDICT: AGREES\nok"]))
+    c = _client()
+    assert c.post("/api/assistant/settings", json={"review_engine": "deepseek"}).status_code == 200
+    body = c.post("/api/assistant/ask", json={"question": "x"}).json()
+    assert body["review"]["verdict"] == "unavailable" and body["proposed_patches"]
+    assert [call[0] for call in svc._chat.calls] == ["claude"]
+
+
+def test_offline_test_engine_is_not_a_review_choice(isolated_db):
+    s = svc.get_settings()
+    assert "test_offline" in s["engine_choices"]
+    assert "test_offline" not in s["review_engine_choices"] and "gemini" in s["review_engine_choices"]
+    with pytest.raises(svc.InvalidInputError):
+        svc.set_settings({"review_engine": "test_offline"})
+    c = _client()
+    assert c.post("/api/assistant/settings", json={"review_engine": "test_offline"}).status_code == 422
+
+
+def test_a_saved_offline_reviewer_is_not_used(isolated_db):
+    import db
+    db.set_app_setting(svc._SETTINGS_PREFIX + "review_engine", "test_offline")
+    assert svc.get_settings()["review_engine"] is None
+    with pytest.raises(svc.ConflictError):
+        svc.build_review_engine()

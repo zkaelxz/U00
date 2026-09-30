@@ -31,13 +31,6 @@ BASE = "/api/library/admin"
 REMOTE = "https://baihe.example.com"
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 @pytest.fixture
 def client(isolated_db):
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
@@ -209,7 +202,8 @@ class TestBulkTranslate:
         seen = {}
 
         def fake(drama_ids, default_locale="en-US", expected_engines=None,
-                 allow_paid_summary=True, principal=None):
+                 allow_paid_summary=True, principal=None, include_genre_notes=True,
+                 default_female_pronouns=False):
             seen["expected"] = expected_engines
             seen["allow_paid_summary"] = allow_paid_summary
             return {"job_id": "x", "queued": [a], "skipped": []}

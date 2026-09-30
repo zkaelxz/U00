@@ -438,7 +438,7 @@ def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_b
 
 
 def test_cloud_consent_is_validated(isolated_db):
-    for bad in ({"ollama": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
+    for bad in ({"test_offline": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
         with pytest.raises(svc.InvalidInputError):
             svc.set_settings({"cloud_consent": bad})
 
@@ -471,3 +471,81 @@ def test_git_diff_without_a_path_shows_a_modified_tracked_file(tmp_path, monkeyp
     out = svc.run_tool("git_diff", {})
     assert out["ok"] and "mod.py" in out["output"] and "+x = 2" in out["output"]
     assert "mod.py" in svc.run_tool("git_diff", {"stat": True})["output"]
+
+
+
+@pytest.mark.parametrize("url,local", [
+    (None, True), ("http://localhost:11434", True), ("http://127.0.0.1:11434", True),
+    ("http://[::1]:11434", True), ("192.168.1.5:11434", False),
+    ("http://ollama.example.com", False), ("http://127.0.0.1.evil.com", False)])
+def test_ollama_is_local_only_on_loopback(isolated_db, monkeypatch, url, local):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: url)
+    assert svc.cloud_consent_given("ollama") is local
+    if not local:
+        with pytest.raises(svc.ConflictError):
+            svc.require_cloud_consent("ollama")
+
+
+def test_ollama_consent_can_be_saved_for_a_remote_server(isolated_db, monkeypatch):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://10.0.0.2:11434")
+    monkeypatch.setattr(svc, "_get", lambda k, d=None: {"ollama": True} if k == "cloud_consent" else d)
+    assert svc.cloud_consent_given("ollama") is True
+
+
+def test_cloud_consent_must_be_a_real_boolean(isolated_db):
+    c = _client()
+    c.post("/api/assistant/settings", json={"developer_mode": True})
+    for bad in ("true", 1, "yes"):
+        r = c.post("/api/assistant/settings", json={"cloud_consent": {"claude": bad}})
+        assert r.status_code == 422
+    assert c.post("/api/assistant/settings", json={"cloud_consent": {"claude": True}}).status_code == 200
+
+
+@pytest.mark.skipif(__import__("shutil").which("git") is None, reason="git not installed")
+def test_git_diff_without_a_path_hides_denied_files(tmp_path, monkeypatch):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)
+    run("init", "-q")
+    run("config", "user.email", "t@example.com")
+    run("config", "user.name", "t")
+    (repo / "mod.py").write_text("x = 1\n")
+    (repo / "secrets.py").write_text("k = 1\n")
+    run("add", ".")
+    run("commit", "-q", "-m", "init")
+    (repo / "secrets.py").write_text("k = 'hunter2'\n")
+    monkeypatch.setattr(svc, "repo_root", lambda: str(repo))
+    assert svc.run_tool("git_diff", {})["output"] == "No differences."
+    (repo / "mod.py").write_text("x = 2\n")
+    out = svc.run_tool("git_diff", {})["output"]
+    assert "+x = 2" in out and "hunter2" not in out and "secrets.py" not in out
+    assert "secrets.py" not in svc.run_tool("git_diff", {"stat": True})["output"]
+
+
+@pytest.mark.parametrize("tok", [
+    "ghp_" + "a" * 36, "gho_" + "B1" * 15, "ghu_" + "c" * 25, "ghs_" + "d" * 30,
+    "ghr_" + "e" * 30, "github_pat_" + "11AB_" * 8])
+def test_redact_secrets_strips_github_tokens(tok):
+    from translate_engines import redact_secrets
+    out = redact_secrets(f"clone https://x:{tok}@github.com failed")
+    assert tok not in out and "[REDACTED]" in out
+    assert redact_secrets("ghp_short and github_pat_ok") == "ghp_short and github_pat_ok"
+
+
+def test_remote_ollama_consent_is_saved_and_shown(isolated_db, monkeypatch):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://10.0.0.2:11434")
+    s = svc.get_settings()
+    assert "ollama" not in s["local_engines"] and s["cloud_consent"]["ollama"] is False
+    with pytest.raises(svc.ConflictError):
+        svc.require_cloud_consent("ollama")
+    s = svc.set_settings({"cloud_consent": {"ollama": True}})
+    assert s["cloud_consent"]["ollama"] is True
+    svc.require_cloud_consent("ollama")
+    # Back on this PC, Ollama is local again and needs no consent entry.
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
+    s = svc.get_settings()
+    assert "ollama" in s["local_engines"] and "ollama" not in s["cloud_consent"]

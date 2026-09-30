@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import { untilTestEnds } from './stageLineMocks'
 
 // Shared page.route mocks for the voice-clone specs. The seeded drama has no
 // speakers, audio or series, so the characters, candidates, dub config, job and
@@ -48,7 +49,9 @@ export async function guard(page: Page): Promise<string[]> {
 
 export interface Mocks {
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
-  state: { entries: ReturnType<typeof character>[]; jobDone: boolean; extracted: boolean }
+  // started: an extraction job exists (set by the extract POST, or by a test
+  // that opens the panel while one is already running, to check reattach).
+  state: { entries: ReturnType<typeof character>[]; jobDone: boolean; extracted: boolean; started: boolean }
 }
 
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, json: body })
@@ -60,6 +63,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
       entries: [character(), character({ speaker_label: 'SPEAKER_01', character_name: 'Lan Zhan', clone_engine: 'omnivoice', voice_design: 'low, calm', line_count: 9 })],
       jobDone: false,
       extracted: false,
+      started: false,
     },
   }
   const record = (route: Route) => {
@@ -79,10 +83,12 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
 
   await page.route('**/api/meta', (route) =>
     json(route, { app: 'baihe', api_version: '1', environment: 'development', local: !opts.remote }))
-  await page.route('**/api/library/dramas/1', async (route) => {
-    const resp = await route.fetch()
-    await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
-  })
+  await page.route('**/api/library/dramas/1', (route) =>
+    untilTestEnds(async () => {
+      const resp = await route.fetch()
+      await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
+    }),
+  )
   await page.route('**/api/dub/dramas/1/config', (route) => json(route, dubConfig()))
   await page.route('**/api/dub/dramas/1/pacing', (route) => json(route, { available: false, counts: {}, lines: [] }))
   await page.route('**/api/characters/dramas/1', (route) => json(route, m.state.entries))
@@ -111,9 +117,12 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
     route.fulfill({ status: 200, contentType: 'audio/wav', body: Buffer.from('RIFF0000WAVE') }))
   await page.route('**/api/characters/dramas/1/reference-clips/extract', (route) => {
     record(route)
+    m.state.started = true
     return json(route, { job_id: 'voiceref_1' })
   })
   await page.route('**/api/jobs/voiceref_1', (route) => {
+    // No such job until one is started (the panel reads this id on mount).
+    if (!m.state.started) return json(route, { error: { code: 'not_found', message: 'No job.' } }, 404)
     const done = m.state.jobDone
     if (done) m.state.extracted = true
     return json(route, {

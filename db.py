@@ -16,7 +16,11 @@ import threading
 import time
 from typing import List
 
-LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
+import portable
+
+# Next to the code for a source checkout; the per-user data folder for an
+# installed copy (portable.data_dir(), Step 80b).
+LIBRARY_DIR = os.path.join(portable.data_dir(), "library")
 DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
 DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
 BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
@@ -1044,7 +1048,11 @@ def init_db():
                               # -- unlike personal_notes above, which is private and never
                               # sent anywhere. The series-level counterpart is
                               # series.instructions, inherited by every drama in the series.
-                              ("project_instructions", "TEXT")]:
+                              ("project_instructions", "TEXT"),
+                              # Roadmap 112: the Notion page this drama was last exported
+                              # to (services/notion_service.py), so a re-export updates
+                              # that page in place. Only the id, never a token or URL.
+                              ("notion_page_id", "TEXT")]:
             if col not in drama_cols:
                 _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
         series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
@@ -1134,7 +1142,19 @@ def init_db():
             _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
             _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
             _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
-        bulk_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
+        page_cols = {r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()}
+        if "rev" not in page_cols:
+            # Scanlate S0: rev is bumped by every id-preserving region write
+            # (insert/update/delete/reorder/replace_bubbles_if_unchanged; not
+            # the legacy save_bubbles); context_summary is the rolling
+            # translation context after this page; run_notes is a redacted
+            # JSON list of {level, message} from the last automatic run.
+            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN rev INTEGER DEFAULT 0")
+        if "context_summary" not in page_cols:
+            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN context_summary TEXT")
+        if "run_notes" not in page_cols:
+            _safe_alter(conn, "ALTER TABLE pages ADD COLUMN run_notes TEXT")
+        bulk_job_cols ={r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
         if "kind" not in bulk_job_cols:
             # Step 9d: see the `bulk_jobs` table's own comment above -- every
             # bulk job predating this column was a translation job.
@@ -1177,6 +1197,72 @@ def init_db():
     _migrate_step26e_profiles()
 
 
+# ---------------------------------------------------------------------------
+# Step 40b: model re-evaluation candidates and decisions
+# ---------------------------------------------------------------------------
+
+def create_model_candidate(capability: str, engine: str, model: str, note: str = "") -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO model_candidates (capability, engine, model, note, status, created_at) "
+            "VALUES (?, ?, ?, ?, 'candidate', ?)",
+            (capability, engine, model, note, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_model_candidate(candidate_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM model_candidates WHERE id = ?", (candidate_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_model_candidate(capability: str, engine: str, model: str):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute(
+            "SELECT * FROM model_candidates WHERE capability = ? AND engine = ? AND model IS ?",
+            (capability, engine, model)).fetchone()
+    return dict(row) if row else None
+
+
+def list_model_candidates(capability: str):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM model_candidates WHERE capability = ? ORDER BY id",
+                            (capability,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_model_candidate_status(candidate_id: int, status: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE model_candidates SET status = ? WHERE id = ?", (status, candidate_id))
+        conn.commit()
+
+
+def record_model_decision(candidate_id: int, decision: str, reason: str, scores_json: str) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO model_decisions (candidate_id, decision, reason, scores, decided_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (candidate_id, decision, reason, scores_json, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def latest_model_decision(candidate_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM model_decisions WHERE candidate_id = ? "
+                           "ORDER BY id DESC LIMIT 1", (candidate_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_model_decisions(capability: str):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT d.* FROM model_decisions d JOIN model_candidates c ON d.candidate_id = c.id "
+            "WHERE c.capability = ? ORDER BY d.id DESC", (capability,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def _init_benchmark_lab_schema():
     """Step 38 (Benchmark Lab): golden-set tiers on benchmark_cases, plus a
     per-run record (benchmark_sessions: engine/model/prompt version/context,
@@ -1215,6 +1301,7 @@ def _init_benchmark_lab_schema():
             output_text TEXT,
             score REAL,
             metric TEXT,             -- 'similarity', 'cer', 'wer'
+            scorer TEXT,             -- 'jiwer', 'builtin'; NULL on rows from before it was recorded
             passed INTEGER,
             duration_seconds REAL,
             cost_usd REAL DEFAULT 0.0,
@@ -1224,12 +1311,37 @@ def _init_benchmark_lab_schema():
             FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
         );
         CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        -- Step 40b: candidate models for scheduled re-evaluation, and every
+        -- promote/reject decision (kept so a rejected candidate isn't re-proposed
+        -- as new).
+        CREATE TABLE IF NOT EXISTS model_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            capability TEXT NOT NULL,
+            engine TEXT NOT NULL,
+            model TEXT,
+            note TEXT DEFAULT '',
+            status TEXT DEFAULT 'candidate',   -- candidate / promoted / rejected
+            created_at TEXT,
+            UNIQUE(capability, engine, model)
+        );
+        CREATE TABLE IF NOT EXISTS model_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_id INTEGER NOT NULL,
+            decision TEXT NOT NULL,            -- promoted / rejected
+            reason TEXT DEFAULT '',
+            scores TEXT,                       -- JSON snapshot of the runs compared
+            decided_at TEXT,
+            FOREIGN KEY (candidate_id) REFERENCES model_candidates(id) ON DELETE CASCADE
+        );
         """)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_cases)").fetchall()}
         for col, coltype in (("tier", "TEXT DEFAULT 'application'"), ("set_name", "TEXT DEFAULT ''"),
                              ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
+        result_cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_results)").fetchall()}
+        if "scorer" not in result_cols:
+            _safe_alter(conn, "ALTER TABLE benchmark_results ADD COLUMN scorer TEXT")
         conn.commit()
 
 
@@ -1438,6 +1550,15 @@ def update_drama(drama_id: int, **fields):
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE dramas SET {set_clause} WHERE id = ?",
                      list(fields.values()) + [drama_id])
+        conn.commit()
+
+
+def set_drama_notion_page_id(drama_id: int, page_id):
+    """Roadmap 112: records (or clears, with None) the Notion page a drama
+    was exported to. Left out of update_drama on purpose: an export is not
+    an edit, so updated_at stays as it was."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
         conn.commit()
 
 
@@ -2131,9 +2252,19 @@ def create_page(drama_id: int, idx: int, filename: str, width: int, height: int)
     return new_id
 
 
+_PAGE_UPDATE_FIELDS = ("idx", "filename", "rendered_filename", "width", "height",
+                       "context_summary", "run_notes")
+
+
 def update_page(page_id: int, **fields):
+    """Field-scoped page update. Keys are interpolated into the SQL, so only
+    _PAGE_UPDATE_FIELDS are accepted (ValueError otherwise); rev is bumped
+    only by the region writes below, never set directly."""
     if not fields:
         return
+    bad = [k for k in fields if k not in _PAGE_UPDATE_FIELDS]
+    if bad:
+        raise ValueError(f"update_page: unknown field(s) {bad}")
     with contextlib.closing(get_conn()) as conn:
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE pages SET {set_clause} WHERE id = ?", list(fields.values()) + [page_id])
@@ -2144,6 +2275,219 @@ def list_pages(drama_id: int):
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM pages WHERE drama_id = ? ORDER BY idx", (drama_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_page(page_id: int, drama_id: int = None):
+    """One page row, or None. With drama_id, None unless the page belongs to
+    that drama (ids from a request must be scoped to their drama)."""
+    with contextlib.closing(get_conn()) as conn:
+        if drama_id is None:
+            row = conn.execute("SELECT * FROM pages WHERE id = ?", (page_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM pages WHERE id = ? AND drama_id = ?",
+                               (page_id, drama_id)).fetchone()
+    return dict(row) if row else None
+
+
+def next_page_idx(drama_id: int) -> int:
+    """MAX(idx)+1 for a drama's pages (0 for none). Unlike len(list_pages),
+    never reuses an idx after a gap. Callers adding pages hold their own
+    per-drama lock around this and the inserts."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT MAX(idx) FROM pages WHERE drama_id = ?", (drama_id,)).fetchone()
+    return 0 if row is None or row[0] is None else int(row[0]) + 1
+
+
+# Scanlate S0: id-preserving region writes. Unlike save_bubbles (a full
+# delete-and-reinsert that gives every bubble a new id, still used by the
+# Streamlit tab and the extension bridge until they are frozen), each of
+# these keeps every other bubble's id and bumps pages.rev once.
+BUBBLE_EDIT_FIELDS = ("x", "y", "w", "h", "source_text", "translated_text", "font_size",
+                      "skip", "font_category", "kind", "kind_confidence", "confidence",
+                      "language", "orientation", "panel_id", "include_sfx")
+_BUBBLE_TEXT_FIELDS = ("source_text", "translated_text", "font_category", "kind",
+                       "language", "orientation")
+_BUBBLE_BOOL_FIELDS = ("skip", "include_sfx")
+
+
+def _bubble_row_values(b: dict) -> tuple:
+    return (b["x"], b["y"], b["w"], b["h"], b.get("source_text", "") or "",
+            b.get("translated_text", "") or "", b.get("font_size", 18),
+            int(bool(b.get("skip", False))), b.get("font_category") or "regular",
+            b.get("kind") or "bubble", b.get("kind_confidence"), b.get("confidence"),
+            b.get("language"), b.get("orientation"), b.get("panel_id"),
+            int(bool(b.get("include_sfx"))))
+
+
+_BUBBLE_INSERT_SQL = (
+    "INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, "
+    "font_size, skip, font_category, kind, kind_confidence, confidence, language, "
+    "orientation, panel_id, include_sfx) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+
+
+def _bump_page_rev(conn, page_id: int):
+    conn.execute("UPDATE pages SET rev = COALESCE(rev, 0) + 1 WHERE id = ?", (page_id,))
+
+
+def _bubble_value(field, value):
+    if field in _BUBBLE_BOOL_FIELDS:
+        return int(bool(value))
+    return value
+
+
+def update_bubble_fields(bubble_id: int, fields: dict, expected: dict = None,
+                         page_id: int = None) -> bool:
+    """Compare-and-set for one bubble: ONE conditional UPDATE that writes
+    `fields` only if every `expected` column still holds the value the
+    caller saw (text columns: NULL equals ""; skip/include_sfx as bools).
+    With page_id, the bubble must also be on that page. Returns True if the
+    row changed (and bumps its page's rev), False if it no longer matches
+    or no longer exists -- nothing is written then. Unknown columns raise
+    ValueError (they are interpolated into the SQL)."""
+    expected = expected or {}
+    bad = [k for k in list(fields) + list(expected) if k not in BUBBLE_EDIT_FIELDS]
+    if bad or not fields:
+        raise ValueError(f"update_bubble_fields: bad field(s) {bad or 'none given'}")
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    params = [_bubble_value(k, v) for k, v in fields.items()]
+    where = ["id = ?"]
+    params.append(bubble_id)
+    if page_id is not None:
+        where.append("page_id = ?")
+        params.append(page_id)
+    for k, v in expected.items():
+        if k in _BUBBLE_TEXT_FIELDS:
+            where.append(f"COALESCE({k}, '') = ?")
+            params.append("" if v is None else v)
+        elif v is None:
+            where.append(f"{k} IS NULL")
+        else:
+            where.append(f"{k} = ?")
+            params.append(_bubble_value(k, v))
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute(f"UPDATE bubbles SET {sets} WHERE {' AND '.join(where)}", params)
+        changed = cur.rowcount > 0
+        if changed:
+            pid = conn.execute("SELECT page_id FROM bubbles WHERE id = ?", (bubble_id,)).fetchone()[0]
+            _bump_page_rev(conn, pid)
+        conn.commit()
+        return changed
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def insert_bubble(page_id: int, bubble: dict, position: int = None) -> int:
+    """Adds one bubble to a page without touching the others' ids. position
+    None appends in reading order; otherwise it is inserted at that list
+    position (clamped) and later bubbles' idx shift by one. Returns the new id."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
+        pos = len(ids) if position is None else max(0, min(int(position), len(ids)))
+        cur = conn.execute(_BUBBLE_INSERT_SQL, (page_id, pos) + _bubble_row_values(bubble))
+        new_id = cur.lastrowid
+        ids.insert(pos, new_id)
+        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
+                         [(i, bid) for i, bid in enumerate(ids)])
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return new_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def delete_bubble(page_id: int, bubble_id: int) -> bool:
+    """Deletes one bubble of that page; the others keep their ids (idx is
+    renumbered to stay contiguous). False if it isn't on that page."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute("DELETE FROM bubbles WHERE id = ? AND page_id = ?", (bubble_id, page_id))
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False
+        ids = [r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ? ORDER BY idx, id", (page_id,)).fetchall()]
+        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
+                         [(i, bid) for i, bid in enumerate(ids)])
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def reorder_bubbles(page_id: int, ordered_ids) -> bool:
+    """Sets reading order to `ordered_ids`, which must be exactly the page's
+    current bubble ids (no more, no fewer, no repeats); False, and nothing
+    written, otherwise."""
+    ordered_ids = [int(i) for i in ordered_ids]
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current = {r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
+        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) != current:
+            conn.rollback()
+            return False
+        conn.executemany("UPDATE bubbles SET idx = ? WHERE id = ?",
+                         [(i, bid) for i, bid in enumerate(ordered_ids)])
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_rev: int = None):
+    """Conditional full replace for a background job: in ONE transaction,
+    replaces the page's bubbles with `bubbles` (reading order = list order)
+    only if the page's current bubble-id set is exactly `expected_ids` and,
+    when given, its rev is still `expected_rev` (an id-preserving edit bumps
+    rev; a legacy save_bubbles changes the ids) -- so a page the user (or
+    another writer) changed since the job read it is left alone. Returns
+    the new ids in order, or None if nothing was written."""
+    expected = {int(i) for i in expected_ids}
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT COALESCE(rev, 0) FROM pages WHERE id = ?", (page_id,)).fetchone()
+        if row is None or (expected_rev is not None and int(row[0]) != int(expected_rev)):
+            conn.rollback()
+            return None
+        current = {r[0] for r in conn.execute(
+            "SELECT id FROM bubbles WHERE page_id = ?", (page_id,)).fetchall()}
+        if current != expected:
+            conn.rollback()
+            return None
+        conn.execute("DELETE FROM bubbles WHERE page_id = ?", (page_id,))
+        new_ids = [conn.execute(_BUBBLE_INSERT_SQL, (page_id, i) + _bubble_row_values(b)).lastrowid
+                   for i, b in enumerate(bubbles)]
+        _bump_page_rev(conn, page_id)
+        conn.commit()
+        return new_ids
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def save_bubbles(page_id: int, bubbles):
@@ -2751,7 +3095,9 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
     payload = [{"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
                 "zh": ln.zh, "en": ln.en,
                 "speaker": getattr(ln, "speaker", None),
-                "speaker_manual": bool(getattr(ln, "speaker_manual", False))} for ln in lines]
+                "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+                "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+                "sfx": bool(getattr(ln, "sfx", False))} for ln in lines]
     with contextlib.closing(get_conn()) as conn:
         if make_active:
             conn.execute("UPDATE translation_versions SET is_active = 0 WHERE drama_id = ?", (drama_id,))
@@ -3208,6 +3554,21 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
         return cur.lastrowid
 
 
+def set_preset_engine_model(preset_id: int, engine_model: str, expected_model: str = None) -> bool:
+    """Step 40's guided switch: changes only a preset's model, and only if it
+    still holds expected_model (when given). False when nothing changed."""
+    with contextlib.closing(get_conn()) as conn:
+        if expected_model is None:
+            cur = conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
+                               (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
+        else:
+            cur = conn.execute(
+                "UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ? AND engine_model = ?",
+                (engine_model, datetime.datetime.utcnow().isoformat(), preset_id, expected_model))
+        conn.commit()
+    return cur.rowcount > 0
+
+
 def list_presets():
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
@@ -3247,7 +3608,9 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
-         "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
+         "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+         "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+         "sfx": bool(getattr(ln, "sfx", False))}
         for ln in lines
     ]
     conn = get_conn()
@@ -3651,6 +4014,19 @@ def list_job_records() -> list:
         rows = conn.execute(
             "SELECT * FROM job_records ORDER BY started_at DESC NULLS LAST").fetchall()
         return [dict(r) for r in rows]
+
+
+def list_job_record_fingerprints() -> dict:
+    """{job_id: (status, progress, message, error, finished_at,
+    cancel_requested, result length)} for every job_records row: the cheap
+    change check behind the SSE stream's sweep (services/
+    event_stream_service.py). updated_at is left out on purpose: the
+    heartbeat bumps it without any visible change."""
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT job_id, status, progress, message, error, finished_at, cancel_requested, "
+            "LENGTH(result_json) FROM job_records").fetchall()
+    return {r[0]: tuple(r[1:]) for r in rows}
 
 
 def get_job_record(job_id: str):
@@ -4230,10 +4606,10 @@ def save_benchmark_result(session_id: int, case: dict, result: dict):
     with contextlib.closing(get_conn()) as conn:
         conn.execute(
             "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
-            "metric, passed, duration_seconds, cost_usd, error, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "metric, scorer, passed, duration_seconds, cost_usd, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
-             result.get("score"), result.get("metric"),
+             result.get("score"), result.get("metric"), result.get("scorer"),
              None if result.get("passed") is None else int(bool(result["passed"])),
              result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
              datetime.datetime.utcnow().isoformat()))

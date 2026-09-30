@@ -315,7 +315,8 @@ def _check_expected_engines(expected) -> dict:
 
 def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                          expected_engines=None, allow_paid_summary: bool = True,
-                         principal=None) -> dict:
+                         principal=None, include_genre_notes: bool = True,
+                         default_female_pronouns: bool = False) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" (the same filter the tab applies) and
@@ -358,7 +359,9 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
         gemini_free_tier=settings_service.get_gemini_free_tier(),
         models={}, monthly_cap=cap, expected_engines=expected_engines,
-        allow_paid_summary=allow_paid_summary)
+        allow_paid_summary=allow_paid_summary,
+        include_genre_notes=include_genre_notes,
+        default_female_pronouns=default_female_pronouns)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     return {"job_id": BULK_TRANSLATE_JOB_ID, "queued": queued, "skipped": skipped}
@@ -480,15 +483,17 @@ def _sanitized_snapshot(dest: str):
 def _backup_excluded_top_level() -> tuple:
     """Top-level library entries a backup never contains: old backups and
     exports, saved site sign-ins, approved source profiles (a restore keeps
-    the current ones either way) and the browser-extension token."""
-    return wjs._restore_kept_names()
+    the current ones either way), the browser-extension token and the
+    sources raw-content cache (rebuildable: a missing file is a cache miss)."""
+    from sources import store as src_store
+    return wjs._restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
 def write_backup_zip(dest: str, include_media: bool = True, manifest=None):
     """Writes a backup zip to `dest`: a sanitized library.db snapshot and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
-    token), the live database files, symlinks and any `.env`. `manifest`,
+    token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
     if given, is called with the snapshot's path and returns bytes stored
     as manifest.json (so it describes exactly the database in the zip)."""
     library_dir = db.LIBRARY_DIR

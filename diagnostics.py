@@ -48,6 +48,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
     "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
+    "process_guard.py",   # Step 80b: the installed server's Job Object (python -m api imports it)
 ]
 EXPECTED_TABS_FILES = [
     "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
@@ -122,6 +123,8 @@ OPTIONAL_DEPENDENCIES = {
                        "off by default)", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao; the "
                                  "Sources tab's browser tier)", "feature"),
+    "jiwer": ("jiwer", "Benchmark Lab: standard CER/WER scoring for transcription and OCR "
+                       "(falls back to a built-in scorer)", "feature"),
     "trafilatura": ("trafilatura", "Sources tab: pulling a novel chapter's main text out of a "
                                    "pasted URL (falls back to a simpler built-in extractor)",
                     "feature"),
@@ -131,6 +134,14 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    "qwen-asr": ("qwen_asr", "Qwen3-ASR transcription engine and Qwen3 forced alignment "
+                             "(line timing); best in its own Python 3.12 environment", "feature"),
+    # Step 104: not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
+    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
+    "moss-transcribe-diarize": ("moss_transcribe_diarize",
+                                "experimental one-pass transcription + speaker labels "
+                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
+                                "can't share an install with Qwen3-ASR)", "experimental"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
                                      "decryption (Sources tab); Google sign-in token checks",
                      "feature"),
@@ -145,7 +156,25 @@ OPTIONAL_DEPENDENCIES = {
     "pytest": ("pytest", "running the test suite", "dev"),
     "httpx": ("httpx", "Google sign-in's HTTP client (with authlib); also the HTTP API's "
                        "tests (FastAPI TestClient)", "feature"),
+    # Step 115b: a separate program, not a library. GPL-3.0, so Baihe never
+    # imports or ships it: it only runs the user-installed `lncrawl` command
+    # (services/lncrawl_service.py). Detected by EXTERNAL_PROGRAMS below,
+    # never offered for one-click install (NOT_OFFERED_FOR_INSTALL).
+    "lightnovel-crawler": ("lncrawl", "Novel text: \"Import with lightnovel-crawler\" (a "
+                                      "separate GPL-3.0 program you install yourself; Baihe "
+                                      "only runs it and reads the EPUB it makes)", "feature"),
 }
+
+# Import-name slots in OPTIONAL_DEPENDENCIES that are really external
+# programs: check_dependency asks this function instead of importlib, so the
+# program is found where it will be run from (PATH or its Settings path) and
+# its Python code is never looked up or imported.
+def _lncrawl_installed() -> bool:
+    from services import lncrawl_service
+    return lncrawl_service.is_installed()
+
+
+EXTERNAL_PROGRAMS = {"lncrawl": _lncrawl_installed}
 
 
 # ---------------------------------------------------------------------------
@@ -190,8 +219,10 @@ APPROX_DOWNLOAD_MB = {
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
     "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
+    "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
+    "jiwer": 3,
 }
 PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
                "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
@@ -212,12 +243,40 @@ def pypi_url(name: str):
     return f"https://pypi.org/project/{canonical_dist(dist)}/"
 
 
+# Packages that aren't on PyPI: Diagnostics links to their real source
+# instead of a PyPI page someone else could register (canonical dist -> URL).
+NON_PYPI_SOURCES = {
+    "moss-transcribe-diarize": "https://github.com/OpenMOSS/MOSS-Transcribe-Diarize",
+}
+
+
+def package_source_url(name: str):
+    """Where Diagnostics links a package: its real repository for a non-PyPI
+    one, nothing for any other "experimental" entry, else pypi_url()."""
+    dist = canonical_dist(pip_install_name(name))
+    if dist in NON_PYPI_SOURCES:
+        return NON_PYPI_SOURCES[dist]
+    dep = OPTIONAL_DEPENDENCIES.get(name)
+    if dep and dep[2] == "experimental":
+        return None
+    return pypi_url(name)
+
+
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
+    "moss-transcribe-diarize": "not offered: it isn't on PyPI. It installs from its GitHub "
+                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
+                               "environment, and it upgrades Transformers to 5.x, which stops "
+                               "Qwen3-ASR and Qwen3 forced alignment working.",
     "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
                                  "Streamlit, and the Scanlate brush that uses it is deferred "
                                  "until Scanlate moves to the new interface.",
+    "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
+                          "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
+                          "`pip install lightnovel-crawler` in its own environment). Baihe only "
+                          "runs it. If it isn't on PATH, set its program path in Settings > "
+                          "Advanced.",
 }
 
 # Exact pins a package declares on another one the app shares, for a
@@ -314,9 +373,9 @@ INSTALL_TASKS = [
      "recommended": ["ebooklib", "genanki"]},
     {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
      "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
-     "packages": ["bs4", "trafilatura", "playwright", "cryptography"],
+     "packages": ["bs4", "trafilatura", "playwright", "cryptography", "lightnovel-crawler"],
      "recommended": ["trafilatura"],
-     "optional": ["playwright", "cryptography"]},
+     "optional": ["playwright", "cryptography", "lightnovel-crawler"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
@@ -337,6 +396,9 @@ INSTALL_TASKS = [
     {"id": "notifications", "group": "App", "label": "Desktop notifications",
      "help": "A notification when a background job finishes.",
      "packages": ["plyer"]},
+    {"id": "benchmark_scoring", "group": "App", "label": "Benchmark Lab: standard CER/WER",
+     "help": "Score transcription and OCR benchmarks with jiwer instead of the built-in scorer.",
+     "packages": ["jiwer"]},
 ]
 
 
@@ -403,7 +465,13 @@ def check_cuda() -> dict:
 def check_dependency(module_name: str) -> bool:
     """Checks importability without actually importing (avoids side
     effects and is faster for modules with heavy import-time work,
-    like torch-backed packages)."""
+    like torch-backed packages). External programs (EXTERNAL_PROGRAMS)
+    are looked up as programs instead."""
+    if module_name in EXTERNAL_PROGRAMS:
+        try:
+            return bool(EXTERNAL_PROGRAMS[module_name]())
+        except Exception:
+            return False
     try:
         # dotted names (e.g. pyannote.audio) need the parent importable too
         parts = module_name.split(".")
@@ -562,6 +630,69 @@ def delete_piper_voice(voice: str, voices_dir: str = None) -> bool:
         return False
 
 
+def model_folder(kind: str) -> str:
+    """The other model download folders, outside the Hugging Face cache:
+    "torch" is torch.hub's checkpoints folder under TORCH_HOME (demucs
+    weights; resolved like torch.hub.get_dir(), without importing torch),
+    "audio_separator" the Mel-Band RoFormer model folder
+    (BAIHE_AUDIO_SEP_MODEL_DIR). Both follow portable mode's redirects."""
+    if kind == "torch":
+        home = os.environ.get("TORCH_HOME") or os.path.join(
+            os.environ.get("XDG_CACHE_HOME") or os.path.join("~", ".cache"), "torch")
+        return os.path.join(os.path.expanduser(home), "hub", "checkpoints")
+    if kind == "audio_separator":
+        import audio_preprocess
+        return audio_preprocess._MODEL_DIR
+    raise ValueError(f"Unknown model folder {kind!r}")
+
+
+MODEL_FOLDERS = ("torch", "audio_separator")
+
+
+def scan_model_folder(kind: str, folder: str = None) -> list:
+    """[{"name", "size_bytes"}, ...] for every file or folder directly in
+    one of model_folder()'s folders, largest first (symlinks are skipped).
+    [] if it doesn't exist yet -- never raises, like scan_hf_cache."""
+    folder = folder or model_folder(kind)
+    try:
+        entries = []
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            if os.path.islink(path):
+                continue
+            if os.path.isdir(path):
+                size = sum(os.path.getsize(os.path.join(root, f))
+                           for root, _dirs, files in os.walk(path) for f in files
+                           if not os.path.islink(os.path.join(root, f)))
+            else:
+                size = os.path.getsize(path)
+            entries.append({"name": name, "size_bytes": size})
+        return sorted(entries, key=lambda e: -e["size_bytes"])
+    except OSError:
+        return []
+
+
+def delete_model_folder_entry(kind: str, name: str, folder: str = None) -> bool:
+    """Deletes one entry scan_model_folder lists: a plain name directly in
+    that folder, never a path or a symlink. False, not raised, if it isn't
+    there or the delete fails."""
+    folder = folder or model_folder(kind)
+    if (not isinstance(name, str) or name in ("", ".", "..")
+            or os.path.basename(name) != name or "\\" in name or "\x00" in name):
+        return False
+    path = os.path.join(folder, name)
+    try:
+        if os.path.islink(path) or not os.path.lexists(path):
+            return False
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        return True
+    except OSError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Step 9b.2: model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
@@ -654,8 +785,8 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     row's own Install button, straight from the registry rather than
     re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
     use import-style names -- "faster_whisper", "manga_ocr" -- that don't
-    all match the real pip names here, and some registry packages, like
-    Qwen3-ASR's "qwen-asr", have no OPTIONAL_DEPENDENCIES entry at all).
+    all match the real pip names here, and some registry packages have no
+    OPTIONAL_DEPENDENCIES entry at all).
     "help" is a short plain-English description of what the row is and
     which app feature uses it, for a "?" affordance in the UI."""
     out = []
@@ -859,6 +990,8 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # Only these two tiers ever get a generic Install button -- "required" is
 # already installed by definition (the app wouldn't be running otherwise)
 # and "dev" (pytest) has nothing to do with a running app session.
+# "experimental" (Step 104's MOSS) is listed but never installed from here:
+# it isn't on PyPI.
 INSTALLABLE_TIERS = ("feature", "engine")
 
 # Added to every install: pip's wheel cache can be unwritable or locked on
@@ -1068,7 +1201,9 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     never automatically."""
     results = {}
     for name, info in deps.items():
-        if not info.get("installed"):
+        # "experimental" entries aren't on PyPI: a lookup by their name could
+        # hit an unrelated package registered under it.
+        if not info.get("installed") or info.get("tier") == "experimental":
             continue
         installed_version = get_installed_version(pip_install_name(name))
         latest_version = get_latest_pypi_version(pip_install_name(name), timeout=timeout)

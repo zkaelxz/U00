@@ -116,3 +116,45 @@
   .bench-run-pick { min-height: 44px; align-items: center; }
   .bench-run-pick input { width: 22px; height: 22px; margin-top: 0; }
 }
+
+/* Set up from a Model health "Compare in Benchmark Lab" link. */
+.bench-prefill { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-3); border: 1px solid var(--info); border-radius: var(--radius-md); background: var(--info-soft); min-width: 0; }
+.bench-prefill p { margin: 0; overflow-wrap: anywhere; }
+.bench-prefill ul { margin: 0; padding-left: 1.2rem; font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+/* Model re-evaluation (ReevalCard, Step 40b). */
+.reeval .card-body { display: grid; gap: var(--space-4); min-width: 0; }
+.reeval p { margin: 0; }
+.reeval-intro { max-width: 72ch; }
+.reeval-production { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; overflow-wrap: anywhere; }
+.reeval-block { display: grid; gap: var(--space-3); min-width: 0; padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.reeval-block .field-row { margin-bottom: 0; }
+.reeval-list, .reeval-rows, .reeval-effects { list-style: none; margin: 0; padding: 0; }
+.reeval-list, .reeval-rows { display: grid; gap: var(--space-2); }
+.reeval-list > li, .reeval-rows > li {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.reeval-item-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
+.reeval-summary { font-size: var(--text-sm); }
+.reeval-known { padding: var(--space-2) var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-soft); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.reeval-reject, .reeval-promote { display: grid; gap: var(--space-2); min-width: 0; }
+.reeval-promote { padding-top: var(--space-2); border-top: 1px solid var(--border); justify-items: start; }
+.reeval-promote .field-item { width: min(100%, 28rem); }
+.reeval-effects { display: grid; gap: 2px; font-size: var(--text-sm); }
+.reeval-effects > li::before { content: '· '; }
+.reeval-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); margin: 0; }
+.reeval-stats > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 0; min-width: 0; }
+.reeval-stats dt { font-size: var(--text-xs); color: var(--muted); }
+.reeval-stats dd { margin: 0; font-size: var(--text-sm); }
+.reeval-rows-phone .reeval-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.reeval-add { display: grid; gap: var(--space-2); min-width: 0; }
+@media (max-width: 640px) {
+  .reeval-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

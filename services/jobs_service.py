@@ -18,6 +18,7 @@ dicts, so `cli.py` or a script could call it too.
 import json
 import re
 import time
+from typing import Optional
 
 import db
 from services import ownership_service
@@ -29,7 +30,7 @@ from services.service_errors import ConflictError, NotFoundError
 # A queued/running record whose owner has not heartbeated this long (see
 # background_jobs.HEARTBEAT_INTERVAL, far shorter) is treated as owned by a
 # dead process (records-only mirror, no resume).
-STALE_JOB_SECONDS = 15 * 60
+STALE_JOB_SECONDS = background_jobs.STALE_JOB_SECONDS
 
 
 # Result projection: only these keys of a job's set_result dict are ever
@@ -45,6 +46,8 @@ RESULT_ALLOWED_KEYS = (
     "status", "stage", "last_error", "line_id", "candidate_count",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
+    # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
+    "epub_chapters",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -259,6 +262,7 @@ _FAILED_REASON_MESSAGES = {
     "empty": "Nothing was produced: no speech or text was found.",
     "dependency_missing": "A required component is not installed.",
     "qwen3_asr": "Qwen3-ASR failed on this audio.",
+    "moss_td": "MOSS-Transcribe-Diarize (experimental) failed on this audio.",
     "groq": "The Groq transcription request failed.",
     "vocal_separation": "Separating the vocals failed.",
 }
@@ -349,9 +353,32 @@ def derive_outcome(status, error, result):
     return "ok", (" ".join(parts) or "Finished.")
 
 
+def _with_live_progress(record: dict) -> dict:
+    """job_records is written on status changes only, so while a job this
+    process runs is running, its progress and message come from
+    background_jobs' in-memory state (what update_progress set), so polls
+    and the event stream both see the bar move."""
+    if record.get("status") != "running":
+        return record
+    try:
+        live = background_jobs.get_status(record.get("job_id"))
+    except Exception:
+        return record
+    if not live or live.get("status") != "running":
+        return record
+    out = dict(record)
+    progress = live.get("progress")
+    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+        out["progress"] = progress
+    if live.get("message"):
+        out["message"] = live.get("message")
+    return out
+
+
 def _redact(record: dict) -> dict:
     """Same redaction diagnostics_service._job_summary already applies --
     a stored error/message could echo an API error verbatim."""
+    record = _with_live_progress(record)
     out = dict(record)
     raw = out.pop("result_json", None)
     try:
@@ -367,7 +394,21 @@ def _redact(record: dict) -> dict:
     out["outcome"] = outcome
     out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
                               if message else None)
+    out["stale"] = is_stale(record)
     return out
+
+
+def is_stale(record: dict, now: Optional[float] = None) -> bool:
+    """A queued/running record no live owner has heartbeated for
+    STALE_JOB_SECONDS: left behind by a process that died (the same test
+    cancel_job applies before closing one). Judged on the server's clock,
+    so a viewer's own clock can't make a live job look dead or the reverse."""
+    if record.get("status") not in ("queued", "running"):
+        return False
+    if background_jobs.get_status(record.get("job_id")) is not None:
+        return False
+    updated = record.get("updated_at") or 0
+    return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
 
 
 def _visible(principal, record) -> bool:
@@ -375,10 +416,30 @@ def _visible(principal, record) -> bool:
                                          record.get("owner_user_id"))
 
 
+def sweep_stale_job_records() -> int:
+    """Closes (as cancelled) every queued/running job_records row whose
+    owner has not heartbeated for STALE_JOB_SECONDS and that is not live in
+    this process -- left behind by a crashed or killed process. Each close
+    is one conditional UPDATE (db.close_stale_job_record), so a live
+    owner's heartbeat or "done" always wins. Returns how many it closed."""
+    cutoff = time.time() - STALE_JOB_SECONDS
+    closed = 0
+    for rec in db.list_job_records():
+        job_id = rec.get("job_id")
+        if (rec.get("status") in ("queued", "running")
+                and (rec.get("updated_at") or 0) < cutoff
+                and background_jobs.get_status(job_id) is None
+                and db.close_stale_job_record(job_id, cutoff)):
+            closed += 1
+    return closed
+
+
 def list_jobs(principal=None) -> list:
     """Every job_records row `principal` may see (auth B2:
     ownership_service.can_see_job; None = auth off, all), newest-started
-    first, redacted for HTTP."""
+    first, redacted for HTTP. Stale rows of dead owners are closed first
+    (sweep_stale_job_records), so they don't list as running forever."""
+    sweep_stale_job_records()
     return [_redact(r) for r in db.list_job_records() if _visible(principal, r)]
 
 

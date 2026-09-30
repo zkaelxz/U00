@@ -182,6 +182,9 @@ class JobRecord(BaseModel):
     result: Optional[Dict[str, Any]] = None
     outcome: Optional[str] = None
     outcome_message: Optional[str] = None
+    # Still queued/running on record, but no owner has heartbeated it for
+    # 15 minutes (server clock): left behind by a process that died.
+    stale: bool = False
 
 
 class JobListResponse(BaseModel):
@@ -192,7 +195,7 @@ class JobListResponse(BaseModel):
 class SettingsPreferences(BaseModel):
     """Persisted PC-side preferences (settings parity G05, G08, G09, G13,
     G14, G15). Paths are paths only: a cookies file's contents are never
-    read or returned. The three paths are returned only to the PC itself;
+    read or returned. The four paths are returned only to the PC itself;
     any other caller gets "" there and only the *_configured booleans."""
     default_engine: str
     default_locale: str
@@ -206,9 +209,11 @@ class SettingsPreferences(BaseModel):
     tesseract_cmd: str
     cookies_browser: Optional[str] = None
     cookies_file: str
+    lncrawl_cmd: str = ""
     whisper_model_path_configured: bool = False
     tesseract_cmd_configured: bool = False
     cookies_file_configured: bool = False
+    lncrawl_cmd_configured: bool = False
 
 
 class SettingsChoices(BaseModel):
@@ -418,6 +423,10 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    # Step 105: a speaker-count range for the chained speaker detection
+    # (pyannote min_speakers/max_speakers); not combined with expected_speakers.
+    min_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    max_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     # Non-empty: replaces the automatic prompt entirely. Empty: the server
     # builds glossary names + extra_names + raw-novel excerpt.
     initial_prompt: str = ""
@@ -1121,6 +1130,7 @@ class SettingsUpdateRequest(BaseModel):
     tesseract_cmd: Optional[StrictStr] = Field(None, max_length=1024)
     cookies_browser: Optional[StrictStr] = Field(None, max_length=40)
     cookies_file: Optional[StrictStr] = Field(None, max_length=1024)
+    lncrawl_cmd: Optional[StrictStr] = Field(None, max_length=1024)
 
 
 class DramaDeleteResult(BaseModel):
@@ -1268,7 +1278,7 @@ class TranslateRunStart(BaseModel):
     line_ids: Optional[List[int]] = Field(None, max_length=100000)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
+    fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=2)
     reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
     bulk: bool = False  # Slice 41: batch API / DeepSeek off-peak, job bulk_translate_{id}
     # A preset's prompt toggles; None = the tab's defaults (she/her off, genre notes on).
@@ -1534,6 +1544,8 @@ class EmotionJobStart(ReviewJobStart):
 
 class FixFlaggedJobStart(ReviewJobStart):
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    include_genre_notes: StrictBool = True
+    default_female_pronouns: StrictBool = False
     bulk: Literal[False] = False   # there is no batch variant of fix-flagged
 
 
@@ -1959,6 +1971,7 @@ class SourcesSettings(BaseModel):
     session_break_min_delay: float
     session_break_max_delay: float
     cache_mode: str
+    cache_max_mb: int = Field(0, description="Kept-cache size ceiling in MB; 0 = no limit.")
     check_interval_hours: int
     auto_queue_new_chapters: bool
     demo_source_enabled: bool
@@ -2026,6 +2039,7 @@ class SourcesSettingsUpdate(BaseModel):
     session_break_min_delay: Optional[float] = None
     session_break_max_delay: Optional[float] = None
     cache_mode: Optional[str] = Field(None, max_length=40)
+    cache_max_mb: Optional[int] = None
     check_interval_hours: Optional[int] = None
     auto_queue_new_chapters: Optional[StrictBool] = None
     demo_source_enabled: Optional[StrictBool] = None
@@ -2358,11 +2372,20 @@ class DiagnosticsPiperVoice(BaseModel):
     size_bytes: int
 
 
+class DiagnosticsModelFile(BaseModel):
+    """One entry of a model folder outside the Hugging Face cache."""
+    folder: Literal["torch", "audio_separator"]
+    name: str
+    size_bytes: int
+
+
 class DiagnosticsModelCache(BaseModel):
     hf_cache: List[DiagnosticsHfCacheEntry]
     hf_total_bytes: int
     piper_voices: List[DiagnosticsPiperVoice]
     piper_total_bytes: int
+    model_files: List[DiagnosticsModelFile]
+    model_files_total_bytes: int
 
 
 class DiagnosticsPyannoteModel(BaseModel):
@@ -3011,6 +3034,8 @@ class LibraryBulkTranslateRequest(BaseModel):
     drama_ids: LibraryDramaIds
     # Omitted: the Settings default English variant.
     default_locale: Optional[str] = Field(None, max_length=5)
+    include_genre_notes: StrictBool = True
+    default_female_pronouns: StrictBool = False
 
 
 class LibraryExportRequest(BaseModel):
@@ -3928,3 +3953,25 @@ class SourcesProxyRequest(BaseModel):
     """"" clears it. Never returned: settings carry `proxy_configured` only."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field("", max_length=500)
+
+
+# Step 80b: clean stop for the installed app (POST /api/system/shutdown).
+class ShutdownResponse(BaseModel):
+    status: str = Field(description="`stopping`: jobs were asked to stop and the server exits shortly.")
+    cancelled_jobs: int = Field(description="How many running or queued jobs were asked to stop.")
+
+
+# --- Step 115b: import with lightnovel-crawler (external program) -----------
+
+class LncrawlStatus(BaseModel):
+    """Booleans only: never the program's path."""
+    installed: bool
+    path_configured: bool
+
+
+class LncrawlImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(..., min_length=1, max_length=2000)
+    chapters: Literal["all", "first", "last"] = "all"
+    count: Optional[StrictInt] = Field(None, ge=1, le=5000)
+    mode: Literal["append", "replace"] = "replace"

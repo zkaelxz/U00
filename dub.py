@@ -1206,7 +1206,26 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
 
 
 BACKGROUND_FILENAME = "dub_background.wav"
+# Sidecar next to the cached background: what it was separated from and how.
+BACKGROUND_META_FILENAME = "dub_background.json"
 BACKGROUND_GAIN_DB = -6.0
+
+
+def _background_cache_key(source_audio_path: str, backend: str) -> dict:
+    """What the cached dub_background.wav must have been made from to be
+    reused: the separation backend asked for and the source audio's name,
+    size and modification time."""
+    st = os.stat(source_audio_path)
+    return {"backend": backend, "source": os.path.basename(source_audio_path),
+            "source_size": st.st_size, "source_mtime_ns": st.st_mtime_ns}
+
+
+def _read_background_meta(meta_path: str):
+    try:
+        with open(meta_path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def mix_original_background(track_path: str, source_audio_path: str, drama_dir: str,
@@ -1215,18 +1234,27 @@ def mix_original_background(track_path: str, source_audio_path: str, drama_dir: 
     """Step 95: lays the original recording's background (music/ambience/
     effects, i.e. the source minus its vocals) back under a finished dub
     track, rewriting track_path in place. The separated background is cached
-    in drama_dir and reused while it is newer than the source audio, since
-    separation is the slow part. Raises audio_preprocess.VocalSeparationError
+    in drama_dir and reused, since separation is the slow part, while its
+    sidecar (BACKGROUND_META_FILENAME) still matches the backend and the
+    source audio's name/size/mtime; otherwise it is separated again.
+    Raises audio_preprocess.VocalSeparationError
     (backend missing/failed) or VocalSeparationCancelled."""
     import audio_preprocess
     from pydub import AudioSegment
 
     bg_path = os.path.join(drama_dir, BACKGROUND_FILENAME)
-    if not (os.path.exists(bg_path)
-            and os.path.getmtime(bg_path) >= os.path.getmtime(source_audio_path)):
+    meta_path = os.path.join(drama_dir, BACKGROUND_META_FILENAME)
+    key = _background_cache_key(source_audio_path, backend)
+    if not (os.path.exists(bg_path) and _read_background_meta(meta_path) == key):
+        if os.path.exists(meta_path):
+            os.remove(meta_path)   # never trust a half-rewritten background
         audio_preprocess.extract_background(
             source_audio_path, bg_path, backend=backend,
             progress_cb=progress_cb, cancel_check_cb=cancel_check_cb)
+        tmp_meta = meta_path + ".tmp"
+        with open(tmp_meta, "w", encoding="utf-8") as f:
+            json.dump(key, f)
+        os.replace(tmp_meta, meta_path)
     track = AudioSegment.from_file(track_path)
     background = AudioSegment.from_file(bg_path) + gain_db
     track.overlay(background).export(track_path, format="wav")

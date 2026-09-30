@@ -109,18 +109,25 @@ def get_model_versions(ollama_model: str = None) -> list:
 
 
 def get_model_cache(hf_cache_dir: str = None, piper_voices_dir: str = None) -> dict:
-    """Hugging Face cache revisions and Piper voices by name and size --
-    no directory is ever included."""
+    """Hugging Face cache revisions, Piper voices and the files in the other
+    model folders (torch.hub checkpoints under TORCH_HOME, the
+    audio-separator models) by name and size -- no directory is ever
+    included."""
     hf = [{"repo_id": e["repo_id"], "repo_type": e["repo_type"],
            "revision": e["revision"], "size_bytes": int(e["size_bytes"])}
           for e in diagnostics.scan_hf_cache(hf_cache_dir)]
     piper = [{"voice": e["voice"], "size_bytes": int(e["size_bytes"])}
              for e in diagnostics.scan_piper_voices(piper_voices_dir)]
+    files = [{"folder": kind, "name": e["name"], "size_bytes": int(e["size_bytes"])}
+             for kind in diagnostics.MODEL_FOLDERS
+             for e in diagnostics.scan_model_folder(kind)]
     return {
         "hf_cache": hf,
         "hf_total_bytes": sum(e["size_bytes"] for e in hf),
         "piper_voices": piper,
         "piper_total_bytes": sum(e["size_bytes"] for e in piper),
+        "model_files": files,
+        "model_files_total_bytes": sum(e["size_bytes"] for e in files),
     }
 
 
@@ -810,7 +817,7 @@ def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -
         "powers": dep[1] if dep else "",
         "approx_mb": diagnostics.approx_download_mb(name),
         "pulls_torch": diagnostics.canonical_dist(dist) in diagnostics.PULLS_TORCH,
-        "source_url": diagnostics.pypi_url(name),
+        "source_url": diagnostics.package_source_url(name),
         "not_offered_reason": reason,
         "warning": None if installed else (limitation
                                            or diagnostics.install_downgrade_warning(name)),
@@ -925,6 +932,19 @@ def delete_piper_voice(voice: str, confirm: bool = False) -> dict:
     _exclusive_delete(lambda: diagnostics.delete_piper_voice(voice),
                       "Couldn't delete that voice; see the log for details.")
     return {"deleted": True, "name": voice}
+
+
+def delete_model_file(folder: str, name: str, confirm: bool = False) -> dict:
+    """Deletes one entry of a model folder (diagnostics.MODEL_FOLDERS: the
+    torch.hub checkpoints, the audio-separator models). Only a name that
+    folder's scan lists is accepted, so no path can be built from input."""
+    if folder not in diagnostics.MODEL_FOLDERS or not isinstance(name, str) or not any(
+            e["name"] == name for e in diagnostics.scan_model_folder(folder)):
+        raise NotFoundError("No downloaded model file with that name.")
+    _guard(confirm)
+    _exclusive_delete(lambda: diagnostics.delete_model_folder_entry(folder, name),
+                      "Couldn't delete that model file; see the log for details.")
+    return {"deleted": True, "name": name}
 
 
 def list_bug_bundles() -> list:

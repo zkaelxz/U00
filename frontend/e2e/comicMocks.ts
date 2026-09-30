@@ -194,6 +194,10 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route(/\/api\/assistant\/settings$/, (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
+
+  // No push stream (GET /api/events): the page polls, as these specs expect.
+  await page.route('**/api/events?*', (route) =>
+    route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'No stream in this test.' } } }))
   // The header bell (every page) polls this; not part of the comic flow.
   await page.route(/\/api\/notifications$/, (route) => json(route, { items: [] }))
   await page.route(new RegExp(`/api/library/dramas/${id}$`), (route) => {

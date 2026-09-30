@@ -182,3 +182,37 @@ test('mark as exported posts once and shows the new status', async ({ page }) =>
   await expect(page.getByTestId('mark-exported')).toContainText('marked as exported')
   expect(posts).toBe(1)
 })
+
+async function exportAss(page: Page, noCopy: boolean) {
+  await page.addInitScript((refuseExec) => {
+    // Plain http on a LAN address: no async clipboard API.
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    if (refuseExec) document.execCommand = () => false
+  }, noCopy)
+  await withExportLines(page)
+  await page.goto('/#/drama/1/export')
+  await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(page.getByTestId('export-text')).toContainText('[Script Info]')
+}
+
+test('Copy works without the async clipboard API (plain http on a LAN address)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await exportAss(page, false)
+  await page.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Copied.' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('when nothing can copy, Copy selects the text and says so', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await exportAss(page, true)
+  await page.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: "Couldn't copy automatically. The text below is selected" }))
+    .toBeVisible()
+  const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+  expect(selected).toContain('[Script Info]')
+  expect(errors).toEqual([])
+})

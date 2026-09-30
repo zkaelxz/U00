@@ -1,7 +1,9 @@
 /*
  * Live page (#/live): paste a stream link (any public link yt-dlp can
  * resolve), pick the language and engine, Start; the transcript and its
- * translation arrive chunk by chunk (polled every POLL_MS). Stop ends it
+ * translation arrive chunk by chunk (pushed over GET /api/events: a status
+ * event says new lines exist and the page reads them from its own cursor;
+ * polled every POLL_MS only while that stream is down). Stop ends it
  * and discards a chunk still in flight. Ports tabs/live_tab.py (LV01-LV06)
  * over /api/live (services/live_service.py): each session has its own temp
  * folder, Use GPU reaches Whisper, and "Stop after" is a hard cap.
@@ -24,6 +26,7 @@ import {
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
@@ -95,20 +98,33 @@ export default function LivePage() {
     }
   }, [])
 
+  // Pushed status (cues: [] -- the text stays behind the GET): show it, and
+  // read the new lines from our cursor when the session has more.
+  const stream = useEventStream((type, data) => {
+    const s = data as LiveSessionStatus | null
+    const cur = sessionRef.current
+    if (type !== 'live' || !s || !cur || s.session_id !== cur.id) return
+    setSession((prev) => (prev && prev.id === s.session_id ? { ...prev, status: { ...s, cues: [] } } : prev))
+    if (s.next_index > cur.next) void poll(cur.id)
+  })
+  const polling = stream.mode === 'poll'
+
+  // One read at once and after every (re)connect; the timer only while the
+  // stream is down.
   useEffect(() => {
     if (!sessionId) return
     let timer: ReturnType<typeof setTimeout> | undefined
     let alive = true
     const tick = async () => {
       const again = await poll(sessionId)
-      if (alive && again) timer = setTimeout(tick, POLL_MS)
+      if (alive && again && polling) timer = setTimeout(tick, POLL_MS)
     }
     void tick()
     return () => {
       alive = false
       clearTimeout(timer)
     }
-  }, [sessionId, poll])
+  }, [sessionId, poll, polling, stream.syncs])
 
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)

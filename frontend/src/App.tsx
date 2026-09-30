@@ -166,7 +166,7 @@ export default function App() {
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
         {route.name === 'assistant' && <AssistantPage />}
-        {route.name === 'benchmark' && <BenchmarkPage />}
+        {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}
       </RouteErrorBoundary>
     </>
   )

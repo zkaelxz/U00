@@ -318,6 +318,42 @@ class TestCache:
     def test_keep_modes_keep(self, isolated_db, mode):
         assert self._cycle(mode) == (b"page-bytes", b"page-bytes")
 
+    def test_release_drops_only_the_callers_own_downloads(self, isolated_db):
+        a, b = cache_mod.RawCache("temporary"), cache_mod.RawCache("temporary")
+        a.put("https://a.invalid/1", b"a-bytes")
+        b.put("https://b.invalid/1", b"b-bytes")
+        a.release()
+        assert cache_mod.RawCache("temporary").get("https://a.invalid/1") is None
+        assert b.get("https://b.invalid/1") == b"b-bytes"
+        b.release()
+        assert cache_mod.RawCache("temporary").get("https://b.invalid/1") is None
+
+    def test_a_url_both_imports_hold_survives_until_the_last_release(self, isolated_db):
+        a, b = cache_mod.RawCache("temporary"), cache_mod.RawCache("temporary")
+        a.put(self.URL, b"page-bytes")
+        b.put(self.URL, b"page-bytes")
+        a.release()
+        assert b.get(self.URL) == b"page-bytes"
+        b.release()
+        assert cache_mod.RawCache("temporary").get(self.URL) is None
+
+    def test_release_sweeps_day_old_leftovers_of_a_crashed_import(self, isolated_db, monkeypatch):
+        crashed = cache_mod.RawCache("temporary")
+        crashed.put("https://old.invalid/1", b"old")
+        del crashed   # its import died without releasing: nothing holds the row any more
+        mine = cache_mod.RawCache("temporary")
+        mine.put("https://new.invalid/1", b"new")
+        other = cache_mod.RawCache("temporary")   # a long-running live import
+        other.put("https://other.invalid/1", b"other")
+        now = cache_mod.time.time()
+        monkeypatch.setattr(cache_mod.time, "time", lambda: now + 2 * 86400)
+        mine.release()
+        with store.connect() as conn:
+            urls = [r["url"] for r in conn.execute("SELECT url FROM cache_index")]
+        assert urls == ["https://other.invalid/1"]
+        assert other.get("https://other.invalid/1") == b"other"
+        other.release()
+
     def test_same_content_stored_once(self, isolated_db):
         import os
         c = cache_mod.RawCache("keep_originals")
@@ -340,6 +376,176 @@ class TestCache:
     def test_unknown_mode_is_rejected(self, isolated_db):
         with pytest.raises(ValueError):
             cache_mod.RawCache("forever")
+
+
+class TestCacheCeiling:
+    """Roadmap 111: the keep modes' raw cache is trimmed to cache_max_mb,
+    least recently used content first."""
+    MB = 1024 * 1024
+
+    @pytest.fixture(autouse=True)
+    def ticking_clock(self, monkeypatch):
+        now = [1000.0]
+
+        def tick():
+            now[0] += 1
+            return now[0]
+        monkeypatch.setattr(cache_mod.time, "time", tick)
+
+    def _mb(self, n_bytes):
+        return n_bytes / self.MB
+
+    def _urls(self):
+        with store.connect() as conn:
+            return sorted(r["url"] for r in conn.execute("SELECT url FROM cache_index"))
+
+    def _files(self):
+        import os
+        return sorted(f for _, _, fs in os.walk(store.cache_dir()) for f in fs)
+
+    def test_oldest_used_goes_first(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert c.enforce_ceiling(max_mb=self._mb(200)) == 1
+        assert self._urls() == ["https://c.invalid/b", "https://c.invalid/c"]
+        assert len(self._files()) == 2
+
+    def test_a_hit_refreshes_recency(self, isolated_db):
+        c = cache_mod.RawCache("keep_both")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert c.get("https://c.invalid/a") == b"a" * 100
+        c.enforce_ceiling(max_mb=self._mb(200))
+        assert self._urls() == ["https://c.invalid/a", "https://c.invalid/c"]
+
+    def test_shared_content_counted_once_and_removed_with_all_its_urls(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://a.invalid/1", b"x" * 100)
+        c.put("https://b.invalid/1", b"x" * 100)
+        c.put("https://c.invalid/1", b"y" * 100)
+        assert c.stats() == {"entries": 3, "bytes": 200, "mode": "keep_originals"}
+        assert c.enforce_ceiling(max_mb=self._mb(200)) == 0
+        assert len(self._urls()) == 3
+        assert c.enforce_ceiling(max_mb=self._mb(100)) == 1
+        assert self._urls() == ["https://c.invalid/1"]
+        assert c.get("https://a.invalid/1") is None
+
+    def test_content_an_import_still_holds_is_kept(self, isolated_db):
+        keep = cache_mod.RawCache("keep_originals")
+        keep.put("https://a.invalid/1", b"x" * 100)
+        cache_mod.RawCache("temporary").put("https://b.invalid/1", b"x" * 100)
+        keep.put("https://c.invalid/1", b"y" * 100)
+        assert keep.enforce_ceiling(max_mb=self._mb(1)) == 1
+        assert self._urls() == ["https://a.invalid/1", "https://b.invalid/1"]
+        assert keep.get("https://a.invalid/1") == b"x" * 100
+
+    def test_zero_means_no_limit(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert store.get_setting("cache_max_mb") == 0
+        assert c.enforce_ceiling() == 0
+        assert c.enforce_ceiling(max_mb=0) == 0
+        assert len(self._urls()) == 3
+
+    def test_setting_is_read_in_megabytes(self, isolated_db):
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * (600 * 1024))
+        c.put("https://c.invalid/b", b"b" * (600 * 1024))
+        store.set_setting("cache_max_mb", 1)
+        assert c.enforce_ceiling() == 1
+        assert self._urls() == ["https://c.invalid/b"]
+
+    def test_temporary_mode_is_untouched(self, isolated_db):
+        c = cache_mod.RawCache("temporary")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        assert c.enforce_ceiling(max_mb=self._mb(1)) == 0
+        assert len(self._urls()) == 3
+        c.release()
+        assert self._urls() == []
+
+    def test_drama_pages_survive(self, isolated_db):
+        import os
+
+        import db
+        page = os.path.join(db.DRAMAS_DIR, "1", "pages", "0001.png")
+        os.makedirs(os.path.dirname(page), exist_ok=True)
+        with open(page, "wb") as f:
+            f.write(b"p" * 500)
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * 100)
+        c.enforce_ceiling(max_mb=self._mb(1))
+        assert self._urls() == [] and os.path.exists(page)
+
+    def test_stale_unindexed_files_are_dropped(self, isolated_db, monkeypatch):
+        """Crashed put() leftovers (.part) and files an earlier trim couldn't
+        remove, once a day old; indexed and fresh files stay."""
+        import os
+        now = 10 * 86400.0
+        monkeypatch.setattr(cache_mod.time, "time", lambda: now)
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * 100)
+        root = store.cache_dir()
+        os.makedirs(os.path.join(root, "ab"), exist_ok=True)
+        old_part = os.path.join(root, "ab", "old.part")
+        fresh_part = os.path.join(root, "ab", "fresh.part")
+        old_orphan = os.path.join(root, "ab", "ab" + "0" * 62)
+        fresh_orphan = os.path.join(root, "ab", "ab" + "1" * 62)
+        for p, mtime in ((old_part, now - 86400 - 60), (fresh_part, now - 60),
+                         (old_orphan, now - 86400 - 60), (fresh_orphan, now - 60)):
+            with open(p, "wb") as f:
+                f.write(b"half")
+            os.utime(p, (mtime, mtime))
+        indexed = c._path(__import__("hashlib").sha256(b"a" * 100).hexdigest())
+        os.utime(indexed, (now - 5 * 86400, now - 5 * 86400))
+        c.enforce_ceiling()
+        assert not os.path.exists(old_part) and not os.path.exists(old_orphan)
+        assert os.path.exists(fresh_part) and os.path.exists(fresh_orphan)
+        assert os.path.exists(indexed)
+
+    def test_a_file_that_cannot_be_removed_does_not_stop_the_trim(self, isolated_db,
+                                                                   monkeypatch):
+        c = cache_mod.RawCache("keep_originals")
+        for name in "abc":
+            c.put(f"https://c.invalid/{name}", name.encode() * 100)
+        real_remove = cache_mod.os.remove
+        a_path = c._path(__import__("hashlib").sha256(b"a" * 100).hexdigest())
+
+        def remove(path):
+            if path == a_path:
+                raise PermissionError("in use")
+            real_remove(path)
+        monkeypatch.setattr(cache_mod.os, "remove", remove)
+        assert c.enforce_ceiling(max_mb=self._mb(100)) == 1
+        assert self._urls() == ["https://c.invalid/c"]
+
+    def test_temporary_bytes_do_not_count_against_the_ceiling(self, isolated_db):
+        keep = cache_mod.RawCache("keep_originals")
+        keep.put("https://a.invalid/1", b"a" * 100)
+        cache_mod.RawCache("temporary").put("https://b.invalid/1", b"t" * 1000)
+        assert keep.enforce_ceiling(max_mb=self._mb(100)) == 0
+        assert len(self._urls()) == 2
+
+    def test_a_file_removed_under_a_hit_is_a_miss(self, isolated_db):
+        import os
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * 100)
+        with store.connect() as conn:
+            sha = conn.execute("SELECT sha256 FROM cache_index").fetchone()["sha256"]
+        os.remove(c._path(sha))
+        assert c.get("https://c.invalid/a") is None and self._urls() == []
+
+    def test_lowering_the_setting_trims_now(self, isolated_db, monkeypatch):
+        from services import sources_registry_service as svc
+        monkeypatch.setattr(svc.src_http, "reset_pacing_state", lambda: None)
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://c.invalid/a", b"a" * (600 * 1024))
+        c.put("https://c.invalid/b", b"b" * (600 * 1024))
+        out = svc.update_settings({"cache_max_mb": 1})
+        assert out["cache_max_mb"] == 1
+        assert self._urls() == ["https://c.invalid/b"]
 
 
 # ---------------------------------------------------------------------------
