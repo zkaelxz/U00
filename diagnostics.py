@@ -1167,52 +1167,6 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Step 47 item 4: warn (never block) before installing a heavy local
-# voice-cloning/TTS backend when a functionally-equivalent one is already
-# installed -- e.g. Chatterbox is already there and someone clicks Install
-# on OmniVoice. Both an Install button covering the same four packages
-# exist today (Dependencies' own per-tier buttons, and the Model & engine
-# versions panel's own row buttons above), so this is shared by both
-# rather than checked twice. "Hume" the user separately asked about isn't
-# a distinct engine this app wires into anything -- "hume-tada" (TADA) is
-# already the one Hume Labs engine here, so it's the only Hume-related
-# entry in this group; nothing else to add without a real, separate
-# candidate to evaluate.
-# ---------------------------------------------------------------------------
-
-REDUNDANT_LOCAL_TTS_PACKAGES = {"f5-tts", "omnivoice", "chatterbox-tts", "hume-tada"}
-_REDUNDANT_LOCAL_TTS_LABELS = {
-    "f5-tts": "F5-TTS", "omnivoice": "OmniVoice",
-    "chatterbox-tts": "Chatterbox", "hume-tada": "TADA",
-}
-
-
-def redundant_tts_install_warning(package: str, installed_packages) -> str:
-    """None unless `package` is one of the heavy local voice-cloning/TTS
-    backends above AND at least one of the other three is already
-    installed (per `installed_packages`, an iterable of pip/distribution
-    names -- accepts either OPTIONAL_DEPENDENCIES's own keys, like
-    "f5_tts", or MODEL_ENGINE_REGISTRY's, like "f5-tts"; both spellings
-    normalize the same way pip itself treats "_"/"-" as equivalent).
-    Otherwise a plain-English confirmation message naming what's already
-    installed, for an Install button's own confirm-before-a-large-
-    redundant-download step. Never a reason to block outright -- Step 38's
-    Model Arena wants more than one installed to compare."""
-    key = package.replace("_", "-").lower()
-    if key not in REDUNDANT_LOCAL_TTS_PACKAGES:
-        return None
-    installed_norm = {p.replace("_", "-").lower() for p in installed_packages}
-    already = [_REDUNDANT_LOCAL_TTS_LABELS[p] for p in sorted(REDUNDANT_LOCAL_TTS_PACKAGES)
-               if p != key and p in installed_norm]
-    if not already:
-        return None
-    names = " and ".join(already)
-    return (f"{names} already installed and covers this -- also install "
-            f"{_REDUNDANT_LOCAL_TTS_LABELS[key]}? It's a large download and won't replace "
-            f"{names}; both stay available.")
-
-
-# ---------------------------------------------------------------------------
 # Step 47 item 5: when an "Upgrade" action can't actually reach the latest
 # release for a real, known reason (a constraints.txt cap, or a package
 # with no published wheel for the running Python version), say so instead

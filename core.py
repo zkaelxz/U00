@@ -785,38 +785,6 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     return result
 
 
-def autotune_subprocess_worker(audio_path, model_size, language, use_gpu, local_model_path,
-                               hf_token, initial_prompt, beam_size, candidate_ms, vad_threshold,
-                               fast_mode, result_queue):
-    """Step 6h: entry point for running one auto-tune candidate's full
-    transcription in its own OS process via
-    background_jobs.start_process_job(), so Cancel can actually
-    terminate it mid-run -- transcribe_for_timing() has no cancel
-    checkpoint of its own (Step 4g's own scoping), but killing the
-    whole process works regardless of where inside the decode pass it
-    is, the same reasoning Step 4d already used for diarization.
-
-    Runs candidate_ms as this call's min_silence_duration_ms, holding
-    every other setting the caller is already using constant -- this is
-    exploring VAD merge sensitivity specifically, not re-testing the
-    rest of the transcription config. Must stay a plain, top-level,
-    picklable function; on_gpu_fallback/progress_cb can't cross the
-    process boundary, so neither is threaded through here -- a fallback
-    or per-chunk progress within one candidate isn't visible, only the
-    per-candidate progress the caller already reports between
-    candidates."""
-    try:
-        segments = transcribe_for_timing(
-            audio_path, model_size, language=language, use_gpu=use_gpu,
-            local_model_path=local_model_path, hf_token=hf_token,
-            initial_prompt=initial_prompt, beam_size=beam_size,
-            min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
-            fast_mode=fast_mode)
-        result_queue.put(("ok", {"candidate_ms": candidate_ms, "segments": segments}))
-    except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
-
-
 # ---------------------------------------------------------------------------
 # Step 2: align user transcript to Whisper timing
 # ---------------------------------------------------------------------------

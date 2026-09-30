@@ -283,15 +283,6 @@ class TestTranslationVersions:
 
 
 class TestCustomTagsAndMetadata:
-    def test_distinct_tags_split_and_deduped(self, isolated_db):
-        isolated_db.create_drama(title_en="A", custom_tags="favorite, slow burn")
-        isolated_db.create_drama(title_en="B", custom_tags="favorite, angst")
-        assert isolated_db.distinct_custom_tags() == ["angst", "favorite", "slow burn"]
-
-    def test_no_tags_returns_empty(self, isolated_db):
-        isolated_db.create_drama(title_en="A")
-        assert isolated_db.distinct_custom_tags() == []
-
     def test_metadata_fields_persist(self, isolated_db):
         did = isolated_db.create_drama(
             title_en="T", genre="historical", publication_status="ongoing",

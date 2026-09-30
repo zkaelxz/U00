@@ -252,14 +252,6 @@ def assign_speaker_to_line(line_start: float, line_end: float, speaker_segments)
     return best_speaker
 
 
-def manual_lines_that_would_change(lines, turns) -> list:
-    """Lines whose speaker was set by hand (speaker_manual) and that a
-    re-merge with `turns` would relabel -- what to name in a confirmation
-    before overwriting them."""
-    return [ln for ln in lines if getattr(ln, "speaker_manual", False)
-            and assign_speaker_to_line(ln.start, ln.end, turns) != ln.speaker]
-
-
 def merge_speakers(lines, turns, overwrite_manual: bool = False) -> dict:
     """Relabels existing lines from diarization turns, in place, without
     touching their text or timing (no ASR involved). A line whose speaker

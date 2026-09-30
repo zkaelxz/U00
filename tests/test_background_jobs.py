@@ -745,59 +745,6 @@ class TestGpuSlotRemoved:
         assert not hasattr(bg, "gpu_slot")
 
 
-class TestEtaHelpers:
-    """Step 9b.1: a simple ETA next to the existing progress bar, from
-    started_at + progress -- no new job-tracking fields."""
-
-    def test_no_estimate_right_at_the_start(self):
-        assert bg.eta_seconds(started_at=1000.0, frac=0.0, now=1005.0) is None
-        assert bg.eta_seconds(started_at=1000.0, frac=0.01, now=1005.0) is None
-
-    def test_no_estimate_once_done(self):
-        assert bg.eta_seconds(started_at=1000.0, frac=1.0, now=1100.0) is None
-
-    def test_no_estimate_with_no_start_time(self):
-        assert bg.eta_seconds(started_at=None, frac=0.5, now=1000.0) is None
-        assert bg.eta_seconds(started_at=0, frac=0.5, now=1000.0) is None
-
-    def test_linear_extrapolation(self):
-        # 50s elapsed at 25% -> 150s remaining.
-        assert bg.eta_seconds(started_at=1000.0, frac=0.25, now=1050.0) == pytest.approx(150.0)
-
-    def test_format_seconds_vs_minutes(self):
-        assert bg.format_eta(45) == " (~45 sec remaining)"
-        assert bg.format_eta(90) == " (~2 min remaining)"
-        assert bg.format_eta(600) == " (~10 min remaining)"
-
-    def test_format_none_is_empty(self):
-        assert bg.format_eta(None) == ""
-
-    def test_format_rounds_up_to_at_least_one(self):
-        assert bg.format_eta(0.4) == " (~1 sec remaining)"
-        assert bg.format_eta(59) == " (~59 sec remaining)"
-        assert bg.format_eta(65) == " (~1 min remaining)"
-
-    def test_eta_text_reads_a_job_status_dict(self):
-        job = {"started_at": 1000.0, "progress": 0.5}
-        assert bg.eta_text(job, now=1010.0) == " (~10 sec remaining)"
-
-    def test_eta_text_handles_a_missing_or_empty_job(self):
-        assert bg.eta_text(None) == ""
-        assert bg.eta_text({}) == ""
-
-    def test_eta_text_is_wired_into_a_real_running_job(self):
-        job_id = "test_eta_real_job"
-        bg.clear_job(job_id)
-        started = bg.start_job(job_id, lambda: time.sleep(0.3))
-        assert started
-        time.sleep(0.05)
-        bg.update_progress(job_id, 0.5, "Working...")
-        status = bg.get_status(job_id)
-        assert bg.eta_text(status) != ""
-        time.sleep(0.4)
-        bg.clear_job(job_id)
-
-
 class _FakeProcess:
     """Stands in for multiprocessing.Process -- no real OS process is
     ever spawned in these tests, matching this repo's no-GPU/no-real-

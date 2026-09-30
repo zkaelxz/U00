@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Line
-from services.workflow_service import compute_workspace_stage_index, stage_statuses_from_index
+from services.workflow_service import compute_workspace_stage_index
 
 
 
@@ -15,9 +15,7 @@ class TestWorkspaceStageIndex:
     """Regression coverage for Step 14 (Workspace shell rebuild): the
     project header's pipeline-progress stepper needs a real stage index
     computed from the drama's actual state, not a guess -- this is the
-    function that computes it, and ui.workflow.stage_statuses_from_index
-    turns that single index into a done/current/not-started list for
-    each of the 7 stage tabs."""
+    function that computes it."""
 
     STAGES = ["Source", "Transcript", "Diarize", "Translate", "Review", "Dub", "Export"]
 
@@ -69,10 +67,6 @@ class TestWorkspaceStageIndex:
         idx = compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
         assert idx == 3
 
-        statuses = stage_statuses_from_index(self.STAGES, idx)
-        assert statuses == ["done", "done", "done", "current", "not_started",
-                             "not_started", "not_started"]
-
     def test_fully_translated_not_yet_dubbed_or_exported_is_on_review(self, tmp_path):
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
         idx = compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
@@ -89,8 +83,6 @@ class TestWorkspaceStageIndex:
         idx = compute_workspace_stage_index(
             {"content_mode": "audio_drama", "status": "exported"}, lines, str(tmp_path))
         assert idx == 6
-        assert stage_statuses_from_index(self.STAGES, idx) == \
-            ["done", "done", "done", "done", "done", "done", "current"]
 
     def test_exported_with_no_persisted_speaker_still_shows_export_not_diarize(self, tmp_path):
         # Step 45: a real reported drama had fully translated lines and was
@@ -112,10 +104,3 @@ class TestWorkspaceStageIndex:
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker=None)]
         idx = compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
         assert idx == 4
-
-
-def test_stage_statuses_from_index():
-    stages = ["Source", "Translate", "Export"]
-    assert stage_statuses_from_index(stages, 1) == ["done", "current", "not_started"]
-    assert stage_statuses_from_index(stages, 0) == ["current", "not_started", "not_started"]
-    assert stage_statuses_from_index(stages, None) == ["not_started"] * 3

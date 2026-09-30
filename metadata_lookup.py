@@ -48,30 +48,3 @@ def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
     except json.JSONDecodeError:
         return {}
     return {k: v for k, v in data.items() if v}
-
-
-def lookup_metadata(url: str, engine, allow_render: bool = True):
-    """One-shot helper: fetch + extract. Returns (metadata_dict, status)
-    where status explains what happened -- so the caller can tell the
-    difference between 'the page had no metadata' and 'we couldn\'t
-    actually read the page', which used to look identical."""
-    import page_fetch
-    result = page_fetch.smart_fetch(url, allow_render=allow_render)
-    if not result["text"].strip():
-        return {}, {"ok": False, "message": result["message"],
-                    "needs_manual": result["needs_manual"]}
-    meta = extract_metadata_llm(result["text"], engine)
-    if not meta:
-        return {}, {"ok": False, "needs_manual": result["needs_manual"],
-                    "message": ("Read the page but found no metadata in it. "
-                                + result["message"])}
-    return meta, {"ok": True, "message": result["message"], "needs_manual": False}
-
-
-def lookup_metadata_from_text(page_text: str, engine):
-    """For the manual-paste path: you copy the page text yourself, we
-    extract from it. Always works, since it skips fetching entirely."""
-    meta = extract_metadata_llm(page_text, engine)
-    return meta, {"ok": bool(meta), "needs_manual": False,
-                  "message": "Extracted from pasted text." if meta
-                             else "No metadata found in the pasted text."}

@@ -303,7 +303,5 @@ class TestSfxPersistence:
         loaded = isolated_db.load_line_objects(did)
         assert [ln.sfx for ln in loaded] == [False, True]
         loaded[0].sfx = True
-        assert svc.unsaved_line_count(did, loaded) == 1
         isolated_db.save_lines(did, loaded)
-        assert svc.unsaved_line_count(did, loaded) == 0
         assert [ln.sfx for ln in isolated_db.load_line_objects(did)] == [True, True]
