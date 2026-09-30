@@ -13,7 +13,7 @@ import {
   shortAgo,
   unreadCount,
   writeSeen,
-} from './notificationBell'
+} from './notificationBellState'
 
 const item = (id: number, at: number, kind: NotificationItem['kind'] = 'job_done'): NotificationItem => ({
   id,

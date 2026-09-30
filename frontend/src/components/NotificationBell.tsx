@@ -30,7 +30,7 @@ import {
   shortAgo,
   unreadCount,
   writeSeen,
-} from './notificationBell'
+} from './notificationBellState'
 import './notificationBell.css'
 
 const HIDE_ON = [401, 403, 404]
