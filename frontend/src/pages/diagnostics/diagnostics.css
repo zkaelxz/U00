@@ -184,3 +184,9 @@
 .model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
 .model-checks { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .model-checks > li.warn { color: var(--warn); }
+
+/* "Test first" result and the Deno install block (Q06, Q02). */
+.pkg-list > li > .upgrade-test { flex: 1 1 100%; min-width: 0; }
+.upgrade-test > p, .deno-install p { margin: 0; }
+.upgrade-test progress, .deno-install progress { width: 100%; max-width: 24rem; }
+.deno-install { margin-top: var(--space-3); }
