@@ -1541,11 +1541,16 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     edited mid-run, or it was edited since) is the user's: it gets no
     substitution, and no flag computed from this run's text."""
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    landed = None
+    landed = own_fresh = None
     if enforce_ids is not None:
+        # One load only: the substitution's compare-and-set guards against
+        # edits after this read, so deciding which lines are still the run's
+        # from a second, earlier read would let an edit in between through.
         run_en = {ln.id: (ln.en or "") for ln in lines if getattr(ln, "id", None) is not None}
-        landed = {ln.id for ln in db.load_line_objects(drama_id)
-                  if ln.id in run_en and (ln.en or "") == run_en[ln.id]}
+        own_fresh = [ln for ln in db.load_line_objects(drama_id)
+                     if ln.id in enforce_ids and ln.id in run_en
+                     and (ln.en or "") == run_en[ln.id]]
+        landed = {ln.id for ln in own_fresh}
     if enforced:
         # Step 25d item 5: this used to substitute into `lines` -- the
         # job's own in-memory copies, which can be stale by the time the
@@ -1557,9 +1562,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         # ever overwrites whatever is actually in the database right now,
         # and db.save_lines' own orig-comparison (see its docstring) then
         # skips writing any line the substitution didn't actually change.
-        _fresh_lines = db.load_line_objects(drama_id)
-        if enforce_ids is not None:
-            _fresh_lines = [ln for ln in _fresh_lines if ln.id in enforce_ids and ln.id in landed]
+        _fresh_lines = db.load_line_objects(drama_id) if own_fresh is None else own_fresh
         substituted = {}
         for ln in _fresh_lines:
             if ln.en:

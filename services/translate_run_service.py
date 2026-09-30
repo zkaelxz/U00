@@ -338,7 +338,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     line edited while the job runs keeps the edit.
     expected_en (with line_ids): {line id: English} the caller chose the
     lines by; a line whose English differs once loaded here was edited
-    since and is dropped (ConflictError if none is left).
+    since and is dropped (ConflictError if none is left). With line_ids,
+    the result's line_ids are the ids the job will actually translate.
 
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
@@ -504,10 +505,14 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
-    return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-            "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
-            "fallback_engines": [c["engine"] for c in chain[1:]],
-            "reflect": reflect, "bulk": False}
+    started = {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
+               "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
+               "fallback_engines": [c["engine"] for c in chain[1:]],
+               "reflect": reflect, "bulk": False}
+    if target_ids is not None:
+        # expected_en may have dropped some of the caller's ids.
+        started["line_ids"] = sorted(ln.id for ln in eligible)
+    return started
 
 
 def bulk_job_id(drama_id: int) -> str:

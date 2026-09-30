@@ -349,6 +349,31 @@ class TestOwnLinesOnly:
         assert edited and edited[0]
         assert db.load_lines(did)[0]["en"] == "Lynn waves"
 
+    def test_edit_right_after_the_final_read_gets_no_exact_term_substitution(
+            self, isolated_db, monkeypatch):
+        did, sid, rows = _seed([("林晚", "machine")], terms=[LIN])
+        db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lynn", enforce_exact=True)
+        real_finish, real_load = bulk_translate.finish_translation_run, db.load_line_objects
+        edited = []
+
+        def load_then_edit(drama_id, *a, **kw):
+            out = real_load(drama_id, *a, **kw)
+            if not edited:
+                # The user saves an edit just after finish reads the lines.
+                edited.append(db.update_line_fields_if(
+                    drama_id, rows[0]["id"], {"en": "Lynn waves"}, {"en": "[TEST] 林晚"}))
+            return out
+
+        def finish(*a, **kw):
+            monkeypatch.setattr(db, "load_line_objects", load_then_edit)
+            return real_finish(*a, **kw)
+        monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
+        p, ids = _preview_ids(did)
+        _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
+                                             engine_name="test_offline")["job_id"])
+        assert edited and edited[0]
+        assert db.load_lines(did)[0]["en"] == "Lynn waves"
+
     def test_mid_run_edit_gets_no_flag_from_the_run(self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚一", "one"), ("林晚二", "two")], terms=[LIN])
 
@@ -399,6 +424,8 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(svc, "_affected", affected_then_edit)
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
         assert out["target_line_count"] == 1
+        # The response names only the line the run started; the edited one is skipped.
+        assert out["line_ids"] == [rows[0]["id"]] and out["skipped_hand_edited_count"] == 1
         _wait(out["job_id"])
         assert [r["en"] for r in db.load_lines(did)] == ["[TEST] 林晚一", "my edit"]
 
@@ -416,15 +443,25 @@ class TestOwnLinesOnly:
             svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
         assert db.load_lines(did)[0]["en"] == "my edit"
 
-    def test_preview_term_deleted_since_is_a_conflict(self, isolated_db):
+    def test_preview_term_deleted_since_is_a_conflict(self, isolated_db, monkeypatch):
         did, sid, _ = _seed([("林晚", "Lin"), ("苏芮", "Su")],
                             terms=[LIN, {"term_original": "苏芮", "term_translation": "Su Rui"}])
         su = next(t["id"] for t in db.list_glossary_terms(sid) if t["term_original"] == "苏芮")
         p, ids = _preview_ids(did, term_ids=[su])
         db.delete_glossary_term(su)
+        with pytest.raises(ConflictError) as err:
+            svc.start_affected_retranslate(did, ids, p["preview_hash"], term_ids=[su],
+                                           engine_name="test_offline")
+        assert err.value.details == {"reason": "stale_preview"}
+        # Read once: the term list that decides staleness is the one the run uses.
+        calls = []
+        real = db.list_glossary_terms
+        monkeypatch.setattr(db, "list_glossary_terms",
+                            lambda *a, **kw: calls.append(1) or real(*a, **kw))
         with pytest.raises(ConflictError):
             svc.start_affected_retranslate(did, ids, p["preview_hash"], term_ids=[su],
                                            engine_name="test_offline")
+        assert len(calls) == 1
 
 
 class TestApi:
