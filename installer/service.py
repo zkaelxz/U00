@@ -5,9 +5,10 @@ installer/service.py -- runs the installed Baihe Studio as a Windows service
 Two services, each wrapped by a copy of the pinned WinSW binary named after
 it (it answers the Service Control Manager and reads the .xml next to it):
 
-- BaiheStudio: `python -s -m api` on 127.0.0.1:8600 and nothing else, started
-  at boot, restarted after a failure, stopped with Ctrl+C so the server runs
-  its clean stop.
+- BaiheStudio: `python -s -m api` on 127.0.0.1 and nothing else, at the
+  app's default port (api_config.DEFAULT_PORT) or the one chosen with
+  `install --port`, started at boot, restarted after a failure, stopped with
+  Ctrl+C so the server runs its clean stop.
 - BaiheCaddy: the bundled Caddy, the only component that faces the internet
   (HTTPS certificates and rate limits). Installed disabled and stopped;
   only `enable-remote`, run by the owner, turns it on. Caddy forwards to
@@ -30,9 +31,11 @@ runs from the admin copy:
     "%ProgramFiles%\\Baihe Studio Services\\helper\\python\\python.exe" -I -S
         "%ProgramFiles%\\Baihe Studio Services\\helper\\lib\\installer\\service.py" <command>
 
-    --install-root DIR --data-dir DIR install
+    --install-root DIR --data-dir DIR install [--port N]
                           (Setup) create or refresh the service and start it;
-                          undone if it fails
+                          undone if it fails. --port (Setup passes the
+                          user's BAIHE_API_PORT, if set) moves it to another
+                          port; without it the service keeps the port it has
     stop                  stop it (Setup, before an update)
     uninstall             stop and remove both, take BaiheStudio's permissions
                           off the per-user folders, remove the admin folder
@@ -82,6 +85,9 @@ APP_DISPLAY_NAME = "Baihe Studio"
 CADDY_DISPLAY_NAME = "Baihe Studio remote access (Caddy)"
 ADMIN_FOLDER_NAME = "Baihe Studio Services"
 ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
+# The PC listener's own ports in RESERVED_PORTS: the service may take them,
+# the household listener may not.
+PC_LISTENER_PORTS = (ADMIN_PORT, ADMIN_PORT + 1)
 # Ports that are Baihe's own (settings_service.baihe_own_ports): Streamlit's,
 # the PC listener's, the extension bridge's (page_server.DEFAULT_PORT), and
 # 8601, the documented "pick another port" for the PC listener. The
@@ -377,6 +383,19 @@ def read_config(config_file) -> dict:
         return {}
 
 
+def stored_api_port(config_file) -> int:
+    """The service's port, as `install` stored it in the admin-only
+    config.json; the default if none is stored (a service installed before
+    the port could be chosen) or it isn't valid. Never taken from the data
+    folder's .env or the environment: the service account can change the
+    one, and any process the other."""
+    try:
+        port = json.loads(Path(config_file).read_text(encoding="utf-8")).get("api_port", ADMIN_PORT)
+    except (OSError, ValueError, AttributeError):
+        return ADMIN_PORT
+    return ADMIN_PORT if api_port_problem(port) else port
+
+
 def read_env_file(path) -> dict:
     """The data folder's .env, parsed like settings_service._read_env_file
     (utf-8-sig, comments and blank lines skipped, surrounding quotes
@@ -412,17 +431,18 @@ def _winsw_xml(fields: list, env: dict, log_dir: Path) -> str:
     return ET.tostring(root, encoding="unicode") + "\n"
 
 
-def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = False) -> dict:
+def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = False,
+                    api_port: int = ADMIN_PORT) -> dict:
     """The server's environment. Every setting the server reads is written
     out ("" = the app's default), so nothing machine-wide leaks in:
-    loopback only, port 8600, the data folder the service was given rights
-    on, no user site-packages. The engine-key form is off unless the data
-    folder's .env turns it on: other accounts on this PC can reach
-    127.0.0.1:8600 while the service runs. The household listener (which the
-    server itself binds to 127.0.0.1) only while remote access is on, and
+    loopback only, the port stored at install, the data folder the service
+    was given rights on, no user site-packages. The engine-key form is off
+    unless the data folder's .env turns it on: other accounts on this PC can
+    reach the service's port while it runs. The household listener (which
+    the server itself binds to 127.0.0.1) only while remote access is on, and
     only from here: a machine-wide variable or the .env can't open it."""
     env = {name: "" for name in API_ENV_NAMES}
-    env.update({"BAIHE_API_HOST": "127.0.0.1", "BAIHE_API_PORT": str(ADMIN_PORT),
+    env.update({"BAIHE_API_HOST": "127.0.0.1", "BAIHE_API_PORT": str(int(api_port)),
                 "BAIHE_API_AUTH": "off", "BAIHE_API_ENV": "production",
                 "BAIHE_API_ALLOW_KEY_WRITES": "1" if allow_key_writes else "0",
                 "BAIHE_DATA_DIR": str(data_dir),
@@ -432,11 +452,12 @@ def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = 
     return env
 
 
-def app_service_xml(layout: Layout, household_port: int = 0, allow_key_writes: bool = False) -> str:
+def app_service_xml(layout: Layout, household_port: int = 0, allow_key_writes: bool = False,
+                    api_port: int = ADMIN_PORT) -> str:
     fields = [
         ("id", APP_SERVICE),
         ("name", APP_DISPLAY_NAME),
-        ("description", "Baihe Studio's server for this PC (http://127.0.0.1:8600)."),
+        ("description", f"Baihe Studio's server for this PC (http://127.0.0.1:{int(api_port)})."),
         ("executable", str(layout.python_exe)),
         ("arguments", "-s -m api"),
         ("workingdirectory", str(layout.app)),
@@ -446,7 +467,7 @@ def app_service_xml(layout: Layout, household_port: int = 0, allow_key_writes: b
         ("stopparentprocessfirst", "true"),
         ("stoptimeout", APP_STOP_TIMEOUT),
     ]
-    env = app_service_env(layout.data, household_port, allow_key_writes)
+    env = app_service_env(layout.data, household_port, allow_key_writes, api_port)
     return _winsw_xml(fields, env, layout.app_logs)
 
 
@@ -471,15 +492,33 @@ def caddy_service_xml(layout: Layout) -> str:
 
 # ------------------------------------------------- remote access: checking
 
-def household_port_problem(port) -> str:
-    if (not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535
-            or port in RESERVED_PORTS):
+def _is_port(port) -> bool:
+    return isinstance(port, int) and not isinstance(port, bool) and 1024 <= port <= 65535
+
+
+def household_port_problem(port, api_port: int = ADMIN_PORT) -> str:
+    """'' if `port` can be the household listener's: none of Baihe's own
+    ports, nor the service's (api_port)."""
+    taken = sorted(set(RESERVED_PORTS) | {api_port})
+    if not _is_port(port) or port in taken:
         return ("The household port must be a free port from 1024 to 65535 other than "
-                + ", ".join(str(p) for p in RESERVED_PORTS) + ".")
+                + ", ".join(str(p) for p in taken) + ".")
     return ""
 
 
-def remote_access_config(env_values: dict, household_port) -> dict:
+def api_port_problem(port, household_ports=()) -> str:
+    """'' if `port` can be the service's own (the PC listener's): none of
+    Baihe's other ports (Streamlit's, the extension bridge's), nor the
+    household port remote access uses or would use by default."""
+    taken = sorted((set(RESERVED_PORTS) - set(PC_LISTENER_PORTS))
+                   | {DEFAULT_HOUSEHOLD_PORT} | set(household_ports))
+    if not _is_port(port) or port in taken:
+        return ("The service's port must be a free port from 1024 to 65535 other than "
+                + ", ".join(str(p) for p in taken) + ".")
+    return ""
+
+
+def remote_access_config(env_values: dict, household_port, api_port: int = ADMIN_PORT) -> dict:
     """{"domain", "household_port"} if remote access can be turned on, or
     ConfigRefused naming what's missing (never a value). Sign-in must be set
     up and the public URL must be just https:// and a DNS name on the
@@ -494,7 +533,7 @@ def remote_access_config(env_values: dict, household_port) -> dict:
         raise ConfigRefused(
             "Remote access isn't set up: " + ", ".join(missing) + " must be set in the data "
             "folder's .env first (docs/household-access.md). Nothing was changed.")
-    problem = household_port_problem(household_port)
+    problem = household_port_problem(household_port, api_port)
     if problem:
         raise ConfigRefused(problem + " Nothing was changed.")
     try:
@@ -760,7 +799,7 @@ def remote_reminder(layout: Layout, rule_present: bool) -> str:
 _LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def health_ok(port: int = ADMIN_PORT) -> bool:
+def health_ok(port: int) -> bool:
     try:
         with _LOOPBACK_OPENER.open(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
             return r.status == 200
@@ -865,6 +904,10 @@ class Services:
         self.sleep = sleep
         self.source = Path(source) if source else None
 
+    def api_port(self) -> int:
+        """The service's own port, from the admin-only config.json."""
+        return stored_api_port(self.layout.config_file)
+
     # -- remote-access state (the household port while it is on)
 
     def remote_state(self) -> dict:
@@ -885,10 +928,11 @@ class Services:
     def _write_app_xml(self, household_port: int) -> None:
         allow = read_env_file(self.layout.env_file).get("BAIHE_API_ALLOW_KEY_WRITES", "") == "1"
         self.layout.wrapper_xml(APP_SERVICE).write_text(
-            app_service_xml(self.layout, household_port, allow), encoding="utf-8")
+            app_service_xml(self.layout, household_port, allow, self.api_port()), encoding="utf-8")
 
     def _checked_config(self, household_port) -> dict:
-        config = remote_access_config(read_env_file(self.layout.env_file), household_port)
+        config = remote_access_config(read_env_file(self.layout.env_file), household_port,
+                                      self.api_port())
         config["caddyfile"] = render_caddyfile(
             self.layout.template.read_text(encoding="utf-8"), config["domain"],
             config["household_port"], self.layout.caddy_logs)
@@ -901,10 +945,12 @@ class Services:
         return wait_until(lambda: self.is_baihe(config["household_port"], config["domain"]),
                           HOUSEHOLD_WAIT_SECONDS, sleep=self.sleep)
 
-    def _swap_in_admin_files(self) -> list:
+    def _swap_in_admin_files(self, api_port: int) -> list:
         """Replaces helper\\, service\\ and caddy\\ in the admin folder with
         Setup's fresh extraction (`source`), keeping what was there as *.old,
-        and records the two per-user folders. Caddy's certificates, logs and
+        and records the two per-user folders and the service's port in
+        helper\\config.json (so a rollback puts the old port back with the
+        old files). Caddy's certificates, logs and
         the remote-access state are not touched. Returns the (new, old)
         pairs for _restore or _discard. Refuses if another install on this PC
         owns the service."""
@@ -934,7 +980,8 @@ class Services:
                 swapped.append((dest, old))
                 shutil.copytree(src, dest, symlinks=True)
             lay.config_file.write_text(json.dumps({"install_root": str(lay.root),
-                                                   "data_dir": str(lay.data)}, indent=2) + "\n",
+                                                   "data_dir": str(lay.data),
+                                                   "api_port": api_port}, indent=2) + "\n",
                                        encoding="utf-8")
         except Exception:
             self._restore(swapped)
@@ -988,8 +1035,9 @@ class Services:
 
     def _start_and_wait(self) -> None:
         start_service(APP_SERVICE, self.run, sleep=self.sleep)
-        if not wait_until(self.health, HEALTH_WAIT_SECONDS, sleep=self.sleep):
-            raise ServiceError("Baihe Studio's service started, but http://127.0.0.1:8600/api/health "
+        port = self.api_port()
+        if not wait_until(lambda: self.health(port), HEALTH_WAIT_SECONDS, sleep=self.sleep):
+            raise ServiceError(f"Baihe Studio's service started, but http://127.0.0.1:{port}/api/health "
                                "doesn't answer. Its log is in library\\logs\\service in the data folder.")
 
     def _restart_app(self) -> None:
@@ -1015,14 +1063,48 @@ class Services:
         if errors:
             raise ServiceError("Turning Caddy off didn't fully work (" + "; ".join(errors) + ").")
 
-    def install(self) -> str:
+    def _chosen_api_port(self, requested) -> int:
+        """The port `install` gives the service: `requested` (Setup's
+        --port) once checked, else the one it has. Refused, before anything
+        changes, if it isn't a usable port or another program holds it."""
+        current = self.api_port()
+        if requested is None:
+            return current
+        try:
+            text = str(requested).strip()
+            port = int(text) if re.fullmatch(r"[0-9]{1,5}", text) else None
+        except ValueError:
+            port = None
+        household = {self.remote_state().get("household_port", 0)} - {0}
+        problem = api_port_problem(port, household)
+        if problem:
+            raise ConfigRefused(f"{problem} Nothing was changed: the service keeps port {current}.")
+        if port != current and self.port_check(port):
+            raise ConfigRefused(f"Port {port} on this PC is already in use by another program. "
+                                f"Nothing was changed: the service keeps port {current}.")
+        return port
+
+    def _start_again(self) -> None:
+        """Starts the services Setup stopped before an install that was
+        refused, as they were set up: best effort."""
+        for name in (APP_SERVICE, CADDY_SERVICE):
+            try:
+                if (query_state(name, self.run) == "STOPPED"
+                        and query_start_type(name, self.run) == "AUTO_START"):
+                    start_service(name, self.run, sleep=self.sleep)
+            except Exception:
+                pass
+
+    def install(self, api_port=None) -> str:
         """Seeds the admin folder, creates both services or refreshes them
-        after an update, and starts Baihe Studio's. Caddy is created
-        disabled and stays off unless the owner enabled remote access before,
-        its settings still pass and the household listener comes up. If
-        anything fails, the admin files that were there before are put back,
-        services this call created are removed, and ones that existed are
-        started again (Setup stopped them)."""
+        after an update, and starts Baihe Studio's on `api_port` (or the port
+        it has; the default for a new one). Caddy is created disabled and
+        stays off unless the owner enabled remote access before, its
+        settings still pass and the household listener comes up. A port that
+        can't be used is refused before anything changes. If anything fails,
+        the admin files that were there before are put back (with the old
+        port), services this call created are removed, and ones that existed
+        are started again (Setup stopped them)."""
         lay = self.layout
         lay.check()
         problem = data_folder_contents_problem(lay.data)
@@ -1030,10 +1112,19 @@ class Services:
             raise ServiceError(problem)
         if not lay.python_exe.is_file():
             raise ServiceError(f"Missing (run Setup again to repair the install): {lay.python_exe}")
-        caddy_was_running = query_state(CADDY_SERVICE, self.run) == "RUNNING"
+        try:
+            port_to_use = self._chosen_api_port(api_port)
+        except ConfigRefused:
+            self._start_again()
+            raise
+        # Setup has already stopped the services, so "was on" is also "set to
+        # start with Windows".
+        caddy_was_running = (query_state(CADDY_SERVICE, self.run) == "RUNNING"
+                             or query_start_type(CADDY_SERVICE, self.run) == "AUTO_START")
+        old_household = self.remote_state().get("household_port", 0)
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
-        swapped = self._swap_in_admin_files()
+        swapped = self._swap_in_admin_files(port_to_use)
         created = []
         try:
             missing = [str(p) for p in (lay.wrapper(APP_SERVICE), lay.wrapper(CADDY_SERVICE),
@@ -1073,14 +1164,16 @@ class Services:
                        f"Setting the {CADDY_SERVICE} service's start")
                 start_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         except Exception:
-            self._roll_back(swapped, created, caddy_was_running)
+            self._roll_back(swapped, created, caddy_was_running, old_household)
             raise
         self._discard(swapped)
+        where = f" on http://127.0.0.1:{port_to_use}"
         if port:
-            return "Baihe Studio's service is running; remote access is on." + note
-        return "Baihe Studio's service is running and starts with Windows." + note
+            return f"Baihe Studio's service is running{where}; remote access is on." + note
+        return f"Baihe Studio's service is running{where} and starts with Windows." + note
 
-    def _roll_back(self, swapped, created: list, caddy_was_running: bool) -> None:
+    def _roll_back(self, swapped, created: list, caddy_was_running: bool,
+                   old_household: int = 0) -> None:
         for name in (CADDY_SERVICE, APP_SERVICE):
             try:
                 stop_service(name, self.run, sleep=self.sleep)
@@ -1093,6 +1186,10 @@ class Services:
                 except Exception:
                     pass
         self._restore(swapped)
+        try:
+            self._write_state(old_household)
+        except Exception:
+            pass
         for name in (APP_SERVICE, CADDY_SERVICE):
             if name not in created and (name == APP_SERVICE or caddy_was_running):
                 try:
@@ -1250,6 +1347,7 @@ class Services:
             start = query_start_type(name, self.run) if state else None
             lines.append(f"{name}: {state or 'not installed'}"
                          + (f", start {start}" if start else ""))
+        lines.append(f"Baihe Studio's port: http://127.0.0.1:{self.api_port()}")
         port = self.remote_state().get("household_port")
         lines.append(f"Remote access: {'on, household port ' + str(port) if port else 'off'}")
         lines.append(f"Firewall rule '{FIREWALL_RULE_NAME}': "
@@ -1295,7 +1393,10 @@ def main(argv=None, services=None, admin=None) -> int:
     parser.add_argument("--install-root", help="the per-user install folder (Setup)")
     parser.add_argument("--data-dir", help="the data folder (Setup)")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("install", help="create or refresh both services and start Baihe Studio's")
+    install = sub.add_parser("install", help="create or refresh both services and start Baihe Studio's")
+    # Checked by install (a bad value is refused with exit code 2, nothing
+    # changed), not by argparse, so the services Setup stopped start again.
+    install.add_argument("--port", help="the service's port (default: the one it has)")
     sub.add_parser("uninstall", help="stop and remove both services and the admin folder")
     sub.add_parser("stop", help="stop both services")
     enable = sub.add_parser("enable-remote", help="turn household access through Caddy on")
@@ -1323,6 +1424,8 @@ def main(argv=None, services=None, admin=None) -> int:
     try:
         if args.command == "enable-remote":
             message = services.enable_remote(args.household_port)
+        elif args.command == "install":
+            message = services.install(args.port)
         else:
             message = getattr(services, args.command.replace("-", "_"))()
     except ConfigRefused as e:
