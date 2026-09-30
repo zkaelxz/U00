@@ -28,7 +28,7 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | B-11 | L | export API vs Streamlit | API exports read saved DB lines; unsaved Streamlit session edits differ | Document; resolved when the tab retires | 132 |
 | B-12 | ~~L~~ | Slice 43 line edit | ~~`expected` compare and write are two steps, not one atomic statement~~ **FIXED (#291)** | Single conditional UPDATE in `db` | done (F-17) |
 | B-13 | ~~L~~ | Slice 49 | ~~API diarization merged with `overwrite_manual=False` only~~ **FIXED** | Fixed: optional `overwrite_manual` query param, needs `confirm=true` (else 422); default unchanged | done (step 132 still covers other parity items) |
-| B-14 | ~~M-L~~ | drama delete (Slice 36) | ~~If the folder cannot be fully removed the DB row is already gone (500, no paths)~~ **FIXED (#286)** | Delete folder first (rename-then-delete) or record a tombstone; interacts with Step 43 soft-delete | done (F-18) |
+| B-14 | ~~M-L~~ | drama delete (Slice 36) | ~~If the folder cannot be fully removed the DB row is already gone (500, no paths)~~ **FIXED (#286)** | Delete folder first (rename-then-delete) or record a tombstone; Step 43 is no longer soft-delete (redefined 2026-09-29); leftover tombstones older than a day are swept at API startup | done (F-18) |
 | B-15 | ~~L~~ | video_export | ~~`_escape_filter_path` does not escape `'`; safe only because paths come from `tempfile`~~ **FIXED (#291)** | Escape or stop using the helper | done (F-19) |
 | B-16 | ~~L~~ | Settings | ~~`gemini_free_tier` is stored but nothing consumes it~~ **FIXED (#286)** | Wire into `translate_engines.engine_picker_label` | done (F-20) |
 | B-17 | L | api CORS | `allow_methods=["GET"]` blocks cross-origin POST; the Vite proxy is the only supported dev path | Widen only if a cross-origin deployment is chosen | 131 |
@@ -86,7 +86,9 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 3. Backend gaps the UI will hit (also: pending-batch list + cancel endpoints for Translate "Resume pending batches" are done (Slice 51); metadata auto-fill/media-analysis and OCR/EPUB UIs; per-line improve/why-this; dub download): media playback endpoint with Range support (done: Slice 52, API only); expose the workspace stage index; serve `frontend/dist` from FastAPI plus a launcher story; SSE/job push (needed for Live); E0 destructive library actions (bulk, backup/restore, storage clean) once a server-side typed-confirm + running-job refusal exists; the fix/cleanup steps 121-132 below.
 4. Streamlit retirement, per `docs/migration-frontend-plan.md` (order: Diagnostics, Library, Settings, Translate, Workspace stage by stage).
 
-**Held roadmap steps (unchanged, not reopened here):** 43 soft-delete (plug into `drama_service._hard_delete_drama`), 100-105, 40b, 42, 60, 72.
+**Step 43 redefined by the user (2026-09-29):** universal soft-delete is dropped; Step 43 is now an opt-in automatic backup (off by default; daily/weekly/monthly, weekly default; database-only by default with an include-media option; ONE snapshot kept, written to a temp file and atomically replaced only after it validates) plus restoring a single drama from that snapshot (as a new drama when its id is still in use). Typed-confirm deletes stay as they are. Branch `step-43-auto-backups` (`services/auto_backup_service.py`, `/api/backups/*`, all local_only).
+
+**Held roadmap steps (unchanged, not reopened here):** 100-105, 40b, 42, 60, 72.
 
 ## 5. Deferred / review-later -> steps (proposed ids; includes the GitHub repos the user supplied)
 Sources: roadmap §8a (18 repos matched on "baihe"/"yuri", 2026-09-28: 13 false leads, 5 with real overlap) and §8 (13 scraper repos, 2026-09-27, ideas "deliberately NOT dispatched"). Rule kept: adopt **ideas** only, no code copied verbatim; repo licences were MIT/Apache-2.0.
@@ -119,7 +121,7 @@ The 13 false leads (pure keyword collisions, nothing to adopt): baihepailei, bai
 | 124 | Fallback chain: primary backoff before switching; CLI/UI parity for the chain | B-06 |
 | 125 | Network hardening: per-engine timeout audit (extend the static check to `services/`), pin resolved IP in the SSRF guard | B-07, B-08 |
 | 126 | API robustness: upload type check + async video extraction, id-keyed `cmd_narrate_prep`, atomic line-edit compare-and-set, quote-safe filter path | B-09, B-10, B-12, B-15 |
-| 127 | Drama delete ordering / tombstone (with Step 43) | B-14 |
+| 127 | Drama delete ordering / tombstone (with Step 43); stale `.deleting-*` folders older than a day are swept at API startup (Step 43 branch) | B-14 |
 | 128 | Wire `gemini_free_tier` into the engine picker | B-16 |
 | 129 | Refactor: public names for cross-module private helpers; shared guideline builder (tab, CLI, service) | B-19, B-20 |
 | 130 | Doc-only drift sweep | B-21 |
