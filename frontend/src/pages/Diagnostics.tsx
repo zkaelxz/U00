@@ -13,6 +13,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useEventStream } from '../hooks/useEventStream'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
@@ -40,6 +41,7 @@ const POLL_MS = 3000
 
 export default function DiagnosticsPage() {
   const pc = usePcOnly()
+  const remoteAdmin = isRemoteAdmin(useSession())
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
   const [setup, setSetup] = useState<DiagnosticsSetupChecks | null>(null)
   const [checking, setChecking] = useState(false)
@@ -162,7 +164,7 @@ export default function DiagnosticsPage() {
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={remoteAdmin ? null : (id) => void cancel(id)} />}
 
       {setup ? (
         <SetupSection
@@ -187,7 +189,7 @@ export default function DiagnosticsPage() {
       <SupportReportSection />
 
       <div className="diag-folds">
-        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={remoteAdmin ? null : (id) => void cancel(id)} />}
         {overview && (
           <PackagesSection
             overview={overview}
@@ -216,10 +218,16 @@ export default function DiagnosticsPage() {
 }
 
 /** Jobs: a card while one is running or failed; otherwise a collapsed Section. */
-function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
+function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: ((id: string) => void) | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
-  const list = phone ? <JobCards jobs={jobs} now={now} onCancel={onCancel} /> : <JobTable jobs={jobs} now={now} onCancel={onCancel} />
+  const body = phone ? <JobCards jobs={jobs} now={now} onCancel={onCancel} /> : <JobTable jobs={jobs} now={now} onCancel={onCancel} />
   const urgent = jobs.some((j) => isActive(j.status) || j.status === 'error')
+  const list = (
+    <>
+      {body}
+      {!onCancel && jobs.some((j) => isActive(j.status)) && <p className="muted" data-testid="remote-admin-jobs-note">{REMOTE_ADMIN_NOTE} That includes cancelling jobs.</p>}
+    </>
+  )
   if (urgent) {
     return (
       <Card title="Jobs" className="diag-jobs" aria-label="Jobs">
@@ -234,7 +242,7 @@ function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; on
   )
 }
 
-function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
+function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: ((id: string) => void) | null }) {
   return (
     <div className="table-scroll">
       <table data-testid="job-list">
@@ -257,7 +265,7 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
               </td>
               <td>{formatDuration(j, now)}</td>
               <td>
-                {isActive(j.status) && (
+                {isActive(j.status) && onCancel && (
                   <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                     Cancel
                   </button>
@@ -271,7 +279,7 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
   )
 }
 
-function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
+function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: ((id: string) => void) | null }) {
   return (
     <ul className="job-cards" data-testid="job-list" aria-label="Jobs">
       {jobs.map((j) => (
@@ -279,7 +287,7 @@ function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
           <strong>{j.description || j.job_id}</strong>
           <p>{jobStatusLine(j, now)}</p>
           {jobDetail(j) && <p className="muted">{jobDetail(j)}</p>}
-          {isActive(j.status) && (
+          {isActive(j.status) && onCancel && (
             <div className="job-cancel">
               <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                 Cancel
