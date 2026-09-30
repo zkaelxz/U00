@@ -215,7 +215,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     try:
         render_svc.render_page(drama_id, page_id, render_notes)
     except Exception as exc:
-        render_notes.append(("error", f"Render failed: {type(exc).__name__}: {exc}"))
+        render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
+                             f"{translate_engines.redact_secrets(str(exc))}"))
     render_svc._append_notes(page_id, render_notes)
     return "translated" if new_context is not None else "done"
 
@@ -244,7 +245,8 @@ def _run_job(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: st
             counts["failed"] += 1
             try:
                 db.update_page(pid, run_notes=pages_svc.notes_to_json(
-                    [("error", f"This page failed: {type(exc).__name__}: {exc}")]))
+                    [("error", f"This page failed: {type(exc).__name__}: "
+                                f"{translate_engines.redact_secrets(str(exc))}")]))
             except Exception as note_exc:
                 from applog import get_logger
                 get_logger().warning("Could not save the error note for page %s: %s", pid,
