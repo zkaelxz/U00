@@ -954,6 +954,8 @@ def init_db():
             action TEXT NOT NULL,
             detail_redacted TEXT DEFAULT ''
         );
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
+        CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, id);
         """)
         # Lightweight migrations for DBs created before these columns existed
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
@@ -1184,13 +1186,23 @@ def init_db():
             ("dramas", "is_private", "INTEGER DEFAULT 0"),
             ("series", "owner_user_id", "INTEGER"),
             ("series", "is_private", "INTEGER DEFAULT 0"),
-            ("users", "share_by_default", "INTEGER DEFAULT 1"),
+            ("users", "share_by_default", "INTEGER DEFAULT 0"),
             ("translate_history", "user_id", "INTEGER"),
             ("job_records", "owner_user_id", "INTEGER"),
         ):
             cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        # New items became private by default (user decision 2026-09-30).
+        # A users.share_by_default added before that defaulted to 1, which
+        # nobody chose (nothing could set it): switch every account off once.
+        # The marker keeps later choices across restarts.
+        user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        marker = "migrations.share_by_default_off"
+        if str(user_cols.get("share_by_default")) == "1" and conn.execute(
+                "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+            conn.execute("UPDATE users SET share_by_default = 0")
+            conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
@@ -1790,7 +1802,7 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
-def save_lines(drama_id: int, lines, fields=None):
+def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=()):
     """Saves a drama's lines by their permanent id (Line.id).
 
     Full sync (fields=None) -- the list IS the drama's lines now:
@@ -1812,7 +1824,24 @@ def save_lines(drama_id: int, lines, fields=None):
     changed by this caller, so whatever is in the database now (another
     writer's newer value) is kept. After saving, `orig` is updated.
 
+    only_if_unchanged (field-scoped only): a field is written only while
+    the database still holds this caller's `orig` value, so an edit saved
+    by someone else since the lines were loaded is kept, not overwritten.
+    A line without `orig` is then not written at all.
+
+    guard_fields (with only_if_unchanged): columns not written but whose
+    database value must still equal this Line's own value -- the text the
+    written fields were computed from (a flag from `en` and its timing).
+
+    Returns the ids only_if_unchanged left unwritten (an edit was kept);
+    empty otherwise.
+
     One transaction: on any error nothing is written."""
+    if only_if_unchanged and fields is None:
+        raise ValueError("only_if_unchanged needs field-scoped saving")
+    if guard_fields and not only_if_unchanged:
+        raise ValueError("guard_fields needs only_if_unchanged")
+    guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
@@ -1822,14 +1851,33 @@ def save_lines(drama_id: int, lines, fields=None):
         conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
-        kept = set()
+        kept, unwritten = set(), set()
         for ln in lines:
             lid = getattr(ln, "id", None)
             orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
                            if orig is None or _line_value(ln, f) != orig.get(f)]
-                if changed:
+                if changed and only_if_unchanged:
+                    if orig is None:
+                        unwritten.add(lid)
+                    else:
+                        # Compare-and-set: NULL and "" are the same empty text
+                        # to a Line, so a text field compares through COALESCE.
+                        expected = [(f, orig.get(f)) for f in changed]
+                        # A guard with no value is empty text, as NULL is to a Line.
+                        expected += [(f, "" if _line_value(ln, f) is None else _line_value(ln, f))
+                                     for f in guard_cols]
+                        guards = [f"COALESCE({f}, '') = ?" if isinstance(v, str)
+                                  else f"{f} IS ?" for f, v in expected]
+                        cur = conn.execute(
+                            f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
+                            f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
+                            [_line_value(ln, f) for f in changed] + [lid, drama_id]
+                            + [v for _f, v in expected])
+                        if cur.rowcount == 0:
+                            unwritten.add(lid)
+                elif changed:
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                         f"WHERE id = ? AND drama_id = ?",
@@ -1867,6 +1915,7 @@ def save_lines(drama_id: int, lines, fields=None):
         ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
         if fields is None:
             ln.merged_ids = []
+    return unwritten
 
 
 def _repoint_line_refs(conn, drama_id, from_id, to_id):
@@ -4675,8 +4724,10 @@ _USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active"
 def auth_create_user(email: str, display_name: str = "", is_admin: bool = False) -> int:
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
-            "INSERT INTO users (email, display_name, is_admin, is_active, created_at) "
-            "VALUES (?, ?, ?, 1, ?)",
+            # share_by_default is explicit: a database from before new items
+            # became private by default has the column with DEFAULT 1.
+            "INSERT INTO users (email, display_name, is_admin, is_active, share_by_default, "
+            "created_at) VALUES (?, ?, ?, 1, 0, ?)",
             (email, display_name or "", int(bool(is_admin)),
              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
         conn.commit()
@@ -4772,6 +4823,39 @@ def set_item_private(kind: str, item_id: int, private: bool) -> bool:
         cur = conn.execute(sql, (int(bool(private)), item_id))
         conn.commit()
         return cur.rowcount > 0
+
+
+def series_has_unowned_drama(series_id: int) -> bool:
+    """Whether a series holds a drama with no owner (made at the PC)."""
+    with contextlib.closing(get_conn()) as conn:
+        return conn.execute("SELECT 1 FROM dramas WHERE series_id = ? AND owner_user_id IS NULL "
+                            "LIMIT 1", (series_id,)).fetchone() is not None
+
+
+def list_item_sharing(limit: int, offset: int):
+    """Every series and drama with its sharing fields, for the admin
+    Sharing screen: (total, rows). A series comes just before its dramas;
+    groups are sorted by series name or solo drama title. Owner names come
+    from users.display_name only (never the email)."""
+    items = (
+        "SELECT 'series' AS kind, 0 AS kind_order, s.id, s.name AS title, s.owner_user_id, "
+        "COALESCE(s.is_private, 0) AS is_private, NULL AS series_id, NULL AS series_name, "
+        "NULL AS series_is_private, s.name AS sort_key, s.id AS group_id FROM series s "
+        "UNION ALL "
+        "SELECT 'drama', 1, d.id, COALESCE(NULLIF(d.title_en, ''), NULLIF(d.title_zh, ''), ''), "
+        "d.owner_user_id, COALESCE(d.is_private, 0), d.series_id, s.name, "
+        "CASE WHEN s.id IS NULL THEN NULL ELSE COALESCE(s.is_private, 0) END, "
+        "COALESCE(s.name, NULLIF(d.title_en, ''), d.title_zh, ''), d.series_id "
+        "FROM dramas d LEFT JOIN series s ON s.id = d.series_id")
+    with contextlib.closing(get_conn()) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM ({items})").fetchone()[0]
+        rows = conn.execute(
+            f"SELECT i.*, u.id AS owner_found, u.display_name AS owner_display_name "
+            f"FROM ({items}) i LEFT JOIN users u ON u.id = i.owner_user_id "
+            "ORDER BY i.sort_key COLLATE NOCASE, i.sort_key, i.group_id IS NULL, i.group_id, "
+            "i.kind_order, i.title COLLATE NOCASE, i.id LIMIT ? OFFSET ?",
+            (limit, offset)).fetchall()
+    return total, [dict(r) for r in rows]
 
 
 def auth_get_user(user_id: int):
@@ -4877,7 +4961,46 @@ def auth_insert_audit(user_id, action: str, detail_redacted: str):
         conn.commit()
 
 
-def auth_list_audit(limit: int = 100):
+def auth_list_audit(limit: int = 100, before_id: int = None, action: str = None,
+                    user_id: int = None):
+    """Newest first. `before_id` pages back (rows with a smaller id);
+    `action` and `user_id` are exact-match filters."""
+    where, args = [], []
+    if before_id is not None:
+        where.append("id < ?")
+        args.append(int(before_id))
+    if action is not None:
+        where.append("action = ?")
+        args.append(action)
+    if user_id is not None:
+        where.append("user_id = ?")
+        args.append(int(user_id))
+    sql = "SELECT id, ts, user_id, action, detail_redacted FROM audit_log"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     with contextlib.closing(get_conn()) as conn:
-        return [dict(r) for r in conn.execute(
-            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()]
+        return [dict(r) for r in conn.execute(sql + " ORDER BY id DESC LIMIT ?",
+                                              (*args, int(limit))).fetchall()]
+
+
+def auth_list_audit_actions(limit: int = 200):
+    with contextlib.closing(get_conn()) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT DISTINCT action FROM audit_log ORDER BY action LIMIT ?",
+            (int(limit),)).fetchall()]
+
+
+def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
+    """Sets is_active=0 unless that would leave no active admin. One
+    statement, so two admins deactivating each other at once can't both
+    succeed. False when refused or the user doesn't exist."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            # Truthiness as auth_service reads the flags: NULL is off, any
+            # non-zero value is on.
+            "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
+            "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
+            (user_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0

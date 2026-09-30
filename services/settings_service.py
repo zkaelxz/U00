@@ -125,6 +125,12 @@ def get_gemini_free_tier() -> bool:
     return _get_bool_setting("gemini_free_tier")
 
 
+def get_bulk_auto_resume() -> bool:
+    """Opt-in: resume interrupted bulk translation batches when the API
+    starts. Default False (a resumed batch can spend on the engine account)."""
+    return _get_bool_setting(BULK_AUTO_RESUME_KEY)
+
+
 def resolve_gemini_free_tier(value) -> bool:
     """A request's gemini_free_tier: None (omitted) means the persisted
     setting; an explicit True/False is kept."""
@@ -142,12 +148,16 @@ def get_settings_overview(env_path: str = None) -> dict:
         "notify_on_completion": background_jobs.get_notify_on_completion(),
         "use_gpu": get_use_gpu(),
         "gemini_free_tier": get_gemini_free_tier(),
+        "bulk_auto_resume": get_bulk_auto_resume(),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "monthly_cap_env_usd": _parse_cap(resolve_key("monthly_cap_usd", env_path)),
         "effective_monthly_cap_usd": get_monthly_cap_usd(env_path),
         "choices": preference_choices(),
     }
+
+
+BULK_AUTO_RESUME_KEY = "bulk.auto_resume"
 
 
 def _set_app_bool(key: str, enabled: bool):
@@ -163,6 +173,7 @@ _WRITABLE_SETTINGS = {
     "notify_on_completion": background_jobs.set_notify_on_completion,
     "use_gpu": lambda v: _set_app_bool("use_gpu", v),
     "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),
+    "bulk_auto_resume": lambda v: _set_app_bool(BULK_AUTO_RESUME_KEY, v),
 }
 
 

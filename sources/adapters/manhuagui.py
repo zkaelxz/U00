@@ -149,6 +149,10 @@ class ManhuaguiSource(SourceAdapter):
     display_name = "漫画柜 ManHuaGui"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
+    # Chapters within a section are split across several <ul> blocks whose
+    # inner order the fixtures pin as newest-first, so the raw list isn't
+    # reliably in reading order.
+    chapters_in_site_order = False
     url_patterns = [r"(?:^|//|\.)(?:manhuagui|mhgui)\.com/comic/\d+"]
     host_min_interval = {urlsplit(u).netloc: CRAWL_DELAY for u in MIRRORS}
     default_headers = {

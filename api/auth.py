@@ -35,7 +35,14 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   direct loopback connection (peer, Host, no proxy headers, loopback
   Origin): the owner at the PC. That is a safeguard, not authentication
   (see the key-write note in docs/archive/migration-handoff.md); the real admin
-  isolation is the separate admin listener (D5), not built yet.
+  isolation is the separate admin listener (D5, below).
+- Household listener (D5, `BAIHE_API_HOUSEHOLD_PORT`, see
+  `api/api_config.py`): the app other devices reach through the reverse
+  proxy. Auth on, and nothing on it is ever "the PC": `is_local_request` is
+  False and `local_only()` refuses every request, however direct and
+  loopback it looks, so a proxy that strips forwarding headers still can't
+  reach a PC-only route or a handler's own PC check. The PC's own listener
+  (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
   multipart upload before being refused.
@@ -76,6 +83,13 @@ def _auth_enabled(app) -> bool:
     """Fail closed: an app built without settings is treated as auth on."""
     settings = getattr(app.state, "settings", None)
     return bool(getattr(settings, "auth_enabled", True))
+
+
+def _never_local(app) -> bool:
+    """True on the household listener: no request to it counts as the PC.
+    Fail closed: an app built without settings is never local either."""
+    settings = getattr(app.state, "settings", None)
+    return getattr(settings, "listener", None) != "admin"
 
 
 def local_owner_principal() -> dict:
@@ -196,8 +210,11 @@ def local_only():
     """PC-only route. Both modes: a POST/PUT/PATCH must be JSON or carry
     X-Baihe-Local: 1 (see _cross_site_safe). Off mode: otherwise a
     no-op (today's behaviour; routes that had their own loopback guard
-    keep it). On mode: the connection must be a direct loopback one."""
+    keep it). On mode: the connection must be a direct loopback one.
+    Household listener: always refused."""
     def dependency(request: Request):
+        if _never_local(request.app):
+            raise ForbiddenError(_GENERIC_403)
         if _auth_enabled(request.app) and not is_local_request(request):
             raise ForbiddenError(_GENERIC_403)
         if not _cross_site_safe(request):
@@ -235,6 +252,10 @@ def _is_local_scope(client_host, headers) -> bool:
 
 
 def is_local_request(request: Request) -> bool:
+    """Whether this request comes from the owner at the PC. Always False on
+    the household listener."""
+    if _never_local(request.app):
+        return False
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
@@ -445,12 +466,16 @@ class EarlyAuthGate:
     moves the cheap refusals ahead of body parsing (multipart uploads are
     spooled to disk with no size limit) and ahead of FastAPI's own
     422/404/405 replies, so an anonymous client learns nothing beyond
-    "log in"."""
+    "log in".
 
-    def __init__(self, app, public_paths_fn, local_only_fn=lambda: []):
+    never_local (the household listener): no request is treated as a
+    direct loopback one, so local_only() routes are always refused here."""
+
+    def __init__(self, app, public_paths_fn, local_only_fn=lambda: [], never_local=False):
         self.app = app
         self._public_paths_fn = public_paths_fn
         self._local_only_fn = local_only_fn
+        self._never_local = never_local
         self._public = None
         self._local_only = None
 
@@ -459,7 +484,8 @@ class EarlyAuthGate:
             return await self.app(scope, receive, send)
         request = Request(scope)
         client = scope.get("client")
-        if _is_local_scope(client[0] if client else None, request.headers):
+        if not self._never_local and _is_local_scope(client[0] if client else None,
+                                                     request.headers):
             return await self.app(scope, receive, send)
         if self._is_local_only(scope):
             return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)

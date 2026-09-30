@@ -46,7 +46,7 @@ import db
 import sensevoice_tags
 import subtitle_formats
 import translate_engines
-from services import (media_playback_service, restructure_service, settings_service,
+from services import (export_service, media_playback_service, restructure_service, settings_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError, ServiceError,
@@ -424,9 +424,14 @@ def _run_burn_preview_job(job_id, drama_id, video, ass, start, end, meta):
 
 
 def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
-                       preset: str = None) -> dict:
+                       preset: str = None, style: dict = None, speaker_colors: dict = None,
+                       per_speaker_colors: bool = False, wrap_chars_en: int = None,
+                       wrap_chars_source: int = None) -> dict:
     """Renders a short clip of the source video around one line with its
-    subtitles burned in (an ASS preset, default Clean). The clip is capped at
+    subtitles burned in (an ASS preset, default Clean). `style`,
+    `speaker_colors`, `per_speaker_colors` and the wrap widths mean what they
+    do in export_service.generate_ass_text, so the clip matches what the
+    Export stage would burn. The clip is capped at
     MAX_CLIP_SECONDS and replaces any earlier preview of this drama. At
     most MAX_CONCURRENT_BURN_PREVIEWS render at once, server-wide (409)."""
     _require_drama(drama_id)
@@ -437,6 +442,17 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     preset = preset or "Clean"
     if preset not in subtitle_formats.ASS_PRESETS:
         raise InvalidInputError("Unknown subtitle style preset.")
+    merged_style = export_service._build_ass_style(preset, style)
+    if speaker_colors is not None:
+        if not isinstance(speaker_colors, dict) or \
+                len(speaker_colors) > export_service.MAX_SPEAKER_COLORS:
+            raise InvalidInputError("'speaker_colors' must be an object with few entries.")
+        for label, color in speaker_colors.items():
+            if not isinstance(label, str) or len(label) > export_service.MAX_SPEAKER_LABEL_LEN:
+                raise InvalidInputError("A speaker label is too long.")
+            export_service._check_color(color, "speaker_colors")
+    export_service._check_wrap(wrap_chars_en, "wrap_chars_en")
+    export_service._check_wrap(wrap_chars_source, "wrap_chars_source")
     video = _video_path(drama_id)
     if video is None:
         raise UnsupportedOperationError("This drama has no source video to preview on.")
@@ -446,8 +462,19 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     line = next((ln for ln in lines if ln.id == line_id), None)
     if line is None:
         raise NotFoundError(f"No line with id {line_id} in this drama.")
+    if speaker_colors is not None:
+        colors = dict(speaker_colors)
+    elif per_speaker_colors:
+        colors = subtitle_formats.default_speaker_colors(ln.speaker for ln in lines)
+    else:
+        colors = None
+    names = {c["speaker_label"]: c["character_name"]
+             for c in db.list_characters_with_series_names(drama_id) if c.get("character_name")}
     start, end, ass = media_playback_service.burn_preview_ass(
-        lines, line, {"style": subtitle_formats.ASS_PRESETS[preset]}, pad=pad)
+        lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
+                      "wrap_chars": export_service._build_wrap_chars(wrap_chars_en,
+                                                                     wrap_chars_source)},
+        pad=pad)
     end = min(end, start + MAX_CLIP_SECONDS)
     meta = {"line_id": line.id, "idx": line.idx, "start": start, "end": end, "preset": preset,
             "created_at": datetime.datetime.utcnow().isoformat()}

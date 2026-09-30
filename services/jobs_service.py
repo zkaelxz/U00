@@ -48,6 +48,9 @@ RESULT_ALLOWED_KEYS = (
     "imported_count", "skipped_count", "failed_count",
     # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
     "epub_chapters",
+    # Own-lines re-translate: line ids whose review flag wasn't saved because
+    # the line's text, timing or flag changed while the job ran.
+    "flags_needing_recheck",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -343,6 +346,10 @@ def derive_outcome(status, error, result):
     if result.get("forced_align_error"):
         parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
                      f"({result['forced_align_error']}).")
+        warned = True
+    if result.get("flags_needing_recheck"):
+        parts.append("Some lines changed while the job ran, so their review flags "
+                     "weren't saved; recheck them.")
         warned = True
     fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
     if fallbacks:

@@ -51,10 +51,23 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   endpoint when its setting is on) when the API starts; see
   `api/background.py`. `ApiSettings()` built directly defaults to off, and
   tests/conftest.py sets `0`, so tests never start them.
+- `BAIHE_API_HOUSEHOLD_PORT` (unset by default = off) -- a second listener
+  in the same process for other devices, reached only through a reverse
+  proxy (Caddy) on this PC; suggested value `8610`. The listener above
+  stays the PC's own (the "admin" listener: auth off, loopback only,
+  background services, `/api/docs`), and is what start.bat and the
+  launcher open. The household listener binds the same loopback host,
+  always has sign-in on (`BAIHE_API_AUTH` applies to the admin listener
+  only, and must stay `off` while this is set), runs no background
+  services, serves no docs or schema, and refuses every `local_only()`
+  route and every handler-level "is this the PC" check, whatever the
+  request looks like (`household_settings`, `api.auth.is_local_request`).
+  Both share the in-memory job list. Refused at startup: the admin port,
+  the extension bridge's 8756, a non-loopback host, development mode.
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
 
 DEFAULT_HOST = "127.0.0.1"
@@ -79,6 +92,12 @@ class ApiSettings:
     google_client_id: str = field(default="", repr=False)
     google_client_secret: str = field(default="", repr=False)
     public_url: str = ""
+    household_port: int = 0       # 0 = no household listener
+    listener: str = "admin"       # "admin" | "household" (set by household_settings only)
+
+    @property
+    def is_household(self) -> bool:
+        return self.listener == "household"
 
     @property
     def auth_enabled(self) -> bool:
@@ -136,6 +155,16 @@ def load_settings(environ=None) -> ApiSettings:
     if background_text not in ("1", "0", "true", "false", "yes", "no", "on", "off"):
         raise ValueError(f"BAIHE_API_BACKGROUND must be 1 or 0, got {background_text!r}")
     background_services = background_text in ("1", "true", "yes", "on")
+    household_text = (env.get("BAIHE_API_HOUSEHOLD_PORT") or "").strip()
+    household_port = 0
+    if household_text:
+        try:
+            household_port = int(household_text)
+        except ValueError:
+            raise ValueError(
+                f"BAIHE_API_HOUSEHOLD_PORT must be a number, got {household_text!r}")
+        if not 1 <= household_port <= 65535:
+            raise ValueError(f"BAIHE_API_HOUSEHOLD_PORT must be 1-65535, got {household_port}")
     sign_in = _sign_in_values(env, from_env_file=environ is None)
     public_url = normalize_public_url(sign_in["BAIHE_PUBLIC_URL"])
     return ApiSettings(host=host, port=port, environment=environment,
@@ -144,7 +173,7 @@ def load_settings(environ=None) -> ApiSettings:
                        cookie_secure=cookie_secure, background_services=background_services,
                        google_client_id=sign_in["BAIHE_GOOGLE_CLIENT_ID"],
                        google_client_secret=sign_in["BAIHE_GOOGLE_CLIENT_SECRET"],
-                       public_url=public_url)
+                       public_url=public_url, household_port=household_port)
 
 
 SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL")
@@ -207,7 +236,68 @@ def check_bind_safety(settings: ApiSettings):
             f"Refusing to listen on {settings.host}: it is reachable from other machines and "
             "BAIHE_API_AUTH is not 'on'. Set BAIHE_API_AUTH=on (and allowlist users with "
             "`python -m api grant-admin <email>`), or use the default 127.0.0.1.")
+    # Settings marked household by hand (not through household_settings)
+    # get the same two guarantees.
+    if settings.is_household and not (settings.auth_enabled and is_loopback_host(settings.host)):
+        raise ValueError("The household listener needs sign-in on and a loopback host.")
     # ApiSettings built directly (tests, embedding) skip load_settings, so the
     # public URL rule is enforced here too; normalize_public_url is idempotent.
     if settings.public_url and normalize_public_url(settings.public_url) != settings.public_url:
         raise ValueError("BAIHE_PUBLIC_URL must be just https://your-domain.")
+
+
+def check_household_bind_safety(settings: ApiSettings):
+    """Refuses (ValueError) a household listener that could weaken the PC's
+    own one: it binds only a loopback host (the reverse proxy on this PC is
+    the only way in), never the admin port or the extension bridge's port,
+    and only next to an admin listener in off mode (with auth on there, a
+    proxy pointed at the admin port would get signed-in access to it).
+    Development mode runs one auto-reloading app, so it has no household
+    listener. `settings` are the admin listener's (`load_settings`)."""
+    import page_server
+    port = settings.household_port
+    if not port:
+        raise ValueError("BAIHE_API_HOUSEHOLD_PORT is not set.")
+    if not is_loopback_host(settings.host):
+        raise ValueError(f"Refusing a household listener on {settings.host}: it only listens "
+                         "on this PC (127.0.0.1), behind the reverse proxy.")
+    if port == settings.port:
+        raise ValueError(f"BAIHE_API_HOUSEHOLD_PORT ({port}) must differ from BAIHE_API_PORT, "
+                         "which is the PC's own listener.")
+    if port == page_server.DEFAULT_PORT:
+        raise ValueError(f"BAIHE_API_HOUSEHOLD_PORT may not be {port}: that is the browser "
+                         "extension's port.")
+    if settings.auth_enabled:
+        raise ValueError("BAIHE_API_HOUSEHOLD_PORT needs BAIHE_API_AUTH=off: the household "
+                         "listener has sign-in on, and the PC's own listener stays loopback-only.")
+    if settings.is_development:
+        raise ValueError("BAIHE_API_HOUSEHOLD_PORT is not available with "
+                         "BAIHE_API_ENV=development.")
+
+
+SINGLE_PORT_SIGN_IN_WARNING = (
+    "Sign-in is on for the single port (BAIHE_API_AUTH=on, no BAIHE_API_HOUSEHOLD_PORT). "
+    "PC-only actions are only fully protected with the two-port setup: behind a reverse "
+    "proxy this port tells the PC from other devices by request headers alone. Migrate "
+    "with the steps under \"Migrating from single-port sign-in\" in "
+    "docs/remote-access-decision.md.")
+
+
+def single_port_sign_in_warning(settings: ApiSettings) -> str:
+    """The startup warning for the old single-listener sign-in setup, or ''.
+    Still accepted (unlike auth on next to a household port), but its
+    `local_only()` checks rest on header heuristics once a proxy points at
+    it. `settings` are the admin listener's (`load_settings`)."""
+    if settings.auth_enabled and not settings.household_port and not settings.is_household:
+        return SINGLE_PORT_SIGN_IN_WARNING
+    return ""
+
+
+def household_settings(settings: ApiSettings) -> ApiSettings:
+    """The household listener's settings, derived from the admin listener's
+    after `check_household_bind_safety`: same loopback host, the household
+    port, sign-in on, no background services, no engine-key writes."""
+    check_household_bind_safety(settings)
+    return replace(settings, port=settings.household_port, auth_mode="on",
+                   background_services=False, allow_key_writes=False,
+                   listener="household")

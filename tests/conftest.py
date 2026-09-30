@@ -197,8 +197,8 @@ def isolated_db():
 
 def _reset_background_jobs_memory():
     """Drops background_jobs' in-process state: job records, the GPU
-    queue, the restore's exclusive hold, the maintenance count and the
-    per-job cancel-check cache. In memory only -- clear_all_jobs() would
+    queue, the restore's exclusive hold, the clean stop's job refusal,
+    the maintenance count and the per-job cancel-check cache. In memory only -- clear_all_jobs() would
     also wipe job_records in whatever library db.LIBRARY_DIR points at."""
     import background_jobs as bg
     with bg._lock:
@@ -206,6 +206,7 @@ def _reset_background_jobs_memory():
         bg._gpu_queue.clear()
         bg._last_db_cancel_check.clear()
     bg.release_exclusive()
+    bg._stopping = False
     while bg._maintenance_count:
         bg.exit_maintenance()
 

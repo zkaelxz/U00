@@ -58,8 +58,9 @@ import bulk_translate
 import raw_transcript
 import dub as dub_module
 import background_jobs
-from services import (engine_routing_service, line_provenance_service, narration_service,
-                      settings_service, transcribe_service, translate_service, workspace_job_service)
+from services import (engine_routing_service, glossary_retranslate_service,
+                      line_provenance_service, narration_service, settings_service,
+                      transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
@@ -539,6 +540,11 @@ def _parse_fallback_arg(value, reflect=False) -> list:
 def cmd_translate(args):
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
+    glossary_affected = getattr(args, "glossary_affected", False)
+    if glossary_affected and not args.id:
+        raise SystemExit("--glossary-affected needs --id (one drama at a time, as in the app).")
+    if getattr(args, "include_hand_edited", False) and not glossary_affected:
+        raise SystemExit("--include-hand-edited only applies with --glossary-affected.")
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
@@ -631,7 +637,20 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=not getattr(args, "no_genre_notes", False),
                 default_female_pronouns=getattr(args, "female_pronouns", False))
-        print(f"#{d['id']} translating {len(lines)} lines with {engine_name}"
+        target_ids = None
+        if glossary_affected:
+            # Same selection as the app's "Re-translate lines affected by the
+            # glossary": lines whose English isn't known to be machine-made
+            # are left alone unless --include-hand-edited.
+            target_ids = set(glossary_retranslate_service.affected_line_ids(
+                d["id"], include_hand_edited=getattr(args, "include_hand_edited", False)))
+            if not target_ids:
+                print(f"#{d['id']} skipped: no machine-translated lines are affected by the "
+                      f"glossary (hand-edited lines need --include-hand-edited).")
+                return
+        force = args.force or target_ids is not None
+        print(f"#{d['id']} translating "
+              f"{len(target_ids) if target_ids is not None else len(lines)} lines with {engine_name}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
         # Same caps as the Workspace Translate job: per job (--cost-cap)
@@ -686,14 +705,25 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             style_note=style_note or "", style_guidelines=style_guidelines or "")
-        if args.force and any(ln.en for ln in lines):
+        if force and any(ln.en for ln in lines):
             # Same data-loss guard as translate_run_service: keep the old
             # translation restorable from history before it's overwritten.
             db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
+        # Same as the Workspace Translate job: writes `en` only, and
+        # records each translated line's provenance (Step 41).
+        if target_ids is not None:
+            save_cb, notes_cb = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
+        else:
+            def save_cb(ls, did=d["id"]):
+                db.save_lines(did, ls, fields=("en",))
+                provenance(ls)
+
+            def notes_cb(notes, did=d["id"]):
+                db.save_translation_notes(did, notes, id_by_idx=_id_by_idx)
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
-            novel_reference=novel_reference, force_retranslate=args.force,
+            novel_reference=novel_reference, force_retranslate=force, target_ids=target_ids,
             locale=args.locale or settings_service.get_preference("default_locale"),
             glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
@@ -703,13 +733,9 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False),
-            notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
-                did, notes, id_by_idx=_id_by_idx),
+            notes_cb=notes_cb,
             progress_cb=_progress,
-            # Same as the Workspace Translate job: writes `en` only, and
-            # records each translated line's provenance (Step 41).
-            save_cb=lambda lines, did=d["id"]: (db.save_lines(did, lines, fields=("en",)),
-                                               provenance(lines)),
+            save_cb=save_cb,
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
                 did, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
                       else engine_name),
@@ -724,10 +750,17 @@ def cmd_translate(args):
         # persisted batch errors -- and "translated" only once no line is
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
+        recheck = set()
         bulk_translate.finish_translation_run(
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
-            summary_monthly_cap_usd=summary_monthly_cap)
+            summary_monthly_cap_usd=summary_monthly_cap,
+            line_scoped=target_ids is not None, enforce_ids=target_ids,
+            flags_needing_recheck=recheck)
+        if recheck:
+            print(f"\n#{d['id']} {len(recheck)} line(s) changed while the job ran, so their "
+                  f"review flags weren't saved; recheck line id(s) "
+                  f"{', '.join(map(str, sorted(recheck)))}.")
         for ev in getattr(engine, "events", None) or []:
             print(f"\n#{d['id']} switched from {ev['from']} to {ev['to']} ({ev['reason']}).")
         if "spent" in cap_reached:
@@ -983,6 +1016,13 @@ def main():
                                 "as in the Workspace).")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
+    p_translate.add_argument("--glossary-affected", action="store_true",
+                             help="Re-translate only the lines the glossary affects (a term or "
+                                  "alias in the source, or a banned translation in the English). "
+                                  "Needs --id. Hand-edited lines are left alone.")
+    p_translate.add_argument("--include-hand-edited", action="store_true",
+                             help="With --glossary-affected: also replace hand-edited lines "
+                                  "(a snapshot is saved first).")
     p_translate.add_argument("--ollama-num-ctx", type=int, default=None,
                               help="Override Ollama's context window size. Only ever raises it "
                                    "above the automatic per-prompt estimate, never below -- "

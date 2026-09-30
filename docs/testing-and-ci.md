@@ -65,6 +65,31 @@ they cannot currently be re-derived from Actions run history, so re-verify befor
   for a real, gated-access-accepted token up front** rather than
   discovering the gap from a failed run.
 
+### Testing a dependency upgrade (canary)
+
+Diagnostics' "Test first" checks an upgrade from inside the app (it has no
+rollback: it only reports). The same idea from a source checkout, for any
+package, is `scripts/dependency_canary.py` (standard library only):
+
+    python scripts/dependency_canary.py <package> [<version>|latest] [--quick] [--with-optional] [--write-pin]
+
+It installs `requirements-core.txt` (plus `requirements-optional.txt` with
+`--with-optional`) under `constraints.txt` into a throwaway venv, upgrades only
+that package, and runs the offline suite (`--quick`: `tests/test_static_analysis.py`
+plus tests whose file name or imports mention the package). No API keys are
+passed to it and it uses a temp data folder. Verdicts: PASS (exit 0), FAIL (1),
+ERROR (2), PREEXISTING (3, the same tests fail on the known-good version).
+
+Manual steps that stay with you:
+
+- On FAIL, `--write-pin` appends `pkg<failing-version` to `constraints.txt`
+  (only when the failing version is newer than the known-good one). Review and
+  commit it yourself.
+- The installer lock `installer/wheels.lock.txt` is never edited; refresh it
+  separately (docs/windows-installer-design.md).
+- If you already upgraded your real environment, pin it back with the printed
+  command, e.g. `pip install "pkg==<last good>"`. The script never touches it.
+
 ## GitHub Actions minutes
 
 - **Before a discretionary CI run** (re-running a job on a hunch, a

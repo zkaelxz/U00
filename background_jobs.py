@@ -438,7 +438,46 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
             _release_gpu_slot(job_id, gpu_touching)
             _promote_next_queued_gpu_job()
 
-    threading.Thread(target=runner, daemon=True, name=f"job:{job_id}").start()
+    _start_job_thread(runner, f"job:{job_id}")
+
+
+# Job runner and watcher threads that have not exited yet. A job's status
+# turns final before its thread is done: the thread still writes the
+# notification, the timing row and the GPU-lock release to the database
+# afterwards. So "no job running" does not mean "no job thread using the
+# database", and a library reset that deletes the database file then raced
+# that tail (sqlite3 "database is locked" converting the new file to WAL).
+_job_threads = set()
+
+
+def _start_job_thread(target, name, *args, **kwargs):
+    def run():
+        try:
+            target(*args, **kwargs)
+        finally:
+            with _lock:
+                _job_threads.discard(thread)
+
+    thread = threading.Thread(target=run, daemon=True, name=name)
+    # Started under the lock so wait_for_job_threads never sees (and tries
+    # to join) a thread that is registered but not yet started.
+    with _lock:
+        thread.start()
+        _job_threads.add(thread)
+
+
+def wait_for_job_threads(timeout: float) -> bool:
+    """Joins every job thread that has not exited, including one whose job
+    already reads as finished or was cleared. True once none is left,
+    False if some thread outlived `timeout` seconds. Call it with no job
+    running or queued (under acquire_exclusive), before replacing the
+    database, or it waits on real work."""
+    deadline = time.monotonic() + timeout
+    with _lock:
+        threads = [t for t in _job_threads if t is not threading.current_thread()]
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+    return not any(t.is_alive() for t in threads)
 
 
 def _promote_next_queued_gpu_job():
@@ -486,9 +525,8 @@ def _promote_next_queued_gpu_job():
             break
     if entry.get("kind") == "process":
         proc.start()
-        threading.Thread(target=_process_watcher,
-                         args=(job_id, proc, result_queue, True), kwargs={"on_done": on_done},
-                         daemon=True, name=f"job-watcher:{job_id}").start()
+        _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
+                          job_id, proc, result_queue, True, on_done=on_done)
     else:
         _spawn(job_id, target, args, kwargs, gpu_touching=True)
 
@@ -551,6 +589,29 @@ def exclusive_active() -> bool:
         return _exclusive_label is not None
 
 
+_stopping = False
+STOPPING_MESSAGE = "Baihe is stopping, so no new job can start. Start Baihe again to run it."
+
+
+def refuse_new_jobs() -> None:
+    """The server's clean stop has begun (services/shutdown_service.py):
+    from here on start_job/start_process_job raise instead of starting, so
+    nothing started during the grace wait is killed mid-write when the
+    process ends. Set under _lock, so a start either finished before this
+    (and the stop's active_job_ids() sees it) or is refused. Never undone
+    for the life of the process."""
+    global _stopping
+    with _lock:
+        _stopping = True
+
+
+def _refuse_if_stopping_locked():
+    """Caller holds _lock."""
+    if _stopping:
+        from services.service_errors import ConflictError
+        raise ConflictError(STOPPING_MESSAGE)
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str = None, **kwargs) -> bool:
     """
@@ -570,9 +631,13 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     The job records who started it (auth B2): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
     the PC owner, auth off, Streamlit, the CLI and jobs started by jobs.
+
+    Raises ConflictError once the server's clean stop has begun
+    (refuse_new_jobs).
     """
     owner_user_id = _acting_user_id()
     with _lock:
+        _refuse_if_stopping_locked()
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -640,10 +705,11 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     passes on_done so it can apply its own result. If on_done raises, the
     job ends "error" with a redacted message. Not called on error/cancel.
     Carried through the GPU queue like target/args. Records its starter
-    like start_job().
+    and refuses during a clean stop like start_job().
     """
     owner_user_id = _acting_user_id()
     with _lock:
+        _refuse_if_stopping_locked()
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -667,8 +733,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id)
     proc.start()
-    threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, gpu_touching),
-                     kwargs={"on_done": on_done}, daemon=True, name=f"job-watcher:{job_id}").start()
+    _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
+                      job_id, proc, result_queue, gpu_touching, on_done=on_done)
     return True
 
 

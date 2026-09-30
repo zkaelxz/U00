@@ -61,6 +61,7 @@ MAX_SNIPPET_LEN = 500
 MAX_RESULT_URL_LEN = 2000
 BAIHE_OWN_PORTS = (8501, 8600, 8756)
 API_PORT_ENV = "BAIHE_API_PORT"
+HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 RATE_MAX = 10
 PER_CALLER_MAX = 4
 TEST_RATE_MAX = 5
@@ -122,9 +123,10 @@ def set_config(enabled: Optional[bool] = None, base_url: Optional[str] = None) -
 
 def _baihe_ports() -> set:
     ports = set(BAIHE_OWN_PORTS)
-    raw = (settings_service.resolve_env_names((API_PORT_ENV,)) or "").strip()
-    if raw.isdigit():
-        ports.add(int(raw))
+    for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
+        raw = (settings_service.resolve_env_names((name,)) or "").strip()
+        if raw.isdigit():
+            ports.add(int(raw))
     return ports
 
 

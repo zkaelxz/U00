@@ -215,6 +215,35 @@ class TestCleanShutdown:
         shutdown_service.clean_shutdown()
         assert "browsers" in order and ("cancel", "a") in order
 
+    def test_no_job_starts_once_the_stop_has_begun(self, monkeypatch):
+        from services.service_errors import ConflictError
+        self._record(monkeypatch, active=())
+        ran = threading.Event()
+        assert background_jobs.start_job("before", ran.set) is True
+        assert ran.wait(5)
+        # Refused before the cancel takes its snapshot of active jobs, so a
+        # start racing the stop is either cancelled or refused, never missed.
+        seen = []
+        monkeypatch.setattr(background_jobs, "active_job_ids",
+                            lambda: seen.append(background_jobs._stopping) or [])
+        shutdown_service.clean_shutdown(timeout=0)
+        assert seen == [True]
+        with pytest.raises(ConflictError, match="Baihe is stopping"):
+            background_jobs.start_job("after", lambda: None)
+        with pytest.raises(ConflictError, match="Baihe is stopping"):
+            background_jobs.start_process_job("after_proc", print)
+        assert background_jobs.get_status("after") is None
+        assert background_jobs.get_status("after_proc") is None
+
+    def test_route_stop_refuses_new_jobs_too(self, monkeypatch):
+        from services.service_errors import ConflictError
+        self._record(monkeypatch, active=())
+        monkeypatch.setattr(shutdown_service.threading, "Thread",
+                            lambda **kw: type("T", (), {"start": lambda self: None})())
+        shutdown_service.request_shutdown()
+        with pytest.raises(ConflictError):
+            background_jobs.start_job("after", lambda: None)
+
 
 class TestStoppableServices:
     def test_page_server_stops(self, monkeypatch):

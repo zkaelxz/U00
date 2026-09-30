@@ -61,6 +61,8 @@ baihe-subtitler/
 │   │                             pip from its wheel, installs requirements-core offline
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
+├── scripts/dependency_canary.py  tests one package upgrade in a throwaway venv against the offline suite;
+│                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -91,6 +93,7 @@ baihe-subtitler/
 │   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
+│   ├── runbook.md                one-page maintainer steps: installer lock, tests, restore, certificate, benchmark [reference]
 │   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
 │   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
 │   │                             [design proposal, nothing built]
@@ -154,10 +157,12 @@ baihe-subtitler/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
-│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup keeping ONE
-│   │                             snapshot (temp file, validated, atomic replace), due-check (startup +
-│   │                             hourly via api/background.py), restore one drama from the snapshot
-│   │                             (same id, or a new "(restored <date>)" copy); router: backup_routes.py
+│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup writing a
+│   │                             new dated copy each run (temp file, validated, fsynced, renamed in)
+│   │                             and rotating old ones (one per day for the last 2 days + the first of
+│   │                             each of the last 2 weeks), due-check (startup + hourly via
+│   │                             api/background.py), restore one drama from a chosen copy (same id,
+│   │                             or a new "(restored <date>)" copy); router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
@@ -304,6 +309,10 @@ baihe-subtitler/
 │   │                             read-only option catalogues; glossary proposals from the novel
 │   │                             or (parity X10) the source lines, as jobs; apply by term text
 │   │                             with optional per-term edits
+│   ├── glossary_retranslate_service.py Lines a glossary change affects (term/alias in the
+│   │                             source, or a banned translation in the English), with a
+│   │                             hand-edited flag from line provenance; re-translates only the
+│   │                             chosen ones through the normal translate job (stale preview 409)
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
@@ -421,10 +430,12 @@ baihe-subtitler/
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Serves the React app, same library/.
 │   ├── __init__.py               (empty, marks the package)
-│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings (plus the household
+│   │                             listener on BAIHE_API_HOUSEHOLD_PORT, same process, when set);
 │   │                             `grant-admin` / `add-user` / `deactivate` / `grant` / `list-users` (local user admin)
-│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
+│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS; listener="household" (D5)
 │   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND,
+│   │                             HOUSEHOLD_PORT (household_settings, check_household_bind_safety),
 │   │                             BAIHE_GOOGLE_CLIENT_ID/SECRET + BAIHE_PUBLIC_URL (sign-in; also read from .env)
 │   ├── background.py             startup hook (lifespan): chapter-check scheduler + extension endpoint (if enabled);
 │   │                             off in tests (BAIHE_API_BACKGROUND=0); tests/test_api_background.py
@@ -451,6 +462,7 @@ baihe-subtitler/
 │   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
 
 │   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
+│   ├── sharing_schemas.py        Sharing models: item list, private flag, share-by-default
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
@@ -459,6 +471,7 @@ baihe-subtitler/
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
+│   ├── admin_users_schemas.py    user administration + audit log view models (kept apart from schemas.py)
 
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
@@ -467,6 +480,8 @@ baihe-subtitler/
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
+│       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
+│       │                         /api/admin/audit (read-only, paged), all admin.users; tests/test_api_admin_users.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
@@ -610,6 +625,8 @@ baihe-subtitler/
 
 │       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
 │       │                         (local_only; address change also key-write gate) -- item 114
+│       ├── sharing_routes.py     /api/sharing/items (admin.library), /{dramas|series}/{id}/private (lines.edit;
+│       │                         owner or admin), /share-by-default (GET library.read, POST lines.edit)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │
@@ -673,10 +690,11 @@ baihe-subtitler/
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
 │   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
-│   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
+│   │                              Defaults for new dramas, Spending, OCR, Offline and performance,
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
-│   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
-│   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
+│   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,
+│   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
+│   │                              components/ThemeMenu.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,

@@ -58,6 +58,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
     "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
+    "user_id": "a user account, not an owned item (admin.users only)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a
@@ -412,17 +413,20 @@ class TestNewItemsAreStamped:
         assert r.status_code == 201, r.text
         row = self._row(r.json()["id"])
         assert row["owner_user_id"] == world["admin_id"]
-        assert row["is_private"] == 0                   # shares by default
+        assert row["is_private"] == 1                   # private unless shared by default
 
     def test_service_create_uses_share_by_default(self, world):
         from services import drama_service, ownership_service
         a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
-        ownership_service.set_share_by_default(a, False)
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         d = drama_service.create_drama(source_language="zh", title_en="Hidden", principal=a)
         row = self._row(d["id"])
         assert (row["owner_user_id"], row["is_private"]) == (world["a_id"], 1)
-        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         assert not ownership_service.can_see_drama(b, d["id"])
+        ownership_service.set_share_by_default(a, True)
+        d = drama_service.create_drama(source_language="zh", title_en="Open", principal=a)
+        assert self._row(d["id"])["is_private"] == 0
+        assert ownership_service.can_see_drama(b, d["id"])
 
     def test_new_series_and_drama_in_it_owned_by_creator(self, world):
         from services import drama_service
@@ -445,7 +449,7 @@ class TestNewItemsAreStamped:
         from services import drama_service
         d = drama_service.create_drama(source_language="zh", title_en="PC")
         row = self._row(d["id"])
-        assert (row["owner_user_id"], row["is_private"]) == (None, 0)
+        assert (row["owner_user_id"], row["is_private"]) == (None, 1)   # private by default
 
     def test_discover_import_stamps_owner(self, world):
         from services import discover_catalog_service as svc
@@ -626,3 +630,33 @@ def test_new_run_over_a_stale_running_record_takes_the_new_owner(isolated_db):
     # Progress updates of the same run keep it.
     db.save_job_record("sources_search", "done", started_at=2.0, owner_user_id=None)
     assert db.get_job_record("sources_search")["owner_user_id"] == 2
+
+
+class TestLibrarySharingFlags:
+    """The Library list tells the client each item's private flag and whether
+    the viewer created it, so the sharing control needs no extra call."""
+
+    def test_drama_flags(self, world):
+        w = world
+        client = _client(_app())
+        items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["a"]).json()["items"]}
+        assert items[w["private"]]["is_private"] is True
+        assert items[w["private"]]["owned_by_me"] is True
+        assert items[w["shared"]]["is_private"] is False
+        assert items[w["in_pseries"]]["is_private"] is True      # follows its series
+        b_items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["b"]).json()["items"]}
+        assert b_items[w["shared"]]["owned_by_me"] is False
+        off = _local(_app("off")).get("/api/library/dramas").json()["items"]
+        assert all(d["owned_by_me"] is False for d in off)
+        detail = client.get(f"/api/library/dramas/{w['shared']}", headers=w["a"]).json()
+        assert detail["is_private"] is None
+
+    def test_series_flags(self, world):
+        w = world
+        db.create_drama(title_en="Second", source_language="zh", series_id=w["pseries"],
+                        owner_user_id=w["a_id"])
+        client = _client(_app())
+        mine = client.get("/api/library/series", headers=w["a"]).json()["items"]
+        assert mine[0]["is_private"] is True and mine[0]["owned_by_me"] is True
+        admin = client.get("/api/library/series", headers=w["admin"]).json()["items"]
+        assert admin[0]["owned_by_me"] is False

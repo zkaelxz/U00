@@ -12,7 +12,8 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 - Streamlit (`app.py`, `tabs/`, `ui/`, `ui_theme.py`, `common.py`, `app_help.py`) is deleted in the draft PR
   `streamlit-removal` (not merged until the user approves; retirement plan, section 9).
 - Streamlit-only features, decided 2026-09-30 (user): learned-style opt-out is ported (#493 pins it);
-  auto-resume of pending batches and EPUB image placeholders are dropped, not ported.
+  EPUB image placeholders are dropped, not ported. Auto-resume of pending batches is now an opt-in setting
+  (`bulk.auto_resume`, off by default, Settings > Jobs; resumes at API startup through the manual resume path).
 - Recently merged: Steps 36 (#469), 37 (#464), 38 Benchmark Lab (#471), 39 Jellyfin (#474), 41 (#476),
   43 auto-backups (#473), 44 follow-up (#470), 99 (#475), 101-105 (#468), 106 (#460), 107 (#467), 110 (#461);
   parity B5 (#480) and Sources SO06/SO09/SO10 (#457); Steps 142-143 proposed (#496).

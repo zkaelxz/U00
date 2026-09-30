@@ -26,7 +26,14 @@
 .routing-card .status-list .settings-note, .routing-error { overflow-wrap: anywhere; }
 .routing-error { margin: 0; font-size: var(--text-sm); }
 
+/* Sharing: a drama in a series sits indented under its series. */
+.sharing-meta { display: block; font-weight: normal; }
+.sharing-meta + .pill { margin-top: var(--space-1); }
+.sharing-status { font-size: var(--text-sm); color: var(--muted); }
+.settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
+
 @media (max-width: 640px) {
   .settings-page { gap: var(--space-4); }
   .settings-page .status-list > li { padding-inline: var(--space-3); }
+  .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-5); }
 }

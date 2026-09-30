@@ -8,6 +8,13 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Baihe Studio</title>
+    <!-- Saved theme (src/theme.ts) before the first paint, so the page never flashes the wrong one. -->
+    <script>
+      try {
+        var t = localStorage.getItem('baihe.theme')
+        if (t === 'light' || t === 'dark' || t === 'sepia') document.documentElement.setAttribute('data-theme', t)
+      } catch (e) {}
+    </script>
     <!-- Styles for the static note below. Inline because the app's own CSS
          may be what failed to load. React replaces it on first render, so a
          normal start never shows it. After 4 s it says "Still loading…"

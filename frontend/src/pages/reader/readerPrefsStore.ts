@@ -1,10 +1,11 @@
 // Pure Reader helpers: the Aa preferences (kept in localStorage), paging,
 // resume and the spoiler boundary. No React here so it is unit-tested.
 
+import type { ThemeLook } from '../../theme'
 import type { StorageLike } from '../../components/sectionStorage'
 import type { ReaderChatTurn, ReaderOverview, ReaderPageParams } from '../../types/reader'
 
-export type ReaderTheme = 'auto' | 'light' | 'dark'
+export type ReaderTheme = 'auto' | 'light' | 'sepia' | 'dark'
 export type ReaderFont = 'system' | 'serif' | 'sans-serif' | 'monospace'
 
 export interface ReaderPrefs {
@@ -36,6 +37,7 @@ export const CHAPTER_SIZE = { min: 10, max: 200, step: 10 }
 export const THEME_OPTIONS: [ReaderTheme, string][] = [
   ['auto', 'Match app'],
   ['light', 'Light'],
+  ['sepia', 'Sepia'],
   ['dark', 'Dark'],
 ]
 export const FONT_OPTIONS: [ReaderFont, string][] = [
@@ -110,9 +112,9 @@ export function savePrefs(storage: StorageLike | null, prefs: ReaderPrefs): bool
 export function pageParams(
   prefs: ReaderPrefs,
   page: number,
-  opts: { phone: boolean; prefersDark: boolean },
+  opts: { phone: boolean; appLook: ThemeLook },
 ): ReaderPageParams {
-  const theme = prefs.theme === 'auto' ? (opts.prefersDark ? 'dark' : 'light') : prefs.theme
+  const theme = prefs.theme === 'auto' ? opts.appLook : prefs.theme
   const p: ReaderPageParams = {
     page,
     chapter_size: prefs.chapterSize,
