@@ -44,10 +44,12 @@ import threading
 import time
 import uuid
 import zipfile
+import zlib
 
 import background_jobs
 import db
 from services import library_admin_service as las
+from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
@@ -64,6 +66,12 @@ MANIFEST_NAME = "manifest.json"
 MANIFEST_FORMAT = 1
 _MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 _MAX_FOLDER_LEN = 1024
+# What a single-drama restore extracts is capped per member (the whole-zip
+# upload caps don't apply to the app's own snapshot; see _verify_snapshot).
+_MAX_MEMBER_BYTES = wjs._MAX_RESTORE_MEMBER_BYTES
+# After a failed run the scheduled check waits this long before trying the
+# (possibly large) backup again.
+RETRY_AFTER_FAILURE = datetime.timedelta(days=1)
 
 JOB_ID = las.AUTO_BACKUP_JOB_ID
 CHECK_INTERVAL_SECONDS = 3600.0
@@ -137,9 +145,54 @@ def set_settings(enabled=None, frequency=None, include_media=None, folder=None) 
             raise InvalidInputError("include_media must be true or false.")
         current["include_media"] = include_media
     if folder is not None:
-        current["folder"] = _check_folder(folder)
+        folder = _check_folder(folder)
+        if folder != current["folder"]:
+            _move_snapshot(current["folder"], folder)
+        current["folder"] = folder
     db.set_app_setting(SETTINGS_KEY, current)
     return settings_overview()
+
+
+def _folder_path(folder: str) -> str:
+    return folder or os.path.join(db.LIBRARY_DIR, *DEFAULT_SUBDIR)
+
+
+def _move_snapshot(old_folder: str, new_folder: str):
+    """Keeps the one-snapshot rule across a folder change: the existing
+    snapshot moves to the new folder (replacing a stale file of the same
+    name there). Refused while a backup runs; on failure nothing changes."""
+    if _job_running():
+        raise ConflictError("A backup is running -- change the folder when it finishes.")
+    with _snapshot_lock:
+        src = os.path.join(_folder_path(old_folder), SNAPSHOT_NAME)
+        if os.path.islink(src) or not os.path.isfile(src):
+            return
+        dest_dir = _folder_path(new_folder)
+        dest = os.path.join(dest_dir, SNAPSHOT_NAME)
+        tmp = None
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            if os.path.islink(dest):
+                raise OSError("snapshot path is a link")
+            try:
+                os.replace(src, dest)       # same drive: atomic
+                return
+            except OSError:
+                pass
+            fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
+                                       dir=dest_dir)
+            os.close(fd)
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, dest)
+            tmp = None
+            os.remove(src)
+        except OSError:
+            raise ServiceError("The existing snapshot could not be moved to the new folder; "
+                               "the folder was not changed.") from None
+        finally:
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    os.remove(tmp)
 
 
 def _get_state() -> dict:
@@ -189,10 +242,13 @@ def is_due(now=None, settings=None, state=None) -> bool:
     if not settings["enabled"]:
         return False
     state = _get_state() if state is None else state
+    now = now or _now()
+    attempt = _parse(state.get("last_attempt_at"))
+    if state.get("last_error") and attempt is not None and now - attempt < RETRY_AFTER_FAILURE:
+        return False
     last = _parse(state.get("last_success_at"))
     if last is None:
         return True
-    now = now or _now()
     return now - last >= datetime.timedelta(days=FREQUENCIES[settings["frequency"]])
 
 
@@ -214,8 +270,7 @@ def settings_overview() -> dict:
 # --------------------------------------------------------------------------
 
 def _target_dir(create: bool) -> str:
-    folder = get_settings()["folder"]
-    path = folder or os.path.join(db.LIBRARY_DIR, *DEFAULT_SUBDIR)
+    path = _folder_path(get_settings()["folder"])
     if create:
         try:
             os.makedirs(path, exist_ok=True)
@@ -245,7 +300,8 @@ def _read_manifest(zf: zipfile.ZipFile) -> dict:
         raise InvalidInputError(_BAD_SNAPSHOT)
     try:
         data = json.loads(zf.read(info).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, RuntimeError, OSError):
+    except (ValueError, UnicodeDecodeError, zipfile.BadZipFile, RuntimeError, OSError,
+            EOFError, zlib.error):
         raise InvalidInputError(_BAD_SNAPSHOT) from None
     if (not isinstance(data, dict) or data.get("format") != MANIFEST_FORMAT
             or data.get("kind") not in ("db-only", "full")
@@ -257,15 +313,16 @@ def _read_manifest(zf: zipfile.ZipFile) -> dict:
 def snapshot_info() -> dict:
     """{exists: False} or {exists: True, created_at, kind, size, app_version,
     drama_count}. A snapshot that can't be read reports readable=False."""
-    path = _existing_snapshot()
-    if path is None:
-        return {"exists": False}
-    try:
-        size = os.path.getsize(path)
-        with zipfile.ZipFile(path) as zf:
-            manifest = _read_manifest(zf)
-    except (OSError, zipfile.BadZipFile, InvalidInputError):
-        return {"exists": True, "readable": False}
+    with _snapshot_lock:
+        path = _existing_snapshot()
+        if path is None:
+            return {"exists": False}
+        try:
+            size = os.path.getsize(path)
+            with zipfile.ZipFile(path) as zf:
+                manifest = _read_manifest(zf)
+        except (OSError, zipfile.BadZipFile, InvalidInputError):
+            return {"exists": True, "readable": False}
     return {"exists": True, "readable": True, "created_at": manifest.get("created_at"),
             "kind": manifest["kind"], "size": size,
             "app_version": manifest.get("app_version") or "unknown",
@@ -323,6 +380,8 @@ def _extract_db(zf: zipfile.ZipFile, dest_dir: str) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
     (quick_check) before anything reads it."""
     dest = os.path.join(dest_dir, "library.db")
+    if zf.getinfo("library.db").file_size > _MAX_MEMBER_BYTES:
+        raise InvalidInputError(_BAD_SNAPSHOT)
     with zf.open("library.db") as src, open(dest, "wb") as out:
         shutil.copyfileobj(src, out, 1024 * 1024)
     try:
@@ -341,7 +400,7 @@ def _verify_snapshot(path: str):
     """Everything a finished snapshot must pass before it replaces the old
     one: the restore zip checks, a readable manifest, a sound library.db
     whose dramas match the manifest."""
-    las.validate_backup_file(path, check_disk=False)
+    las.validate_backup_file(path, check_disk=False, check_limits=False)
     with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as tmp:
         manifest = _read_manifest(zf)
         dest = _extract_db(zf, tmp)
@@ -456,6 +515,42 @@ def periodic_tick(interval: float = None) -> bool:
     return True
 
 
+STALE_LEFTOVER_SECONDS = 24 * 3600
+
+
+def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float = None) -> int:
+    """Startup sweep: partial snapshot files (".baihe_snapshot.partial-*")
+    in the backup folder and single-drama restore staging folders
+    ("dramas/.restoring-*") left by a process that was killed mid-way,
+    once older than a day. Symlinks are left alone. Never raises."""
+    now = time.time() if now is None else now
+    removed = 0
+    targets = [(_folder_path(get_settings()["folder"]), ".baihe_snapshot.partial-", False),
+               (db.DRAMAS_DIR, ".restoring-", True)]
+    for folder, prefix, is_dir in targets:
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if not name.startswith(prefix):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                if os.path.islink(path) or (os.path.isdir(path) != is_dir):
+                    continue
+                if now - os.path.getmtime(path) < max_age:
+                    continue
+                if is_dir:
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+                removed += 1
+            except OSError:
+                log.warning("Could not remove a leftover backup/restore file")
+    return removed
+
+
 def delete_snapshot(confirm=False, confirm_text="") -> dict:
     las._require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting the snapshot")
     if _job_running():
@@ -499,14 +594,15 @@ _SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
 def list_snapshot_dramas() -> dict:
     """The dramas inside the snapshot, from its manifest, each with
     exists_now (its id is in use, so a restore makes a new drama)."""
-    path = _existing_snapshot()
-    if path is None:
-        raise NotFoundError(_NO_SNAPSHOT)
-    try:
-        with zipfile.ZipFile(path) as zf:
-            manifest = _read_manifest(zf)
-    except (OSError, zipfile.BadZipFile):
-        raise InvalidInputError(_BAD_SNAPSHOT) from None
+    with _snapshot_lock:
+        path = _existing_snapshot()
+        if path is None:
+            raise NotFoundError(_NO_SNAPSHOT)
+        try:
+            with zipfile.ZipFile(path) as zf:
+                manifest = _read_manifest(zf)
+        except (OSError, zipfile.BadZipFile):
+            raise InvalidInputError(_BAD_SNAPSHOT) from None
     live = {d["id"] for d in db.list_dramas()}
     out = []
     for d in manifest["dramas"]:
@@ -563,30 +659,43 @@ def _live_ids(dst, table: str) -> set:
     return {r[0] for r in dst.execute(f'SELECT id FROM "{table}"')}
 
 
-def _resolve_series(src, dst, series_id, users, counts) -> tuple:
-    """(live series id or None, {old series_character id: live id})."""
+def _free_series_name(dst, name) -> str:
+    base = (name or "Series").strip() or "Series"
+    candidate = f"{base} (restored {datetime.date.today().isoformat()})"
+    n = 2
+    while dst.execute("SELECT 1 FROM series WHERE name = ?", (candidate,)).fetchone():
+        candidate = f"{base} (restored {datetime.date.today().isoformat()}, {n})"
+        n += 1
+    return candidate
+
+
+def _resolve_series(src, dst, series_id, drama_owner, users, counts) -> tuple:
+    """(live series id or None, {old series_character id: live id}).
+    The live series is reused only when it is the SAME series (same id and
+    name) and the private-series rule allows the drama in it (the
+    db.assign_drama_series predicate: a private series takes only its
+    owner's and the PC owner's dramas). A name match alone never links a
+    drama to someone else's series; otherwise the series comes back from
+    the snapshot as a new series (renamed "... (restored <date>)" if its
+    name is taken) with its glossary, characters and memory."""
     if series_id is None:
         return None, {}
     srows = _rows(src, "series", "id = ?", (series_id,))
     if not srows:
         return None, {}
     series = srows[0]
-    live = dst.execute("SELECT id FROM series WHERE id = ? AND name IS ?",
-                       (series_id, series.get("name"))).fetchone()
-    if live is None:
-        live = dst.execute("SELECT id FROM series WHERE name = ?",
-                           (series.get("name"),)).fetchone()
-    old_chars = _rows(src, "series_characters", "series_id = ?", (series_id,))
-    if live is not None:
-        live_id = live[0]
-        by_name = {r[1]: r[0] for r in dst.execute(
-            "SELECT id, character_name FROM series_characters WHERE series_id = ?", (live_id,))}
-        return live_id, {c["id"]: by_name[c["character_name"]] for c in old_chars
-                         if c.get("character_name") in by_name}
-    # The series is gone: bring it back with its glossary, characters and memory.
+    live = dst.execute("SELECT id, owner_user_id, COALESCE(is_private, 0) FROM series "
+                       "WHERE id = ? AND name IS ?", (series_id, series.get("name"))).fetchone()
+    if live is not None and not (live[2] and drama_owner is not None
+                                 and drama_owner != live[1]):
+        live_chars = {r[0] for r in dst.execute(
+            "SELECT id FROM series_characters WHERE series_id = ?", (series_id,))}
+        return series_id, {c: c for c in live_chars}
     row = {k: v for k, v in series.items() if k != "id"}
     if row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
+    if dst.execute("SELECT 1 FROM series WHERE name = ?", (row.get("name"),)).fetchone():
+        row["name"] = _free_series_name(dst, row.get("name"))
     live_id = _insert(dst, "series", row, _columns(dst, "series"))
     counts["series"] = 1
     char_map = {}
@@ -614,11 +723,14 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix) -> tuple:
     counts = {}
     users = {r[0] for r in dst.execute("SELECT id FROM users")}
     profiles = _live_ids(dst, "profiles")
-    series_id, char_map = _resolve_series(src, dst, drama.get("series_id"), users, counts)
     row = dict(drama)
-    row["series_id"] = series_id
     if row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
+    series_id, char_map = _resolve_series(src, dst, drama.get("series_id"),
+                                          row["owner_user_id"], users, counts)
+    row["series_id"] = series_id
+    if series_id is not None:
+        row["is_private"] = 0   # a drama in a series follows the series (decision 4)
     if new_id is None:
         row.pop("id", None)
     else:
@@ -682,6 +794,10 @@ def _stage_media(zf: zipfile.ZipFile, old_id: int):
                if i.filename.replace("\\", "/").startswith(prefix) and not i.is_dir()]
     if not members:
         return None
+    if len(members) > las._RESTORE_MAX_MEMBERS or any(
+            i.file_size > _MAX_MEMBER_BYTES for i in members):
+        raise InvalidInputError("The drama's files in the snapshot look corrupted or unsafe "
+                                "to extract.")
     need = sum(i.file_size for i in members)
     try:
         free = shutil.disk_usage(db.DRAMAS_DIR).free
@@ -726,7 +842,7 @@ def restore_drama(drama_id, confirm=False, confirm_text="", actor_id=None) -> di
             path = _existing_snapshot()
             if path is None:
                 raise NotFoundError(_NO_SNAPSHOT)
-            las.validate_backup_file(path, check_disk=False)
+            las.validate_backup_file(path, check_disk=False, check_limits=False)
             try:
                 with zipfile.ZipFile(path) as zf:
                     manifest = _read_manifest(zf)

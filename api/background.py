@@ -15,7 +15,9 @@ only renders them):
 Also at startup (Step 43): the automatic-backup due-check
 (`services/auto_backup_service.check_and_run`, a no-op unless the owner
 turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
-drama folders older than a day (`drama_service.cleanup_stale_tombstones`).
+drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
+leftover partial snapshots and restore staging folders
+(`auto_backup_service.cleanup_stale_leftovers`).
 The due-check then repeats hourly from the GPU-queue poller thread below
 (`auto_backup_service.periodic_tick`), so no extra thread is added.
 
@@ -101,6 +103,7 @@ def start_background_services() -> dict:
         _log("leftover deleted-drama folders were not swept: %s", exc)
     try:
         from services import auto_backup_service
+        auto_backup_service.cleanup_stale_leftovers()
         auto_backup_service.periodic_tick()   # the startup due-check
     except Exception as exc:
         _log("automatic backup check failed: %s", exc)

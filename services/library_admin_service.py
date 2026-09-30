@@ -618,40 +618,45 @@ def validate_backup_zip(zip_bytes) -> None:
     _validate_zip(io.BytesIO(zip_bytes), len(zip_bytes), check_disk=True)
 
 
-def validate_backup_file(path: str, check_disk: bool = True) -> None:
+def validate_backup_file(path: str, check_disk: bool = True, check_limits: bool = True) -> None:
     """validate_backup_zip for a zip on disk (read in place, never loaded
     whole into memory). check_disk=False skips the free-space check, for
     a backup that was just written rather than one about to be restored
-    whole."""
+    whole. check_limits=False skips the upload size/count caps (member
+    count, per-member and expanded-total size) for the app's own snapshot,
+    which can legitimately be larger than any upload; the structural
+    checks (library.db present, no unsafe/symlink/encrypted member, CRCs)
+    always run, and a caller extracting members must cap what it extracts."""
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as fh:
-            _validate_zip(fh, size, check_disk=check_disk)
+            _validate_zip(fh, size, check_disk=check_disk, check_limits=check_limits)
     except OSError:
         raise InvalidInputError(_BAD_ZIP) from None
 
 
-def _validate_zip(source, size: int, check_disk: bool) -> None:
+def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True) -> None:
     try:
         with zipfile.ZipFile(source) as zf:
             infos = zf.infolist()
-            if len(infos) > min(wjs._MAX_RESTORE_MEMBERS, _RESTORE_MAX_MEMBERS):
+            if check_limits and len(infos) > min(wjs._MAX_RESTORE_MEMBERS, _RESTORE_MAX_MEMBERS):
                 raise InvalidInputError("The backup has too many files; it looks corrupted "
                                         "or unsafe to extract.")
             if "library.db" not in zf.namelist():
                 raise InvalidInputError(_BAD_ZIP + " (no library.db inside).")
-            total_cap = min(wjs._MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
+            total_cap = (min(wjs._MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(size))
+                         if check_limits else None)
             total = 0
             for info in infos:
                 if _unsafe_member(info):
                     raise InvalidInputError("The backup contains an unsafe file path.")
                 if info.flag_bits & 0x1:
                     raise InvalidInputError("The backup contains an encrypted file.")
-                if info.file_size > wjs._MAX_RESTORE_MEMBER_BYTES:
+                if check_limits and info.file_size > wjs._MAX_RESTORE_MEMBER_BYTES:
                     raise InvalidInputError("The backup contains a file that is too large; it "
                                             "looks corrupted or unsafe to extract.")
                 total += info.file_size
-                if total > total_cap:
+                if check_limits and total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
             if check_disk:

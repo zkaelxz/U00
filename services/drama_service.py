@@ -321,8 +321,9 @@ TOMBSTONE_MAX_AGE_SECONDS = 24 * 3600
 def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: float = None) -> int:
     """B-14 leftover: removes `<id>.deleting-<hex>` folders in DRAMAS_DIR
     that a delete renamed aside but could not remove, once they are older
-    than max_age (a day), so an in-flight delete is never touched. Symlinks
-    and anything else are left alone. Returns how many were removed; never
+    than max_age (a day), so an in-flight delete is never touched. Symlinks,
+    anything else, and a tombstone whose drama row still exists (a failed
+    delete whose rename-back also failed) are left alone. Returns how many were removed; never
     raises."""
     now = time.time() if now is None else now
     removed = 0
@@ -336,6 +337,12 @@ def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: fl
         path = os.path.join(db.DRAMAS_DIR, name)
         try:
             if os.path.islink(path) or not os.path.isdir(path):
+                continue
+            # A delete whose row delete failed AND whose rename-back failed
+            # leaves a live drama's files here: keep them for manual recovery.
+            if db.get_drama(int(name.split(".", 1)[0])) is not None:
+                log.warning("A leftover deleted-drama folder belongs to a drama that still "
+                            "exists; it was kept")
                 continue
             if now - os.path.getmtime(path) < max_age:
                 continue
