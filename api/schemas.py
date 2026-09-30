@@ -2364,11 +2364,20 @@ class DiagnosticsPiperVoice(BaseModel):
     size_bytes: int
 
 
+class DiagnosticsModelFile(BaseModel):
+    """One entry of a model folder outside the Hugging Face cache."""
+    folder: Literal["torch", "audio_separator"]
+    name: str
+    size_bytes: int
+
+
 class DiagnosticsModelCache(BaseModel):
     hf_cache: List[DiagnosticsHfCacheEntry]
     hf_total_bytes: int
     piper_voices: List[DiagnosticsPiperVoice]
     piper_total_bytes: int
+    model_files: List[DiagnosticsModelFile]
+    model_files_total_bytes: int
 
 
 class DiagnosticsPyannoteModel(BaseModel):
