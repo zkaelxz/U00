@@ -17,9 +17,11 @@
 ; Boot service (the "service" task, on by default): Setup asks for
 ; administrator permission once, after the files are copied, and
 ; {app}\service\helper\lib\installer\service.py creates the BaiheStudio
-; service (python -m api on 127.0.0.1:8600 and nothing else, started with
-; Windows). An update stops it first, and uninstalling removes it. Unticking
-; the task (or /MERGETASKS="!service") keeps the Start-menu launcher only.
+; service (python -m api on 127.0.0.1 and nothing else, started with
+; Windows), on the default port or the user's BAIHE_API_PORT if set (the
+; launcher's port; an update without it keeps the service's port). An update
+; stops it first, and uninstalling removes it. Unticking the task (or
+; /MERGETASKS="!service") keeps the Start-menu launcher only.
 ;
 ; Silent install (CI, power users):
 ;   BaiheStudio-Setup-<v>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="..." /DATADIR="..."
@@ -480,6 +482,30 @@ begin
   end;
 end;
 
+// The port the owner chose for Baihe Studio: the user's BAIHE_API_PORT, which
+// the Start-menu launcher uses too, so both find the same server. '' when it
+// isn't set, and the service keeps the port it has (the default for a new
+// one). Only digits are passed on the elevated command line; anything else
+// is passed as a word service.py refuses, keeping the service's port.
+function ApiPortArg(): String;
+var
+  Port: String;
+  I: Integer;
+  Digits: Boolean;
+begin
+  Result := '';
+  Port := Trim(GetEnv('BAIHE_API_PORT'));
+  if Port = '' then
+    Exit;
+  Digits := True;
+  for I := 1 to Length(Port) do
+    if (Port[I] < '0') or (Port[I] > '9') then
+      Digits := False;
+  if not Digits then
+    Port := 'not-a-number';
+  Result := ' --port ' + Port;
+end;
+
 // With the "service" task: create or refresh the service and start it.
 // Without it: remove a service an earlier install made. The app still
 // works either way, from the Start menu.
@@ -489,7 +515,8 @@ begin
   begin
     WizardForm.StatusLabel.Caption := 'Setting up Baihe Studio''s background service...';
     ServiceFailed := not RunServiceHelper(ExpandConstant('{app}\service'),
-      '--install-root "' + ExpandConstant('{app}') + '" --data-dir "' + DataDir() + '" install');
+      '--install-root "' + ExpandConstant('{app}') + '" --data-dir "' + DataDir() + '" install' +
+      ApiPortArg());
   end
   else if ServiceOrAdminDirPresent() then
     ServiceFailed := not RunServiceHelper(AdminDir(), 'uninstall');

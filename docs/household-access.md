@@ -9,7 +9,7 @@ phone / laptop --https--> router :443 --> Caddy on the PC --> 127.0.0.1:<househo
 the PC's own window -----------------------------------------> 127.0.0.1:8600 (admin, never proxied)
 ```
 
-Caddy never forwards to 8600 (the PC's admin listener, or whatever `BAIHE_API_PORT` is set to) or 8756 (the extension bridge), and the router never forwards those ports or the household port. Baihe enforces the household rules itself: the household listener refuses every PC-only route, and an admin signed in there holds the household permissions plus viewing the user list and the audit log, never an admin write (admin changes stay at the PC). The template's refusals are defence in depth on top of that; the only admin routes it passes are `GET`/`HEAD` `/api/admin/users` and `/api/admin/audit`.
+Caddy never forwards to 8600 (the PC's admin listener, or whatever `BAIHE_API_PORT` is set to; on a service install, the port chosen at install, which `service.py status` shows: `docs/windows-installer-design.md` section 11, "Choosing the port") or 8756 (the extension bridge), and the router never forwards those ports or the household port. Baihe enforces the household rules itself: the household listener refuses every PC-only route, and an admin signed in there holds the household permissions plus viewing the user list and the audit log, never an admin write (admin changes stay at the PC). The template's refusals are defence in depth on top of that; the only admin routes it passes are `GET`/`HEAD` `/api/admin/users` and `/api/admin/audit`.
 
 ## Before you start (prerequisites)
 
