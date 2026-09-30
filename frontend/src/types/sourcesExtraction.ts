@@ -16,6 +16,9 @@ export interface AiRequestFields {
   engine?: string
   // Open a Review extraction instead of writing (SO10).
   review?: boolean
+  // Novel only: also follow next-chapter links, up to this many pages in
+  // all (1-50); the pages read always open as a review.
+  follow_pages?: number
 }
 
 // One image the comic import left out, and why.
@@ -38,7 +41,7 @@ export interface ComicUrlImportResult {
 
 // ---------------------------------------------------------------- SO10 review
 
-export type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics'
+export type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics' | 'follow'
 export type ConfidenceBucket = 'HIGH' | 'MEDIUM' | 'LOW' | 'FAILED'
 
 export interface FieldConfidence {
@@ -90,6 +93,24 @@ export interface ExtractionComic {
   page_count: number
 }
 
+// Why following next-chapter links stopped.
+export type FollowStop =
+  | 'cap' | 'no_next' | 'cycle' | 'other_host' | 'gate' | 'not_public' | 'handoff' | 'unreachable' | 'invalid' | 'chars'
+
+// One page a followed import read; id 0 is the reviewed first page.
+export interface FollowedPage {
+  id: number
+  title: string
+  char_count: number
+  // Host name only.
+  host: string
+}
+
+export interface ExtractionFollow {
+  pages: FollowedPage[]
+  stop: FollowStop | string
+}
+
 // GET /api/sources/dramas/{id}/extraction
 export interface ExtractionReview {
   kind: 'extraction_review'
@@ -110,6 +131,8 @@ export interface ExtractionReview {
   can_save_profile: boolean
   novel: ExtractionNovel | null
   comic: ExtractionComic | null
+  // A novel import that followed next-chapter links (absent from older servers).
+  follow?: ExtractionFollow | null
 }
 
 export interface NovelRerunRequest {
@@ -140,6 +163,8 @@ export interface ReviewImportResult {
   kind: 'review_import'
   content_type: 'novel' | 'comic'
   char_count?: number
+  // Novel: how many pages were appended.
+  pages_imported?: number
   pages_added?: number
   // Comic: images skipped by the page rules (type, size, pixels).
   skipped?: SkippedImage[]
