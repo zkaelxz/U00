@@ -24,13 +24,15 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 
 ## Next
 1. Land the open PRs above (lead session merges once CI is green).
-2. Streamlit deletion: `pre-streamlit-removal` tag + `legacy/streamlit` branch, then the deletion PRs (retirement plan, section 9).
-3. Remote access: step 140 (Caddy config, LAN test with a real certificate, router port last).
+2. Streamlit deletion: parity re-check, the user's go-ahead, `pre-streamlit-removal` tag + `legacy/streamlit` branch, then the deletion PRs (retirement plan, section 9).
+3. Remote access, steps 133-140 (user needs this, 2026-09-30: other household members and phones use the PC's library). Sign-in (133-134) and ownership are merged; left: the D5 admin listener (PC-only admin, before anyone else logs in), Caddy config, LAN test with a real certificate, router port last (140).
 4. Step 141: spec only (migration-architect) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
+5. Steps 142-143: move a library between the hosted setup and a standalone install (143 reuses Step 43's single-drama restore).
 
-## Open bugs not covered by a PR
-- B-11: API exports read saved DB lines, not unsaved Streamlit edits (goes away with Streamlit).
-- B-17: API CORS allows only GET cross-origin; the Vite proxy is the only supported dev path.
+## Open bugs
+- B-20, B-23, B-24: being fixed in #466 (B-23's music level also needs the user's listening check).
+- Closed 2026-09-30 (user): B-11 (Streamlit-only; goes with the Streamlit deletion), B-17 (CORS GET-only is by design: the app and API are served from one origin, and Caddy keeps it that way).
+- Parked, no work planned: Step 100 (Anki mining), Step 108 (adapter interfaces, after Streamlit), R1-full, R2, R3-full, R4, R7, the M8+ job queue, Docker, per-platform Live capture.
 
 ## Owed by the user (can't be checked from a cloud session)
 Real TTS, ffmpeg/libass, Whisper on GPU, paid LLM keys, real OCR/EPUBs, a gated-access Hugging Face token
