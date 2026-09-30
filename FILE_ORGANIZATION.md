@@ -479,6 +479,7 @@ baihe-subtitler/
 │   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
 
 │   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
+│   ├── sharing_schemas.py        Sharing models: item list, private flag, share-by-default
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
@@ -641,6 +642,8 @@ baihe-subtitler/
 
 │       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
 │       │                         (local_only; address change also key-write gate) -- item 114
+│       ├── sharing_routes.py     /api/sharing/items (admin.library), /{dramas|series}/{id}/private (lines.edit;
+│       │                         owner or admin), /share-by-default (GET library.read, POST lines.edit)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │
