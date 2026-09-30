@@ -13,8 +13,8 @@ against a real server here; re-check them before building.
 |---|---|
 | Title | `dramas.title_en`, and the original title in `dramas.title_zh` |
 | Alternate titles | No field. Only the two titles above. (`aliases` exists for characters, glossary and wiki entries, not for a title.) |
-| Cast and crew | `dramas.voice_actors` (comma-separated), `director`, `studio`, `author`, plus the `*_romanized` forms. Characters are in `series_characters` (name, aliases, pronouns), with no link from a character to the actor who plays them. |
-| Episode list | Dramas that share `series_id`, ordered by `episode_number` (Step 74). A series has no title or summary of its own. |
+| Cast and crew | `dramas.voice_actors` (comma-separated), `director`, `studio`, `author`, plus the `*_romanized` forms. Per drama, `characters` rows carry `character_name`, an optional `voice_actor` and `pronouns`, linked to the series-wide `series_characters` (name, aliases, gender) by `series_character_id`. So actor-to-character roles exist wherever the voice actor has been filled in. |
+| Episode list | Dramas that share `series_id`, ordered by `episode_number` (Step 74). A series has a name (`series.name`) but no summary. |
 | Cover | `dramas.cover_art_filename`, a file in the drama folder |
 | Summary | `dramas.summary` (and `episode_summary`, an auto-generated recap used as translation context) |
 | Other | `genre`, `custom_tags`, `publication_status`, `source_language`, `media_type` |
@@ -48,11 +48,19 @@ touches a media server today.
 
 **A. NFO and poster sidecar files, written next to exported media.**
 When Step 39's "Send to Jellyfin" creates a new title folder
-(`<library>/<Title>/`), it could also write `movie.nfo` (one drama) or
-`tvshow.nfo` plus one `<episode>.nfo` per sent episode (a series), and copy
-the cover as `poster.jpg`. Jellyfin then shows Baihe's title, original
-title, summary, cast, genre and tags with no plugin and no network call.
-Plex gets the poster only.
+(`<library>/<Title>/`, one folder per drama), it could also write
+`movie.nfo` and copy the cover as `poster.<stored ext>` (covers are
+`cover.png`, `.jpg` or `.webp`; read through `cover_art_service.cover_file`,
+which only accepts that name inside the drama's own folder). Jellyfin then
+shows Baihe's title, original title, summary, cast (with character roles
+where `voice_actor` is set), genre and tags with no plugin and no network
+call. Plex gets the poster only.
+- Series are **not** covered by this first version: the send never reads
+  `series_id` or `episode_number` and makes one folder per drama, so three
+  episodes would become three one-episode titles. A series needs a new
+  `<Series name>/Season 01/<episode>` layout for the send, then
+  `tvshow.nfo` (from `series.name`) plus one `<episode>.nfo` per episode.
+  That is a separate, larger change.
 - Fits Step 39's rule "API and filesystem only, never a plugin".
 - One-way, point-in-time copy: an edit in Baihe needs another send.
 - Security: the same write guards as the subtitle send (only inside the
@@ -85,7 +93,7 @@ refresh may undo it), where today the connector only reads and asks for a
 refresh. More reach than A for the same result. Not recommended.
 
 **D. A Jellyfin plugin.** A .NET provider that calls Baihe. Rejected by Step
-39 ("never a Jellyfin plugin for v1") and still not worth it: a second
+39 in the roadmap ("never a Jellyfin plugin for v1") and still not worth it: a second
 language and packaging to maintain, and it needs a Baihe endpoint (option E)
 anyway.
 
@@ -94,7 +102,8 @@ Baihe serves title, people, episodes and cover to a media server, for
 example in Plex's custom-provider protocol. This is what
 `plex-anime-metadata-provider` does, and it is the largest option: a
 show/season/episode model Baihe doesn't have (episodes are loose dramas
-sharing `series_id`, and a series has no title of its own), matching logic
+sharing `series_id`, and a series has a name but no summary or seasons),
+matching logic
 for Plex's requests, and a new kind of caller.
 - Security against `docs/remote-access-decision.md`: the caller is a server,
   not a signed-in household member, so none of today's permissions fit. It
@@ -109,8 +118,8 @@ for Plex's requests, and a new kind of caller.
 ## 4. Recommendation
 
 1. **Build A first, as an opt-in toggle on the existing Send to Jellyfin**
-   ("Also write title info and poster"), for the new-title-folder layout
-   only; next to an existing Jellyfin item it would fight the metadata
+   ("Also write title info and poster"), for single dramas in the
+   new-title-folder layout only (series need the new folder layout above); next to an existing Jellyfin item it would fight the metadata
    Jellyfin already has. Small, local, no new route, and it is the most
    useful piece for Jellyfin users.
 2. **B second, if wanted**: a "Use Jellyfin's details" suggestion on a drama
@@ -122,9 +131,10 @@ for Plex's requests, and a new kind of caller.
 
 A would be the first thing Baihe writes besides subtitles and video into the
 library folder, so it should keep Step 39's "never overwrite unless asked"
-rule for the `.nfo` and `poster.jpg` files as well.
+rule for the `.nfo` and poster files as well.
 
-Open question for the user (product decision): whether A should also write
-`series_characters` names as Jellyfin "roles". Baihe doesn't know which
-actor plays which character, so today it could only list actors, or list
-characters with no actor.
+Open question for the user (product decision): whether A should list
+people as actors only (from `dramas.voice_actors`) or as actor plus
+character roles (from each drama's `characters` rows where `voice_actor` is
+set). Roles are richer but only as complete as the character list; the
+safer default is roles where known, plus any remaining names as actors.
