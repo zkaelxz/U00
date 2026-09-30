@@ -68,6 +68,8 @@ def get_artifact(drama_id: int, kind: str) -> Dict:
         raise NotFoundError(_MISSING)
     best = None
     for name in names:
+        if name.startswith(".") or name.endswith(".part"):
+            continue                       # an unfinished write
         path = os.path.join(base, name)
         if os.path.islink(path) or not os.path.isfile(path) or not _inside(base, path):
             continue

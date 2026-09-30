@@ -97,7 +97,12 @@ def _append_notes(page_id: int, notes: list):
         return
     page = db.get_page(page_id) or {}
     existing = [(n["level"], n["message"]) for n in pages_svc._parse_notes(page.get("run_notes"))]
-    db.update_page(page_id, run_notes=pages_svc.notes_to_json(existing + list(notes)))
+    combined = []
+    for n in existing + [(n[0], pages_svc.clean_note(n[-1])) for n in notes]:
+        if n not in combined:                    # a re-render repeats its notes
+            combined.append(n)
+    db.update_page(page_id, run_notes=pages_svc.notes_to_json(
+        combined[-pages_svc._MAX_NOTES:]))       # newest kept when over the cap
 
 
 def _check_cancel(jid: str):
@@ -115,7 +120,7 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
         try:
             if render_page(drama_id, pid, notes)["rendered"]:
                 done += 1
-            db.update_page(pid, run_notes=pages_svc.notes_to_json(notes))
+            _append_notes(pid, notes)
         except (NotFoundError, InvalidInputError) as exc:
             failed += 1
             _append_notes(pid, [("error", f"Render failed: {exc}")])
@@ -144,14 +149,27 @@ def start_render(drama_id: int, page_id: int = None) -> dict:
 
 # --- S8: export -------------------------------------------------------------
 
+MAX_PDF_EXPORT_PAGES = 200      # PIL builds a PDF with every page in memory
+_PDF_TOO_MANY = (f"A PDF export holds every page in memory, so it is limited to "
+                 f"{MAX_PDF_EXPORT_PAGES} pages. Export a ZIP instead.")
+
+
 def _rendered_path(drama_id: int, page: dict):
     found = comic_view_service._safe_file(drama_id, page.get("rendered_filename"))
     return found[0] if found else None
 
 
-def _write_zip(dest: str, files: list):
-    fd, tmp = tempfile.mkstemp(prefix=".export_", suffix=".part", dir=os.path.dirname(dest))
+def _tmp_beside(dest: str) -> str:
+    """A temp file one folder above the artifact's folder, so an unfinished
+    export can never be served as the artifact."""
+    fd, tmp = tempfile.mkstemp(prefix=".export_", suffix=".part",
+                               dir=os.path.dirname(os.path.dirname(dest)))
     os.close(fd)
+    return tmp
+
+
+def _write_zip(dest: str, files: list):
+    tmp = _tmp_beside(dest)
     try:
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
             for ordinal, path in files:
@@ -163,9 +181,10 @@ def _write_zip(dest: str, files: list):
 
 
 def _write_pdf(dest: str, files: list):
+    if len(files) > MAX_PDF_EXPORT_PAGES:
+        raise InvalidInputError(_PDF_TOO_MANY)
     from PIL import Image
-    fd, tmp = tempfile.mkstemp(prefix=".export_", suffix=".part", dir=os.path.dirname(dest))
-    os.close(fd)
+    tmp = _tmp_beside(dest)
     images = []
     try:
         for _ordinal, path in files:
@@ -225,8 +244,11 @@ def start_export(drama_id: int, formats=EXPORT_FORMATS) -> dict:
     formats = list(dict.fromkeys(formats or ()))
     if not formats or any(f not in EXPORT_FORMATS for f in formats):
         raise InvalidInputError("formats must be 'zip' and/or 'pdf'.")
-    if not db.list_pages(drama_id):
+    page_count = len(db.list_pages(drama_id))
+    if not page_count:
         raise UnsupportedOperationError("This drama has no pages to export.")
+    if "pdf" in formats and page_count > MAX_PDF_EXPORT_PAGES:
+        raise InvalidInputError(_PDF_TOO_MANY)
     return pages_svc.start_drama_job(drama_id, _export_job, pages_svc.job_id(drama_id),
                                      drama_id, formats,
                                      description=f"Scanlate export (drama {drama_id})")

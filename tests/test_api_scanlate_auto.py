@@ -697,3 +697,76 @@ def test_export_one_bad_page_does_not_stop_the_rest(client):
     assert "Export skipped" in db.get_page(p1)["run_notes"]
     z = client.get(f"/api/artifacts/dramas/{did}/scanlate_zip")
     assert zipfile.ZipFile(io.BytesIO(z.content)).namelist() == ["page_0002.png"]
+
+
+def test_export_temp_files_stay_out_of_the_artifact_folder(client, monkeypatch):
+    from services import artifact_service, scanlate_render_service as render_svc
+    did = _drama()
+    _page(did, 0)
+    seen = []
+    real = render_svc._tmp_beside
+
+    def spy(dest):
+        tmp = real(dest)
+        seen.append((os.path.dirname(tmp), os.path.dirname(dest)))
+        return tmp
+    monkeypatch.setattr(render_svc, "_tmp_beside", spy)
+    client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["zip", "pdf"]})
+    assert _wait(f"scanlate_{did}")["status"] == "done"
+    assert seen and all(tmp_dir != art_dir for tmp_dir, art_dir in seen)
+    # and an unfinished file is never served as the artifact
+    folder = os.path.dirname(artifact_service.output_path(did, "scanlate_zip", "x.zip"))
+    part = os.path.join(folder, ".export_new.part")
+    with open(part, "wb") as f:
+        f.write(b"half")
+    os.utime(part, (time.time() + 100, time.time() + 100))
+    assert artifact_service.get_artifact(did, "scanlate_zip")["name"] != ".export_new.part"
+
+
+def test_pdf_export_is_capped_and_zip_is_not(client, monkeypatch):
+    from services import scanlate_render_service as render_svc
+    monkeypatch.setattr(render_svc, "MAX_PDF_EXPORT_PAGES", 1)
+    did = _drama()
+    _page(did, 0)
+    _page(did, 1)
+    assert client.post(f"/api/scanlate/dramas/{did}/export",
+                       json={"formats": ["pdf"]}).status_code == 422
+    assert client.post(f"/api/scanlate/dramas/{did}/export",
+                       json={"formats": ["zip"]}).status_code == 200
+    _wait(f"scanlate_{did}")
+
+
+def test_render_appends_to_the_run_notes(client):
+    did = _drama()
+    pid = _page(did)
+    db.save_bubbles(pid, [_region(5, translated_text="Hi"), _region(60, translated_text="")])
+    db.update_page(pid, run_notes=pages_svc.notes_to_json([("info", "Detector: OpenCV.")]))
+    for _ in range(2):                                  # the second render adds no duplicate
+        client.post(f"/api/scanlate/dramas/{did}/render", json={"page_id": pid})
+        _wait(f"scanlate_{did}")
+    notes = json.loads(db.get_page(pid)["run_notes"])
+    assert notes[0]["message"] == "Detector: OpenCV."
+    assert sum("no translation" in n["message"] for n in notes) == 1
+
+
+def test_clean_note_handles_spaces_in_paths():
+    note = pages_svc.clean_note(r"failed at C:\Users\Kae Harris\Baihe\p.png; url https://x.io/a")
+    assert "Harris" not in note and "Users" not in note and "https://x.io/a" in note
+    assert "Kae Harris" not in pages_svc.clean_note("bad /home/Kae Harris/lib/p.png")
+
+
+def test_prepared_page_over_50mb_is_refused(client, monkeypatch):
+    from services import comic_view_service
+    did = _drama()
+    monkeypatch.setattr(comic_view_service, "MAX_IMAGE_BYTES", 100)
+    r = _upload(client, did, [("a.png", _png(200, 200, (1, 2, 3)), "image/png")])
+    assert r.status_code == 422 and "too large once prepared" in r.json()["error"]["message"]
+    assert db.list_pages(did) == []
+
+
+def test_pdf_inflation_ceiling_is_applied_when_pypdf_has_one(monkeypatch):
+    filters = pytest.importorskip("pypdf.filters")
+    monkeypatch.setattr(filters, "ZLIB_MAX_OUTPUT_LENGTH", 10 * pages_svc._PDF_INFLATE_CAP,
+                        raising=False)
+    pages_svc._limit_pdf_inflation()
+    assert filters.ZLIB_MAX_OUTPUT_LENGTH == pages_svc._PDF_INFLATE_CAP

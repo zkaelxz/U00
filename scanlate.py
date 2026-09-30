@@ -1949,30 +1949,28 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     are regions with no source text.
 
     Mutates `bubbles` in place and returns the new rolling context for the
-    next page. A result list whose length doesn't match what was sent is
-    rejected outright (ValueError) rather than assigned by position -- a
-    short or padded list would otherwise put a translation on the wrong
-    bubble. A translation service response that couldn't be parsed at all
-    (translate_page_with_context() returns `None` for that, never a
-    same-length list of blanks) is rejected the same way, for the same
-    reason -- no bubble is touched."""
+    next page. Answers are matched to bubbles by explicit id
+    (translate_regions_by_id); an answer that is unreadable, short, padded,
+    reordered-by-position or names an unknown id is rejected outright
+    (ValueError) and no bubble is touched."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
     if not eligible:
         return previous_context
-    translations, new_context = translate_page_with_context(
-        [b["source_text"] for b in eligible], engine, drama_meta,
+    # Each region goes out under an explicit key and is applied through a
+    # key -> region map (translate_regions_by_id): a short, reordered or
+    # padded answer applies nothing, never a shifted one.
+    by_key = {str(i): b for i, b in enumerate(eligible)}
+    result, new_context = translate_regions_by_id(
+        {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
         previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms)
-    if translations is None:
-        raise ValueError("The translation service returned a response that couldn't be read -- "
-                         "not applied, since there's no safe way to trust it.")
-    if len(translations) != len(eligible):
-        raise ValueError(f"The translation came back with {len(translations)} result(s) for "
-                         f"{len(eligible)} bubble(s) -- not applied, since there's no safe way "
-                         f"to tell which result belongs to which bubble.")
-    for b, t in zip(eligible, translations):
-        b["translated_text"] = t or ""
+    if result is None:
+        raise ValueError("The translation service's answer couldn't be matched to the bubbles "
+                         "by id (unreadable, short, padded or with unknown ids) -- not applied, "
+                         "since there's no safe way to trust it.")
+    for key, text in result.items():
+        by_key[key]["translated_text"] = text or ""
     return new_context
 
 

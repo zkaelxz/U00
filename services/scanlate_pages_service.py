@@ -33,6 +33,7 @@ import warnings
 
 import background_jobs
 import db
+from services import comic_view_service
 from services import page_import_limits as limits
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -107,6 +108,9 @@ def start_drama_job(drama_id: int, target, *args, description: str) -> dict:
     return {"job_id": jid}
 
 
+_WIN_PATH_RE = re.compile(          # folders may hold spaces ("C:\\Users\\Kae Harris\\...")
+    r"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?:[^\\/:'\"<>|*?;\r\n]+[\\/])*[^\\/:'\"<>|*?;\s]*")
+_POSIX_SPACED_RE = re.compile(r"(?<![\w.:/\\])/(?:[^/:'\"<>|*?;\r\n]+/)+[^/:'\"<>|*?;\s]*")
 _PATH_RE = re.compile(r"(?<![\w.:/\\])(?:[A-Za-z]:[\\/]|\\\\|/)[^\s'\"<>()]+")
 
 
@@ -115,6 +119,8 @@ def clean_note(text) -> str:
     safe to store and return (spec §4 secrets and paths)."""
     from translate_engines import redact_secrets
     text = redact_secrets(str(text or ""))
+    text = _WIN_PATH_RE.sub("<path>", text)                  # these two allow spaces in folders
+    text = _POSIX_SPACED_RE.sub("<path>", text)
     text = _PATH_RE.sub("<path>", text).replace("**", "")
     return text.strip()[:_MAX_NOTE_CHARS]
 
@@ -332,6 +338,25 @@ def _pdf_best_image(page):
     return best
 
 
+_PDF_INFLATE_CAP = 256 * 1024 * 1024
+
+
+def _limit_pdf_inflation():
+    """pypdf inflates a whole stream before anyone can look at it, so a tiny
+    PDF can expand to gigabytes. pypdf 6 has explicit output caps
+    (pypdf.filters.*_MAX_OUTPUT_LENGTH); set every one that exists to a
+    fixed ceiling (never raising a library default that is already lower)."""
+    try:
+        from pypdf import filters
+    except ImportError:
+        return
+    for name in dir(filters):
+        value = getattr(filters, name)
+        if name.endswith("_MAX_OUTPUT_LENGTH") and isinstance(value, int) \
+                and value > _PDF_INFLATE_CAP:
+            setattr(filters, name, _PDF_INFLATE_CAP)
+
+
 def _stage_pdf(src: str, out_dir: str, stem: str) -> tuple:
     """(page files, pages skipped for having no image). A scanned-manga PDF
     is one raster image per page; the largest one is the page (a small
@@ -341,6 +366,7 @@ def _stage_pdf(src: str, out_dir: str, stem: str) -> tuple:
     except ImportError:
         raise DependencyUnavailableError(
             "PDF import needs the pypdf package (install it from Diagnostics).") from None
+    _limit_pdf_inflation()
     try:
         reader = PdfReader(src)
         if reader.is_encrypted:
@@ -439,6 +465,11 @@ def add_page_images(drama_id: int, files, slice_strips: bool = SLICE_STRIPS_DEFA
                     outs = _stage_image(raw, staging, f"f{n:04d}", slice_strips)
                     sliced += 1 if len(outs) > 1 else 0
                 os.remove(raw)
+                for out in outs:                      # the viewer refuses bigger files later
+                    if os.path.getsize(out) > comic_view_service.MAX_IMAGE_BYTES:
+                        raise InvalidInputError(
+                            "A page is too large once prepared (at most "
+                            f"{comic_view_service.MAX_IMAGE_BYTES // (1024 * 1024)} MB).")
                 staged.extend(outs)
             page_ids = _commit_pages(drama_id, staged)
         finally:
