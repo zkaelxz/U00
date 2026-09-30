@@ -33,6 +33,9 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
+- **`media-server-metadata-design.md`** — Step 116: how Baihe's title
+  metadata could reach or come from Jellyfin/Plex (NFO sidecars, pulling
+  Jellyfin's metadata, a provider endpoint); design only, nothing built.
 - **`windows-installer-design.md`** — Step 80's installer/uninstaller
   architecture; design only, nothing built.
 - **`technical-notes.md`** — an engineering changelog of real bugs found
