@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DubConfig } from '../../../types/dub'
-import { dubAdvancedSummary, dubSettingsLine, initialDubForm } from './dubForm'
+import { NARRATION_RESUME_NOTE, dubAdvancedSummary, dubSettingsLine, initialDubForm, narrationResumeNote } from './dubForm'
 
 const cfg = {
   is_narration: false,
@@ -26,5 +26,16 @@ describe('dub summaries', () => {
     const form = { ...initialDubForm(noBgm), keepBackground: true }
     expect(dubAdvancedSummary(noBgm, form)).toBe('defaults')
     expect(dubSettingsLine(noBgm, form)).toBe('Edge TTS · speed 0.85x to 1.3x · no background music')
+  })
+})
+
+describe('narrationResumeNote', () => {
+  it('explains Start over only when a narration run resumes', () => {
+    expect(narrationResumeNote('Resuming: 3 of 8 chunks already tagged...')).toBe(NARRATION_RESUME_NOTE)
+    expect(narrationResumeNote('Tagging chunk 4 of 8')).toBeNull()
+    expect(narrationResumeNote('Not Resuming: x')).toBeNull()
+    expect(narrationResumeNote('')).toBeNull()
+    expect(narrationResumeNote(null)).toBeNull()
+    expect(narrationResumeNote(undefined)).toBeNull()
   })
 })
