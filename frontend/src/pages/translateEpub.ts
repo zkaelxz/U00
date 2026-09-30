@@ -10,15 +10,20 @@
  * Safety: the book is only unzipped (fflate) and parsed, never rendered.
  * container.xml and the OPF are read with small attribute scanners; chapter
  * XHTML goes through DOMParser, whose documents are inert (no scripts run, no
- * images load) and are never attached to the page. Zip-bomb caps: entry count,
- * and the total work of the entries we unpack, counted per entry as the larger
- * of its stored (compressed) and declared unpacked size. Both matter: fflate
- * copies a stored entry's stored bytes and walks a deflated entry's compressed
- * bytes whatever size the header claims, and several directory records may
- * point at the same data, so neither size alone bounds memory or CPU. A stored
- * entry whose two sizes disagree is refused as damaged.
+ * images load) and are never attached to the page.
+ *
+ * Zip-bomb caps. The zip's central directory is read here and only text entries
+ * (.xml/.opf/.xhtml/...) are ever unpacked; images and fonts are never touched.
+ * Declared sizes are never trusted: a deflate stream decodes to its real size
+ * whatever the header claims (fflate keeps decoding past a too-small output
+ * buffer), and several directory records may point at the same data. So each
+ * text entry is fed to fflate's streaming Inflate in small chunks, and unpacking
+ * stops as soon as the real output, summed over all text entries, passes the
+ * cap; the stored bytes read are capped the same way (a stream of empty blocks
+ * costs CPU with no output). One chunk can add at most ~1032x its size before
+ * the check runs, so a bomb overshoots the cap by at most ~17 MB.
  */
-import { unzipSync, type UnzipFileInfo } from 'fflate'
+import { Inflate } from 'fflate'
 
 export const MAX_EPUB_BYTES = 200 * 1024 * 1024
 export const MAX_EPUB_ENTRIES = 10_000
@@ -138,34 +143,119 @@ export function resolveHref(baseDir: string, href: string): string {
 
 const WANTED = /(?:\.(?:xml|opf|xhtml|html|htm|xht))$/i
 
-function unzipEpub(bytes: Uint8Array, name: string, limits: EpubLimits): Record<string, Uint8Array> {
-  let entries = 0
-  let unpacked = 0
-  try {
-    return unzipSync(bytes, {
-      filter: (f: UnzipFileInfo) => {
-        entries += 1
-        if (entries > limits.maxEntries) {
-          throw new EpubError(
-            `"${name}" has more than ${limits.maxEntries.toLocaleString('en')} files inside, too many to open safely.`,
-          )
-        }
-        if (!WANTED.test(f.name)) return false
-        if (f.compression === 0 && f.size !== f.originalSize) {
-          throw new EpubError(`"${name}" is not a readable EPUB (it is damaged).`)
-        }
-        unpacked += Math.max(f.size, f.originalSize)
-        if (unpacked > limits.maxUnpackedBytes) {
-          const mb = Math.round((limits.maxUnpackedBytes / 1024 / 1024) * 100) / 100
-          throw new EpubError(`"${name}" unpacks to more than ${mb} MB of text, too much to open safely.`)
-        }
-        return true
-      },
-    })
-  } catch (e) {
-    if (e instanceof EpubError) throw e
-    throw new EpubError(`"${name}" is not a readable EPUB (it could not be unzipped).`)
+const INFLATE_CHUNK = 16 * 1024
+
+interface ZipEntry {
+  name: string
+  method: number
+  data: Uint8Array
+}
+
+/** Zip entries from the central directory (zip64 aware); throws on a malformed layout. */
+function readZipEntries(b: Uint8Array, maxEntries: number, tooMany: () => Error): ZipEntry[] {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const u16 = (o: number) => v.getUint16(o, true)
+  const u32 = (o: number) => v.getUint32(o, true)
+  const u64 = (o: number) => Number(v.getBigUint64(o, true))
+  let eocd = b.length - 22
+  while (eocd >= 0 && u32(eocd) !== 0x06054b50) {
+    if (b.length - eocd > 22 + 0xffff) throw new Error('no end of central directory')
+    eocd--
   }
+  if (eocd < 0) throw new Error('no end of central directory')
+  let count = u16(eocd + 10)
+  let offset = u32(eocd + 16)
+  if ((count === 0xffff || offset === 0xffffffff) && eocd >= 20 && u32(eocd - 20) === 0x07064b50) {
+    const z = u64(eocd - 12)
+    if (u32(z) !== 0x06064b50) throw new Error('bad zip64 end record')
+    count = u64(z + 32)
+    offset = u64(z + 48)
+  }
+  if (count > maxEntries) throw tooMany()
+  const entries: ZipEntry[] = []
+  for (let i = 0, p = offset; i < count; i++) {
+    if (u32(p) !== 0x02014b50) throw new Error('bad central directory record')
+    const flags = u16(p + 8)
+    const method = u16(p + 10)
+    let size = u32(p + 20)
+    const originalSize = u32(p + 24)
+    const nameLen = u16(p + 28)
+    const extraLen = u16(p + 30)
+    let local = u32(p + 42)
+    const name = new TextDecoder(flags & 0x800 ? 'utf-8' : 'latin1').decode(b.subarray(p + 46, p + 46 + nameLen))
+    // zip64: the extra field holds, in order, whichever of these were 0xFFFFFFFF.
+    for (let e = p + 46 + nameLen, end = e + extraLen; e + 4 <= end; e += 4 + u16(e + 2)) {
+      if (u16(e) !== 1) continue
+      let f = e + 4
+      if (originalSize === 0xffffffff) f += 8
+      if (size === 0xffffffff) {
+        size = u64(f)
+        f += 8
+      }
+      if (local === 0xffffffff) local = u64(f)
+      break
+    }
+    if (u32(local) !== 0x04034b50) throw new Error('bad local header')
+    const start = local + 30 + u16(local + 26) + u16(local + 28)
+    if (start + size > b.length) throw new Error('entry runs past the end')
+    entries.push({ name, method, data: b.subarray(start, start + size) })
+    p += 46 + nameLen + extraLen + u16(p + 32)
+  }
+  return entries
+}
+
+function unzipEpub(bytes: Uint8Array, name: string, limits: EpubLimits): Record<string, Uint8Array> {
+  const tooMany = () =>
+    new EpubError(`"${name}" has more than ${limits.maxEntries.toLocaleString('en')} files inside, too many to open safely.`)
+  const tooBig = () => {
+    const mb = Math.round((limits.maxUnpackedBytes / 1024 / 1024) * 100) / 100
+    return new EpubError(`"${name}" unpacks to more than ${mb} MB of text, too much to open safely.`)
+  }
+  const bad = () => new EpubError(`"${name}" is not a readable EPUB (it could not be unzipped).`)
+  let entries: ZipEntry[]
+  try {
+    entries = readZipEntries(bytes, limits.maxEntries, tooMany)
+  } catch (e) {
+    throw e instanceof EpubError ? e : bad()
+  }
+  let readLeft = limits.maxUnpackedBytes
+  let outLeft = limits.maxUnpackedBytes
+  const files: Record<string, Uint8Array> = {}
+  for (const entry of entries) {
+    if (!WANTED.test(entry.name)) continue
+    readLeft -= entry.data.length
+    if (readLeft < 0) throw tooBig()
+    if (entry.method === 0) {
+      outLeft -= entry.data.length
+      if (outLeft < 0) throw tooBig()
+      files[entry.name] = entry.data
+      continue
+    }
+    if (entry.method !== 8) throw bad()
+    const chunks: Uint8Array[] = []
+    const inflate = new Inflate((chunk) => {
+      outLeft -= chunk.length
+      chunks.push(chunk)
+    })
+    try {
+      for (let at = 0; ; at += INFLATE_CHUNK) {
+        const end = Math.min(at + INFLATE_CHUNK, entry.data.length)
+        inflate.push(entry.data.subarray(at, end), end === entry.data.length)
+        if (outLeft < 0) throw tooBig()
+        if (end === entry.data.length) break
+      }
+    } catch (e) {
+      throw e instanceof EpubError ? e : bad()
+    }
+    const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+    let at = 0
+    for (const c of chunks) {
+      out.set(c, at)
+      at += c.length
+    }
+    files[entry.name] = out
+  }
+  return files
 }
 
 /**
@@ -177,7 +267,8 @@ export function decodeXml(b: Uint8Array): string {
   const head = new TextDecoder('latin1').decode(b.subarray(0, 200))
   const declared = /^\s*<\?xml[^>]*\bencoding\s*=\s*["']([\w.:-]+)["']/i.exec(head)?.[1]
   let decoder = new TextDecoder('utf-8')
-  if (declared) {
+  // A declaration readable as ASCII can't be UTF-16 (XML spec, Appendix F).
+  if (declared && !/^utf-?16/i.test(declared)) {
     try {
       decoder = new TextDecoder(declared)
     } catch {

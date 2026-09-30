@@ -25,8 +25,8 @@ const errorOf = (bytes: Uint8Array, run: (b: Uint8Array) => unknown = extract) =
   throw new Error('expected an EpubError')
 }
 
-/** Overwrite the central-directory "uncompressed size" of the entry `name`. */
-function declareSize(zip: Uint8Array, name: string, size: number): Uint8Array {
+/** Overwrite a 32-bit field (offset within the record) of `name`'s central-directory record. */
+function patchEntry(zip: Uint8Array, name: string, field: number, value: number): Uint8Array {
   const out = zip.slice()
   const view = new DataView(out.buffer)
   for (let i = 0; i < out.length - 46; i++) {
@@ -34,12 +34,75 @@ function declareSize(zip: Uint8Array, name: string, size: number): Uint8Array {
     const nameLen = view.getUint16(i + 28, true)
     const entry = new TextDecoder().decode(out.subarray(i + 46, i + 46 + nameLen))
     if (entry === name) {
-      view.setUint32(i + 24, size, true)
+      view.setUint32(i + field, value, true)
       return out
     }
   }
   throw new Error(`no entry ${name}`)
 }
+
+/**
+ * A stored (uncompressed) zip written in the zip64 layout: every size and offset
+ * in the central directory is 0xFFFFFFFF with the real value in the zip64 extra
+ * field, and the end record points at a zip64 end record. fflate's zipSync
+ * never writes zip64, so this is built by hand.
+ */
+function zip64Stored(files: Record<string, string>): Uint8Array {
+  const parts: Uint8Array[] = []
+  const central: Uint8Array[] = []
+  let at = 0
+  for (const [name, text] of Object.entries(files)) {
+    const n = strToU8(name)
+    const data = strToU8(text)
+    const local = new DataView(new ArrayBuffer(30))
+    local.setUint32(0, 0x04034b50, true)
+    local.setUint32(18, data.length, true)
+    local.setUint32(22, data.length, true)
+    local.setUint16(26, n.length, true)
+    parts.push(new Uint8Array(local.buffer), n, data)
+    const rec = new DataView(new ArrayBuffer(46 + n.length + 28))
+    rec.setUint32(0, 0x02014b50, true)
+    rec.setUint16(8, 0x800, true)
+    rec.setUint32(20, 0xffffffff, true)
+    rec.setUint32(24, 0xffffffff, true)
+    rec.setUint16(28, n.length, true)
+    rec.setUint16(30, 28, true)
+    rec.setUint32(42, 0xffffffff, true)
+    new Uint8Array(rec.buffer).set(n, 46)
+    const x = 46 + n.length
+    rec.setUint16(x, 1, true)
+    rec.setUint16(x + 2, 24, true)
+    rec.setBigUint64(x + 4, BigInt(data.length), true)
+    rec.setBigUint64(x + 12, BigInt(data.length), true)
+    rec.setBigUint64(x + 20, BigInt(at), true)
+    central.push(new Uint8Array(rec.buffer))
+    at += 30 + n.length + data.length
+  }
+  const cdSize = central.reduce((sum, c) => sum + c.length, 0)
+  const tail = new DataView(new ArrayBuffer(56 + 20 + 22))
+  const count = BigInt(central.length)
+  tail.setUint32(0, 0x06064b50, true)
+  tail.setBigUint64(4, 44n, true)
+  tail.setBigUint64(24, count, true)
+  tail.setBigUint64(32, count, true)
+  tail.setBigUint64(40, BigInt(cdSize), true)
+  tail.setBigUint64(48, BigInt(at), true)
+  tail.setUint32(56, 0x07064b50, true)
+  tail.setBigUint64(64, BigInt(at + cdSize), true)
+  tail.setUint32(72, 1, true)
+  tail.setUint32(76, 0x06054b50, true)
+  tail.setUint16(84, 0xffff, true)
+  tail.setUint16(86, 0xffff, true)
+  tail.setUint32(88, 0xffffffff, true)
+  tail.setUint32(92, 0xffffffff, true)
+  const all = [...parts, ...central, new Uint8Array(tail.buffer)]
+  const out = new Uint8Array(all.reduce((sum, c) => sum + c.length, 0))
+  all.reduce((off, c) => (out.set(c, off), off + c.length), 0)
+  return out
+}
+
+/** Overwrite the central-directory "uncompressed size" of the entry `name`. */
+const declareSize = (zip: Uint8Array, name: string, size: number) => patchEntry(zip, name, 24, size)
 
 describe('extractEpubText', () => {
   it('reads chapters in spine order, a blank line between chapters', () => {
@@ -115,23 +178,35 @@ describe('extractEpubText', () => {
     expect(errorOf(zipSync(files))).toBe('"book.epub" has more than 10,000 files inside, too many to open safely.')
   })
 
-  it('refuses text that would unpack past the cap, before inflating it', () => {
-    const epub = buildEpub({ 'OEBPS/a.xhtml': '<p>x</p>' })
-    const bomb = declareSize(epub, 'OEBPS/a.xhtml', MAX_EPUB_UNPACKED_BYTES + 1)
+  it('refuses a real zip bomb at the default cap, whatever size it declares', () => {
+    // ~100 KB of deflated zeros that really unpack to just over 100 MB.
+    const zeros = new Uint8Array(MAX_EPUB_UNPACKED_BYTES + 1)
+    const bomb = declareSize(buildEpub({}, { 'OEBPS/a.xhtml': zeros }), 'OEBPS/a.xhtml', 0)
+    expect(bomb.length).toBeLessThan(200_000)
     expect(errorOf(bomb)).toBe('"book.epub" unpacks to more than 100 MB of text, too much to open safely.')
+  })
+
+  it('ignores declared sizes: a small chapter declaring a huge size still opens', () => {
+    const epub = buildEpub({ 'OEBPS/a.xhtml': '<p>x</p>' })
+    expect(extract(declareSize(epub, 'OEBPS/a.xhtml', MAX_EPUB_UNPACKED_BYTES + 1))).toBe('x')
   })
 
   // A 4 KB cap keeps these fixtures tiny; the default cap is 100 MB.
   const smallCap = (b: Uint8Array) =>
     extractEpubText(b, 'book.epub', stripTags, { maxEntries: 100, maxUnpackedBytes: 4096 })
 
-  it('a stored entry counts its stored bytes, and must declare its real size', () => {
+  it('a stored entry counts its stored bytes, even when it declares size 0', () => {
     const stored = buildEpub({ 'OEBPS/a.xhtml': `<p>${'x'.repeat(5000)}</p>` }, {}, { level: 0 })
     expect(errorOf(stored, smallCap)).toMatch(/too much to open safely/)
-    expect(errorOf(declareSize(stored, 'OEBPS/a.xhtml', 0), smallCap)).toBe(
-      '"book.epub" is not a readable EPUB (it is damaged).',
-    )
+    expect(errorOf(declareSize(stored, 'OEBPS/a.xhtml', 0), smallCap)).toMatch(/too much to open safely/)
     expect(smallCap(buildEpub({ 'OEBPS/a.xhtml': '<p>ok</p>' }, {}, { level: 0 }))).toBe('ok')
+  })
+
+  it('a small, highly compressible entry declaring size 0 is refused on its real size', () => {
+    const zeros = new Uint8Array(1024 * 1024)
+    const bomb = declareSize(buildEpub({}, { 'OEBPS/a.xhtml': zeros }), 'OEBPS/a.xhtml', 0)
+    expect(bomb.length).toBeLessThan(4096)
+    expect(errorOf(bomb, smallCap)).toMatch(/too much to open safely/)
   })
 
   it('a deflated entry declaring size 0 still counts its compressed bytes', () => {
@@ -146,16 +221,25 @@ describe('extractEpubText', () => {
     expect(extract(declareSize(epub, 'OEBPS/big.png', MAX_EPUB_UNPACKED_BYTES + 1))).toBe('x')
   })
 
-  it('an entry that under-declares its size cannot grow past it', () => {
-    const body = `<p>${'长'.repeat(5000)}</p>`
-    const epub = buildEpub({ 'OEBPS/a.xhtml': body })
-    let text = ''
-    try {
-      text = extract(declareSize(epub, 'OEBPS/a.xhtml', 10))
-    } catch (e) {
-      expect(e).toBeInstanceOf(EpubError)
-    }
-    expect(text.length).toBeLessThanOrEqual(10)
+  it('an entry that under-declares its size is still read in full', () => {
+    const epub = buildEpub({ 'OEBPS/a.xhtml': `<p>${'长'.repeat(5000)}</p>` })
+    expect(extract(declareSize(epub, 'OEBPS/a.xhtml', 10))).toBe('长'.repeat(5000))
+  })
+
+  it('reads a zip64-layout book', () => {
+    const epub = zip64Stored({
+      'META-INF/container.xml': '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>',
+      'OEBPS/content.opf': opfFor(['a.xhtml']),
+      'OEBPS/a.xhtml': '<p>Zip64 chapter</p>',
+    })
+    expect(extract(epub)).toBe('Zip64 chapter')
+  })
+
+  it('refuses a zip whose directory points past the end of the file', () => {
+    const epub = buildEpub({ 'OEBPS/a.xhtml': '<p>x</p>' })
+    expect(errorOf(epub.subarray(0, 40))).toMatch(/could not be unzipped/)
+    expect(errorOf(patchEntry(epub, 'OEBPS/a.xhtml', 20, epub.length))).toMatch(/could not be unzipped/)
+    expect(errorOf(patchEntry(epub, 'OEBPS/a.xhtml', 42, epub.length))).toMatch(/could not be unzipped/)
   })
 })
 
@@ -191,6 +275,10 @@ describe('nodeText', () => {
 })
 
 describe('decodeXml', () => {
+  it('ignores a UTF-16 label on a declaration it could read as ASCII', () => {
+    expect(decodeXml(strToU8('<?xml version="1.0" encoding="UTF-16"?><p>你好</p>'))).toContain('<p>你好</p>')
+  })
+
   it('honours a declared encoding and defaults to UTF-8', () => {
     const decl = strToU8('<?xml version="1.0" encoding="GBK"?><p>')
     const gbk = new Uint8Array([...decl, 0xc4, 0xe3, 0xba, 0xc3, ...strToU8('</p>')])
