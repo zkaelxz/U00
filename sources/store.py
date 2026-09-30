@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS import_retry (
     status TEXT NOT NULL,
     error TEXT NOT NULL DEFAULT '',
     updated_at REAL NOT NULL,
+    text_offset INTEGER,
     PRIMARY KEY (source, series_id, drama_id, chapter_id)
 );
 CREATE TABLE IF NOT EXISTS extraction_cache (
@@ -210,6 +211,11 @@ def connect() -> sqlite3.Connection:
     # needs no "already initialized?" bookkeeping that could go stale when
     # the library folder moves.
     conn.executescript(_SCHEMA)
+    if "text_offset" not in {r["name"] for r in conn.execute("PRAGMA table_info(import_retry)")}:
+        try:
+            conn.execute("ALTER TABLE import_retry ADD COLUMN text_offset INTEGER")
+        except sqlite3.OperationalError:   # another connection added it first
+            pass
     return conn
 
 
@@ -353,6 +359,34 @@ def record_import_retry(source: str, series_id: str, drama_id: int, pending, don
             "error=excluded.error, updated_at=excluded.updated_at",
             [(source, str(series_id), int(drama_id), str(cid), title or "", status, error or "",
               now) for cid, title, status, error in pending if status in MANIFEST_STATUSES])
+
+
+def mark_text_in_flight(source: str, series_id: str, drama_id: int, chapter_id: str,
+                        title: str, error: str, text_offset: int):
+    """Marks a text chapter "failed" (retryable) before its text is appended,
+    with the raw-novel file's length before the append (-1: no file), so a
+    retry can find what an interrupted attempt wrote. Title and error
+    already redacted by the caller."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO import_retry(source, series_id, drama_id, chapter_id, title, status, "
+            "error, updated_at, text_offset) VALUES(?, ?, ?, ?, ?, 'failed', ?, ?, ?) "
+            "ON CONFLICT(source, series_id, drama_id, chapter_id) DO UPDATE SET "
+            "title=excluded.title, status=excluded.status, error=excluded.error, "
+            "updated_at=excluded.updated_at, text_offset=excluded.text_offset",
+            (source, str(series_id), int(drama_id), str(chapter_id), title or "", error or "",
+             time.time(), int(text_offset)))
+
+
+def import_text_offset(source: str, series_id: str, drama_id: int, chapter_id: str):
+    """The offset mark_text_in_flight recorded for a chapter still in the
+    manifest, or None (no row, or a row from a failure before any write)."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT text_offset FROM import_retry WHERE source=? AND series_id=? AND "
+            "drama_id=? AND chapter_id=?",
+            (source, str(series_id), int(drama_id), str(chapter_id))).fetchone()
+    return None if row is None else row["text_offset"]
 
 
 def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:

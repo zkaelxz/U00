@@ -20,7 +20,6 @@ import contextlib
 import io
 import os
 import re
-import tempfile
 import threading
 import time
 
@@ -161,44 +160,19 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "",
-                    skip_if_present: bool = False) -> str:
+def save_novel_text(drama_id: int, text: str, append: bool = False, heading: str = "") -> str:
     """Writes fetched novel text into the drama's raw-novel file, through
-    the same loader an uploaded .txt goes through. Returns the path.
-
-    The whole file is rewritten through a temp file and os.replace, so a
-    crash leaves either the old file or the new one, never half a chapter.
-    `skip_if_present`: a block (heading + text) already in the file is not
-    appended again, so re-importing a chapter whose record was lost doesn't
-    duplicate it."""
+    the same loader an uploaded .txt goes through. Returns the path."""
     import core
     loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
     if heading:
         loaded = f"{heading}\n\n{loaded}"
-    folder = db.drama_dir(drama_id)
-    path = os.path.join(folder, RAW_NOVEL_FILENAME)
-    block = _as_written(loaded)
-    # The same per-drama lock as the page writer: a read-modify-write must
-    # not lose another in-process writer's chapter.
-    with _page_lock(drama_id):
-        old = None
-        if append and os.path.exists(path):
-            with open(path, "rb") as f:
-                old = f.read()
-        if old is not None and skip_if_present and block in old:
-            return path
-        data = block if old is None else old + _as_written("\n\n") + block
-        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".raw_novel_", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, path)
-        except BaseException:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-            raise
+    path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
+    mode = "a" if append and os.path.exists(path) else "w"
+    with open(path, mode, encoding="utf-8") as f:
+        if mode == "a":
+            f.write("\n\n")
+        f.write(loaded)
     return path
 
 
@@ -222,18 +196,35 @@ _IN_FLIGHT_PAGES = ("Interrupted while saving this chapter; some of its pages ma
                     "drama -- check the drama before retrying it.")
 _NO_BOOKKEEPING = "Could not update the import records; nothing was saved for this chapter."
 _NOT_RECORDED = "The chapter could not be recorded as imported; retry it."
+_NOT_SAVED = "Could not save the chapter text; retry it."
+_ROLLED_BACK = "Could not save this chapter's pages; none were kept. Retry it."
 
 
-def _mark_in_flight(source: str, ch, drama_id: int, pages: bool):
-    """Written before any of the chapter's content, so a crash mid-chapter
-    leaves it in the retry manifest. Text re-imports are idempotent
-    (save_novel_text skip_if_present): retryable. Pages may be left behind
-    by a crash: "partial", shown but never retried automatically."""
+def _warn(message: str):
+    import applog
+    applog.get_logger().warning(message, exc_info=True)
+
+
+def _mark_in_flight(source: str, ch, drama_id: int):
+    """Written before any of a comic chapter's pages: pages a crash leaves
+    behind can't be told apart, so the chapter is "partial" (shown, never
+    retried automatically) until it is recorded or its pages are removed."""
     from translate_engines import redact_secrets
     store.record_import_retry(
         source, ch.series_id, drama_id,
-        [(ch.chapter_id, redact_secrets(ch.title or ""), "partial" if pages else "failed",
-          _IN_FLIGHT_PAGES if pages else _IN_FLIGHT_TEXT)])
+        [(ch.chapter_id, redact_secrets(ch.title or ""), "partial", _IN_FLIGHT_PAGES)])
+
+
+def _mark_retryable(source: str, ch, drama_id: int, error: str):
+    """Best effort, after a chapter's pages were removed: if it fails the
+    chapter just stays "partial"."""
+    from translate_engines import redact_secrets
+    try:
+        store.record_import_retry(
+            source, ch.series_id, drama_id,
+            [(ch.chapter_id, redact_secrets(ch.title or ""), "failed", error)])
+    except Exception:
+        _warn("Could not mark a chapter retryable")
 
 
 def _clear_in_flight(source: str, ch, drama_id: int):
@@ -242,8 +233,7 @@ def _clear_in_flight(source: str, ch, drama_id: int):
         store.record_import_retry(source, ch.series_id, drama_id, [],
                                   done_ids=[ch.chapter_id])
     except Exception:
-        import applog
-        applog.get_logger().warning("Could not clear an import retry marker", exc_info=True)
+        _warn("Could not clear an import retry marker")
 
 
 def _record_imported(source: str, ch, drama_id: int) -> bool:
@@ -253,9 +243,75 @@ def _record_imported(source: str, ch, drama_id: int) -> bool:
         store.record_imported(source, ch.series_id, ch.chapter_id, drama_id)
         return True
     except Exception:
-        import applog
-        applog.get_logger().warning("Could not record an imported chapter", exc_info=True)
+        _warn("Could not record an imported chapter")
         return False
+
+
+def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
+    """Appends one chapter the way save_novel_text(append=True,
+    heading=title) does, writing only the new block. The file's length
+    before the append (-1: no file) goes into the chapter's retry marker
+    first. A later attempt at a chapter with a marker looks at that offset:
+    its whole block is not written again, a torn prefix of it (a crash
+    mid-write) is cut off and written again. A chapter without a marker
+    always appends, even when another chapter's identical text is there.
+    Returns "" once the text is in the file, else the error to report
+    (none of the chapter's text left in the file). Raises only if a failed
+    write could not be cut off again, so nothing is appended after it."""
+    import core
+    from translate_engines import redact_secrets
+    loaded = core.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
+    if ch.title:
+        loaded = f"{ch.title}\n\n{loaded}"
+    path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
+    key = (source, ch.series_id, drama_id, ch.chapter_id)
+
+    def payload(offset):
+        return (_as_written("\n\n") if offset >= 0 else b"") + _as_written(loaded)
+
+    with _page_lock(drama_id):
+        try:
+            earlier = store.import_text_offset(*key)
+        except Exception:
+            _warn("Could not read a chapter's retry marker")
+            return _NO_BOOKKEEPING
+        try:
+            size = os.path.getsize(path) if os.path.exists(path) else -1
+            offset = size
+            if earlier is not None and size >= max(earlier, 0):
+                want = payload(earlier)
+                with open(path, "rb") as f:
+                    f.seek(max(earlier, 0))
+                    tail = f.read(len(want) + 1)
+                if tail[:len(want)] == want:
+                    return ""   # the interrupted attempt wrote all of it
+                if len(tail) < len(want) and want.startswith(tail):
+                    os.truncate(path, max(earlier, 0))
+                    offset = earlier
+        except OSError:
+            _warn("Could not check a chapter's text")
+            return _NOT_SAVED
+        if offset != earlier:
+            try:
+                store.mark_text_in_flight(*key, redact_secrets(ch.title or ""),
+                                          _IN_FLIGHT_TEXT, offset)
+            except Exception:
+                _warn("Could not mark a chapter in flight")
+                return _NO_BOOKKEEPING
+        try:
+            with open(path, "ab") as f:
+                f.write(payload(offset))
+                f.flush()
+                os.fsync(f.fileno())
+        except OSError:
+            _warn("Could not save a chapter's text")
+            if offset < 0:
+                if os.path.exists(path):
+                    os.remove(path)
+            else:
+                os.truncate(path, offset)
+            return _NOT_SAVED
+    return ""
 
 
 def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
@@ -312,8 +368,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                 continue
             try:
                 ladder.check_terms(source, adapter.capabilities())
-                is_comic = adapter.supports("get_pages")
-                if is_comic:
+                if adapter.supports("get_pages"):
                     pages = adapter.get_pages(ch)
                     state["pages"] = len(pages)
                     images = []
@@ -321,36 +376,42 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         state["page"] = j
                         publish(adapter.client.snapshot())
                         images.append(adapter.download_page(page))
-                else:
-                    text = adapter.get_chapter_text(ch)
-                try:
-                    _mark_in_flight(source, ch, drama_id, is_comic)
-                except Exception:
-                    import applog
-                    applog.get_logger().warning("Could not mark a chapter in flight",
-                                                exc_info=True)
-                    results.append({"chapter_id": ch.chapter_id, "title": ch.title,
-                                    "ok": False, "error": _NO_BOOKKEEPING})
-                    continue
-                if is_comic:
+                    try:
+                        _mark_in_flight(source, ch, drama_id)
+                    except Exception:
+                        _warn("Could not mark a chapter in flight")
+                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                        "ok": False, "error": _NO_BOOKKEEPING})
+                        continue
                     page_ids = []
                     try:
                         outcome = {"pages": add_page_images(drama_id, images, ids_out=page_ids)}
+                    except Exception:
+                        _warn("Could not add a chapter's pages")
+                        # If this raises, pages may remain: the chapter stays "partial".
+                        _discard_pages(drama_id, page_ids)
+                        _mark_retryable(source, ch, drama_id, _ROLLED_BACK)
+                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                        "ok": False, "error": _ROLLED_BACK})
+                        break
                     except BaseException:
                         try:
                             _discard_pages(drama_id, page_ids)
                         except Exception:
-                            import applog
-                            applog.get_logger().warning("Could not remove a failed chapter's "
-                                                        "pages", exc_info=True)
+                            _warn("Could not remove a failed chapter's pages")
                         raise
                     recorded = _record_imported(source, ch, drama_id)
                     if not recorded:
                         # Unrecorded pages would be imported again by a retry.
                         _discard_pages(drama_id, page_ids)
+                        _mark_retryable(source, ch, drama_id, _NOT_RECORDED)
                 else:
-                    save_novel_text(drama_id, text, append=True, heading=ch.title,
-                                    skip_if_present=True)
+                    text = adapter.get_chapter_text(ch)
+                    error = _append_chapter_text(source, ch, drama_id, text)
+                    if error:
+                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                        "ok": False, "error": error})
+                        continue
                     outcome = {"chars": len(text)}
                     recorded = _record_imported(source, ch, drama_id)
                 if not recorded:
