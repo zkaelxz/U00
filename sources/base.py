@@ -85,6 +85,11 @@ class SourceAdapter:
     #: switch (usually a cookie) and this adapter knows how to send it.
     #: The Sources tab then shows a per-source toggle for it.
     supports_adult_toggle = False
+    #: True when get_chapters returns the site's own reading order, which
+    #: imports and chapter lists then keep. False only for a source whose
+    #: listing isn't reliably in reading order; chapter_order.reading_order
+    #: sorts those by number.
+    chapters_in_site_order = True
     #: False for a request not from this PC (the API sets it per job):
     #: an adapter that opens a browser inside get_series/get_chapters
     #: must refuse instead (docs/remote-access-decision.md: "no browser").
