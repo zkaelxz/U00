@@ -67,3 +67,10 @@ class TestSecretRedaction:
     def test_a_record_without_secrets_is_unchanged(self, isolated_db):
         applog.get_logger().info("job %s finished in %.1fs", "abc", 2.5)
         assert "job abc finished in 2.5s" in self._log_text()
+
+    def test_a_malformed_format_call_never_raises_into_the_caller(self, isolated_db):
+        """The filter runs outside the handler's own error handling, so a
+        bad %-format must not turn a log call into an exception (some run
+        under background_jobs' lock)."""
+        applog.get_logger().warning("bad %d", "not a number")   # must not raise
+        assert "could not be formatted" in self._log_text()

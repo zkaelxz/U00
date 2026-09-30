@@ -29,15 +29,24 @@ class _RedactSecretsFilter(logging.Filter):
     log the raw exception (and any key in it) in the traceback."""
 
     def filter(self, record):
-        from translate_engines import redact_secrets
-        record.msg = redact_secrets(record.getMessage())
-        record.args = None
-        if record.exc_info and not record.exc_text:
-            record.exc_text = logging.Formatter().formatException(record.exc_info)
-        if record.exc_text:
-            record.exc_text = redact_secrets(record.exc_text)
-        if record.stack_info:
-            record.stack_info = redact_secrets(record.stack_info)
+        # A filter runs outside the handler's own error handling, so nothing
+        # here may raise into the logging call (some run under a lock).
+        try:
+            from translate_engines import redact_secrets
+            record.msg = redact_secrets(record.getMessage())
+            record.args = None
+            if record.exc_info and not record.exc_text:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text:
+                record.exc_text = redact_secrets(record.exc_text)
+            if record.stack_info:
+                record.stack_info = redact_secrets(record.stack_info)
+        except Exception as exc:
+            # Never write the unredacted original: a placeholder instead.
+            record.msg = (f"(log message from {record.pathname}:{record.lineno} could not "
+                          f"be formatted: {type(exc).__name__})")
+            record.args = None
+            record.exc_info = record.exc_text = record.stack_info = None
         return True
 
 
