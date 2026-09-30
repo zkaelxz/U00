@@ -78,6 +78,7 @@ import zlib
 
 import background_jobs
 import db
+from services import delete_service
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
@@ -928,6 +929,17 @@ _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bu
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory")
+# Columns naming a file in the drama folder, with the one subfolder the app
+# writes that file in (None: the folder itself). Readers join these onto the
+# drama folder, so a backup from another library keeps one only when it is a
+# name inside the new drama's own folder (see _import_file_ref).
+IMPORT_FILE_COLUMNS = {
+    "dramas": {"audio_filename": None, "source_video_filename": None,
+               "novel_reference_filename": None, "cover_art_filename": None},
+    "lines": {"dub_filename": "dub_clips"},
+    "characters": {"ref_audio_filename": "voice_refs"},
+    "pages": {"filename": "pages", "rendered_filename": "pages"},
+}
 
 
 def list_snapshot_dramas(snapshot=None) -> dict:
@@ -974,6 +986,33 @@ def _rows(src, table: str, where: str, args) -> list:
     cur = src.execute(f'SELECT * FROM "{table}" WHERE {where}', args)
     names = [c[0] for c in cur.description]
     return [dict(zip(names, r)) for r in cur.fetchall()]
+
+
+def _import_file_ref(folder, value, subdir):
+    """`value` (normalised to "/") when it is a plain file name, or
+    "<subdir>/<plain name>", that stays inside `folder`; None otherwise,
+    and always None when `folder` is None (the drama's files weren't
+    imported)."""
+    if folder is None or not isinstance(value, str) or "\x00" in value or ":" in value:
+        return None
+    parts = value.replace("\\", "/").split("/")
+    if len(parts) == 1:
+        base, name = folder, parts[0]
+    elif len(parts) == 2 and subdir is not None and parts[0] == subdir:
+        base, name = os.path.join(folder, subdir), parts[1]
+    else:
+        return None
+    if delete_service._file_in_folder(base, name) is None:
+        return None
+    return name if len(parts) == 1 else f"{subdir}/{name}"
+
+
+def _sanitise_file_refs(table: str, row: dict, import_as):
+    if import_as is None:
+        return
+    for col, subdir in IMPORT_FILE_COLUMNS.get(table, {}).items():
+        if col in row:
+            row[col] = _import_file_ref(import_as.get("media_dir"), row[col], subdir)
 
 
 def _remap_json_lines(value, line_map):
@@ -1080,10 +1119,13 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
     transaction). new_id None = a fresh id. Returns (live id, counts,
     series outcome -- see _resolve_series).
     import_as (a backup from another library, see backup_import_service) =
-    {"owner_user_id", "is_private", "series": {}}: the owner and privacy
-    come from it and never from the file, the series is always new, the
-    Notion page link is dropped, and per-profile tables (profile ids mean
-    something else in this library) are not copied."""
+    {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
+    and privacy come from it and never from the file, the series is always
+    new, the Notion page link is dropped, per-profile tables (profile ids
+    mean something else in this library) are not copied, and each file
+    reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
+    media_dir (the drama's imported files; None = none imported, so every
+    reference is cleared)."""
     drama = _rows(src, "dramas", "id = ?", (old_id,))
     if not drama:
         raise NotFoundError("That drama isn't in the snapshot.")
@@ -1096,6 +1138,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
         row["owner_user_id"] = import_as["owner_user_id"]
         row["is_private"] = import_as["is_private"]
         row["notion_page_id"] = None
+        _sanitise_file_refs("dramas", row, import_as)
     elif row.get("owner_user_id") not in users:
         row["owner_user_id"] = None
     series_id, char_map, series_outcome = _resolve_series(
@@ -1126,6 +1169,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
         for child in _rows(src, table, "drama_id = ?", (old_id,)):
             old = child.pop("id", None)
             child["drama_id"] = live_id
+            _sanitise_file_refs(table, child, import_as)
             if (table in _PROFILE_TABLES and child.get("profile_id") is not None
                     and child["profile_id"] not in profiles):
                 continue

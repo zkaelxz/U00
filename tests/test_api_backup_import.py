@@ -451,20 +451,20 @@ def test_remote_refused_and_local_owner_allowed(isolated_db):
 COPIED = {
     "dramas": {"title_zh", "title_en", "author", "studio", "director", "voice_actors", "summary",
                "status", "content_mode", "narration_language", "source_language", "media_type",
-               "episode_number", "episode_summary", "audio_filename", "novel_reference_filename",
+               "episode_number", "episode_summary",
                "translation_engine", "author_romanized", "studio_romanized",
-               "voice_actors_romanized", "director_romanized", "cover_art_filename", "genre",
+               "voice_actors_romanized", "director_romanized", "genre",
                "publication_status", "chapter_count", "custom_tags", "last_translate_errors",
-               "personal_notes", "created_at", "source_video_filename", "chinese_script",
+               "personal_notes", "created_at", "chinese_script",
                "source_url", "transcript_mode", "whisper_size", "alignment_method",
                "asr_backend_choice", "min_silence_ms", "vad_threshold", "beam_size",
                "separate_vocals_first", "separation_backend", "realign_long_segments",
                "whisper_fast_mode", "use_groq", "hardsub_ocr_backend", "hardsub_interval_sec",
                "project_instructions"},
-    "lines": {"idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
+    "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
               "speaker_manual", "sfx"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
-                   "ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
+                   "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "pronouns"},
 }
 
@@ -473,8 +473,13 @@ def test_every_column_is_imported_or_explicitly_ignored(isolated_db):
     with _conn() as c:
         live = {t: [r[1] for r in c.execute(f'PRAGMA table_info("{t}")')] for t in COPIED}
     for table, cols in live.items():
-        known = COPIED[table] | bis.FORCED_COLUMNS[table] | bis.IGNORED_COLUMNS[table]
+        known = (COPIED[table] | bis.FORCED_COLUMNS[table] | bis.IGNORED_COLUMNS[table]
+                 | bis.FILE_COLUMNS[table])
         assert set(cols) == known, (table, set(cols) ^ known)
+    with _conn() as c:
+        pages = {r[1] for r in c.execute('PRAGMA table_info("pages")')}
+    assert {"filename", "rendered_filename"} <= pages and bis.FILE_COLUMNS["pages"] == {
+        "filename", "rendered_filename"}
 
 
 def test_copied_columns_really_arrive(isolated_db):
@@ -500,3 +505,223 @@ def test_copied_columns_really_arrive(isolated_db):
             old = c.execute(f'SELECT {q} FROM "{table}" WHERE {key} = ?', (did,)).fetchone()
             newer = c.execute(f'SELECT {q} FROM "{table}" WHERE {key} = ?', (new,)).fetchone()
             assert old == newer, table
+
+
+# ---- file references ---------------------------------------------------------
+
+_FILE_REFS = {"dramas": ("audio_filename", "source_video_filename", "novel_reference_filename",
+                         "cover_art_filename"),
+              "lines": ("dub_filename",), "characters": ("ref_audio_filename",),
+              "pages": ("filename", "rendered_filename")}
+
+
+def _set_refs(did, value):
+    """Every file-reference column of drama `did` (and its line, character
+    and a new page) set to `value`; returns the page id."""
+    with _conn() as c:
+        for col in _FILE_REFS["dramas"]:
+            c.execute(f'UPDATE dramas SET "{col}" = ? WHERE id = ?', (value, did))
+        c.execute("UPDATE lines SET dub_filename = ? WHERE drama_id = ?", (value, did))
+        c.execute("UPDATE characters SET ref_audio_filename = ? WHERE drama_id = ?", (value, did))
+        pid = _ins(c, "pages", drama_id=did, idx=0, filename=value, rendered_filename=value)
+        c.commit()
+    return pid
+
+
+def _refs(did):
+    with _conn() as c:
+        out = {}
+        for table, cols in _FILE_REFS.items():
+            key = "id" if table == "dramas" else "drama_id"
+            for col in cols:
+                out[(table, col)] = {r[0] for r in c.execute(
+                    f'SELECT "{col}" FROM "{table}" WHERE {key} = ?', (did,))}
+        return out
+
+
+@pytest.mark.parametrize("hostile", ["C:\\Users\\x\\a.txt", "/etc/passwd", "../5/novel_reference.txt",
+                                     "a/../../b", "pages/../../x.png", "..", "a\x00b.png",
+                                     "pages/sub/x.png", "C:x.png", "pages//x.png"])
+def test_hostile_file_references_are_cleared(client, hostile):
+    a, b, g = _world()
+    _set_refs(a, hostile)
+    data = _manual_zip(media={a: "audio.mp3"})    # the drama's files ARE imported
+    r = _post_import(client, data, [a])
+    assert r.status_code == 200, r.text
+    assert r.json()["imported"][0]["media_imported"] is True
+    new = r.json()["imported"][0]["drama_id"]
+    assert all(v == {None} for v in _refs(new).values()), _refs(new)
+    detail = client.get(f"/api/library/dramas/{new}").json()
+    assert not detail["has_audio"] and not detail["has_cover_art"]
+    assert not detail["has_novel_reference"]
+
+
+def _legit_media(did):
+    d = os.path.join(db.DRAMAS_DIR, str(did))
+    for rel in ("audio.mp3", "cover.jpg", "pages/p1.png", "dub_clips/line_0001.wav",
+                "voice_refs/r.wav"):
+        os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+        with open(os.path.join(d, rel), "wb") as fh:
+            fh.write(b"x")
+    with _conn() as c:
+        c.execute("UPDATE dramas SET audio_filename = 'audio.mp3', cover_art_filename = 'cover.jpg',"
+                  " novel_reference_filename = 'novel_reference.txt' WHERE id = ?", (did,))
+        c.execute("UPDATE lines SET dub_filename = 'dub_clips\\line_0001.wav' WHERE drama_id = ?",
+                  (did,))
+        c.execute("UPDATE characters SET ref_audio_filename = 'voice_refs/r.wav' WHERE drama_id = ?",
+                  (did,))
+        _ins(c, "pages", drama_id=did, idx=0, filename="pages/p1.png", rendered_filename="p1.png")
+        c.commit()
+
+
+def test_zip_with_media_keeps_plain_file_names(client):
+    a, b, g = _world()
+    _legit_media(a)
+    r = _post_import(client, _manual_zip(), [a])
+    assert r.status_code == 200, r.text
+    new = r.json()["imported"][0]["drama_id"]
+    refs = _refs(new)
+    assert refs[("dramas", "audio_filename")] == {"audio.mp3"}
+    assert refs[("dramas", "cover_art_filename")] == {"cover.jpg"}
+    assert refs[("dramas", "novel_reference_filename")] == {"novel_reference.txt"}
+    assert refs[("dramas", "source_video_filename")] == {None}
+    assert refs[("lines", "dub_filename")] == {"dub_clips/line_0001.wav"}
+    assert refs[("characters", "ref_audio_filename")] == {"voice_refs/r.wav"}
+    assert refs[("pages", "filename")] == {"pages/p1.png"}
+    assert refs[("pages", "rendered_filename")] == {"p1.png"}
+    assert os.path.isfile(os.path.join(db.DRAMAS_DIR, str(new), "pages", "p1.png"))
+    detail = client.get(f"/api/library/dramas/{new}").json()
+    assert detail["has_audio"] and detail["has_cover_art"]
+
+
+def test_database_only_import_clears_file_references(client):
+    a, b, g = _world()
+    _legit_media(a)
+    dest = os.path.join(db.LIBRARY_DIR, "x.db")
+    las._sanitized_snapshot(dest)
+    with open(dest, "rb") as fh:
+        r = _post_import(client, fh.read(), [a])
+    assert r.status_code == 200, r.text
+    new = r.json()["imported"][0]["drama_id"]
+    assert all(v == {None} for v in _refs(new).values()), _refs(new)
+    detail = client.get(f"/api/library/dramas/{new}").json()
+    assert not detail["has_audio"] and not detail["has_cover_art"]
+    assert not detail["has_novel_reference"]
+
+
+def test_zip_without_this_dramas_media_clears_file_references(client):
+    a, b, g = _world()
+    _legit_media(a)
+    _set_refs(g, "audio.mp3")                       # g has no files in the zip
+    r = _post_import(client, _manual_zip(), [g])
+    new = r.json()["imported"][0]["drama_id"]
+    assert all(v == {None} for v in _refs(new).values()), _refs(new)
+
+
+# ---- hostile databases -------------------------------------------------------
+
+def _db_bytes(mutate) -> bytes:
+    dest = os.path.join(db.LIBRARY_DIR, "hostile.db")
+    las._sanitized_snapshot(dest)
+    with contextlib.closing(sqlite3.connect(dest)) as c:
+        mutate(c)
+        c.commit()
+    with open(dest, "rb") as fh:
+        data = fh.read()
+    os.remove(dest)
+    return data
+
+
+_ENDLESS = ("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) "
+            "SELECT i AS drama_id FROM n")
+
+
+@pytest.mark.parametrize("table", ["lines", "characters", "glossary_terms", "bubbles"])
+def test_view_in_place_of_a_table_is_rejected(client, table):
+    a, b, g = _world()
+
+    def swap(c):
+        c.execute(f'DROP TABLE "{table}"')
+        c.execute(f'CREATE VIEW "{table}" AS {_ENDLESS}')
+    data = _db_bytes(swap)
+    before = _dramas()
+    assert _post_list(client, data, "library.db").status_code == 422
+    assert _post_import(client, data, [a]).status_code == 422
+    assert _dramas() == before
+
+
+def test_differently_cased_or_virtual_table_is_rejected(client):
+    a, b, g = _world()
+
+    def rename(c):
+        c.execute('ALTER TABLE lines RENAME TO "Lines_tmp"')
+        c.execute('ALTER TABLE "Lines_tmp" RENAME TO "LINES"')
+    assert _post_list(client, _db_bytes(rename), "library.db").status_code == 422
+
+    def virtual(c):
+        c.execute("DROP TABLE bubbles")
+        c.execute("CREATE VIRTUAL TABLE bubbles USING fts5(page_id)")
+    try:
+        data = _db_bytes(virtual)
+    except sqlite3.OperationalError:
+        pytest.skip("this SQLite has no fts5")
+    assert _post_list(client, data, "library.db").status_code == 422
+
+
+def test_reads_of_the_file_stop_at_the_deadline(isolated_db, monkeypatch):
+    monkeypatch.setattr(bis, "_READ_TIME_LIMIT_S", 0.2)
+    with contextlib.closing(bis._open_db(db.DB_PATH)) as conn:
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute(_ENDLESS + " WHERE i < 0").fetchall()
+
+
+def test_media_ids_accept_only_canonical_digits(isolated_db):
+    backup = bis._Backup.__new__(bis._Backup)
+    backup.zip_path = os.path.join(db.LIBRARY_DIR, "m.zip")
+    with zipfile.ZipFile(backup.zip_path, "w") as zf:
+        for name in ("dramas/7/a.mp3", "dramas/07/a.mp3", "dramas/\u00b2/a.mp3",
+                     "dramas/\u0663/a.mp3", "dramas/+8/a.mp3", "dramas/9/", "dramas/ 10/a.mp3",
+                     "dramas\\11\\a.mp3"):
+            zf.writestr(name, "x")
+    assert backup.media_ids() == {7, 11}
+    assert bis._plain_id("12") and not bis._plain_id("012") and not bis._plain_id("\u00b2")
+
+
+def test_row_limit_counts_series_tables_and_bubbles(client, monkeypatch):
+    a, b, g = _world()
+    data = _manual_zip()
+    monkeypatch.setattr(bis, "_MAX_ROWS_PER_IMPORT", 10)
+    assert _post_import(client, data, [g]).status_code == 200     # 6 rows
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        for i in range(10):
+            _ins(c, "glossary_terms", series_id=sid, term_original=f"t{i}", term_translation="x")
+        pid = _ins(c, "pages", drama_id=g, idx=0)
+        for i in range(10):
+            _ins(c, "bubbles", page_id=pid, idx=i)
+        c.commit()
+    data = _manual_zip()
+    for did in (a, g):
+        r = _post_import(client, data, [did])
+        assert r.status_code == 422 and "too many rows" in r.text, did
+
+
+def test_upload_cap_applies_before_the_body_is_read(client, monkeypatch):
+    _world()
+    monkeypatch.setenv("BAIHE_MAX_UPLOAD_MB", "0.01")
+    called = []
+    monkeypatch.setattr(bis, "list_backup_dramas", lambda *a, **k: called.append(1))
+    monkeypatch.setattr(bis, "import_dramas", lambda *a, **k: called.append(1))
+    big = b"PK" + os.urandom(200 * 1024)
+    assert _post_list(client, big).status_code == 413
+    assert _post_import(client, big, [1]).status_code == 413
+    assert not called
+
+
+def test_form_fields_are_checked(client):
+    a, b, g = _world()
+    data = _manual_zip()
+    for bad in ("x", "-1", "1.5", "\u00b2", "99999999999"):
+        assert _post_import(client, data, [bad]).status_code == 422, bad
+    assert client.post("/api/backups/import/list", data={"file": "not a file"}).status_code == 422
+    assert len(_dramas()) == 3
