@@ -126,7 +126,7 @@ async def _lifespan(app: FastAPI):
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
-    and job records left running by a dead process are closed (B-04), as
+    and job records left running by a dead process are closed, as
     are stale sign-in sessions (expired, idle or of a deactivated user).
     The household listener's app does none of this, at start or stop: it
     shares the process with the admin listener, whose lifespan owns it."""

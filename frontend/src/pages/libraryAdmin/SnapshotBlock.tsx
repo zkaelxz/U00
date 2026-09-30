@@ -1,6 +1,6 @@
 /*
- * Library tools > Backup & storage > "Automatic backup copies" (roadmap
- * Step 43): the rotating copies automatic backups keep (the newest one's
+ * Library tools > Backup & storage > "Automatic backup copies":
+ * the rotating copies automatic backups keep (the newest one's
  * date, size, kind and drama count), restoring ONE drama from a chosen copy,
  * and deleting one copy or all of them. PC only (the parent AdminSection
  * shows the PC-only note away from the PC); nothing is fetched until

@@ -388,7 +388,7 @@ INSTALL_TASKS = [
 def check_python_version():
     import sys
     v = sys.version_info
-    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 9}
+    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 10}
 
 
 def check_ffmpeg():

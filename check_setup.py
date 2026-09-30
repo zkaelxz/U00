@@ -47,7 +47,7 @@ def _print_report(file=sys.stdout):
 
     py = diagnostics.check_python_version()
     if not py["ok"]:
-        lines.append(f"{sym['warn']} Python {py['version']} found -- this app needs Python 3.9 or newer.")
+        lines.append(f"{sym['warn']} Python {py['version']} found -- this app needs Python 3.10 or newer.")
 
     ffmpeg = diagnostics.check_ffmpeg()
     if not ffmpeg["found"]:

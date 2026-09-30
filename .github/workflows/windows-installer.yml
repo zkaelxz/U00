@@ -38,9 +38,9 @@ permissions:
 
 jobs:
   # Real observed duration (run 36667149394, 2026-09-30): 2m20s for the
-  # whole job, cold npm cache included. 20 minutes leaves room for slower
-  # runner provisioning and downloads without letting a hung step bill the
-  # 2x Windows rate for long.
+  # whole job, cold npm cache included. The 40-minute cap leaves room for
+  # slower runner provisioning and downloads without letting a hung step
+  # bill the 2x Windows rate indefinitely.
   installer:
     runs-on: windows-latest
     timeout-minutes: 40
