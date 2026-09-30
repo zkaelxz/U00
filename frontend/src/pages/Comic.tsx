@@ -417,7 +417,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const classes = ['comic', 'reader', phone ? 'comic-phone reader-phone' : '', chrome ? '' : 'comic-chrome-off', `comic-mode-${prefs.mode}`]
-  const label = current !== null && count ? `${current} / ${count}` : ''
+  const label = current !== null && count ? `${current} / ${count}` : data === null ? '- / -' : ''
 
   return (
     <div className={classes.filter(Boolean).join(' ')}>
@@ -436,7 +436,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
             <span aria-hidden="true"> / </span>
             <a href={workspaceHref}>{title ?? 'Loading…'}</a>
           </nav>
-          {current !== null && count > 0 && <ComicPager page={current} count={count} rtl={rtl} onGo={go} />}
+          {current !== null && count > 0 ? (
+            <ComicPager page={current} count={count} rtl={rtl} onGo={go} />
+          ) : (
+            data === null && <ComicPager page={1} count={1} rtl={rtl} onGo={go} loading />
+          )}
           {toggles}
           {!empty && toolsButton}
           {view}

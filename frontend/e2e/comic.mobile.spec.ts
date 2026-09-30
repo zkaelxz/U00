@@ -166,3 +166,14 @@ test('screenshots: phone vertical, paged right to left and the text sheet', asyn
     await page.unrouteAll({ behavior: 'ignoreErrors' })
   }
 })
+
+test('phone: the top bar does not move when the pages finish loading', async ({ page }) => {
+  await mockComic(page, { pagesDelayMs: 1500, pageCount: 12 })
+  await page.goto('/#/comic/7')
+  const translate = page.getByRole('button', { name: 'Translate', exact: true })
+  await expect(label(page)).toHaveText('- / -')
+  const before = await translate.boundingBox()
+  await expect(label(page)).toHaveText('1 / 12')
+  expect(await translate.boundingBox()).toEqual(before)
+  await noSideways(page)
+})
