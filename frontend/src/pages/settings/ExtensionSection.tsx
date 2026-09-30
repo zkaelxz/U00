@@ -14,6 +14,7 @@ import {
   getExtensionEngine, getExtensionStatus, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
 } from '../../api/extension'
 import { Card } from '../../components/Card'
+import { copyText } from '../../components/clipboard'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
@@ -245,11 +246,9 @@ function TokenReveal() {
   }
 
   const copy = async () => {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('no clipboard')
-      await navigator.clipboard.writeText(token ?? '')
+    if (await copyText(token ?? '')) {
       setAnnounce('Copied.')
-    } catch {
+    } else {
       inputRef.current?.focus() // selects it (onFocus)
       setAnnounce(copyFallbackText(touch))
     }

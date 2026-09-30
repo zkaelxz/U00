@@ -30,7 +30,7 @@ from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-_PATH_PREFERENCES = ("whisper_model_path", "tesseract_cmd", "cookies_file")
+_PATH_PREFERENCES = ("whisper_model_path", "tesseract_cmd", "cookies_file", "lncrawl_cmd")
 
 
 @router.get("", dependencies=[require_permission("admin.settings")], response_model=SettingsOverview,

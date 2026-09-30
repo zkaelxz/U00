@@ -26,10 +26,11 @@ KNOWN_SITES = [
     },
     {
         "name": "Fanjiao (饭角)",
-        "url": "https://www.fanjiao.cc",
+        "url": "https://www.fanjiao.co/",
         "region": "China", "language": "zh",
         "content_types": ["audio_drama"],
-        "notes": "Dedicated baihe/GL audio drama app.",
+        "notes": "Dedicated baihe/GL audio drama app (18+). Public pages are per-title share "
+                 "links only; no web search or catalogue.",
     },
     {
         "name": "MissEvan / Maoer FM (猫耳FM)",
