@@ -23,6 +23,15 @@ export interface JobRecord {
   // Queued/running on record but not heartbeated for 15 minutes (judged on
   // the server's clock): left behind by a process that died.
   stale?: boolean
+  // The caller started this job or owns its drama, judged by the server from
+  // the session. Missing (an older server) counts as false.
+  owned_by_me?: boolean
+}
+
+// A remote household admin may cancel only their own jobs; everyone else
+// gets Cancel as before (the server still refuses what they may not stop).
+export function offersCancel(job: Pick<JobRecord, 'owned_by_me'>, remoteAdmin: boolean): boolean {
+  return !remoteAdmin || job.owned_by_me === true
 }
 
 export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'partial' | 'kept_existing'

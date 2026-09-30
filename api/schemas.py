@@ -245,6 +245,10 @@ class JobRecord(BaseModel):
     # Still queued/running on record, but no owner has heartbeated it for
     # 15 minutes (server clock): left behind by a process that died.
     stale: bool = False
+    # The caller started this job or owns its drama (auth off and the local
+    # owner: every job). Server-computed from the caller's session; true
+    # only where the caller may also cancel it.
+    owned_by_me: bool = False
 
 
 class JobListResponse(BaseModel):
