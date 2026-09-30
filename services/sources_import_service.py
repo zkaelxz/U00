@@ -21,34 +21,90 @@ creates page files exclusively on its own.
 
 `start_url_import` (S-5, thin slice: novel text only) checks the pasted URL
 in the request (sources_url_service.check_public_url), then the job runs
-adaptive.import_novel with no LLM engine and appends the text to the
-drama's raw-novel file. When the extraction needs review nothing is
-written. From another device the signed-in profile and the browser tier
+adaptive.import_novel and appends the text to the drama's raw-novel file.
+The LLM fallback is off unless the request opted in (parity SO09: the
+engine is built in the request by sources_extraction_service, key on the
+PC). When the extraction needs review (low confidence, the request asked
+for `review`, or Sources diagnostics mode is on) nothing is written: the
+job opens a Review extraction for the drama instead (parity SO10,
+sources_extraction_service.open_review). From another device the signed-in profile and the browser tier
 are off.
+
+`start_comic_url_import` (parity SO06) is the comic counterpart: the job
+runs adaptive.import_comic (same opt-in LLM fallback) and adds the kept
+pages to a manhua/manga/manhwa drama through pipeline.add_page_images, the
+Scanlate upload path, under the shared page-upload rules
+(services/page_import_limits.py): downloads go through the same paced,
+guarded client (every redirect hop re-checked) with the per-image byte cap,
+and a per-import budget (generic_import.DownloadBudget: at most
+MAX_FILES_PER_IMPORT download attempts and MAX_IMPORT_BYTES in all; image or
+generic binary content types; PNG/JPEG/WebP only and at most
+MAX_IMAGE_PIXELS, both read from the header before any decode). Each kept
+image then has its EXIF orientation applied and a webtoon strip is cut into
+pages. An image over a cap is skipped with a reason, never failing the
+chapter. The result lists the images left out and why (the Streamlit
+"skipped as page furniture" list). A run from another device reads the
+site's shared "seen on other chapters" image memory but doesn't add to it
+(`learn`). One comic import runs at a time in this process
+(`start_comic_job`, 409 otherwise), and its pages are prepared and written
+one image at a time, each download dropped once written
+(sources_extraction_service.write_pages), so at most one import's download
+budget plus one image's prepared pages are held in memory; a review's
+images are kept on disk.
+When the extraction needs review nothing is written (a review opens, as
+for novel text).
 
 Results live in this process only; read them with
 sources_search_service.get_job_result (GET /api/sources/jobs/{id}/result).
 Text is scrubbed, URLs reduced to scheme+host+path.
 """
 
+import threading
+
 import background_jobs
 import db
 from services import drama_service, ownership_service
+from services import page_import_limits as limits
+from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.sources_registry_service import _import_supported, _scrub, safe_url
+from services.sources_registry_service import (_import_supported, _require_source, _scrub,
+                                              safe_url)
 from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, _enabled_source,
                                              _error_view, _JobFailed, _plain_text, _series_id,
                                              _start)
 from services.sources_url_service import (check_public_url, fail_job, handoff_error,
                                           source_client)
 from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
+from sources.generic_import import DownloadBudget
 from sources.http import Cancelled
+from sources.models import AccessTier, ChallengeDetected, TermsProhibited
 
 MAX_CHAPTERS = 200
+MAX_SKIPPED_LISTED = 100
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_COMIC_BUSY = ("Another comic import is running. One runs at a time; wait for it to "
+               "finish, then try again.")
+_COMIC_SLOT_LOCK = threading.Lock()
+_comic_job_id = None
+
+
+def start_comic_job(job_id: str, target, *args, description: str) -> dict:
+    """Starts a job that holds comic image bytes (the pasted-URL comic
+    import, a reviewed comic import): one at a time in this process, 409
+    while another runs, so at most one import's budget
+    (page_import_limits.MAX_IMPORT_BYTES) is held in memory."""
+    global _comic_job_id
+    with _COMIC_SLOT_LOCK:
+        if _comic_job_id:
+            st = background_jobs.get_status(_comic_job_id)
+            if st and st.get("status") in ("running", "queued"):
+                raise ConflictError(_COMIC_BUSY, details={"job_id": _comic_job_id})
+        started = _start(job_id, target, *args, description=description)
+        _comic_job_id = job_id
+        return started
 
 
 def import_job_id(drama_id: int) -> str:
@@ -118,13 +174,67 @@ def _outcome(row: dict) -> dict:
     return out
 
 
+_NOT_ATTEMPTED = "Not attempted: the import stopped before this chapter."
+_PARTLY = ("Stopped by an unexpected error while saving this chapter; it may be partly "
+           "imported -- check the drama before retrying it.")
+
+
 def _import_result(chapters: list, cancelled: bool, handoff) -> dict:
     counts = {k: sum(1 for c in chapters if c["outcome"] == k)
-              for k in ("imported", "skipped", "failed")}
+              for k in ("imported", "skipped", "failed", "not_attempted")}
+    retry = [c["chapter_id"] for c in chapters
+             if c["outcome"] in store.RETRY_STATUSES and c.get("retryable", True)]
     return {"kind": "chapter_import", "chapters": chapters,
             "imported_count": counts["imported"], "skipped_count": counts["skipped"],
-            "failed_count": counts["failed"], "partial": counts["failed"] > 0,
+            "failed_count": counts["failed"], "not_attempted_count": counts["not_attempted"],
+            "partial": counts["failed"] > 0 or counts["not_attempted"] > 0,
+            "retry_chapter_ids": retry,
             "cancelled": bool(cancelled), "handoff": handoff}
+
+
+def _save_manifest(name: str, series_id: str, drama_id: int, chapters: list):
+    """Step 107: remembers which chapters failed or were never attempted
+    (redacted text only, as shown in the result), so the retry survives a
+    reload or a restart. Best effort: the import itself already happened."""
+    try:
+        store.record_import_retry(
+            name, series_id, drama_id,
+            [(c["chapter_id"], c.get("title") or "",
+              c["outcome"] if c.get("retryable", True) else "partial", c.get("error") or "")
+             for c in chapters if c["outcome"] in store.RETRY_STATUSES],
+            # A chapter no longer on the site can't be retried either.
+            [c["chapter_id"] for c in chapters
+             if c["outcome"] in ("imported", "skipped", "not_found")])
+    except Exception:
+        import applog
+        applog.get_logger().warning("Could not save the import retry manifest", exc_info=True)
+
+
+def _chapter_outcomes(raw: dict, wanted: list, missing_ids: list, skip=(),
+                      crashed: bool = False) -> list:
+    """The pipeline's rows matched to the wanted chapters by chapter_id
+    (never by position). A wanted chapter with no row is "not_attempted":
+    the job stopped first (browser check, terms, cancel, an error). After an
+    unexpected error (`crashed`), the first such chapter that wasn't skipped
+    is the one it interrupted, possibly mid-write: "failed", not retryable."""
+    rows = {}
+    for row in raw.get("chapters") or []:
+        rows.setdefault(str(row.get("chapter_id")), row)
+    chapters = []
+    in_flight = crashed
+    for ch in wanted:
+        row = rows.get(str(ch.chapter_id))
+        if row is not None:
+            chapters.append(_outcome(row))
+        elif in_flight and str(ch.chapter_id) not in skip:
+            in_flight = False
+            chapters.append({"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
+                             "outcome": "failed", "error": _PARTLY, "retryable": False})
+        else:
+            chapters.append({"chapter_id": str(ch.chapter_id), "title": _scrub(ch.title or ""),
+                             "outcome": "not_attempted", "error": _NOT_ATTEMPTED})
+    return chapters + [{"chapter_id": c, "title": "", "outcome": "not_found"}
+                       for c in missing_ids]
 
 
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
@@ -139,6 +249,11 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
         background_jobs.set_result(job_id, _import_result([], True, None))
         return
     except Exception as e:
+        if isinstance(e, (ChallengeDetected, TermsProhibited)):
+            # Stopped before any chapter: every requested one is not attempted.
+            _save_manifest(name, series_id, drama_id,
+                           [{"chapter_id": c, "title": "", "outcome": "not_attempted",
+                             "error": _NOT_ATTEMPTED} for c in chapter_ids])
         err = _error_view(e, name)
         background_jobs.set_result(job_id, {"kind": "chapter_import", "error": err})
         raise _JobFailed(err["message"]) from None
@@ -150,24 +265,24 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
               if str(ch.chapter_id) in requested]
     already = store.imported_chapter_ids(name, series_id, drama_id)
     skip = {c for c in chapter_ids if c in already}
-    pipeline.run_import_job(job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip)
+    try:
+        pipeline.run_import_job(job_id, name, wanted, drama_id, adapter=adapter, skip_ids=skip)
+    except Exception:
+        # An unexpected error (e.g. an unreadable page image) still leaves
+        # the chapters that failed or never ran in the retry manifest.
+        raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
+        _save_manifest(name, series_id, drama_id,
+                       _chapter_outcomes(raw, wanted, [], skip=skip, crashed=True))
+        raise
     raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
-    rows = {}
-    for row in raw.get("chapters") or []:
-        rows.setdefault(str(row.get("chapter_id")), row)
-    chapters = []
-    for ch in wanted:  # matched by chapter_id; a chapter never reached is left out
-        row = rows.get(str(ch.chapter_id))
-        if row is not None:
-            chapters.append(_outcome(row))
-    chapters += [{"chapter_id": c, "title": "", "outcome": "not_found"}
-                 for c in chapter_ids if c not in by_id]
+    chapters = _chapter_outcomes(raw, wanted, [c for c in chapter_ids if c not in by_id])
     handoff = None
     if raw.get("handoff"):
         h = raw["handoff"]
         handoff = {"reason": str(h.get("reason") or ""), "handoff": True,
                    "open_url": safe_url(h.get("url")),
                    "chapter_id": str(h.get("chapter_id") or "") or None}
+    _save_manifest(name, series_id, drama_id, chapters)
     background_jobs.set_result(job_id, _import_result(chapters, raw.get("cancelled"), handoff))
 
 
@@ -199,6 +314,43 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id, principal=None)
                   description=f"Import {len(ids)} chapter(s) from {name}")
 
 
+def _drama_created(drama: dict):
+    """The drama's created_at (UTC ISO text in library.db) as epoch
+    seconds, or None if missing or unreadable."""
+    import datetime
+    try:
+        dt = datetime.datetime.fromisoformat(str(drama.get("created_at") or ""))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.timestamp()
+
+
+def get_import_state(name, series_id, drama_id, principal=None) -> dict:
+    """Step 107: what the chapter picker marks before an import -- the
+    chapters of this series already imported into this drama, and the ones
+    the last imports left failed or not attempted (the "Retry failed
+    chapters (N)" set). Reads sources.db only; fetches nothing. 404 unknown
+    source or a drama the principal can't edit; 422 bad ids."""
+    name = str(name or "")
+    _require_source(name)
+    series_id = _series_id(series_id)
+    drama = _require_drama(drama_id, principal)
+    imported = sorted(store.imported_chapter_ids(name, series_id, drama_id))
+    # Rows older than the drama belong to an earlier library whose drama had
+    # the same id (a library reset starts ids at 1 again; sources.db stays).
+    born = _drama_created(drama)
+    retry = [{"chapter_id": r["chapter_id"], "title": _scrub(r["title"] or ""),
+              "status": r["status"], "error": _scrub(r["error"] or "")}
+             for r in store.import_retry_rows(name, series_id, drama_id)
+             if (born is None or float(r["updated_at"]) >= born)
+             and r["status"] in store.MANIFEST_STATUSES]
+    return {"source": name, "series_id": series_id, "drama_id": drama_id,
+            "imported_chapter_ids": imported, "retry": retry,
+            "retry_count": sum(1 for r in retry if r["status"] in store.RETRY_STATUSES)}
+
+
 # ---------------------------------------------------------------------------
 # Novel text from a pasted URL (S-5)
 # ---------------------------------------------------------------------------
@@ -210,11 +362,13 @@ def _url_fail(job_id: str, err: dict):
     fail_job(job_id, "url_import", err)
 
 
-def _url_import_job(job_id: str, url: str, drama_id: int, local: bool):
+def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
+                    review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page...")
     try:
-        res, report = adaptive.import_novel(url, engine=None, client=source_client(url, job_id),
-                                            allow_signed_in=local, allow_browser=local)
+        res, report = adaptive.import_novel(url, engine=engine, client=source_client(url, job_id),
+                                            allow_signed_in=local, allow_browser=local,
+                                            hold_profiles=not local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -225,29 +379,120 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool):
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
         _url_fail(job_id, handoff_error(res.ladder.handoff, url))
     text = res.text or ""
-    if report.needs_review or not text.strip():
+    why = extraction.review_reason(report, review)
+    if why or not text.strip():
+        opened = extraction.open_review(drama_id, "novel", url, getattr(res.ladder, "html", ""),
+                                        report.data, report, why or extraction.WHY_LOW_CONFIDENCE,
+                                        pc_only=_signed_in(res.ladder))
         background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": True,
-                                            "char_count": len(text)})
+                                            "char_count": len(text), "review_open": opened})
         return
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Saving the text...")
+    extraction.drop_review(drama_id)
     pipeline.save_novel_text(drama_id, text, append=True, heading=res.title)
     background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": False,
-                                        "char_count": len(text)})
+                                        "char_count": len(text), "review_open": False})
 
 
-def start_url_import(url, drama_id, local: bool = True, principal=None) -> dict:
+def start_url_import(url, drama_id, local: bool = True, principal=None,
+                     ai_engine: str = None, review: bool = False) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
-    appended to a novel drama's raw-novel text. 422 bad/private URL or not
-    a novel drama; 503 the host doesn't resolve; 404 no drama; 409 while a
-    job runs for the drama."""
+    appended to a novel drama's raw-novel text. `ai_engine` (a name from
+    sources_extraction_service.resolve_ai_engine_name, None = off) is the
+    LLM fallback. 422 bad/private URL or not a novel drama; 503 the host
+    doesn't resolve or the engine has no key; 404 no drama; 409 while a job
+    runs for the drama."""
     url = check_public_url(url)
     drama = _require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
                                 "or create one first.")
     _require_idle(drama_id)
+    engine = extraction.build_ai_engine(ai_engine)
     job_id = import_job_id(drama_id)
-    return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local),
-                  description="Import novel text from a pasted URL")
+    return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local), engine,
+                  bool(review), description="Import novel text from a pasted URL")
+
+
+# ---------------------------------------------------------------------------
+# Comic pages from a pasted URL (parity SO06)
+# ---------------------------------------------------------------------------
+
+_NO_PAGES = "No comic pages were found on that page."
+
+
+def _signed_in(lr) -> bool:
+    """Whether the page was read through the saved signed-in browser."""
+    return getattr(lr, "tier", None) == AccessTier.AUTHENTICATED_BROWSER.value
+
+
+def skipped_view(candidates) -> list:
+    """The images left out, and why (scheme+host+path only, signed path
+    segments blanked, scrubbed)."""
+    return [{"display_url": extraction.display_url(c.url), "reason": _scrub(c.reject_reason or "") or "not a page"}
+            for c in list(candidates)[:MAX_SKIPPED_LISTED]]
+
+
+def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=False) -> dict:
+    rejected = list(rejected)
+    return {"kind": "comic_import", "needs_review": needs_review, "pages_added": pages_added,
+            "skipped": skipped_view(rejected), "skipped_count": len(rejected),
+            "review_open": bool(review_open)}
+
+
+def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
+                          review: bool = False):
+    background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
+    budget = DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES,
+                            max_image_pixels=limits.MAX_IMAGE_PIXELS,
+                            allowed_formats=limits.ALLOWED_IMAGE_TYPES)
+    client = source_client(url, job_id)
+    client.max_image_bytes = limits.MAX_IMAGE_BYTES
+    try:
+        res, report = adaptive.import_comic(url, engine=engine, client=client,
+                                            allow_signed_in=local, allow_browser=local,
+                                            budget=budget, hold_profiles=not local,
+                                            learn=local)
+    except Cancelled:
+        raise background_jobs.JobCancelled(job_id) from None
+    except generic_import.NoContentFound:
+        fail_job(job_id, "comic_import", {"status": 422, "code": InvalidInputError.code,
+                                          "message": _NO_PAGES,
+                                          "details": {"reason": "NO_CONTENT"}})
+    except Exception as e:
+        fail_job(job_id, "comic_import", _error_view(e))
+    if res.ladder is not None and getattr(res.ladder, "handoff", None):
+        fail_job(job_id, "comic_import", handoff_error(res.ladder.handoff, url))
+    why = extraction.review_reason(report, review)
+    if why or not res.images:
+        opened = extraction.open_review(drama_id, "comic", url, getattr(res.ladder, "html", ""),
+                                        report.data, report, why or extraction.WHY_LOW_CONFIDENCE,
+                                        candidates=list(res.images) + list(res.rejected),
+                                        pc_only=_signed_in(res.ladder))
+        background_jobs.set_result(job_id, _comic_result(True, 0, res.rejected, opened))
+        return
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+    background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
+    extraction.drop_review(drama_id)
+    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id)
+    background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
+
+
+def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
+                           ai_engine: str = None, review: bool = False) -> dict:
+    """Starts `sourceimport_<drama_id>`: the page images of one pasted comic
+    chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
+    Same checks and errors as start_url_import."""
+    url = check_public_url(url)
+    drama = _require_drama(drama_id, principal)
+    if (drama.get("media_type") or "").lower() not in COMIC_MEDIA_TYPES:
+        raise InvalidInputError("Comic pages import into a manhua, manga or manhwa drama. "
+                                "Pick one of those, or create one first.")
+    _require_idle(drama_id)
+    engine = extraction.build_ai_engine(ai_engine)
+    job_id = import_job_id(drama_id)
+    return start_comic_job(job_id, _comic_url_import_job, job_id, url, drama_id, bool(local),
+                           engine, bool(review), description="Import comic pages from a pasted URL")

@@ -96,6 +96,9 @@ test('glossary proposals are cards with 44px checkboxes and one primary', async 
   await expectTall(box.locator('ul.novel-glossary-cards label'))
   await expect(box.locator('button.primary')).toHaveCount(1)
   await expectTall(box.locator('button.primary'))
+  // The Fresh suggestions row sits by the start button and fits the width.
+  await expect(box.getByRole('switch', { name: 'Fresh suggestions' })).toBeVisible()
+  await expectTall(box.locator('.setting-list > .field-item', { hasText: 'Fresh suggestions' }))
   await expectNoHorizontalOverflow(page)
   await box.scrollIntoViewIfNeeded()
   await shot(page, 'glossary-from-novel-phone')

@@ -55,13 +55,16 @@ export interface CheckForm {
 
 export const EMPTY_CHECK_FORM: CheckForm = { engine: '', model: '', audioCues: null }
 
-export function checkJobBody(kind: ReviewJobKind, f: CheckForm): ReviewJobBody {
+// bulk (R49): sent only when true, and never for fix-flagged. The caller
+// checks the engine first (reviewBulk.ts reviewStartBody).
+export function checkJobBody(kind: ReviewJobKind, f: CheckForm, bulk = false): ReviewJobBody {
   const body: ReviewJobBody = {}
   const engine = f.engine.trim()
   const model = f.model.trim()
   if (engine) body.engine = engine
   if (model) body.model = model
   if (kind === 'emotion' && f.audioCues !== null) body.use_audio_cues = f.audioCues
+  if (bulk && kind !== 'fix-flagged') body.bulk = true
   return body
 }
 

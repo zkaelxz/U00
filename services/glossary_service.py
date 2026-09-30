@@ -69,6 +69,7 @@ import background_jobs
 import db
 import translate_engines
 import translation_guide as tguide
+from services import job_checkpoint_service
 from translate_engines import WORKFLOW_TIERS
 from services.service_errors import (
     ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError,
@@ -465,12 +466,42 @@ def _normalize_proposals(proposals, known_terms) -> list:
     return list(out.values())
 
 
+def _novel_glossary_cache(engine, engine_name, fresh=False):
+    """Step 41 item 1: each passage's reply is cached on (prompt, engine and
+    model, max_tokens), so re-running an interrupted extraction only pays
+    for the passages it never finished. fresh: skip the cached replies (new
+    ones still replace them)."""
+    model = f"{engine_name}:{getattr(engine, 'model', '') or ''}"
+    settings = {"max_tokens": 4000}
+
+    # A cache failure (a locked or full disk) must never fail a paid run.
+    def get(prompt):
+        if fresh:
+            return None
+        try:
+            return job_checkpoint_service.cache_get(
+                "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model,
+                settings)
+        except Exception:
+            return None
+
+    def put(prompt, text):
+        try:
+            job_checkpoint_service.cache_put(
+                "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model,
+                settings, text)
+        except Exception:
+            pass
+    return get, put
+
+
 def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
-                            source_language, known_terms):
+                            source_language, known_terms, fresh=False):
     try:
         proposals = tguide.extract_glossary_from_novel(
             src_text, engine, source_language=source_language, english_translation=en_text,
             known_terms=known_terms,
+            response_cache=_novel_glossary_cache(engine, engine_name, fresh),
             progress_cb=lambda f: background_jobs.update_progress(
                 job_id, f, f"Reading... {f * 100:.0f}%"),
             usage_cb=lambda inp, out: db.log_usage(
@@ -571,7 +602,8 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     return engine_name, engine
 
 
-def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
+def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
+                             fresh: bool = False) -> dict:
     """Starts proposing glossary terms from this drama's saved novel text.
     Uses the saved original-language novel (raw_novel_context.txt) as the
     source and the saved novel translation as the paired rendering when
@@ -590,7 +622,10 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     NotFoundError, UnsupportedOperationError (no series / no novel saved /
     engine can't do this / monthly cap used up, capped engines only, as
     start_lines_glossary_run), DependencyUnavailableError (no key),
-    ConflictError (already running)."""
+    ConflictError (already running).
+
+    fresh (Step 41): ignore replies cached by an earlier run over the same
+    text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
     orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME)
@@ -609,7 +644,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid),
         gpu_touching=engine_name == "ollama",
-        description=f"Glossary from novel (drama #{drama_id})")
+        description=f"Glossary from novel (drama #{drama_id})", fresh=bool(fresh))
     if not started:
         raise ConflictError("A glossary extraction is already running for this drama.")
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
