@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
 import type { AutoBackupSettings, RestoreDramaDone, SnapshotCopy, SnapshotDrama, SnapshotInfo } from '../types/backups'
 import {
-  FOLDER_RULES, changedSettings, describeCopy, describeRestore, describeSnapshot, filterSnapshotDramas, folderChange,
-  formatWhen, isoDay, nextRunText, serverSentence, settingsSummary, snapshotFacts, snapshotKindLabel, restoreNotes,
+  CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
+  filterSnapshotDramas, folderChange, formatWhen, initialRestoreCopy, isManaged, isoDay, nextRunText, serverSentence,
+  settingsSummary, snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
 } from './backupsFormat'
 
 const UTC = { locale: 'en-GB', timeZone: 'UTC' }
@@ -75,6 +76,53 @@ describe('the copies list', () => {
     expect(describeCopy({ ...COPY, readable: false, kind: null, drama_count: null, kept_as: null }, UTC))
       .toBe("30 Sept 2026, 08:00 · can't be read")
     expect(describeCopy({ ...COPY, created_at: null }, UTC)).toMatch(/^baihe_snapshot-20260930-080000\.zip · /)
+  })
+
+  it('a copy this library does not manage says so, and is listed apart', () => {
+    const other = { ...COPY, name: 'baihe_snapshot-20260929-080000.zip', managed: false, kept_as: null }
+    expect(describeCopy(other, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB · not managed')
+    expect(describeCopy({ ...other, readable: false }, UTC)).toBe("30 Sept 2026, 08:00 · can't be read · not managed")
+    // no managed field (an older server) counts as managed
+    expect(isManaged(COPY)).toBe(true)
+    expect(splitCopies([COPY, other, { ...COPY, name: 'x', managed: true }])).toEqual({
+      managed: [COPY, { ...COPY, name: 'x', managed: true }], unmanaged: [other],
+    })
+  })
+})
+
+describe('choosing the copy to restore from', () => {
+  const readable: SnapshotCopy[] = [
+    { name: 'a.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily' },
+    { name: 'b.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily' },
+  ]
+
+  it("starts on the server's default copy, never the list's first entry", () => {
+    expect(initialRestoreCopy({ ...SNAP, default_copy: 'b.zip', choose_copy: false }, readable)).toBe('b.zip')
+    expect(initialRestoreCopy({ ...SNAP, default_copy: null, choose_copy: true }, readable)).toBe('')
+    expect(initialRestoreCopy({ ...SNAP, default_copy: 'b.zip', choose_copy: true }, readable)).toBe('')
+    expect(initialRestoreCopy({ ...SNAP, default_copy: 'gone.zip' }, readable)).toBe('')
+    expect(initialRestoreCopy(SNAP, readable)).toBe('')
+    expect(initialRestoreCopy(null, readable)).toBe('')
+  })
+
+  it('says a choice is needed instead of naming a newest copy', () => {
+    expect(describeSnapshot({ ...SNAP, choose_copy: true, default_copy: null })).toMatch(/choose a copy/)
+    expect(CHOOSE_COPY_TEXT).toMatch(/Choose the copy/)
+  })
+
+  it('reads the candidates from a 409 choose_copy answer only', () => {
+    const cand = { name: 'a.zip', created_at: '2026-09-30T08:00:00+00:00', sequence: 3, size: 10, managed: true }
+    const choose = new ApiError(409, {
+      code: 'conflict', message: 'Choose which backup copy to use.',
+      details: { reason: 'choose_copy', candidates: [cand, null, { size: 1 }] },
+    })
+    expect(chooseCopyCandidates(choose)).toEqual([cand])
+    expect(chooseCopyCandidates(new ApiError(409, { code: 'conflict', message: 'A backup is running.' }))).toBeNull()
+    expect(chooseCopyCandidates(new ApiError(409, { code: 'conflict', message: 'x', details: { reason: 'unmanaged' } })))
+      .toBeNull()
+    expect(chooseCopyCandidates(new ApiError(422, { code: 'validation_error', message: 'x', details: { reason: 'choose_copy', candidates: [] } })))
+      .toBeNull()
+    expect(chooseCopyCandidates(new Error('x'))).toBeNull()
   })
 })
 

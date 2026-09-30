@@ -31,14 +31,15 @@ export const backUpNow = (f?: Fetch) => postJson<BackupJobStarted>(`${BASE}/now`
 
 export const getSnapshot = (f?: Fetch) => getJson<SnapshotInfo>(`${BASE}/snapshot`, pcOnlyFetch(f))
 
-/** The dramas in the copy called `snapshot`; left out = the newest readable copy. */
+/** The dramas in the copy called `snapshot`; left out = the server's default
+ * copy (a 409 "choose_copy" when there is none). */
 export const getSnapshotDramas = (snapshot?: string, f?: Fetch) =>
   getJson<SnapshotDramaList>(
     `${BASE}/snapshot/dramas${snapshot ? `?snapshot=${encodeURIComponent(snapshot)}` : ''}`,
     pcOnlyFetch(f),
   )
 
-/** drama_id is the drama's id inside the copy; `snapshot` left out = the newest readable copy. */
+/** drama_id is the drama's id inside the copy; `snapshot` left out = the server's default copy. */
 export const restoreSnapshotDrama = (drama_id: number, snapshot?: string, f?: Fetch) =>
   postJson<RestoreDramaDone>(
     `${BASE}/snapshot/restore-drama`,
@@ -46,10 +47,14 @@ export const restoreSnapshotDrama = (drama_id: number, snapshot?: string, f?: Fe
     pcOnlyFetch(f),
   )
 
-/** Deletes the copy called `snapshot`, or every copy for `{ all: true }`. The
- * server refuses a request that names neither, so a lost name never deletes
- * everything. */
-export const deleteSnapshot = (target: { snapshot: string } | { all: true }, f?: Fetch) =>
+/** Deletes the copy called `snapshot`, or every copy this library manages for
+ * `{ all: true }`. The server refuses a request that names neither, so a lost
+ * name never deletes everything. A copy this library doesn't manage (another
+ * library's, an older or unreadable one) needs `include_unmanaged: true`. */
+export const deleteSnapshot = (
+  target: ({ snapshot: string } | { all: true }) & { include_unmanaged?: true },
+  f?: Fetch,
+) =>
   postJson<DeleteSnapshotDone>(
     `${BASE}/snapshot/delete`,
     { confirm: true, confirm_text: DELETE_SNAPSHOT_WORD, ...target },

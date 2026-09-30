@@ -18,10 +18,24 @@ Step 43, universal soft-delete, was replaced by this.)
   SQLite quick_check + manifest), flushed to disk, and only then renamed
   into place. Only after that are old copies pruned. A failed backup or
   failed check never deletes anything.
+- Ownership: each library has a random id, made once and kept in
+  app_settings (IDENTITY_KEY) with a sequence number that goes up by one
+  for every copy it writes (never taken from a restored backup, see
+  workspace_job_service._RESTORE_KEPT_APP_SETTINGS). Both go into every
+  copy's manifest. A backup folder may be shared (a synced folder used by
+  two PCs), so a file's name proves nothing: the rotation, "delete all",
+  and a folder move touch only MANAGED copies -- ones whose manifest
+  carries this library's id and a sequence number, plus copies written
+  before copies carried an id when they sit in this library's own default
+  folder inside the library (adopted). Every other copy (another
+  library's, an id-less copy in a custom folder, one that can't be read)
+  is listed but takes no slot and is only deleted when the owner names it
+  or asks for include_unmanaged.
 - Retention (deterministic, applied after each successful run, under
   _snapshot_lock): one copy per day for the last 2 days, plus the first
-  copy of each of the last 2 weeks. Precisely, among the readable copies
-  dated no later than the copy just written: "daily" = the new copy, plus
+  copy of each of the last 2 weeks. Precisely, among the managed copies
+  dated no later than the copy just written (and, for this library's own,
+  with a lower sequence number): "daily" = the new copy, plus
   the newest copy of the most recent earlier UTC day that has one (so extra
   runs on one day replace that day's earlier copy, never yesterday's);
   "weekly" = among the remaining copies, the FIRST (oldest) copy of each ISO
@@ -33,19 +47,24 @@ Step 43, universal soft-delete, was replaced by this.)
   the one in its name; the legacy single snapshot "baihe_snapshot.zip" from
   before rotation counts as a copy dated by its file time and ages out
   under the same rule. A copy that can't be opened right now (an OS error:
-  locked, no permission, drive hiccup) takes no slot and is never deleted.
-  A damaged copy (not a zip, bad manifest) takes no slot and is deleted
-  only once it is older than every kept copy (a newer damaged file is left
-  for the owner to look at). Pruning only ever touches regular files in
-  the backup folder whose name is exactly the copy pattern or the legacy
-  name: never other files, never symlinks, never a name taken from a
-  request.
+  locked, no permission, drive hiccup) or is damaged (not a zip, bad
+  manifest) proves no owner: it takes no slot and is never deleted by the
+  rotation. Pruning only ever touches regular files in the backup folder
+  whose name is exactly the copy pattern or the legacy name: never other
+  files, never symlinks, never a name taken from a request.
+- The default restore pick (no copy named) is this library's copy with the
+  highest sequence number, never a guess from file or wall-clock times.
+  When that can't be told for sure (none of this library's copies is
+  readable, two share the top number, a lower-numbered copy claims to be
+  more than _ORDER_TOLERANCE newer, an unmanaged copy claims to be newer,
+  or a copy can't be opened right now) nothing is picked: a ConflictError
+  with details {reason: "choose_copy", candidates} asks the owner to name
+  one.
 - The due-check (check_and_run) runs at API startup and hourly from the
   API's existing background poller (api/background.py). A scheduled run
   never starts while any job runs or a restore/maintenance holds the
   library; it is simply tried again at the next check.
-- restore_drama copies one drama out of a copy (the newest readable one not
-  dated after now, or
+- restore_drama copies one drama out of a copy (the default pick above, or
   one named by the caller and matched against the folder's listing, never
   used as a path), read from a read-only temp copy of its library.db, into
   the live library: the drama row and every child table it cascades to (see
@@ -87,6 +106,19 @@ log = logging.getLogger(__name__)
 
 SETTINGS_KEY = "auto_backup.settings"
 STATE_KEY = "auto_backup.state"
+# {"library_id": 32 hex, "sequence": last copy number}. A whole-library
+# restore keeps the current value (workspace_job_service copies this key
+# from the live library).
+IDENTITY_KEY = "auto_backup.identity"
+_LIBRARY_ID_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
+# The sequence decides which copy is newest, even when a clock correction
+# makes created_at disagree; but a lower-numbered copy claiming to be more
+# than this much newer means the clock or the counter can't be trusted, and
+# the owner chooses.
+_ORDER_TOLERANCE = datetime.timedelta(days=1)
+# What a copy's manifest says about who made it (see _classify).
+_THIS, _LEGACY, _OTHER = "this", "legacy", "other"
+_MANAGED = (_THIS, _LEGACY)
 FREQUENCIES = {"daily": 1, "weekly": 7, "monthly": 30}  # days between runs
 DEFAULT_SETTINGS = {"enabled": False, "frequency": "daily", "include_media": False,
                     "folder": ""}
@@ -118,6 +150,12 @@ DELETE_CONFIRM_TEXT = "DELETE"
 _NO_SNAPSHOT = "There is no backup snapshot yet."
 _NO_COPY = "That backup copy doesn't exist (it may have been rotated out)."
 _BAD_SNAPSHOT = "The backup snapshot could not be read; it may be damaged."
+_CHOOSE = ("Choose which backup copy to use: the newest one can't be told for sure "
+           "(copies from another library or from before this update, or dates that "
+           "disagree).")
+_UNMANAGED = ("That copy isn't managed by this library (another library's, one made before "
+              "copies were tagged, or one that can't be read). Confirm deleting it "
+              "explicitly.")
 _FAILED = "The backup could not be written; the existing copies were kept."
 
 # Held while a copy is added, pruned, moved, deleted, or read for a restore,
@@ -216,13 +254,16 @@ def _folder_path(folder: str) -> str:
 
 
 def _move_copies(old_folder: str, new_folder: str):
-    """Every copy (and the legacy snapshot) moves to the new folder with the
-    folder setting, replacing a stale file of the same name there. The
-    caller holds _snapshot_lock and has checked no backup runs. On failure
-    the copies already moved are moved back and the error is raised, so the
-    setting is not changed and the copies stay together."""
+    """The managed copies (see _classify) move to the new folder with the
+    folder setting; unmanaged ones (another library's in a shared folder)
+    stay where they are. A file of the same name in the new folder is
+    replaced only when it is this library's own copy; anything else there
+    refuses the move. The caller holds _snapshot_lock and has checked no
+    backup runs. On failure the copies already moved are moved back and the
+    error is raised, so the setting is not changed and the copies stay
+    together."""
     src_dir, dest_dir = _folder_path(old_folder), _folder_path(new_folder)
-    copies = _list_copies(src_dir)
+    copies = [c for c in _classify(src_dir) if c["owner"] in _MANAGED]
     if not copies:
         return
     moved = []
@@ -233,6 +274,15 @@ def _move_copies(old_folder: str, new_folder: str):
         # could remove it.
         if os.path.samefile(src_dir, dest_dir):
             return
+        library_id = _identity()[0]
+        for copy in copies:
+            dest = os.path.join(dest_dir, copy["name"])
+            if os.path.lexists(dest) and not (
+                    os.path.isfile(dest) and not os.path.islink(dest)
+                    and _owner_id(dest) == library_id):
+                raise ConflictError(f"The new folder already has a file named {copy['name']} "
+                                    "that this library didn't make; move or rename it first. "
+                                    "The folder was not changed.")
         for copy in copies:
             _move_file(copy["path"], os.path.join(dest_dir, copy["name"]))
             moved.append(copy)
@@ -326,6 +376,57 @@ def _update_state(**fields):
     state = _get_state()
     state.update(fields)
     db.set_app_setting(STATE_KEY, state)
+
+
+def _is_sequence(value) -> bool:
+    return type(value) is int and value >= 1
+
+
+def _identity(bump_from=None) -> tuple:
+    """(library id, sequence). The id is made at random the first time and
+    never changes (a stored value that isn't a valid id is replaced, which
+    only ever makes old copies unmanaged, never someone else's managed).
+    With bump_from, the sequence becomes max(stored, bump_from) + 1 and that
+    number is returned: one write transaction, so two processes never hand
+    out the same number."""
+    if bump_from is None:
+        try:
+            stored = db.get_app_setting(IDENTITY_KEY, None)
+        except ValueError:
+            stored = None
+        if (isinstance(stored, dict) and isinstance(stored.get("library_id"), str)
+                and _LIBRARY_ID_RE.fullmatch(stored["library_id"])):
+            seq = stored.get("sequence")
+            return stored["library_id"], seq if _is_sequence(seq) else 0
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute("SELECT value FROM app_settings WHERE key = ?",
+                               (IDENTITY_KEY,)).fetchone()
+            try:
+                stored = json.loads(row[0]) if row else None
+            except ValueError:
+                stored = None
+            stored = stored if isinstance(stored, dict) else {}
+            library_id, sequence = stored.get("library_id"), stored.get("sequence")
+            changed = False
+            if not (isinstance(library_id, str) and _LIBRARY_ID_RE.fullmatch(library_id)):
+                library_id, sequence, changed = uuid.uuid4().hex, 0, True
+            if not _is_sequence(sequence):
+                sequence = 0
+            if bump_from is not None:
+                sequence = max(sequence, bump_from) + 1
+                changed = True
+            if changed:
+                conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                             (IDENTITY_KEY, json.dumps({"library_id": library_id,
+                                                        "sequence": sequence})))
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+    return library_id, sequence
 
 
 def _now() -> datetime.datetime:
@@ -445,20 +546,87 @@ def _list_copies(folder: str) -> list:
     return out
 
 
-# Runs within one second get names a second apart (_new_copy_path), so the
-# newest real copy can be named slightly after now; only a copy dated
-# further ahead than this counts as future-dated for the default pick.
-_FUTURE_SLACK = datetime.timedelta(minutes=10)
+def _adopts_legacy(folder: str) -> bool:
+    """Copies without a library id (written before copies carried one) count
+    as this library's only in its own default folder, and only while that
+    folder really is inside the library (not a link out to a shared
+    drive): nothing else writes there."""
+    try:
+        lib = os.path.realpath(db.LIBRARY_DIR)
+        default = os.path.realpath(_folder_path(""))
+        return default.startswith(lib + os.sep) and os.path.realpath(folder) == default
+    except (OSError, ValueError):
+        return False
 
 
-def _newest_first(copies: list) -> list:
-    """`copies` (newest first) in the order the default pick tries them:
-    copies dated up to now (plus _FUTURE_SLACK) first, then any dated later
-    (a clock that ran ahead), so a future-dated copy is never taken over the latest real one
-    but is still used when nothing else can be read."""
-    limit = _now() + _FUTURE_SLACK
-    return ([c for c in copies if c["at"] <= limit]
-            + [c for c in copies if c["at"] > limit])
+def _owner_id(path: str):
+    """The library id in the copy's manifest, or None."""
+    state, manifest = _read_copy(path)
+    value = manifest.get("library_id") if state == _OK else None
+    return value if isinstance(value, str) else None
+
+
+def _classify(folder: str) -> list:
+    """_list_copies(folder) (newest first by name date), each copy with what
+    its manifest says: state (see _read_copy), manifest, sequence (int or
+    None), created (the manifest's created_at, else the name's date) and
+    owner:
+      _THIS   -- the manifest carries this library's id and a sequence;
+      _LEGACY -- a readable copy with neither, in the folder _adopts_legacy
+                 accepts;
+      _OTHER  -- anything else: another library's id, no id elsewhere, an
+                 id without a sequence, a copy that can't be read.
+    Only _THIS and _LEGACY (_MANAGED) take rotation slots or are deleted
+    without the owner naming them. The caller holds _snapshot_lock."""
+    library_id = _identity()[0]
+    adopt = _adopts_legacy(folder)
+    out = []
+    for copy in _list_copies(folder):
+        state, manifest = _read_copy(copy["path"])
+        owner, sequence, created = _OTHER, None, copy["at"]
+        if state == _OK:
+            created = _parse(manifest.get("created_at")) or copy["at"]
+            seq = manifest.get("sequence")
+            sequence = seq if _is_sequence(seq) else None
+            if manifest.get("library_id") == library_id and sequence is not None:
+                owner = _THIS
+            elif adopt and "library_id" not in manifest and "sequence" not in manifest:
+                owner = _LEGACY
+        out.append({**copy, "state": state, "manifest": manifest, "sequence": sequence,
+                    "created": created, "owner": owner})
+    return out
+
+
+def _default_pick(entries: list) -> tuple:
+    """(entry, False) for the copy a restore uses when none is named: this
+    library's copy with the highest sequence. (None, True) when that can't
+    be told for sure (see the module docstring); (None, False) when no copy
+    can be read at all."""
+    readable = [e for e in entries if e["state"] == _OK]
+    if not readable:
+        return None, False
+    own = [e for e in readable if e["owner"] == _THIS]
+    if not own or any(e["state"] == _UNREADABLE for e in entries):
+        return None, True
+    top = max(own, key=lambda e: e["sequence"])
+    for e in readable:
+        if e is top:
+            continue
+        if e["owner"] == _THIS:
+            if (e["sequence"] == top["sequence"]
+                    or e["created"] > top["created"] + _ORDER_TOLERANCE):
+                return None, True
+        elif e["created"] > top["created"]:
+            return None, True
+    return top, False
+
+
+def _candidates(entries: list) -> list:
+    """The copies a choose_copy answer offers: every readable one, newest
+    first by name date. Names only, never paths."""
+    return [{"name": e["name"], "created_at": _iso(e["created"]), "sequence": e["sequence"],
+             "size": e["size"], "managed": e["owner"] in _MANAGED}
+            for e in entries if e["state"] == _OK]
 
 
 # What _read_copy found: a readable copy; one the OS wouldn't let us read
@@ -504,28 +672,34 @@ def _retention(readable: list) -> dict:
     return kept
 
 
+def _rotation_pool(entries: list, anchor: dict) -> list:
+    """The copies the rotation weighs against `anchor` (one of this
+    library's), newest first: the anchor, then every managed copy dated no
+    later than it and, if it is this library's, numbered lower. A copy
+    dated after the anchor (a clock set back, a future-dated file) or
+    numbered higher is never in the pool, so never deleted."""
+    return [anchor] + [
+        e for e in entries
+        if e is not anchor and e["owner"] in _MANAGED and e["at"] <= anchor["at"]
+        and (e["owner"] == _LEGACY or e["sequence"] < anchor["sequence"])]
+
+
 def _prune(folder: str, new_name: str) -> int:
     """Deletes the copies the rotation no longer keeps; returns how many.
     The caller holds _snapshot_lock and has just put the validated copy
-    `new_name` in place; it is always kept and anchors the rule. A copy
-    dated after it (a clock set back, a future-dated file) or one that
-    can't be opened right now takes no slot and is never deleted; a damaged
-    copy is deleted only when older than every kept copy. Nothing is
-    deleted unless the new copy reads back."""
-    copies = _list_copies(folder)
-    new = next((c for c in copies if c["name"] == new_name), None)
-    if new is None or _read_copy(new["path"])[0] != _OK:
+    `new_name` in place; it is always kept and anchors the rule. Only
+    managed copies in _rotation_pool are ever deleted: never another
+    library's, never one that can't be read or proves no owner. Nothing is
+    deleted unless the new copy reads back as this library's."""
+    entries = _classify(folder)
+    new = next((e for e in entries if e["name"] == new_name), None)
+    if new is None or new["owner"] != _THIS:
         return 0
-    older = [c for c in copies if c["name"] != new_name and c["at"] <= new["at"]]
-    state = {c["name"]: _read_copy(c["path"])[0] for c in older}
-    readable = [new] + [c for c in older if state[c["name"]] == _OK]
-    kept = _retention(readable)
-    oldest_kept = min(c["at"] for c in readable if c["name"] in kept)
+    pool = _rotation_pool(entries, new)
+    kept = _retention(pool)
     removed = 0
-    for copy in older:
-        if copy["name"] in kept or state[copy["name"]] == _UNREADABLE:
-            continue
-        if state[copy["name"]] == _DAMAGED and copy["at"] >= oldest_kept:
+    for copy in pool:
+        if copy["name"] in kept:
             continue
         try:
             os.remove(copy["path"])     # removes a name, never follows a link
@@ -537,18 +711,23 @@ def _prune(folder: str, new_name: str) -> int:
 
 def _pick_copy(name=None) -> tuple:
     """(copy, manifest) for the copy called `name` -- matched against the
-    backup folder's own listing, never used as a path -- or, with no name,
-    the newest readable copy not dated after now (a future-dated one only
-    when no other can be read). The caller holds _snapshot_lock."""
-    copies = _list_copies(_target_dir(create=False))
+    backup folder's own listing, never used as a path; any listed copy,
+    managed or not -- or, with no name, _default_pick's copy (a
+    ConflictError with reason "choose_copy" and the candidates when it
+    can't tell). The caller holds _snapshot_lock."""
+    folder = _target_dir(create=False)
     if name is None:
-        if not copies:
+        entries = _classify(folder)
+        if not entries:
             raise NotFoundError(_NO_SNAPSHOT)
-        for copy in _newest_first(copies):
-            state, manifest = _read_copy(copy["path"])
-            if state == _OK:
-                return copy, manifest
-        raise InvalidInputError(_BAD_SNAPSHOT)
+        pick, ambiguous = _default_pick(entries)
+        if ambiguous:
+            raise ConflictError(_CHOOSE, details={"reason": "choose_copy",
+                                                  "candidates": _candidates(entries)})
+        if pick is None:
+            raise InvalidInputError(_BAD_SNAPSHOT)
+        return pick, pick["manifest"]
+    copies = _list_copies(folder)
     if not isinstance(name, str) or not name or len(name) > _MAX_COPY_NAME_LEN:
         raise InvalidInputError("A backup copy is named by its file name.")
     for copy in copies:
@@ -582,42 +761,44 @@ def _read_manifest(zf: zipfile.ZipFile) -> dict:
 
 
 def snapshot_info() -> dict:
-    """{exists, copies} plus, for the copy a restore picks by default (the
-    newest readable one, see _pick_copy), readable,
-    created_at, kind, size, app_version and drama_count. copies lists every
-    copy newest first as {name, created_at, size, kind, drama_count,
-    readable, kept_as}: names only, never paths. When copies exist but none
-    can be read: {exists: True, readable: False, copies}."""
+    """{exists, copies} plus, for the copy a restore picks by default (see
+    _default_pick), readable, default_copy (its name), choose_copy (False),
+    created_at, kind, size, app_version and drama_count. When no copy can
+    be picked safely: {exists, readable: True, choose_copy: True,
+    default_copy: None, copies}. copies lists every copy newest first (by
+    name date) as {name, created_at, size, kind, drama_count, readable,
+    kept_as, managed, sequence}: names only, never paths. When copies exist
+    but none can be read: {exists: True, readable: False, copies}."""
     with _snapshot_lock:
-        described = [(copy, _read_copy(copy["path"])[1])
-                     for copy in _list_copies(_target_dir(create=False))]
-    # As the next run would see it: a copy dated after now takes no slot.
-    now = _now()
-    kept = _retention([c for c, m in described if m is not None and c["at"] <= now])
-    copies, entries = [], {}
-    for copy, manifest in described:
-        created = manifest.get("created_at") if manifest else None
-        entry = {"name": copy["name"],
-                 "created_at": created if isinstance(created, str) else _iso(copy["at"]),
-                 "size": copy["size"], "readable": manifest is not None,
-                 "kind": manifest["kind"] if manifest else None,
-                 "drama_count": len(manifest["dramas"]) if manifest else None,
-                 "kept_as": kept.get(copy["name"])}
-        copies.append(entry)
-        entries[copy["name"]] = entry
-    # The one a restore with no copy named would use (see _pick_copy).
-    manifests = {c["name"]: m for c, m in described}
-    newest = next(((entries[c["name"]], manifests[c["name"]])
-                   for c in _newest_first([c for c, _ in described])
-                   if manifests[c["name"]] is not None), None)
-    if not copies:
+        entries = _classify(_target_dir(create=False))
+    if not entries:
         return {"exists": False, "copies": []}
-    if newest is None:
+    # As the next run would see it: anchored on this library's newest copy.
+    own = [e for e in entries if e["owner"] == _THIS]
+    anchor = max(own, key=lambda e: e["sequence"]) if own else None
+    kept = _retention(_rotation_pool(entries, anchor)) if anchor else {}
+    copies = []
+    for e in entries:
+        manifest = e["manifest"]
+        created = manifest.get("created_at") if manifest else None
+        copies.append({"name": e["name"],
+                       "created_at": created if isinstance(created, str) else _iso(e["at"]),
+                       "size": e["size"], "readable": manifest is not None,
+                       "kind": manifest["kind"] if manifest else None,
+                       "drama_count": len(manifest["dramas"]) if manifest else None,
+                       "kept_as": kept.get(e["name"]),
+                       "managed": e["owner"] in _MANAGED, "sequence": e["sequence"]})
+    pick, ambiguous = _default_pick(entries)
+    if ambiguous:
+        return {"exists": True, "readable": True, "choose_copy": True, "default_copy": None,
+                "copies": copies}
+    if pick is None:
         return {"exists": True, "readable": False, "copies": copies}
-    entry, manifest = newest
-    return {"exists": True, "readable": True, "created_at": entry["created_at"],
+    entry = next(c for c in copies if c["name"] == pick["name"])
+    return {"exists": True, "readable": True, "choose_copy": False,
+            "default_copy": pick["name"], "created_at": entry["created_at"],
             "kind": entry["kind"], "size": entry["size"],
-            "app_version": manifest.get("app_version") or "unknown",
+            "app_version": pick["manifest"].get("app_version") or "unknown",
             "drama_count": entry["drama_count"], "copies": copies}
 
 
@@ -648,7 +829,9 @@ def _app_version() -> str:
         return "unknown"
 
 
-def _manifest_bytes(snap_path: str, include_media: bool) -> bytes:
+def _manifest_bytes(snap_path: str, include_media: bool, owner: tuple) -> bytes:
+    """owner = (library id, sequence) from _identity: what makes the copy
+    this library's (see _classify)."""
     with contextlib.closing(sqlite3.connect(_ro_uri(snap_path), uri=True)) as conn:
         rows = conn.execute("SELECT id, title_en, title_zh, media_type FROM dramas "
                             "ORDER BY id").fetchall()
@@ -659,7 +842,7 @@ def _manifest_bytes(snap_path: str, include_media: bool) -> bytes:
     manifest = {"format": MANIFEST_FORMAT, "created_at": _iso(_now()),
                 "kind": "full" if include_media else "db-only",
                 "app_version": _app_version(), "database_size": os.path.getsize(snap_path),
-                "dramas": dramas}
+                "library_id": owner[0], "sequence": owner[1], "dramas": dramas}
     return json.dumps(manifest, ensure_ascii=False).encode("utf-8")
 
 
@@ -734,9 +917,16 @@ def _backup_job(job_id, include_media: bool):
         fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
                                    dir=target)
         os.close(fd)
+        # The next number above both the stored one and every copy of this
+        # library already in the folder, so a sequence rolled back by a
+        # hand-restored library.db can't reuse a number.
+        with _snapshot_lock:
+            floor = max((e["sequence"] for e in _classify(target) if e["owner"] == _THIS),
+                        default=0)
+            owner = _identity(bump_from=floor)
         background_jobs.update_progress(job_id, 0.1, "Writing the backup...")
         las.write_backup_zip(tmp, include_media=include_media,
-                             manifest=lambda snap: _manifest_bytes(snap, include_media))
+                             manifest=lambda snap: _manifest_bytes(snap, include_media, owner))
         background_jobs.update_progress(job_id, 0.8, "Checking the backup...")
         _verify_snapshot(tmp)
         # On disk before any old copy is deleted: a power cut must not
@@ -866,14 +1056,20 @@ def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float 
     return removed
 
 
-def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=False) -> dict:
+def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=False,
+                    include_unmanaged=False) -> dict:
     """Deletes the copy named `snapshot` (matched against the folder's
-    listing), or every copy with all_copies=True -- exactly one of the two,
-    so a request that lost its name can't delete everything. Needs
-    confirm=True and confirm_text "DELETE". Returns {deleted, count}."""
+    listing), or every managed copy with all_copies=True -- exactly one of
+    the two, so a request that lost its name can't delete everything. An
+    unmanaged copy (see _classify) is deleted only with
+    include_unmanaged=True: by name, or with all_copies as well. Needs
+    confirm=True and confirm_text "DELETE". Returns {deleted, count,
+    kept_unmanaged} (the unmanaged copies left in place)."""
     las._require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting the snapshot")
     if not isinstance(all_copies, bool):
         raise InvalidInputError("all must be true or false.")
+    if not isinstance(include_unmanaged, bool):
+        raise InvalidInputError("include_unmanaged must be true or false.")
     if (snapshot is None) == (not all_copies):
         raise InvalidInputError("Name one backup copy to delete, or ask for all of them.")
     if snapshot is not None and (not isinstance(snapshot, str) or not snapshot
@@ -882,13 +1078,22 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
     if _job_running():
         raise ConflictError("A backup is running -- wait for it to finish.")
     with _snapshot_lock:
-        copies = _list_copies(_target_dir(create=False))
+        entries = _classify(_target_dir(create=False))
+        left = 0
         if snapshot is not None:
-            copies = [c for c in copies if c["name"] == snapshot]
+            copies = [c for c in entries if c["name"] == snapshot]
             if not copies:
                 raise NotFoundError(_NO_COPY)
-        elif not copies:
+            if copies[0]["owner"] not in _MANAGED and not include_unmanaged:
+                raise ConflictError(_UNMANAGED, details={"reason": "unmanaged"})
+        elif not entries:
             raise NotFoundError(_NO_SNAPSHOT)
+        else:
+            copies = [c for c in entries if include_unmanaged or c["owner"] in _MANAGED]
+            left = len(entries) - len(copies)
+            if not copies:
+                raise NotFoundError("None of the copies in the backup folder are managed by "
+                                    "this library; nothing was deleted.")
         count, failed = 0, 0
         for copy in copies:
             try:
@@ -899,7 +1104,7 @@ def delete_snapshot(confirm=False, confirm_text="", snapshot=None, all_copies=Fa
         if failed:
             raise ServiceError("A backup copy could not be deleted; is it open somewhere?",
                                details={"deleted": count, "not_deleted": failed})
-    return {"deleted": True, "count": count}
+    return {"deleted": True, "count": count, "kept_unmanaged": left}
 
 
 # --------------------------------------------------------------------------

@@ -26,8 +26,8 @@ import {
 } from '../../types/backups'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import {
-  DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ROTATION_NOTE, changedSettings, describeCopy, describeSnapshot,
-  folderChange, formatWhen, nextRunText, serverSentence, settingsSummary,
+  DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ROTATION_NOTE, UNMANAGED_LABEL, UNMANAGED_NOTE, changedSettings,
+  describeCopy, describeSnapshot, folderChange, formatWhen, nextRunText, serverSentence, settingsSummary, splitCopies,
 } from '../backupsFormat'
 import { percent } from '../libraryAdmin/libraryAdmin'
 import '../backups.css'
@@ -165,7 +165,7 @@ function AutoBackupControls() {
   const lastAttempt = settings && formatWhen(settings.last_attempt_at)
   const next = settings && nextRunText(settings)
   const j = job
-  const copies = snapshot?.copies ?? []
+  const { managed, unmanaged } = splitCopies(snapshot?.copies ?? [])
 
   return (
     <Card
@@ -262,12 +262,24 @@ function AutoBackupControls() {
             <p className="muted" data-testid="auto-backup-snapshot">
               Newest copy: {describeSnapshot(snapshot)}
             </p>
-            {copies.length > 0 && (
+            {managed.length > 0 && (
               <ul className="backup-copies" aria-label="Backup copies, newest first" data-testid="auto-backup-copies">
-                {copies.map((c) => (
+                {managed.map((c) => (
                   <li key={c.name}>{describeCopy(c)}</li>
                 ))}
               </ul>
+            )}
+            {unmanaged.length > 0 && (
+              <>
+                <p className="muted">
+                  {UNMANAGED_LABEL}: {UNMANAGED_NOTE}
+                </p>
+                <ul className="backup-copies" aria-label={UNMANAGED_LABEL} data-testid="auto-backup-unmanaged">
+                  {unmanaged.map((c) => (
+                    <li key={c.name}>{describeCopy(c)}</li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
 

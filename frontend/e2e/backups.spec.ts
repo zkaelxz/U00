@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockBackups } from './backupsMocks'
+import { CHOOSE_SNAPSHOT, OTHER_COPY, mockBackups } from './backupsMocks'
 
 // Automatic backups (Step 43), desktop. The settings test runs against the
 // real seeded API (a throwaway library) and resets what it changed; the
@@ -146,6 +146,62 @@ test.describe('Back up now and the copies (mocked)', () => {
     expect(state.posts).toEqual([
       { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', snapshot: 'baihe_snapshot-20260921-093000.zip' } },
       { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', all: true } },
+    ])
+  })
+})
+
+test.describe('Copies from another library or with no clear newest (mocked)', () => {
+  test('Settings lists the unmanaged copy apart and names no newest copy', async ({ page }) => {
+    await mockBackups(page, { snapshot: CHOOSE_SNAPSHOT })
+    await page.goto('/#/settings')
+    const c = card(page)
+    await expect(c.getByTestId('auto-backup-snapshot')).toContainText('choose a copy when restoring')
+    await expect(c.getByRole('list', { name: 'Backup copies, newest first' }).getByRole('listitem')).toHaveCount(3)
+    const other = c.getByRole('list', { name: 'Other or older copies (not managed)' }).getByRole('listitem')
+    await expect(other).toHaveCount(1)
+    await expect(other.first()).toContainText(/not managed$/)
+  })
+
+  test('restore asks for a copy first and warns about an unmanaged one', async ({ page }) => {
+    const state = await mockBackups(page, { snapshot: CHOOSE_SNAPSHOT })
+    const block = await openAdmin(page)
+    await block.getByRole('button', { name: 'Restore one drama…' }).click()
+    const from = block.getByLabel('Restore from')
+    await expect(from).toHaveValue('')
+    await expect(block.getByTestId('choose-copy')).toContainText("can't be told for sure")
+    await expect(block.getByRole('list', { name: 'Dramas in the copy' })).toHaveCount(0)
+    await from.selectOption(OTHER_COPY.name)
+    await expect(block.getByTestId('unmanaged-restore-warning')).toBeVisible()
+    const list = block.getByRole('list', { name: 'Dramas in the copy' })
+    await list.getByRole('button', { name: /Signal/ }).click()
+    await block.getByLabel(/Type RESTORE to confirm/).fill('RESTORE')
+    await block.getByRole('button', { name: 'Restore drama' }).click()
+    await expect(block.getByTestId('restore-result')).toContainText("Restored 'Signal'.")
+    expect(state.posts).toEqual([{
+      path: '/api/backups/snapshot/restore-drama',
+      body: { drama_id: 3, confirm: true, confirm_text: 'RESTORE', snapshot: OTHER_COPY.name },
+    }])
+  })
+
+  test('delete all keeps the unmanaged copy; deleting it by name warns and says so', async ({ page }) => {
+    const state = await mockBackups(page, { snapshot: CHOOSE_SNAPSHOT })
+    const block = await openAdmin(page)
+    await block.getByRole('button', { name: 'Delete a copy…' }).click()
+    await block.getByLabel('Copy to delete').selectOption({ label: "All this library's copies (3)" })
+    await expect(block.getByTestId('unmanaged-delete-warning')).toHaveCount(0)
+    await block.getByLabel(/Type DELETE to confirm/).fill('DELETE')
+    await block.getByRole('button', { name: 'Delete all copies', exact: true }).click()
+    await expect(block.getByText("This library's copies deleted; 1 other or older copy was left.")).toBeVisible()
+
+    await block.getByRole('button', { name: 'Delete a copy…' }).click()
+    await expect(block.getByLabel('Copy to delete')).toHaveValue(OTHER_COPY.name)
+    await expect(block.getByTestId('unmanaged-delete-warning')).toContainText("another PC's backup")
+    await block.getByLabel(/Type DELETE to confirm/).fill('DELETE')
+    await block.getByRole('button', { name: 'Delete copy', exact: true }).click()
+    await expect(block.getByText('Copy deleted.')).toBeVisible()
+    expect(state.posts).toEqual([
+      { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', all: true } },
+      { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', snapshot: OTHER_COPY.name, include_unmanaged: true } },
     ])
   })
 })

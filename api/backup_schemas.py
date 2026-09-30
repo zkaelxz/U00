@@ -27,6 +27,11 @@ class SnapshotCopy(BaseModel):
     kept_as: Optional[Literal["daily", "weekly"]] = Field(
         None, description="Which rotation slot keeps this copy (the 2 newest are daily, then "
                           "the first copy of each of the 2 most recent older weeks).")
+    managed: bool = Field(True, description="Made by this library (or, in its own default "
+                                            "folder, before copies were tagged). Only managed "
+                                            "copies are rotated or deleted by 'delete all'.")
+    sequence: Optional[int] = Field(None, description="This library's copy number; the highest "
+                                                      "is the newest.")
 
 
 class AutoBackupSettings(BaseModel):
@@ -68,6 +73,10 @@ class BackupJobStarted(BaseModel):
 class SnapshotInfo(BaseModel):
     exists: bool
     readable: Optional[bool] = None
+    choose_copy: Optional[bool] = Field(None, description="true = the newest copy can't be told "
+                                                          "for sure; a restore must name one.")
+    default_copy: Optional[str] = Field(None, description="The copy a restore uses when none is "
+                                                          "named.")
     created_at: Optional[str] = None
     kind: Optional[SnapshotKind] = None
     size: Optional[int] = None
@@ -101,7 +110,8 @@ class RestoreDramaRequest(BaseModel):
     confirm_text: str = Field("", max_length=32)
     snapshot: Optional[str] = Field(None, min_length=1, max_length=64,
                                     description="A copy's name from the copies list; left "
-                                                "out = the newest readable copy.")
+                                                "out = default_copy (409 choose_copy when "
+                                                "there is none).")
 
 
 class RestoreDramaDone(BaseModel):
@@ -121,15 +131,20 @@ class RestoreDramaDone(BaseModel):
 
 class DeleteSnapshotRequest(BaseModel):
     """Needs confirm=true and confirm_text "DELETE", and exactly one of
-    snapshot (the copy to delete) or all=true (every copy)."""
+    snapshot (the copy to delete) or all=true (every managed copy). An
+    unmanaged copy is deleted only with include_unmanaged=true."""
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
     confirm_text: str = Field("", max_length=32)
     snapshot: Optional[str] = Field(None, min_length=1, max_length=64,
                                     description="A copy's name from the copies list.")
-    all: StrictBool = Field(False, description="true = delete every copy (no snapshot).")
+    all: StrictBool = Field(False, description="true = delete every managed copy (no "
+                                               "snapshot).")
+    include_unmanaged: StrictBool = Field(False, description="true = also copies this library "
+                                                             "doesn't manage.")
 
 
 class DeleteSnapshotDone(BaseModel):
     deleted: bool
     count: int = 0
+    kept_unmanaged: int = Field(0, description="Unmanaged copies left in place by 'delete all'.")

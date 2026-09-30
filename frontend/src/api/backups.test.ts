@@ -55,9 +55,12 @@ describe('backups api', () => {
     await restoreSnapshotDrama(7, copy, f)
     await deleteSnapshot({ all: true }, f)
     await deleteSnapshot({ snapshot: copy }, f)
+    await deleteSnapshot({ snapshot: copy, include_unmanaged: true }, f)
+    await deleteSnapshot({ all: true, include_unmanaged: true }, f)
     expect(mock.mock.calls.map(([u]) => u)).toEqual([
       '/api/backups/now', '/api/backups/snapshot/restore-drama', '/api/backups/snapshot/restore-drama',
-      '/api/backups/snapshot/delete', '/api/backups/snapshot/delete',
+      '/api/backups/snapshot/delete', '/api/backups/snapshot/delete', '/api/backups/snapshot/delete',
+      '/api/backups/snapshot/delete',
     ])
     expect(mock.mock.calls.map(([, i]) => JSON.parse(i.body))).toEqual([
       {},
@@ -65,6 +68,8 @@ describe('backups api', () => {
       { drama_id: 7, confirm: true, confirm_text: 'RESTORE', snapshot: copy },
       { confirm: true, confirm_text: 'DELETE', all: true },
       { confirm: true, confirm_text: 'DELETE', snapshot: copy },
+      { confirm: true, confirm_text: 'DELETE', snapshot: copy, include_unmanaged: true },
+      { confirm: true, confirm_text: 'DELETE', all: true, include_unmanaged: true },
     ])
   })
 
