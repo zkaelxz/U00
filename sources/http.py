@@ -35,6 +35,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+from translate_engines import safe_url
+
 from . import detect, health, store
 from .cache import RawCache
 from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REASONS,
@@ -936,7 +938,7 @@ class SourceClient:
                 if poll is not None:
                     poll.other_requests += 1
                 self.stats["cache_hits"] += 1
-                self._status(f"Cache hit: {url}")
+                self._status(f"Cache hit: {safe_url(url) or 'page'}")
                 return Response(200, {}, cached, url, from_cache=True)
 
         hdrs = dict(self.default_headers)
@@ -951,7 +953,7 @@ class SourceClient:
         while True:
             with st["sem"]:
                 self._wait_turn(host, st)
-                self._status(action or f"Fetching {url}", 0.0)
+                self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
                 started = self.clock()
                 try:

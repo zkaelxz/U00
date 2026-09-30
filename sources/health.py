@@ -6,6 +6,8 @@ failing source from being hit again too soon.
 
 import time
 
+from translate_engines import redact_for_storage
+
 from . import store
 
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
@@ -70,7 +72,7 @@ def record_failure(source: str, error_type: str, error: str, now: float = None,
             "SET consecutive_failures=excluded.consecutive_failures, "
             "last_failure=excluded.last_failure, last_error_type=excluded.last_error_type, "
             "last_error=excluded.last_error, unavailable_until=excluded.unavailable_until",
-            (source, failures, now, error_type, error[:500], until))
+            (source, failures, now, error_type, redact_for_storage(error)[:500], until))
     return get(source)
 
 
