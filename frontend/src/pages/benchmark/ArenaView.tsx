@@ -76,7 +76,7 @@ export function ArenaView({ target, phone, onClose }: { target: ArenaTarget; pho
           <>
             <p className="muted">{metricNote(stage)}</p>
             {mixedScorerNote(arena.rows) && (
-              <p className="error" role="note" data-testid="bench-mixed-scorers">
+              <p className="warn" role="note" data-testid="bench-mixed-scorers">
                 {mixedScorerNote(arena.rows)}
               </p>
             )}

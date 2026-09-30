@@ -41,6 +41,7 @@ they are stored.
 Not built here (see the Step 38 PR): scoped translation-memory saves,
 the auto-derived Translation Profile and a COMET scorer.
 """
+import functools
 import json
 import time
 import uuid
@@ -113,11 +114,13 @@ def error_rate(actual: str, reference: str, unit: str = "char") -> float:
     return (_edit_distance(a[:limit], r) + extra) / len(r)
 
 
+@functools.lru_cache(maxsize=None)
 def _jiwer_transform(jiwer, unit: str, keep_punctuation: bool = False):
     """jiwer's usual normalisation, applied the same way to both texts:
     lower-case, punctuation (unless kept, as for OCR) and extra whitespace
     removed, then split into words (WER) or characters with all whitespace
-    dropped (CER)."""
+    dropped (CER). Cached: jiwer 3.x's RemovePunctuation scans all of Unicode
+    when it is built."""
     steps = [jiwer.ToLowerCase()]
     if not keep_punctuation:
         steps.append(jiwer.RemovePunctuation())

@@ -158,6 +158,11 @@ class TestJiwerScorer:
         assert svc.score_output("ocr", "你好世", "你好\u3000世界")[0] == pytest.approx(0.75)
         assert svc.score_output("ocr", "你好\u00a0世界", "你好世界")[0] == 1.0
 
+    def test_transform_is_built_once(self):
+        import jiwer
+        assert svc._jiwer_transform(jiwer, "char", True) is svc._jiwer_transform(jiwer, "char", True)
+        assert svc._jiwer_transform(jiwer, "word") is not svc._jiwer_transform(jiwer, "char")
+
     def test_empty_output_is_all_deletions(self):
         assert svc.score_output("ocr", "", "你好世界")[::2] == (0.0, "jiwer")
         assert svc.score_output("transcription", "", "the cat", "en")[::2] == (0.0, "jiwer")
