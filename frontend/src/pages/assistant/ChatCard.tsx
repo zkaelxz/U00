@@ -10,8 +10,9 @@ import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
-import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, SuggestedBacklogItem } from '../../types/assistant'
+import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, GithubStatus, SuggestedBacklogItem } from '../../types/assistant'
 import { CopyButton } from './CopyButton'
+import { DeliverPr } from './DeliverPr'
 import { ReviewRolesSection } from './ReviewRolesSection'
 import { verdictInfo } from './reviewFormat'
 import {
@@ -36,9 +37,11 @@ type Props = {
   onSettings: (s: AssistantSettings) => void
   onModeOff: () => void
   onAddToBacklog: AddToBacklog
+  // Step 72: GitHub delivery status (null: not loaded / PC-only).
+  github?: GithubStatus | null
 }
 
-export function ChatCard({ settings, engine, model, onEngine, onModel, onSettings, onModeOff, onAddToBacklog }: Props) {
+export function ChatCard({ settings, engine, model, onEngine, onModel, onSettings, onModeOff, onAddToBacklog, github = null }: Props) {
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
@@ -91,7 +94,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
                 {x.question}
               </p>
               {x.response ? (
-                <Answer response={x.response} onAddToBacklog={onAddToBacklog} />
+                <Answer response={x.response} question={x.question} github={github} onAddToBacklog={onAddToBacklog} />
               ) : x.error ? (
                 <p className="error" role="alert">
                   {x.error}
@@ -146,7 +149,9 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   )
 }
 
-function Answer({ response, onAddToBacklog }: { response: AskResponse; onAddToBacklog: AddToBacklog }) {
+type AnswerProps = { response: AskResponse; question: string; github: GithubStatus | null; onAddToBacklog: AddToBacklog }
+
+function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
   const calls = response.tool_calls ?? []
   return (
     <div className="assistant-response">
@@ -181,6 +186,7 @@ function Answer({ response, onAddToBacklog }: { response: AskResponse; onAddToBa
           </figcaption>
           <pre className="assistant-pre">{p.patch}</pre>
           <CopyButton text={p.patch} label="Copy proposed fix" />
+          <DeliverPr patch={p.patch} question={question} github={github} />
         </figure>
       ))}
       {response.review && <Review review={response.review} />}
