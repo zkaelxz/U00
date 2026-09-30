@@ -72,7 +72,7 @@ import core as core_module
 import db
 import raw_transcript
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
-from services import diarization_service, settings_service, source_service
+from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -226,8 +226,14 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
             raise InvalidInputError(f"Unknown alignment_method {fields['alignment_method']!r}.")
         updates["alignment_method"] = fields["alignment_method"]
     if "asr_backend_choice" in fields and fields["asr_backend_choice"] is not None:
-        if fields["asr_backend_choice"] not in ("whisper", "qwen3_asr"):
+        if fields["asr_backend_choice"] not in ("whisper", "qwen3_asr", "moss_td"):
             raise InvalidInputError(f"Unknown asr_backend_choice {fields['asr_backend_choice']!r}.")
+        # Only a change TO moss_td needs the toggle: the form re-sends the
+        # stored value with every save, and a run start checks it again.
+        if (fields["asr_backend_choice"] == "moss_td"
+                and drama.get("asr_backend_choice") != "moss_td"
+                and not asr_options_service.get_moss_experimental()):
+            raise InvalidInputError(_MOSS_OFF_MESSAGE)
         updates["asr_backend_choice"] = fields["asr_backend_choice"]
     if "beam_size" in fields and fields["beam_size"] is not None:
         if not 1 <= fields["beam_size"] <= 10:
@@ -263,6 +269,34 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
+def _speaker_range(expected_speakers=None, min_speakers=None, max_speakers=None):
+    """Step 105: (min_speakers, max_speakers) for the chained speaker
+    detection, each None when unset. Raises InvalidInputError for a bad
+    range, or a range combined with an exact count (diarize.validate_speaker_hints)."""
+    import diarize as diarize_module
+    try:
+        _num, lo, hi = diarize_module.validate_speaker_hints(
+            expected_speakers, min_speakers, max_speakers)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
+    return lo, hi
+
+
+_MOSS_OFF_MESSAGE = ("MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in "
+                     "Settings > Transcription experiments first.")
+
+
+def _require_moss_backend() -> None:
+    """Step 104: the experimental MOSS backend needs its Settings toggle on
+    and its package installed; never falls back to Whisper silently."""
+    if not asr_options_service.get_moss_experimental():
+        raise InvalidInputError(_MOSS_OFF_MESSAGE)
+    if not asr_options_service.moss_installed():
+        raise DependencyUnavailableError(
+            "MOSS-Transcribe-Diarize isn't installed. It installs from its GitHub repository "
+            "(OpenMOSS/MOSS-Transcribe-Diarize), not from pip's index, and needs Transformers 5.")
+
+
 def _require_qwen3_packages(feature: str) -> None:
     """Raises DependencyUnavailableError naming the missing package(s) and the
     pip line (qwen-asr's own Diagnostics entry: diagnostics.MODEL_ENGINE_REGISTRY)
@@ -285,7 +319,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           transcript_text: Optional[str] = None, run_diarize: bool = False,
                           expected_speakers: Optional[int] = None,
                           initial_prompt: str = "", tesseract_cmd: Optional[str] = None,
-                          extra_names: str = "") -> dict:
+                          extra_names: str = "", min_speakers: Optional[int] = None,
+                          max_speakers: Optional[int] = None) -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -326,6 +361,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    min_speakers, max_speakers = _speaker_range(expected_speakers, min_speakers, max_speakers)
 
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
@@ -374,6 +410,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
             _require_qwen3_packages("Qwen3-ASR")
+        elif asr_backend_choice == "moss_td":
+            _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
         _require_qwen3_packages("Qwen3 forced alignment")
 
@@ -400,6 +438,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         drama.get("hardsub_interval_sec") or 1.0,
         tesseract_cmd or settings_service.get_tesseract_cmd(), diarize_audio_path,
         settings_service.get_use_gpu(), asr_backend_choice, alignment_method,
+        min_speakers=min_speakers, max_speakers=max_speakers,
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -408,7 +447,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
 def validate_transcribe_options(drama_id: int, source_language: Optional[str] = None,
                                 chinese_script: Optional[str] = None,
-                                transcript_text: Optional[str] = None, **_ignored) -> None:
+                                transcript_text: Optional[str] = None,
+                                expected_speakers: Optional[int] = None,
+                                min_speakers: Optional[int] = None,
+                                max_speakers: Optional[int] = None, **_ignored) -> None:
     """Validate-only pre-check for a run that starts after the audio exists
     (B-09: upload-and-transcribe with a video). Raises the same errors as
     start_transcribe_run for everything that doesn't depend on the audio or
@@ -417,6 +459,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    _speaker_range(expected_speakers, min_speakers, max_speakers)
     if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
@@ -439,6 +482,8 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
                 "to 'whisper_diff'.")
         if asr_backend_choice == "qwen3_asr":
             _require_qwen3_packages("Qwen3-ASR")
+        elif asr_backend_choice == "moss_td":
+            _require_moss_backend()
     elif transcript_mode == "have_transcript" and alignment_method == "qwen3_forced_align":
         _require_qwen3_packages("Qwen3 forced alignment")
     if drama.get("use_groq") and not settings_service.resolve_key("groq"):
@@ -492,7 +537,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    initial_prompt="", video_path=None, hardsub_ocr_backend=None,
                                    hardsub_interval=1.0, tesseract_cmd=None,
                                    diarize_audio_path=None, use_gpu=False,
-                                   asr_backend_choice="whisper", alignment_method="whisper_diff"):
+                                   asr_backend_choice="whisper", alignment_method="whisper_diff",
+                                   min_speakers=None, max_speakers=None):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -506,11 +552,16 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     apply step for Streamlit's own render loop -- see this module's
     docstring for why this slice can't reuse that split.
 
+    min_speakers/max_speakers (Step 105): a speaker-count range for the
+    chained speaker detection, already checked by start_transcribe_run.
+
     use_gpu is the persisted server-side toggle (db.app_settings, read via
     settings_service.get_use_gpu() in start_transcribe_run, default off).
 
     asr_backend_choice / alignment_method (Slice 34) are the drama's stored
-    choices: "qwen3_asr" only applies in whisper transcript_mode, and
+    choices: "qwen3_asr" and the experimental "moss_td" (Step 104: replaces
+    Whisper, keeps MOSS's own speaker labels and skips the pyannote chain
+    when it produced any) only apply in whisper transcript_mode, and
     "qwen3_forced_align" only in have_transcript mode, same as the
     Streamlit apply block. Import/download/other Qwen3 failures end the job
     with a failed_reason ("dependency_missing", "model_download",
@@ -531,6 +582,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     forced_align_error = None
     device_msg = ""
     device_suffix = ""
+    moss_run = transcript_mode == "whisper" and asr_backend_choice == "moss_td"
+    moss_info = {}
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
@@ -572,7 +625,37 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
             return
 
-        if use_groq:
+        if moss_run:
+            # Step 104 (experimental): one pass that also labels speakers;
+            # replaces Whisper for this run, only when chosen explicitly.
+            background_jobs.update_progress(
+                job_id, 0.0, "Transcribing and detecting speakers with "
+                             "MOSS-Transcribe-Diarize (experimental)...")
+            try:
+                import asr_backend
+                segments = asr_backend.get_backend("moss_td").transcribe(
+                    audio_path, source_language, use_gpu=use_gpu, run_info=moss_info)
+            except ImportError as exc:
+                background_jobs.set_result(job_id, {
+                    "failed_reason": "dependency_missing",
+                    "detail": "MOSS-Transcribe-Diarize isn't installed "
+                              f"({redact_secrets(str(exc))})"})
+                return
+            except core_module.ModelDownloadError as exc:
+                background_jobs.set_result(
+                    job_id, {"failed_reason": "model_download", "detail": redact_secrets(str(exc))})
+                return
+            except Exception as exc:
+                background_jobs.set_result(
+                    job_id, {"failed_reason": "moss_td", "detail": redact_secrets(str(exc))})
+                return
+            device_msg = "GPU" if moss_info.get("device") == "cuda" else "CPU"
+            # One blocking call with no cancel hook: honour a cancel that
+            # arrived meanwhile before replacing any lines.
+            if background_jobs.is_cancel_requested(job_id):
+                background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                return
+        elif use_groq:
             background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
             try:
                 segments = core_module.transcribe_with_groq(
@@ -621,7 +704,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             background_jobs.set_result(job_id, {"failed_reason": "empty"})
             return
 
-        if realign_long_segments and not background_jobs.is_cancel_requested(job_id):
+        if realign_long_segments and not moss_run and not background_jobs.is_cancel_requested(job_id):
             import word_align
             background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
             try:
@@ -632,7 +715,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
 
         if transcript_mode == "whisper":
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
-            if asr_backend_choice == "qwen3_asr":
+            if moss_run:
+                raw_backend, raw_model = "moss_td", "MOSS-Transcribe-Diarize"
+            elif asr_backend_choice == "qwen3_asr":
                 if background_jobs.is_cancel_requested(job_id):
                     background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
                     return
@@ -643,7 +728,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 try:
                     import asr_backend
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
-                        audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu)
+                        audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
+                        batch_size=asr_options_service.get_qwen_asr_batch_size())
                 except ImportError as exc:
                     background_jobs.set_result(job_id, {
                         "failed_reason": "dependency_missing",
@@ -659,7 +745,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                         job_id, {"failed_reason": "qwen3_asr", "detail": redact_secrets(str(exc))})
                     return
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
-            lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
+            lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
+                          speaker=seg.get("speaker") or None)
                      for i, seg in enumerate(segments) if seg["text"].strip()]
         else:
             background_jobs.update_progress(job_id, 1.0, "Aligning transcript to audio timing...")
@@ -714,15 +801,23 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         language=source_language, mode=raw_mode)
     db.update_drama(drama_id, status="aligned")
 
+    # MOSS already labelled speakers: record them as characters and don't
+    # chain pyannote over them (it would relabel every line).
+    moss_speakers = sorted({ln.speaker for ln in lines if ln.speaker}) if moss_run else []
+    for label in moss_speakers:
+        db.upsert_character(drama_id, label)
+
     diarize_started = False
-    if hf_token and diarize_audio_path:
+    if hf_token and diarize_audio_path and not moss_speakers:
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
             args=(diarize_audio_path, hf_token, expected_speakers or None,
-                  diarization_service.worker_options()),
+                  diarization_service.worker_options(min_speakers, max_speakers)),
             gpu_touching=True, description=f"Diarization (drama #{drama_id})",
-            on_done=diarization_service.make_apply_on_done(drama_id, expected_speakers))
+            on_done=diarization_service.make_apply_on_done(
+                drama_id, expected_speakers, min_speakers=min_speakers,
+                max_speakers=max_speakers))
 
     background_jobs.set_result(job_id, {
         "line_count": len(lines),
@@ -736,6 +831,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                              and not forced_align_error else "whisper_diff"),
         "forced_align_error": forced_align_error,
         "diarize_started": diarize_started,
+        **({"partial": True, "errors": [
+            "MOSS stopped at its output limit; the end of the audio may be missing."]}
+           if moss_info.get("truncated") else {}),
     })
 
 

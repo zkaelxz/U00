@@ -72,6 +72,7 @@ test('phone: source settings render as cards with 44 px toggles', async ({ page 
   await expect(cards.first()).toContainText('OK')
   await expect(cards.nth(1)).toContainText('Sign-in saved')
   await expect(settings.getByRole('switch', { name: 'On: Alpha Comics' })).toBeChecked()
+  await expect(settings.getByRole('spinbutton', { name: 'Cache limit (MB)' })).toBeVisible()
   await noSideways(page)
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
