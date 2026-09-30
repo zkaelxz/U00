@@ -72,9 +72,17 @@ SITE_NOTICE = ("轻之国度 works carry the uploaders' own notices: 仅供个�
 # ASCII digits only: str.isdigit() and \d also accept e.g. Arabic-Indic digits.
 _DIGITS = re.compile(r"[0-9]+")
 # Lines of a work's own uploader notice (in its summary or first chapter).
-_NOTICE_RE = re.compile(r"仅供|禁作商业|禁做商业|禁止转载|请勿转载|转载请|二改|二传|24小时内删除")
-_URL_RE = re.compile(r"https?://[^\s，。；、）)」】<>\"'\[\]]+")
-_CODE_RE = re.compile(r"(?:提取码|密码|访问码)\s*[：:]\s*([A-Za-z0-9]{3,8})")
+# Phrases only, not bare words like 仅供 / 二改, so a story line isn't taken
+# for a notice.
+_NOTICE_RE = re.compile(r"仅供个人|禁作商业|禁做商业|禁止转载|请勿转载|转载请保留|转载时请保留|"
+                        r"转发时请保留|禁止二改|禁止二传|24小时内删除")
+# ASCII URL characters only, so text run straight on after a link (…/b0188mxnyb密码:be3j)
+# isn't swallowed into it; trailing punctuation is stripped in _download_links.
+_URL_RE = re.compile(r"https?://[A-Za-z0-9\-._~:/?#@!$&*+,;=%]+")
+# An extraction code of 3-8 characters, not a longer word cut short, and not
+# an archive's 解压密码.
+_CODE_RE = re.compile(r"(?<!解压)(?:提取码|密码|访问码)\s*[：:]\s*([A-Za-z0-9]{3,8})(?![A-Za-z0-9])")
+_LANZOU_RE = re.compile(r"(?:[a-z0-9-]+\.)*lanzou[a-z]?\.com")
 # File lockers uploaders post EPUBs to. Listed for the person, never fetched.
 _LOCKERS = {"pan.baidu.com": "百度网盘 (Baidu Pan)", "123pan.com": "123云盘",
             "www.123pan.com": "123云盘", "www.aliyundrive.com": "阿里云盘",
@@ -202,12 +210,23 @@ def _chapter_rows(volume: dict) -> list:
     return [c for c in _list(volume.get("chapters")) if isinstance(c, dict) and _id(c.get("id"))]
 
 
-def _locker_label(url: str) -> str:
+def _split(url: str):
+    """urlsplit, or None: it raises ValueError on some malformed hosts."""
     from urllib.parse import urlsplit
-    host = (urlsplit(url).hostname or "").lower()
+    try:
+        parts = urlsplit(url)
+        parts.hostname, parts.port  # noqa: B018 -- both can raise too
+    except ValueError:
+        return None
+    return parts
+
+
+def _locker_label(url: str) -> str:
+    parts = _split(url)
+    host = ((parts.hostname if parts else "") or "").lower()
     if host in _LOCKERS:
         return _LOCKERS[host]
-    if "lanzou" in host:
+    if _LANZOU_RE.fullmatch(host):
         return "蓝奏云 (Lanzou)"
     return ""
 
@@ -215,26 +234,33 @@ def _locker_label(url: str) -> str:
 def _download_links(lines) -> list:
     """File-locker links in `lines` with their extraction code: the URL's own
     pwd= value, else a 提取码/密码 on the same line or the next two."""
-    from urllib.parse import parse_qs, urlsplit
+    from urllib.parse import parse_qs
     lines = list(lines)
-    out, seen = [], set()
+    out, seen = [], {}
     for i, line in enumerate(lines):
         for m in _URL_RE.finditer(line):
-            url = m.group(0)
+            url = m.group(0).rstrip(".,;:!?")
             label = _locker_label(url)
-            if not label or url in seen:
+            parts = _split(url)
+            if not label or parts is None:
                 continue
-            seen.add(url)
-            password = (parse_qs(urlsplit(url).query).get("pwd") or [""])[0]
+            password = (parse_qs(parts.query).get("pwd") or [""])[0]
             if not password:
-                for later in [line[m.end():]] + lines[i + 1:i + 3]:
+                for later in [line[m.start() + len(url):]] + lines[i + 1:i + 3]:
                     code = _CODE_RE.search(later)
                     if code:
                         password = code.group(1)
                         break
                     if _URL_RE.search(later):
                         break
-            out.append({"label": label, "url": url, "password": password})
+            # One row per link as shown (the service drops the query string).
+            key = f"{parts.scheme}://{(parts.hostname or '').lower()}{parts.path}"
+            if key in seen:
+                if password and not seen[key]["password"]:
+                    seen[key]["password"] = password
+                continue
+            seen[key] = {"label": label, "url": url, "password": password}
+            out.append(seen[key])
     return out[:10]
 
 
@@ -287,11 +313,11 @@ class LightnovelFunSource(SourceAdapter):
         return detail
 
     def _reader(self, series_id: str, chapter_id: str, action: str, use_cache: bool = True):
-        """(reader-bootstrap payload or None, raw html)."""
+        """The page's reader-bootstrap payload, or None."""
         series_id = self._check_id(series_id, "book")
         chapter_id = self._check_id(chapter_id, "chapter")
         html = self._get(f"/reader/{series_id}/{chapter_id}", action, use_cache=use_cache)
-        return _entry(_payload(html), f"reader-bootstrap-{series_id}-{chapter_id}"), html
+        return _entry(_payload(html), f"reader-bootstrap-{series_id}-{chapter_id}")
 
     # -- search ------------------------------------------------------------------
     def search(self, query: str, page: int = 1):
@@ -354,7 +380,7 @@ class LightnovelFunSource(SourceAdapter):
             if _locked(rows[0]):
                 return []
             try:
-                boot, _ = self._reader(series_id, _id(rows[0]["id"]),
+                boot = self._reader(series_id, _id(rows[0]["id"]),
                                        f"Loading the notes of book {series_id}")
             except FetchFailed as e:
                 log.warning("lightnovel_fun: first chapter of book %s unavailable: %s", series_id, e)
@@ -425,11 +451,11 @@ class LightnovelFunSource(SourceAdapter):
         volume is then left out rather than failing the whole list."""
         action = f"Loading the chapter list of book {series_id}"
         try:
-            boot, _ = self._reader(series_id, _id(neighbour["id"]), action, use_cache=False)
+            boot = self._reader(series_id, _id(neighbour["id"]), action, use_cache=False)
             target = _id(_dict(_dict(boot).get("currentChapter")).get(link))
             if not target:
                 return {}
-            boot, _ = self._reader(series_id, target, action, use_cache=False)
+            boot = self._reader(series_id, target, action, use_cache=False)
         except FetchFailed as e:
             log.warning("lightnovel_fun: volume walk for book %s stopped: %s", series_id, e)
             return {}
@@ -443,8 +469,7 @@ class LightnovelFunSource(SourceAdapter):
 
     # -- chapter text ------------------------------------------------------------
     def get_chapter_text(self, chapter) -> str:
-        boot, _ = self._reader(chapter.series_id, chapter.chapter_id,
-                                  f"Loading chapter {chapter.title}")
+        boot = self._reader(chapter.series_id, chapter.chapter_id, f"Loading chapter {chapter.title}")
         current = (boot or {}).get("currentChapter") if boot else None
         if isinstance(current, dict):
             if _locked(current):

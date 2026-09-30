@@ -233,7 +233,7 @@ def _link_views(links) -> list:
         if not isinstance(link, dict):
             continue
         url = safe_url(link.get("url"))
-        if url:
+        if url.startswith(("https://", "http://")):
             out.append({"label": _scrub(str(link.get("label") or ""))[:80] or url,
                         "url": url, "password": _scrub(str(link.get("password") or ""))[:40]})
     return out

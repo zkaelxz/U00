@@ -400,3 +400,50 @@ class TestSeriesNoticeAndLinks:
         assert [(l["url"], l["password"]) for l in links] == [
             ("https://pan.baidu.com/s/1abc", "x1y2"), ("https://www.lanzoux.com/iAbc", "zz99"),
             ("https://pan.quark.cn/s/q1", ""), ("https://pan.baidu.com/s/2def", "")]
+
+
+class TestLinkParsingEdges:
+    """Second review round: text run straight on after a link, duplicates,
+    look-alike hosts, story lines, long codes, malformed hosts."""
+
+    def test_text_straight_after_a_link_is_not_part_of_it(self):
+        links = lightnovel_fun._download_links([
+            "Epub获取：https://wwasa.lanzoue.com/b0188mxnyb密码:be3j",
+            "https://pan.baidu.com/s/1abc,提取码:abcd。"])
+        assert [(l["url"], l["password"]) for l in links] == [
+            ("https://wwasa.lanzoue.com/b0188mxnyb", "be3j"), ("https://pan.baidu.com/s/1abc", "abcd")]
+
+    def test_the_same_link_is_listed_once_keeping_its_code(self):
+        links = lightnovel_fun._download_links([
+            "https://pan.baidu.com/s/1abc", "简介", "简介", "简介",
+            "https://pan.baidu.com/s/1abc?pwd=roh1"])
+        assert links == [{"label": "百度网盘 (Baidu Pan)", "url": "https://pan.baidu.com/s/1abc",
+                          "password": "roh1"}]
+
+    def test_only_real_lanzou_hosts_get_the_lanzou_label(self):
+        assert lightnovel_fun._download_links([
+            "https://lanzou.phish.example/x", "https://notlanzou-login.example/",
+            "https://www.lanzoui.com/abc", "https://wwasa.lanzoue.com/b1"]) == [
+            {"label": "蓝奏云 (Lanzou)", "url": "https://www.lanzoui.com/abc", "password": ""},
+            {"label": "蓝奏云 (Lanzou)", "url": "https://wwasa.lanzoue.com/b1", "password": ""}]
+
+    def test_story_lines_are_not_taken_for_a_notice(self):
+        assert lightnovel_fun._notice_lines(["这只是仅供参考的意见。", "他二改了计划。",
+                                             "仅供个人学习交流使用，禁作商业用途。"]) == [
+            "仅供个人学习交流使用，禁作商业用途。"]
+
+    def test_a_longer_word_or_an_archive_password_is_not_a_code(self):
+        links = lightnovel_fun._download_links([
+            "https://pan.baidu.com/s/1abc 解压密码：lightnovel", "密码：lightnovel"])
+        assert links[0]["password"] == ""
+
+    def test_malformed_hosts_never_break_the_series_view(self):
+        lines = ["官网https://www.lightnovel.fun：欢迎", "https://pan.baidu.com？pwd=abcd",
+                 "https://x.com：y", "https://[::1/x", "https://pan.baidu.com:99999/s/1"]
+        assert isinstance(lightnovel_fun._download_links(lines), list)
+
+    def test_a_series_whose_summary_has_a_malformed_url_still_opens(self):
+        book = dict(fx.BOOK, summary="官网https://www.lightnovel.fun：欢迎 https://pan.baidu.com？pwd=abcd")
+        page = fx.page({"pc-book-detail-33139": {"book": book, "catalog": fx.catalog()}})
+        a, _ = _adapter({BOOK_URL: html(page)})
+        assert a.get_series("33139").title == fx.BOOK["title"]

@@ -247,7 +247,9 @@ def test_series_download_links_are_listed_without_their_query(fakes):
         info = base_series(self, series_id)
         info.links = [{"label": "百度网盘 (Baidu Pan)", "url": f"https://pan.baidu.com/s/1abc?pwd=roh1&t={SECRET}",
                        "password": "roh1"},
-                      {"label": "bad", "url": "javascript:alert(1)", "password": ""}, "not a dict"]
+                      {"label": "bad", "url": "javascript:alert(1)", "password": ""},
+                      {"label": "bad2", "url": "javascript://pan.baidu.com/%0aalert(1)", "password": ""},
+                      "not a dict"]
         return info
 
     fake.get_series = get_series
