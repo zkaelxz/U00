@@ -2,12 +2,20 @@
 installer/service.py -- runs the installed Baihe Studio as a Windows service
 (docs/windows-installer-design.md, "Boot service").
 
-One service, BaiheStudio: `python -s -m api` on 127.0.0.1:8600 and nothing
-else, started at boot, restarted after a failure, stopped with Ctrl+C so the
-server runs its clean stop. A copy of the pinned WinSW binary, named after
-the service, answers the Service Control Manager and reads the .xml next to
-it. The service runs as its own virtual account (NT SERVICE\\BaiheStudio),
-never LocalSystem, with the privilege list cut down to what it needs.
+Two services, each wrapped by a copy of the pinned WinSW binary named after
+it (it answers the Service Control Manager and reads the .xml next to it):
+
+- BaiheStudio: `python -s -m api` on 127.0.0.1:8600 and nothing else, started
+  at boot, restarted after a failure, stopped with Ctrl+C so the server runs
+  its clean stop.
+- BaiheCaddy: the bundled Caddy, the only component that faces the internet
+  (HTTPS certificates and rate limits). Installed disabled and stopped;
+  only `enable-remote`, run by the owner, turns it on. Caddy forwards to
+  Baihe's household listener, which listens on 127.0.0.1 only: Baihe never
+  exposes its own API to the network.
+
+Each runs as its own virtual account (NT SERVICE\\<name>), never
+LocalSystem, with the privilege list cut down to what it needs.
 
 Everything this runs with administrator rights lives in an admin-only
 folder, %ProgramFiles%\\Baihe Studio Services: this script with a copy of the
@@ -26,12 +34,24 @@ runs from the admin copy:
                           (Setup) create or refresh the service and start it;
                           undone if it fails
     stop                  stop it (Setup, before an update)
-    uninstall             stop and remove it, take its permissions off the
-                          per-user folders, remove the admin folder
+    uninstall             stop and remove both, take BaiheStudio's permissions
+                          off the per-user folders, remove the admin folder
+    enable-remote [--household-port 8610]
+                          the owner's opt-in: the household listener
+                          (127.0.0.1 only), the Caddyfile and the Caddy
+                          service; refused, changing nothing, unless sign-in
+                          and the public https name are set in the data
+                          folder's .env
+    disable-remote        Caddy stopped and disabled, the household listener
+                          closed
     status
 
-Everything but `status` needs an administrator prompt. This opens no other
-port, adds no firewall rule and does nothing on the router.
+Everything but `status` needs an administrator prompt. Nothing here adds a
+Windows Firewall rule or does anything on the router or with DNS: Windows
+blocks inbound connections to Caddy until the owner adds the rule printed by
+`enable-remote` and `status` (firewall_rule_command), forwarding port 443 on
+the router is the owner's own step, and so is the domain name
+(docs/household-access.md).
 
 Standard library only.
 """
@@ -43,6 +63,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import stat
 import struct
 import subprocess
@@ -50,14 +71,29 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
 APP_DIR = Path(__file__).resolve().parent.parent
 
 APP_SERVICE = "BaiheStudio"
+CADDY_SERVICE = "BaiheCaddy"
 APP_DISPLAY_NAME = "Baihe Studio"
+CADDY_DISPLAY_NAME = "Baihe Studio remote access (Caddy)"
 ADMIN_FOLDER_NAME = "Baihe Studio Services"
-ADMIN_PORT = 8600
+ADMIN_PORT = 8600              # api_config.DEFAULT_PORT
+# Ports that are Baihe's own (settings_service.baihe_own_ports): Streamlit's,
+# the PC listener's, the extension bridge's (page_server.DEFAULT_PORT), and
+# 8601, the documented "pick another port" for the PC listener. The
+# household listener may take none of them.
+RESERVED_PORTS = (8501, ADMIN_PORT, ADMIN_PORT + 1, 8756)
+DEFAULT_HOUSEHOLD_PORT = 8610
+HTTPS_PORT = 443
+# The rule the owner adds by hand (firewall_rule_command). This script only
+# reads it, never adds it.
+FIREWALL_RULE_NAME = "Baihe Studio remote access - Caddy HTTPS"
+FIREWALL_PROFILES = "private,domain"
+STATE_FILE_NAME = "remote-access.json"
 LOG_FILE_NAME = "service.log"
 CONFIG_FILE_NAME = "config.json"
 # What the service keeps of the privileges Windows gives a service account:
@@ -74,6 +110,11 @@ FAILURE_ACTIONS = "restart/10000/restart/30000/restart/60000"
 LOG_ROLL_KB = 10240
 LOG_KEEP_FILES = 5
 APP_STOP_TIMEOUT = "15 sec"    # the server gives jobs 6 s, uvicorn up to 3 s more
+CADDY_STOP_TIMEOUT = "10 sec"
+CADDY_WAIT_SECONDS = 30
+# The household listener starts after the PC one; a bad setting only skips it
+# (the PC listener still starts), so it is checked on its own.
+HOUSEHOLD_WAIT_SECONDS = 30
 STATE_WAIT_SECONDS = 60
 HEALTH_WAIT_SECONDS = 180      # a first start compiles every .pyc
 COMMAND_TIMEOUT = 120
@@ -83,6 +124,9 @@ DATA_GRANT_TIMEOUT = 3600
 SYSTEM_SID = "S-1-5-18"
 ADMINISTRATORS_SID = "S-1-5-32-544"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+TEMPLATE_LOG_TOKEN = "{$BAIHE_CADDY_LOG_DIR}/baihe-access.log"
+GENERATED_HEADER = ("# Written by installer/service.py from deploy/caddy/Caddyfile.template.\n"
+                    "# Don't edit it: enable-remote and every install write it again.\n")
 # What may be in the data folder before the service is given write access
 # to all of it: only what Baihe Studio itself keeps there.
 DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.ini", "thumbs.db"}
@@ -97,6 +141,14 @@ API_ENV_NAMES = ("BAIHE_API_HOST", "BAIHE_API_PORT", "BAIHE_API_ENV", "BAIHE_API
                  "BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL",
                  "BAIHE_SHUTDOWN_TOKEN", "BAIHE_PROCESS_GROUP_NAME", "BAIHE_PORTABLE")
 
+# A public DNS name: labels of letters, digits and hyphens, at least one dot,
+# and a last label that starts with a letter, so an IP address or a bare name
+# like "localhost" never matches. ASCII only, as the server requires
+# (browsers send the punycode form).
+_DOMAIN_RE = re.compile(r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+                        r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?")
+SIGN_IN_ENV_NAMES = ("BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL")
+
 _STATES = ("STOPPED", "START_PENDING", "STOP_PENDING", "RUNNING", "CONTINUE_PENDING",
            "PAUSE_PENDING", "PAUSED")
 _START_TYPES = ("BOOT_START", "SYSTEM_START", "AUTO_START", "DEMAND_START", "DISABLED")
@@ -105,11 +157,17 @@ ERROR_SERVICE_ALREADY_RUNNING = 1056
 ERROR_SERVICE_NOT_ACTIVE = 1062
 
 EXIT_FAILED = 1
+EXIT_REFUSED = 2
 EXIT_NOT_ADMIN = 3
 
 
 class ServiceError(Exception):
     """A plain-words reason a step failed (exit code 1)."""
+
+
+class ConfigRefused(ServiceError):
+    """Remote access isn't set up (or can't be) and nothing was changed
+    (exit code 2)."""
 
 
 def service_sid(name: str) -> str:
@@ -146,6 +204,7 @@ def _system32(exe: str) -> str:
 
 SC = _system32("sc.exe")
 ICACLS = _system32("icacls.exe")
+NETSH = _system32("netsh.exe")      # only ever `show rule`: see firewall_show_command
 CMD = _system32("cmd.exe")
 
 
@@ -286,10 +345,21 @@ class Layout:
         self.helper_python = self.helper / "python" / "python.exe"
         self.helper_script = self.helper / "lib" / "installer" / "service.py"
         self.config_file = self.helper / CONFIG_FILE_NAME
+        self.template = self.helper / "lib" / "deploy" / "caddy" / "Caddyfile.template"
         self.service_dir = admin / "service"
-        self.wrapper = self.service_dir / f"{APP_SERVICE}.exe"
-        self.wrapper_xml = self.wrapper.with_suffix(".xml")
+        self.caddy_dir = admin / "caddy"
+        self.caddy_exe = self.caddy_dir / "caddy.exe"
+        self.caddyfile = self.caddy_dir / "Caddyfile"
+        self.caddy_storage = admin / "caddy-data"
+        self.caddy_logs = admin / "caddy-logs"
+        self.state_file = admin / STATE_FILE_NAME
         self.log_file = admin / LOG_FILE_NAME
+
+    def wrapper(self, name: str) -> Path:
+        return (self.service_dir if name == APP_SERVICE else self.caddy_dir) / f"{name}.exe"
+
+    def wrapper_xml(self, name: str) -> Path:
+        return self.wrapper(name).with_suffix(".xml")
 
     def check(self) -> None:
         problem = (folder_problem(self.root, "install folder", [self.admin])
