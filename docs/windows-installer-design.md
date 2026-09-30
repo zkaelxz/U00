@@ -480,3 +480,76 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   users get the screens inside the installer (2026-09-30), whether that zip
   keeps being published for source checkouts is a planning decision (the
   alternative is `start.bat --build-frontend`).
+
+## 11. Boot service
+
+Owner decision (2026-09-30): the app runs as a **Windows service started at
+boot**, installed and removed by this installer, tested by the Windows
+Installer workflow. Code: [`installer/service.py`](../installer/service.py)
+(standard library only), the `service` task in `baihe.iss`, and the WinSW
+staging in `build_installer.py`. **Not run on Windows yet:**
+`tests/test_installer_service.py` drives it against a fake `sc`/`icacls`;
+only the workflow's "Service --" steps prove it on Windows.
+
+**What it does.** A `BaiheStudio` service runs `python -s -m api` on
+`127.0.0.1:8600` and nothing else, starting at boot (no sign-in needed),
+restarted after 10 s, 30 s, then every 60 s if it fails. It stops with
+Ctrl+C, so the server's clean stop (§5) runs and its Job Object ends every
+child. The wrapper is WinSW 2.12.0 (MIT, pinned by SHA-256). The task is on by
+default and is the only step that needs administrator permission (one prompt
+on install, two on an update, one on uninstall); declined or failed, Setup
+exits with code 101 and the Start-menu launcher still works. Setup stays
+per-user.
+
+- **Account.** `NT SERVICE\BaiheStudio`, not LocalSystem, with its privileges
+  cut to `SeChangeNotifyPrivilege`, `SeCreateGlobalPrivilege` and
+  `SeIncreaseWorkingSetPrivilege` (no `SeImpersonatePrivilege`).
+- **Permissions (`icacls`, by SID).** Read and run the install folder; change
+  the data folder (refused unless it holds only Baihe Studio's own items).
+  Everything run with administrator rights after the install (the script,
+  its interpreter, the wrapper) is copied to `%ProgramFiles%\Baihe Studio
+  Services`, which only administrators can change, and the later commands
+  (`stop`, `uninstall`) run only from there, at the location Windows reports
+  for Program Files. **Known gap:** the first `install` (and an update's) is
+  run elevated by Setup from its own extraction, `{app}\service`, in the
+  user-writable program folder, before it is copied; a process running as the
+  user could replace those files in that window and have them run as
+  administrator. Fixing it needs Setup to be elevated or to extract
+  somewhere only administrators can write. **Owner decision (2026-09-30):
+  accepted for now; revisit if the PC gets other users.**
+  Uninstall takes the account off both folders again and removes the admin
+  folder (files still loaded are moved aside, inside Program Files, and
+  deleted at the next restart).
+- **Environment and who can use it.** Every `BAIHE_API_*` setting is written
+  into the service, so a machine-wide variable can't add a listener or change
+  the port. **Any account on the PC can open `http://127.0.0.1:8600` while
+  the service runs:** sign-in is off there (the app treats every direct
+  loopback request as its owner), as it is when the launcher runs it, and the
+  service keeps running when nobody is signed in. So on a PC with other
+  Windows accounts, they can use the library and its actions. The engine-key
+  form is **off** unless the data folder's `.env` sets
+  `BAIHE_API_ALLOW_KEY_WRITES=1`, for that reason (the launcher turns it on
+  by default). Per-account sign-in for this listener is not done. **Owner
+  decision (2026-09-30): accepted on the condition that only the owner uses
+  this PC. If it has other Windows accounts, untick the service task (it is
+  ticked by default for now).**
+- **Update and uninstall.** An update stops the service through the old admin
+  copy, replaces the files, and starts it again; if any step fails, the old
+  admin files come back, a service the run created is removed, and an existing
+  one is restarted. Uninstall stops and removes the service first; if it can't,
+  nothing is uninstalled.
+
+**What it does not do.**
+
+- No other listener, no firewall rule, no certificate, no DNS or router
+  change, no household or remote access. `docs/remote-access-decision.md` and
+  the API permissions are unchanged; remote access is separate work.
+- The server runs as its own account, so it sees the machine's `PATH`, not the
+  user's, and Diagnostics' Install buttons can't add packages to the
+  read-only program folder while the service runs; per-user caches outside the
+  data folder (Playwright, Deno) are the service account's.
+- The "Stop Baihe Studio" shortcut stops only a server the launcher started;
+  stop the "Baihe Studio" service in Services instead.
+- The program folder stays user-writable, so a changed file there runs as the
+  low-privilege service account, not as LocalSystem.
+- No health monitoring or banner.
