@@ -29,15 +29,23 @@ from dataclasses import replace
 
 def _serve():
     import uvicorn
-    from api.api_config import check_bind_safety, check_household_bind_safety, load_settings
+    from api.api_config import (check_bind_safety, check_household_bind_safety, is_loopback_host,
+                               load_settings)
     try:
         settings = load_settings()
         check_bind_safety(settings)
     except ValueError as e:
         raise SystemExit(f"ERROR: {e}")
-    # The PC's own listener always starts: a bad sign-in setting in .env would
-    # otherwise lock the owner out of the app. The household listener stays
-    # fail-closed, so it is skipped instead.
+    # Refused, loudly, as before: a household port next to sign-in on the
+    # admin listener or a non-loopback host would weaken the PC's own listener.
+    if settings.household_port and (settings.auth_enabled or not is_loopback_host(settings.host)):
+        try:
+            check_household_bind_safety(settings)
+        except ValueError as e:
+            raise SystemExit(f"ERROR: {e}")
+    # Sign-in and other household problems only turn the household listener
+    # off: the PC's own listener always starts, since a typo in .env must not
+    # lock the owner out of the app.
     if settings.public_url_error:
         _warn(f"{settings.public_url_error} Sign-in is treated as not configured.")
     if settings.household_port:

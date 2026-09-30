@@ -64,9 +64,13 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   request looks like (`household_settings`, `api.auth.is_local_request`).
   Both share the in-memory job list. It answers only requests whose Host is
   `BAIHE_PUBLIC_URL`'s (400 otherwise) and sends security headers
-  (`api.auth.HouseholdGate`). Refused at startup: the admin port, the
-  extension bridge's 8756, a non-loopback host, development mode, sign-in
-  not configured (the three `BAIHE_GOOGLE_*`/`BAIHE_PUBLIC_URL` settings).
+  (`api.auth.HouseholdGate`). `python -m api` refuses to start for
+  `BAIHE_API_AUTH=on` or a non-loopback host next to this port. Any other
+  failing prerequisite (the admin port, the extension bridge's 8756,
+  development mode, sign-in not configured: the three
+  `BAIHE_GOOGLE_*`/`BAIHE_PUBLIC_URL` settings, an invalid or non-ASCII
+  public URL) only skips this listener, with a warning; the PC's own
+  listener always starts. `create_app` still refuses all of them.
 - `BAIHE_API_SESSION_IDLE_DAYS` (default 14, 1-90) and
   `BAIHE_API_SESSION_MAX_DAYS` (default 30, 1-365) -- a signed-in device
   is signed out after this many days unused, and after this many days

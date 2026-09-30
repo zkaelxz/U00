@@ -936,12 +936,23 @@ class TestRunServers:
         self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", **SIGN_IN_ENV})
         assert self._warned(capsys) == (False, [])
 
-    def test_auth_on_with_household_port_skips_household_listener(self, isolated_db,
-                                                                   monkeypatch, capsys):
-        single, ran, _c, _s = self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610",
-                                                        "BAIHE_API_AUTH": "on", **SIGN_IN_ENV})
-        assert len(single) == 1 and ran == []
-        assert "BAIHE_API_AUTH=off" in capsys.readouterr().err
+    def test_auth_on_with_household_port_still_refused(self, isolated_db, monkeypatch, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_AUTH": "on",
+                                      **SIGN_IN_ENV})
+        assert "BAIHE_API_AUTH=off" in str(exc.value)
+        assert self._warned(capsys) == (False, [])
+
+    def test_auth_on_refused_even_with_a_bad_public_url(self, isolated_db, monkeypatch):
+        with pytest.raises(SystemExit):
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_AUTH": "on",
+                                      **{**SIGN_IN_ENV, "BAIHE_PUBLIC_URL": "http://x.example"}})
+
+    def test_non_loopback_host_with_household_port_still_refused(self, isolated_db, monkeypatch):
+        with pytest.raises(SystemExit) as exc:
+            self._serve(monkeypatch, {"BAIHE_API_HOUSEHOLD_PORT": "8610", "BAIHE_API_HOST": "0.0.0.0",
+                                      "BAIHE_API_AUTH": "off", **SIGN_IN_ENV})
+        assert "0.0.0.0" in str(exc.value)
 
     def test_warning_only_for_the_single_port_sign_in_setup(self):
         from api.api_config import single_port_sign_in_warning
