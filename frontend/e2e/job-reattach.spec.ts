@@ -77,7 +77,7 @@ test('a finished or missing translate job does not block Start on a fresh visit'
 
 test('a "running" record left by a crashed app does not lock Start', async ({ page }) => {
   await page.route('**/api/jobs/translate_1', (route) =>
-    route.fulfill({ json: { ...job('translate_1', 'running'), updated_at: Date.now() / 1000 - 3600 } }))
+    route.fulfill({ json: { ...job('translate_1', 'running'), stale: true } }))
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   await expect(page.getByRole('region', { name: 'Translate run' }).getByRole('button', { name: /^Translate \d+ lines?$/ })).toBeEnabled()
@@ -101,4 +101,27 @@ test('Export media shows the earlier export and a running export on revisit', as
   const audiobook = page.getByRole('group', { name: 'Audiobook' })
   await expect(audiobook.getByTestId('job-status')).toContainText('running')
   await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toBeDisabled()
+  await expect(audiobook.getByRole('button', { name: 'Start audiobook export' })).toHaveAccessibleDescription(/This export is running/)
+})
+
+test('a dub left running is shown again on the Dub stage, with Generate disabled and why', async ({ page }) => {
+  // A speakable drama (the seeded one has no lines); the job read is the reattach under test.
+  await page.route('**/api/dub/dramas/1/config', (route) => route.fulfill({
+    json: {
+      drama_id: 1, content_mode: null, is_narration: false, narration_language: 'en',
+      narration_language_options: ['en', 'zh'], source_language: 'zh',
+      tts_engines: [{ key: 'edge_tts', label: 'Edge TTS', requires_internet: true }],
+      defaults: { max_speedup: 1.3, max_slowdown: 0.85, speedup_range: [1, 2], slowdown_range: [0.5, 1] },
+      speakers: [], gpu_required: false, speakable_line_count: 3, track_available: false,
+      gpt_sovits_configured: false, can_keep_background: true,
+    },
+  }))
+  await page.route('**/api/jobs/dub_1', (route) => route.fulfill({ json: job('dub_1', 'running') }))
+
+  await page.goto('/#/drama/1/translate')
+  await goToStage(page, /^Dub/)
+  await expect(page.getByTestId('job-status')).toContainText('running')
+  const generate = page.getByRole('button', { name: 'Generate dub' })
+  await expect(generate).toBeDisabled()
+  await expect(generate).toHaveAccessibleDescription(/A dub is being generated/)
 })

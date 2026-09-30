@@ -97,6 +97,7 @@ function MediaJobSection({ title, label, kind, start, note, testId, children }: 
     },
   })
   const busy = jobId !== null && !done && !pollError
+  const busyId = `export-busy-${testId ?? kind}`
 
   const run = () => {
     const p = start()
@@ -120,7 +121,16 @@ function MediaJobSection({ title, label, kind, start, note, testId, children }: 
       <h4>{title}</h4>
       {note && <p className="muted">{note}</p>}
       {children}
-      <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={run}>{label}</button>
+      <button
+        type="button"
+        className={buttonClass('secondary')}
+        disabled={busy}
+        aria-describedby={busy ? busyId : undefined}
+        onClick={run}
+      >
+        {label}
+      </button>
+      {busy && <p className="muted" id={busyId}>This export is running. Progress is shown below.</p>}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}

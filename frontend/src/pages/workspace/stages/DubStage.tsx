@@ -78,6 +78,9 @@ export default function DubStage() {
     },
   })
   const busy = jobId !== null && !done && !pollError
+  const busyText = jobId?.startsWith('narration_')
+    ? 'A narration is being generated. Progress is shown below.'
+    : 'A dub is being generated. Progress is shown below.'
 
   if (!cfg || !form) {
     return (
@@ -137,13 +140,13 @@ export default function DubStage() {
             type="button"
             className="primary"
             disabled={busy || blocker !== null}
-            aria-describedby={blocker ? 'dub-settings' : undefined}
+            aria-describedby={blocker || busy ? 'dub-settings' : undefined}
             onClick={start}
           >
             Generate dub
           </button>
           <p className="muted dub-reason" id="dub-settings" data-testid="dub-settings">
-            <span>{blocker ?? dubSettingsLine(cfg, form)}</span>
+            <span>{blocker ?? (busy ? busyText : dubSettingsLine(cfg, form))}</span>
             {cfg.speakable_line_count === 0 && (
               <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
                 Go to Source

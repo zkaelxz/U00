@@ -827,3 +827,13 @@ test('a pending bulk review batch does not lock the checks on a revisit', async 
   await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeEnabled()
   await expect(page.getByTestId('job-status')).toHaveCount(0)
 })
+
+test('a review check left running is shown again, with the checks off', async ({ page }) => {
+  await page.route('**/api/jobs/flag_3', (route) =>
+    route.fulfill({ json: { ...job('running'), job_id: 'flag_3', updated_at: Date.now() / 1000 } }))
+  await open(page)
+  await page.locator('summary', { hasText: 'AI review' }).click()
+  await expect(page.getByTestId('job-status')).toContainText('running')
+  await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeDisabled()
+  await expect(page.getByText('A review job is running.')).toBeVisible()
+})

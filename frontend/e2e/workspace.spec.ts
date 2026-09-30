@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 const job = (status: string, extra: object = {}) => ({
   job_id: 'fake-job', status, progress: 0.4, message: 'working', error: null, description: null,
-  gpu_touching: false, started_at: 1, finished_at: null, updated_at: Date.now() / 1000, ...extra,
+  gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, ...extra,
 })
 
 async function mockRun(page: Page, dramaId: number) {

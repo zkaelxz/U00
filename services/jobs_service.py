@@ -18,6 +18,7 @@ dicts, so `cli.py` or a script could call it too.
 import json
 import re
 import time
+from typing import Optional
 
 import db
 from services import ownership_service
@@ -367,7 +368,21 @@ def _redact(record: dict) -> dict:
     out["outcome"] = outcome
     out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
                               if message else None)
+    out["stale"] = is_stale(record)
     return out
+
+
+def is_stale(record: dict, now: Optional[float] = None) -> bool:
+    """A queued/running record no live owner has heartbeated for
+    STALE_JOB_SECONDS: left behind by a process that died (the same test
+    cancel_job applies before closing one). Judged on the server's clock,
+    so a viewer's own clock can't make a live job look dead or the reverse."""
+    if record.get("status") not in ("queued", "running"):
+        return False
+    if background_jobs.get_status(record.get("job_id")) is not None:
+        return False
+    updated = record.get("updated_at") or 0
+    return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
 
 
 def _visible(principal, record) -> bool:
