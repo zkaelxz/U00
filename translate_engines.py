@@ -2009,9 +2009,11 @@ MAX_FALLBACK_ENGINES = 2
 def fallback_chain_error(names):
     """Why an ordered engine chain [primary, *fallbacks] can't run, or None.
     Shared by the translate run service (API/React) and `cli.py translate
-    --fallback`: no engine twice, known engines only, and never mixing
+    --fallback`: at most MAX_FALLBACK_ENGINES fallbacks, no engine twice, known engines only, and never mixing
     instruction-following engines with TRANSLATION_ONLY_ENGINES."""
     names = list(names)
+    if len(names) > MAX_FALLBACK_ENGINES + 1:
+        return f"A fallback chain takes at most {MAX_FALLBACK_ENGINES} fallback engines."
     if len(set(names)) != len(names):
         return "A fallback chain can't repeat an engine."
     if len(names) > 1:

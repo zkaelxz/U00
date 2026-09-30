@@ -296,3 +296,13 @@ def test_failed_attempt_does_not_recount_previous_batch_usage(isolated_db, engin
     a.translate_batch = lambda z, c: (_ for _ in ()).throw(AuthError("401"))
     fe.translate_batch(["z"], {})
     assert fe.spent[0] == spent and logged == []
+
+
+def test_api_path_refuses_more_than_two_fallbacks(isolated_db, engines):
+    """The API schema still allows 3 entries; the shared rule caps it at 2,
+    the same limit as the CLI and React."""
+    did = _seed(1)
+    with pytest.raises(InvalidInputError):
+        svc.start_translate_run(did, engine_name="claude", fallback_chain=[
+            {"engine": "deepseek"}, {"engine": "gemini"}, {"engine": "ollama"}])
+    assert translate_engines.fallback_chain_error(["claude", "deepseek", "gemini"]) is None
