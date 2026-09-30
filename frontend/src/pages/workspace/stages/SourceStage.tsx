@@ -11,7 +11,7 @@ import type { MediaStatus } from '../../../types/workspace'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
-import { checkUploadFile, sourceJobIds } from '../sourceForm'
+import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { CreditsCoverPanel } from './CreditsCoverPanel'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
@@ -148,7 +148,7 @@ export default function SourceStage() {
             type="file"
             id={mediaFileInputId(dramaId)}
             aria-label="Audio or video file"
-            accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
+            accept={UPLOAD_EXTENSIONS.join(',')}
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />

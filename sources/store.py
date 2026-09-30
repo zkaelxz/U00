@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import time
 
 import db
@@ -193,6 +194,13 @@ CREATE TABLE IF NOT EXISTS import_retry (
     text_offset INTEGER,
     PRIMARY KEY (source, series_id, drama_id, chapter_id)
 );
+CREATE TABLE IF NOT EXISTS domain_proposals (
+    source TEXT NOT NULL,
+    host TEXT NOT NULL,
+    found_at REAL NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, host)
+);
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -204,16 +212,107 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 """
 
 
-def connect() -> sqlite3.Connection:
-    path = db_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+BUSY_TIMEOUT_SECONDS = 10
+
+BUSY_MESSAGE = "The sources database is busy, try again."
+
+
+class SourcesDatabaseBusy(sqlite3.OperationalError):
+    """sources.db stayed locked past the busy timeout. The message is fixed
+    text, safe to show as is (the raw sqlite error is not)."""
+
+    def __init__(self):
+        super().__init__(BUSY_MESSAGE)
+
+
+def _is_busy(exc) -> bool:
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+class _Connection(sqlite3.Connection):
+    """Turns a lock timeout from any statement into SourcesDatabaseBusy, so
+    the dozens of `with connect() as conn:` callers need no handling."""
+
+    def _guard(self, name, *args):
+        try:
+            return getattr(super(), name)(*args)
+        except SourcesDatabaseBusy:
+            raise
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+    def execute(self, *args):
+        return self._guard("execute", *args)
+
+    def executemany(self, *args):
+        return self._guard("executemany", *args)
+
+    def executescript(self, *args):
+        return self._guard("executescript", *args)
+
+    def commit(self):
+        return self._guard("commit")
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            return super().__exit__(exc_type, exc, tb)
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+
+def log_dropped(what: str) -> None:
+    """Notes a best-effort write that was dropped because sources.db stayed
+    locked. Never raises."""
+    try:
+        import applog
+        applog.get_logger().warning("Dropped %s: %s", what, BUSY_MESSAGE)
+    except Exception:
+        pass
+
+
+# Database files whose schema and migrations have already run in this
+# process. A file deleted since (a moved library, a test's temp dir) is
+# initialised again.
+_initialised = set()
+_init_lock = threading.Lock()
+
+
+def _open(path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, factory=_Connection)
     conn.row_factory = sqlite3.Row
-    # Every statement is CREATE ... IF NOT EXISTS, so this is cheap and
-    # needs no "already initialized?" bookkeeping that could go stale when
-    # the library folder moves.
-    conn.executescript(_SCHEMA)
-    _add_missing_columns(conn)
+    return conn
+
+
+def _initialise(path: str) -> None:
+    with _init_lock:
+        if path in _initialised and os.path.exists(path):
+            return
+        conn = _open(path)
+        try:
+            # WAL is stored in the file, so it is set here once rather than
+            # per connection: readers then never wait on the writer.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.executescript(_SCHEMA)
+            _add_missing_columns(conn)
+        finally:
+            conn.close()
+        _initialised.add(path)
+
+
+def connect() -> sqlite3.Connection:
+    path = os.path.abspath(db_path())
+    if path not in _initialised or not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _initialise(path)
+    conn = _open(path)
+    # synchronous is per connection (journal_mode is not).
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -647,3 +746,79 @@ def delete_extraction(kind: str, content_hash: str):
     with connect() as conn:
         conn.execute("DELETE FROM extraction_cache WHERE kind=? AND content_hash=?",
                      (kind, content_hash))
+
+
+# ---------------------------------------------------------------------------
+# Domain lists (sources/domains.py). The list and the last domain that
+# worked are settings, one pair of keys per source; a host found by
+# a redirect is only a proposal until the owner confirms it.
+# ---------------------------------------------------------------------------
+
+def _domains_key(source: str) -> str:
+    return f"source_domains.{source}"
+
+
+def _last_good_key(source: str) -> str:
+    return f"source_domain_last_good.{source}"
+
+
+def domain_list(source: str):
+    """The owner's saved domain list (https origins), or None when the
+    adapter's own `base_urls` apply."""
+    value = get_setting(_domains_key(source))
+    return [str(v) for v in value] if isinstance(value, list) and value else None
+
+
+def set_domain_list(source: str, origins):
+    set_setting(_domains_key(source), list(origins) if origins else None)
+
+
+def last_good_domain(source: str):
+    value = get_setting(_last_good_key(source))
+    return str(value) if value else None
+
+
+def set_last_good_domain(source: str, origin):
+    set_setting(_last_good_key(source), origin or None)
+
+
+MAX_PENDING_PROPOSALS = 5
+
+
+def propose_domain(source: str, host: str, now: float = None) -> bool:
+    """Records a pending proposal (`host` is host[:port]). False when the
+    host was already proposed, was dismissed before (a dismissed host is not
+    proposed again), or the source already has MAX_PENDING_PROPOSALS
+    waiting."""
+    # One statement: the count and the insert run under the same write lock.
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO domain_proposals(source, host, found_at) SELECT ?, ?, ? "
+            "WHERE (SELECT COUNT(*) FROM domain_proposals WHERE source=? AND dismissed=0) < ?",
+            (source, host, time.time() if now is None else now, source, MAX_PENDING_PROPOSALS))
+    return cur.rowcount > 0
+
+
+def domain_proposals(source: str = None) -> list:
+    """Pending (not dismissed) proposals, newest first."""
+    sql = "SELECT source, host, found_at FROM domain_proposals WHERE dismissed=0"
+    args = ()
+    if source is not None:
+        sql += " AND source=?"
+        args = (source,)
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY found_at DESC", args)]
+
+
+def dismiss_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("UPDATE domain_proposals SET dismissed=1 "
+                           "WHERE source=? AND host=? AND dismissed=0", (source, host))
+    return cur.rowcount > 0
+
+
+def delete_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM domain_proposals WHERE source=? AND host=? AND dismissed=0",
+                           (source, host))
+    return cur.rowcount > 0

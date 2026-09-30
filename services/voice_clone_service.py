@@ -64,6 +64,7 @@ import background_jobs
 import db
 import dub
 from services import characters_service, drama_service
+from services.media_upload_service import AUDIO_EXTENSIONS
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -80,7 +81,6 @@ _CLIP_IN_USE = ("A dub, narration or audiobook job is running for this drama and
                 "using this clip. Wait for it to finish or cancel it first.")
 
 # Upload caps (C09). The tab accepts wav/mp3/m4a; flac/ogg are also plain audio.
-CLIP_EXTENSIONS = (".wav", ".mp3", ".m4a", ".flac", ".ogg")
 MAX_CLIP_BYTES = 20 * 1024 * 1024
 MIN_CLIP_SECONDS = 1.0
 MAX_CLIP_SECONDS = 30.0
@@ -199,7 +199,7 @@ def _clip_extension(client_filename) -> str:
     if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise InvalidInputError(_BAD_TYPE)
     ext = os.path.splitext(name)[1].lower()
-    if ext not in CLIP_EXTENSIONS:
+    if ext not in AUDIO_EXTENSIONS:
         raise InvalidInputError(_BAD_TYPE)
     return ext
 

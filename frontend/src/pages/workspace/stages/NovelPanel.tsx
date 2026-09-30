@@ -13,6 +13,7 @@ import { attachNotice, epubRange } from '../preambleForm'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { LncrawlPanel } from './LncrawlPanel'
+import { epubSizeProblem } from './novelFile'
 import { useNovelFilesVersion } from './novelFileEvents'
 import './preamble.css'
 
@@ -84,6 +85,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
   }
 
   const range = epubRange(fromChapter, toChapter)
+  const epubProblem = epub ? epubSizeProblem(epub) : null
   const base = status?.has_novel_text
     ? `${status.char_count.toLocaleString()} chars · ${status.chapters} chapters`
     : 'none attached'
@@ -123,7 +125,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         >
           Attach text
         </button>
-        <Field label="EPUB file" help="Or attach an .epub file instead of pasting.">
+        <Field label="EPUB file" help="Or attach an .epub file instead of pasting." error={epubProblem}>
           <input type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
         </Field>
         <div className="epub-range">
@@ -137,9 +139,9 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         {'problem' in range && <p className="error" role="alert">{range.problem}</p>}
         <button
           type="button"
-          disabled={!epub || 'problem' in range}
+          disabled={!epub || !!epubProblem || 'problem' in range}
           onClick={() =>
-            epub && !('problem' in range) &&
+            epub && !epubProblem && !('problem' in range) &&
             attachNovelEpub(dramaId, epub, mode, undefined, range).then(attached, fail)
           }
         >

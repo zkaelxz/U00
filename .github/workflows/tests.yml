@@ -16,9 +16,9 @@ permissions:
   contents: read
 
 # Cancel a still-running CI run for the same branch/PR once a newer push
-# supersedes it -- checked safe: this repo has no deployment/release
-# workflow whose in-flight run a cancellation could interrupt, just these
-# two validation workflows, so there's nothing here a mid-run cancel loses.
+# supersedes it. The group is per workflow and ref, so this never touches
+# windows-installer.yml, the one workflow that publishes a release (it runs
+# only for a tag or on demand); windows-bootstrap.yml is validation only.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
@@ -72,7 +72,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
         with:

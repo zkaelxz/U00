@@ -25,6 +25,88 @@ class GenericError(Exception):
     pass
 
 
+class TestBackoffCancelAndDeadlines:
+    def _sleeps(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr("time.sleep", lambda sec: slept.append(sec))
+        return slept
+
+    def test_backoff_sleep_stops_when_the_job_is_cancelled(self, monkeypatch):
+        slept = self._sleeps(monkeypatch)
+        cancelled = {"v": False}
+        calls = {"n": 0}
+
+        def always_429():
+            calls["n"] += 1
+            raise RateLimitError("429")
+
+        def check():
+            return cancelled["v"] and True
+
+        token = te._cancel_check_var.set(check)
+        try:
+            monkeypatch.setattr("time.sleep", lambda sec: (slept.append(sec),
+                                                           cancelled.__setitem__("v", True)))
+            with pytest.raises(te.TranslationCancelled):
+                te.call_with_backoff(always_429, base_delay=30.0)
+        finally:
+            te._cancel_check_var.reset(token)
+        assert calls["n"] == 1
+        assert max(slept) <= te._SLEEP_SLICE_SECONDS  # never one long sleep
+
+    def test_translate_run_passes_its_cancel_check_to_the_backoff(self, monkeypatch):
+        self._sleeps(monkeypatch)
+        cancelled = {"v": False}
+
+        class Engine:
+            def translate_batch(self, zh, ctx):
+                cancelled["v"] = True
+                raise RateLimitError("429")
+
+        lines = [Line(idx=0, start=0, end=1, zh="a")]
+        _, errors = te.translate_lines_with_engine(
+            lines, Engine(), {}, cancel_check_cb=lambda: cancelled["v"])
+        assert len(errors) == 1 and lines[0].en == ""
+
+    def test_429_text_match_ignores_other_numbers_and_known_statuses(self):
+        assert te._is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))
+        assert not te._is_rate_limit_error(Exception("failed at line 14290"))
+
+        class Other(Exception):
+            status_code = 500
+        assert not te._is_rate_limit_error(Other("upstream said 429 somewhere"))
+
+    def test_exhausted_fallback_chain_is_not_backed_off_again(self, monkeypatch):
+        slept = self._sleeps(monkeypatch)
+        monkeypatch.setattr(te, "_fallback_sleep", lambda s: None)
+        calls = {"n": 0}
+
+        class Always429:
+            name = "x"
+            model = "m"
+
+            def translate_batch(self, zh, ctx):
+                calls["n"] += 1
+                raise RateLimitError("429")
+
+        chain = te.FallbackEngine([Always429()], ["x"])
+        with pytest.raises(RateLimitError):
+            te.call_with_backoff(lambda: chain.translate_batch(["a"], {}))
+        assert calls["n"] == 1 + te.FALLBACK_TRANSIENT_RETRIES  # not 6x that
+        assert slept == []
+
+    def test_daily_limit_stops_the_run_with_a_clear_error(self, monkeypatch):
+        self._sleeps(monkeypatch)
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
+        now = time.monotonic()
+        engine._free_tier_daily_request_times = [now] * limit
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
+        _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        assert len(errors) == 1  # stopped after the first batch
+        assert "daily request limit" in errors[0]["error"]
+
+
 class TestCallWithBackoff:
     def test_succeeds_immediately_when_no_error(self):
         result = te.call_with_backoff(lambda: "ok")
@@ -1057,8 +1139,11 @@ class TestGeminiFreeTierThrottle:
         limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
         engine._free_tier_daily_request_times = [0.0] * limit
 
-        engine._throttle_for_free_tier()
-        assert state["slept"] == [86400.0]
+        # Waiting out the daily window would take hours: stop with a clear
+        # message instead of sleeping.
+        with pytest.raises(te.FreeTierDailyLimitReached, match="daily request limit"):
+            engine._throttle_for_free_tier()
+        assert state["slept"] == []
 
     def test_tpm_paces_a_job_when_past_requests_used_the_shared_budget(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
@@ -3178,3 +3263,20 @@ class TestCancelBetweenBatches:
             tg.generate_translation_notes_llm(lines, engine, batch_size=3,
                                               cancel_check=self._stop_after(0))
         assert engine.call_count == 0
+
+
+def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
+    import applog
+    seen = []
+
+    class Log:
+        def warning(self, msg, *args):
+            seen.append(msg % args)
+    monkeypatch.setattr(applog, "get_logger", lambda: Log())
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(te, "call_llm_json", boom)
+    lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
+    te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
+    assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]

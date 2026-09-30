@@ -204,8 +204,8 @@ just prefer the command line on Windows too.
 
 ### Prerequisites
 
-Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
-diarization; CI and the cloud test setup use 3.11) and `ffmpeg` **with
+Python 3.10+ (CI and the cloud test setup use 3.11; the Windows installer
+ships 3.12) and `ffmpeg` **with
 libass support** (needed for burning subtitles into video). Most
 standard `ffmpeg` builds already include it. Node.js is only needed to
 build the React frontend yourself (22 is what CI uses); the release zip
@@ -354,7 +354,12 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   honour it (window, health check, `--stop`); the Vite dev proxy needs
   `BAIHE_API_URL=http://127.0.0.1:8601` to match. The household listener's
   port is separate (`BAIHE_API_HOUSEHOLD_PORT`); never forward either port
-  through the router. Baihe also refuses its own ports as ntfy, SearXNG and
+  through the router. The default (8600) is defined once, as
+  `DEFAULT_PORT` in `api/api_config.py`; change it there. The files that
+  can't import it (`start.bat`, `start.ps1`, `frontend/vite.config.ts`,
+  `frontend/src/report/capture.test.ts`, the two Windows workflows, this
+  README and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py`
+  fails if one of them drifts. Baihe also refuses its own ports as ntfy, SearXNG and
   Jellyfin targets. The Windows boot service (PR #575, not merged yet) pins
   8600 and ignores `BAIHE_API_PORT`.
 - The React app calls the relative path `/api`; the Vite dev server

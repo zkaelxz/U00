@@ -32,13 +32,15 @@ _CATEGORIES = {
     "layout_changed": ("LAYOUT_CHANGED",),
     "slow": ("TIMEOUT", "RATE_LIMIT"),
     "needs_sign_in": ("AUTHENTICATION_REQUIRED", "COOKIE_REQUIRED", "PURCHASE_REQUIRED"),
+    "domains_unreachable": ("ALL_DOMAINS_UNREACHABLE",),
 }
 _CATEGORY_OF = {t: c for c, types in _CATEGORIES.items() for t in types}
 
 
 def category(error_type) -> str:
     """blocked / site_down / page_missing / layout_changed / slow /
-    needs_sign_in, "other" for any other error type, None for no error."""
+    needs_sign_in / domains_unreachable, "other" for any other error type,
+    None for no error."""
     if not error_type:
         return None
     return _CATEGORY_OF.get(str(error_type), "other")
@@ -46,13 +48,17 @@ def category(error_type) -> str:
 
 def record_success(source: str, latency: float, now: float = None):
     now = time.time() if now is None else now
-    with store.connect() as conn:
-        conn.execute(
-            "INSERT INTO source_health(source, consecutive_failures, last_success, last_latency, "
-            "unavailable_until) VALUES(?, 0, ?, ?, NULL) ON CONFLICT(source) DO UPDATE SET "
-            "consecutive_failures=0, last_success=excluded.last_success, "
-            "last_latency=excluded.last_latency, unavailable_until=NULL",
-            (source, now, latency))
+    try:
+        with store.connect() as conn:
+            conn.execute(
+                "INSERT INTO source_health(source, consecutive_failures, last_success, last_latency, "
+                "unavailable_until) VALUES(?, 0, ?, ?, NULL) ON CONFLICT(source) DO UPDATE SET "
+                "consecutive_failures=0, last_success=excluded.last_success, "
+                "last_latency=excluded.last_latency, unavailable_until=NULL",
+                (source, now, latency))
+    except store.SourcesDatabaseBusy:
+        # Health is a record of the fetch, not part of it.
+        store.log_dropped("a source health record")
 
 
 def record_failure(source: str, error_type: str, error: str, now: float = None,
@@ -65,14 +71,19 @@ def record_failure(source: str, error_type: str, error: str, now: float = None,
     until = None
     if failures >= RED_AFTER:
         until = now + min(base_backoff * (2 ** (failures - RED_AFTER)), MAX_BACKOFF)
-    with store.connect() as conn:
-        conn.execute(
-            "INSERT INTO source_health(source, consecutive_failures, last_failure, last_error_type, "
-            "last_error, unavailable_until) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO UPDATE "
-            "SET consecutive_failures=excluded.consecutive_failures, "
-            "last_failure=excluded.last_failure, last_error_type=excluded.last_error_type, "
-            "last_error=excluded.last_error, unavailable_until=excluded.unavailable_until",
-            (source, failures, now, error_type, redact_for_storage(error)[:500], until))
+    try:
+        with store.connect() as conn:
+            conn.execute(
+                "INSERT INTO source_health(source, consecutive_failures, last_failure, last_error_type, "
+                "last_error, unavailable_until) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO UPDATE "
+                "SET consecutive_failures=excluded.consecutive_failures, "
+                "last_failure=excluded.last_failure, last_error_type=excluded.last_error_type, "
+                "last_error=excluded.last_error, unavailable_until=excluded.unavailable_until",
+                (source, failures, now, error_type, redact_for_storage(error)[:500], until))
+    except store.SourcesDatabaseBusy:
+        store.log_dropped("a source health record")
+        current["consecutive_failures"] = failures
+        return current
     return get(source)
 
 
