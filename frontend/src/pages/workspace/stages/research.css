@@ -1,0 +1,10 @@
+/* "Research online" panel (Step 37). */
+.research-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.research-row { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); min-width: 0; }
+.research-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.research-value { margin: var(--space-2) 0; overflow-wrap: anywhere; }
+.research-sources { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
+.research-choice { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .research-choice span { min-height: 44px; }
+}
