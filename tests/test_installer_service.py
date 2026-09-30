@@ -340,13 +340,22 @@ class TestStopAndUninstall:
         assert not layout.admin.exists()
         assert (layout.data / "library" / "library.db").is_file()
 
-    def test_uninstall_from_the_admin_copy_leaves_the_running_interpreter_for_later(self, layout, source):
+    def test_a_loaded_file_is_moved_aside_so_the_folder_goes(self, layout, source, tmp_path, monkeypatch):
         win = FakeWindows()
         _services(layout, win, source).install()
-        later = []
-        _services(layout, win, running_from_admin=True, remove_later=later.append).uninstall()
-        assert later == [layout.admin] and layout.helper.exists()
-        assert not layout.service_dir.exists()
+        monkeypatch.setattr(service, "system_dir", lambda: str(tmp_path / "Windows" / "System32"))
+        (tmp_path / "Windows" / "Temp").mkdir(parents=True)
+        locked = layout.helper_python
+        real_unlink = Path.unlink
+
+        def unlink(self, *a, **k):
+            if self == locked:
+                raise PermissionError("in use")
+            return real_unlink(self, *a, **k)
+        monkeypatch.setattr(Path, "unlink", unlink)
+        monkeypatch.setattr(service, "_delete_on_reboot", lambda p: None)
+        _services(layout, win).uninstall()
+        assert not layout.admin.exists()
 
     def test_nothing_installed(self, layout):
         win = FakeWindows()

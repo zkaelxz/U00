@@ -520,28 +520,41 @@ def is_admin() -> bool:
         return False
 
 
-def remove_folder_later(folder: Path) -> None:
-    """Deletes what's left of the admin folder (this script's own
-    interpreter) once this process has exited: a detached cmd.exe from
-    System32 retries the removal for about a minute. It breaks away from the
-    caller's job object where allowed, so a runner or installer that ends
-    its job when the process exits doesn't take it along. Only administrators
-    can change that folder, so nothing in it can have been swapped for a
-    link."""
-    # Attempts and their errors go to a log in Windows' Temp folder, so a
-    # folder that won't go can be explained.
-    log = os.path.join(os.path.dirname(system_dir()), "Temp", "baihe-services-cleanup.log")
-    script = (f'for /l %i in (1,1,30) do (ping -n 3 127.0.0.1 >nul & rmdir /s /q "{folder}" 2>>"{log}" '
-              f'& if not exist "{folder}" (echo removed >>"{log}" & exit /b 0) else echo attempt %i >>"{log}")')
-    base = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
-    for flags in (base | breakaway, base):
+def _delete_on_reboot(path) -> None:
+    if os.name == "nt":
         try:
-            subprocess.Popen([CMD, "/d", "/c", script], creationflags=flags, close_fds=True,
-                             cwd=system_dir())
-            return
+            import ctypes
+            ctypes.windll.kernel32.MoveFileExW(str(path), None, 0x4)   # MOVEFILE_DELAY_UNTIL_REBOOT
+        except Exception:
+            pass
+
+
+def remove_admin_folder(folder: Path) -> None:
+    """Removes the admin folder, including the interpreter this script is
+    running from. Windows won't delete a file that is loaded, but it does
+    let one be renamed, so a file that can't be deleted is moved into a
+    folder of its own in Windows' Temp folder (which only administrators
+    can change there) and deleted with the rest, or at the next restart if it
+    is still loaded. Only administrators can change the admin folder, so
+    nothing in it can have been swapped for a link."""
+    park = Path(system_dir()).parent / "Temp" / f"baihe-services-{os.getpid()}"
+    files = [p for p in folder.rglob("*") if not p.is_dir() or is_reparse_point(p)]
+    for path in sorted(files, key=lambda p: len(p.parts), reverse=True):
+        try:
+            path.unlink()
         except OSError:
-            continue
+            try:
+                park.mkdir(parents=True, exist_ok=True)
+                path.rename(park / f"{len(list(park.iterdir()))}-{path.name}")
+            except OSError:
+                _delete_on_reboot(path)
+    shutil.rmtree(folder, ignore_errors=True)
+    if park.exists():
+        shutil.rmtree(park, ignore_errors=True)
+        for left in park.rglob("*") if park.exists() else ():
+            _delete_on_reboot(left)
+        if park.exists():
+            _delete_on_reboot(park)
 
 
 # ---------------------------------------------------------- operations
@@ -550,12 +563,9 @@ class Services:
     """The commands, against a layout, a command runner and checks that
     tests replace."""
 
-    def __init__(self, layout: Layout, run, health=health_ok, sleep=time.sleep, source=None,
-                 running_from_admin=False, remove_later=remove_folder_later):
+    def __init__(self, layout: Layout, run, health=health_ok, sleep=time.sleep, source=None):
         self.layout, self.run, self.health, self.sleep = layout, run, health, sleep
         self.source = Path(source) if source else None
-        self.running_from_admin = running_from_admin
-        self.remove_later = remove_later
 
     def _swap_in_admin_files(self) -> list:
         """Replaces helper\\ and service\\ in the admin folder with Setup's
@@ -714,13 +724,7 @@ class Services:
                 refuse_reparse_point(cmd[1])
                 self.run(cmd, timeout=timeout)
         if lay.admin.exists():
-            # rmtree unlinks a junction instead of following it. The running
-            # interpreter, or a wrapper Windows still holds, is removed later.
-            shutil.rmtree(lay.service_dir, ignore_errors=True)
-            if not self.running_from_admin:
-                shutil.rmtree(lay.admin, ignore_errors=True)
-            if lay.admin.exists():
-                self.remove_later(lay.admin)
+            remove_admin_folder(lay.admin)
         return "Removed Baihe Studio's service."
 
     def status(self) -> str:
@@ -755,7 +759,7 @@ def build_services(args) -> Services:
     source = None if running_from_admin else APP_DIR.parent.parent
     return Services(layout, Runner(layout.log_file if running_from_admin or layout.admin.is_dir()
                                    else None),
-                    source=source, running_from_admin=running_from_admin)
+                    source=source)
 
 
 def main(argv=None, services=None, admin=None) -> int:
