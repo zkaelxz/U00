@@ -18,7 +18,8 @@ only.
 `create_app(listener="household")` builds the second, household app that
 `python -m api` serves on `BAIHE_API_HOUSEHOLD_PORT` in the same process
 (see `api/api_config.py`): sign-in on, no background services, no docs,
-never "the PC".
+never "the PC", only the `BAIHE_PUBLIC_URL` host, security headers on
+every reply (`api.auth.HouseholdGate`).
 """
 
 # Must run before any other app import -- same rule, and same reason, as
@@ -33,8 +34,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import ApiSettings, check_bind_safety, household_settings, load_settings
-from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSiteGate,
-                      LoopbackOnlyGate, local_only_matchers, public_api_paths)
+from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
+                      LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
+                      public_api_paths)
 from api.error_handlers import install_error_handlers
 from api.routers import (
     admin_users_routes,
@@ -121,7 +123,8 @@ async def _lifespan(app: FastAPI):
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
-    and job records left running by a dead process are closed (B-04).
+    and job records left running by a dead process are closed (B-04), as
+    are stale sign-in sessions (expired, idle or of a deactivated user).
     The household listener's app does none of this, at start or stop: it
     shares the process with the admin listener, whose lifespan owns it."""
     if getattr(app.state.settings, "is_household", False):
@@ -139,6 +142,11 @@ async def _lifespan(app: FastAPI):
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
+    from services import auth_service
+    try:
+        auth_service.sweep_stale_sessions()
+    except Exception:
+        logging.getLogger(__name__).warning("Stale session sweep failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 start_reeval_scheduler, stop_gpu_queue_poller,
                                 stop_reeval_scheduler)
@@ -208,6 +216,10 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
             allow_headers=["Content-Type"],
             allow_credentials=False,
         )
+    if settings.is_household:
+        # Outermost: checks the Host before anything else runs and adds the
+        # security headers to every reply, the other gates' refusals included.
+        app.add_middleware(HouseholdGate, public_url=settings.public_url)
     install_error_handlers(app)
     app.include_router(system_routes.router)
     app.include_router(library_routes.router)
