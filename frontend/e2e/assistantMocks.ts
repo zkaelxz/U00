@@ -59,6 +59,8 @@ export interface AssistantMock {
   askGate: Promise<void> | null
   calls: Call[]
   unmocked: string[]
+  /** Lead review: per cloud engine consent. When set, /ask refuses a cloud engine without it (409). */
+  cloudConsent: Record<string, boolean> | null
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -70,7 +72,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
   const s: AssistantMock = {
     developerMode: false, local: true, engine: null, model: null,
     backlog: [{ id: 1, kind: 'note', text: 'Tidy the Export stage copy.', created_at: '2026-09-28T09:30:00' }],
-    askStatus: 200, askGate: null, calls: [], unmocked: [], ...over,
+    askStatus: 200, askGate: null, calls: [], unmocked: [], cloudConsent: null, ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -84,7 +86,8 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     s.calls.push({ method: req.method(), path: url.pathname, body })
     return url
   }
-  const settings = () => ({ developer_mode: s.developerMode, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'] })
+  const settings = () => ({
+    ...(s.cloudConsent ? { default_engine: 'ollama', local_engines: ['ollama'], cloud_consent: s.cloudConsent } : {}), developer_mode: s.developerMode, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'] })
 
   // Guard first: later routes take precedence.
   await page.route(/\/api\/assistant\/.*/, (route) => {
@@ -105,6 +108,8 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
       if ('developer_mode' in b) s.developerMode = !!b.developer_mode
       if ('engine' in b) s.engine = b.engine ?? null
       if ('model' in b) s.model = b.model ?? null
+      const cc = (b as { cloud_consent?: Record<string, boolean> }).cloud_consent
+      if (cc && s.cloudConsent) s.cloudConsent = { ...s.cloudConsent, ...cc }
     }
     return json(route, settings())
   })
@@ -116,6 +121,10 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     record(route)
     if (s.askGate) await s.askGate
     if (!s.developerMode) return json(route, { error: { code: 'conflict', message: 'Developer Mode is off.' } }, 409)
+    const picked = (route.request().postDataJSON() as { engine?: string }).engine || s.engine || 'ollama'
+    if (s.cloudConsent && picked !== 'ollama' && !s.cloudConsent[picked]) {
+      return json(route, { error: { code: 'conflict', message: 'Not allowed yet.', details: { reason: 'cloud_consent_required', engine: picked } } }, 409)
+    }
     if (s.askStatus !== 200) {
       return json(route, { error: { code: 'dependency_unavailable', message: 'No API key for this engine.' } }, s.askStatus)
     }

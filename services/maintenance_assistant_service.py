@@ -159,6 +159,30 @@ def _get(key: str, default=None):
         return default
 
 
+# Engines that run on this PC: code and logs never leave it.
+LOCAL_ENGINES = frozenset({"ollama", "test_offline"})
+DEFAULT_ENGINE = "ollama"
+
+
+def _cloud_consent() -> dict:
+    raw = _get("cloud_consent", {})
+    return {k: True for k, v in raw.items() if v is True} if isinstance(raw, dict) else {}
+
+
+def cloud_consent_given(engine_name: str) -> bool:
+    """A local engine needs no consent; a cloud one needs the owner's
+    saved, per-provider "allow sending code and logs" consent."""
+    return engine_name in LOCAL_ENGINES or _cloud_consent().get(engine_name) is True
+
+
+def require_cloud_consent(engine_name: str):
+    if not cloud_consent_given(engine_name):
+        raise ConflictError(
+            f"Sending this app's code and logs to {engine_name} isn't allowed yet. Allow it "
+            "for that engine in the assistant's settings, or use Ollama to keep everything "
+            "on this PC.", details={"reason": "cloud_consent_required", "engine": engine_name})
+
+
 def developer_mode_enabled() -> bool:
     """Off by default; a DB hiccup reads as off."""
     return _get("developer_mode", False) is True
@@ -173,6 +197,10 @@ def get_settings() -> dict:
         "engine": engine if engine in choices else None,
         "model": model if isinstance(model, str) and model else None,
         "engine_choices": choices,
+        "default_engine": DEFAULT_ENGINE,
+        "local_engines": sorted(LOCAL_ENGINES & set(choices)),
+        # Per cloud engine: may the assistant send code and logs to it?
+        "cloud_consent": {c: cloud_consent_given(c) for c in choices if c not in LOCAL_ENGINES},
     }
 
 
@@ -208,6 +236,16 @@ def set_settings(updates: dict) -> dict:
             cleaned[key] = _check_engine_name(value)
         elif key == "model":
             cleaned[key] = _check_model(value)
+        elif key == "cloud_consent":
+            if not isinstance(value, dict) or len(value) > 20:
+                raise InvalidInputError("cloud_consent must map engine names to true/false.")
+            merged = _cloud_consent()
+            for eng, allowed in value.items():
+                _check_engine_name(eng, "cloud_consent engine")
+                if eng in LOCAL_ENGINES or not isinstance(allowed, bool):
+                    raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
+                merged[eng] = allowed
+            cleaned[key] = {k: v for k, v in merged.items() if v is True}
         else:
             raise InvalidInputError("Unknown assistant setting.")
     if "engine" in cleaned and "model" not in cleaned and cleaned["engine"] != get_settings()["engine"]:
@@ -480,8 +518,9 @@ def tool_git_diff(args: dict) -> str:
         else:
             _resolve_name_only(path)
         cmd.append(_rel(full))
-    else:
-        cmd += [f":(exclude){d}" for d in (".env", "library", "*.key", "*.pem")]
+    # No excludes: git diff only covers tracked files (.env, keys and the
+    # library are untracked), output is redacted, and literal pathspecs
+    # would turn ":(exclude)..." into file names that match nothing.
     return _redact(_git(*cmd)) or "No differences."
 
 
@@ -750,10 +789,11 @@ def build_engine(engine_name=None, model=None):
     from the request). Same rules as the Reader's Q&A engine."""
     from services import reader_service
     settings = get_settings()
-    saved_engine = settings["engine"] or "claude"
+    saved_engine = settings["engine"] or DEFAULT_ENGINE
     engine_name = _check_engine_name(engine_name) or saved_engine
     model = _check_model(model) or (settings["model"] if engine_name == saved_engine else None)
     from services import line_ai_service, settings_service
+    require_cloud_consent(engine_name)
     engine = reader_service._llm_engine(engine_name, model)
     line_ai_service.refuse_if_over_monthly_cap(engine_name, settings_service.get_gemini_free_tier())
     return engine, engine_name, model

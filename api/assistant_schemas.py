@@ -19,6 +19,9 @@ class AssistantSettings(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     engine_choices: List[str]
+    default_engine: str = "ollama"
+    local_engines: List[str] = Field(default_factory=list)
+    cloud_consent: Dict[str, bool] = Field(default_factory=dict)
 
 
 class AssistantSettingsUpdate(BaseModel):
@@ -26,6 +29,7 @@ class AssistantSettingsUpdate(BaseModel):
     developer_mode: Optional[bool] = None
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=100)
+    cloud_consent: Optional[Dict[str, bool]] = None
 
 
 class AssistantTool(BaseModel):

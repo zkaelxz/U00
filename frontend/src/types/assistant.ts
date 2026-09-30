@@ -7,9 +7,15 @@ export interface AssistantSettings {
   engine: string | null
   model: string | null
   engine_choices: string[]
+  // The engine used when none is picked or saved (local: Ollama).
+  default_engine?: string
+  // Engines that run on this PC; code and logs never leave it.
+  local_engines?: string[]
+  // Per cloud engine: has the owner allowed sending code and logs to it?
+  cloud_consent?: Record<string, boolean>
 }
 
-export type AssistantSettingsPatch = Partial<Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model'>>
+export type AssistantSettingsPatch = Partial<Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'cloud_consent'>>
 
 export interface AssistantTool {
   name: string
