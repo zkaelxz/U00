@@ -78,6 +78,20 @@ describe('dub api', () => {
     expect(calls[0].url).toContain('/api/dub/dramas/7/run')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ tts_engine: 'edge_tts', keep_background: false })
   })
+  it('starts narration fresh only when asked, keeping the body', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, { job_id: 'n' }, calls)
+    await narrationApi.run(3, { engine: 'claude' }, f, { fresh: true })
+    await narrationApi.run(3, { engine: 'claude', model: 'm' }, f, { fresh: false })
+    await narrationApi.run(3, { engine: 'claude' }, f)
+    expect(calls.map((c) => [c.url, c.init?.method])).toEqual([
+      ['/api/narration/dramas/3/run?fresh=true', 'POST'],
+      ['/api/narration/dramas/3/run', 'POST'],
+      ['/api/narration/dramas/3/run', 'POST'],
+    ])
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ engine: 'claude' })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ engine: 'claude', model: 'm' })
+  })
   it('reads configs and surfaces 409/422/503 as ApiError', async () => {
     expect((await narrationApi.config(2, fakeFetch(200, { is_narration: true }))).is_narration).toBe(true)
     for (const status of [409, 422, 503]) {

@@ -74,6 +74,8 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
   const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null)
   const [edits, setEdits] = useRunScoped<Edits>(run, {})
   const [overwrite, setOverwrite] = useState(false)
+  // From novel only; not remembered, so a paid re-run is always a choice.
+  const [fresh, setFresh] = useState(false)
   const [confirming, setConfirming] = useRunScoped(run, false)
   // Chosen terms already in the series glossary, re-read when confirming
   // an overwrite; null while reading or if the read failed.
@@ -100,7 +102,7 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
     setPicked(null)
     setEdits({})
     setConfirming(false)
-    startExtraction(dramaId, source)
+    startExtraction(dramaId, source, { fresh: source === 'novel' && fresh })
       .then((r) => {
         setProblem(r.problem)
         setError(r.error)
@@ -185,16 +187,28 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
             </button>
           </p>
         ) : (
-          <div className="actions">
-            <button type="button" className={buttonClass('secondary')} disabled={!!blocker || hasNovel === null || busy} onClick={start}>
-              {proposals.length ? 'Extract terms again' : 'Extract terms'}
-            </button>
-            {blocker && (
-              <span className="muted">
-                {blocker.text} (<a href={blocker.href}>{blocker.link}</a>).
-              </span>
+          <>
+            {source === 'novel' && (
+              <div className="setting-list">
+                <Field
+                  label="Fresh suggestions"
+                  help="Ask the model again instead of reusing the suggestions saved from the last run over this novel (costs a new run)."
+                >
+                  <Toggle checked={fresh} onChange={setFresh} />
+                </Field>
+              </div>
             )}
-          </div>
+            <div className="actions">
+              <button type="button" className={buttonClass('secondary')} disabled={!!blocker || hasNovel === null || busy} onClick={start}>
+                {proposals.length ? 'Extract terms again' : 'Extract terms'}
+              </button>
+              {blocker && (
+                <span className="muted">
+                  {blocker.text} (<a href={blocker.href}>{blocker.link}</a>).
+                </span>
+              )}
+            </div>
+          </>
         )}
         {status?.status === 'error' && (
           <p className="error" role="alert">

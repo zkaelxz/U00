@@ -16,4 +16,9 @@ test('diagnostics and jobs endpoints match what the page reads', async ({ reques
   const cancel = await request.post('/api/jobs/nope/cancel', { headers: { 'X-Baihe-Local': '1' } })
   expect(cancel.status()).toBe(404)
   expect((await cancel.json()).error.code).toBe('not_found')
+
+  // Job history's "Time by stage" reads this; an unknown job is a plain 404.
+  const stages = await request.get('/api/jobs/nope/stages')
+  expect(stages.status()).toBe(404)
+  expect((await stages.json()).error.code).toBe('not_found')
 })

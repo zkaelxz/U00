@@ -83,15 +83,21 @@ export interface StartOutcome {
 // is either a run already going (attach to it) or the drama's engine
 // changed since the gate checked it. runId is read from the status right
 // after the start, so a caller can tell its run from an earlier one.
+// fresh (novel only) skips the replies cached by an earlier run.
 // Never rejects.
-export function startExtraction(dramaId: number, source: GlossarySource): Promise<StartOutcome> {
+export function startExtraction(
+  dramaId: number,
+  source: GlossarySource,
+  opts: { fresh?: boolean } = {},
+): Promise<StartOutcome> {
   const api = GLOSSARY_API[source]
   const ok = (runId: string | null): StartOutcome => {
     bumpGlossaryRun(source)
     return { problem: null, error: null, runId }
   }
   const changed = { problem: ENGINE_CHANGED_TEXT, error: null, runId: null }
-  return api.start(dramaId).then(
+  const started = source === 'novel' ? startNovelGlossary(dramaId, undefined, opts) : api.start(dramaId)
+  return started.then(
     () => api.get(dramaId).then((s) => ok(s.run_id), (e: unknown) => ({ ...ok(null), error: e })),
     (e: unknown) => {
       if (e instanceof ApiError && e.status === 409) {

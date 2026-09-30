@@ -28,8 +28,14 @@ export const applyAutotune = (id: number, candidateMs: number, f?: Fetch) =>
 export const getNovelGlossary = (id: number, f?: Fetch) =>
   getJson<NovelGlossaryStatus>(`/api/glossary/dramas/${id}/from-novel`, f)
 
-export const startNovelGlossary = (id: number, f?: Fetch) =>
-  postJson<NovelGlossaryRunResult>(`/api/glossary/dramas/${id}/from-novel`, undefined, f)
+// fresh: ignore the replies cached by an earlier run over the same novel
+// text and engine (Step 41) and ask the model again; sent only when true.
+export const startNovelGlossary = (id: number, f?: Fetch, opts: { fresh?: boolean } = {}) =>
+  postJson<NovelGlossaryRunResult>(
+    `/api/glossary/dramas/${id}/from-novel${opts.fresh ? '?fresh=true' : ''}`,
+    undefined,
+    f,
+  )
 
 export const applyNovelGlossary = (id: number, body: GlossaryProposalsApplyRequest, f?: Fetch) =>
   postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-novel/apply`, body, f)

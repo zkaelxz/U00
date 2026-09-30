@@ -10,9 +10,11 @@ import { TERMINAL_STATUSES, jobFailed, jobOutcomeText } from '../../../types/job
 interface Props {
   job: JobRecord | null
   pollError: ApiError | null
+  // Optional muted line under the status message.
+  note?: string | null
 }
 
-export function JobPanel({ job, pollError }: Props) {
+export function JobPanel({ job, pollError, note }: Props) {
   const [cancelError, setCancelError] = useState<unknown>(null)
   const active = job !== null && !TERMINAL_STATUSES.includes(job.status)
   // Server text goes through safeDetail like job.error; if it is unsafe or
@@ -32,6 +34,7 @@ export function JobPanel({ job, pollError }: Props) {
             {job.status}
             {job.message ? ` · ${job.message}` : ''}
           </p>
+          {note && <p className="muted" data-testid="job-note">{note}</p>}
           {job.progress !== null && (
             <p>
               <progress value={job.progress} max={1} aria-label="Job progress" />{' '}

@@ -311,6 +311,11 @@ def drama_id_of_job(job_id):
     return None
 
 
+def sees_every_job(principal) -> bool:
+    """Admins, the local owner and auth off (None) see every job."""
+    return _sees_everything(principal)
+
+
 def can_see_job(principal, job_id, owner_user_id) -> bool:
     """Admins, the local owner and auth off see every job. A drama's job
     (`<prefix><drama_id>`) is visible to whoever can see that drama --

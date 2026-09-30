@@ -138,12 +138,15 @@ def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int 
              responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
                         404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         503: {"model": ErrorResponse}})
-def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1)):
+def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1),
+                              fresh: bool = Query(False, description=(
+                                  "Ignore replies cached by an earlier run (Step 41)"))):
     engine_name = glossary_service.novel_glossary_engine(drama_id)
     require_engines_allowed(request, engine_name)
     # Pass the checked name: the service refuses (409) if the stored engine
     # changed since, so the run can't switch to an engine the gate didn't see.
-    return glossary_service.start_novel_glossary_run(drama_id, engine_name=engine_name)
+    return glossary_service.start_novel_glossary_run(drama_id, engine_name=engine_name,
+                                                     fresh=fresh)
 
 
 @router.get("/dramas/{drama_id}/from-novel", dependencies=[require_permission("library.read")], response_model=NovelGlossaryStatus,

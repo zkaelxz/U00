@@ -22,6 +22,12 @@ export const dubTrackUrl = (dramaId: number) => apiUrl(`/api/dub/dramas/${dramaI
 export const narrationApi = {
   config: (dramaId: number, f?: Fetch) =>
     getJson<NarrationConfig>(`/api/narration/dramas/${dramaId}/config`, f),
-  run: (dramaId: number, body: NarrationRunRequest, f?: Fetch) =>
-    postJson<{ job_id: string }>(`/api/narration/dramas/${dramaId}/run`, body, f),
+  // fresh: drop the batches an interrupted run already tagged and tag
+  // everything again (Step 41); sent only when true.
+  run: (dramaId: number, body: NarrationRunRequest, f?: Fetch, opts: { fresh?: boolean } = {}) =>
+    postJson<{ job_id: string }>(
+      `/api/narration/dramas/${dramaId}/run${opts.fresh ? '?fresh=true' : ''}`,
+      body,
+      f,
+    ),
 }

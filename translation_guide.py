@@ -580,7 +580,7 @@ def _sample_across_text(text: str, total_chars: int = 24000, chunks: int = 6):
 
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
                                  english_translation: str = "", known_terms=None,
-                                 progress_cb=None, usage_cb=None):
+                                 progress_cb=None, usage_cb=None, response_cache=None):
     """
     Builds a term glossary from a novel rather than from drama dialogue.
 
@@ -600,6 +600,11 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
 
     Returns the same shape as extract_terms_llm(), for review before
     anything is committed to a glossary.
+
+    response_cache (Step 41): optional (get(prompt) -> text or None,
+    put(prompt, text)). A re-run after a crash or cancel then re-sends only
+    the passages the earlier run never finished. Only a reply with at least
+    one usable term is cached, so a failed or empty call is retried.
     """
     if not getattr(engine, "supports_reference", False):
         return []
@@ -646,8 +651,15 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             f"Excerpt:\n{sample}"
         )
 
-        text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb)
+        text = response_cache[0](prompt) if response_cache else None
+        cached = text is not None
+        if not cached:
+            text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
+                                 usage_cb=usage_cb)
         entries = _parse_json_array(text, 0)
+        if (response_cache and not cached and isinstance(entries, list)
+                and any(isinstance(e, dict) and e.get("term") for e in entries)):
+            response_cache[1](prompt, text)
         if isinstance(entries, list):
             for e in entries:
                 if not isinstance(e, dict) or not e.get("term"):

@@ -142,6 +142,23 @@
 .diag-history summary { cursor: pointer; }
 .diag-history p { margin: var(--space-1) 0 0; }
 
+/* Job history > "Time by stage": name and time on one line, a share bar under it. */
+.stage-times { margin-top: var(--space-2); min-width: 0; }
+.stage-times-title { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; }
+.stage-times ul { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
+.stage-times li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-2); row-gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+.stage-times-name { min-width: 0; overflow-wrap: anywhere; }
+.stage-times-nums { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stage-times-bar {
+  grid-column: 1 / -1; display: block; height: 6px; border-radius: var(--radius-pill);
+  background: var(--border); overflow: hidden;
+}
+.stage-times-bar > span { display: block; height: 100%; min-width: 2px; background: var(--info); border-radius: inherit; }
+.diag-history .stage-times-total { margin-top: var(--space-2); font-size: var(--text-sm); font-weight: 600; font-variant-numeric: tabular-nums; }
+
 /* Danger zone: last, set apart from everything above. */
 .danger-zone { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 2px solid var(--bad); }
 .danger-zone details.section { margin: 0; background: var(--surface); }

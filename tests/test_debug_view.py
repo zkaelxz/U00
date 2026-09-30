@@ -53,7 +53,8 @@ class TestExplainLine:
         # yet" note names the actual gap rather than staying silent.
         assert "Step 41" in info["glossary_matches_note"]
         assert "Step 41" in info["context_window_note"]
-        assert "Step 41" in info["prompt_version_note"]
+        assert "No per-line record" in info["prompt_version_note"]
+        assert info["provenance"] is None
         assert info["context_window_used"] is None
 
     def test_engine_prefers_active_translation_version_over_drama_default(self, isolated_db):

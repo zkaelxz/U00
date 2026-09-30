@@ -290,6 +290,13 @@ def _cuda_available() -> bool:
     return torch.cuda.is_available()
 
 
+def _check_vram(model_name):
+    """Step 41 item 7: refuse a GPU load that clearly won't fit, with a
+    plain message, before the model starts loading."""
+    from services import vram_service
+    vram_service.check_fits(model_name)
+
+
 _omnivoice_model = None
 OMNIVOICE_SAMPLE_RATE = 24000
 
@@ -299,9 +306,11 @@ def _get_omnivoice_model():
     first use downloads the k2-fsa/OmniVoice checkpoint."""
     global _omnivoice_model
     if _omnivoice_model is None:
+        cuda = _cuda_available()
+        if cuda:
+            _check_vram("OmniVoice")
         import torch
         from omnivoice import OmniVoice
-        cuda = _cuda_available()
         _omnivoice_model = OmniVoice.from_pretrained(
             "k2-fsa/OmniVoice", device_map="cuda:0" if cuda else "cpu",
             dtype=torch.float16 if cuda else torch.float32)
@@ -372,8 +381,11 @@ def _get_chatterbox():
     watermark -- built into the model, not something this app adds."""
     global _chatterbox
     if _chatterbox is None:
+        cuda = _cuda_available()
+        if cuda:
+            _check_vram("Chatterbox")
         from chatterbox.tts import ChatterboxTTS
-        model = ChatterboxTTS.from_pretrained(device="cuda" if _cuda_available() else "cpu")
+        model = ChatterboxTTS.from_pretrained(device="cuda" if cuda else "cpu")
         _chatterbox = (model, model.conds)
     return _chatterbox
 
@@ -407,10 +419,12 @@ def _get_tada(aligner_language):
     """Lazily loads TADA (`pip install hume-tada`). Code is MIT; the model
     weights are under Meta's Llama 3.2 Community License, and downloading
     them needs a Hugging Face account that has accepted that license."""
+    device = "cuda" if _cuda_available() else "cpu"
+    if _tada["model"] is None and device == "cuda":
+        _check_vram("TADA 3B")
     import torch
     from tada.modules.encoder import Encoder
     from tada.modules.tada import TadaForCausalLM
-    device = "cuda" if _cuda_available() else "cpu"
     if _tada["model"] is None:
         _tada["model"] = TadaForCausalLM.from_pretrained(
             TADA_MODEL_ID, torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32).to(device)

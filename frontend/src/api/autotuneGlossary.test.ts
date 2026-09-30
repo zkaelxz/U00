@@ -71,6 +71,20 @@ describe('auto-tune + glossary-from-novel api', () => {
     expect(JSON.parse(String(calls[3].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } })
   })
 
+  it('asks for fresh suggestions only when fresh is true', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await startNovelGlossary(4, f, { fresh: true })
+    await startNovelGlossary(4, f, { fresh: false })
+    await startNovelGlossary(4, f)
+    expect(calls.map((c) => [c.url, c.init?.method])).toEqual([
+      ['/api/glossary/dramas/4/from-novel?fresh=true', 'POST'],
+      ['/api/glossary/dramas/4/from-novel', 'POST'],
+      ['/api/glossary/dramas/4/from-novel', 'POST'],
+    ])
+    expect(calls[0].init?.body).toBeUndefined()
+  })
+
   it('cancels a glossary run by its run_id, on the run-scoped routes', async () => {
     const calls: Call[] = []
     const f = fakeFetch(calls)

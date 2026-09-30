@@ -5,6 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
 import './dub.css'
@@ -20,6 +21,8 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const [engine, setEngine] = useState('')
   const [model, setModel] = useState('')
   const [confirmed, setConfirmed] = useState(false)
+  // Not remembered: resuming an interrupted run is the default.
+  const [startOver, setStartOver] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
 
   const start = () =>
     narrationApi
-      .run(dramaId, { engine, ...(model.trim() ? { model: model.trim() } : {}) })
+      .run(dramaId, { engine, ...(model.trim() ? { model: model.trim() } : {}) }, undefined, { fresh: startOver })
       .then((r) => {
         setError(null)
         setConfirmed(false)
@@ -87,6 +90,11 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
           </Field>
         </div>
       )}
+      <div className="setting-list">
+        <Field label="Start over" help="Ignore the batches an interrupted run already tagged and tag everything again.">
+          <Toggle checked={startOver} onChange={setStartOver} />
+        </Field>
+      </div>
       {cfg.job_running && <p className="muted">A chunk-and-tag job is already running.</p>}
       <div className="dub-actions">
         <button type="button" className={buttonClass('secondary')} disabled={disabled} onClick={start}>
