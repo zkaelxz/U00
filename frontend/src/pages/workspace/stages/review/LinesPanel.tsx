@@ -52,6 +52,7 @@ import {
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
+import { useStrongerOffers } from './useStrongerOffers'
 import type { SplitChoice } from './SplitDialog'
 import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
@@ -77,6 +78,8 @@ type Pending = { target: Target; edit?: boolean }
 
 const PHONE = '(max-width: 640px)'
 const WIDE = '(min-width: 1024px)'
+// How long a line opened from a search result stays highlighted.
+const JUMP_HIGHLIGHT_MS = 4000
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
 const DRAFT_NOT_SAVED = 'Your edit to this line could not be saved, so nothing else was changed. Close this and check the line.'
 const SEARCH_DEBOUNCE_MS = 300
@@ -142,6 +145,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const focusActive = useRef(false)
   const scrollActive = useRef(false)
   const sectionRef = useRef<HTMLElement>(null)
+  // The line just opened from a search result, highlighted for a moment (R05).
+  const [jumpedId, setJumpedId] = useState<number | null>(null)
+  const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
   const pages = data ? pageCount(data.total) : 1
@@ -545,6 +551,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       },
       dismissTm: (s) => dismissTmEverywhere(dramaId, s),
       clearIssue: () => setIssue(null),
+      showOnPage: (id) => void showOnPageRef.current(id),
       reload: () => {
         setEditNow(null)
         setIssue(null)
@@ -756,7 +763,17 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const goToRef = useRef(goToLine)
   useEffect(() => {
     goToRef.current = goToLine
+    showOnPageRef.current = async (id) => {
+      const message = await goToLine({ lineId: id })
+      if (message) setStatus(message)
+      else setJumpedId(id)
+    }
   })
+  useEffect(() => {
+    if (jumpedId === null) return
+    const t = setTimeout(() => setJumpedId(null), JUMP_HIGHLIGHT_MS)
+    return () => clearTimeout(t)
+  }, [jumpedId])
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
@@ -782,6 +799,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       cancelled = true
     }
   }, [dramaId, shownIds, reloads])
+  // Step 99: lines to offer the stronger engine for (no engine call).
+  const strongerByLine = useStrongerOffers(dramaId, reloads)
   const tmByLine = useMemo(() => {
     const m = new Map<number, TmSuggestion>()
     for (const s of visibleTm(tmList, tmDismissed)) if (s.line_id !== null) m.set(s.line_id, s)
@@ -1004,8 +1023,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               edit={edit?.lineId === l.id ? edit : null}
               ai={ai?.lineId === l.id ? ai.mode : null}
               tm={tmByLine.get(l.id) ?? null}
+              stronger={strongerByLine.get(l.id) ?? null}
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}
+              searchHit={searching}
+              jumped={jumpedId === l.id}
             />
           ))}
         </ul>
