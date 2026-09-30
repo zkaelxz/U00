@@ -939,7 +939,11 @@ def init_db():
                               # -- unlike personal_notes above, which is private and never
                               # sent anywhere. The series-level counterpart is
                               # series.instructions, inherited by every drama in the series.
-                              ("project_instructions", "TEXT")]:
+                              ("project_instructions", "TEXT"),
+                              # Roadmap 112: the Notion page this drama was last exported
+                              # to (services/notion_service.py), so a re-export updates
+                              # that page in place. Only the id, never a token or URL.
+                              ("notion_page_id", "TEXT")]:
             if col not in drama_cols:
                 _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
         series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
@@ -1333,6 +1337,15 @@ def update_drama(drama_id: int, **fields):
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE dramas SET {set_clause} WHERE id = ?",
                      list(fields.values()) + [drama_id])
+        conn.commit()
+
+
+def set_drama_notion_page_id(drama_id: int, page_id):
+    """Roadmap 112: records (or clears, with None) the Notion page a drama
+    was exported to. Left out of update_drama on purpose: an export is not
+    an edit, so updated_at stays as it was."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE dramas SET notion_page_id = ? WHERE id = ?", (page_id, drama_id))
         conn.commit()
 
 
