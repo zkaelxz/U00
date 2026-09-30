@@ -13,8 +13,11 @@ from services.service_errors import (ConflictError, ForbiddenError, InvalidInput
 LOCAL = {"user_id": None, "is_admin": True, "is_local_owner": True}
 
 
-def _p(uid, admin=False):
-    return {"user_id": uid, "is_admin": admin, "is_local_owner": False}
+def _p(uid, admin=False, override=None):
+    """Like auth_service.resolve_session: an admin holds the override unless
+    `override=False` (api.auth.listener_principal on the household listener)."""
+    return {"user_id": uid, "is_admin": admin, "is_local_owner": False,
+            "admin_override": admin if override is None else override}
 
 
 @pytest.fixture
@@ -108,6 +111,47 @@ def test_set_private_permissions(people):
     assert db.get_item_ownership("drama", did)["is_private"] == 1
     with pytest.raises(InvalidInputError):
         own.set_private(a, "bogus", did, True)
+
+
+def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
+    """An admin on the household listener: views stay, overrides don't."""
+    remote = _p(db.auth_get_user_by_email("admin@example.com")["id"], admin=True,
+                override=False)
+    theirs = db.create_drama(title_zh="p", owner_user_id=people["a_id"])
+    own.set_private(people["a"], "drama", theirs, True)
+    mine = db.create_drama(title_zh="m", owner_user_id=remote["user_id"])
+    shared = db.create_drama(title_zh="s", owner_user_id=people["a_id"])
+    pc_private = db.create_drama(title_zh="pc")
+    own.set_private(LOCAL, "drama", pc_private, True)
+    for did in (theirs, mine, shared, pc_private):
+        assert own.can_see_drama(remote, did)
+    assert own.visible_to_filter(remote) is None
+    assert own.can_edit_drama(remote, mine) and own.can_edit_drama(remote, shared)
+    assert not own.can_edit_drama(remote, theirs) and not own.can_edit_drama(remote, pc_private)
+    with pytest.raises(ForbiddenError):
+        own.require_editable(remote, "drama", theirs)
+    own.require_editable(remote, "drama", shared)
+    with pytest.raises(ForbiddenError):
+        own.set_private(remote, "drama", theirs, False)
+    with pytest.raises(ForbiddenError):
+        own.set_private(remote, "drama", shared, True)
+    assert db.get_item_ownership("drama", theirs)["is_private"] == 1
+    own.set_private(remote, "drama", mine, True)
+    # A series holding a PC drama: the admin-only flip is refused too.
+    sid = db.get_or_create_series("Mixed", owner_user_id=remote["user_id"])
+    db.create_drama(title_zh="pc2", series_id=sid)
+    with pytest.raises(ConflictError):
+        own.set_private(remote, "series", sid, True)
+    # Jobs: every job is visible; only a member's jobs can be stopped.
+    assert own.can_see_job(remote, "other-pc-job", None)
+    assert not own.can_see_job(remote, "other-pc-job", None, writing=True)
+    assert own.can_see_job(remote, "other-mine", remote["user_id"], writing=True)
+    # With the override (the PC, or the single-port setup) nothing changes.
+    assert own.can_edit_drama(people["admin"], theirs)
+    assert own.can_see_job(people["admin"], "other-pc-job", None, writing=True)
+    # Default-deny: an admin principal without the flag acts as a member.
+    bare = {"user_id": remote["user_id"], "is_admin": True, "is_local_owner": False}
+    assert own.can_see_drama(bare, theirs) and not own.can_edit_drama(bare, theirs)
 
 
 def test_set_private_refused_for_drama_in_series(people):

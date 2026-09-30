@@ -281,7 +281,7 @@ def _bulk_translate_plan(ids, principal=None):
     queued, skipped, engines = [], [], {}
     for did in ids:
         drama = db.get_drama(did)
-        if drama is None or not ownership_service.can_see_drama(principal, did):
+        if drama is None or not ownership_service.can_edit_drama(principal, did):
             skipped.append({"drama_id": did, "reason": "not_found"})
         elif drama.get("status") != "aligned":
             skipped.append({"drama_id": did, "reason": "not_aligned"})
