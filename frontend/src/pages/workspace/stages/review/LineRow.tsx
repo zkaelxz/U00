@@ -64,6 +64,8 @@ export interface RowActions {
   dismissTm: (s: TmSuggestion) => void
   clearIssue: () => void
   reload: () => void
+  // A search hit: leave the search and open the line on its page (R05).
+  showOnPage: (id: number) => void
 }
 
 interface Props {
@@ -83,6 +85,10 @@ interface Props {
   stronger?: StrongerOffer | null
   issue: RowIssue | null
   actions: RowActions
+  // Shown as a search result: offers "Show on its page".
+  searchHit?: boolean
+  // Just jumped to from a search result: briefly highlighted.
+  jumped?: boolean
 }
 
 // "content_blocked" + note -> "Content blocked · gemini: SAFETY"
@@ -95,7 +101,7 @@ const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions }: Props) {
+function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, issue, actions, searchHit, jumped }: Props) {
   const draft = edit?.draft ?? null
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -121,7 +127,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
     actions.activate(line.id)
   }
 
-  const className = ['review-line', active && 'is-active', draft && 'is-editing'].filter(Boolean).join(' ')
+  const className = ['review-line', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped'].filter(Boolean).join(' ')
 
   return (
     <li
@@ -205,6 +211,19 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           </button>
         )}
       </div>
+
+      {searchHit && (
+        <div className="review-hit">
+          <button
+            type="button"
+            className={buttonClass('ghost', 'sm')}
+            aria-label={`Show on its page: line ${lineNumber(line.idx)}`}
+            onClick={() => actions.showOnPage(line.id)}
+          >
+            Show on its page
+          </button>
+        </div>
+      )}
 
       {tm && (
         <div className="review-tm" data-testid="line-tm">
