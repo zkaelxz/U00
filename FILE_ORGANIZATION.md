@@ -181,10 +181,12 @@ baihe-subtitler/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
-│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup keeping ONE
-│   │                             snapshot (temp file, validated, atomic replace), due-check (startup +
-│   │                             hourly via api/background.py), restore one drama from the snapshot
-│   │                             (same id, or a new "(restored <date>)" copy); router: backup_routes.py
+│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup writing a
+│   │                             new dated copy each run (temp file, validated, fsynced, renamed in)
+│   │                             and rotating old ones (one per day for the last 2 days + the first of
+│   │                             each of the last 2 weeks), due-check (startup + hourly via
+│   │                             api/background.py), restore one drama from a chosen copy (same id,
+│   │                             or a new "(restored <date>)" copy); router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
