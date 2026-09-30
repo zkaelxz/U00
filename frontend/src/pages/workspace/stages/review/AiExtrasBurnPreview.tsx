@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { burnPreviewClipUrl, getBurnPreviewInfo, startBurnPreview } from '../../../../api/reviewExtras'
+import { getAssStyleOptions } from '../../../../api/export'
 import { listAllLines } from '../../../../api/restructure'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
@@ -8,7 +9,9 @@ import { Section } from '../../../../components/Section'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useReattachJob } from '../../../../hooks/useReattachJob'
+import { buildAssRequest, loadAssForm } from '../../exportForm'
 import { burnPreviewJobId } from '../../stageJobIds'
+import type { AssStyleOptions } from '../../../../types/export'
 import type { BurnPreviewInfo } from '../../../../types/reviewExtras'
 import { JobPanel } from '../JobPanel'
 import { clipCaption, resolveLineNumber } from './aiExtrasLogic'
@@ -25,7 +28,9 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
   const [lineText, setLineText] = useState('')
   const [lineError, setLineError] = useState<string | null>(null)
   const [pad, setPad] = useState('2')
-  const [preset, setPreset] = useState('Clean')
+  const [saved] = useState(() => loadAssForm(dramaId))
+  const [preset, setPreset] = useState(saved?.preset || 'Clean')
+  const [styleOptions, setStyleOptions] = useState<AssStyleOptions | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
@@ -45,6 +50,18 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
       cancelled = true
     }
   }, [dramaId, loadKey])
+
+  useEffect(() => {
+    if (!saved) return
+    let cancelled = false
+    getAssStyleOptions().then(
+      (o) => !cancelled && setStyleOptions(o),
+      () => undefined,
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [saved])
 
   const padNum = Number(pad)
   const padError =
@@ -69,7 +86,20 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
         setLineError(picked.error)
         return
       }
-      const r = await startBurnPreview(dramaId, { line_id: picked.lineId, pad_seconds: padNum, preset })
+      // The Export stage's style form, so the clip matches what would be burned.
+      const built = saved && styleOptions ? buildAssRequest({ ...saved, preset }, styleOptions) : null
+      const r = await startBurnPreview(dramaId, {
+        line_id: picked.lineId,
+        pad_seconds: padNum,
+        preset,
+        ...(built?.request && {
+          style: built.request.style,
+          speaker_colors: built.request.speaker_colors,
+          per_speaker_colors: built.request.per_speaker_colors,
+          wrap_chars_en: built.request.wrap_chars_en,
+          wrap_chars_source: built.request.wrap_chars_source,
+        }),
+      })
       setJobId(r.job_id)
     } catch (e) {
       setError(e)
@@ -82,6 +112,7 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
     <Section storageKey="review.aiExtras.burn" title="Burned subtitle preview" summary={info?.clip ? clipCaption(info.clip) : 'No clip yet'}>
       <p className="muted">
         Renders a short clip around one line with the subtitles burned in (up to {info?.max_clip_seconds ?? 30} s).
+        {saved && ' Uses the style settings from the Export stage.'}
       </p>
       <form
         className="stack"

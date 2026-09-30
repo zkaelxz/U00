@@ -3882,6 +3882,11 @@ class BurnPreviewStart(BaseModel):
     line_id: int = Field(ge=1)
     pad_seconds: Optional[float] = Field(None, ge=0, le=5)
     preset: Optional[str] = Field(None, max_length=40)
+    style: Optional[AssStyleOverrides] = None
+    speaker_colors: Optional[Dict[str, str]] = None
+    per_speaker_colors: bool = False
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class BurnPreviewStarted(BaseModel):
