@@ -18,6 +18,7 @@ import {
   importIds,
   importLabel,
   importReason,
+  needsAiRows,
   newDramaRequest,
   outcomeSummary,
   outcomeText,
@@ -226,6 +227,20 @@ describe('import state (Step 107)', () => {
     expect(marks.get('c5')).toEqual({ label: 'Failed', tone: 'bad', note: null })
     expect(marks.has('c9')).toBe(false)
     expect(chapterMarks(null).size).toBe(0)
+  })
+  it('a chapter that needs AI help is marked, listed, and never retried automatically', () => {
+    const s = state({
+      retry: [
+        ...state().retry,
+        { chapter_id: 'c6', title: 'Six', status: 'needs_ai', error: 'Needs AI help: confirm.' },
+      ],
+    })
+    expect(chapterMarks(s).get('c6')).toEqual({ label: 'Needs AI help', tone: 'warn', note: null })
+    expect(retryIds(s, null)).toEqual(['c3', 'c4', 'c5'])
+    expect(needsAiRows(s).map((r) => r.chapter_id)).toEqual(['c6'])
+    expect(needsAiRows(null)).toEqual([])
+    expect(outcomeText({ chapter_id: 'c6', title: 'Six', outcome: 'needs_ai' })).toBe('Needs AI help')
+    expect(outcomeTone('needs_ai')).toBe('warn')
   })
   it('select all leaves out chapters already imported', () => {
     expect(selectableChapters(chapters, state()).map((c) => c.chapter_id)).toEqual(['c3', 'c4', 'c5'])

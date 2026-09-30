@@ -1292,3 +1292,19 @@ class TestRequestsTransport:
         _requests_transport("GET", "https://x.invalid/", {}, None, 20)
         assert fake.last_proxies == {"http": "http://127.0.0.1:8080",
                                      "https": "http://127.0.0.1:8080"}
+
+
+def test_client_keeps_the_last_successful_html_get(isolated_db):
+    reset_pacing_state()
+    clock = FakeClock()
+    t = ScriptedTransport({"https://lp.invalid/a": html("<p>page a</p>"),
+                           "https://lp.invalid/gone": html("nope", status=404)}, clock)
+    c = SourceClient("lp", policy=PacingPolicy(min_delay=0.0, max_delay=0.0,
+                                               session_break_min_requests=0, max_retries=0),
+                     transport=t, sleep=clock.sleep, clock=clock.clock, rng=FixedRng(0.0))
+    assert c.last_page is None
+    c.get("https://lp.invalid/a")
+    assert c.last_page == ("https://lp.invalid/a", "<p>page a</p>")
+    with pytest.raises(Exception):
+        c.get("https://lp.invalid/gone")
+    assert c.last_page[0] == "https://lp.invalid/a"
