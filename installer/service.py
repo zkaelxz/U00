@@ -16,23 +16,27 @@ named after the service and reading the .xml next to it):
 Each runs as its own virtual account (NT SERVICE\\<name>), never as
 LocalSystem, with the privilege list cut down to what it needs.
 
-Everything this runs with administrator rights lives in an admin-only
-folder, %ProgramFiles%\\Baihe Studio Services: this script with the few
-modules it imports and the Caddy template (helper\\lib), a copy of the
-bundled interpreter without site-packages whose ._pth has no `import site`
-(helper\\python), the two WinSW wrappers and their .xml, caddy.exe, the
-Caddyfile and the remote-access state. The per-user program folder can be
-changed by any process running as the user, so nothing there is ever run
-elevated. Setup seeds the admin folder from its own fresh extraction
-(`install --install-root ... --data-dir ...`); every later command runs
-from the admin copy:
+Everything this runs with administrator rights, and everything Caddy
+keeps, lives in an admin-only folder, %ProgramFiles%\\Baihe Studio
+Services: this script with the few modules it imports and the Caddy
+template (helper\\lib), a copy of the bundled interpreter without
+site-packages whose ._pth has no `import site` (helper\\python), the two
+WinSW wrappers and their .xml, caddy.exe and the Caddyfile, Caddy's
+certificates (caddy-data) and logs (caddy-logs), and the remote-access
+state. The per-user program folder can be changed by any process running
+as the user, and the data folder by the BaiheStudio service, so nothing
+there is run elevated, and elevated steps touch the data folder only to
+grant and revoke the service's access to it. Setup seeds the admin folder
+from its own fresh extraction; every later command runs from the admin
+copy:
 
     "%ProgramFiles%\\Baihe Studio Services\\helper\\python\\python.exe" -I -S
         "%ProgramFiles%\\Baihe Studio Services\\helper\\lib\\installer\\service.py" <command>
 
-    install --install-root DIR --data-dir DIR   (Setup) create or refresh both
-    uninstall [--purge-caddy-data]   stop and remove both, the firewall rule,
-                                     the accounts' permissions, the admin folder
+    --install-root DIR --data-dir DIR install
+                                     (Setup) create or refresh both
+    uninstall                        stop and remove both, the firewall rule,
+                                     the service's permissions, the admin folder
     stop                             stop both (Setup, before an update)
     enable-remote [--household-port 8610]
     disable-remote
@@ -71,6 +75,8 @@ if str(APP_DIR) not in sys.path:
 
 APP_SERVICE = "BaiheStudio"
 CADDY_SERVICE = "BaiheCaddy"
+APP_DISPLAY_NAME = "Baihe Studio"
+CADDY_DISPLAY_NAME = "Baihe Studio remote access (Caddy)"
 ADMIN_FOLDER_NAME = "Baihe Studio Services"
 ADMIN_PORT = 8600
 EXTENSION_PORT = 8756          # page_server.DEFAULT_PORT
@@ -110,6 +116,18 @@ FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 TEMPLATE_LOG_TOKEN = "{$BAIHE_CADDY_LOG_DIR}/baihe-access.log"
 GENERATED_HEADER = ("# Written by installer/service.py from deploy/caddy/Caddyfile.template.\n"
                     "# Don't edit it: enable-remote and every install write it again.\n")
+# What may be in the data folder before the service is given write access
+# to all of it: only what Baihe Studio itself keeps there.
+DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.ini", "thumbs.db"}
+# The server's own settings: every one is written into the service's
+# environment, so a machine-wide variable (say BAIHE_API_HOUSEHOLD_PORT)
+# can never change what the service runs. "" means the app's default.
+API_ENV_NAMES = ("BAIHE_API_HOST", "BAIHE_API_PORT", "BAIHE_API_ENV", "BAIHE_API_CORS_ORIGINS",
+                 "BAIHE_API_ALLOW_KEY_WRITES", "BAIHE_API_SERVE_FRONTEND", "BAIHE_API_AUTH",
+                 "BAIHE_API_COOKIE_SECURE", "BAIHE_API_BACKGROUND", "BAIHE_API_HOUSEHOLD_PORT",
+                 "BAIHE_API_SESSION_IDLE_DAYS", "BAIHE_API_SESSION_MAX_DAYS",
+                 "BAIHE_GOOGLE_CLIENT_ID", "BAIHE_GOOGLE_CLIENT_SECRET", "BAIHE_PUBLIC_URL",
+                 "BAIHE_SHUTDOWN_TOKEN", "BAIHE_PROCESS_GROUP_NAME", "BAIHE_PORTABLE")
 
 # A public DNS name: letters, digits and hyphens (punycode for anything
 # else), at least one dot, and a last label that starts with a letter, so
@@ -150,8 +168,22 @@ def service_account(name: str) -> str:
     return f"NT SERVICE\\{name}"
 
 
+def system_dir() -> str:
+    """Windows' System32 folder, from Windows itself rather than from an
+    environment variable the caller could set."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(260)
+            if ctypes.windll.kernel32.GetSystemDirectoryW(buf, len(buf)):
+                return buf.value
+        except Exception:
+            pass
+    return r"C:\Windows\System32"
+
+
 def _system32(exe: str) -> str:
-    return os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", exe)
+    return os.path.join(system_dir(), exe)
 
 
 SC = _system32("sc.exe")
@@ -181,9 +213,9 @@ def _is_absolute_windows_path(text: str) -> bool:
         os.name != "nt" and text.startswith("/"))
 
 
-def folder_problem(path: str, what: str, forbidden=()) -> str:
+def folder_problem(path, what: str, forbidden=()) -> str:
     """'' if `path` is usable as a folder these services are given rights
-    on, else why not. The same rules Setup applies to the data folder
+    on, else why not. The rules Setup applies to the data folder
     (postinstall.validate_data_dir), plus: never a system folder, and no
     character WinSW would expand (%) or that could end a quoted argument."""
     text = str(path or "").strip()
@@ -202,9 +234,29 @@ def folder_problem(path: str, what: str, forbidden=()) -> str:
 
 def system_folders() -> list:
     env = os.environ
-    return [env.get("SystemRoot", r"C:\Windows"), str(program_files()),
+    return [str(Path(system_dir()).parent), str(program_files()),
             env.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
             env.get("ProgramData", r"C:\ProgramData")]
+
+
+def data_folder_contents_problem(data) -> str:
+    """'' if the data folder holds only Baihe Studio's own items (or is
+    empty): the service gets write access to everything in it, so it must
+    be a folder only Baihe Studio uses, never one shared with other files
+    (Documents, a whole profile)."""
+    try:
+        names = [p.name for p in Path(data).iterdir()]
+    except FileNotFoundError:
+        return ""
+    except OSError as e:
+        return f"The data folder can't be read ({e.strerror})."
+    others = sorted(n for n in names if n.lower() not in DATA_FOLDER_ENTRIES)
+    if others:
+        shown = ", ".join(others[:5]) + (", ..." if len(others) > 5 else "")
+        return ("The data folder has files Baihe Studio didn't put there (" + shown + "). "
+                "The background service may change everything in it, so it needs a folder "
+                "of its own: run Setup again and choose one.")
+    return ""
 
 
 def is_reparse_point(path) -> bool:
@@ -219,25 +271,12 @@ def is_reparse_point(path) -> bool:
     return bool(attrs & FILE_ATTRIBUTE_REPARSE_POINT) or stat.S_ISLNK(st.st_mode)
 
 
-def refuse_reparse_points(base, paths) -> None:
-    """Refuses (ServiceError) if `base`, or any existing folder from `base`
-    down to each of `paths`, is a reparse point. The service accounts can
-    change the data folder, so one could replace a folder there with a
-    junction to a system folder just before an elevated mkdir or icacls."""
-    base = Path(base)
-    checked = set()
-    for path in [base, *paths]:
-        path = Path(path)
-        chain = [path] if path == base else [path, *path.parents]
-        for p in chain:
-            if p != base and not _inside_or_same(p, base):
-                break
-            if p in checked:
-                continue
-            checked.add(p)
-            if is_reparse_point(p):
-                raise ServiceError(f"{p} is a link to another folder (a junction or symbolic "
-                                   "link); refusing to change permissions through it.")
+def refuse_reparse_point(path) -> None:
+    """Refuses a folder that is a junction or link. Elevated icacls calls
+    also pass /L, so they act on a link itself, never on its target."""
+    if is_reparse_point(path):
+        raise ServiceError(f"{path} is a link to another folder (a junction or symbolic "
+                           "link); refusing to change permissions through it.")
 
 
 class Layout:
@@ -249,6 +288,9 @@ class Layout:
         self.root = root
         self.app = root / "app"
         self.python_exe = root / "python" / "python.exe"
+        self.data = data
+        self.env_file = data / ".env"
+        self.app_logs = data / "library" / "logs" / "service"
         self.admin = admin
         self.helper = admin / "helper"
         self.helper_python = self.helper / "python" / "python.exe"
@@ -259,26 +301,16 @@ class Layout:
         self.caddy_dir = admin / "caddy"
         self.caddy_exe = self.caddy_dir / "caddy.exe"
         self.caddyfile = self.caddy_dir / "Caddyfile"
+        self.caddy_storage = admin / "caddy-data"
+        self.caddy_logs = admin / "caddy-logs"
         self.state_file = admin / STATE_FILE_NAME
         self.log_file = admin / LOG_FILE_NAME
-        self.data = data
-        self.env_file = data / ".env"
-        self.app_logs = data / "library" / "logs" / "service"
-        self.caddy_home = data / "caddy"
-        self.caddy_storage = self.caddy_home / "data"
-        self.caddy_logs = self.caddy_home / "logs"
 
     def wrapper(self, name: str) -> Path:
         return (self.service_dir if name == APP_SERVICE else self.caddy_dir) / f"{name}.exe"
 
     def wrapper_xml(self, name: str) -> Path:
         return self.wrapper(name).with_suffix(".xml")
-
-    def data_folders(self) -> list:
-        """The folders under the data folder that elevated steps create or
-        change permissions on."""
-        return [self.data / "library", self.data / "library" / "logs", self.app_logs,
-                self.caddy_home, self.caddy_storage, self.caddy_logs]
 
     def check(self) -> None:
         problem = (folder_problem(self.root, "install folder", [self.admin])
@@ -312,26 +344,31 @@ def _winsw_xml(fields: list, env: dict, log_dir: Path) -> str:
     return ET.tostring(root, encoding="unicode") + "\n"
 
 
-def app_service_env(data_dir, household_port: int = 0) -> dict:
-    """The server's environment: loopback only (forced), port 8600, no user
-    site-packages, the data folder the service was given rights on, and
-    the service-mode flag (`python -m api` then keeps this PC's own
-    listener up if the household settings stop passing). The engine-key
-    form stays as the app's default (off) rather than on: other accounts
-    on this PC can reach 127.0.0.1:8600 while the service runs. The
-    household listener only while remote access is on."""
-    env = {"BAIHE_API_HOST": "127.0.0.1", "BAIHE_API_PORT": str(ADMIN_PORT),
-           "BAIHE_DATA_DIR": str(data_dir), "BAIHE_SERVICE": "1",
-           "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"}
+def app_service_env(data_dir, household_port: int = 0, allow_key_writes: bool = False) -> dict:
+    """The server's environment. Every setting the server reads is written
+    out ("" = the app's default), so nothing machine-wide leaks in:
+    loopback only, port 8600, the data folder the service was given rights
+    on, no user site-packages, and the service-mode flag (`python -m api`
+    then keeps this PC's own listener up if the household settings stop
+    passing). The engine-key form is off unless the data folder's .env
+    turns it on: other accounts on this PC can reach 127.0.0.1:8600 while
+    the service runs. The household listener only while remote access is
+    on."""
+    env = {name: "" for name in API_ENV_NAMES}
+    env.update({"BAIHE_API_HOST": "127.0.0.1", "BAIHE_API_PORT": str(ADMIN_PORT),
+                "BAIHE_API_AUTH": "off", "BAIHE_API_ENV": "production",
+                "BAIHE_API_ALLOW_KEY_WRITES": "1" if allow_key_writes else "0",
+                "BAIHE_DATA_DIR": str(data_dir), "BAIHE_SERVICE": "1",
+                "PYTHONNOUSERSITE": "1", "PYTHONUNBUFFERED": "1"})
     if household_port:
         env["BAIHE_API_HOUSEHOLD_PORT"] = str(int(household_port))
     return env
 
 
-def app_service_xml(layout: Layout, household_port: int = 0) -> str:
+def app_service_xml(layout: Layout, household_port: int = 0, allow_key_writes: bool = False) -> str:
     fields = [
         ("id", APP_SERVICE),
-        ("name", "Baihe Studio"),
+        ("name", APP_DISPLAY_NAME),
         ("description", "Baihe Studio's server for this PC (http://127.0.0.1:8600)."),
         ("executable", str(layout.python_exe)),
         ("arguments", "-s -m api"),
@@ -342,7 +379,8 @@ def app_service_xml(layout: Layout, household_port: int = 0) -> str:
         ("stopparentprocessfirst", "true"),
         ("stoptimeout", APP_STOP_TIMEOUT),
     ]
-    return _winsw_xml(fields, app_service_env(layout.data, household_port), layout.app_logs)
+    env = app_service_env(layout.data, household_port, allow_key_writes)
+    return _winsw_xml(fields, env, layout.app_logs)
 
 
 def caddy_service_xml(layout: Layout) -> str:
@@ -350,12 +388,12 @@ def caddy_service_xml(layout: Layout) -> str:
     # XDG_DATA_HOME, in a folder only it and administrators can open.
     fields = [
         ("id", CADDY_SERVICE),
-        ("name", "Baihe Studio remote access (Caddy)"),
+        ("name", CADDY_DISPLAY_NAME),
         ("description", "HTTPS for household devices, forwarding to Baihe Studio's "
                         "household listener. Off unless remote access is enabled."),
         ("executable", str(layout.caddy_exe)),
         ("arguments", f'run --config "{layout.caddyfile}" --adapter caddyfile'),
-        ("workingdirectory", str(layout.caddy_home)),
+        ("workingdirectory", str(layout.caddy_storage)),
         ("startmode", "Manual"),
         ("stopparentprocessfirst", "true"),
         ("stoptimeout", CADDY_STOP_TIMEOUT),
@@ -370,7 +408,9 @@ def read_env_file(path) -> dict:
     """The data folder's .env, parsed like settings_service._read_env_file
     (utf-8-sig, comments and blank lines skipped, surrounding quotes
     stripped); {} if it's missing or unreadable. The service sees only this
-    file: variables set with setx live in one user's environment."""
+    file: variables set with setx live in one user's environment. It can be
+    changed by the service account, so every value used from it is checked
+    before it reaches a service setting or the Caddyfile."""
     env = {}
     try:
         with open(path, encoding="utf-8-sig") as fh:
@@ -383,6 +423,14 @@ def read_env_file(path) -> dict:
     except (OSError, UnicodeDecodeError):
         return {}
     return env
+
+
+def household_port_problem(port) -> str:
+    if (not isinstance(port, int) or not 1024 <= port <= 65535
+            or port in (ADMIN_PORT, ADMIN_PORT + 1, EXTENSION_PORT)):
+        return ("The household port must be a free port from 1024 to 65535 other than "
+                "8600, 8601 and 8756.")
+    return ""
 
 
 def remote_access_config(env_values: dict, household_port: int) -> dict:
@@ -408,6 +456,9 @@ def remote_access_config(env_values: dict, household_port: int) -> dict:
         api_config.check_household_bind_safety(settings)
     except ValueError as e:
         raise ConfigRefused(str(e).rstrip(".") + ". Nothing was changed.")
+    problem = household_port_problem(settings.household_port)
+    if problem:
+        raise ConfigRefused(problem + " Nothing was changed.")
     parts = urlsplit(settings.public_url)
     if parts.scheme != "https":
         raise ConfigRefused("BAIHE_PUBLIC_URL must start with https:// for remote access. "
@@ -431,10 +482,9 @@ def render_caddyfile(template_text: str, domain: str, household_port: int, log_d
     fill in, and values that could change the file's meaning."""
     if not _DOMAIN_RE.fullmatch(domain or ""):
         raise ConfigRefused("The domain isn't a valid DNS name.")
-    if (not isinstance(household_port, int) or not 1 <= household_port <= 65535
-            or household_port in (ADMIN_PORT, EXTENSION_PORT, HTTP_PORT, HTTPS_PORT)):
-        raise ConfigRefused("The household port must be a free port other than 8600, 8756, "
-                            "80 or 443 (Caddy's own ports).")
+    problem = household_port_problem(household_port)
+    if problem:
+        raise ConfigRefused(problem)
     log = str(log_dir).replace("\\", "/")
     if not log or any(c in log for c in '"{}`\r\n\t'):
         raise ServiceError("Caddy's log folder has a character a Caddyfile can't hold.")
@@ -470,7 +520,6 @@ class Runner:
         if not self.log_path:
             return
         try:
-            Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}\n")
         except OSError:
@@ -537,8 +586,9 @@ def start_service(name: str, run, sleep=time.sleep) -> None:
     if result.returncode not in (0, ERROR_SERVICE_ALREADY_RUNNING):
         _check(result, f"Starting the {name} service")
     if not wait_for_state(name, "RUNNING", run, sleep=sleep):
-        raise ServiceError(f"The {name} service didn't start. Its log is in the data folder "
-                           "(library\\logs\\service or caddy\\logs).")
+        raise ServiceError(f"The {name} service didn't start. Its log is in "
+                           "library\\logs\\service in the data folder, or caddy-logs in "
+                           f"%ProgramFiles%\\{ADMIN_FOLDER_NAME}.")
 
 
 def delete_service(name: str, run, sleep=time.sleep) -> None:
@@ -561,18 +611,20 @@ def _quoted(path) -> str:
 
 
 def create_service_command(name: str, wrapper: Path, display: str) -> list:
-    # sc.exe, not the wrapper's own `install`: nothing from a folder the
-    # user can change is ever run with administrator rights.
-    return [SC, "create", name, "binPath=", _quoted(wrapper), "start=", "demand",
+    # sc.exe, not the wrapper's own `install`, and disabled until fully
+    # configured: a failed install never leaves a service that starts at
+    # boot as LocalSystem.
+    return [SC, "create", name, "binPath=", _quoted(wrapper), "start=", "disabled",
             "DisplayName=", display]
 
 
-def configure_service_commands(name: str, wrapper: Path, start: str) -> list:
-    """sc.exe settings applied on every install: the wrapper in the admin
-    folder, the start type, its own virtual account, a cut-down privilege
-    list, and restart after a failure (also when it exits with an error)."""
+def configure_service_commands(name: str, wrapper: Path) -> list:
+    """sc.exe settings applied on every install, before the start type:
+    the wrapper in the admin folder, its own virtual account, a cut-down
+    privilege list, and restart after a failure (also when it exits with an
+    error)."""
     cmds = [
-        [SC, "config", name, "binPath=", _quoted(wrapper), "start=", start],
+        [SC, "config", name, "binPath=", _quoted(wrapper)],
         [SC, "sidtype", name, "unrestricted"],
         [SC, "config", name, "obj=", service_account(name)],
         [SC, "privs", name, "/".join(SERVICE_PRIVILEGES)],
@@ -593,44 +645,34 @@ def _icacls(path, *args) -> list:
 
 def grant_commands(layout: Layout) -> list:
     """(command, timeout) pairs: icacls grants, by SID. BaiheStudio: read
-    and run the per-user install folder, change the data folder. It gets
-    no write access to anything this script or its own interpreter loads
-    code from. BaiheCaddy: read and run its admin-folder copy, change
-    <data>\\caddy. That folder inherits nothing (so not BaiheStudio's
-    grant), belongs to Administrators, and holds Caddy's certificates and
-    ACME key: only Caddy, SYSTEM and Administrators can open it."""
+    and run the per-user install folder and its wrapper, change the data
+    folder. It gets no write access to anything this script or its own
+    interpreter loads code from. BaiheCaddy: read and run its wrapper and
+    caddy.exe, change its own two folders in the admin folder, which
+    inherit nothing: its certificates and ACME key (caddy-data) and its
+    logs (caddy-logs) are Caddy, SYSTEM and Administrators only. Neither
+    account can rename or replace anything elevated steps act on."""
     app_sid = "*" + service_sid(APP_SERVICE)
     caddy_sid = "*" + service_sid(CADDY_SERVICE)
+    private = ("/inheritance:r", "/grant:r", f"*{SYSTEM_SID}:(OI)(CI)F",
+               "/grant:r", f"*{ADMINISTRATORS_SID}:(OI)(CI)F",
+               "/grant:r", f"{caddy_sid}:(OI)(CI)M")
     return [
         (_icacls(layout.root, "/grant", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
         (_icacls(layout.data, "/grant", f"{app_sid}:(OI)(CI)M"), DATA_GRANT_TIMEOUT),
+        (_icacls(layout.service_dir, "/grant", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
         (_icacls(layout.caddy_dir, "/grant", f"{caddy_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
-        (_icacls(layout.caddy_home, "/setowner", f"*{ADMINISTRATORS_SID}"), COMMAND_TIMEOUT),
-        (_icacls(layout.caddy_home, "/inheritance:r",
-                 "/grant:r", f"*{SYSTEM_SID}:(OI)(CI)F",
-                 "/grant:r", f"*{ADMINISTRATORS_SID}:(OI)(CI)F",
-                 "/grant:r", f"{caddy_sid}:(OI)(CI)M"), COMMAND_TIMEOUT),
-        # The two folders inside it: whatever was there before gets only
-        # what it inherits from <data>\caddy (non-recursive).
-        (_icacls(layout.caddy_storage, "/setowner", f"*{ADMINISTRATORS_SID}"), COMMAND_TIMEOUT),
-        (_icacls(layout.caddy_storage, "/reset"), COMMAND_TIMEOUT),
-        (_icacls(layout.caddy_logs, "/setowner", f"*{ADMINISTRATORS_SID}"), COMMAND_TIMEOUT),
-        (_icacls(layout.caddy_logs, "/reset"), COMMAND_TIMEOUT),
+        (_icacls(layout.caddy_storage, *private), COMMAND_TIMEOUT),
+        (_icacls(layout.caddy_logs, *private), COMMAND_TIMEOUT),
     ]
 
 
-def revoke_commands(layout: Layout, purge_caddy_data: bool) -> list:
-    """Takes the two accounts back out of the per-user folders. Caddy's
-    folder goes back to the data folder's own permissions (so its owner can
-    open it again), non-recursively, unless it's being deleted."""
-    cmds = []
-    for sid in (service_sid(APP_SERVICE), service_sid(CADDY_SERVICE)):
-        for path in (layout.root, layout.data):
-            cmds.append((_icacls(path, "/remove:g", f"*{sid}"), DATA_GRANT_TIMEOUT))
-    if not purge_caddy_data:
-        for path in (layout.caddy_home, layout.caddy_storage, layout.caddy_logs):
-            cmds.append((_icacls(path, "/reset"), COMMAND_TIMEOUT))
-    return cmds
+def revoke_commands(layout: Layout) -> list:
+    """Takes BaiheStudio back out of the two per-user folders (the admin
+    folder is deleted)."""
+    sid = "*" + service_sid(APP_SERVICE)
+    return [(_icacls(layout.root, "/remove:g", sid), COMMAND_TIMEOUT),
+            (_icacls(layout.data, "/remove:g", sid), DATA_GRANT_TIMEOUT)]
 
 
 def firewall_add_command(layout: Layout) -> list:
@@ -667,6 +709,19 @@ def health_ok(port: int = ADMIN_PORT) -> bool:
         return False
 
 
+def household_is_baihe(port: int, domain: str) -> bool:
+    """True if what listens on the household port is Baihe's household app:
+    it answers /api/meta for the public name (any other Host is refused
+    there) with app "Baihe Studio". A check against a wrong program, not
+    proof against a deliberate impostor."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/meta", headers={"Host": domain})
+    try:
+        with _LOOPBACK_OPENER.open(req, timeout=2) as r:
+            return r.status == 200 and json.loads(r.read(4096)).get("app") == "Baihe Studio"
+    except Exception:
+        return False
+
+
 def port_answers(port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(1)
@@ -692,13 +747,13 @@ def is_admin() -> bool:
 
 
 def remove_folder_later(folder: Path) -> None:
-    """Deletes the admin folder once this process (whose interpreter lives
-    in it) has exited: a detached cmd.exe from System32 waits a few seconds,
-    then removes it. The folder is admin-only, so nothing in it can have
-    been swapped for a link."""
+    """Deletes what's left of the admin folder (this script's own
+    interpreter) once this process has exited: a detached cmd.exe from
+    System32 waits a few seconds, then removes it. Only administrators can
+    change that folder, so nothing in it can have been swapped for a link."""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
     subprocess.Popen([CMD, "/d", "/c", f'ping -n 5 127.0.0.1 >nul & rmdir /s /q "{folder}"'],
-                     creationflags=flags, close_fds=True, cwd=os.environ.get("SystemRoot"))
+                     creationflags=flags, close_fds=True, cwd=system_dir())
 
 
 # ---------------------------------------------------------- operations
@@ -708,10 +763,11 @@ class Services:
     tests replace."""
 
     def __init__(self, layout: Layout, run, health=health_ok, port_check=port_answers,
-                 sleep=time.sleep, source=None, running_from_admin=False,
-                 remove_later=remove_folder_later):
+                 is_baihe=household_is_baihe, sleep=time.sleep, source=None,
+                 running_from_admin=False, remove_later=remove_folder_later):
         self.layout, self.run = layout, run
-        self.health, self.port_check, self.sleep = health, port_check, sleep
+        self.health, self.port_check, self.is_baihe = health, port_check, is_baihe
+        self.sleep = sleep
         self.source = Path(source) if source else None
         self.running_from_admin = running_from_admin
         self.remove_later = remove_later
@@ -734,8 +790,9 @@ class Services:
             self.layout.state_file.unlink(missing_ok=True)
 
     def _write_app_xml(self, household_port: int) -> None:
+        allow = read_env_file(self.layout.env_file).get("BAIHE_API_ALLOW_KEY_WRITES", "") == "1"
         self.layout.wrapper_xml(APP_SERVICE).write_text(
-            app_service_xml(self.layout, household_port), encoding="utf-8")
+            app_service_xml(self.layout, household_port, allow), encoding="utf-8")
 
     def _check_files(self, names) -> None:
         missing = [str(p) for p in names if not Path(p).is_file()]
@@ -743,28 +800,36 @@ class Services:
             raise ServiceError("Missing (run Setup again to repair the install): "
                                + ", ".join(missing))
 
-    def _prepare_data_folders(self) -> None:
-        lay = self.layout
-        refuse_reparse_points(lay.data, lay.data_folders())
-        for folder in lay.data_folders():
-            folder.mkdir(exist_ok=True)
-            refuse_reparse_points(lay.data, [folder])
-
     def _grant(self) -> None:
-        self._prepare_data_folders()
-        refuse_reparse_points(self.layout.root, [])
+        lay = self.layout
+        for folder in (lay.root, lay.data):
+            refuse_reparse_point(folder)
+        for folder in (lay.caddy_storage, lay.caddy_logs):
+            folder.mkdir(exist_ok=True)
         self.run.log("Granting folder permissions (the data folder can take a while).")
-        for cmd, timeout in grant_commands(self.layout):
+        for cmd, timeout in grant_commands(lay):
             _check(self.run(cmd, timeout=timeout), "Setting folder permissions")
 
     def _create_service(self, name: str, start: str) -> None:
+        """Creates the service disabled if it doesn't exist, configures it,
+        and only then sets its start type. A service this call created is
+        deleted again if configuring it fails."""
         wrapper = self.layout.wrapper(name)
+        created = False
         if query_state(name, self.run) is None:
-            display = "Baihe Studio" if name == APP_SERVICE else "Baihe Studio remote access (Caddy)"
+            display = APP_DISPLAY_NAME if name == APP_SERVICE else CADDY_DISPLAY_NAME
             _check(self.run(create_service_command(name, wrapper, display)),
                    f"Creating the {name} service")
-        for cmd in configure_service_commands(name, wrapper, start):
-            _check(self.run(cmd), f"Configuring the {name} service")
+            created = True
+        try:
+            for cmd in configure_service_commands(name, wrapper):
+                _check(self.run(cmd), f"Configuring the {name} service")
+            _check(self.run([SC, "config", name, "start=", start]),
+                   f"Setting the {name} service's start")
+        except ServiceError:
+            if created:
+                self.run([SC, "delete", name])
+            raise
 
     def _checked_config(self, household_port: int) -> dict:
         config = remote_access_config(read_env_file(self.layout.env_file), household_port)
@@ -784,12 +849,18 @@ class Services:
     def _refresh_admin_copy(self) -> None:
         """Replaces helper\\, service\\ and caddy\\ in the admin folder with
         Setup's fresh extraction (`source`), and records the two per-user
-        folders. The remote-access state is kept."""
+        folders. Caddy's certificates, logs and the remote-access state are
+        kept. Refuses if another install on this PC owns the services."""
         lay = self.layout
         if self.source is None:
             raise ServiceError("`install` is run by Setup (it needs Setup's files).")
-        if is_reparse_point(lay.admin):
-            raise ServiceError(f"{lay.admin} is a link to another folder; refusing to use it.")
+        refuse_reparse_point(lay.admin)
+        old = read_config(lay.config_file)
+        if (old and _norm(old["install_root"]) != _norm(lay.root)
+                and (Path(old["install_root"]) / "app" / "INSTALLED").is_file()):
+            raise ServiceError(
+                f"Another Baihe Studio install on this PC ({old['install_root']}) runs the "
+                "background service. Uninstall it, or untick the service in this Setup.")
         lay.admin.mkdir(parents=True, exist_ok=True)
         for sub in ("helper", "service", "caddy"):
             src = self.source / sub
@@ -811,6 +882,9 @@ class Services:
         unless remote access was enabled before and is still configured."""
         lay = self.layout
         lay.check()
+        problem = data_folder_contents_problem(lay.data)
+        if problem:
+            raise ServiceError(problem)
         self._check_files([lay.python_exe])
         self._refresh_admin_copy()
         self._check_files([lay.wrapper(APP_SERVICE), lay.wrapper(CADDY_SERVICE), lay.caddy_exe,
@@ -870,28 +944,28 @@ class Services:
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         return "Stopped Baihe Studio's services."
 
-    def uninstall(self, purge_caddy_data: bool = False) -> str:
+    def uninstall(self) -> str:
         """Removes the firewall rule first, then stops and removes both
-        services, the two accounts' permissions and the admin folder. User
-        data is kept, except Caddy's own folder with --purge-caddy-data (a
-        clean uninstall): only administrators and the Caddy service can
-        open its certificates, so the uninstaller itself couldn't delete
-        them."""
+        services, BaiheStudio's permissions on the per-user folders, and
+        the admin folder (Caddy's certificates and logs with it). The data
+        folder's contents are left alone."""
         lay = self.layout
         remove_firewall_rule(self.run)
         stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         stop_service(APP_SERVICE, self.run, sleep=self.sleep)
         delete_service(CADDY_SERVICE, self.run, sleep=self.sleep)
         delete_service(APP_SERVICE, self.run, sleep=self.sleep)
-        if lay.data.exists():
-            refuse_reparse_points(lay.data, lay.data_folders())
-        for cmd, timeout in revoke_commands(lay, purge_caddy_data):
+        for cmd, timeout in revoke_commands(lay):
             if Path(cmd[1]).exists():
+                refuse_reparse_point(cmd[1])
                 self.run(cmd, timeout=timeout)
-        if purge_caddy_data and lay.caddy_home.exists():
-            # rmtree unlinks a junction inside instead of following it.
-            shutil.rmtree(lay.caddy_home, ignore_errors=True)
         if lay.admin.exists():
+            # rmtree unlinks a junction Caddy made in its folders instead of
+            # following it; only the running interpreter is left for later.
+            for sub in ("caddy-data", "caddy-logs", "caddy", "service"):
+                shutil.rmtree(lay.admin / sub, ignore_errors=True)
+            for name in (STATE_FILE_NAME, LOG_FILE_NAME):
+                (lay.admin / name).unlink(missing_ok=True)
             if self.running_from_admin:
                 self.remove_later(lay.admin)
             else:
@@ -902,21 +976,26 @@ class Services:
         """Turns household access on: the household listener in Baihe
         Studio's service, the Caddyfile, the firewall rule and the Caddy
         service. Checks everything first and changes nothing if remote
-        access isn't configured; undoes its changes if a step fails."""
+        access isn't configured or the port is taken; undoes its changes if
+        a step fails."""
         lay = self.layout
         if query_state(APP_SERVICE, self.run) is None:
             raise ServiceError("Baihe Studio isn't installed as a service. Run Setup again with "
                                "\"Run Baihe Studio in the background\" ticked.")
         self._check_files([lay.caddy_exe, lay.wrapper(CADDY_SERVICE), lay.template])
         config = self._checked_config(household_port)
+        port = config["household_port"]
+        if self.remote_state().get("household_port") != port and self.port_check(port):
+            raise ConfigRefused(f"Port {port} on this PC is already in use by another program; "
+                                "choose another with --household-port. Nothing was changed.")
         try:
-            self._write_state(config["household_port"])
-            self._write_app_xml(config["household_port"])
+            self._write_state(port)
+            self._write_app_xml(port)
             self._restart_app()
-            if not wait_until(lambda: self.port_check(config["household_port"]), 30,
+            if not wait_until(lambda: self.is_baihe(port, config["domain"]), 30,
                               sleep=self.sleep):
-                raise ServiceError("The household listener didn't open on "
-                                   f"127.0.0.1:{config['household_port']}.")
+                raise ServiceError(f"What answers on 127.0.0.1:{port} isn't Baihe Studio's "
+                                   "household listener.")
             lay.caddyfile.write_text(config["caddyfile"], encoding="utf-8")
             lay.wrapper_xml(CADDY_SERVICE).write_text(caddy_service_xml(lay), encoding="utf-8")
             self._create_service(CADDY_SERVICE, "auto")
@@ -927,7 +1006,8 @@ class Services:
             if not wait_until(lambda: self.port_check(HTTPS_PORT), CADDY_WAIT_SECONDS,
                               sleep=self.sleep):
                 raise ServiceError("Caddy started but doesn't answer on port 443 (is another "
-                                   "program using it?). Its log is in caddy\\logs in the data folder.")
+                                   f"program using it?). Its log is in caddy-logs in "
+                                   f"%ProgramFiles%\\{ADMIN_FOLDER_NAME}.")
         except Exception as failure:
             try:
                 self.disable_remote()
@@ -976,30 +1056,31 @@ class Services:
 def build_services(args) -> Services:
     """From the admin copy (its config.json names the two folders, so
     nothing in the user's environment or the user-writable program folder
-    decides where rights are granted) or, for `install` and Setup's other
-    steps, from Setup's extraction with the folders Setup passes."""
+    decides where rights are granted) or, for Setup's `install`, from
+    Setup's extraction with the folders Setup passes."""
     admin = program_files() / ADMIN_FOLDER_NAME
     config_file = APP_DIR.parent / CONFIG_FILE_NAME
     running_from_admin = config_file.is_file()
-    if running_from_admin and args.command == "install":
-        raise ServiceError("`install` is run by Setup; run Setup again instead.")
     if running_from_admin:
+        if args.command == "install":
+            raise ServiceError("`install` is run by Setup; run Setup again instead.")
         config = read_config(config_file)
         if not config:
             raise ServiceError(f"{config_file} is unreadable; run Setup again.")
         root, data = config["install_root"], config["data_dir"]
     else:
-        root, data = getattr(args, "install_root", None), getattr(args, "data_dir", None)
+        if args.command != "install":
+            raise ServiceError("Run this from the installed copy in "
+                               f"{admin}\\helper (see docs/household-access.md).")
+        root, data = args.install_root, args.data_dir
         if not root or not data:
-            config = read_config(admin / "helper" / CONFIG_FILE_NAME)
-            root, data = root or config.get("install_root"), data or config.get("data_dir")
-        if not root or not data:
-            raise ServiceError("Pass --install-root and --data-dir.")
+            raise ServiceError("Setup passes --install-root and --data-dir.")
     layout = Layout(root, data, admin)
     layout.check()
-    source = APP_DIR.parent.parent if not running_from_admin else None
-    return Services(layout, Runner(layout.log_file), source=source,
-                    running_from_admin=running_from_admin)
+    source = None if running_from_admin else APP_DIR.parent.parent
+    return Services(layout, Runner(layout.log_file if running_from_admin or layout.admin.is_dir()
+                                   else None),
+                    source=source, running_from_admin=running_from_admin)
 
 
 def main(argv=None, services=None, admin=None) -> int:
@@ -1008,9 +1089,7 @@ def main(argv=None, services=None, admin=None) -> int:
     parser.add_argument("--data-dir", help="the data folder (Setup)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("install", help="create or refresh both services and start Baihe Studio's")
-    uninstall = sub.add_parser("uninstall", help="stop and remove both services")
-    uninstall.add_argument("--purge-caddy-data", action="store_true",
-                           help="also delete Caddy's certificates and logs (clean uninstall)")
+    sub.add_parser("uninstall", help="stop and remove both services and the admin folder")
     sub.add_parser("stop", help="stop both services")
     enable = sub.add_parser("enable-remote", help="turn household access through Caddy on")
     enable.add_argument("--household-port", type=int, default=DEFAULT_HOUSEHOLD_PORT)
@@ -1038,7 +1117,7 @@ def main(argv=None, services=None, admin=None) -> int:
         if args.command == "install":
             message = services.install()
         elif args.command == "uninstall":
-            message = services.uninstall(purge_caddy_data=args.purge_caddy_data)
+            message = services.uninstall()
         elif args.command == "stop":
             message = services.stop()
         elif args.command == "enable-remote":
