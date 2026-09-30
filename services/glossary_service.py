@@ -229,19 +229,6 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     return _serialize(_owned_term(sid, saved_id))
 
 
-def delete_glossary_term(drama_id: int, term_id: int, confirm: bool = False) -> None:
-    """Delete one term. Mirrors the tab's confirm-before-delete checkbox
-    (Step 71): confirm must be True."""
-    drama = _drama(drama_id)
-    sid = _series_id(drama, required=False)
-    if sid is None:
-        raise NotFoundError("Glossary term not found.")
-    term = _owned_term(sid, term_id)
-    if confirm is not True:
-        raise InvalidInputError("Deleting a glossary term needs confirm=true.")
-    db.delete_glossary_term(term["id"])
-
-
 # ---------------------------------------------------------------------------
 # Parity T03/T04/X13: import a glossary file's text, export as CSV, bulk delete
 # ---------------------------------------------------------------------------

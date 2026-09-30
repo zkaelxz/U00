@@ -332,13 +332,13 @@ class TestCancellationActuallyStopsWork:
         bg.start_job(job_id, run_job, job_id, did_old, lines_old, SlowEngine())
         time.sleep(0.03)  # mid-flight
 
-        # The fixed sequence: cancel + wait, THEN reset.
+        # The fixed sequence: cancel + wait, THEN reset. Waiting means the
+        # job's thread has exited, not just that it stopped reading as
+        # running: its tail still writes to the database after that.
         running = bg.list_running_jobs()
         for jid in running:
             bg.request_cancel(jid)
-        deadline = time.time() + 5
-        while time.time() < deadline and any(bg.is_running(j) for j in running):
-            time.sleep(0.02)
+        assert bg.wait_for_job_threads(5)
         assert not any(bg.is_running(j) for j in running)
 
         isolated_db.reset_library()
@@ -350,6 +350,30 @@ class TestCancellationActuallyStopsWork:
         final = isolated_db.load_lines(did_new)
         assert not any("STALE_" in (r.get("en") or "") for r in final)
         assert not any(r["zh"].startswith("OLD_") for r in final)
+
+
+class TestWaitForJobThreads:
+    """A job reads as finished before its thread is done: the thread still
+    writes its notification, timing row and GPU-lock release to the
+    database. wait_for_job_threads waits for the thread itself."""
+
+    def test_waits_for_a_finished_jobs_thread_still_in_its_tail(self, monkeypatch):
+        in_tail, release = threading.Event(), threading.Event()
+
+        def blocked_notify(*args, **kwargs):
+            in_tail.set()
+            release.wait(10)
+
+        monkeypatch.setattr(bg, "_notify_job_finished", blocked_notify)
+        bg.start_job("t_tail", lambda: None)
+        try:
+            assert in_tail.wait(10)
+            assert bg.get_status("t_tail")["status"] == "done"
+            assert bg.is_running("t_tail") is False
+            assert bg.wait_for_job_threads(0.05) is False
+        finally:
+            release.set()
+        assert bg.wait_for_job_threads(10) is True
 
 
 class TestCancelLineJobs:

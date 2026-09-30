@@ -60,5 +60,7 @@ def get_platforms(language: str = Query("", max_length=10),
             summary="Search links across platforms (built locally, no request made)",
             responses=_ERRS)
 def get_search_links(q: str = Query("", max_length=200),
-                     format: str = Query("", max_length=40)):
-    return svc.search_links(q, format)
+                     format: str = Query("", max_length=40),
+                     genre: str = Query("baihe", pattern="^(baihe|any)$"),
+                     tag: str = Query("", max_length=40)):
+    return svc.search_links(q, format, genre, tag)

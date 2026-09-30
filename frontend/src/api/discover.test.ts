@@ -37,8 +37,14 @@ describe('discover api', () => {
     await expect(listPlatforms('zh', '', p.f)).resolves.toEqual([{ name: 'A', url: 'https://a' }])
     expect(p.mock.mock.calls[0][0]).toBe('/api/discover/platforms?language=zh')
     const l = reply(200, { links: [] })
-    await expect(searchLinks('x', 'novel', l.f)).resolves.toEqual([])
+    await expect(searchLinks('x', 'novel', 'baihe', '', l.f)).resolves.toEqual([])
     expect(l.mock.mock.calls[0][0]).toBe('/api/discover/search-links?q=x&format=novel')
+    const a = reply(200, { links: [] })
+    await searchLinks('x', '', 'any', '言情', a.f)
+    expect(a.mock.mock.calls[0][0]).toBe('/api/discover/search-links?q=x&genre=any&tag=%E8%A8%80%E6%83%85')
+    const b = reply(200, { links: [] })
+    await searchLinks('x', '', 'baihe', 'ignored', b.f)
+    expect(b.mock.mock.calls[0][0]).toBe('/api/discover/search-links?q=x')
   })
 
   it('sends the engine name only when one is picked, never a key', async () => {

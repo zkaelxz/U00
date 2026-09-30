@@ -781,10 +781,6 @@ class GlossaryTermUpsert(BaseModel):
     banned_translations: Optional[List[str]] = None
 
 
-class GlossaryDeleteResult(BaseModel):
-    deleted: bool
-
-
 class GlossaryImportRequest(BaseModel):
     """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
     by the browser; filename only hints the format. overwrite_existing
@@ -2745,20 +2741,6 @@ class ReaderMediaAvailability(BaseModel):
     narration: bool
     caption_tracks: List[str]
     captions_overlay: bool
-
-
-class ReaderReadoutLine(BaseModel):
-    line_id: Optional[int] = None
-    idx: int
-    start: float
-    timestamp: str
-    text: str
-
-
-class ReaderReadout(BaseModel):
-    drama_id: int
-    track: str
-    lines: List[ReaderReadoutLine]
 
 
 class ReaderEngineFields(BaseModel):

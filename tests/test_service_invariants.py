@@ -329,11 +329,11 @@ class TestGlossaryTermDeleteInvariants:
         db.upsert_glossary_term(sid, "师父", "Master")
         [term] = db.list_glossary_terms(sid)
         with pytest.raises(InvalidInputError):
-            glossary_service.delete_glossary_term(did, term["id"])
+            glossary_service.bulk_delete_glossary_terms(did, [term["id"]])
         with pytest.raises(InvalidInputError):
-            glossary_service.delete_glossary_term(did, term["id"], confirm="yes")
+            glossary_service.bulk_delete_glossary_terms(did, [term["id"]], confirm="yes")
         assert [t["id"] for t in db.list_glossary_terms(sid)] == [term["id"]]
-        glossary_service.delete_glossary_term(did, term["id"], confirm=True)
+        glossary_service.bulk_delete_glossary_terms(did, [term["id"]], confirm=True)
         assert db.list_glossary_terms(sid) == []
 
 
