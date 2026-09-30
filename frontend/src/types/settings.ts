@@ -3,6 +3,7 @@ export type SettingsToggleKey =
   | 'notify_on_completion'
   | 'use_gpu'
   | 'gemini_free_tier'
+  | 'bulk_auto_resume'
 
 // Persisted PC-side preferences (GET/POST /api/settings). Paths are paths
 // only; a cookies file's contents never cross the API.

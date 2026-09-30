@@ -19,6 +19,9 @@ drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
 folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`).
+Also, only when the owner turned "Resume interrupted translation batches"
+on (`translate_run_service.resume_interrupted_at_startup`, off by default),
+pending bulk batches are resumed through the manual resume's code path.
 The due-check then repeats hourly from the GPU-queue poller thread below
 (`auto_backup_service.periodic_tick`), so no extra thread is added.
 
@@ -161,6 +164,11 @@ def start_background_services() -> dict:
         auto_backup_service.periodic_tick()   # the startup due-check
     except Exception as exc:
         _log("automatic backup check failed: %s", exc)
+    try:
+        from services import translate_run_service
+        translate_run_service.resume_interrupted_at_startup()
+    except Exception as exc:
+        _log("bulk batches were not resumed: %s", exc)
     try:
         from sources import chapter_check
         chapter_check.ensure_scheduler_started()

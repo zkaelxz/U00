@@ -583,6 +583,15 @@ def _record(kind, text, job_id, owner_user_id):
             pass
 
 
+def record_event(kind, text) -> None:
+    """An in-app entry not tied to a job, seen only by the PC owner and
+    admins. Never raises."""
+    try:
+        _record(kind, text, None, None)
+    except Exception:
+        pass
+
+
 def list_recent(principal=None, limit=RECENT_MAX) -> list:
     """Newest first: {id, at, kind, text}. Job events only for a caller who
     can see that job; new-chapter events for everyone (household-wide)."""

@@ -16,6 +16,7 @@ export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'notify_on_completion', label: 'Notify when a job finishes' },
   { key: 'use_gpu', label: 'Use the GPU for transcription' },
   { key: 'gemini_free_tier', label: 'Gemini free tier (slower, rate-limited)' },
+  { key: 'bulk_auto_resume', label: 'Resume batches on start' },
 ]
 
 // A toggle update carries one known boolean, never a key or URL.

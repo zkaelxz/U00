@@ -23,6 +23,8 @@ const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
   notify_on_completion: 'Shows a notification when a background job finishes.',
   use_gpu: 'Transcribe on the graphics card when one is available (faster).',
   gemini_free_tier: 'Slows Gemini requests to stay inside the free tier rate limits.',
+  bulk_auto_resume:
+    'Resume interrupted translation batches when the app starts. Off by default: resumed batches can spend on your engine account.',
 }
 
 export default function SettingsPage() {
