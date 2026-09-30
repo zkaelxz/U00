@@ -6,6 +6,7 @@ import { humanizeValue } from '../../../../components/labels'
 import type { ReviewLine } from '../../../../types/review'
 import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
+import { RegressionTestButton } from './RegressionTestButton'
 import { JOB_RUNNING_MESSAGE, type ToolMode } from './reviewLogic'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
@@ -47,6 +48,8 @@ interface Props {
   onMerge: (ids: number[]) => void
   onAdd: (line: NewLine) => void
   onDelete: () => void
+  // Step 38: shows "Add as regression test" (PC only) when given.
+  dramaId?: number
 }
 
 const DELETE_TIMEOUT_MS = 5000
@@ -201,6 +204,9 @@ export function LineActionsSheet(p: Props) {
                 <li><button type="button" onClick={p.onDismissFlag}>Dismiss flag</button></li>
               )}
               <li><button type="button" onClick={p.onAddNote}>Add note</button></li>
+              {p.dramaId !== undefined && (
+                <li><RegressionTestButton key={line.id} dramaId={p.dramaId} line={line} /></li>
+              )}
             </ul>
           )}
         </>

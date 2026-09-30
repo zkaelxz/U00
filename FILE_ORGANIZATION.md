@@ -206,6 +206,16 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
+│   ├── benchmark_lab_service.py  Step 38 -- Benchmark Lab: golden-set tiers (public/application/regression),
+│   │                             JSONL/TSV import, persistent per-run records (benchmark_sessions/results),
+│   │                             Model Arena compare, CER/WER for ASR/OCR, cost estimate + monthly cap
+
+│   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
+│   │                             from a static table: allowlisted https hops, timeouts, byte cap,
+│   │                             .sha256sum check) and "Test first" for an update target, both as
+│   │                             background jobs (deno_install, upgrade_check) behind the install guard
+│   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
+│   │                             must resolve inside the voice-bank folder, symlinks refused
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -388,6 +398,9 @@ baihe-subtitler/
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── scanlate_schemas.py       automatic Scanlate request/response models (kept apart from schemas.py)
+│   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
+
+│   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
@@ -455,6 +468,8 @@ baihe-subtitler/
 │       ├── blocked_retry_routes.py /api/lines/dramas/{id}/lines/{lid}/retry-blocked (POST, jobs.start + engine gate; R10)
 │       ├── series_people_routes.py POST /api/characters/series/{id}/characters[/{cid}] (add / edit, lines.edit; X15-X17)
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
+│       ├── benchmark_routes.py   /api/benchmark/options|cases|sets|runs|runs/{id}|arena (GET) + estimate (POST),
+│       │                         admin.diagnostics; cases, import, regression, runs (POST) local_only (Step 38)
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
 │       ├── scanlate_routes.py    /api/scanlate/dramas/{id}/config, run-notes, pages/{pid} (GET); pages (upload, PC-only),
@@ -484,6 +499,10 @@ baihe-subtitler/
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
 │       │                         model-cache/hf|piper/{name}/delete (POST, local_only + confirm; API batch 1,
 │       │                         react-misc-parity)
+│       ├── diagnostics_installs_routes.py /api/diagnostics/deno, /upgrade-check (GET, admin.diagnostics);
+│       │                         /deno/install, /dependencies/{pkg}/test-upgrade (POST, local_only +
+│       │                         confirm; background jobs, polled)
+│       ├── voice_bank_audio_routes.py GET/HEAD /api/library/voice-bank/{entry_id}/audio (media.stream)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -507,7 +526,8 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList (+ libraryFilters.ts: the More filters, pure), DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
+│   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
@@ -540,8 +560,11 @@ baihe-subtitler/
 │   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
-│   │                              helpers, unit-tested), diagnostics.css; API in
-│   │                              src/api/diagnostics.ts
+│   │                              helpers, unit-tested), DenoInstall (Setup card: Install Deno job +
+│   │                              denoInstallText.ts), UpgradeTest ("Test first" result + upgradeTestText.ts),
+│   │                              useServerJobStatus + jobPoll.ts (poll a server job's status),
+│   │                              diagnostics.css; API in src/api/diagnostics.ts and
+│   │                              src/api/diagnosticsInstalls.ts (types/diagnosticsInstalls.ts)
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
@@ -597,8 +620,10 @@ baihe-subtitler/
 │   │                              (Translate: review glossary before translating), useGlossaryRun
 │   │                              (shared run state across mounts), glossaryExtract.ts (pure,
 │   │                              unit-tested; types in src/types/glossaryHelpers.ts), SeriesCast (Characters > Series cast: list, add, inline edit of
-│   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
-│   │                              unit-tested), useRunStatus (per-drama run
+│   │                              name/pronouns/aliases/notes, bulk pronouns, PC-only remove; seriesPeopleForm.ts pure,
+│   │                              unit-tested), SeriesAssign (series picker + "Create series" in the
+│   │                              glossary box), transcribeEstimate.ts (pure, unit-tested: Transcribe /
+│   │                              Detect speakers time captions), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   │                              + src/api/seriesPeople.ts (add/edit series people)
@@ -671,7 +696,7 @@ baihe-subtitler/
 | `ui_theme.py` | design system (CSS, layout primitives) |
 | `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
 | `storage.py` | disk usage, cache cleanup |
-| `benchmark.py` | the Benchmark Lab: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
+| `benchmark.py` | the case runners the Benchmark Lab (services/benchmark_lab_service.py) builds on: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
 | `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
 
 **ASR / transcription & alignment**

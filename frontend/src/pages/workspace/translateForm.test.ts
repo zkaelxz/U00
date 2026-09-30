@@ -14,6 +14,7 @@ import {
   lineRanges,
   loadPresetStart,
   monthSpendText,
+  ollamaWarning,
   parseCap,
   reflectAvailable,
   savePresetStart,
@@ -339,5 +340,22 @@ describe('failed batches notice (X01)', () => {
     expect(failedBatches({ lines: [1] })).toBeNull()
     expect(failedBatches([null, 'x', { lines: ['a', -1, 1.5, 4] }])).toEqual({ batches: 3, lineNumbers: [5], reasons: [] })
     expect(lineRanges([])).toBe('')
+  })
+})
+
+describe('Ollama reachability warning (X24)', () => {
+  it('warns only when the engine in use is Ollama and the server got no answer', () => {
+    expect(ollamaWarning('ollama', false)).toBe(true)
+    expect(ollamaWarning('ollama', true)).toBe(false)
+  })
+
+  it('stays quiet when reachability was not checked (saved engine is not Ollama)', () => {
+    expect(ollamaWarning('ollama', null)).toBe(false)
+    expect(ollamaWarning('ollama', undefined)).toBe(false)
+  })
+
+  it('stays quiet for other engines, even with a stale false', () => {
+    expect(ollamaWarning('claude', false)).toBe(false)
+    expect(ollamaWarning('', false)).toBe(false)
   })
 })
