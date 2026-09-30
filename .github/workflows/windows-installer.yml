@@ -20,10 +20,6 @@ on:
   push:
     tags:
       - "installer-v*"
-    # TEMP (PR #498, round 2): run this round's build from the PR branch;
-    # removed again once it's green, as after round 1.
-    branches:
-      - step-80b-windows-installer
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
