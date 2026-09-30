@@ -207,3 +207,9 @@
 .upgrade-test > p, .deno-install p { margin: 0; }
 .upgrade-test progress, .deno-install progress { width: 100%; max-width: 24rem; }
 .deno-install { margin-top: var(--space-3); }
+
+/* Users and Audit log */
+.audit-filters { flex-wrap: wrap; }
+.audit-detail { overflow-wrap: anywhere; }
+.admin-user-list .admin-user-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.admin-user-list .actions { flex-wrap: wrap; }

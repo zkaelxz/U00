@@ -487,6 +487,7 @@ baihe-subtitler/
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
+│   ├── admin_users_schemas.py    user administration + audit log view models (kept apart from schemas.py)
 
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
@@ -495,6 +496,8 @@ baihe-subtitler/
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
+│       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
+│       │                         /api/admin/audit (read-only, paged), all admin.users; tests/test_api_admin_users.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
