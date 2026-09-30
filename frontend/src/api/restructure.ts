@@ -3,6 +3,8 @@
 // line ids differ from `expected_line_ids`.
 import type { HistoryItem, ReviewLine, ReviewLinesPage } from '../types/review'
 import type {
+  ResegmentLlmPreview,
+  ResegmentLlmPreviewStart,
   ResegmentPreview,
   ResegmentStart,
   ResegmentStarted,
@@ -45,16 +47,35 @@ export const splitLine = (id: number, lineId: number, body: RestructureSplit, f?
 export const previewResegment = (id: number, f?: Fetch) =>
   getJson<ResegmentPreview>(`${base(id)}/resegment/preview`, f)
 
-export const startResegment = (id: number, body: ResegmentStart, f?: Fetch) => {
-  const payload: Record<string, unknown> = {
-    expected_line_ids: body.expected_line_ids,
-    confirm: body.confirm,
-    use_llm: body.use_llm,
-  }
-  if (body.use_llm && body.engine) payload.engine = body.engine
-  if (body.use_llm && body.model) payload.model = body.model
-  return postJson<ResegmentStarted>(`${base(id)}/resegment`, payload, f)
+// The rules re-segmentation; the AI one goes through the preview below.
+export const startResegment = (id: number, body: ResegmentStart, f?: Fetch) =>
+  postJson<ResegmentStarted>(
+    `${base(id)}/resegment`,
+    { expected_line_ids: body.expected_line_ids, confirm: body.confirm, use_llm: false },
+    f,
+  )
+
+// Parity R47: the LLM re-segmentation as a preview job (`resegpreview_<id>`,
+// writes no lines); read the result back once the job is done (404 until one
+// is ready, or when the lines changed since).
+export const startLlmResegmentPreview = (id: number, body: ResegmentLlmPreviewStart, f?: Fetch) => {
+  const payload: Record<string, unknown> = {}
+  if (body.engine?.trim()) payload.engine = body.engine.trim()
+  if (body.model?.trim()) payload.model = body.model.trim()
+  return postJson<ResegmentStarted>(`${base(id)}/resegment/preview-llm`, payload, f)
 }
+
+export const getLlmResegmentPreview = (id: number, f?: Fetch) =>
+  getJson<ResegmentLlmPreview>(`${base(id)}/resegment/preview-llm`, f)
+
+// Applies the stored preview exactly as shown (no second LLM call). The server
+// refuses use_llm/engine/model alongside use_preview, so they are never sent.
+export const applyLlmResegmentPreview = (id: number, expectedLineIds: number[], confirm: boolean, f?: Fetch) =>
+  postJson<ResegmentStarted>(
+    `${base(id)}/resegment`,
+    { expected_line_ids: expectedLineIds, use_preview: true, confirm },
+    f,
+  )
 
 export const listSnapshots = (id: number, f?: Fetch) => getJson<HistoryItem[]>(`${base(id)}/history`, f)
 
