@@ -354,7 +354,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | N02 | Engine and model pickers | 43-77 | `translate_engines.ENGINES` | `pages/Translate.tsx` | `GET /api/translate/engines` | test_translate_tab |
 | N03 | API key field | 79-92 | `synced_api_key_input` | MISSING (see G06) | `POST /api/settings/keys/{engine}` | — |
 | N04 | Direction support warning | 94-99 | `standalone_direction_support` | UNK (server raises) | `POST /api/translate` | test_standalone_translate |
-| N05 | Upload a .txt/.md/.epub to translate | 103-112 | `core.load_novel_text_for_context` | MISSING | no API | — |
+| N05 | Upload a .txt/.md/.epub to translate | 103-112 | `core.load_novel_text_for_context` | DONE `pages/TranslateFileControls.tsx` + `translateFile.ts`; .epub unzipped and read in the browser (`translateEpub.ts`, fflate; spine order, zip-bomb caps, #452) | none (client-side) | vitest translateFile.test.ts, translateEpub.test.ts; e2e translate.spec.ts |
 | N06 | Translate and Clear | 114-150 | `translate_engines.standalone_translate`, `db.save_translate_history` | `pages/Translate.tsx` (free tier from the saved setting when omitted; Ollama always uses the configured URL, a client `base_url` is no longer accepted) | `POST /api/translate` | test_translate_tab |
 | N07 | Result side by side and "Download .txt" | 152-168 | — | PARTIAL (result shown; download MISSING) | — | — |
 | N08 | History list and Clear (confirm) | 170-193 | `db.list_translate_history`, `clear_translate_history` | PARTIAL (list; clear MISSING) | `GET /api/translate/history`, `DELETE /api/translate/history` | test_db TestTranslateHistory |
@@ -601,7 +601,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 **Translate page**
 1. Clear history (N08). S, yes.
 2. Download result (N07). S, client-side.
-3. Upload file (N05). S, no.
+3. ~~Upload file (N05).~~ Done (#452, client-side).
 
 **Reader** (L; needs the Range endpoint): RD01-RD14.
 **Sources** (L; S-3..S-7): SO01-SO19, including the scheduler move in M0-b.
