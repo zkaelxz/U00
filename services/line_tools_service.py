@@ -93,7 +93,9 @@ def _snapshot_row(ln) -> dict:
     return {"id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end, "zh": ln.zh,
             "speaker": getattr(ln, "speaker", None),
             "dub_filename": getattr(ln, "dub_filename", None),
-            "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
+            "speaker_manual": bool(getattr(ln, "speaker_manual", False)),
+            "flag": getattr(ln, "flag", None), "flag_note": getattr(ln, "flag_note", "") or "",
+            "sfx": bool(getattr(ln, "sfx", False))}
 
 
 def _shorten_pass_key(drama_id: int) -> str:

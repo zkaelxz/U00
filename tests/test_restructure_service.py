@@ -1,6 +1,7 @@
 """Tests for services/restructure_service.py + /api/restructure (Migration
 Slice 45). Fully mocked: isolated_db, no real LLM, no GPU."""
 import contextlib
+import json
 import time
 
 import pytest
@@ -96,6 +97,54 @@ class TestMergeAndUndo:
         assert out["line_ids"] == [r["id"] for r in rows]
         assert db.list_line_history(did)[0]["label"] == "before restore"
         _all_refs_point_to_lines(did)
+
+    def test_merge_then_restore_puts_flags_and_sfx_back_on_their_lines(self):
+        """Flag, flag note and SFX mark come back from the snapshot itself --
+        not adopted from whichever current line now holds the same id (the
+        merge moved b's flag onto a, and b's SFX mark had nowhere to go)."""
+        did, ids = _seed()
+        lines = db.load_line_objects(did)
+        lines[1].flag, lines[1].flag_note, lines[1].sfx = "idiom", "b's note", True
+        lines[3].flag, lines[3].flag_note = "name", "d's note"
+        db.save_lines(did, lines, fields=("flag", "flag_note", "sfx"))
+        after = svc.merge_lines(did, [ids[0], ids[1]], ids)["line_ids"]
+        assert _rows(did)[0]["flag"] == "idiom"  # the merge moved b's flag onto a
+        svc.restore_version(did, db.list_line_history(did)[0]["id"], after)
+        by_zh = {r["zh"]: r for r in _rows(did)}
+        assert (by_zh["a"]["flag"], by_zh["a"]["flag_note"], by_zh["a"]["sfx"]) == (None, "", 0)
+        assert (by_zh["b"]["flag"], by_zh["b"]["flag_note"], by_zh["b"]["sfx"]) == (
+            "idiom", "b's note", 1)
+        assert (by_zh["d"]["flag"], by_zh["d"]["flag_note"]) == ("name", "d's note")
+        assert by_zh["c"]["flag"] is None and not by_zh["c"]["sfx"]
+
+    def test_delete_then_restore_brings_back_flag_and_sfx(self):
+        did, ids = _seed()
+        lines = db.load_line_objects(did)
+        lines[2].flag, lines[2].flag_note, lines[2].sfx = "idiom", "c's note", True
+        db.save_lines(did, lines, fields=("flag", "flag_note", "sfx"))
+        after = svc.delete_line(did, ids[2], ids, confirm=True)["line_ids"]
+        svc.restore_version(did, db.list_line_history(did)[0]["id"], after)
+        by_zh = {r["zh"]: r for r in _rows(did)}
+        assert (by_zh["c"]["flag"], by_zh["c"]["flag_note"], by_zh["c"]["sfx"]) == (
+            "idiom", "c's note", 1)
+
+    def test_restore_of_old_snapshot_without_flag_keys_keeps_current_flags(self):
+        """Snapshots saved before flag/flag_note/sfx were recorded keep
+        today's behaviour: a line that still exists keeps its current marks."""
+        did, ids = _seed()
+        snap = [{k: r[k] for k in ("id", "idx", "start", "end", "zh", "en", "speaker")}
+                for r in _rows(did)]
+        lines = db.load_line_objects(did)
+        lines[0].flag, lines[0].flag_note, lines[0].sfx = "idiom", "n", True
+        db.save_lines(did, lines, fields=("flag", "flag_note", "sfx"))
+        with contextlib.closing(db.get_conn()) as conn:
+            hist = conn.execute(
+                "INSERT INTO line_history (drama_id, label, snapshot_json, created_at) "
+                "VALUES (?, 'old', ?, '2000-01-01')", (did, json.dumps(snap))).lastrowid
+            conn.commit()
+        svc.restore_version(did, hist, ids)
+        row = _rows(did)[0]
+        assert (row["flag"], row["flag_note"], row["sfx"]) == ("idiom", "n", 1)
 
     def test_non_adjacent_merge_rejected(self):
         did, ids = _seed()

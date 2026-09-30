@@ -6,7 +6,9 @@ export type Route =
   | { name: 'drama'; id: number; stage: string | null }
   | { name: 'settings' }
   | { name: 'diagnostics' }
-  | { name: 'benchmark' }
+  // compare: the raw "engine:model,engine:model" value of ?compare= (Model
+  // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
+  | { name: 'benchmark'; compare?: string }
   | { name: 'translate' }
   | { name: 'sources' }
   | { name: 'discover' }
@@ -24,7 +26,11 @@ export function parseRoute(hash: string): Route {
   const [head, a, b] = parts
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
-  if (head === 'benchmark' && parts.length === 1) return { name: 'benchmark' }
+  if (head === 'benchmark' && parts.length === 1) {
+    // Kept raw (still %-encoded) so a ":" or "," inside a model name can't be misread.
+    const compare = qs.split('&').find((p) => p.startsWith('compare='))?.slice('compare='.length)
+    return compare && compare.length <= 1000 ? { name: 'benchmark', compare } : { name: 'benchmark' }
+  }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'sources' && parts.length === 1) return { name: 'sources' }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
@@ -52,6 +58,7 @@ export function parseRoute(hash: string): Route {
 export function routeHref(r: Route): string {
   if (r.name === 'drama') return r.stage === null ? `#/drama/${r.id}` : `#/drama/${r.id}/${encodeURIComponent(r.stage)}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
+  if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`
 }
 

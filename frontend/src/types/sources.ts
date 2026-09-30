@@ -96,6 +96,7 @@ export interface SourcesSettings {
   session_break_min_delay: number
   session_break_max_delay: number
   cache_mode: string
+  cache_max_mb: number
   check_interval_hours: number
   auto_queue_new_chapters: boolean
   demo_source_enabled: boolean
@@ -118,6 +119,7 @@ export type SourcesSettingsUpdate = Partial<
     | 'session_break_min_delay'
     | 'session_break_max_delay'
     | 'cache_mode'
+    | 'cache_max_mb'
     | 'check_interval_hours'
     | 'auto_queue_new_chapters'
     | 'demo_source_enabled'

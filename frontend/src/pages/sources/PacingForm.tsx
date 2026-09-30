@@ -8,6 +8,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { SourcesSettings } from '../../types/sources'
 import {
   BOOL_FIELDS,
+  CACHE_MAX_FIELD,
   CHECK_FIELD,
   PACING_ROWS,
   cacheLabel,
@@ -96,6 +97,7 @@ export function PacingForm({ settings, onSaved }: Props) {
             ))}
           </select>
         </Field>
+        {numInput(CACHE_MAX_FIELD)}
         {numInput(CHECK_FIELD)}
       </div>
       <div className="setting-list">
