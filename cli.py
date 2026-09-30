@@ -498,6 +498,7 @@ def cmd_translate(args):
             raise ValueError("no key for the episode-summary engine")
         summary_engine = translate_engines.get_engine(
             summary_engine_choice, summary_key,
+            free_tier=_gemini_free_tier(summary_engine_choice),
             base_url=_ollama_url(args) if summary_engine_choice == "ollama" else None)
     except Exception:
         summary_engine = None
