@@ -242,6 +242,22 @@ work".
 | Known limits | `music`-catalog entries (soundtrack-only) are excluded from `get_chapters()`. HLS manifests are returned as-is, not downloaded/muxed to a file. The authenticated-fallback extraction shape (raw JSON inside a rendered `<pre>`) is a reasonable guess, not confirmed against a real session. |
 | Tests | `tests/test_sources_missevan.py`. All fetches are mocked fixtures trimmed from real captured responses; no live network call. |
 
+## 饭角 Fanjiao — `sources/adapters/fanjiao.py`
+
+| | |
+|---|---|
+| URL patterns | `www.fanjiao.co/pages/share.html?album_id=<id>` (series). The roadmap's "泛娱有声" label was wrong: the platform is 饭角, operated by 深圳热蓝科技有限公司; `known_sites.py`'s old `www.fanjiao.cc` (DNS fails) is now `https://www.fanjiao.co/`. |
+| Content type / language | audio_drama, zh (baihe/GL, 18+) |
+| Status | **Metadata only: `get_series` and `get_chapters`.** No `search()` (no public search or catalogue) and no `get_audio_url()` (the public page exposes no audio; 收听第一集 opens the app). Built 2026-09-30 against the page's own script (`/files/js/share03.js`); **a live render could not be run from the build container**, so the first real run is still to do (see the manual checks below). |
+| Access tier | `RENDERED_BROWSER`. `share.html` is an empty template (title, brief, 参演CV, 收听第一集, 最新评论, 打开APP查看全部内容) until its own script runs. |
+| **Protection, recorded not worked around** | The site's API (`api.fanjiao.co/walkman/api/...`) needs an md5 `signature` header computed from the query plus a secret salt; the app adds Shumei risk control and 360 hardening. User decision (2026-09-30): never extract or reimplement the signing. The adapter opens the share page through `page_fetch.api_capture_session` (the guarded browser) and reads only the responses the page's own script already made: `album/album_info` (name, description, cover, author_name, update_frequency), `album/actor_cvs` (`cv_list[].name`/`role_name`, added to the description as 参演CV) and `album/audio` (`audios_list[].audio_id`/`name`, the episode list; the page itself only uses the first id). The rendered DOM (`.title`, `.brieftext`, `.titleimg img`, `.cvname`) is the fallback for the series fields. The same "let the site's own execution path produce the result" rule as Bilibili Manga and manhuaku. |
+| Paid / locked | Paid episodes stay in the list with the group `付费 / paid (app only)`. The flag keys aren't confirmed, so a small set of likely ones is checked (`need_pay`, `is_pay`, `pay_type`, `vip`, `is_vip`, `price` > 0, `is_free` = 0, `lock`/`is_lock`). If the page's own episode call answers without a list (paid, 18+ or app-only album), `get_chapters()` raises `ContentHidden`/`PURCHASE_REQUIRED` rather than returning an empty list. |
+| Finding album ids | baihehub.com's audio-drama records carry a `fjId` field (the Fanjiao album id). The existing BaiheHub search (`title_library.search_baihehub`) doesn't surface it yet; paste the share link instead. |
+| Pacing | One render makes four or five calls on the site's side, so renders are spaced 10 s apart (`host_min_interval`), under the client's pacing and concurrency limit (`client.paced`). `get_series` and `get_chapters` share one render per album. |
+| Terms | No robots.txt (every unknown path returns the homepage). The user agreement is only viewable in the app; the public `/pages/useragree.html` is the privacy policy and has no automation clause. `automation_permission` UNKNOWN, `technical_protection` DETECTED, in `capabilities()` and in `site_terms.py`. |
+| Reference | `tsinglinrain/YuriAudio2Notion` (Apache-2.0), read for field names only; its endpoints/signing approach are not used. |
+| Tests | `tests/test_sources_fanjiao.py`. No network or browser: a fake capture returns rendered HTML plus the page's own responses, shaped after `share03.js` and the reference's field list (not a trimmed live capture). |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -577,6 +593,13 @@ they've been tried against the real site.
   inside a rendered `<pre>`" extraction shape it assumes is actually what
   the browser hands back for this specific endpoint. Not verified this
   pass; no such account was available.
+- [ ] **fanjiao, first real render (pending):** on a normal machine,
+  open a real album (e.g. `album_id=111601`, found through baihehub's
+  `fjId`) through the Sources tab and confirm the page's own
+  `album_info`/`actor_cvs`/`album/audio` responses are captured and
+  parsed, that `audios_list` items really carry `audio_id`/`name`, and
+  which key marks a paid episode. The build container couldn't render
+  the page, so the fixtures follow the page's own script, not a capture.
 - [ ] **Mag-Comi, raw1001.net, novema.jp, Kakuyomu, Hameln -- generic
   pipeline only, no dedicated adapter:** search a real title on each
   through the existing generic paste-a-URL / adaptive-extraction flow

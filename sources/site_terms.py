@@ -190,6 +190,27 @@ SITE_TERMS = [
                                  "path is even reached.",
         },
     },
+    {
+        # roadmap Step 113 vetting (2026-09-30). Has a metadata adapter
+        # (sources/adapters/fanjiao.py); recorded here too so a pasted
+        # fanjiao.co link the adapter doesn't recognize carries the same
+        # finding.
+        "domains": ("fanjiao.co",),
+        "platform": "饭角 Fanjiao (深圳热蓝科技有限公司)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "The user agreement is only viewable inside the app. The public "
+                    "www.fanjiao.co/pages/useragree.html is the privacy policy, read directly "
+                    "(2026-09-30); it has no automation clause.",
+            "robots_txt": "None: every unknown path, /robots.txt included, returns the homepage.",
+            "technical_protection": "DETECTED: the site's API needs an md5 `signature` header "
+                                    "(query plus a secret salt); the app adds Shumei risk "
+                                    "control and 360 hardening. Recorded, not worked around.",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. The in-app agreement was not "
+                          "read.",
+        },
+    },
 ]
 
 
