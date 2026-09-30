@@ -44,7 +44,8 @@ Step 43, universal soft-delete, was replaced by this.)
   API's existing background poller (api/background.py). A scheduled run
   never starts while any job runs or a restore/maintenance holds the
   library; it is simply tried again at the next check.
-- restore_drama copies one drama out of a copy (the newest readable one, or
+- restore_drama copies one drama out of a copy (the newest readable one not
+  dated after now, or
   one named by the caller and matched against the folder's listing, never
   used as a path), read from a read-only temp copy of its library.db, into
   the live library: the drama row and every child table it cascades to (see
@@ -227,6 +228,11 @@ def _move_copies(old_folder: str, new_folder: str):
     moved = []
     try:
         os.makedirs(dest_dir, exist_ok=True)
+        # The same folder under another path (a link, a mapped drive vs its
+        # network path): nothing to move, and "moving" a copy onto itself
+        # could remove it.
+        if os.path.samefile(src_dir, dest_dir):
+            return
         for copy in copies:
             _move_file(copy["path"], os.path.join(dest_dir, copy["name"]))
             moved.append(copy)
@@ -254,6 +260,10 @@ def _move_file(src: str, dest: str):
         return
     except OSError:
         pass
+    # dest is src under another path: the copy below would overwrite src
+    # with itself and then remove it. It is already where it should be.
+    if os.path.lexists(dest) and os.path.samefile(src, dest):
+        return
     fd, tmp = tempfile.mkstemp(prefix=".baihe_snapshot.partial-", suffix=".zip",
                                dir=os.path.dirname(dest))
     try:
@@ -271,8 +281,14 @@ def _move_file(src: str, dest: str):
         if tmp is not None:
             with contextlib.suppress(OSError):
                 os.remove(tmp)
-    with contextlib.suppress(OSError):
+    # The original goes only once the copy's rename is on disk; if that
+    # can't be confirmed, dest goes instead (src is still there).
+    try:
         _fsync_dir(os.path.dirname(dest))
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(dest)
+        raise
     try:
         os.remove(src)
     except OSError:
@@ -338,8 +354,11 @@ def next_run_at(settings=None, state=None):
         return None
     state = _get_state() if state is None else state
     last = _parse(state.get("last_success_at"))
-    if last is None:
-        return _now()   # never run: due at the next check
+    now = _now()
+    # Never run, or a last run dated in the future (the clock ran ahead and
+    # was corrected): due at the next check.
+    if last is None or last > now:
+        return now
     return last + datetime.timedelta(days=FREQUENCIES[settings["frequency"]])
 
 
@@ -350,10 +369,11 @@ def is_due(now=None, settings=None, state=None) -> bool:
     state = _get_state() if state is None else state
     now = now or _now()
     attempt = _parse(state.get("last_attempt_at"))
-    if state.get("last_error") and attempt is not None and now - attempt < RETRY_AFTER_FAILURE:
+    if (state.get("last_error") and attempt is not None and attempt <= now
+            and now - attempt < RETRY_AFTER_FAILURE):
         return False
     last = _parse(state.get("last_success_at"))
-    if last is None:
+    if last is None or last > now:     # a future date: the clock was wrong then
         return True
     return now - last >= datetime.timedelta(days=FREQUENCIES[settings["frequency"]])
 
@@ -423,6 +443,22 @@ def _list_copies(folder: str) -> list:
         out.append({"name": name, "path": path, "at": at, "size": st.st_size})
     out.sort(key=lambda c: (c["at"], c["name"]), reverse=True)
     return out
+
+
+# Runs within one second get names a second apart (_new_copy_path), so the
+# newest real copy can be named slightly after now; only a copy dated
+# further ahead than this counts as future-dated for the default pick.
+_FUTURE_SLACK = datetime.timedelta(minutes=10)
+
+
+def _newest_first(copies: list) -> list:
+    """`copies` (newest first) in the order the default pick tries them:
+    copies dated up to now (plus _FUTURE_SLACK) first, then any dated later
+    (a clock that ran ahead), so a future-dated copy is never taken over the latest real one
+    but is still used when nothing else can be read."""
+    limit = _now() + _FUTURE_SLACK
+    return ([c for c in copies if c["at"] <= limit]
+            + [c for c in copies if c["at"] > limit])
 
 
 # What _read_copy found: a readable copy; one the OS wouldn't let us read
@@ -502,12 +538,13 @@ def _prune(folder: str, new_name: str) -> int:
 def _pick_copy(name=None) -> tuple:
     """(copy, manifest) for the copy called `name` -- matched against the
     backup folder's own listing, never used as a path -- or, with no name,
-    the newest readable copy. The caller holds _snapshot_lock."""
+    the newest readable copy not dated after now (a future-dated one only
+    when no other can be read). The caller holds _snapshot_lock."""
     copies = _list_copies(_target_dir(create=False))
     if name is None:
         if not copies:
             raise NotFoundError(_NO_SNAPSHOT)
-        for copy in copies:
+        for copy in _newest_first(copies):
             state, manifest = _read_copy(copy["path"])
             if state == _OK:
                 return copy, manifest
@@ -545,7 +582,8 @@ def _read_manifest(zf: zipfile.ZipFile) -> dict:
 
 
 def snapshot_info() -> dict:
-    """{exists, copies} plus, for the newest readable copy, readable,
+    """{exists, copies} plus, for the copy a restore picks by default (the
+    newest readable one, see _pick_copy), readable,
     created_at, kind, size, app_version and drama_count. copies lists every
     copy newest first as {name, created_at, size, kind, drama_count,
     readable, kept_as}: names only, never paths. When copies exist but none
@@ -556,7 +594,7 @@ def snapshot_info() -> dict:
     # As the next run would see it: a copy dated after now takes no slot.
     now = _now()
     kept = _retention([c for c, m in described if m is not None and c["at"] <= now])
-    copies, newest = [], None
+    copies, entries = [], {}
     for copy, manifest in described:
         created = manifest.get("created_at") if manifest else None
         entry = {"name": copy["name"],
@@ -566,8 +604,12 @@ def snapshot_info() -> dict:
                  "drama_count": len(manifest["dramas"]) if manifest else None,
                  "kept_as": kept.get(copy["name"])}
         copies.append(entry)
-        if newest is None and manifest is not None:
-            newest = (entry, manifest)
+        entries[copy["name"]] = entry
+    # The one a restore with no copy named would use (see _pick_copy).
+    manifests = {c["name"]: m for c, m in described}
+    newest = next(((entries[c["name"]], manifests[c["name"]])
+                   for c in _newest_first([c for c, _ in described])
+                   if manifests[c["name"]] is not None), None)
     if not copies:
         return {"exists": False, "copies": []}
     if newest is None:

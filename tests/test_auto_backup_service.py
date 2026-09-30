@@ -532,6 +532,25 @@ class TestDueCheck:
         assert abs_.check_and_run(now=attempt + datetime.timedelta(hours=23)) == "not_due"
         assert abs_.check_and_run(now=attempt + datetime.timedelta(days=1)) == "started"
 
+    def test_future_last_success_is_due(self, isolated_db, started, monkeypatch):
+        """A last run dated in the future (the clock ran ahead, then was
+        corrected) doesn't hold the next backup off until that date."""
+        _enable(frequency="daily")
+        now = datetime.datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
+        monkeypatch.setattr(abs_, "_now", lambda: now)
+        _state(last_success_at=(now + datetime.timedelta(days=300)).isoformat())
+        assert abs_.is_due(now=now) is True
+        assert abs_.next_run_at() == now
+        assert abs_.check_and_run(now=now) == "started"
+        assert started == [False]
+
+    def test_future_failed_attempt_does_not_block(self, isolated_db, started):
+        _enable(frequency="daily")
+        now = datetime.datetime(2026, 3, 1, tzinfo=UTC)
+        _state(last_attempt_at=(now + datetime.timedelta(days=30)).isoformat(),
+               last_error=abs_._FAILED)
+        assert abs_.check_and_run(now=now) == "started"
+
     def test_no_error_recent_attempt_does_not_block(self, isolated_db, started):
         _enable(frequency="daily")
         now = datetime.datetime(2026, 3, 1, tzinfo=UTC)
@@ -1203,6 +1222,31 @@ class TestRotation:
         kept = {c["name"]: c["kept_as"] for c in abs_.snapshot_info()["copies"]}
         assert kept == {abs_.LEGACY_SNAPSHOT_NAME: None, _name(_at(5)): "daily",
                         _name(_at(4)): "daily", _name(_at(2)): "weekly"}
+
+    def test_future_dated_copy_is_not_the_default_pick(self, isolated_db, monkeypatch):
+        """A copy written while the clock ran ahead is never the default
+        restore pick or the 'newest' label while a copy dated up to now can
+        be read, and the rotation never deletes it."""
+        db.create_drama(title_en="A")
+        future = datetime.datetime(2099, 1, 1, tzinfo=UTC)
+        _run_at(monkeypatch, future)
+        for day in (2, 3, 4, 5, 12, 19):
+            _run_at(monkeypatch, _at(day))
+        assert os.path.isfile(os.path.join(_default_dir(), _name(future)))
+        info = abs_.snapshot_info()
+        assert info["copies"][0]["name"] == _name(future)     # listed newest first
+        assert info["created_at"] == abs_._iso(_at(19))
+        assert abs_.list_snapshot_dramas()["name"] == _name(_at(19))
+        with abs_._snapshot_lock:
+            assert abs_._pick_copy()[0]["name"] == _name(_at(19))
+
+    def test_future_dated_copy_used_when_nothing_else_reads(self, isolated_db, monkeypatch):
+        db.create_drama(title_en="A")
+        future = datetime.datetime(2099, 1, 1, tzinfo=UTC)
+        _run_at(monkeypatch, future)
+        monkeypatch.setattr(abs_, "_now", lambda: _at(2))
+        assert abs_.snapshot_info()["created_at"] == abs_._iso(future)
+        assert abs_.list_snapshot_dramas()["name"] == _name(future)
 
     def test_copy_that_cannot_be_opened_now_is_never_deleted(self, isolated_db,
                                                               monkeypatch):
@@ -2356,6 +2400,36 @@ class TestFolderMove:
         assert os.listdir(tmp_path) == [name]    # no partial left behind
         assert not os.path.exists(src)
 
+    @pytest.mark.parametrize("alias", ["symlink", "same_path"])
+    def test_same_folder_under_another_path_keeps_every_copy(
+            self, isolated_db, tmp_path, monkeypatch, alias):
+        """The new folder is the current one under a different path string
+        (a link to it, or the default folder typed out): nothing moves, and
+        a failed same-file rename can't turn into a copy-then-remove that
+        deletes the copies."""
+        db.create_drama(title_en="A")
+        for day in (2, 3):
+            _run_at(monkeypatch, _at(day))
+        before = {n: _read(os.path.join(_default_dir(), n)) for n in _copy_names()}
+        assert len(before) == 2
+        if alias == "symlink":
+            folder = str(tmp_path / "alias")
+            os.symlink(_default_dir(), folder)
+        else:
+            folder = _default_dir()
+        real_replace = os.replace
+
+        def rename_fails(a, b, *args, **kw):
+            if _COPY_RE.fullmatch(os.path.basename(a)):
+                raise OSError(18, "Invalid cross-device link")
+            return real_replace(a, b, *args, **kw)
+        monkeypatch.setattr(abs_.os, "replace", rename_fails)
+        abs_.set_settings(folder=folder)
+        monkeypatch.undo()
+        assert abs_.get_settings()["folder"] == folder
+        assert {n: _read(os.path.join(_default_dir(), n)) for n in _copy_names()} == before
+        assert sorted(os.listdir(_default_dir())) == sorted(before)   # no partial left
+
     def test_move_failure_changes_nothing(self, isolated_db, tmp_path, monkeypatch):
         db.create_drama(title_en="A")
         _snap()
@@ -2493,6 +2567,29 @@ class TestMoveFileNeverLosesTheCopy:
                 raise PermissionError("in use")
             return real_remove(path, *args, **kw)
         monkeypatch.setattr(abs_.os, "remove", locked)
+        with pytest.raises(OSError):
+            abs_._move_file(src, dest)
+        monkeypatch.undo()
+        assert _read(src) == b"the only copy"
+        assert list(dest_dir.iterdir()) == []
+
+    def test_dest_that_is_src_under_another_path_is_left_alone(self, tmp_path, monkeypatch):
+        src, _dest, _dest_dir = self._setup(tmp_path, monkeypatch)
+        alias = tmp_path / "alias"
+        os.symlink(os.path.dirname(src), alias)
+        abs_._move_file(src, str(alias / os.path.basename(src)))
+        monkeypatch.undo()
+        assert _read(src) == b"the only copy"
+        assert os.listdir(os.path.dirname(src)) == [os.path.basename(src)]
+
+    def test_directory_flush_failure_keeps_the_original(self, tmp_path, monkeypatch):
+        """The original is removed only once the rename into dest is on
+        disk; a failed flush raises, takes dest out again and keeps src."""
+        src, dest, dest_dir = self._setup(tmp_path, monkeypatch)
+
+        def fail(folder):
+            raise OSError(5, "I/O error")
+        monkeypatch.setattr(abs_, "_fsync_dir", fail)
         with pytest.raises(OSError):
             abs_._move_file(src, dest)
         monkeypatch.undo()
