@@ -112,17 +112,19 @@ def tag_lines(audio_path: str, lines, use_gpu: bool = False, progress_cb=None,
 def save_audio_tags(drama_dir: str, tags: dict) -> str:
     os.makedirs(drama_dir, exist_ok=True)
     path = os.path.join(drama_dir, AUDIO_TAGS_FILE)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({str(k): v for k, v in tags.items()}, f, ensure_ascii=False, indent=2)
+    from core import atomic_write
+    atomic_write(path, json.dumps({str(k): v for k, v in tags.items()},
+                                  ensure_ascii=False, indent=2))
     return path
 
 
 def load_audio_tags(drama_dir: str) -> dict:
     path = os.path.join(drama_dir, AUDIO_TAGS_FILE)
-    if not os.path.exists(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {int(k): v for k, v in json.load(f).items()}
+    except (OSError, ValueError, AttributeError):
         return {}
-    with open(path, encoding="utf-8") as f:
-        return {int(k): v for k, v in json.load(f).items()}
 
 
 def side_by_side(lines, text_emotions: dict, audio_tags: dict) -> list:

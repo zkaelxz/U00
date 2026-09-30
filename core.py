@@ -4,8 +4,10 @@ be imported by both app.py (the GUI) and cli.py (headless batch mode)
 without pulling in a UI framework.
 """
 
+import os
 import re
 import difflib
+import tempfile
 from dataclasses import dataclass, field, replace
 
 
@@ -50,6 +52,22 @@ class Line:
     # Ids of lines merged into this one since the last save -- db.save_lines
     # re-points their notes/emotions here before deleting their rows.
     merged_ids: list = field(default_factory=list, compare=False, repr=False)
+
+
+def atomic_write(path: str, data, binary: bool = False) -> None:
+    """Writes `data` to a temp file in path's folder, then os.replace()s it
+    over `path`, so a crash mid-write never leaves a truncated file."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb" if binary else "w", **({} if binary else {"encoding": "utf-8"})) as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def line_from_row(row) -> "Line":
