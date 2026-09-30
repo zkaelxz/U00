@@ -53,6 +53,10 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
   }))
   // The header bell (every page) polls this; not part of the Live flow.
   await page.route('**/api/notifications', (route) => json(route, { items: [] }))
+  // No push stream: these specs drive the page through its polling fallback
+  // (event-stream.spec.ts covers the pushed Live status).
+  await page.route('**/api/events?*', (route) =>
+    json(route, { error: { code: 'rate_limited', message: 'No stream in this test.' } }, 429))
   await page.route('**/api/translate/engines', (route) => json(route, { items: ENGINES }))
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route('**/api/assistant/settings', (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))

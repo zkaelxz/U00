@@ -62,11 +62,23 @@ export interface DiagnosticsPiperVoice {
   size_bytes: number
 }
 
+// A file or folder in a model folder outside the Hugging Face cache:
+// torch.hub checkpoints (TORCH_HOME) or the audio-separator models.
+export type DiagnosticsModelFolder = 'torch' | 'audio_separator'
+
+export interface DiagnosticsModelFile {
+  folder: DiagnosticsModelFolder
+  name: string
+  size_bytes: number
+}
+
 export interface DiagnosticsModelCache {
   hf_cache: DiagnosticsHfCacheEntry[]
   hf_total_bytes: number
   piper_voices: DiagnosticsPiperVoice[]
   piper_total_bytes: number
+  model_files: DiagnosticsModelFile[]
+  model_files_total_bytes: number
 }
 
 export interface DiagnosticsPyannoteReadiness {
@@ -224,7 +236,8 @@ export interface DiagnosticsResetResult {
   reset_at: number
 }
 
-// POST /api/diagnostics/model-cache/{hf|piper}/{name}/delete (PC only).
+// POST /api/diagnostics/model-cache/{hf|piper}/{name}/delete and
+// /model-cache/files/{folder}/{name}/delete (PC only).
 export interface DiagnosticsCacheDeleteResult {
   deleted: boolean
   name: string

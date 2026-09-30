@@ -146,9 +146,9 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (16 sites)
+│   └── adapters/                  one file per supported site (17 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
-│       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
+│       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, fanjiao.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
 │           lightnovel_fun.py, ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
@@ -224,6 +224,10 @@ baihe-subtitler/
 │   │                             registry (model_registry.json) and a manual, cached provider model-list
 │   │                             check; user-confirmed preset model switch (never automatic)
 │   ├── model_registry.json       Step 40 -- sourced lifecycle facts (current/legacy/deprecated/retired)
+│   ├── model_reeval_service.py   Step 40b -- scheduled model re-evaluation: user-added candidates vs the
+│   │                             production model through the Benchmark Lab, report, recorded decisions,
+│   │                             explicit promotion only (scheduler: api/background.py)
+
 
 │   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
 │   │                             from a static table: allowlisted https hops, timeouts, byte cap,
@@ -239,6 +243,10 @@ baihe-subtitler/
 │   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
+│   │                             hooks name what changed, each stream re-reads it through the GET routes'
+│   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
+│   │                             job_records sweep for other processes' jobs
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
@@ -359,6 +367,11 @@ baihe-subtitler/
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text (optional chapter
 │   │                             range), chapters imported in Sources as narration text, chapter OCR job
+│   ├── lncrawl_service.py        Step 115b -- optional "Import with lightnovel-crawler": finds the
+│   │                             user-installed GPL-3.0 `lncrawl` program (PATH or Settings lncrawl_cmd;
+│   │                             never imported), runs it as a separate process (fixed argv, timeout,
+│   │                             cancel, output/size caps, redacted tail) and attaches its EPUB through
+│   │                             novel_attach_service (router: novel_routes.py, local_only)
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
@@ -439,6 +452,8 @@ baihe-subtitler/
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
+│   ├── model_reeval_schemas.py   Step 40b re-evaluation models (kept apart from schemas.py)
+
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
@@ -460,6 +475,8 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
+│       ├── events_routes.py      GET /api/events (SSE, library.read): job / job_gone / notifications / live /
+│       │                         resync / ping events, 15 s heartbeat, session re-checked every <= 5 s (services/event_stream_service.py)
 │       ├── job_stage_routes.py   GET /api/jobs/{id}/stages (library.read, job visibility): per-stage timing (Step 41)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
@@ -525,6 +542,9 @@ baihe-subtitler/
 │       │                         admin.diagnostics; cases, import, regression, runs (POST) local_only (Step 38)
 │       ├── model_registry_routes.py /api/models/status (GET, admin.diagnostics), check and
 │       │                         presets/{id}/switch (POST, local_only; Step 40)
+│       ├── model_reeval_routes.py /api/models/reeval (GET), decisions (GET), estimate (POST) admin.diagnostics;
+│       │                         settings, candidates, reject/reopen/promote, run (POST) local_only (Step 40b)
+
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
@@ -599,7 +619,8 @@ baihe-subtitler/
 │   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
 │   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
-│   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
+│   │                              errorFallbackText.ts; clipboard.ts (copyText: the one Copy helper, falls back
+│   │                              to execCommand on plain http, never throws); src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
 │   │                              src/labels.ts: display labels for status, media type, language and engine
 │   │                              codes (unknown codes title-cased; one source of truth; unit-tested).
@@ -613,6 +634,10 @@ baihe-subtitler/
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
+│   ├── src/hooks/                 useJob (push, polling fallback), useEventStream (the tab's shared SSE stream,
+│   │                              src/api/eventStream.ts: reconnect with backoff, resync, poll fallback),
+│   │                              useMediaQuery, useShortcut (list keyboard shortcuts),
+
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              useReattachJob (a stage revisited mid-job picks its job up again;
 │   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
@@ -719,6 +744,9 @@ baihe-subtitler/
 │   │                              CreditsCoverPanel (Source > Credits & cover: bilingual credits, Romanize,
 │   │                              PC-only cover upload) + ../preambleForm.ts (pure, unit-tested; also the
 │   │                              EPUB chapter range NovelPanel uses) + preamble.css
+│   │                              LncrawlPanel (Source > Novel text > Import with lightnovel-crawler; shown
+│   │                              only when lncrawl is installed and on the PC) + lncrawlForm.ts (pure,
+│   │                              unit-tested)
 │   │                              VoiceSuggestions (Characters > "sounds like X": accept/reject) + characters.css;
 │   │                              CharactersPanel's sample lines, custom pronouns and "Remember in this series"
 │   │                              use characterForm.ts (pure, unit-tested); API in src/api/characters.ts,

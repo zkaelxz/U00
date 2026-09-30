@@ -46,6 +46,8 @@ RESULT_ALLOWED_KEYS = (
     "status", "stage", "last_error", "line_id", "candidate_count",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
+    # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
+    "epub_chapters",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -351,9 +353,32 @@ def derive_outcome(status, error, result):
     return "ok", (" ".join(parts) or "Finished.")
 
 
+def _with_live_progress(record: dict) -> dict:
+    """job_records is written on status changes only, so while a job this
+    process runs is running, its progress and message come from
+    background_jobs' in-memory state (what update_progress set), so polls
+    and the event stream both see the bar move."""
+    if record.get("status") != "running":
+        return record
+    try:
+        live = background_jobs.get_status(record.get("job_id"))
+    except Exception:
+        return record
+    if not live or live.get("status") != "running":
+        return record
+    out = dict(record)
+    progress = live.get("progress")
+    if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+        out["progress"] = progress
+    if live.get("message"):
+        out["message"] = live.get("message")
+    return out
+
+
 def _redact(record: dict) -> dict:
     """Same redaction diagnostics_service._job_summary already applies --
     a stored error/message could echo an API error verbatim."""
+    record = _with_live_progress(record)
     out = dict(record)
     raw = out.pop("result_json", None)
     try:
