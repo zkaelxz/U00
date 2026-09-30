@@ -294,11 +294,32 @@ export function tierLines(tiers: Record<string, SourceTierResult>): string[] {
   })
 }
 
+const ERROR_CATEGORY_LABELS: Record<string, string> = {
+  blocked: 'blocked',
+  site_down: 'site down',
+  page_missing: 'page missing',
+  layout_changed: 'layout changed',
+  slow: 'slow',
+  needs_sign_in: 'needs sign-in',
+  other: 'failed',
+}
+
+/** Plain-language reason for the last failure; the raw error type when the server sent no category. */
+export function errorCategoryLabel(h: SourceHealth): string | null {
+  if (h.last_error_category) return ERROR_CATEGORY_LABELS[h.last_error_category] ?? 'failed'
+  return h.last_error_type || null
+}
+
+/** Hover text for the health line: the raw error type, kept for support. */
+export function healthTooltip(h: SourceHealth): string | undefined {
+  return h.last_error_type ? `Error type: ${h.last_error_type}` : undefined
+}
+
 export function healthLine(h: SourceHealth, nowMs = Date.now()): string {
   const parts: string[] = []
   if (h.last_success) parts.push(`Last success ${ago(h.last_success, nowMs)}`)
   if (h.last_failure) {
-    parts.push(`last failure ${ago(h.last_failure, nowMs)}${h.last_error_type ? ` (${h.last_error_type})` : ''}`)
+    parts.push(`last failure ${ago(h.last_failure, nowMs)}${errorCategoryLabel(h) ? ` (${errorCategoryLabel(h)})` : ''}`)
   }
   if (h.last_latency !== null && h.last_latency !== undefined) parts.push(`${h.last_latency.toFixed(1)} s`)
   if (!parts.length) return 'No requests yet.'

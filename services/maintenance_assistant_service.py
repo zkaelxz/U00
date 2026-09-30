@@ -690,6 +690,20 @@ def tool_job_history(args: dict) -> str:
     return json.dumps(jobs, ensure_ascii=False, default=str)
 
 
+def tool_source_failures(args: dict) -> str:
+    """Category, source name, streak count and last-seen time only: no URLs,
+    page content or stored error text. Only registered source names, so a
+    pasted-URL host never appears."""
+    from sources import health, registry
+    known = set(registry.adapter_classes())
+    rows = [r for r in health.recent_failures(50) if r["source"] in known][:20]
+    if not rows:
+        return "No recent source failures."
+    return "\n".join(
+        f"{r['source']}: {r['category']} x{r['count']}, last seen "
+        f"{time.strftime('%Y-%m-%d %H:%M', time.gmtime(r['last_failure']))} UTC" for r in rows)
+
+
 def tool_support_report(args: dict) -> str:
     return diagnostics_gaps_service.build_support_report()
 
@@ -767,6 +781,8 @@ READ_ONLY_TOOLS = {
     "inspect_logs": (tool_inspect_logs, "The app log's last lines (redacted), keyword-filtered.",
                      '{"n": 100, "keyword": "error"}'),
     "job_history": (tool_job_history, "Finished background jobs in this session (redacted).", "{}"),
+    "source_failures": (tool_source_failures,
+                        "Recent content-source failures by category (no URLs or page text).", "{}"),
     "support_report": (tool_support_report, "The redacted Diagnostics support report.", "{}"),
     "check_dependencies": (tool_check_dependencies, "Optional packages: installed or missing.", "{}"),
     "check_models": (tool_check_models, "Installed model/engine versions.", "{}"),
@@ -780,6 +796,7 @@ TOOL_ACTIONS = {
     "search_code": "inspect_git_history", "git_status": "inspect_git_history",
     "git_log": "inspect_git_history", "git_diff": "inspect_git_history",
     "inspect_logs": "inspect_logs", "job_history": "inspect_logs",
+    "source_failures": "inspect_logs",
     "support_report": "generate_report", "check_dependencies": "check_dependencies",
     "check_models": "check_model_availability", "run_tests": "run_tests",
 }

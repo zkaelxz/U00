@@ -95,8 +95,11 @@ export function sourceDetail(summary: (typeof SOURCES)[number]) {
     terms: { robots_txt: 'Crawl-delay: 10.', tos: 'Not reviewed.', tos_prohibited: false },
     terms_enforced: false,
     health_detail: {
-      light: summary.health, consecutive_failures: 0, last_success: null, last_failure: null, last_error_type: null,
-      last_error: null, last_latency: null, unavailable_until: null, retry_after: summary.health === 'red' ? 240 : null,
+      light: summary.health, last_success: null, last_latency: null, unavailable_until: null,
+      ...(summary.health === 'yellow'
+        ? { consecutive_failures: 1, last_failure: 1_700_000_000, last_error_type: 'SERVER_ERROR', last_error_category: 'site_down' }
+        : { consecutive_failures: 0, last_failure: null, last_error_type: null, last_error_category: null }),
+      retry_after: summary.health === 'red' ? 240 : null,
     },
   }
 }

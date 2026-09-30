@@ -133,6 +133,7 @@ def _health_view(name: str) -> dict:
         "last_success": h["last_success"],
         "last_failure": h["last_failure"],
         "last_error_type": _scrub(h["last_error_type"]),
+        "last_error_category": health.category(h["last_error_type"]),
         "last_error": _scrub(h["last_error"]),
         "last_latency": h["last_latency"],
         "unavailable_until": h["unavailable_until"],
