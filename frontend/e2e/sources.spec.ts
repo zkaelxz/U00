@@ -176,6 +176,10 @@ test('series B on the same source while A is still running never shows A', async
   await page.goto('/#/sources')
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
   await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  // The mocked start sets the search running; finishing it before that
+  // request is handled would leave it running forever. ("Searching…" shows
+  // while the start is still in flight, so it is not the signal.)
+  await expect.poll(() => posted(s, '/api/sources/search').length).toBe(1)
   s.search = 'done'
   await expect(page.getByText('3 results', { exact: true })).toBeVisible()
 
@@ -199,10 +203,14 @@ test('series B on the same source while A is still running never shows A', async
   await expect(panel.getByText('Another series from Alpha Comics is still loading.')).toBeVisible()
   await expect(panel.getByText(/Loading the series/)).toHaveCount(0)
 
-  // A finishes on the server: its chapters must not appear under B.
+  // A finishes on the server: its chapters must not appear under B. Wait
+  // for the page to receive A's finished result and render, not a fixed time.
+  const aDone = page.waitForResponse(async (r) =>
+    r.url().endsWith('/api/sources/jobs/sources_series_alpha/result') && (await r.json()).status === 'done')
   s.seriesHold = false
   s.series = 'done'
-  await page.waitForTimeout(2000)
+  await aDone
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0))))
   await expect(panel.getByText(/124 chapters/)).toHaveCount(0)
   await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 2' })).toBeVisible()
 
@@ -214,9 +222,10 @@ test('series B on the same source while A is still running never shows A', async
   await expect(panel.getByText('Asked the other series to stop. Try again in a moment.')).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Cancel it' })).toHaveCount(0)
   await expect(panel.getByRole('button', { name: 'Try again' })).toBeVisible()
-  await panel.getByRole('button', { name: 'Try again' }).click()
+  // Before the click: B's run may finish on its first polls.
   s.seriesHold = false
   s.seriesTitle = 'Heaven Book 2'
+  await panel.getByRole('button', { name: 'Try again' }).click()
   await expect(panel.getByText('Alpha Comics · 124 chapters · Ongoing · Chinese')).toBeVisible()
   expect(posted(s, '/api/sources/alpha/series').map((c) => c.body)).toEqual([
     { series_id: 'a0' }, { series_id: 'a1' }, { series_id: 'a1' },
