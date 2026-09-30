@@ -214,3 +214,13 @@ class TestReviewFixes:
         pid = db.list_presets()[0]["id"]
         assert db.set_preset_engine_model(pid, "x", expected_model="other") is False
         assert db.list_presets()[0]["engine_model"] == "deepseek-chat"
+
+
+def test_alias_listed_as_dated_snapshot_counts_as_listed(isolated_db, keys, monkeypatch):
+    import requests
+    db.save_preset("P", translation_engine="claude", engine_model="claude-sonnet-5")
+    monkeypatch.setattr(requests, "get", lambda url, **kw: FakeResp(
+        {"data": [{"id": "claude-sonnet-5-20260101"}]}))
+    status = svc.check_providers()
+    item = next(i for i in status["items"] if i["model"] == "claude-sonnet-5" and i["kind"] == "preset")
+    assert item["status"] == "current"

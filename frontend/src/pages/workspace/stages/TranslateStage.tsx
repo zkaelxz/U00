@@ -42,6 +42,7 @@ import {
   loadPresetStart,
   MAX_FALLBACKS,
   monthSpendText,
+  ollamaWarning,
   reflectAvailable,
   PRESET_NAME_MAX,
   savePresetStart,
@@ -257,17 +258,44 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
   )
 }
 
+// Parity X24: Streamlit's "Can't reach Ollama" warning. A warning only (Streamlit
+// disabled Translate; here the run stays startable). No URL is shown: the
+// server only sends a boolean. "Check again" re-reads just that flag.
+function OllamaNotice({ onRecheck }: { onRecheck: () => Promise<void> }) {
+  const [pending, setPending] = useState(false)
+  const [rechecked, setRechecked] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const recheck = () => {
+    setPending(true)
+    setError(null)
+    onRecheck().then(
+      () => setRechecked(true),
+      setError,
+    ).finally(() => setPending(false))
+  }
+  return (
+    <div className="translate-ollama" data-testid="ollama-warning">
+      <span className="warn" role="status">Can't reach Ollama on this PC. Is it running? Start Ollama, then check again.</span>
+      <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={recheck}>Check again</button>
+      {rechecked && !pending && <span className="muted">Still no answer.</span>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
+  )
+}
+
 function RunPanel({
   config,
   onStarted,
   onTierApplied,
   onPresetApplied,
+  onRecheckOllama,
   busy,
 }: {
   config: TranslateRunConfig
   onStarted: (id: string) => void
   onTierApplied: (t: WorkflowTierApplied) => void
   onPresetApplied: (p: TranslatePresetApplied) => void
+  onRecheckOllama: () => Promise<void>
   busy: boolean
 }) {
   const { dramaId, drama } = useStage()
@@ -379,6 +407,7 @@ function RunPanel({
           <p className="muted" data-testid="style-guidance">{guidance}</p>
         </details>
       )}
+      {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       <div className="translate-go">
         <button
           type="button"
@@ -616,6 +645,11 @@ export default function TranslateStage() {
     },
   })
   const busy = jobId !== null && !done && !pollError
+  // X24 "Check again": re-read the config but take only the reachability flag,
+  // so the loaded config (and the form built from it) stays as it is.
+  const recheckOllama = () =>
+    getTranslateConfig(dramaId).then((c) =>
+      setConfig((prev) => (prev ? { ...prev, ollama_reachable: c.ollama_reachable ?? null } : prev)))
 
   return (
     <div className="stage-translate">
@@ -633,6 +667,7 @@ export default function TranslateStage() {
           onStarted={setJobId}
           onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
           onPresetApplied={(p) => setConfig((c) => (c ? withPresetEngine(c, p) : c))}
+          onRecheckOllama={recheckOllama}
         />
       )}
       {jobId && <JobPanel job={job} pollError={pollError} />}
