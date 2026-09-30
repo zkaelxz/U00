@@ -203,6 +203,12 @@ export const createBenchmarkCase = (body: BenchmarkCaseCreate, f?: Fetch) =>
 export const deleteBenchmarkCase = (id: number, f?: Fetch) =>
   postJson<{ deleted: boolean; id: number }>(`${BASE}/cases/${id}/delete`, { confirm: true }, pcOnlyFetch(f))
 
+// "Add as regression test" from a Review line: keeps its source and current
+// (hand-fixed) English as a regression case. Adding the same line again updates it.
+export const addRegressionCase = (dramaId: number, lineId: number, f?: Fetch) =>
+  postJson<{ case: BenchmarkCase; replaced: boolean }>(
+    `${BASE}/dramas/${dramaId}/lines/${lineId}/regression`, {}, pcOnlyFetch(f))
+
 // Reads pasted text only; nothing is downloaded.
 export const importGoldenSet = (body: BenchmarkImportRequest, f?: Fetch) =>
   postJson<BenchmarkImportResult>(`${BASE}/import`, body, pcOnlyFetch(f))

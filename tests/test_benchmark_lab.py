@@ -411,3 +411,40 @@ class TestReviewFixes:
         again = svc.add_regression_case(did, line_id)
         assert again["case"]["id"] == case_id
         assert svc.get_run(sid)["results"][0]["case_id"] == case_id
+
+
+class TestLeadReviewFixes:
+    def test_exclusive_operation_is_named_and_leaves_no_rows(self, isolated_db, monkeypatch):
+        svc.create_case("c", "你好", "Hello")
+        monkeypatch.setattr(background_jobs, "exclusive_active", lambda: True)
+        with pytest.raises(ConflictError, match="restore or cleanup"):
+            svc.start_run("translation", [{"engine": "test_offline"}])
+        assert db.list_benchmark_sessions() == []
+
+    def test_start_job_refusal_leaves_no_rows(self, isolated_db, monkeypatch):
+        svc.create_case("c", "你好", "Hello")
+        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+        with pytest.raises(ConflictError):
+            svc.start_run("translation", [{"engine": "test_offline"}])
+        assert db.list_benchmark_sessions() == []
+
+    def test_transient_error_is_retried(self, isolated_db, monkeypatch):
+        calls = []
+
+        class Flaky(EchoEngine):
+            def translate_batch(self, zh_lines, context):
+                calls.append(1)
+                if len(calls) == 1:
+                    raise RuntimeError("503 overloaded")
+                return ["Hello"]
+        monkeypatch.setitem(translate_engines.ENGINES, "claude", Flaky)
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda n, env_path=None: "k")
+        monkeypatch.setattr(translate_engines.time, "sleep", lambda s: None)
+        svc.create_case("c", "你好", "Hello")
+        (sid,) = _run(configs=[{"engine": "claude"}])["session_ids"]
+        assert svc.get_run(sid)["results"][0]["score"] == 1.0
+
+    def test_long_output_scoring_is_bounded(self):
+        started = time.monotonic()
+        rate = svc.error_rate("x" * 200000, "你好")
+        assert rate > 1 and time.monotonic() - started < 2

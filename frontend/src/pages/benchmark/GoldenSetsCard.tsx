@@ -282,7 +282,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
     <Section title="Import golden set" summary="Paste JSONL or TSV" storageKey="benchmark.import">
       <p className="muted">
         Paste a test set you already have (e.g. a FLORES-200 or WMT slice you downloaded, or your own corrected lines).
-        Nothing is downloaded. At most 500 cases per import; a case already in the set is skipped.
+        Nothing is downloaded. Only import sets whose licence allows your use (FLORES-200 is CC BY-SA 4.0; check the WMT terms for each year). At most 500 cases per import; a case already in the set is skipped.
       </p>
       <div className="field-row">
         <Field label="Set name">

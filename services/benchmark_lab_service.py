@@ -88,6 +88,11 @@ def _edit_distance(a, b) -> int:
     return previous[-1]
 
 
+# Scoring is O(n*m) in pure Python: an output far longer than its reference
+# is cut to a bound (its extra length already counts fully as errors).
+_MAX_SCORED_OUTPUT_FACTOR = 2
+
+
 def error_rate(actual: str, reference: str, unit: str = "char") -> float:
     """CER (unit "char", whitespace ignored) or WER (unit "word"): edits
     needed to turn the output into the reference, over the reference
@@ -98,7 +103,10 @@ def error_rate(actual: str, reference: str, unit: str = "char") -> float:
         a, r = "".join((actual or "").split()), "".join((reference or "").split())
     if not r:
         return 0.0 if not a else 1.0
-    return _edit_distance(a, r) / len(r)
+    r = r[:MAX_TEXT_CHARS]
+    limit = _MAX_SCORED_OUTPUT_FACTOR * len(r) + 10
+    extra = max(0, len(a) - limit)
+    return (_edit_distance(a[:limit], r) + extra) / len(r)
 
 
 def score_output(stage: str, output: str, reference: str, source_language: str = "zh"):
@@ -466,6 +474,8 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             engines.append(key)
     if _job_active():
         raise ConflictError("A benchmark run is already going.")
+    if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+        raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
     use_gpu = settings_service.get_use_gpu() if use_gpu is None else bool(use_gpu)
     arena_group = uuid.uuid4().hex[:12] if len(checked) > 1 else None
     case_filter = json.dumps({"tier": tier, "set_name": set_name,
@@ -485,9 +495,10 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
         gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
         description="Benchmark run")
     if not started:
-        for sid in session_ids:
-            db.update_benchmark_session(sid, status="failed", note="Another benchmark run is going.",
-                                        finished_at=_now())
+        # Nothing ran: leave no rows behind.
+        db.delete_benchmark_sessions(session_ids)
+        if background_jobs.exclusive_active() or background_jobs.maintenance_active():
+            raise ConflictError("A library restore or cleanup is running; try again when it finishes.")
         raise ConflictError("A benchmark run is already going.")
     return {"job_id": JOB_ID, "session_ids": session_ids, "arena_group": arena_group,
             "estimated_cost_usd": est["estimated_cost_usd"]}
@@ -525,7 +536,11 @@ def _run_translation(engine, case: dict, key: str = None) -> dict:
     started = time.monotonic()
     usage = None
     try:
-        out = engine.translate_batch([case.get("source_text") or ""], _translation_context(case))
+        # Same retry as a normal translation: a transient 429/5xx shouldn't
+        # score 0 and skew the Arena.
+        ctx = _translation_context(case)
+        out = translate_engines.call_with_backoff(
+            lambda: engine.translate_batch([case.get("source_text") or ""], ctx))
         output_text = out[0] if out else ""
         error = None
         usage = getattr(engine, "last_usage", None)
