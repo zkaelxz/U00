@@ -97,6 +97,11 @@ def probe_media(path: str, filename: str | None = None, timeout: int = 30) -> Me
     content-type guess needs the real name, not a generated temp one.
     """
     probe = run_ffprobe(path, timeout=timeout)
+    return analysis_from_probe(probe, filename or os.path.basename(path))
+
+
+def analysis_from_probe(probe: dict, filename: str) -> MediaAnalysis:
+    """probe_media's parsing half, for a caller that already ran ffprobe."""
     fmt = probe.get("format", {}) or {}
     duration = float(fmt.get("duration", 0.0) or 0.0)
 
@@ -132,7 +137,7 @@ def probe_media(path: str, filename: str | None = None, timeout: int = 30) -> Me
             ))
 
     content_type_guess, content_type_reason = _guess_content_type(
-        filename or os.path.basename(path), has_video, duration, audio_tracks)
+        filename, has_video, duration, audio_tracks)
     suggested_pipeline = _suggest_pipeline(content_type_guess, subtitle_tracks)
 
     return MediaAnalysis(

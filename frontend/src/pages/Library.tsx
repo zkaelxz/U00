@@ -34,9 +34,13 @@ import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/l
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import type { DramaCreateRequest, LibraryDashboard } from '../types/library'
 import {
-  MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
+  MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
+import {
+  autofillHref, costLabel, costMeta, countsLine, sharedLine, sharedSeries, usageLine,
+} from './libraryParity/libraryParity'
+import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 
 const readTime = (iso: string) => new Date(parseTime(iso)).toLocaleString()
@@ -77,7 +81,21 @@ function ToolSection({ title, count, summary, error, children }: {
 }
 
 const statsLine = (s: LibraryDashboard) =>
-  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent`
+  `${countDramas(s.total_dramas)} · ${s.translated_lines} of ${s.total_lines} lines translated · $${s.usage.estimated_cost_usd.toFixed(2)} spent · ${usageLine(s.usage)}`
+
+// Parity L01: the Library's counts by status and by type, one muted line each.
+function StatsBreakdown({ stats }: { stats: LibraryDashboard }) {
+  const rows = [
+    ['By status', countsLine(stats.by_status, 'status')],
+    ['By type', countsLine(stats.by_media_type, 'mediaType')],
+  ].filter(([, text]) => text)
+  if (!rows.length) return null
+  return (
+    <p className="page-meta stats-breakdown" data-testid="stats-breakdown">
+      {rows.map(([label, text]) => <span key={label}>{label}: {text}</span>)}
+    </p>
+  )
+}
 
 // Parity L18/L19: an inline rename for one row of a Library list.
 function RenameForm({ current, onSave, onCancel }: {
@@ -277,21 +295,35 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
 }) {
   const { series, costs, history, presets, voices } = loads
   const grouped = history.data ? groupHistory(history.data.items) : undefined
+  const shared = series.data ? sharedSeries(series.data.items) : undefined
   const totalCost = costs.data?.items.reduce((sum, c) => sum + c.estimated_cost_usd, 0)
   return (
     <section className="library-tools" aria-labelledby="library-tools-heading">
       <h3 id="library-tools-heading" className="tools-heading">Library tools</h3>
       <div className="tools-grid">
-        <ToolSection title="Series" count={series.data?.items.length} error={series.error}>
-          <ul className="tool-list">
-            {series.data?.items.map((x) => (
-              <li key={x.id}>
+        <ToolSection title="Series" count={shared?.length} summary="Dramas that share characters and glossary" error={series.error}>
+          <ul className="tool-list series-list">
+            {shared?.map((x) => (
+              <li key={x.id} className="series-item">
                 <span className="tool-row"><strong>{x.name}</strong> <span className="muted">{countDramas(x.dramas.length)}</span></span>
-                {x.dramas.length > 0 && (
-                  <span className="series-dramas">
-                    {x.dramas.map((d) => <a key={d.id} href={workspaceHref(d.id)}>{dramaName(d)}</a>)}
-                  </span>
-                )}
+                <span className="muted series-meta">{countsLine(x.types, 'mediaType')}</span>
+                <span className="muted series-meta">{sharedLine(x)}</span>
+                <ul className="series-drama-list" aria-label={`Dramas in ${x.name}`}>
+                  {x.dramas.map((d) => (
+                    <li key={d.id} className="series-drama">
+                      <span className="series-drama-text">
+                        <span>{dramaName(d)}</span>
+                        <span className="series-drama-meta">
+                          <Badge kind="mediaType" value={d.media_type || 'audio_drama'} />
+                          {d.status && <Badge kind="status" value={d.status} />}
+                        </span>
+                      </span>
+                      <ButtonLink size="sm" href={workspaceHref(d.id)} aria-label={`Open ${dramaName(d)}`}>
+                        Open
+                      </ButtonLink>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -304,9 +336,14 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
         >
           <ul className="tool-list">
             {costs.data?.items.map((c) => (
-              <li key={c.id} className="tool-row">
-                <a href={workspaceHref(c.id)}>{dramaName(c)}</a>
-                <span className="muted num">${c.estimated_cost_usd.toFixed(2)}</span>
+              <li key={c.id}>
+                <span className="tool-row">
+                  <a className="cost-link" href={workspaceHref(c.id)}>{dramaName(c)}</a>
+                  <span className="num">{costLabel(c.estimated_cost_usd)}</span>
+                </span>
+                <span className="muted num cost-meta">
+                  {c.translation_engine && `${engineLabel(c.translation_engine)} · `}{costMeta(c)}
+                </span>
               </li>
             ))}
           </ul>
@@ -372,7 +409,7 @@ type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   draft: CreateDraft | null
   onDraft: (next: CreateDraft) => void
-  onCreated: (id: number, title: string) => void
+  onCreated: (id: number, title: string, autofill: boolean) => void
   onCancel: () => void
   series: Loaded<Awaited<ReturnType<typeof getSeries>>>
   presets: Loaded<Awaited<ReturnType<typeof getPresets>>>
@@ -382,7 +419,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   const form: DramaCreateRequest = draft?.form ?? {
     source_language: SOURCE_LANGUAGES.includes(lastLanguage) ? lastLanguage : 'zh',
     media_type: MEDIA_TYPES.includes(lastType) ? lastType : 'audio_drama',
-    title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '',
+    title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '', summary: '',
   }
   const extras = draft?.extras ?? NO_EXTRAS
   const setForm = (next: DramaCreateRequest) => onDraft({ form: next, extras })
@@ -394,8 +431,10 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    // Parity P03: "Create and auto-fill" goes on to the Source stage's auto-fill.
+    const autofill = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('name') === 'autofill'
     const body = buildCreateRequest(form, extras)
     const problem = validateCreate(body)
     setInvalid(problem)
@@ -407,7 +446,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
         setLastLanguage(form.source_language)
         if (form.media_type) setLastType(form.media_type)
         savePresetStart(d.id, d.preset_defaults)
-        onCreated(d.id, dramaName(d))
+        onCreated(d.id, dramaName(d), autofill)
       },
       (err: unknown) => { setBusy(false); setError(err) },
     )
@@ -434,7 +473,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
           </select>
         </Field>
       </div>
-      <Section title="Credits, series and preset" summary="Author, studio, director, voice actors, series, preset">
+      <Section title="Credits, summary, series and preset" summary="Author, studio, director, voice actors, summary, series, preset">
         <div className="field-row">
           <Field label="Author">
             <input value={form.author} onChange={set('author')} />
@@ -451,6 +490,9 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
             <input value={form.voice_actors} onChange={set('voice_actors')} />
           </Field>
         </div>
+        <Field label="Summary" help="A short synopsis. You can edit it later in the workspace.">
+          <textarea rows={3} maxLength={MAX_SUMMARY_LEN} value={form.summary ?? ''} onChange={set('summary')} />
+        </Field>
         <div className="field-row">
           <Field label="Series" help="Dramas in one series share characters and glossary.">
             <select value={extras.series} onChange={setExtra('series')}>
@@ -478,6 +520,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create drama</button>
+        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and auto-fill</button>
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
     </form>
@@ -564,6 +607,7 @@ export default function LibraryPage() {
           <h2 className="page-title">Library</h2>
           <ErrorBanner error={stats.error} />
           {stats.data && <p className="page-meta" data-testid="stats">{statsLine(stats.data)}</p>}
+          {stats.data && <StatsBreakdown stats={stats.data} />}
         </div>
         <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
       </header>
@@ -572,6 +616,7 @@ export default function LibraryPage() {
         <p className="status-line" role="status" data-testid="created-notice">
           <span>Created “{created.title}”.</span>
           <ButtonLink size="sm" href={workspaceHref(created.id)}>Open workspace</ButtonLink>
+          <ButtonLink size="sm" variant="ghost" href={autofillHref(created.id)}>Auto-fill details</ButtonLink>
           {dismiss(() => setCreated(null))}
         </p>
       )}
@@ -613,9 +658,13 @@ export default function LibraryPage() {
           draft={draft}
           onDraft={setDraft}
           onCancel={() => { setDraft(null); setCreating(false) }}
-          onCreated={(id, title) => {
+          onCreated={(id, title, autofill) => {
             setDraft(null)
             setCreating(false)
+            if (autofill) {
+              window.location.hash = autofillHref(id)
+              return
+            }
             setCreated({ id, title })
             setSelected({ id, title })
             reload()
