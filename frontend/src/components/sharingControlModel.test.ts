@@ -6,7 +6,7 @@ import type { AuthMe } from '../api/auth'
 import { ApiError } from '../api/client'
 import { resetSessionForTests } from '../hooks/useSession'
 import { SharingControl } from './SharingControl'
-import { flipSharing, sharingView } from './sharingControl'
+import { flipSharing, sharingView } from './sharingControlModel'
 
 const me = (over: Partial<AuthMe> = {}): AuthMe => ({
   auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',

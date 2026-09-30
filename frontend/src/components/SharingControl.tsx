@@ -4,7 +4,7 @@ import { setItemPrivate } from '../api/sharing'
 import { useSession } from '../hooks/useSession'
 import type { SharingKind } from '../types/sharing'
 import { Badge } from './Badge'
-import { FOLLOWS_SERIES_NOTE, badgeTitle, flipSharing, sharingView } from './sharingControl'
+import { FOLLOWS_SERIES_NOTE, badgeTitle, flipSharing, sharingView } from './sharingControlModel'
 import { buttonClass } from './uiClasses'
 
 interface Props {
