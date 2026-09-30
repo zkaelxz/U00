@@ -129,8 +129,13 @@ def _check_novel(result: Preflight, html: str, url: str):
     return bool(data.get("valid"))
 
 
-def preflight(url: str, client=None, rendered_fetch=None) -> Preflight:
+def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = True,
+              allow_browser: bool = True, cancel_check=None) -> Preflight:
     """Fetch `url` once and report whether importing it would work.
+
+    `allow_signed_in`/`allow_browser`/`cancel_check` are passed to
+    front_door.preview (the API turns the first two off for a request not
+    from this PC).
 
     Never raises for an ordinary "no": a site whose terms prohibit
     automated access, an unreachable page and a page with no readable
@@ -144,7 +149,9 @@ def preflight(url: str, client=None, rendered_fetch=None) -> Preflight:
         return result
 
     try:
-        preview = front_door.preview(url, client=client, rendered_fetch=rendered_fetch)
+        preview = front_door.preview(url, client=client, rendered_fetch=rendered_fetch,
+                                     allow_signed_in=allow_signed_in,
+                                     allow_browser=allow_browser, cancel_check=cancel_check)
     except TermsProhibited as e:
         # A written restriction is an answer, and the most important one
         # here -- it is reported rather than raised, so a preflight can

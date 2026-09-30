@@ -375,6 +375,8 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
 .rename-form .error { flex-basis: 100%; margin: 0; }
 .confirm-button { display: inline-flex; align-items: center; gap: var(--space-2); }
+.voice-play { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
+.voice-play-error { white-space: normal; font-size: var(--font-sm); }
 .admin-block { display: grid; gap: var(--space-2); }
 .admin-block h3 { margin: 0; }
 .admin-block p { margin: 0; }
