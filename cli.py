@@ -589,6 +589,10 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             style_note=style_note or "", style_guidelines=style_guidelines or "")
+        if args.force and any(ln.en for ln in lines):
+            # Same data-loss guard as translate_run_service: keep the old
+            # translation restorable from history before it's overwritten.
+            db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
