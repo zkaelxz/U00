@@ -73,7 +73,7 @@ Certificate renewal:
 ## Rollback
 
 1. **Close the router port forward (443 and 80) first.**
-2. Stop Caddy.
+2. Stop Caddy. On a service install, run `python service.py disable-remote` from an administrator prompt instead: it disables the Caddy service (so it doesn't come back at boot), stops it, and restarts Baihe without the household listener. Setting a variable does nothing there, because the service sets every `BAIHE_API_*` value itself.
 3. Remove the firewall rule, in an administrator PowerShell: `Remove-NetFirewallRule -DisplayName "Caddy for Baihe"`.
 4. Sign out every session issued remotely: at the PC, Diagnostics > Users > "Sign out everywhere..." for each user (every session was issued through the household listener; the PC's own window has none).
 5. Unset the household port (`setx BAIHE_API_HOUSEHOLD_PORT ""`, or remove it in System Properties > Environment Variables) and restart Baihe. The PC's window on 8600 is unaffected.
@@ -84,5 +84,6 @@ Certificate renewal:
 - Caddy's access log: floods of 401, 404 or 429 (sign-in is limited to 60 attempts per 10 minutes per address at Caddy, and more tightly by Baihe).
 - Baihe's audit log (Diagnostics, at the PC or signed in as an admin from away) for sign-ins you don't recognise.
 - Certificate expiry and your public IP versus the DNS record (dynamic DNS drift).
-- Updates: you own patching Caddy and Baihe. After updating Baihe, restart Caddy so a changed template is loaded.
+- Sign-in limit: Caddy counts attempts per connecting address. With a router that loops LAN traffic back through its public address, every device on your LAN shares one count, so one device can lock the others out of sign-in for up to 10 minutes.
+- Updates: you own patching Baihe. On a service install Caddy is bundled, so its fixes arrive with new Baihe releases. After updating Baihe, restart Caddy so a changed template is loaded.
 - Windows restarts: Caddy and Baihe must come back after an update reboot (running both on boot is WP5).

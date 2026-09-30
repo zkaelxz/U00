@@ -680,8 +680,8 @@ def configure_service_commands(name: str, wrapper: Path) -> list:
         [SC, "failureflag", name, "1"],
     ]
     if name == CADDY_SERVICE:
-        # Stopping Baihe Studio's service stops Caddy first, so Caddy never
-        # forwards to a household port something else might then take.
+        # A stop through the service manager stops Caddy first. If Baihe's
+        # process exits on its own, Caddy keeps running until the restart.
         cmds.append([SC, "config", name, "depend=", APP_SERVICE])
     return cmds
 
@@ -691,23 +691,26 @@ def _icacls(path, *args) -> list:
     return [ICACLS, path, *args, "/L"]
 
 
-def grant_commands(layout: Layout) -> list:
+def grant_commands(layout: Layout, caddy_only: bool = False) -> list:
     """(command, timeout) pairs: icacls grants, by SID. BaiheStudio: read
     and run the per-user install folder and its wrapper, change the data
     folder. It gets no write access to anything this script or its own
     interpreter loads code from. BaiheCaddy: read and run its wrapper and
     caddy.exe, change its own two folders in the admin folder, which
     inherit nothing: its certificates and ACME key (caddy-data) and its
-    logs (caddy-logs) are Caddy, SYSTEM and Administrators only."""
+    logs (caddy-logs) are Caddy, SYSTEM and Administrators only. caddy_only
+    skips the BaiheStudio grants, for enabling remote access."""
     app_sid = "*" + service_sid(APP_SERVICE)
     caddy_sid = "*" + service_sid(CADDY_SERVICE)
     private = ("/inheritance:r", "/grant:r", f"*{SYSTEM_SID}:(OI)(CI)F",
                "/grant:r", f"*{ADMINISTRATORS_SID}:(OI)(CI)F",
                "/grant:r", f"{caddy_sid}:(OI)(CI)M")
-    return [
+    app_grants = [
         (_icacls(layout.root, "/grant", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
         (_icacls(layout.data, "/grant", f"{app_sid}:(OI)(CI)M"), DATA_GRANT_TIMEOUT),
         (_icacls(layout.service_dir, "/grant", f"{app_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
+    ]
+    return ([] if caddy_only else app_grants) + [
         (_icacls(layout.caddy_dir, "/grant", f"{caddy_sid}:(OI)(CI)RX"), COMMAND_TIMEOUT),
         (_icacls(layout.caddy_storage, *private), COMMAND_TIMEOUT),
         (_icacls(layout.caddy_logs, *private), COMMAND_TIMEOUT),
@@ -971,15 +974,16 @@ class Services:
             raise
         return created
 
-    def _grant(self) -> None:
+    def _grant(self, caddy_only: bool = False) -> None:
         lay = self.layout
-        for folder in (lay.root, lay.data):
+        for folder in (() if caddy_only else (lay.root, lay.data)):
             refuse_reparse_point(folder)
         for folder in (lay.caddy_storage, lay.caddy_logs):
             refuse_reparse_point(folder)
             folder.mkdir(exist_ok=True)
-        self.run.log("Granting folder permissions (the data folder can take a while).")
-        for cmd, timeout in grant_commands(lay):
+        self.run.log("Granting folder permissions" + ("." if caddy_only else
+                     " (the data folder can take a while)."))
+        for cmd, timeout in grant_commands(lay, caddy_only):
             _check(self.run(cmd, timeout=timeout), "Setting folder permissions")
 
     def _start_and_wait(self) -> None:
@@ -1184,6 +1188,9 @@ class Services:
         try:
             self._write_state(port)
             self._write_app_xml(port)
+            # Caddy depends on Baihe's service, so a running Caddy (remote
+            # access already on) must stop before the restart.
+            stop_service(CADDY_SERVICE, self.run, sleep=self.sleep)
             self._restart_app()
             if not self._household_up(config):
                 raise ServiceError(f"Baihe Studio's household listener doesn't answer on "
@@ -1193,7 +1200,7 @@ class Services:
             lay.caddyfile.write_text(config["caddyfile"], encoding="utf-8")
             lay.wrapper_xml(CADDY_SERVICE).write_text(caddy_service_xml(lay), encoding="utf-8")
             self._create_service(CADDY_SERVICE, "auto")
-            self._grant()
+            self._grant(caddy_only=True)
             start_service(CADDY_SERVICE, self.run, sleep=self.sleep)
             if not wait_until(lambda: self.port_check(HTTPS_PORT), CADDY_WAIT_SECONDS,
                               sleep=self.sleep):

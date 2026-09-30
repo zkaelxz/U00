@@ -80,6 +80,9 @@ class FakeWindows:
         if verb == "stop":
             if svc["state"] == "STOPPED":
                 return self._result(cmd, service.ERROR_SERVICE_NOT_ACTIVE)
+            if any(o.get("depend") == name and o["state"] == "RUNNING"
+                   for o in self.services.values()):
+                return self._result(cmd, 1051)    # ERROR_DEPENDENT_SERVICES_RUNNING
             svc["state"] = "STOPPED"
             return self._result(cmd)
         if verb == "start":
@@ -668,6 +671,21 @@ class TestEnableRemote:
         assert service.read_config(layout.config_file)
         assert svc.remote_state() == {"household_port": 8610}
         assert "baihe.example.com" in message
+
+    def test_enable_again_while_remote_is_on_restarts_both(self, on, layout):
+        svc, win = on
+        svc.enable_remote(8610)
+        svc.enable_remote(8611)
+        assert win.services["BaiheCaddy"]["state"] == "RUNNING"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+        assert svc.remote_state() == {"household_port": 8611}
+
+    def test_enable_grants_only_the_caddy_folders(self, on, layout):
+        svc, win = on
+        before = len(win.commands("icacls.exe"))
+        svc.enable_remote(8610)
+        touched = {c[1] for c in win.commands("icacls.exe")[before:]}
+        assert touched == {str(layout.caddy_dir), str(layout.caddy_storage), str(layout.caddy_logs)}
 
     def test_enable_never_adds_a_firewall_rule_and_tells_the_owner_how(self, on, layout):
         svc, win = on

@@ -533,6 +533,7 @@ per-user.
   decision (2026-09-30): accepted on the condition that only the owner uses
   this PC. If it has other Windows accounts, untick the service task (it is
   ticked by default for now).**
+- **Caddy and a crashed Baihe.** If Baihe's process exits on its own, Caddy keeps forwarding to the household port until the service restarts (about 10 s). Another program on this PC could bind that port in the gap and receive household requests. Accepted on the same condition: only the owner uses this PC.
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing
