@@ -20,6 +20,9 @@ export interface JobRecord {
   // Normalised outcome of a finished job (null while queued/running).
   outcome?: JobOutcome | null
   outcome_message?: string | null
+  // Queued/running on record but not heartbeated for 15 minutes (judged on
+  // the server's clock): left behind by a process that died.
+  stale?: boolean
 }
 
 export type JobOutcome = 'ok' | 'failed' | 'cancelled' | 'partial' | 'kept_existing'
@@ -59,4 +62,26 @@ export interface JobCancelResult {
   job_id: string
   cancel_requested: boolean
   status: string
+}
+
+// Mirrors api/job_stage_schemas.py JobStageTimings (GET /api/jobs/{id}/stages).
+export interface JobStage {
+  stage: string
+  started_at: number
+  duration_seconds: number
+  cost_usd: number
+}
+
+export interface JobStageRun {
+  run_started_at: number
+  running: boolean
+  total_seconds: number
+  cost_usd: number
+  stages: JobStage[]
+}
+
+// Newest run first, at most 10; empty for a job recorded before stage timing.
+export interface JobStageTimings {
+  job_id: string
+  runs: JobStageRun[]
 }

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getDiagnostics, getJobHistory, getModelCache, getSetupChecks } from '../api/diagnostics'
 import { cancelJob, listJobs } from '../api/jobs'
 import { Badge } from '../components/Badge'
+import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { statusTone } from '../components/labels'
@@ -10,6 +11,7 @@ import { Section } from '../components/Section'
 import { buttonClass } from '../components/uiClasses'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { routeHref } from '../router'
 import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
@@ -20,6 +22,7 @@ import { DangerZone } from './diagnostics/DangerZone'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
 import { LogSection } from './diagnostics/LogSection'
+import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { ModelCacheSection } from './diagnostics/ModelCacheSection'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
@@ -125,6 +128,12 @@ export default function DiagnosticsPage() {
         <p className="page-meta pill-row" data-testid="diagnostics-summary">
           {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
         </p>
+        <p className="page-meta">
+          <ButtonLink href={routeHref({ name: 'benchmark' })} variant="secondary" size="sm">
+            Benchmark Lab
+          </ButtonLink>{' '}
+          Test engines and prompts against golden sets.
+        </p>
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
@@ -147,6 +156,8 @@ export default function DiagnosticsPage() {
       ) : (
         !error && <p className="muted">Loading…</p>
       )}
+
+      <ModelHealthCard pc={pc} />
 
       <SupportReportSection />
 

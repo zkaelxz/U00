@@ -11,11 +11,13 @@ import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { useChapterImport } from './useChapterImport'
 import { SourceErrorLine } from './SearchPanel'
 import {
-  CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesMeta,
+  CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesLinks, seriesMeta,
   type SeriesView,
 } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
-import { IMPORT_REMOTE_ALLOWED, allSelected, toggleId } from './urlImportFormat'
+import {
+  IMPORT_REMOTE_ALLOWED, allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleId, type ChapterMark,
+} from './urlImportFormat'
 
 type Props = {
   open: OpenSeries
@@ -79,6 +81,7 @@ export function SeriesPanel({
   const siteUrl = safeHref(info?.url)
   const description = info?.description?.trim() ?? ''
   const extra = seriesExtra(info)
+  const links = seriesLinks(info)
   // Import (S-4): ticked chapter ids, the drama and the import job.
   const [selected, setSelected] = useState<string[]>([])
   // A pasted chapter link ticks its chapter, also when the series is already open.
@@ -93,6 +96,8 @@ export function SeriesPanel({
   const importing = !!result && chapters.length > 0 && canImport
   // Tracking (R4) works for any source, not only those with import; same remote rule.
   const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
+  // Step 107: chapters already in the chosen drama are marked and left out of Select all.
+  const selectable = selectableChapters(chapters, imp.importState.state)
 
   return (
     <section className="card sources-series" aria-label="Series">
@@ -172,6 +177,28 @@ export function SeriesPanel({
               )}
             </div>
           )}
+          {links.length > 0 && (
+            <div className="sources-links" role="group" aria-label="Download links">
+              <p className="muted">
+                Posted with this work. Open them yourself: the app never downloads from them. Then add the EPUB
+                in Workspace → Source → Novel text → Attach EPUB.
+              </p>
+              <ul>
+                {links.map((l) => (
+                  <li key={l.url}>
+                    <a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}>
+                      {l.label} ↗
+                    </a>
+                    {l.password && (
+                      <span>
+                        Code <code>{l.password}</code>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </>
       )}
 
@@ -226,17 +253,18 @@ export function SeriesPanel({
             <label className="sources-select-all">
               <input
                 type="checkbox"
-                checked={allSelected(selected, chapters)}
+                checked={allSelected(selected, selectable)}
                 disabled={imp.running}
-                onChange={(e) => setSelected(e.target.checked ? chapters.map((c) => c.chapter_id) : [])}
+                onChange={(e) => setSelected(e.target.checked ? selectable.map((c) => c.chapter_id) : [])}
               />
-              Select all {chapters.length}
+              {selectAllLabel(selectable.length, chapters.length)}
             </label>
           )}
           <ChapterList
             groups={groups}
             shown={shown}
             selected={importing ? selected : undefined}
+            marks={importing ? chapterMarks(imp.importState.state) : undefined}
             disabled={imp.running}
             onToggle={(id, on) => setSelected((cur) => toggleId(cur, id, on))}
           />
@@ -257,11 +285,13 @@ export function SeriesPanel({
   )
 }
 
-function ChapterList({ groups, shown, selected, disabled, onToggle }: {
+function ChapterList({ groups, shown, selected, marks, disabled, onToggle }: {
   groups: ReturnType<typeof groupChapters>
   shown: number
   // Import: tick boxes when given.
   selected?: string[]
+  // Import: Imported / Failed / Not attempted in the chosen drama.
+  marks?: Map<string, ChapterMark>
   disabled?: boolean
   onToggle?: (id: string, on: boolean) => void
 }) {
@@ -287,11 +317,21 @@ function ChapterList({ groups, shown, selected, disabled, onToggle }: {
                 ) : (
                   c.title || c.chapter_id
                 )}
+                {marks?.has(c.chapter_id) && <MarkTag mark={marks.get(c.chapter_id)!} />}
               </li>
             ))}
           </ul>
         </div>
       ))}
     </div>
+  )
+}
+
+function MarkTag({ mark }: { mark: ChapterMark }) {
+  return (
+    <>
+      <Badge tone={mark.tone}>{mark.label}</Badge>
+      {mark.note && <span className="sources-mark-note">{mark.note}</span>}
+    </>
   )
 }

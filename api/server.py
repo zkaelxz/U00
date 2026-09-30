@@ -2,7 +2,7 @@
 api/server.py -- the FastAPI application: Baihe's HTTP API.
 
 Stage one of the React + FastAPI migration (see
-`docs/migration-react-fastapi.md`). This runs *alongside* the Streamlit
+`docs/archive/migration-react-fastapi.md`). This runs *alongside* the Streamlit
 app, not instead of it: both import the same modules and read the same
 `library/` folder, and neither calls the other over HTTP. Streamlit
 still owns every feature; this API exposes only what has been moved
@@ -33,7 +33,10 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     assistant_routes,
+    asr_options_routes,
     auth_routes,
+    backup_routes,
+    benchmark_routes,
     blocked_retry_routes,
     bug_report_routes,
     characters_routes,
@@ -47,9 +50,13 @@ from api.routers import (
     discover_routes,
     drama_routes,
     dub_routes,
+    engine_routing_routes,
+    stronger_engine_routes,
     export_routes,
     extension_routes,
     glossary_routes,
+    job_stage_routes,
+    jellyfin_routes,
     jobs_routes,
     library_admin_routes,
     library_routes,
@@ -57,9 +64,13 @@ from api.routers import (
     lines_routes,
     live_routes,
     media_routes,
+    metadata_research_routes,
     metadata_routes,
+    model_registry_routes,
     narration_routes,
+    notification_center_routes,
     notification_routes,
+    notion_routes,
     novel_files_routes,
     novel_routes,
     reader_routes,
@@ -72,6 +83,7 @@ from api.routers import (
     settings_routes,
     source_routes,
     sources_catalog_routes,
+    sources_extraction_routes,
     sources_import_routes,
     sources_local_routes,
     sources_search_routes,
@@ -83,6 +95,7 @@ from api.routers import (
     translation_version_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
+    web_search_routes,
     workflow_routes,
 )
 from api.schemas import API_VERSION
@@ -159,6 +172,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(job_stage_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(translate_routes.router)
     app.include_router(export_routes.router)
@@ -177,32 +191,45 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(media_routes.router)
     app.include_router(narration_routes.router)
     app.include_router(metadata_routes.router)
+    app.include_router(metadata_research_routes.router)
+    app.include_router(jellyfin_routes.router)
+    app.include_router(notion_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
+    app.include_router(web_search_routes.router)
     app.include_router(sources_catalog_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)
+    app.include_router(sources_extraction_routes.router)
     app.include_router(sources_local_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
+    app.include_router(backup_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
     app.include_router(notification_routes.router)
+    app.include_router(notification_center_routes.router)
+    app.include_router(asr_options_routes.router)
     app.include_router(comic_routes.router)
+    app.include_router(engine_routing_routes.router)
+    app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
+    app.include_router(benchmark_routes.router)
+    app.include_router(model_registry_routes.router)
+
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)

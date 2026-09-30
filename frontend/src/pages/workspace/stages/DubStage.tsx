@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { dubApi, dubTrackUrl } from '../../../api/dub'
+import { getWorkflowProgress } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
 import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -9,6 +10,8 @@ import { humanize, humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { useReattachJob } from '../../../hooks/useReattachJob'
+import { dubJobIds } from '../stageJobIds'
 import { jobSucceeded } from '../../../types/jobs'
 import { routeHref } from '../../../router'
 import type { DubConfig, DubPacing } from '../../../types/dub'
@@ -21,8 +24,10 @@ import {
   formatFactor,
   formatMs,
   initialDubForm,
+  narrationResumeNote,
   pacingRows,
   pacingSummary,
+  untranslatedNarrationWarning,
   type DubForm,
 } from './dubForm'
 import { JobPanel } from './JobPanel'
@@ -38,11 +43,19 @@ export default function DubStage() {
   const [pacing, setPacing] = useState<DubPacing | null>(null)
   const [form, setForm] = useState<DubForm | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [jobId, setJobId, runKey] = useJobRun()
+  const [jobId, setJobId, runKey, adoptJob] = useJobRun()
+  useReattachJob(dubJobIds(dramaId), adoptJob)
   const [reloads, setReloads] = useState(0)
+  // Lines with source text and no English (workflow progress). Advisory only:
+  // if it cannot be loaded, the narration warning is simply not shown.
+  const [untranslated, setUntranslated] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    getWorkflowProgress(dramaId).then(
+      (p) => !cancelled && setUntranslated(p.untranslated_count),
+      () => !cancelled && setUntranslated(null),
+    )
     Promise.all([dubApi.config(dramaId), dubApi.pacing(dramaId)]).then(
       ([c, p]) => {
         if (cancelled) return
@@ -65,6 +78,9 @@ export default function DubStage() {
     },
   })
   const busy = jobId !== null && !done && !pollError
+  const busyText = jobId?.startsWith('narration_')
+    ? 'A narration is being generated. Progress is shown below.'
+    : 'A dub is being generated. Progress is shown below.'
 
   if (!cfg || !form) {
     return (
@@ -83,6 +99,7 @@ export default function DubStage() {
     }, setError)
   const trackReady = cfg.track_available || (done && jobSucceeded(job))
   const cloneWarning = warningSummary(cloneWarnings(cfg).size)
+  const untranslatedWarning = cfg.is_narration ? untranslatedNarrationWarning(form.language, untranslated) : null
   const showPacing =
     pacing?.available && (pacing.lines.length > 0 || Object.keys(pacing.counts).length > 0)
 
@@ -123,13 +140,13 @@ export default function DubStage() {
             type="button"
             className="primary"
             disabled={busy || blocker !== null}
-            aria-describedby={blocker ? 'dub-settings' : undefined}
+            aria-describedby={blocker || busy ? 'dub-settings' : undefined}
             onClick={start}
           >
             Generate dub
           </button>
           <p className="muted dub-reason" id="dub-settings" data-testid="dub-settings">
-            <span>{blocker ?? dubSettingsLine(cfg, form)}</span>
+            <span>{blocker ?? (busy ? busyText : dubSettingsLine(cfg, form))}</span>
             {cfg.speakable_line_count === 0 && (
               <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
                 Go to Source
@@ -137,6 +154,16 @@ export default function DubStage() {
             )}
           </p>
         </div>
+        {untranslatedWarning && (
+          <p className="voice-warning dub-untranslated" role="note" data-testid="dub-untranslated">
+            <span>{untranslatedWarning}</span>
+            {form.language === 'translation' && (
+              <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate' })}>
+                Go to Translate
+              </ButtonLink>
+            )}
+          </p>
+        )}
         {cloneWarning && (
           <p className="voice-warning" data-testid="dub-clone-warning">
             {cloneWarning}
@@ -224,7 +251,7 @@ export default function DubStage() {
           </div>
         </Section>
       )}
-      {jobId && <JobPanel job={job} pollError={pollError} />}
+      {jobId && <JobPanel job={job} pollError={pollError} note={narrationResumeNote(job?.message)} />}
     </div>
   )
 }

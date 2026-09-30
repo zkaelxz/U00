@@ -98,6 +98,10 @@ ul.source-results > li {
 .sources-series-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .sources-description { display: grid; gap: var(--space-1); justify-items: start; }
 .sources-description .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.sources-links { display: grid; gap: var(--space-1); }
+.sources-links ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.sources-links li { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
+.sources-links a { display: inline-flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
 .sources-chapters { display: grid; gap: var(--space-2); }
 .sources-chapters ul { margin: 0; padding-left: 1.2rem; }
 
@@ -185,6 +189,9 @@ ul.source-cards > li {
 .sources-select-all { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
 .sources-chapters ul.sources-pick { list-style: none; padding-left: 0; }
 .sources-pick label { display: inline-flex; align-items: center; gap: var(--space-2); overflow-wrap: anywhere; }
+.sources-pick > li { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-2); }
+.sources-pick > li > label { min-width: 0; }
+.sources-mark-note { flex: 1 1 100%; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .sources-import-bar {
   position: sticky;
   bottom: 0;
@@ -239,3 +246,8 @@ ul.source-cards > li {
   .source-access .actions > button, .source-signin .actions > button { flex: 1 1 100%; }
 }
 .sources-find details.section { margin-bottom: 0; }
+
+/* Web-search fallback (item 114) */
+.web-search { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.web-search .list-head { flex-wrap: wrap; }
+.web-result-domain { overflow-wrap: anywhere; }

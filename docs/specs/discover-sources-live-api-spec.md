@@ -98,7 +98,7 @@ All mocked; `isolated_db`; DNS monkeypatch pattern from `tests/test_api_metadata
 
 Class S rows (service tests): 25q/28 ToS verdict at every fetch path (currently disabled); 25s audio-overwrite confirm; 17 catalog dup check; 25w no paid LLM call outside an explicit action; 23k the session never leaves the browser; 23g no profile saved below HIGH confidence without approval, and validated before save; 9f live cancel plus generation guard; adult toggle per source, default off; tracked-series notify-only unless the auto-import setting is on.
 Class U rows (React/e2e): debounced or button-only query translate; clear stale search results (Step 85); chapter list fetched once and invalidated on the adult toggle; import into a drama only on explicit submit with the drama picked from the current route; a handoff never auto-retries.
-Also add a paragraph to `docs/migration-review.md` per slice (format as earlier slices).
+(Slices no longer add a paragraph to the migration review, now `docs/archive/migration-review.md`.)
 
 ## 8. Open questions for the user (ranked)
 

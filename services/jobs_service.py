@@ -18,6 +18,7 @@ dicts, so `cli.py` or a script could call it too.
 import json
 import re
 import time
+from typing import Optional
 
 import db
 from services import ownership_service
@@ -259,6 +260,7 @@ _FAILED_REASON_MESSAGES = {
     "empty": "Nothing was produced: no speech or text was found.",
     "dependency_missing": "A required component is not installed.",
     "qwen3_asr": "Qwen3-ASR failed on this audio.",
+    "moss_td": "MOSS-Transcribe-Diarize (experimental) failed on this audio.",
     "groq": "The Groq transcription request failed.",
     "vocal_separation": "Separating the vocals failed.",
 }
@@ -367,7 +369,21 @@ def _redact(record: dict) -> dict:
     out["outcome"] = outcome
     out["outcome_message"] = (_redact_text(message)[:_MAX_STR]
                               if message else None)
+    out["stale"] = is_stale(record)
     return out
+
+
+def is_stale(record: dict, now: Optional[float] = None) -> bool:
+    """A queued/running record no live owner has heartbeated for
+    STALE_JOB_SECONDS: left behind by a process that died (the same test
+    cancel_job applies before closing one). Judged on the server's clock,
+    so a viewer's own clock can't make a live job look dead or the reverse."""
+    if record.get("status") not in ("queued", "running"):
+        return False
+    if background_jobs.get_status(record.get("job_id")) is not None:
+        return False
+    updated = record.get("updated_at") or 0
+    return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
 
 
 def _visible(principal, record) -> bool:
@@ -391,6 +407,22 @@ def get_job(job_id: str, principal=None) -> dict:
     if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
     return _redact(record)
+
+
+def get_job_stages(job_id: str, principal=None) -> dict:
+    """Step 41 item 5: the job's per-stage timing and spend for its latest
+    runs (services/job_timing_service). Same visibility as get_job."""
+    record = db.get_job_record(job_id)
+    if record is None or not _visible(principal, record):
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    from services import job_timing_service
+    runs = job_timing_service.list_runs(job_id)
+    if not ownership_service.sees_every_job(principal):
+        # A shared job id (sources_search, bulk_series_translate...) keeps
+        # earlier runs by other users: show only the run the caller can see.
+        started = record.get("started_at") or 0
+        runs = [r for r in runs if r["run_started_at"] >= started]
+    return {"job_id": job_id, "runs": runs}
 
 
 def cancel_job(job_id: str, principal=None) -> dict:

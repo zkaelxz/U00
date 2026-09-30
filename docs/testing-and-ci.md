@@ -1,22 +1,22 @@
 # Testing, verification and CI
 
 Owner of the project's testing and CI guidance. Shared principles and precedence: `docs/engineering-standards.md`.
-Role files (`.claude/agents/*.md`, `.claude/CLAUDE.md`) link here instead of restating it.
+Role files (`.claude/agents/*.md`) link here instead of restating it.
 
 ## Risk-based verification tiers
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
-3. **At the integration boundary** (finishing a step, per the root `CLAUDE.md`; for migration slices the handoff, `docs/migration-handoff.md`, currently allows focused tests per slice and the full suite before a big merge): run the full suite, `python run_tests.py`, on the integrated result; for the frontend also `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
+3. **At the integration boundary** (before handing work back or merging): run the full suite, `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`, on the integrated result; for the frontend also `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
    `npm run e2e` runs two Playwright projects: `desktop` (every spec except `e2e/mobile.spec.ts`) and `phone` (390x844, touch, only `e2e/mobile.spec.ts`: no sideways scroll and 44px nav links, stage tabs and primary buttons on Library, each workspace stage, Settings and Diagnostics). `--project=phone` runs just the phone checks. With a preinstalled Chromium set `PLAYWRIGHT_CHROMIUM_PATH` (e.g. `/opt/pw-browsers/chromium`); `E2E_API_PORT`/`E2E_WEB_PORT` move the servers off the default 8611/4174.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
 6. Tests must not leave real job threads or subprocesses running: wait for them or mock them.
 
-## Current merge gate (per the handoff and roadmap master, snapshots of 2026-09-28)
+## Current merge gate (2026-09-30)
 
-GitHub Actions minutes are exhausted and every PR since #212 fails within seconds, so the local full suite (and the local frontend checks) is the gate;
-see `docs/migration-handoff.md` and `docs/baihe-roadmap-master.md`. Re-check this before assuming CI is usable again.
+GitHub Actions minutes work while the repo is public (until about 2026-10-03), so CI is the merge gate. If minutes run out later,
+the local full suite (and the local frontend checks) is the gate. Never skip or weaken a test.
 
 The sections below were moved here unchanged from the root `CLAUDE.md` on 2026-09-29. Measurements and workflow numbers in them are dated snapshots:
 they cannot currently be re-derived from Actions run history, so re-verify before relying on them.
@@ -40,8 +40,15 @@ they cannot currently be re-derived from Actions run history, so re-verify befor
   don't add a test that needs a real API key, a GPU, or a downloaded
   model.
 - Use the `isolated_db` fixture (`tests/conftest.py`) for anything that
-  touches the database or `db.LIBRARY_DIR`, so tests never touch a real
-  library folder.
+  touches the database or `db.LIBRARY_DIR`, so each test gets a fresh
+  library. Underneath that, `tests/conftest.py` points the whole run at a
+  temp library before any test module loads, and fails a test that opens
+  an absolute path in the real `library/` folder
+  (`tests/test_library_isolation_guard.py`). The guard is a backstop, not a
+  sandbox: it can't see sqlite `file:` URI connects, relative paths or
+  writes from a subprocess, and a hit in a module- or class-scoped fixture
+  is cleared by the next test's setup. A repo-wide `os.walk` must skip
+  `library`.
 - A test that needs an optional library (`jieba`, `pytesseract`, `cv2`,
   `paddleocr`, ...) should `pytest.importorskip` it, not hard-import it,
   so a core-only install still gets a clean run.

@@ -28,6 +28,10 @@ export interface TranslateRunConfig {
   // X01: the last full run's failed batches (null when none or dismissed).
   // `lines` are 0-based line positions; `error` is already redacted.
   last_translate_errors?: TranslateBatchError[] | null
+  // X24: whether the Ollama server answers. Probed only when the drama's
+  // saved engine is Ollama; null (or missing on older servers) = not checked.
+  // A boolean only: the server never sends the URL.
+  ollama_reachable?: boolean | null
 }
 
 export interface TranslateBatchError {

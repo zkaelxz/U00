@@ -29,6 +29,7 @@ import {
   searchSourcesParam,
   searchableSources,
   selectedSources,
+  seriesLinks,
   seriesMeta,
   settingsChanges,
   settingsSummary,
@@ -58,7 +59,7 @@ const SETTINGS: SourcesSettings = {
   pace_min_delay: 3, pace_max_delay: 8, max_concurrent: 1, max_retries: 3,
   session_break_min_requests: 8, session_break_max_requests: 20,
   session_break_min_delay: 30, session_break_max_delay: 90,
-  cache_mode: 'keep_originals', check_interval_hours: 24,
+  cache_mode: 'keep_originals', cache_max_mb: 0, check_interval_hours: 24,
   auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
   proxy_configured: false, cache_modes: ['none', 'temporary', 'keep_originals'],
   cache: { entries: 0, bytes: 0 },
@@ -246,6 +247,14 @@ describe('settings', () => {
     expect(settingsChanges(SETTINGS, { ...d, pace_max_delay: '8.0' })).toEqual({})
   })
 
+  it('edits the cache size limit (0 = no limit, whole MB)', () => {
+    const d = draftFrom(SETTINGS)
+    expect(d.cache_max_mb).toBe('0')
+    expect(settingsChanges(SETTINGS, { ...d, cache_max_mb: '500' })).toEqual({ cache_max_mb: 500 })
+    expect(pacingErrors({ ...d, cache_max_mb: '-1' }).cache_max_mb).toMatch(/between 0 and/)
+    expect(pacingErrors({ ...d, cache_max_mb: '1.5' }).cache_max_mb).toBe('Enter a whole number.')
+  })
+
   it('checks ranges and max >= min', () => {
     const d = draftFrom(SETTINGS)
     expect(pacingErrors(d)).toEqual({})
@@ -307,5 +316,29 @@ describe('seriesView (the job id is per source, so it may hold another series)',
     expect(safeHref('https://a.example/x')).toBe('https://a.example/x')
     expect(safeHref('javascript:alert(1)')).toBeNull()
     expect(safeHref(null)).toBeNull()
+  })
+})
+
+describe('seriesLinks', () => {
+  const base = {
+    title: 'T', url: null, cover_url: null, authors: [], description: null, genres: [],
+    status: null, content_type: null, language: null,
+  }
+  it('keeps http(s) links, labels empty ones with the URL, drops anything else', () => {
+    expect(seriesLinks({
+      ...base,
+      links: [
+        { label: '百度网盘 (Baidu Pan)', url: 'https://pan.baidu.com/s/1abc', password: 'roh1' },
+        { label: '', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
+        { label: 'bad', url: 'javascript:alert(1)', password: '' },
+      ],
+    })).toEqual([
+      { label: '百度网盘 (Baidu Pan)', url: 'https://pan.baidu.com/s/1abc', password: 'roh1' },
+      { label: 'https://wwasa.lanzoue.com/b0188mxnyb', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
+    ])
+  })
+  it('is empty without links or info', () => {
+    expect(seriesLinks({ ...base })).toEqual([])
+    expect(seriesLinks(null)).toEqual([])
   })
 })
