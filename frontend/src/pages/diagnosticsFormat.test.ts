@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
+  upsertJob,
   describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, jobStatusLine, splitDependencies,
 } from './diagnosticsFormat'
 
@@ -49,5 +50,18 @@ describe('diagnosticsFormat', () => {
   it('describes the GPU', () => {
     expect(describeGpu({ ...gpu, available: false })).toBe('No GPU detected.')
     expect(describeGpu({ ...gpu, available: true, name: 'X', vram_used_gb: 1, vram_total_gb: 8 })).toBe('X (1.0 / 8.0 GB in use)')
+  })
+})
+
+describe('upsertJob', () => {
+  const j = (job_id: string, status = 'running') => ({
+    job_id, status, progress: null, message: '', error: null, description: null,
+    gpu_touching: false, started_at: null, finished_at: null, updated_at: 0,
+  }) as JobRecord
+  it('replaces a known job in place and puts a new one first', () => {
+    const list = [j('a'), j('b')]
+    expect(upsertJob(list, j('b', 'done')).map((x) => `${x.job_id}:${x.status}`)).toEqual(['a:running', 'b:done'])
+    expect(upsertJob(list, j('c')).map((x) => x.job_id)).toEqual(['c', 'a', 'b'])
+    expect(list.map((x) => x.status)).toEqual(['running', 'running'])
   })
 })

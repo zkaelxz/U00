@@ -30,7 +30,9 @@ const RULES: { name: string; re: RegExp; allowed?: (file: string) => boolean; wh
   { name: 'request method literal', re: /\bmethod\s*:\s*['"`]/, allowed: API_LAYER, where: 'api/' },
   { name: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/ },
   { name: 'navigator.sendBeacon', re: /\bsendBeacon\b/ },
-  { name: 'EventSource', re: /\bEventSource\b/ },
+  // The one push stream (a GET: no CSRF token or local header to add; a 401
+  // shows up on the pages' own GETs, which go through client.ts).
+  { name: 'EventSource', re: /\bEventSource\b/, allowed: (f) => f === '/src/api/eventStream.ts', where: 'api/eventStream.ts' },
   { name: 'WebSocket', re: /\bWebSocket\b/ },
   { name: 'native form submission (<form action/method>)', re: /<form\b[^>]*\b(action|method)\s*=/ },
   { name: 'fetch credentials override', re: /\bcredentials\s*:/ },

@@ -290,15 +290,17 @@ def _lookup(token, now: float):
     return sess, user
 
 
-def resolve_session(token, now: float = None):
+def resolve_session(token, now: float = None, touch: bool = True):
     """Live session -> {session_id, user_id, email, is_admin, permissions};
-    otherwise None (expired, revoked, unknown, or inactive user)."""
+    otherwise None (expired, revoked, unknown, or inactive user).
+    touch=False re-checks without counting as activity (the SSE stream's
+    periodic re-checks must not keep an idle session alive)."""
     now = time.time() if now is None else now
     found = _lookup(token, now)
     if not found:
         return None
     sess, user = found
-    if now - sess["last_seen_at"] >= _TOUCH_INTERVAL_SECONDS:
+    if touch and now - sess["last_seen_at"] >= _TOUCH_INTERVAL_SECONDS:
         db.auth_touch_session(sess["id"], now)
     return {"session_id": sess["id"], "user_id": user["id"], "email": user["email"],
             "is_admin": bool(user["is_admin"]),

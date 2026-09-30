@@ -1,5 +1,6 @@
 /*
- * Live capture sessions (api/routers/live_routes.py, spec L-1, polling).
+ * Live capture sessions (api/routers/live_routes.py, spec L-1). Status is also
+ * pushed over GET /api/events (src/api/eventStream.ts); cues are read here.
  * Start needs `media.import_url` (plus `engines.paid` for a paid engine);
  * reading is `library.read`, stopping `jobs.cancel`. Sessions live in the
  * API process only: a 404 after a restart means the session is gone.

@@ -63,3 +63,13 @@ export function statusLabel(status: string): string {
   }
   return labels[status] ?? status
 }
+
+// A pushed job record (GET /api/events) replaces its row, or a new job goes
+// first (the list is newest-started first).
+export function upsertJob(list: JobRecord[], job: JobRecord): JobRecord[] {
+  const i = list.findIndex((j) => j.job_id === job.job_id)
+  if (i < 0) return [job, ...list]
+  const next = list.slice()
+  next[i] = job
+  return next
+}

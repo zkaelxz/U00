@@ -97,6 +97,13 @@ def main():
     from api.server import create_app
 
     install_e2e_stubs()
+    # The push stream answers 429 here, so the client falls back to polling:
+    # most specs mock GET /api/jobs/{id} and friends and expect them polled.
+    # event-stream.spec.ts mocks /api/events itself. E2E_SSE=1 turns the real
+    # stream on for a manual run.
+    if os.environ.get("E2E_SSE") != "1":
+        from services import event_stream_service
+        event_stream_service.MAX_STREAMS = 0
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8611
     # A fixed, gitignored folder wiped at every start, rather than a temp
     # dir cleaned up on exit: Playwright may kill this process outright,

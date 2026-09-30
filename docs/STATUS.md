@@ -24,6 +24,7 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 - Bug fixes: steps 122-131 #466; small review bugs bundle #491; undo restores flags/SFX #487.
 - Parity: learned-style opt-out #493.
 - Other: Scanlate automatic path #463; Benchmark jiwer scoring #483.
+- SSE push (`GET /api/events`: jobs, the bell and Live pushed; polling only as fallback) #494, branch `migration-sse-push`.
 
 ## Next
 1. Land the open PRs above (lead session merges once CI is green).

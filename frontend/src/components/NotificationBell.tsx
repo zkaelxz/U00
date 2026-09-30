@@ -4,10 +4,12 @@
  * from the PC see it too). The list lives in the server's memory and is
  * lost when the app restarts.
  *
- * Polls on mount, every POLL_MS while the tab is visible, and when the
- * window regains focus. Errors are quiet: a failed poll keeps the last list,
- * and a refusal (401/403) or a server without the route (404) hides the
- * bell and stops polling. The unread count is the items newer than a "last
+ * Reads on mount, after every (re)connect of the push stream (GET
+ * /api/events pushes the list when it changes) and when the window regains
+ * focus; only while the stream is down does it poll, every POLL_MS while the
+ * tab is visible. Errors are quiet: a failed read keeps the last list, and a
+ * refusal (401/403) or a server without the route (404) hides the bell and
+ * stops reading. The unread count is the items newer than a "last
  * seen" mark in localStorage; opening the panel marks them all seen (they
  * stay marked "New" until it closes).
  */
@@ -15,7 +17,8 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { listNotifications } from '../api/notifications'
-import type { NotificationItem } from '../types/notifications'
+import { useEventStream } from '../hooks/useEventStream'
+import type { NotificationItem, NotificationList } from '../types/notifications'
 import { Badge } from './Badge'
 import {
   EMPTY_TEXT,
@@ -79,31 +82,47 @@ export function NotificationBell() {
     setOpen(next)
   }, [])
 
+  const showList = useCallback(
+    (list: NotificationItem[]) => {
+      setItems(list)
+      if (openRef.current) markSeen(list)
+    },
+    [markSeen],
+  )
+
+  // Set once a read is refused: no more reads or pushed lists.
+  const hiddenRef = useRef(false)
+  const stream = useEventStream((type, data) => {
+    if (type !== 'notifications' || hiddenRef.current) return
+    const r = data as Partial<NotificationList> | null
+    if (Array.isArray(r?.items)) showList(r.items)
+  })
+  const polling = stream.mode === 'poll'
+
   useEffect(() => {
     let live = true
-    let stopped = false
     const load = () => {
-      if (stopped) return
+      if (hiddenRef.current) return
       listNotifications().then(
         (r) => {
           if (!live) return
-          const list = Array.isArray(r?.items) ? r.items : []
-          setItems(list)
-          if (openRef.current) markSeen(list)
+          showList(Array.isArray(r?.items) ? r.items : [])
         },
         (e: unknown) => {
           if (!live) return
           if (e instanceof ApiError && HIDE_ON.includes(e.status)) {
-            stopped = true
+            hiddenRef.current = true
             setHidden(true)
           }
         },
       )
     }
     load()
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'hidden') load()
-    }, POLL_MS)
+    const timer = polling
+      ? window.setInterval(() => {
+          if (document.visibilityState !== 'hidden') load()
+        }, POLL_MS)
+      : undefined
     const onFocus = () => {
       seenRef.current = readSeen() // another tab may have marked them seen
       setSeen(seenRef.current)
@@ -115,7 +134,7 @@ export function NotificationBell() {
       window.clearInterval(timer)
       window.removeEventListener('focus', onFocus)
     }
-  }, [markSeen])
+  }, [showList, polling, stream.syncs])
 
   // Close on a click elsewhere or Escape, like the account menu.
   useEffect(() => {
