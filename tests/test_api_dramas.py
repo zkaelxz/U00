@@ -298,4 +298,15 @@ def test_metadata_p10_fields_round_trip_through_the_detail(client):
                                                          "source_url": "", "episode_summary": ""})
     assert r.status_code == 200, r.text
     assert (r.json()["chapter_count"], r.json()["episode_number"]) == (None, None)
-    assert r.json()["source_url"] == "" and r.json()["episode_summary"] == ""
+    assert r.json()["source_url"] is None and r.json()["episode_summary"] == ""
+
+
+def test_detail_source_url_never_returns_a_query_or_userinfo(client):
+    # URL download stores the pasted link as given; it can carry a token.
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    db.update_drama(did, source_url="https://u:p@cdn.example.com:8443/v/1.mp4?X-Amz-Signature=abc&token=t#f")
+    for body in (client.get(f"/api/library/dramas/{did}").json(),
+                 client.post(f"/api/dramas/{did}/metadata", json={"genre": "x"}).json()):
+        assert body["source_url"] == "https://cdn.example.com:8443/v/1.mp4"
+    db.update_drama(did, source_url="example.com/novel")   # old free text: not a URL
+    assert client.get(f"/api/library/dramas/{did}").json()["source_url"] is None

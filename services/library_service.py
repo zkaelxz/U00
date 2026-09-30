@@ -21,6 +21,7 @@ too.
 
 import os
 import sqlite3
+from urllib.parse import urlsplit
 
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
@@ -31,6 +32,22 @@ def cache_hit_share(usage: dict) -> float:
     """Share of logged input tokens that were prompt-cache reads."""
     total = usage.get("input_tokens") or 0
     return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
+
+
+def display_source_url(url) -> str:
+    """A drama's stored source_url as the API may return it: scheme + host +
+    path, no query, fragment or userinfo. URL download stores the pasted
+    link as given, and that can carry a signed token (same rule as
+    sources_registry_service.safe_url). Unparsable or scheme-less gives ""."""
+    try:
+        parts = urlsplit(str(url or "").strip())
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return ""
+    if not parts.scheme or not host:
+        return ""
+    return f"{parts.scheme}://{host}{port}{parts.path}"
 
 
 def split_custom_tags(drama: dict) -> list:
