@@ -27,6 +27,7 @@ No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
 import math
 import os
+import time
 import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
@@ -46,6 +47,9 @@ MAX_PAGE_TEXT_CHARS = 200_000
 MAX_FETCH_BYTES = 2_000_000
 MAX_REDIRECTS = 3
 FETCH_TIMEOUT = 20
+# Wall-clock limit for reading a page body; the per-read timeout alone
+# restarts on every byte a slow server drips.
+FETCH_DEADLINE = 30
 DEFAULT_ENGINE = "claude"
 
 _FETCH_FAILED = "The page could not be fetched. Paste the page text instead."
@@ -182,6 +186,23 @@ def _pinned_get(url: str, ip: str, headers: dict):
                        allow_redirects=False, stream=True)
 
 
+def _read_body(resp, max_bytes: int, deadline: float = None) -> bytes:
+    """At most max_bytes of the body, stopping at the wall-clock deadline
+    (FETCH_DEADLINE seconds from now by default)."""
+    if deadline is None:
+        deadline = time.monotonic() + FETCH_DEADLINE
+    chunks, total = [], 0
+    while total < max_bytes:
+        if time.monotonic() > deadline:
+            raise DependencyUnavailableError(_FETCH_FAILED)
+        chunk = resp.raw.read(min(65_536, max_bytes - total), decode_content=True)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
+
+
 def _fetch_page_text(url: str) -> str:
     try:
         import requests  # noqa: F401  (availability check; used by _pinned_get)
@@ -191,8 +212,11 @@ def _fetch_page_text(url: str) -> str:
                                          "installed.") from e
     headers = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
     current = url
+    deadline = time.monotonic() + FETCH_DEADLINE
     try:
         for _ in range(MAX_REDIRECTS + 1):
+            if time.monotonic() > deadline:
+                raise DependencyUnavailableError(_FETCH_FAILED)
             ip = _check_public_url(current)
             resp = _pinned_get(current, ip, headers)
             try:
@@ -203,7 +227,7 @@ def _fetch_page_text(url: str) -> str:
                     current = urljoin(current, location)
                     continue
                 resp.raise_for_status()
-                raw = resp.raw.read(MAX_FETCH_BYTES + 1, decode_content=True)
+                raw = _read_body(resp, MAX_FETCH_BYTES + 1, deadline)
                 encoding = resp.encoding or "utf-8"
             finally:
                 resp.close()

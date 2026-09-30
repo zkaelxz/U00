@@ -10,6 +10,8 @@ engines that support instructions vs. engines that are pure MT.
 import re
 import json
 import time
+import contextvars
+import inspect
 
 # Rough per-million-token pricing in USD, for cost estimation only --
 # these change over time and vary by exact model tier, so treat this as
@@ -220,9 +222,48 @@ def _is_rate_limit_error(e: Exception) -> bool:
     cls_name = type(e).__name__.lower()
     if "ratelimit" in cls_name or "rate_limit" in cls_name:
         return True
-    if "429" in str(e):
+    # Text match only when no HTTP status was reported: a known non-429
+    # status (or an unrelated number such as "4290 lines") isn't a rate limit.
+    if status is None and re.search(r"(?<!\d)429(?!\d)", str(e)):
         return True
     return False
+
+
+class TranslationCancelled(Exception):
+    """A wait was cut short because the running job was cancelled."""
+
+
+class FreeTierDailyLimitReached(RuntimeError):
+    """The free-tier daily request limit is used up; waiting it out would
+    take hours, so the run stops instead."""
+
+
+# Set by translate_lines_with_engine for the duration of a run so the
+# backoff/throttle waits below can notice a cancel without every engine
+# call having to thread a callback through.
+_cancel_check_var = contextvars.ContextVar("translate_cancel_check", default=None)
+_SLEEP_SLICE_SECONDS = 0.5
+# Longest free-tier throttle wait (RPM/TPM windows are 60 s) worth sleeping
+# through; anything longer is the daily limit.
+_MAX_THROTTLE_WAIT_SECONDS = 120.0
+
+
+def _cancellable_sleep(seconds: float):
+    """time.sleep in short slices; raises TranslationCancelled as soon as
+    the run's cancel check reports a cancel."""
+    check = _cancel_check_var.get()
+    if check is None:
+        time.sleep(seconds)
+        return
+    remaining = seconds
+    while remaining > 0:
+        if check():
+            raise TranslationCancelled("cancelled")
+        step = min(_SLEEP_SLICE_SECONDS, remaining)
+        time.sleep(step)
+        remaining -= step
+    if check():
+        raise TranslationCancelled("cancelled")
 
 
 def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_delay: float = 60.0):
@@ -242,13 +283,18 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
             return fn()
         except Exception as e:
             last_exception = e
+            if isinstance(e, (TranslationCancelled, FreeTierDailyLimitReached)):
+                raise
+            if getattr(e, "_fallback_chain_exhausted", False) and _is_rate_limit_error(e):
+                # FallbackEngine already retried and tried every engine.
+                raise
             if _is_rate_limit_error(e):
                 delay = min(base_delay * (2 ** attempt), max_delay)
-                time.sleep(delay)
+                _cancellable_sleep(delay)
                 continue
             elif not non_rate_limit_retried:
                 non_rate_limit_retried = True
-                time.sleep(1)
+                _cancellable_sleep(1)
                 continue
             else:
                 raise
@@ -1152,8 +1198,12 @@ class GeminiEngine:
         if self._free_tier_token_counts and tokens_in_window >= GEMINI_FREE_TIER_TPM:
             wait = max(wait, 60 - (now - self._free_tier_token_counts[0][0]))
 
+        if wait > _MAX_THROTTLE_WAIT_SECONDS:
+            raise FreeTierDailyLimitReached(
+                "The free-tier daily request limit for this Gemini model was reached. "
+                "Try again tomorrow, or use a paid key or another engine.")
         if wait > 0:
-            time.sleep(wait)
+            _cancellable_sleep(wait)
             now = time.monotonic()
             self._prune_free_tier_windows(now)
 
@@ -2086,7 +2136,7 @@ def is_fallback_error(e: Exception) -> bool:
 FALLBACK_TRANSIENT_RETRIES = 2
 FALLBACK_BACKOFF_BASE_SECONDS = 1.0
 FALLBACK_BACKOFF_CAP_SECONDS = 8.0
-_fallback_sleep = time.sleep  # patchable so tests never really sleep
+_fallback_sleep = _cancellable_sleep  # patchable so tests never really sleep
 _TRANSIENT_NAME_HINTS = ("timeout", "connectionerror", "apiconnection")
 
 
@@ -2192,6 +2242,10 @@ class FallbackEngine:
                     retries += 1
                     continue
                 if self.active + 1 >= len(self.engines):
+                    try:
+                        e._fallback_chain_exhausted = True
+                    except Exception:
+                        pass
                     raise
                 retries = 0
                 self.events.append({"from": self.choices[self.active],
@@ -2681,7 +2735,7 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
 TRANSLATE_PROMPT_VERSION = "1"
 
 
-def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
+def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
@@ -2798,6 +2852,7 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
         glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         ollama_num_ctx_override=ollama_num_ctx_override)
     errors = []
+    stop_run = []
     spent = 0.0
 
     def record_usage(inp, out, cache_read=0, cache_write=0):
@@ -2882,6 +2937,8 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                 redacted = redact_secrets(str(e))
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": redacted})
+                if isinstance(e, FreeTierDailyLimitReached):
+                    stop_run.append(True)
                 import applog
                 applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
                 return
@@ -2904,6 +2961,8 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             save_cb(lines)
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
+        if stop_run:
+            break
         if isinstance(engine, FallbackEngine) and engine.cap_exhausted() and bi + 1 < n_batches:
             if cap_cb:
                 cap_cb(engine.spent[engine.active])
@@ -2913,3 +2972,15 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                 cap_cb(spent)
             break
     return lines, errors
+
+
+def translate_lines_with_engine(*args, **kwargs):
+    """Runs _translate_lines_with_engine with the job's cancel check
+    visible to the backoff and throttle waits (see _cancellable_sleep)."""
+    bound = inspect.signature(_translate_lines_with_engine).bind(*args, **kwargs)
+    token = _cancel_check_var.set(bound.arguments.get("cancel_check_cb"))
+    try:
+        return _translate_lines_with_engine(*args, **kwargs)
+    finally:
+        _cancel_check_var.reset(token)
+
