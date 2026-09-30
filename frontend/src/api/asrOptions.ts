@@ -56,3 +56,10 @@ export function parseBatchSize(raw: string, min: number, max: number): number | 
   const n = Number(t)
   return n >= min && n <= max ? n : null
 }
+
+// Transcribe > Advanced "ASR backend" choices: MOSS (Step 104) only while its
+// experimental toggle is on. A drama already set to it still shows it (the
+// select keeps the current value).
+export function asrBackendOptions(mossEnabled: boolean): string[] {
+  return mossEnabled ? ['whisper', 'qwen3_asr', 'moss_td'] : ['whisper', 'qwen3_asr']
+}

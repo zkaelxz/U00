@@ -131,6 +131,12 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    # Step 104: not on PyPI (installs from github.com/OpenMOSS/MOSS-Transcribe-Diarize)
+    # and needs transformers>=5.6, which qwen-asr's transformers==4.57.6 pin rules out.
+    "moss-transcribe-diarize": ("moss_transcribe_diarize",
+                                "experimental one-pass transcription + speaker labels "
+                                "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
+                                "can't share an install with Qwen3-ASR)", "feature"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
                                      "decryption (Sources tab); Google sign-in token checks",
                      "feature"),
@@ -215,6 +221,9 @@ def pypi_url(name: str):
 # Packages the generic Install button must not offer, with the reason shown
 # instead (dist canonical name -> reason).
 NOT_OFFERED_FOR_INSTALL = {
+    "moss-transcribe-diarize": "not offered: it isn't on PyPI. Install it from its GitHub "
+                               "repository (OpenMOSS/MOSS-Transcribe-Diarize) in a separate "
+                               "environment -- it needs Transformers 5, which Qwen3-ASR can't use.",
     "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
                                  "Streamlit, and the Scanlate brush that uses it is deferred "
                                  "until Scanlate moves to the new interface.",

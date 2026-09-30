@@ -3,8 +3,10 @@ asr_backend.py -- pluggable transcription backends for the
 "I don't have a transcript, let Whisper transcribe it" workflow in
 tabs/workspace_tab.py (the _use_whisper_text branch).
 
-Each backend's transcribe() returns the same shape core.transcribe_for_timing()
-already produces: a list of {"start": float, "end": float, "text": str}
+Backends are registered in BACKENDS / get_backend() at the bottom (Step 104
+added that seam and the experimental MossTranscribeDiarizeBackend, whose
+segments also carry a "speaker"). Each backend's transcribe() returns the same
+shape core.transcribe_for_timing() already produces: a list of {"start": float, "end": float, "text": str}
 segments -- a drop-in replacement at that one call site.
 
 WHY Qwen3ASRBackend REUSES WHISPER FOR SEGMENTATION: Qwen3-ASR has no VAD/
@@ -204,3 +206,128 @@ class Qwen3ASRBackend:
             for path in paths.values():
                 if os.path.exists(path):
                     os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Step 104 (experimental pilot): MOSS-Transcribe-Diarize
+# ---------------------------------------------------------------------------
+#
+# One model that transcribes AND labels speakers in a single pass
+# (https://github.com/OpenMOSS/MOSS-Transcribe-Diarize, Apache-2.0), unlike
+# Whisper (+ pyannote afterwards). Written against that repo's README and
+# moss_transcribe_diarize/inference_utils.py at commit 61bc29c (package
+# version 0.1.0). It is not on PyPI -- it installs from its own repository
+# and needs Transformers >= 5.6, which qwen-asr (pinned to 4.57.6) can't share
+# an environment with. Off unless Settings > Transcription experiments turns
+# it on (services/asr_options_service.get_moss_experimental), and only ever
+# picked explicitly per drama -- never switched to automatically.
+#
+# Unlike Qwen3ASRBackend it produces its own segment boundaries (that is the
+# point of the pilot), so a comparison against Whisper+pyannote measures
+# both segmentation and text at once; see the Step 104 write-up.
+
+MOSS_MODEL_ID = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
+MOSS_TESTED_COMMIT = "61bc29cd4120be7b5d3b761b64cd5dff57263642"
+# Upper bound on generated tokens for one file. The upstream subtitle app
+# uses 2048 per request; an audio drama episode is longer, so allow more and
+# report when the limit was reached (the tail may be missing).
+MOSS_MAX_NEW_TOKENS = 16384
+
+
+class MossNotInstalledError(ImportError):
+    pass
+
+
+def load_moss_transcribe_diarize(use_gpu: bool = False):
+    """(model, processor, device, dtype), cached in _asr_model_cache so
+    core.release_gpu_models() frees it like the Qwen models. Falls back to
+    CPU when use_gpu is off or CUDA isn't available."""
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoProcessor
+        import moss_transcribe_diarize  # noqa: F401 -- only checks the package is installed
+    except ImportError as exc:
+        raise MossNotInstalledError(str(exc)) from exc
+
+    device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
+    cache_key = f"moss_{device.type}"
+    if cache_key in _asr_model_cache:
+        return _asr_model_cache[cache_key]
+    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            MOSS_MODEL_ID, trust_remote_code=True, dtype="auto", attn_implementation="sdpa",
+        ).to(dtype=dtype).to(device).eval()
+        processor = AutoProcessor.from_pretrained(MOSS_MODEL_ID, trust_remote_code=True)
+    except Exception as exc:
+        if _is_network_error(exc):
+            raise ModelDownloadError(
+                f"Couldn't download the {MOSS_MODEL_ID} model.\n\nThis is a network problem, "
+                "not a problem with your audio. The model is fetched from Hugging Face the "
+                "first time you use it.") from exc
+        raise
+    loaded = (model, processor, device, dtype)
+    _asr_model_cache[cache_key] = loaded
+    return loaded
+
+
+def moss_segments_from_transcript(parsed) -> list:
+    """Plain {"start", "end", "text", "speaker"} dicts from
+    moss_transcribe_diarize.parse_transcript()'s TranscriptSegment objects,
+    dropping empty text and turns with no positive length."""
+    out = []
+    for seg in parsed or []:
+        text = (getattr(seg, "text", "") or "").strip()
+        start, end = float(getattr(seg, "start", 0.0)), float(getattr(seg, "end", 0.0))
+        if not text or end <= start:
+            continue
+        speaker = getattr(seg, "speaker", None)
+        out.append({"start": start, "end": end, "text": text,
+                    "speaker": str(speaker) if speaker else None})
+    return out
+
+
+class MossTranscribeDiarizeBackend:
+    """Experimental: transcribes the whole file in one pass and returns
+    segments that also carry a "speaker" label (e.g. "S01")."""
+    name = "moss_td"
+
+    def transcribe(self, audio_path, language=None, use_gpu=False, run_info=None):
+        """Segments as {"start", "end", "text", "speaker"}. language is
+        accepted for interface parity; MOSS detects it itself. run_info, if
+        given, is filled with {"device": "cuda"|"cpu", "truncated": bool}."""
+        model, processor, device, dtype = load_moss_transcribe_diarize(use_gpu=use_gpu)
+        try:
+            from moss_transcribe_diarize import parse_transcript
+            from moss_transcribe_diarize.inference_utils import (
+                build_transcription_messages, generate_transcription)
+        except ImportError as exc:
+            raise MossNotInstalledError(str(exc)) from exc
+        messages = build_transcription_messages(audio_path)
+        result = generate_transcription(
+            model, processor, messages, max_new_tokens=MOSS_MAX_NEW_TOKENS, do_sample=False,
+            device=device, dtype=dtype)
+        if run_info is not None:
+            run_info["device"] = "cuda" if getattr(device, "type", "") == "cuda" else "cpu"
+            run_info["truncated"] = int(result.get("generated_tokens") or 0) >= MOSS_MAX_NEW_TOKENS
+        return moss_segments_from_transcript(parse_transcript(result.get("text") or ""))
+
+
+# The seam: every selectable transcription backend by its stored
+# asr_backend_choice value. Experimental ones are listed separately so a
+# caller can refuse them unless their toggle is on.
+BACKENDS = {
+    WhisperBackend.name: WhisperBackend,
+    Qwen3ASRBackend.name: Qwen3ASRBackend,
+    MossTranscribeDiarizeBackend.name: MossTranscribeDiarizeBackend,
+}
+EXPERIMENTAL_BACKENDS = frozenset({MossTranscribeDiarizeBackend.name})
+
+
+def get_backend(name: str):
+    """A new backend instance for a stored asr_backend_choice. Raises
+    ValueError for an unknown name."""
+    try:
+        return BACKENDS[name]()
+    except KeyError:
+        raise ValueError(f"Unknown transcription backend {name!r}.") from None

@@ -665,7 +665,7 @@ baihe-subtitler/
 **ASR / transcription & alignment**
 | File | Does |
 |---|---|
-| `asr_backend.py` | pluggable transcription: Whisper (default) vs Qwen3-ASR |
+| `asr_backend.py` | pluggable transcription (BACKENDS/get_backend): Whisper (default), Qwen3-ASR (optional batching, Step 103), MOSS-Transcribe-Diarize (experimental, Step 104) |
 | `asr_benchmark.py` | Whisper vs Qwen3-ASR/ForcedAligner, one clip at a time |
 | `audio_preprocess.py` | optional audio preprocessing before transcription |
 | `forced_align.py` | Qwen3-ForcedAligner timing (alternative to `core.py`'s Whisper-diff alignment) |

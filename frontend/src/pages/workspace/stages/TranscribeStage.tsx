@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
+import { asrBackendOptions } from '../../../api/asrOptions'
 import { getSettings } from '../../../api/settings'
 import {
   getTranscribeConfig,
@@ -14,6 +15,7 @@ import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { useMossExperimental } from '../../../hooks/useMossExperimental'
 import type {
   MediaStatus,
   TranscribeConfig,
@@ -45,6 +47,7 @@ const OPTION_LABELS: Record<string, string> = {
   qwen3_forced_align: 'Qwen3 forced alignment',
   whisper: 'Whisper',
   qwen3_asr: 'Qwen3 ASR',
+  moss_td: 'MOSS-Transcribe-Diarize (experimental)',
   auto: 'Automatic',
   audio_separator: 'Audio Separator',
   demucs: 'Demucs',
@@ -119,6 +122,7 @@ const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
 
 export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
   const { dramaId, drama } = useStage()
+  const mossEnabled = useMossExperimental()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
   const [cf, setCf] = useState<ConfigForm | null>(null)
   const [saved, setSaved] = useState(false)
@@ -425,7 +429,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
-            {select('ASR backend', 'asr_backend_choice', ['whisper', 'qwen3_asr'])}
+            {select('ASR backend', 'asr_backend_choice', asrBackendOptions(mossEnabled), mossEnabled ? 'MOSS is experimental: it transcribes and labels speakers in one pass, replacing Whisper and speaker detection for this drama.' : undefined)}
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
           </div>

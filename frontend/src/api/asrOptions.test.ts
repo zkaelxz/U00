@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, updateAsrOptions } from './asrOptions'
+import { asrBackendOptions, deviceNote, getAsrOptions, getDiarizationConfig, parseBatchSize, updateAsrOptions } from './asrOptions'
 
 function fakeFetch(status: number, body: unknown, calls: { url: string; init?: RequestInit }[] = []) {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -52,5 +52,12 @@ describe('asr options API', () => {
     const cfg = { drama_id: 3, hf_token_configured: true, expected_speakers: null, min_speakers: null, max_speakers: null, last_device: 'cuda', audio_available: true }
     expect((await getDiarizationConfig(3, fakeFetch(200, cfg, calls))).last_device).toBe('cuda')
     expect(calls[0].url).toContain('/api/diarization/dramas/3/config')
+  })
+})
+
+describe('asrBackendOptions (Step 104)', () => {
+  it('offers MOSS only while the experimental toggle is on', () => {
+    expect(asrBackendOptions(false)).toEqual(['whisper', 'qwen3_asr'])
+    expect(asrBackendOptions(true)).toEqual(['whisper', 'qwen3_asr', 'moss_td'])
   })
 })
