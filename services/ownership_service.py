@@ -9,7 +9,13 @@ everything is visible. With auth on, callers (B2 onward) must always pass
 the request's principal -- never None for a missing one, which would
 grant full visibility.
 
-The rule: auth off, the local owner and admins see everything. Otherwise a
+The rule: auth off, the local owner and admins see everything. Changing
+what only an admin can see (the admin override) needs `admin_override` as
+well: `api.auth.listener_principal` clears it on the household (internet)
+listener, where an admin still sees everything but changes only what a
+member of their account could (items they own or that are shared), and
+flips no one else's private flag (user decision 2026-09-30: remote admin
+views, every admin write is PC-only). Otherwise a
 series is visible to its owner, or when it is not private. A drama is
 visible to the owner of its series; else, if its series is private, to no
 one else (owning the drama doesn't override a private series); else to the
@@ -57,6 +63,18 @@ def _sees_everything(principal) -> bool:
     return bool(principal.get("is_local_owner") or principal.get("is_admin"))
 
 
+def _may_override(principal) -> bool:
+    """May act on everything it sees. Default-deny: an admin principal
+    without `admin_override` acts as a member."""
+    if principal is None or principal.get("is_local_owner"):
+        return True
+    return bool(principal.get("is_admin") and principal.get("admin_override"))
+
+
+def _everything(principal, writing: bool) -> bool:
+    return _may_override(principal) if writing else _sees_everything(principal)
+
+
 def _user_id(principal):
     return None if principal is None else principal.get("user_id")
 
@@ -66,9 +84,11 @@ def _is_owner(principal, row) -> bool:
     return uid is not None and row.get("owner_user_id") == uid
 
 
-def _visible(principal, kind: str, row: dict) -> bool:
-    """Must agree with the `visible_to` SQL in db.list_dramas/list_series."""
-    if _sees_everything(principal):
+def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
+    """Must agree with the `visible_to` SQL in db.list_dramas/list_series.
+    `writing`: may the principal change it (the admin override needs
+    `_may_override`; everyone else changes what they can see)."""
+    if _everything(principal, writing):
         return True
     if kind == "drama":
         uid = _user_id(principal)
@@ -107,16 +127,39 @@ def can_see_series(principal, series_id: int) -> bool:
     return can_see(principal, "series", series_id)
 
 
-def can_edit_drama(principal, drama_id: int) -> bool:
-    """Visibility-based (user decision 1); the lines.edit permission is
+def can_edit(principal, kind: str, item_id: int) -> bool:
+    """Visibility-based (user decision 1), except that an admin without the
+    override edits only what a member could; the lines.edit permission is
     checked separately by the API layer."""
-    return can_see_drama(principal, drama_id)
+    if kind not in _KINDS:
+        raise InvalidInputError("Unknown item kind.")
+    row = db.get_item_ownership(kind, _item_id(item_id))
+    return bool(row) and _visible(principal, kind, row, writing=True)
+
+
+def can_edit_drama(principal, drama_id: int) -> bool:
+    return can_edit(principal, "drama", drama_id)
+
+
+def _not_found(kind: str):
+    return NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
+
+
+_ADMIN_CHANGE_AT_PC = "An admin can change other people's private items only at the PC."
 
 
 def require_visible(principal, kind: str, item_id: int) -> None:
     """Raises NotFoundError (404) for a missing or invisible item alike."""
     if not can_see(principal, kind, item_id):
-        raise NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
+        raise _not_found(kind)
+
+
+def require_editable(principal, kind: str, item_id: int) -> None:
+    """require_visible, then ForbiddenError (403) for an item the principal
+    sees but may not change (an admin away from the PC)."""
+    require_visible(principal, kind, item_id)
+    if not can_edit(principal, kind, item_id):
+        raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
 
 
 def visible_to_filter(principal):
@@ -179,7 +222,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
-    admin = _sees_everything(principal)
+    admin = _may_override(principal)
     if not (admin or _is_owner(principal, row)):
         raise ForbiddenError("Only the owner or an admin can change this.")
     # User decision 4: only whole series, or dramas with no series. A drama
@@ -243,6 +286,8 @@ def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
     row = db.get_item_ownership("series", series_id)
     if not row or not _visible(principal, "series", row):
         raise NotFoundError("Series not found.")
+    if not _visible(principal, "series", row, writing=True):
+        raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
     if row["is_private"] and drama_owner_user_id is not None \
             and drama_owner_user_id != row.get("owner_user_id"):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)
@@ -267,6 +312,8 @@ def unassign_drama_series(principal, drama_id) -> None:
     drama = db.get_item_ownership("drama", _item_id(drama_id))
     if not drama or not _visible(principal, "drama", drama):
         raise NotFoundError("Drama not found.")
+    if not _visible(principal, "drama", drama, writing=True):
+        raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
     if not db.unassign_drama_series(drama["id"]):
         raise NotFoundError("Drama not found.")
 
@@ -282,7 +329,7 @@ def check_new_series_assignment(principal, name: str, drama_owner_user_id) -> No
         raise InvalidInputError("A series name is required.")
     existing = db.get_series_id_by_name(name)
     if existing is not None:
-        if not can_see_series(principal, existing):
+        if not can_edit(principal, "series", existing):
             raise ConflictError("That series name is taken")
         check_series_assignment(principal, existing, drama_owner_user_id)
         return
@@ -304,7 +351,7 @@ def get_or_create_series_for(principal, name: str) -> int:
         raise InvalidInputError("A series name is required.")
     existing = db.get_series_id_by_name(name)
     if existing is not None:
-        if can_see_series(principal, existing):
+        if can_edit(principal, "series", existing):
             return existing
         raise ConflictError("That series name is taken")
     try:
@@ -363,18 +410,19 @@ def sees_every_job(principal) -> bool:
     return _sees_everything(principal)
 
 
-def can_see_job(principal, job_id, owner_user_id) -> bool:
+def can_see_job(principal, job_id, owner_user_id, writing: bool = False) -> bool:
     """Admins, the local owner and auth off see every job. A drama's job
     (`<prefix><drama_id>`) is visible to whoever can see that drama --
     its starter included, so a drama that went private stops showing its
     jobs to them (review L-1). Any other job is visible only to the user
     who started it: another user's or the PC's Discover/Sources/Live/
-    library job is hidden."""
-    if _sees_everything(principal):
+    library job is hidden. `writing` (cancel, stop): an admin without the
+    override may act only on the jobs a member could see."""
+    if _everything(principal, writing):
         return True
     drama_id = drama_id_of_job(job_id)
     if drama_id is not None:
-        return can_see_drama(principal, drama_id)
+        return (can_edit_drama if writing else can_see_drama)(principal, drama_id)
     uid = _user_id(principal)
     return uid is not None and owner_user_id == uid
 
@@ -382,3 +430,10 @@ def can_see_job(principal, job_id, owner_user_id) -> bool:
 def require_job_visible(principal, job_id, owner_user_id) -> None:
     if not can_see_job(principal, job_id, owner_user_id):
         raise NotFoundError("No such job.")
+
+
+def require_job_changeable(principal, job_id, owner_user_id) -> None:
+    """For cancel/stop after the visibility check: 403 for a job the
+    principal sees but may not act on (an admin away from the PC)."""
+    if not can_see_job(principal, job_id, owner_user_id, writing=True):
+        raise ForbiddenError("An admin can stop other people's jobs only at the PC.")

@@ -53,7 +53,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from api.auth import (_auth_enabled, authenticated, clear_session_cookie, client_ip,
-                      is_local_request, local_owner_principal, public_route,
+                      is_local_request, listener_principal, local_owner_principal,
+                      public_route,
                       session_cookie_secure, session_token, set_csrf_cookie,
                       set_session_cookie)
 from services import auth_service, oidc_service
@@ -207,7 +208,8 @@ def me(request: Request):
                     user={"id": None, "email": None, "display_name": "PC owner",
                           "is_admin": True, "is_local_owner": True})
     else:
-        principal = auth_service.resolve_session(session_token(request))
+        principal = listener_principal(
+            request.app, auth_service.resolve_session(session_token(request)))
         if principal is None:
             body.update(signed_in=False, user=None, permissions=[])
         else:

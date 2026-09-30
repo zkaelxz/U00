@@ -43,8 +43,10 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   proxy. Auth on, and nothing on it is ever "the PC": `is_local_request` is
   False and `local_only()` refuses every request, however direct and
   loopback it looks, so a proxy that strips forwarding headers still can't
-  reach a PC-only route or a handler's own PC check. The PC's own listener
-  (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
+  reach a PC-only route or a handler's own PC check. A signed-in admin
+  there holds the household permissions and the admin view ones (user
+  list, audit log), never an admin write permission (`listener_principal`).
+  The PC's own listener (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
   multipart upload before being refused. `HouseholdGate`, outermost there,
@@ -96,8 +98,28 @@ def _never_local(app) -> bool:
     return getattr(settings, "listener", None) != "admin"
 
 
+_SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
+def listener_principal(app, principal):
+    """The principal as this listener lets it act. On the household listener
+    an admin account keeps its household permissions and the admin view
+    permissions (user list, audit log) but no admin write permission, and
+    loses the admin override: it still sees every item and job, but changes
+    only what a member could (`ownership_service`). Admin changes are
+    PC-only (D5), and a remote admin session has no second factor.
+    Default-deny: any `admin.*` permission not listed as view is dropped.
+    None stays None."""
+    if principal is None or not _never_local(app):
+        return principal
+    return dict(principal, admin_override=False, permissions=[
+        p for p in principal["permissions"]
+        if not p.startswith("admin.") or p in auth_service.ADMIN_VIEW_PERMISSIONS])
+
+
 def local_owner_principal() -> dict:
     return {"user_id": None, "email": None, "is_admin": True, "is_local_owner": True,
+            "admin_override": True,
             "permissions": list(auth_service.PERMISSIONS)}
 
 
@@ -111,10 +133,10 @@ def _authenticate(request: Request) -> dict:
     or raises 401/403. Nothing is cached: permissions are re-read from the
     DB on every request so a grant/revoke applies to the next one."""
     token = session_token(request)
-    principal = auth_service.resolve_session(token)
+    principal = listener_principal(request.app, auth_service.resolve_session(token))
     if principal is None:
         raise UnauthenticatedError(_GENERIC_401)
-    if request.method.upper() not in ("GET", "HEAD", "OPTIONS") and not auth_service.verify_csrf(
+    if request.method.upper() not in _SAFE_METHODS and not auth_service.verify_csrf(
             token, request.headers.get(CSRF_HEADER)):
         raise CsrfFailedError(_GENERIC_403)
     return principal
@@ -158,11 +180,15 @@ def require_path_visible(request: Request, principal) -> None:
     """404 (never 403, so a private item's existence isn't revealed) when a
     `{drama_id}`/`{series_id}` path parameter names an item the principal
     can't see. Runs after the permission check, so a caller without the
-    permission still gets a plain 403. Editing is visibility-based
-    (ownership_service.can_edit_drama), so reads and writes share it."""
+    permission still gets a plain 403. Any other method also needs the item
+    to be editable (ownership_service.require_editable): the same for
+    everyone except an admin on the household listener, who sees every
+    item but may change only what a member could (403)."""
+    check = (ownership_service.require_visible if request.method.upper() in _SAFE_METHODS
+             else ownership_service.require_editable)
     for name, kind in OWNED_PATH_PARAMS.items():
         if name in request.path_params:
-            ownership_service.require_visible(principal, kind, request.path_params[name])
+            check(principal, kind, request.path_params[name])
 
 
 def authenticated():
