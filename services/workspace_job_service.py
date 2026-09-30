@@ -114,8 +114,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     own_lines_only (with target_ids): English is written only on the target
     lines and only where it still is what the job loaded -- a line edited
-    meanwhile keeps the edit -- and the glossary's exact-term substitution
-    touches only the target lines.
+    meanwhile keeps the edit, with no Reflect note, substitution or flag
+    from this run -- and the glossary's exact-term substitution touches
+    only the target lines.
     """
     cap_reached = {}
     if isinstance(engine, translate_engines.FallbackEngine):
@@ -141,12 +142,15 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         style_note=style_note or "", style_guidelines=style_guidelines or "")
 
-    def _save(ls):
-        if own_lines_only:
-            db.save_lines(drama_id, ls, fields=("en",), only_if_unchanged=True)
-        else:
+    if own_lines_only:
+        _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
+    else:
+        def _save(ls):
             db.save_lines(drama_id, ls, fields=("en",))
-        provenance(ls)
+            provenance(ls)
+
+        def _notes(notes):
+            db.save_translation_notes(drama_id, notes, id_by_idx=_id_by_idx(lines))
 
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_engines.translate_lines_with_engine(
@@ -159,8 +163,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
-        notes_cb=lambda notes: db.save_translation_notes(
-            drama_id, notes, id_by_idx=_id_by_idx(lines)),
+        notes_cb=_notes,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
         # Translation owns `en` and nothing else -- a flag job, a merge or

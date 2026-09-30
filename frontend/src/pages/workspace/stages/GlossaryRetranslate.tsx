@@ -97,7 +97,7 @@ export function GlossaryRetranslate({ f, busy, onStarted }: { f: RunForm; busy: 
   const start = () => {
     if (!preview || !chosen.length) return
     setPending(true)
-    startGlossaryAffectedRun(dramaId, buildAffectedRunBody(f, preview, chosen, includeHand, termIds)).then(
+    startGlossaryAffectedRun(dramaId, buildAffectedRunBody(f, preview, chosen, includeHand)).then(
       (r) => {
         close()
         onStarted(r.job_id)

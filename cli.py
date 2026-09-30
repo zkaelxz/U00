@@ -709,6 +709,17 @@ def cmd_translate(args):
             # Same data-loss guard as translate_run_service: keep the old
             # translation restorable from history before it's overwritten.
             db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
+        # Same as the Workspace Translate job: writes `en` only, and
+        # records each translated line's provenance (Step 41).
+        if target_ids is not None:
+            save_cb, notes_cb = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
+        else:
+            def save_cb(ls, did=d["id"]):
+                db.save_lines(did, ls, fields=("en",))
+                provenance(ls)
+
+            def notes_cb(notes, did=d["id"]):
+                db.save_translation_notes(did, notes, id_by_idx=_id_by_idx)
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
@@ -722,15 +733,9 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False),
-            notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
-                did, notes, id_by_idx=_id_by_idx),
+            notes_cb=notes_cb,
             progress_cb=_progress,
-            # Same as the Workspace Translate job: writes `en` only, and
-            # records each translated line's provenance (Step 41).
-            save_cb=lambda lines, did=d["id"]: (
-                db.save_lines(did, lines, fields=("en",), only_if_unchanged=True)
-                if target_ids is not None else db.save_lines(did, lines, fields=("en",)),
-                provenance(lines)),
+            save_cb=save_cb,
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
                 did, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
                       else engine_name),

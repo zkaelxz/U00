@@ -57,12 +57,13 @@ describe('glossary re-translate requests', () => {
   it('uses the Translate form for the preview and the run, never force or bulk', () => {
     expect(affectedParams(form, [4, 5])).toEqual({ term_ids: [4, 5], engine: 'claude', job_cost_cap_usd: 1.5 })
     expect(affectedParams({ ...form, cost_cap: '-1' }, [])).toBeNull()
-    const body = buildAffectedRunBody(form, preview, [1, 3], false, [])
+    const body = buildAffectedRunBody(form, { ...preview, selected_term_ids: [] }, [1, 3], false)
     expect(body).toMatchObject({ line_ids: [1, 3], preview_hash: 'abc', include_hand_edited: false, locale: 'en-GB', engine: 'claude', job_cost_cap_usd: 1.5 })
     expect(body).not.toHaveProperty('force_retranslate')
     expect(body).not.toHaveProperty('bulk')
     expect(body).not.toHaveProperty('term_ids')
-    expect(buildAffectedRunBody(form, preview, [2], true, [9]).term_ids).toEqual([9])
+    // The preview's terms, not whatever is ticked now.
+    expect(buildAffectedRunBody(form, { ...preview, selected_term_ids: [9] }, [2], true).term_ids).toEqual([9])
   })
 
   it('builds the preview query and posts the run', async () => {
@@ -74,7 +75,7 @@ describe('glossary re-translate requests', () => {
       return new Response(JSON.stringify(preview), { status: 200 })
     }) as typeof fetch
     await getGlossaryAffected(7, { reflect: true }, fake)
-    await startGlossaryAffectedRun(7, buildAffectedRunBody(form, preview, [1], false, []), fake)
+    await startGlossaryAffectedRun(7, buildAffectedRunBody(form, preview, [1], false), fake)
     expect(calls[0].url).toContain('/api/translate-run/dramas/7/glossary-affected?reflect=true')
     expect(calls[1].url).toContain('/api/translate-run/dramas/7/glossary-affected/run')
     expect(calls[1].init?.method).toBe('POST')

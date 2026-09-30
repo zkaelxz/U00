@@ -30,14 +30,17 @@ export function affectedParams(f: RunForm, termIds: number[]): GlossaryAffectedP
   }
 }
 
-/** The run body: the Translate form's settings (never Bulk: a batch can't take a line list). */
+/**
+ * The run body: the Translate form's settings (never Bulk: a batch can't take a line list).
+ * The terms are the preview's own, so ticking terms after the preview can't change the run.
+ */
 export function buildAffectedRunBody(
   f: RunForm,
   preview: GlossaryAffectedPreview,
   ids: number[],
   includeHandEdited: boolean,
-  termIds: number[],
 ): GlossaryAffectedRunBody {
+  const termIds = preview.selected_term_ids
   const { force_retranslate: _force, bulk: _bulk, ...settings } = buildRunBody(f)
   return {
     ...settings,

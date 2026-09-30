@@ -300,7 +300,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         bulk: bool = False, default_female_pronouns: bool = None,
                         include_genre_notes: bool = None,
                         allow_paid_summary: bool = True,
-                        own_lines_only: bool = False) -> dict:
+                        own_lines_only: bool = False, expected_en: dict = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -336,6 +336,9 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
 
     own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
     line edited while the job runs keeps the edit.
+    expected_en (with line_ids): {line id: English} the caller chose the
+    lines by; a line whose English differs once loaded here was edited
+    since and is dropped (ConflictError if none is left).
 
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
@@ -387,6 +390,12 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         target_ids = set(line_ids)
         if not target_ids or not target_ids <= {ln.id for ln in lines}:
             raise InvalidInputError("line_ids must be a non-empty list of this drama's line ids.")
+        if expected_en is not None:
+            target_ids = {ln.id for ln in lines if ln.id in target_ids
+                          and (ln.en or "") == expected_en.get(ln.id)}
+            if not target_ids:
+                raise ConflictError("The chosen lines were edited since they were picked. "
+                                    "Pick them again.", details={"reason": "stale_preview"})
     eligible = [ln for ln in lines if (ln.zh or "").strip()
                 and (force_retranslate or not (ln.en or "").strip())
                 and (target_ids is None or ln.id in target_ids)]

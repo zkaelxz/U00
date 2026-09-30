@@ -169,6 +169,12 @@ def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
     drama_line_ids = {row["id"] for row in db.load_lines(drama_id)}
     if not wanted <= drama_line_ids:
         raise InvalidInputError("line_ids must be this drama's lines.")
+    series_id = drama.get("series_id")
+    if term_ids is not None and not set(term_ids) <= {
+            t["id"] for t in (db.list_glossary_terms(series_id) if series_id else [])}:
+        # A term the preview was built from has been deleted since.
+        raise ConflictError("The glossary changed since this preview. Open the preview again.",
+                            details={"reason": "stale_preview"})
     _terms, lines, current_hash = _affected(drama_id, drama, term_ids)
     if current_hash != preview_hash:
         raise ConflictError("The lines or the glossary changed since this preview. "
@@ -188,5 +194,5 @@ def start_affected_retranslate(drama_id: int, line_ids, preview_hash: str,
         job_cost_cap_usd=job_cost_cap_usd, fallback_chain=fallback_chain, reflect=reflect,
         default_female_pronouns=default_female_pronouns,
         include_genre_notes=include_genre_notes, allow_paid_summary=allow_paid_summary,
-        own_lines_only=True)
+        own_lines_only=True, expected_en={i: affected[i]["en"] for i in keep})
     return {**started, "line_ids": keep, "skipped_hand_edited_count": len(wanted) - len(keep)}

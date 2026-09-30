@@ -1817,6 +1817,9 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False):
     by someone else since the lines were loaded is kept, not overwritten.
     A line without `orig` is then not written at all.
 
+    Returns the ids only_if_unchanged left unwritten (an edit was kept);
+    empty otherwise.
+
     One transaction: on any error nothing is written."""
     if only_if_unchanged and fields is None:
         raise ValueError("only_if_unchanged needs field-scoped saving")
@@ -1829,7 +1832,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False):
         conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
-        kept = set()
+        kept, unwritten = set(), set()
         for ln in lines:
             lid = getattr(ln, "id", None)
             orig = getattr(ln, "orig", None)
@@ -1837,16 +1840,20 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False):
                 changed = [f for f in cols
                            if orig is None or _line_value(ln, f) != orig.get(f)]
                 if changed and only_if_unchanged:
-                    if orig is not None:
+                    if orig is None:
+                        unwritten.add(lid)
+                    else:
                         # Compare-and-set: NULL and "" are the same empty text
                         # to a Line, so a text field compares through COALESCE.
                         guards = [f"COALESCE({f}, '') = ?" if isinstance(orig.get(f), str)
                                   else f"{f} IS ?" for f in changed]
-                        conn.execute(
+                        cur = conn.execute(
                             f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                             f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
                             [_line_value(ln, f) for f in changed] + [lid, drama_id]
                             + [orig.get(f) for f in changed])
+                        if cur.rowcount == 0:
+                            unwritten.add(lid)
                 elif changed:
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
@@ -1885,6 +1892,7 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False):
         ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
         if fields is None:
             ln.merged_ids = []
+    return unwritten
 
 
 def _repoint_line_refs(conn, drama_id, from_id, to_id):
