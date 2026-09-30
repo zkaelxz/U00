@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuthMe } from '../api/auth'
 import { ApiError, getJson } from '../api/client'
 import {
-  gateView, getSession, loadSession, markSignedOut, menuUser, resetSessionForTests, signOut, subscribeSession,
+  gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, menuUser, resetSessionForTests, signOut, subscribeSession,
   type SessionState,
 } from './useSession'
 
@@ -95,5 +95,19 @@ describe('signed out', () => {
       signOut(() => Promise.reject(new ApiError(0, { code: 'network_error', message: 'down' }))),
     ).rejects.toThrow('down')
     expect(gateView(getSession())).toBe('app')
+  })
+})
+
+describe('isRemoteAdmin', () => {
+  it('is an admin without admin.library on a signed-in session', () => {
+    expect(isRemoteAdmin(ready({ permissions: ['library.read', 'admin.users.read'] }))).toBe(true)
+  })
+  it('is not the PC admin, a member, the local owner, auth off, or unknown', () => {
+    expect(isRemoteAdmin(ready({ permissions: ['library.read', 'admin.library'] }))).toBe(false)
+    expect(isRemoteAdmin(ready({ user: { ...user, is_admin: false } }))).toBe(false)
+    expect(isRemoteAdmin(ready({ user: { ...user, is_local_owner: true } }))).toBe(false)
+    expect(isRemoteAdmin(ready({ auth_enabled: false }))).toBe(false)
+    expect(isRemoteAdmin({ status: 'unavailable' })).toBe(false)
+    expect(isRemoteAdmin({ status: 'loading' })).toBe(false)
   })
 })
