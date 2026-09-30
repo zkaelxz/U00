@@ -635,3 +635,68 @@ def test_ip_check_routes_are_pc_only(env, public_dns):
         r = remote.post(f"/api/diagnostics/remote-health/ip-check{path}", json=body, headers=h)
         assert r.status_code == 403, path
     assert rhs.IP_CHECK_ENV not in env.read_text()
+
+
+def test_ip_check_set_and_clear_run_off_the_event_loop(env, monkeypatch):
+    import asyncio
+    seen = []
+
+    def on_loop():
+        try:
+            asyncio.get_running_loop()
+            return True
+        except RuntimeError:
+            return False
+
+    monkeypatch.setattr(rhs, "set_ip_check_url",
+                        lambda value: seen.append(on_loop()) or {"configured": True})
+    monkeypatch.setattr(rhs, "clear_ip_check_url",
+                        lambda: seen.append(on_loop()) or {"configured": False})
+    c = _write_client()
+    assert c.post("/api/diagnostics/remote-health/ip-check",
+                  json={"value": CHECK_URL, "confirm": True}).status_code == 200
+    assert c.post("/api/diagnostics/remote-health/ip-check/clear",
+                  json={"confirm": True}).status_code == 200
+    assert seen == [False, False]
+
+
+def test_a_stuck_test_worker_refuses_the_next_test_until_it_ends(env, monkeypatch):
+    from services.service_errors import RateLimitedError
+    env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
+    release = threading.Event()
+    ended = threading.Event()
+
+    def stuck(url):
+        try:
+            release.wait(10)
+            return ipaddress.ip_address("93.184.216.34")
+        finally:
+            ended.set()
+    monkeypatch.setattr(rhs, "_current_public_ip", stuck)
+    monkeypatch.setattr(rhs, "CYCLE_DEADLINE", 0.2)
+    monkeypatch.setattr(rhs, "TEST_MIN_INTERVAL", 0.0)
+    try:
+        assert rhs.run_ip_check_test("")["state"] == "unknown"   # gave up; worker still alive
+        with pytest.raises(RateLimitedError):
+            rhs.run_ip_check_test("")
+    finally:
+        release.set()
+    assert ended.wait(5)
+    for _ in range(50):          # the worker's finally runs right after `ended`
+        if rhs._test_workers == 0:
+            break
+        time.sleep(0.02)
+    assert rhs.run_ip_check_test("")["state"] == "ok"
+
+
+def test_stop_set_just_before_the_save_skips_it(env, monkeypatch, listener_up, spies):
+    monkeypatch.setattr(rhs, "_peer_certificate", lambda host, port: _cert(2))
+    stop = threading.Event()
+    real_now = rhs._now
+
+    def now_then_stop():
+        stop.set()               # requested after the checks, before the save
+        return real_now()
+    monkeypatch.setattr(rhs, "_now", now_then_stop)
+    assert rhs.run_check(PUBLIC_URL, PORT, stop=stop) is None
+    assert spies == {"saved": [], "sent": []}

@@ -3,8 +3,10 @@ services/remote_health_service.py -- is household (remote) access healthy?
 
 UI-free. Three checks, run on a schedule by `api/background.py` only while
 remote access is on (`BAIHE_PUBLIC_URL` set to an https address and
-`BAIHE_API_HOUSEHOLD_PORT` set). With it off nothing here opens a socket,
-resolves a name or reads a URL; the status is simply "off".
+`BAIHE_API_HOUSEHOLD_PORT` set). With it off the schedule opens no socket,
+resolves no name and reads no URL; the status is simply "off". The one
+exception is the owner pressing Test in Settings (`run_ip_check_test`), which
+reads the configured public-address check once even then.
 
 - certificate: a TLS handshake with Caddy on this PC (127.0.0.1 at the public
   URL's port) asking for the public name (SNI), with the normal chain and
@@ -78,6 +80,10 @@ _READ_FAILED = object()
 _memory = None
 _test_lock = threading.Lock()
 _last_test = 0.0
+# Test workers still running, including ones _bounded gave up on: the
+# fetch's timeout is per read, so an abandoned one can outlive its request.
+_test_workers = 0
+_test_workers_lock = threading.Lock()
 
 
 def _bounded(fn, timeout, stop=None):
@@ -347,6 +353,8 @@ def run_check(public_url, household_port, listener_host="127.0.0.1", stop=None):
                     "since": since if since is not None else now, **checks}
         if not read_failed:
             # A read error keeps the last known state: no alert, no save over it.
+            if _stopped(stop):
+                return None
             notify = _should_notify(prev_state, state)
             _save(snapshot)
             _memory = {"state": state, "since": snapshot["since"]}
@@ -419,7 +427,7 @@ def clear_ip_check_url(env_path=None) -> dict:
 def run_ip_check_test(public_url) -> dict:
     """Settings' "Test": one public-address check now. Saves nothing and
     alerts nobody. {configured, state, message}: no address or URL."""
-    global _last_test
+    global _last_test, _test_workers
     url = _ip_check_url()
     if not url:
         raise InvalidInputError("No address check is set up.")
@@ -428,15 +436,27 @@ def run_ip_check_test(public_url) -> dict:
     try:
         if time.monotonic() - _last_test < TEST_MIN_INTERVAL:
             raise RateLimitedError("Wait a few seconds before testing again.")
+        with _test_workers_lock:
+            if _test_workers:
+                raise RateLimitedError("The last test is still finishing. Try again shortly.")
+            _test_workers += 1
         _last_test = time.monotonic()
         target = public_target(public_url)
+
+        def work():
+            global _test_workers
+            try:
+                if target is None:
+                    _current_public_ip(url)
+                    return _check("ok", "The address check answered. Remote access is off, "
+                                  "so there is no public name to compare with yet.")
+                return check_ddns(target[0])
+            finally:
+                with _test_workers_lock:
+                    _test_workers -= 1
+
         try:
-            if target is None:
-                _bounded(lambda: _current_public_ip(url), CYCLE_DEADLINE)
-                result = _check("ok", "The address check answered. Remote access is off, so "
-                                "there is no public name to compare with yet.")
-            else:
-                result = _bounded(lambda: check_ddns(target[0]), CYCLE_DEADLINE)
+            result = _bounded(work, CYCLE_DEADLINE)
         except Exception:
             result = _check("unknown", "This PC's public address could not be read.")
     finally:
@@ -445,9 +465,11 @@ def run_ip_check_test(public_url) -> dict:
 
 
 def reset_for_tests():
-    global _memory, _last_test
+    global _memory, _last_test, _test_workers
     _memory = None
     _last_test = 0.0
+    with _test_workers_lock:
+        _test_workers = 0
 
 
 def _log(fmt, *args):
