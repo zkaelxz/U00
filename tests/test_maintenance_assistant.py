@@ -438,7 +438,7 @@ def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_b
 
 
 def test_cloud_consent_is_validated(isolated_db):
-    for bad in ({"ollama": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
+    for bad in ({"test_offline": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
         with pytest.raises(svc.InvalidInputError):
             svc.set_settings({"cloud_consent": bad})
 
@@ -533,3 +533,19 @@ def test_redact_secrets_strips_github_tokens(tok):
     out = redact_secrets(f"clone https://x:{tok}@github.com failed")
     assert tok not in out and "[REDACTED]" in out
     assert redact_secrets("ghp_short and github_pat_ok") == "ghp_short and github_pat_ok"
+
+
+def test_remote_ollama_consent_is_saved_and_shown(isolated_db, monkeypatch):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://10.0.0.2:11434")
+    s = svc.get_settings()
+    assert "ollama" not in s["local_engines"] and s["cloud_consent"]["ollama"] is False
+    with pytest.raises(svc.ConflictError):
+        svc.require_cloud_consent("ollama")
+    s = svc.set_settings({"cloud_consent": {"ollama": True}})
+    assert s["cloud_consent"]["ollama"] is True
+    svc.require_cloud_consent("ollama")
+    # Back on this PC, Ollama is local again and needs no consent entry.
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
+    s = svc.get_settings()
+    assert "ollama" in s["local_engines"] and "ollama" not in s["cloud_consent"]

@@ -254,6 +254,8 @@ baihe-subtitler/
 │   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
 │   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
 │   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
+│   ├── assistant_roles_service.py  Step 60 -- the assistant's implement -> independent review roles: reviewer
+│   │                             prompt, verdict parsing, cross-provider check (off by default; same read-only tools)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
