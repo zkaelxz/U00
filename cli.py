@@ -292,9 +292,11 @@ def cmd_diarize(args):
     are kept unless --overwrite-manual is given."""
     import diarize
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
-    hf_token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+    hf_token = (args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+                or settings_service.resolve_key("hf_token"))
     if not hf_token:
-        print("Needs a Hugging Face token: --hf-token or the HF_TOKEN environment variable.")
+        print("Needs a Hugging Face token: --hf-token, the HF_TOKEN environment variable, "
+              "or one saved in Settings.")
         return
     try:
         num_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
@@ -502,7 +504,9 @@ def cmd_translate(args):
                  else translate_service.resolve_api_key(name)),
                 args.model if own_flags else None,
                 free_tier=_gemini_free_tier(name),
-                base_url=_ollama_url(args) if name == "ollama" else None)
+                base_url=_ollama_url(args) if name == "ollama" else None,
+                libretranslate_url=(settings_service.resolve_key("libretranslate_url") or None)
+                if name == "libretranslate" else None)
         return _engines[name]
     # Step 74: UI parity -- Workspace's own Translate button builds this
     # same optional summary_engine before starting the job (defaulting to
@@ -518,6 +522,7 @@ def cmd_translate(args):
             raise ValueError("no key for the episode-summary engine")
         summary_engine = translate_engines.get_engine(
             summary_engine_choice, summary_key,
+            free_tier=_gemini_free_tier(summary_engine_choice),
             base_url=_ollama_url(args) if summary_engine_choice == "ollama" else None)
     except Exception:
         summary_engine = None
@@ -624,6 +629,10 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             style_note=style_note or "", style_guidelines=style_guidelines or "")
+        if args.force and any(ln.en for ln in lines):
+            # Same data-loss guard as translate_run_service: keep the old
+            # translation restorable from history before it's overwritten.
+            db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,

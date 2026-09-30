@@ -1285,6 +1285,36 @@ class TestCliServiceParity:
                         api_key=None, monthly_cap=None)
         assert seen_caps[-1] == 8.0
 
+    def test_force_translate_saves_a_history_snapshot_first(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="T", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Old")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, force=True, engine=None, style_preset=None))
+        assert [h["label"] for h in isolated_db.list_line_history(did)] == [
+            "before force re-translate"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, force=False, engine=None, style_preset=None))
+        assert len(isolated_db.list_line_history(did)) == 1
+
+    def test_summary_engine_gets_the_gemini_free_tier_flag(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="T", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        built = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, key=None, model=None, **k: built.append((name, k)) or object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(
+                id=did, engine=None, style_preset=None, api_key="k",
+                episode_summary_engine="gemini", episode_summary_api_key="g"))
+        summary = [k for n, k in built if n == "gemini"]
+        assert summary and summary[0]["free_tier"] is True
+
     def test_translate_uses_the_dramas_saved_engine_and_its_own_key(self, isolated_db, monkeypatch):
         engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
                                         api_key=None, model="claude-x")

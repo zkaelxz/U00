@@ -127,7 +127,9 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         free_tier=(settings_service.resolve_gemini_free_tier(free_tier)
                    if engine_name == "gemini" else False),
         base_url=((settings_service.resolve_key("ollama_url") or None)
-                  if engine_name == "ollama" else None))
+                  if engine_name == "ollama" else None),
+        libretranslate_url=((settings_service.resolve_key("libretranslate_url") or None)
+                            if engine_name == "libretranslate" else None))
 
     try:
         translated_text = translate_engines.standalone_translate(
