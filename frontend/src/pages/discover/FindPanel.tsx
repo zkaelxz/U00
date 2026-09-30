@@ -13,12 +13,14 @@ import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
-import type { Platform, SearchLink } from '../../types/discover'
+import type { Platform, SearchGenre, SearchLink } from '../../types/discover'
 import { LANGUAGES, LINK_FORMATS, PLATFORM_TYPES, hasChinese, mediaLabel } from './discoverFormat'
 
 export function FindPanel({ engine, canTranslate }: { engine: string; canTranslate: boolean }) {
   const [q, setQ] = useState('')
   const [format, setFormat] = useState('')
+  const [genre, setGenre] = useState<SearchGenre>('baihe')
+  const [tag, setTag] = useState('')
   const [translate, setTranslate] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -52,7 +54,7 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
         }
         if (zh !== text) setNote(`Searching Chinese platforms for: ${zh}`)
       }
-      setLinks(await searchLinks(zh, format))
+      setLinks(await searchLinks(zh, format, genre, tag.trim()))
     } catch (err) {
       setError(err)
     } finally {
@@ -86,6 +88,17 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
             ))}
           </select>
         </Field>
+        <Field label="Genre">
+          <select value={genre} onChange={(e) => setGenre(e.target.value as SearchGenre)}>
+            <option value="baihe">Baihe only</option>
+            <option value="any">All genres</option>
+          </select>
+        </Field>
+        {genre === 'any' && (
+          <Field label="JJWXC tag" help="Optional. Leave blank for JJWXC's general listing.">
+            <input type="text" value={tag} maxLength={40} onChange={(e) => setTag(e.target.value)} placeholder="言情" />
+          </Field>
+        )}
         <button type="submit" className={buttonClass('primary')} disabled={!q.trim() || busy} aria-busy={busy}>
           {busy ? 'Finding…' : 'Find'}
         </button>
