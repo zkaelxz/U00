@@ -849,7 +849,10 @@ def _die_without_cleanup(monkeypatch):
 
 def _restart(monkeypatch):
     monkeypatch.undo()
-    db._active_media_stagings.clear()   # a new process has no running imports
+    # A new process has no running imports, and a dead one holds no locks.
+    for entry in db._active_media_stagings.values():
+        db._release_lock(entry["lock"])
+    db._active_media_stagings.clear()
 
 
 def test_commit_failure_removes_only_this_imports_folders(client, monkeypatch):
@@ -872,17 +875,23 @@ def test_failed_removal_is_reported_and_retried_at_startup(client, monkeypatch, 
     data = _manual_zip(media={a: "a.mp3"})
     _fail_commit_after_move(monkeypatch)
     final = os.path.join(db.DRAMAS_DIR, str(g + 1))
-    real_rmtree = shutil.rmtree
+    real_rmtree, real_rename = shutil.rmtree, os.rename
 
     def rmtree(path, *args, **kw):
         if os.path.abspath(path) == os.path.abspath(final):
             raise PermissionError("in use")
         return real_rmtree(path, *args, **kw)
+
+    def rename(src, dst, *args, **kw):
+        if os.path.abspath(src) == os.path.abspath(final):
+            raise PermissionError("in use")     # the rename back fails too
+        return real_rename(src, dst, *args, **kw)
     monkeypatch.setattr(shutil, "rmtree", rmtree)
+    monkeypatch.setattr(os, "rename", rename)
     before = _dramas()
     with caplog.at_level(logging.WARNING, logger="db"):
         r = _post_import(client, data, [a])
-    assert r.status_code == 500 and "could not be removed yet" in r.text
+    assert r.status_code == 500 and "could not be cleaned up" in r.text
     _no_leak(r)
     assert str(g + 1) in caplog.text and db.LIBRARY_DIR not in caplog.text
     assert _dramas() == before and os.path.isdir(final)
@@ -893,46 +902,207 @@ def test_failed_removal_is_reported_and_retried_at_startup(client, monkeypatch, 
     assert _entries() == [str(a)]
 
 
+def _crashed_import(client, monkeypatch, media_of):
+    """An import of every drama in media_of whose process died between the
+    move and the commit; returns (world ids, staging path) after a restart."""
+    ids = _world()
+    data = _manual_zip(media={ids[i]: name for i, name in media_of.items()})
+    before = set(_stagings())
+    _fail_commit_after_move(monkeypatch)
+    _die_without_cleanup(monkeypatch)
+    assert _post_import(client, data, [ids[i] for i in media_of]).status_code == 500
+    [staging] = set(_stagings()) - before
+    _restart(monkeypatch)
+    return ids, os.path.join(db.DRAMAS_DIR, staging)
+
+
 def test_crash_between_move_and_commit_is_recovered_at_startup(client, monkeypatch):
-    a, b, g = _world()
-    data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
     _folder_with(os.path.join(db.DRAMAS_DIR, "777"), "keep.txt", b"keep")
     lookalike = os.path.join(db.DRAMAS_DIR, ".import-notours")
     _folder_with(lookalike, "x", b"x")
-    _fail_commit_after_move(monkeypatch)
-    _die_without_cleanup(monkeypatch)
-    assert _post_import(client, data, [a, b]).status_code == 500
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
     new_a, new_b = (os.path.join(db.DRAMAS_DIR, str(i)) for i in (g + 1, g + 2))
-    assert os.path.isdir(new_a) and os.path.isdir(new_b) and len(_stagings()) == 2
-    # A folder that has since replaced one of them is not the one the import
-    # moved there, so recovery leaves it.
-    shutil.rmtree(new_b)
-    _folder_with(new_b, "theirs.txt", b"theirs")
-    _restart(monkeypatch)
+    assert os.path.isdir(new_a) and os.path.isdir(new_b)
     assert abs_.cleanup_stale_leftovers() == 1
-    assert _entries() == sorted([str(a), str(b), "777", str(g + 2), ".import-notours"])
-    assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
+    assert _entries() == sorted([str(a), str(b), "777", ".import-notours"])
     assert _read(os.path.join(db.DRAMAS_DIR, "777", "keep.txt")) == b"keep"
     assert _read(os.path.join(db.DRAMAS_DIR, str(a), "a.mp3")) == b"media-a.mp3"
     assert _read(os.path.join(lookalike, "x")) == b"x"
 
 
-def test_existing_folder_for_a_new_id_aborts_before_moving_anything(client):
+def test_a_folder_that_replaced_a_moved_one_is_kept_and_reported(client, monkeypatch, caplog):
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+    new_a, new_b = (os.path.join(db.DRAMAS_DIR, str(i)) for i in (g + 1, g + 2))
+    shutil.rmtree(new_b)
+    _folder_with(new_b, "theirs.txt", b"theirs")
+    with caplog.at_level(logging.WARNING, logger="db"):
+        assert db.recover_media_imports() == {"settled": 0, "failed_ids": [g + 2]}
+    assert str(g + 2) in caplog.text and db.LIBRARY_DIR not in caplog.text
+    assert not os.path.lexists(new_a)       # provably this import's: removed
+    assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
+    assert os.path.isfile(os.path.join(staging, "journal.json"))     # kept for a retry
+    assert db.recover_media_imports() == {"settled": 0, "failed_ids": [g + 2]}
+    assert _read(os.path.join(new_b, "theirs.txt")) == b"theirs"
+
+
+def test_recovery_proves_a_folder_by_its_marker_when_the_inode_changed(client, monkeypatch):
+    # FAT/exFAT/SMB: the rename gave the folder another inode number, or none.
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3", 1: "b.mp3"})
+    monkeypatch.setattr(db, "_folder_identity", lambda path: None)
+    assert db.recover_media_imports() == {"settled": 1, "failed_ids": []}
+    assert _entries() == sorted([str(a), str(b)])
+
+
+def test_recovery_with_a_changed_inode_and_no_marker_keeps_the_folder(client, monkeypatch):
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+    new_a = os.path.join(db.DRAMAS_DIR, str(g + 1))
+    os.remove(os.path.join(new_a, db.MEDIA_MARKER))
+    for identity in (None, [1, 2]):
+        monkeypatch.setattr(db, "_folder_identity", lambda path, i=identity: i)
+        assert db.recover_media_imports() == {"settled": 0, "failed_ids": [g + 1]}
+        assert _read(os.path.join(new_a, "a.mp3")) == b"media-a.mp3"
+    # The next new drama with that id doesn't inherit it: it is renamed aside, kept.
+    assert db.create_drama(title_en="Fresh") == g + 1
+    [aside] = [n for n in _entries() if n.startswith(f"{g + 1}.orphan-")]
+    assert _read(os.path.join(db.DRAMAS_DIR, aside, "a.mp3")) == b"media-a.mp3"
+
+
+def test_commit_failure_cleans_up_on_a_file_system_without_inode_numbers(client, monkeypatch):
+    a, b, g = _world()
+    data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
+    monkeypatch.setattr(db, "_folder_identity", lambda path: None)
+    _fail_commit_after_move(monkeypatch)
+    before = _dramas()
+    r = _post_import(client, data, [a, b])
+    assert r.status_code == 500 and "nothing was changed" in r.text
+    assert _dramas() == before and _entries() == sorted([str(a), str(b)])
+    assert db.create_drama(title_en="Fresh") == g + 1
+    assert not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(g + 1)))
+
+
+def test_commit_failure_renames_back_even_when_nothing_proves_the_folder(client, monkeypatch):
+    # The failing import itself knows exactly which folders it moved.
+    a, b, g = _world()
+    data = _manual_zip(media={a: "a.mp3"})
+    monkeypatch.setattr(db, "_folder_identity", lambda path: None)
+    monkeypatch.setattr(db, "_marker_matches", lambda folder, token: False)
+    _fail_commit_after_move(monkeypatch)
+    r = _post_import(client, data, [a])
+    # Unprovable: kept in place and reported, not deleted.
+    assert r.status_code == 500 and "could not be cleaned up" in r.text
+    assert _read(os.path.join(db.DRAMAS_DIR, str(g + 1), "a.mp3")) == b"media-a.mp3"
+    assert len(_stagings()) == 1
+
+
+def test_recovery_skips_a_staging_folder_another_import_holds(client, monkeypatch):
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+    holder = [db._lock_file(os.path.join(staging, "lock"), False)]
+    assert holder[0] is not None
+    try:
+        assert db.recover_media_imports() == {"settled": 0, "failed_ids": []}
+        assert os.path.isdir(os.path.join(db.DRAMAS_DIR, str(g + 1)))
+    finally:
+        db._release_lock(holder)
+    assert db.recover_media_imports()["settled"] == 1
+    assert _entries() == [str(a)]
+
+
+def test_a_young_staging_folder_without_journal_is_kept_until_stale(client):
+    staging = os.path.join(db.DRAMAS_DIR, db.MEDIA_STAGING_PREFIX + "ab" * 16)
+    _folder_with(os.path.join(staging, "drama-1"), "a.mp3", b"a")
+    assert db.recover_media_imports() == {"settled": 0, "failed_ids": []}
+    assert os.path.isdir(staging)
+    assert db.recover_media_imports(now=time.time() + 2 * 86400)["settled"] == 1
+    assert not os.path.lexists(staging)
+
+
+@pytest.mark.parametrize("journal", [
+    b"[" * 200000,
+    b"\xff\xfe",
+    b'{"format": 2, "staging": "%s", "ids": {"99999999999999999999999": '
+    b'{"marker": "' + b"a" * 32 + b'", "ident": null}}}',
+    b'{"format": 2, "staging": "%s", "ids": {"' + b"1" * 5000 + b'": {"marker": "'
+    + b"a" * 32 + b'", "ident": null}}}',
+    b'{"format": 2, "staging": "%s", "ids": {"%d": {"marker": "x", "ident": null}}}',
+    b'{"format": 2, "staging": "%s", "ids": {"%d": {"marker": "' + b"a" * 32
+    + b'", "ident": [1e999, 2]}}}',
+    b'{"format": 2, "staging": ".import-' + b"0" * 32 + b'", "ids": {}}',
+    b'{"format": 1, "ids": {"%d": null}}',
+    b"[]",
+])
+def test_a_damaged_journal_leaves_everything_alone(client, monkeypatch, journal):
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+    name = os.path.basename(staging).encode()
+    text = journal.replace(b"%s", name).replace(b"%d", str(g + 1).encode())
+    with open(os.path.join(staging, "journal.json"), "wb") as fh:
+        fh.write(text)
+    assert db.recover_media_imports() == {"settled": 0, "failed_ids": []}
+    assert _read(os.path.join(db.DRAMAS_DIR, str(g + 1), "a.mp3")) == b"media-a.mp3"
+    assert os.path.isdir(staging)
+
+
+def test_an_unreadable_library_database_leaves_everything_alone(client, monkeypatch):
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
+    new_a = os.path.join(db.DRAMAS_DIR, str(g + 1))
+    empty = os.path.join(db.LIBRARY_DIR, "empty.db")
+    sqlite3.connect(empty).close()
+    for path in (os.path.join(db.LIBRARY_DIR, "missing.db"), empty):
+        monkeypatch.setattr(db, "DB_PATH", path)
+        assert db.recover_media_imports() == {"settled": 0, "failed_ids": []}
+        assert os.path.isdir(new_a) and os.path.isdir(staging)
+    monkeypatch.undo()
+    assert db.recover_media_imports()["settled"] == 1
+    assert not os.path.lexists(new_a)
+
+
+def test_a_windows_junction_counts_as_a_link():
+    import stat
+    import types
+    junction = types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_file_attributes=0x400)
+    plain = types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_file_attributes=0x10)
+    assert db._is_link(junction) and not db._is_link(plain)
+
+
+def test_a_stray_folder_for_a_new_id_is_renamed_aside(client):
     a, b, g = _world()
     data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
     taken = os.path.join(db.DRAMAS_DIR, str(g + 2))
     _folder_with(taken, "mine.txt", b"mine")
+    r = _post_import(client, data, [a, b])
+    assert r.status_code == 200, r.text
+    assert [d["drama_id"] for d in r.json()["imported"]] == [g + 1, g + 2]
+    [aside] = [n for n in _entries() if ".orphan-" in n]
+    assert aside.startswith(f"{g + 2}.orphan-")
+    assert _read(os.path.join(db.DRAMAS_DIR, aside, "mine.txt")) == b"mine"
+    assert _read(os.path.join(taken, "b.mp3")) == b"media-b.mp3"
+    assert not os.path.exists(os.path.join(taken, db.MEDIA_MARKER)) and not _stagings()
+    # A drama imported without files can't inherit a stray folder either.
+    stray = os.path.join(db.DRAMAS_DIR, str(g + 3))
+    _folder_with(stray, "mine.txt", b"mine")
+    assert _post_import(client, _manual_zip(), [g]).status_code == 200
+    assert not os.path.lexists(stray)
+    assert len([n for n in _entries() if n.startswith(f"{g + 3}.orphan-")]) == 1
+
+
+def test_a_stray_folder_that_cannot_be_renamed_aside_aborts_the_import(client, monkeypatch):
+    a, b, g = _world()
+    data = _manual_zip(media={a: "a.mp3", b: "b.mp3"})
+    taken = os.path.join(db.DRAMAS_DIR, str(g + 2))
+    _folder_with(taken, "mine.txt", b"mine")
+    real_rename = os.rename
+
+    def rename(src, dst, *args, **kw):
+        if os.path.abspath(src) == os.path.abspath(taken):
+            raise PermissionError("in use")
+        return real_rename(src, dst, *args, **kw)
+    monkeypatch.setattr(os, "rename", rename)
     before = _dramas()
     r = _post_import(client, data, [a, b])
     assert r.status_code == 409 and "nothing was imported" in r.text
+    _no_leak(r)
     assert _dramas() == before
     assert _entries() == sorted([str(a), str(b), str(g + 2)])   # g + 1 never moved in
     assert _read(os.path.join(taken, "mine.txt")) == b"mine"
-    # A drama imported without files can't inherit a stray folder either.
-    shutil.rmtree(taken)
-    _folder_with(os.path.join(db.DRAMAS_DIR, str(g + 1)), "mine.txt", b"mine")
-    assert _post_import(client, _manual_zip(), [g]).status_code == 409
-    assert _dramas() == before
 
 
 def test_journal_of_a_committed_import_is_only_deleted(client, monkeypatch):
@@ -948,29 +1118,39 @@ def test_journal_of_a_committed_import_is_only_deleted(client, monkeypatch):
     assert abs_.cleanup_stale_leftovers() == 1
     assert not _stagings() and db.get_drama(new) is not None
     assert _read(os.path.join(db.DRAMAS_DIR, str(new), "a.mp3")) == b"media-a.mp3"
+    assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(new), db.MEDIA_MARKER))
 
 
 def test_new_drama_never_inherits_a_stale_folder(client, monkeypatch):
-    a, b, g = _world()
-    data = _manual_zip(media={a: "a.mp3"})
-    _fail_commit_after_move(monkeypatch)
-    _die_without_cleanup(monkeypatch)
-    assert _post_import(client, data, [a]).status_code == 500
+    (a, b, g), staging = _crashed_import(client, monkeypatch, {0: "a.mp3"})
     orphan = os.path.join(db.DRAMAS_DIR, str(g + 1))
     assert os.path.isdir(orphan)
-    _restart(monkeypatch)
     # No startup sweep ran: the next new drama gets the orphan's id, and the
     # journalled orphan is cleared rather than inherited.
     assert db.create_drama(title_en="Fresh") == g + 1
     assert not os.path.lexists(orphan) and not _stagings()
-    # A folder no import journal lists is refused, and nothing is created.
+    # A folder no import journal lists is renamed aside and kept.
     stray = os.path.join(db.DRAMAS_DIR, str(g + 2))
     _folder_with(stray, "mine.txt", b"mine")
+    assert db.create_drama(title_en="Next") == g + 2
+    assert not os.path.lexists(stray)
+    [aside] = [n for n in _entries() if n.startswith(f"{g + 2}.orphan-")]
+    assert _read(os.path.join(db.DRAMAS_DIR, aside, "mine.txt")) == b"mine"
+    # One that can't be renamed aside refuses the create, and nothing is created.
+    stray = os.path.join(db.DRAMAS_DIR, str(g + 3))
+    _folder_with(stray, "mine.txt", b"mine")
+    real_rename = os.rename
+
+    def rename(src, dst, *args, **kw):
+        if os.path.abspath(src) == os.path.abspath(stray):
+            raise PermissionError("in use")
+        return real_rename(src, dst, *args, **kw)
+    monkeypatch.setattr(os, "rename", rename)
     with pytest.raises(db.DramaFolderConflict) as e:
-        db.create_drama(title_en="Next")
+        db.create_drama(title_en="Later")
     assert db.LIBRARY_DIR not in str(e.value)
-    r = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Next"})
+    r = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Later"})
     assert r.status_code == 409 and "move it out" in r.text
     _no_leak(r)
-    assert [d[1] for d in _dramas()][-1] == "Fresh"
+    assert [d[1] for d in _dramas()][-1] == "Next"
     assert _read(os.path.join(stray, "mine.txt")) == b"mine"

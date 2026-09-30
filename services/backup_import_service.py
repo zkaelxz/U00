@@ -63,7 +63,8 @@ _MAX_VALUE_BYTES = 64 * 1024 ** 2
 _MAX_IMPORT_BYTES = 512 * 1024 ** 2
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 _BAD_FILE = "That file isn't a Baihe backup, or it is damaged."
-_FOLDER_EXISTS = "A folder for an imported drama already exists; nothing was imported."
+_FOLDER_EXISTS = ("A folder for an imported drama is already in the library's dramas folder "
+                  "and could not be moved aside; nothing was imported.")
 _TOO_LARGE = "The uploaded file is too large."
 # How long reads of the uploaded database may run: a crafted file must not
 # hold the request (and, for an import, the maintenance lock) indefinitely.
@@ -380,9 +381,9 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
         except BaseException as exc:
             dst.rollback()
             if staging is not None and not abs_._end_media_staging(staging):
-                raise ServiceError("The dramas could not be imported and nothing was added, but "
-                                   "some of their files could not be removed yet; they are "
-                                   "removed at the next start.") from None
+                raise ServiceError("The dramas were not imported, but some of their files could "
+                                   "not be cleaned up and are still in the library's dramas "
+                                   "folder; the app tries again at the next start.") from None
             if isinstance(exc, (ServiceError, KeyboardInterrupt, SystemExit)):
                 raise
             log.warning("Drama import failed: %s", type(exc).__name__)

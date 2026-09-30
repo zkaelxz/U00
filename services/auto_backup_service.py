@@ -842,10 +842,11 @@ def cleanup_stale_leftovers(max_age: float = STALE_LEFTOVER_SECONDS, now: float 
     in the backup folder and restore staging folders from older versions
     ("dramas/.restoring-*") left by a process that was killed mid-way,
     once older than a day, plus the leftovers of interrupted imports and
-    restores (db.recover_media_imports; any age, since nothing is running
-    at startup). Symlinks are left alone. Never raises."""
+    restores (db.recover_media_imports: any age once journalled, but never
+    one whose import holds its lock). Symlinks are left alone. Never
+    raises."""
     now = time.time() if now is None else now
-    removed = db.recover_media_imports()["settled"]
+    removed = db.recover_media_imports(max_age, now)["settled"]
     targets = [(_folder_path(get_settings()["folder"]), ".baihe_snapshot.partial-", False),
                (db.DRAMAS_DIR, ".restoring-", True)]
     for folder, prefix, is_dir in targets:
@@ -1257,8 +1258,9 @@ def _stage_media(zf: zipfile.ZipFile, old_id: int, staging: str):
 
 
 def _claim_folder(drama_id: int, conflict: str):
-    """dramas/<drama_id> must not exist for a drama being added (a leftover
-    of an import that never committed is cleared first); else 409."""
+    """dramas/<drama_id> must not exist for a drama being added: a leftover
+    of an import that never committed is cleared, anything else is renamed
+    aside (db.claim_new_drama_folder); 409 when that fails."""
     try:
         db.claim_new_drama_folder(drama_id)
     except db.DramaFolderConflict:
@@ -1275,20 +1277,18 @@ def _move_media_in(staging: str, folders: dict, conflict: str):
         _claim_folder(did, conflict)
     db.write_media_journal(staging, folders)
     for did, path in folders.items():
-        final = os.path.join(db.DRAMAS_DIR, str(did))
-        if os.path.lexists(final):
+        if not db.move_staged_folder(staging, did, path):
             raise ConflictError(conflict)
-        os.rename(path, final)
     _fsync_dir(db.DRAMAS_DIR)
 
 
 def _end_media_staging(staging: str) -> bool:
     """Ends an import's staging (see db.finish_media_staging): after a
-    commit only the journal and staging folder go; otherwise the folders it
-    moved into place go too. False when something could not be removed
-    (logged by id; the journal stays, so the next start retries)."""
+    commit only the markers, journal and staging folder go; otherwise the
+    folders it moved into place go too. False when something was left in
+    place (logged by id; the journal stays, so the next start retries)."""
     try:
-        return not db.finish_media_staging(staging)
+        return db.finish_media_staging(staging)
     except (OSError, sqlite3.Error):
         log.warning("An import's staging folder could not be removed")
         return False
@@ -1347,7 +1347,8 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
     folder_free = not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     keep_id = db.get_drama(drama_id) is None and folder_free
     suffix = None if keep_id else f"(restored {datetime.date.today().isoformat()})"
-    conflict = "A folder for the restored drama already exists; nothing was restored."
+    conflict = ("A folder for the restored drama is already in the library's dramas folder "
+                "and could not be moved aside; nothing was restored.")
     with contextlib.closing(sqlite3.connect(_ro_uri(snap_db), uri=True)) as src, \
             contextlib.closing(db.get_conn()) as dst:
         src.execute("PRAGMA trusted_schema = OFF")
@@ -1355,15 +1356,16 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
             dst.execute("BEGIN IMMEDIATE")
             live_id, counts, series_outcome = _copy_drama(src, dst, drama_id, drama_id if keep_id else None,
                                           suffix)
+            _claim_folder(live_id, conflict)   # never inherit a stray dramas/<new id>
             if staged is not None:
                 _move_media_in(staging, {live_id: staged}, conflict)
             dst.commit()
         except BaseException as exc:
             dst.rollback()
             if staging is not None and not _end_media_staging(staging):
-                raise ServiceError("The drama could not be restored and nothing was added, but "
-                                   "some of its files could not be removed yet; they are "
-                                   "removed at the next start.") from None
+                raise ServiceError("The drama was not restored, but some of its files could not "
+                                   "be cleaned up and are still in the library's dramas folder; "
+                                   "the app tries again at the next start.") from None
             if isinstance(exc, (ServiceError, KeyboardInterrupt, SystemExit)):
                 raise
             log.warning("Single-drama restore failed: %s", type(exc).__name__)
