@@ -124,6 +124,55 @@ class TestEveryRouteDeclared:
                           for _r, p, m, d in api_auth.iter_route_declarations(app))
         assert table(household) == table(_app("on", dist))
 
+    def test_doc_route_table_matches_the_app(self, dist):
+        """Every row of the route table in docs/remote-access-decision.md
+        (declaration, count, listed METHOD /path) equals what the app declares."""
+        import pathlib
+        import re
+        doc = (pathlib.Path(__file__).resolve().parent.parent / "docs"
+               / "remote-access-decision.md").read_text(encoding="utf-8")
+        header = doc.index("| Declaration | Routes | Paths |")
+        documented, counts = {}, {}
+        for line in doc[header:].splitlines()[2:]:
+            if not line.startswith("|"):
+                break
+            cells = [c.strip() for c in line.strip().strip("|").split("|", 2)]
+            name = cells[0]
+            documented[name] = set(re.findall(r"`([A-Z]+ /[^`]*)`", cells[2]))
+            counts[name] = int(cells[1])
+
+        def label(decls):
+            kind, perm = decls[0]
+            return {"public": "public()", "local_only": "local_only()",
+                    "authenticated": "authenticated()"}.get(kind, perm)
+
+        actual = {}
+        for _r, path, methods, decls in api_auth.iter_route_declarations(_app("on", dist)):
+            if path in DOCS_PATHS:
+                continue
+            for m in methods:
+                actual.setdefault(label(decls), set()).add(f"{m} {path}")
+
+        problems = []
+        for name in sorted(set(documented) | set(actual)):
+            doc_routes, app_routes = documented.get(name, set()), actual.get(name, set())
+            if name not in documented:
+                problems.append(f"{name}: no row in the doc (app has {len(app_routes)} routes)")
+                continue
+            if name not in actual:
+                problems.append(f"{name}: row in the doc but the app declares no such routes")
+                continue
+            if counts[name] != len(doc_routes):
+                problems.append(f"{name}: Routes column says {counts[name]} but the row lists {len(doc_routes)}")
+            if counts[name] != len(app_routes):
+                problems.append(f"{name}: Routes column says {counts[name]} but the app has {len(app_routes)}")
+            for r in sorted(app_routes - doc_routes):
+                problems.append(f"{name}: missing from the doc: {r}")
+            for r in sorted(doc_routes - app_routes):
+                problems.append(f"{name}: in the doc but not declared in the app: {r}")
+        assert not problems, ("docs/remote-access-decision.md route table is out of date:\n  "
+                              + "\n  ".join(problems))
+
     def test_walker_sees_every_route(self, dist):
         app = _app("off", dist)
         paths = {p for _r, p, _m, _d in api_auth.iter_route_declarations(app)}

@@ -1703,3 +1703,32 @@ def test_cli_and_translate_run_build_the_same_style_guidelines(isolated_db, monk
     _, expected, _ = workspace_job_service.build_run_style_context(
         did, d, lines, "audio_drama", include_genre_notes=False, default_female_pronouns=True)
     assert seen["style_guidelines"] == expected and "sad" in expected
+
+
+class TestLocaleParity:
+    """The English variants are defined once (settings_service.LOCALE_CHOICES);
+    the CLI, the translate-run service, the prompt and the frontend labels follow it."""
+
+    @pytest.mark.parametrize("command", ["translate", "run"])
+    def test_cli_locale_choices_are_the_settings_choices(self, monkeypatch, capsys, command):
+        from services import settings_service
+        monkeypatch.setattr(sys, "argv", ["cli.py", command, "--locale", "xx-XX"])
+        with pytest.raises(SystemExit):
+            cli.main()
+        err = capsys.readouterr().err
+        listed = tuple(part.strip("' ") for part in err.split("choose from")[1].strip().rstrip(")\n").split(","))
+        assert listed == tuple(settings_service.LOCALE_CHOICES)
+
+    def test_prompt_and_frontend_cover_every_locale(self):
+        import re
+        from pathlib import Path
+        from services import settings_service
+        names = {"en-US": "American English", "en-GB": "British English",
+                 "en-AU": "Australian English"}
+        assert set(names) == set(settings_service.LOCALE_CHOICES)
+        for loc, name in names.items():
+            assert name in translate_engines.build_llm_instructions("", {}, locale=loc)
+        src = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages"
+               / "settings" / "preferences.ts").read_text(encoding="utf-8")
+        block = src.split("export const LOCALE_LABELS", 1)[1].split("}", 1)[0]
+        assert set(re.findall(r"'([a-z]{2}-[A-Z]{2})':", block)) == set(settings_service.LOCALE_CHOICES)

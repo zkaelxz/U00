@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  MAX_NOVEL_EPUB_BYTES,
   MAX_NOVEL_TEXT_CHARS,
   checkNovelFile,
+  epubSizeProblem,
   novelFileStatusLine,
   novelFileSummary,
   pasteProblem,
@@ -59,5 +61,13 @@ describe('status wording', () => {
     expect(novelFileStatusLine(none)).toBe('Nothing saved yet.')
     expect(novelFileSummary(null)).toBe('checking')
     expect(novelFileStatusLine(null)).toBe('Checking…')
+  })
+})
+
+describe('epubSizeProblem', () => {
+  it('refuses an .epub over the server cap and ignores other files', () => {
+    expect(epubSizeProblem({ name: 'b.EPUB', size: MAX_NOVEL_EPUB_BYTES })).toBeNull()
+    expect(epubSizeProblem({ name: 'b.epub', size: MAX_NOVEL_EPUB_BYTES + 1 })).toMatch(/50 MB limit for EPUB/)
+    expect(epubSizeProblem({ name: 'b.txt', size: MAX_NOVEL_EPUB_BYTES + 1 })).toBeNull()
   })
 })
