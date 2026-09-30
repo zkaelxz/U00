@@ -189,7 +189,7 @@ def cmd_narrate_prep(args):
         chunks = chunk_novel_text(text)
         lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
         known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
-        # Step 41: same resume as the API job (narration_service).
+        # Same resume as the API job (narration_service).
         done, on_batch = narration_service.tagging_checkpoint(
             d["id"], text, engine_name, getattr(engine, "model", args.model), known,
             fresh=getattr(args, "fresh", False))
@@ -734,7 +734,7 @@ def cmd_translate(args):
 
         style_note = (args.style_note if args.style_note is not None
                       else settings_service.get_preference("default_style_note"))
-        # Same settings the Workspace job records with each line (Step 41).
+        # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
             locale=args.locale or settings_service.get_preference("default_locale"),
@@ -748,7 +748,7 @@ def cmd_translate(args):
             # translation restorable from history before it's overwritten.
             db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
         # Same as the Workspace Translate job: writes `en` only, and
-        # records each translated line's provenance (Step 41).
+        # records each translated line's provenance.
         if target_ids is not None:
             save_cb, notes_cb = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
         else:

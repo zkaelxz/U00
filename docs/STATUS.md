@@ -30,6 +30,21 @@ Queue, in order (lead session merges once CI is green):
 
 Deferred: Step 108 (adapter interfaces), and the `db.py` and `api/schemas.py` splits.
 
+Deferred until a need arises (owner decision 2026-09-30):
+- A table-of-contents picker, a profile-management screen and a fixture-refresh command.
+- Step 108 stays parked. Add the smallest per-site extension only when a real site needs login, scoped search, metadata or a scrape policy. Login goes through a persistent browser profile; the app never collects a username or password. Refactor the shared adapter contract only if repeated cases show it is awkward.
+- AI-fallback extras: comics, batch confirm, automatic use of a saved profile, and the two text-only adapters.
+- Structural debt: the `init_db` split, private-name reach-ins, import cycles, shared backup helpers, and consolidating the byte-capped reader and redactor.
+
+Live capture and SSRF (owner decision 2026-09-30):
+- #589 (a guarded egress proxy) is parked unmerged. `media.import_url` will be granted to household members (allowlisted Google accounts) and the risk accepted.
+- Closing it is needed before granting it to anyone less trusted: ffmpeg whitelist `http,tcp,crypto` with the proxy doing TLS and rewriting playlists, or fetching in Python and piping to ffmpeg, or yt-dlp fetching through the proxy and piping.
+- Live capture ignores a Windows system proxy.
+
+Notes:
+- #596 removed the Streamlit-only functions `eta_text`, `autotune_subprocess_worker`, `distinct_custom_tags`, `redundant_tts_install_warning`, `manual_lines_that_would_change`, `get_epub_chapter_count`, `lookup_metadata` (and `lookup_metadata_from_text`), `can_probably_embed`, `pages_to_pdf`, `line_audio_clip`, `parse_timestamp`, `unsaved_line_count` and `stage_statuses_from_index`. Docs and specs that still mention them are historical.
+- The boot service's port is chosen with `BAIHE_API_PORT`; run Setup again so the service follows (`docs/windows-installer-design.md` §11).
+
 Parked import and export follow-ups (owner decision 2026-09-30, revisit only if they cause trouble):
 - The chapter list is fetched twice: the import job re-lists, and listing never seeds the raw cache. Only lightnovel_fun's volume walk repeats real page fetches.
 - `media_export_service` builds in the system temp dir and `shutil.move`s to the final path; across drives that is a copy, so a failure can leave a half-copied file.
