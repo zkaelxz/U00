@@ -308,6 +308,9 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields),
 │   │                             romanize credits (writes only the *_romanized fields)
+│   ├── metadata_research_service.py  Step 37 -- "Research online": Gemini Google Search grounding,
+│   │                             per-field cited sources, entity-keyed cache, daily free-search budget,
+│   │                             Keep/Replace/Save-both apply with per-field provenance
 │   ├── cover_art_service.py      Drama cover art (P14): checked PNG/JPEG/WebP upload re-encoded without
 │   │                             metadata, stored as cover.<ext>; resolves the file to serve
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
@@ -402,6 +405,7 @@ baihe-subtitler/
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── backup_schemas.py         automatic backup / snapshot restore models (kept apart from schemas.py)
+│   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
@@ -467,6 +471,8 @@ baihe-subtitler/
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37), .../romanize-credits (admin.library + engines check)
+│       ├── metadata_research_routes.py  GET /api/metadata/research/budget, POST .../dramas/{id}/research,
+│       │                         .../research/apply, GET .../provenance (Step 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|attach-from-sources|ocr-chapter,
 │       │                         GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
