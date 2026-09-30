@@ -8,6 +8,7 @@ of switching to another tab and coming back later.
 """
 import sys
 import os
+import queue
 import shutil
 import sqlite3
 import tempfile
@@ -1517,3 +1518,159 @@ class TestRunCancellable:
         bg.request_cancel("rc3")
         assert _wait_for(lambda: bg.get_status("rc3")["status"] == "cancelled", timeout=8)
         assert time.time() - t0 < 4
+
+
+class TestStartFailure:
+    """A job is marked "running" before its thread/process starts; if the
+    start raises, the record must not stay "running" forever (blocking a
+    restart, acquire_exclusive and the GPU lock)."""
+
+    def _fail_thread_starts(self, monkeypatch, name=None):
+        real = bg._start_job_thread
+
+        def flaky(target, thread_name, *args, **kwargs):
+            if name is None or thread_name == name:
+                raise RuntimeError("can't start new thread key=AIzaSyFAKESECRETVALUE12345")
+            return real(target, thread_name, *args, **kwargs)
+
+        monkeypatch.setattr(bg, "_start_job_thread", flaky)
+        return real
+
+    def test_thread_start_failure_marks_error_and_frees_everything(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        real = self._fail_thread_starts(monkeypatch)
+        with pytest.raises(RuntimeError):
+            bg.start_job("sf_thread", lambda: None, gpu_touching=True)
+        status = bg.get_status("sf_thread")
+        assert status["status"] == "error"
+        assert "AIzaSyFAKESECRETVALUE12345" not in status["error"]
+        assert db.try_acquire_gpu_lock("someone_else")
+        db.release_gpu_lock("someone_else")
+        assert bg.acquire_exclusive("test")
+        bg.release_exclusive()
+        monkeypatch.setattr(bg, "_start_job_thread", real)
+        assert bg.start_job("sf_thread", lambda: None) is True
+        _wait("sf_thread")
+        assert bg.get_status("sf_thread")["status"] == "done"
+
+    def test_process_start_failure_marks_error(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+
+        class _Unstartable(_FakeProcess):
+            def start(self):
+                raise TypeError("cannot pickle '_thread.lock' object")
+
+        monkeypatch.setattr(bg.multiprocessing, "Process",
+                            lambda target, args, daemon=True: _Unstartable(target, args))
+        with pytest.raises(TypeError):
+            bg.start_process_job("sf_proc", lambda q: None, gpu_touching=True)
+        assert bg.get_status("sf_proc")["status"] == "error"
+        assert db.try_acquire_gpu_lock("someone_else")
+        db.release_gpu_lock("someone_else")
+        assert bg.acquire_exclusive("test")
+        bg.release_exclusive()
+
+    def test_promoted_job_failing_to_start_errors_and_the_next_one_runs(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: False)
+        bg.set_gpu_limit_enabled(True)
+        release = threading.Event()
+        assert bg.start_job("sf_a", lambda: release.wait(5), gpu_touching=True)
+        assert bg.start_job("sf_b", lambda: None, gpu_touching=True)
+        assert bg.start_job("sf_c", lambda: None, gpu_touching=True)
+        assert bg.get_status("sf_b")["status"] == "queued"
+        self._fail_thread_starts(monkeypatch, name="job:sf_b")
+        release.set()
+        assert _wait_for(lambda: bg.get_status("sf_c")["status"] == "done", timeout=5)
+        assert bg.get_status("sf_b")["status"] == "error"
+
+
+class TestSystemExitInJob:
+    def test_system_exit_marks_the_job_errored(self):
+        def leave():
+            raise SystemExit(2)
+
+        bg.start_job("sysexit", leave)
+        assert _wait_for(lambda: bg.get_status("sysexit")["status"] != "running")
+        assert bg.get_status("sysexit")["status"] == "error"
+        assert "SystemExit" in bg.get_status("sysexit")["error"]
+
+
+class _StubbornProcess(_FakeProcess):
+    """Ignores terminate() (a child stuck in a CUDA call); only kill() stops it."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.killed = False
+        self.joins = 0
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+        self._alive = False
+        self.exitcode = -9
+
+    def join(self, timeout=None):
+        self.joins += 1
+
+
+class _SpyQueue:
+    def __init__(self, items=(), error=None):
+        self.items = list(items)
+        self.error = error
+        self.closed = False
+
+    def get(self, timeout=None):
+        if self.error is not None:
+            raise self.error
+        if self.items:
+            return self.items.pop(0)
+        time.sleep(0.01)
+        raise queue.Empty
+
+    def close(self):
+        self.closed = True
+
+
+def _register_fake_process_job(job_id):
+    proc = _StubbornProcess(lambda q: None, (), alive_forever=True)
+    with bg._lock:
+        bg._jobs[job_id] = {
+            "status": "running", "progress": 0.0, "message": "", "error": None,
+            "started_at": time.time(), "finished_at": None, "cancel_requested": False,
+            "result": None, "gpu_touching": False, "description": None, "kind": "process",
+            "process": proc, "owner_user_id": None,
+        }
+    return proc
+
+
+class TestProcessWatcherRobustness:
+    def test_queue_error_marks_job_errored_and_stops_the_child(self):
+        import pickle
+        proc = _register_fake_process_job("w_torn")
+        q = _SpyQueue(error=pickle.UnpicklingError(
+            "pickle data was truncated key=AIzaSyFAKESECRETVALUE12345"))
+        bg._process_watcher("w_torn", proc, q, poll_interval=0.01)
+        status = bg.get_status("w_torn")
+        assert status["status"] == "error"
+        assert "UnpicklingError" in status["error"]
+        assert "AIzaSyFAKESECRETVALUE12345" not in status["error"]
+        assert proc.killed
+        assert q.closed
+
+    def test_cancel_kills_a_child_that_ignores_terminate(self):
+        proc = _register_fake_process_job("w_stubborn")
+        bg.request_cancel("w_stubborn")
+        bg._process_watcher("w_stubborn", proc, _SpyQueue(), poll_interval=0.01)
+        assert bg.get_status("w_stubborn")["status"] == "cancelled"
+        assert proc.terminated and proc.killed
+        assert not proc.is_alive()
+
+    def test_normal_exit_reaps_the_child_and_closes_the_queue(self):
+        proc = _register_fake_process_job("w_normal")
+        q = _SpyQueue(items=[("ok", {"n": 1})])
+        bg._process_watcher("w_normal", proc, q, poll_interval=0.01)
+        assert bg.get_status("w_normal")["status"] == "done"
+        assert proc.joins >= 1
+        assert q.closed

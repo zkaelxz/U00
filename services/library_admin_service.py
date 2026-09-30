@@ -990,6 +990,10 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
         def _recheck():
             if _any_job_running():
                 raise ConflictError(_BUSY)
+            # A finished job's thread can still be writing to the database
+            # that is about to be renamed aside.
+            if not background_jobs.wait_for_job_threads(10.0):
+                raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
             wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR, before_swap=_recheck)

@@ -426,7 +426,11 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _jobs[job_id]["finished_at"] = time.time()
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} cancelled")
-        except Exception as exc:
+        except BaseException as exc:
+            # BaseException too: a SystemExit from job code would otherwise
+            # leave the job "running" forever. Not re-raised: it would only
+            # end this thread, which ends here anyway, and KeyboardInterrupt
+            # is only ever delivered to the main thread.
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
@@ -447,6 +451,43 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
             _promote_next_queued_gpu_job()
 
     _start_job_thread(runner, f"job:{job_id}")
+
+
+def _fail_start(job_id, gpu_touching, exc, proc=None):
+    """The job was marked "running" but its thread or process could not be
+    started (thread limit, fork or pickling failure). Without this the
+    record stays "running" forever: the id can't be restarted, a restore
+    or reset is refused and the GPU lock is never released."""
+    import applog
+    from translate_engines import redact_secrets
+    error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
+    if proc is not None:
+        try:
+            if proc.is_alive():
+                _stop_process(proc)
+        except Exception:
+            pass
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is not None and job.get("status") == "running":
+            job["status"] = "error"
+            job["error"] = error_msg
+            job["finished_at"] = time.time()
+            _mirror_locked(job_id)
+    applog.get_logger().error(f"job {job_id} failed to start: {error_msg}")
+    _release_gpu_slot(job_id, gpu_touching)
+    _promote_next_queued_gpu_job()
+
+
+def _stop_process(proc):
+    """terminate, then kill if the child ignores SIGTERM (e.g. stuck in a
+    CUDA call): the GPU slot is released right after, so a surviving
+    child would hold VRAM with nothing tracking it."""
+    proc.terminate()
+    proc.join(timeout=5)
+    if proc.is_alive():
+        proc.kill()
+        proc.join(timeout=5)
 
 
 # Job runner and watcher threads that have not exited yet. A job's status
@@ -531,12 +572,16 @@ def _promote_next_queued_gpu_job():
             _mirror_locked(job_id)
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]
             break
-    if entry.get("kind") == "process":
-        proc.start()
-        _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
-                          job_id, proc, result_queue, True, on_done=on_done)
-    else:
-        _spawn(job_id, target, args, kwargs, gpu_touching=True)
+    try:
+        if entry.get("kind") == "process":
+            proc.start()
+            _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
+                              job_id, proc, result_queue, True, on_done=on_done)
+        else:
+            _spawn(job_id, target, args, kwargs, gpu_touching=True)
+    except Exception as exc:
+        # Runs in another job's finishing thread: record it, don't raise.
+        _fail_start(job_id, True, exc, proc if entry.get("kind") == "process" else None)
 
 
 # Set while a library restore swaps the library folder: no job may start
@@ -674,7 +719,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         }
         _mirror_locked(job_id)
 
-    _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
+    try:
+        _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
+    except Exception as exc:
+        _fail_start(job_id, gpu_touching, exc)
+        raise
     return True
 
 
@@ -740,9 +789,13 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id)
-    proc.start()
-    _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
-                      job_id, proc, result_queue, gpu_touching, on_done=on_done)
+    try:
+        proc.start()
+        _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
+                          job_id, proc, result_queue, gpu_touching, on_done=on_done)
+    except Exception as exc:
+        _fail_start(job_id, gpu_touching, exc, proc)
+        raise
     return True
 
 
@@ -820,8 +873,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # for real seconds, and nothing else here should have to wait
                 # on that (another job's update_progress, a UI's get_status).
                 was_cleared = job is None
-                proc.terminate()
-                proc.join(timeout=5)
+                _stop_process(proc)
                 with _lock:
                     if job_id in _jobs:
                         _jobs[job_id]["status"] = "cancelled"
@@ -917,7 +969,33 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _description = _jobs[job_id].get("description")
             _owner = _jobs[job_id].get("owner_user_id")
         _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
+    except Exception as exc:
+        # A torn pickle (child killed mid-put), a broken queue or any other
+        # watcher failure: without this the job stays "running" forever.
+        from translate_engines import redact_secrets
+        error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+        logger.error(f"job {job_id} watcher failed: {error_msg}")
+        try:
+            _stop_process(proc)
+        except Exception:
+            pass
+        with _lock:
+            job = _jobs.get(job_id)
+            if job is not None and job.get("status") == "running":
+                job["status"] = "error"
+                job["error"] = f"Lost contact with the job's process: {error_msg}"
+                job["finished_at"] = time.time()
+                _mirror_locked(job_id)
     finally:
+        # Reap the child (no zombie) and close the queue's pipe fds.
+        try:
+            proc.join(timeout=5)
+        except Exception:
+            pass
+        try:
+            result_queue.close()
+        except Exception:
+            pass
         _timing_finish(job_id, _timing, thread_job=False)
         _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()
