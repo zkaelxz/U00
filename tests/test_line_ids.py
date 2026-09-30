@@ -414,3 +414,21 @@ class TestRestoreSavedLines:
         restored = restore_saved_lines(version, self._current(), translation_only=True)
         assert [(l.id, l.end, l.zh, l.en, l.speaker_manual) for l in restored] == [
             (10, 2, "ab", "AB v1", True)]
+
+    def test_a_version_records_flags_and_sfx_and_restores_them_per_line(self, isolated_db):
+        """A version restored whole (structure changed since) puts each flag
+        and SFX mark back on its own line, not the merged line's."""
+        did = isolated_db.create_drama(title_en="D")
+        a, b = self._current()
+        b.flag, b.flag_note, b.sfx = "idiom", "b note", True
+        a.id = b.id = None
+        isolated_db.save_lines(did, [a, b])
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v")
+        rows = isolated_db.get_translation_version(vid)["lines"]
+        assert (rows[1]["flag"], rows[1]["flag_note"], rows[1]["sfx"]) == ("idiom", "b note", True)
+        # now a and b are merged into a, which picked up b's flag
+        merged = isolated_db.load_line_objects(did)[:1]
+        merged[0].flag, merged[0].flag_note = "idiom", "b note"
+        restored = restore_saved_lines(rows, merged, translation_only=True)
+        assert [(l.zh, l.flag, l.flag_note, l.sfx) for l in restored] == [
+            ("a", None, "", False), ("b", "idiom", "b note", True)]
