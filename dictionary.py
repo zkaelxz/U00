@@ -19,8 +19,10 @@ import re
 import json
 import urllib.request
 
+import portable
+
 CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
-CEDICT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library", "cedict.txt")
+CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
 
 _cedict_cache = None
 

@@ -103,9 +103,22 @@ def test_model_cache_names_and_sizes_only(monkeypatch, tmp_path):
         {"repo_id": "org/model", "repo_type": "model", "revision": "abc", "size_bytes": 100}])
     (tmp_path / "en_US-voice.onnx").write_bytes(b"x" * 10)
     (tmp_path / "en_US-voice.onnx.json").write_bytes(b"x" * 5)
+    import audio_preprocess
+    checkpoints = tmp_path / "torch" / "hub" / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    (checkpoints / "htdemucs.th").write_bytes(b"x" * 7)
+    monkeypatch.setenv("TORCH_HOME", str(tmp_path / "torch"))
+    sep = tmp_path / "sep"
+    sep.mkdir()
+    (sep / "vocals_mel_band_roformer.ckpt").write_bytes(b"x" * 20)
+    monkeypatch.setattr(audio_preprocess, "_MODEL_DIR", str(sep))
     out = svc.get_model_cache(piper_voices_dir=str(tmp_path))
     assert out["hf_total_bytes"] == 100
     assert out["piper_voices"] == [{"voice": "en_US-voice", "size_bytes": 15}]
+    assert out["model_files"] == [
+        {"folder": "torch", "name": "htdemucs.th", "size_bytes": 7},
+        {"folder": "audio_separator", "name": "vocals_mel_band_roformer.ckpt", "size_bytes": 20}]
+    assert out["model_files_total_bytes"] == 27
     assert str(tmp_path) not in json.dumps(out)
 
 

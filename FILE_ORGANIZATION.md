@@ -41,12 +41,26 @@ baihe-subtitler/
 │
 ├── .github/
 │   ├── pull_request_template.md
-│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check)
+│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check),
+│                                 windows-installer.yml (on demand / installer-v* tags: builds the
+│                                 Setup .exe and smoke-tests a silent install + uninstall)
 │
 ├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
 │
 ├── assets/
 │   └── app_icon.ico              used by make_shortcut.bat / packaging
+│
+├── installer/                    Windows installer (Step 80b; docs/windows-installer-design.md)
+│   ├── baihe.iss                 Inno Setup 6 script: per-user install, data-folder page,
+│   │                             shortcuts, uninstaller (user data kept unless a box is ticked)
+│   ├── build_installer.py        build-time: stages the app + frontend/dist (no .env/library/
+│   │                             tests), pinned embeddable Python, core wheels, manifest; runs ISCC
+│   ├── launcher.py               runtime (ships as app\installer\): the Start-menu shortcut --
+│   │                             starts `python -m api` on loopback, opens the window; --stop
+│   ├── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
+│   │                             pip from its wheel, installs requirements-core offline
+│   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
+│                                 workflow's "Stop ends every child" check
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -85,10 +99,9 @@ baihe-subtitler/
 │   │                             they were diagnosed and fixed [audit record, append-only;
 │   │                             deliberately kept separate from README.md so that stays
 │   │                             focused on using the app]
-│   └── windows-installer-design.md   Step 80 Windows installer/uninstaller architecture
-│                                 [design proposal, nothing built yet; written for an
-│                                 implementing session or the user to read before Step 80's
-│                                 build work starts]
+│   └── windows-installer-design.md   Windows installer/uninstaller: Step 80's design, updated
+│                                 for React + FastAPI and built in Step 80b (installer/)
+│                                 [design + as-built reference; the research notes are in archive/]
 │
 │   Note: the numbered build-order roadmap (`docs/baihe-roadmap.md`) and its own status table
 │   don't live in this repo — they're tracked on the separate planning branch
@@ -127,9 +140,9 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (16 sites)
+│   └── adapters/                  one file per supported site (17 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
-│       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
+│       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, fanjiao.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
 │           lightnovel_fun.py, ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
@@ -198,6 +211,10 @@ baihe-subtitler/
 │   │                             registry (model_registry.json) and a manual, cached provider model-list
 │   │                             check; user-confirmed preset model switch (never automatic)
 │   ├── model_registry.json       Step 40 -- sourced lifecycle facts (current/legacy/deprecated/retired)
+│   ├── model_reeval_service.py   Step 40b -- scheduled model re-evaluation: user-added candidates vs the
+│   │                             production model through the Benchmark Lab, report, recorded decisions,
+│   │                             explicit promotion only (scheduler: api/background.py)
+
 
 │   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
 │   │                             from a static table: allowlisted https hops, timeouts, byte cap,
@@ -205,8 +222,23 @@ baihe-subtitler/
 │   │                             background jobs (deno_install, upgrade_check) behind the install guard
 │   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
 │   │                             must resolve inside the voice-bank folder, symlinks refused
+│   ├── maintenance_assistant_service.py  Step 42 -- in-app AI maintenance assistant, read-only v1: a fixed
+│   │                             table of read-only tools (list/read/search code, git status/log/diff, redacted
+│   │                             log, job history, support report, dependency/model checks, one test file),
+│   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
+│   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
+│   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
+│   ├── assistant_roles_service.py  Step 60 -- the assistant's implement -> independent review roles: reviewer
+│   │                             prompt, verdict parsing, cross-provider check (off by default; same read-only tools)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
+│   │                             cancels this process's jobs, stops page_server; the launcher's token-gated
+│   │                             POST /api/system/shutdown, a closed console window and Ctrl+C run it
+│   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
+│   │                             hooks name what changed, each stream re-reads it through the GET routes'
+│   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
+│   │                             job_records sweep for other processes' jobs
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
@@ -289,6 +321,12 @@ baihe-subtitler/
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
 │   ├── comic_view_service.py     comic viewer: page list, contained page-image lookup (magic-byte type,
 │   │                             no symlinks, 50 MB cap, no PIL), visible text regions, page progress
+│   ├── scanlate_pages_service.py Scanlate S1/S2: panel config, page detail by stable region id, run notes,
+│   │                             add_page_images (upload + link imports; the import limits live here), the
+│   │                             scanlate_<id> job id, upload claim, shared pipeline lock, note cleaner
+│   ├── scanlate_run_service.py   Scanlate S5: detect + OCR + id-keyed translate + render as one job per drama
+│   │                             (modes missing/page/all), conditional per-page writes, predecessor context
+│   ├── scanlate_render_service.py Scanlate S6/S8: typeset one page from DB regions; render and ZIP/PDF export jobs
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
@@ -327,6 +365,11 @@ baihe-subtitler/
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text (optional chapter
 │   │                             range), chapters imported in Sources as narration text, chapter OCR job
+│   ├── lncrawl_service.py        Step 115b -- optional "Import with lightnovel-crawler": finds the
+│   │                             user-installed GPL-3.0 `lncrawl` program (PATH or Settings lncrawl_cmd;
+│   │                             never imported), runs it as a separate process (fixed argv, timeout,
+│   │                             cancel, output/size caps, redacted tail) and attaches its EPUB through
+│   │                             novel_attach_service (router: novel_routes.py, local_only)
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
@@ -394,6 +437,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── scanlate_schemas.py       automatic Scanlate request/response models (kept apart from schemas.py)
 │   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
 │   ├── backup_schemas.py         automatic backup / snapshot restore models (kept apart from schemas.py)
 │   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
@@ -407,8 +451,12 @@ baihe-subtitler/
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
+│   ├── model_reeval_schemas.py   Step 40b re-evaluation models (kept apart from schemas.py)
+
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
+
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
@@ -426,6 +474,8 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
+│       ├── events_routes.py      GET /api/events (SSE, library.read): job / job_gone / notifications / live /
+│       │                         resync / ping events, 15 s heartbeat, session re-checked every <= 5 s (services/event_stream_service.py)
 │       ├── job_stage_routes.py   GET /api/jobs/{id}/stages (library.read, job visibility): per-stage timing (Step 41)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
@@ -491,8 +541,13 @@ baihe-subtitler/
 │       │                         admin.diagnostics; cases, import, regression, runs (POST) local_only (Step 38)
 │       ├── model_registry_routes.py /api/models/status (GET, admin.diagnostics), check and
 │       │                         presets/{id}/switch (POST, local_only; Step 40)
+│       ├── model_reeval_routes.py /api/models/reeval (GET), decisions (GET), estimate (POST) admin.diagnostics;
+│       │                         settings, candidates, reject/reopen/promote, run (POST) local_only (Step 40b)
+
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
+│       ├── scanlate_routes.py    /api/scanlate/dramas/{id}/config, run-notes, pages/{pid} (GET); pages (upload, PC-only),
+│       │                         run, render, export (jobs.start) -- tests/test_api_scanlate_auto.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
@@ -514,6 +569,8 @@ baihe-subtitler/
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
+│       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;
@@ -563,7 +620,8 @@ baihe-subtitler/
 │   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
 │   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
-│   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
+│   │                              errorFallbackText.ts; clipboard.ts (copyText: the one Copy helper, falls back
+│   │                              to execCommand on plain http, never throws); src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
 │   │                              src/labels.ts: display labels for status, media type, language and engine
 │   │                              codes (unknown codes title-cased; one source of truth; unit-tested).
@@ -577,6 +635,10 @@ baihe-subtitler/
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
+│   ├── src/hooks/                 useJob (push, polling fallback), useEventStream (the tab's shared SSE stream,
+│   │                              src/api/eventStream.ts: reconnect with backoff, resync, poll fallback),
+│   │                              useMediaQuery, useShortcut (list keyboard shortcuts),
+
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              useReattachJob (a stage revisited mid-job picks its job up again;
 │   │                              per-stage job ids in src/pages/workspace/stageJobIds.ts),
@@ -683,6 +745,9 @@ baihe-subtitler/
 │   │                              CreditsCoverPanel (Source > Credits & cover: bilingual credits, Romanize,
 │   │                              PC-only cover upload) + ../preambleForm.ts (pure, unit-tested; also the
 │   │                              EPUB chapter range NovelPanel uses) + preamble.css
+│   │                              LncrawlPanel (Source > Novel text > Import with lightnovel-crawler; shown
+│   │                              only when lncrawl is installed and on the PC) + lncrawlForm.ts (pure,
+│   │                              unit-tested)
 │   │                              VoiceSuggestions (Characters > "sounds like X": accept/reject) + characters.css;
 │   │                              CharactersPanel's sample lines, custom pronouns and "Remember in this series"
 │   │                              use characterForm.ts (pure, unit-tested); API in src/api/characters.ts,
@@ -736,7 +801,8 @@ baihe-subtitler/
 | `applog.py` | a single rotating log file for the whole app |
 | `diagnostics.py` | environment self-check: which optional dependencies/models are available |
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
-| `portable.py` | lets the whole app folder be copied/moved and still work |
+| `process_guard.py` | Windows Job Object that ends every child process (ffmpeg, Playwright's Node and Chromium, pip...) with the API server, however it was started, plus the console-close handler that runs the clean stop first; `launcher.py --stop` can end an install's whole group (Step 80b) |
+| `portable.py` | lets the whole app folder be copied/moved and still work; `data_dir()` is where library/, .env and (installed copies) model caches live -- the app folder for a source checkout, the per-user data folder for an installed copy (Step 80b) |
 | `storage.py` | disk usage, cache cleanup |
 | `benchmark.py` | the case runners the Benchmark Lab (services/benchmark_lab_service.py) builds on: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
 | `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |

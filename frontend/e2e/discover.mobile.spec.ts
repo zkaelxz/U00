@@ -42,7 +42,7 @@ test('phone: every section open, no sideways scroll, 44 px targets', async ({ pa
   await page.getByRole('button', { name: 'Find', exact: true }).click()
   await expect(page.getByTestId('search-links')).toBeVisible()
   await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
-  await expect(page.getByRole('link', { name: 'In your Library — open' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
   await page.getByLabel('Site URL').fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
   await noSideways(page)
   await tallTargets(page)

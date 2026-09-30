@@ -207,6 +207,59 @@ class TestSignInHttpTimeouts:
         assert _find_httpx_calls_missing_timeout(str(p)) == ([2, 3, 6], 5)
 
 
+_SDK_CLIENTS = ("Anthropic", "AsyncAnthropic", "OpenAI", "AsyncOpenAI")
+
+
+def _find_sdk_clients_missing_timeout(path):
+    """(lineno list, number checked) for LLM SDK client constructors in
+    `path` -- `Anthropic(...)`, `anthropic.Anthropic(...)`, `OpenAI(...)`
+    and their Async forms -- that pass no `timeout=` (B-07)."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    problems, checked = [], 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+        if name in _SDK_CLIENTS:
+            checked += 1
+            if not any(kw.arg == "timeout" for kw in node.keywords):
+                problems.append(node.lineno)
+    return sorted(problems), checked
+
+
+def _project_py_files():
+    skip = {"__pycache__", "tests", "node_modules", "frontend", ".git", "venv", ".venv"}
+    out = []
+    for root, dirs, files in os.walk(PROJECT_ROOT):
+        dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")]
+        out += [os.path.join(root, f) for f in files if f.endswith(".py")]
+    return sorted(out)
+
+
+class TestSdkClientsHaveTimeouts:
+    """B-07: the Anthropic and OpenAI SDK clients were built without
+    timeout=, unlike every REST engine."""
+
+    def test_every_sdk_client_has_a_timeout(self):
+        problems, checked = {}, 0
+        for f in _project_py_files():
+            bad, n = _find_sdk_clients_missing_timeout(f)
+            checked += n
+            if bad:
+                problems[os.path.relpath(f, PROJECT_ROOT)] = bad
+        assert checked >= 2, "the checker no longer sees translate_engines' SDK clients"
+        assert problems == {}, f"SDK client(s) missing timeout=: {problems}"
+
+    def test_checker_catches_missing_timeouts(self, tmp_path):
+        p = tmp_path / "mod.py"
+        p.write_text("import anthropic\nfrom openai import OpenAI\n"
+                     "a = anthropic.Anthropic(api_key=k)\n"
+                     "b = OpenAI(api_key=k, timeout=5)\n"
+                     "c = AsyncOpenAI(api_key=k)\n")
+        assert _find_sdk_clients_missing_timeout(str(p)) == ([3, 5], 3)
+
+
 class TestTimeoutCheckerItself:
     def test_catches_a_call_with_no_timeout(self, tmp_path):
         src = "import requests\nrequests.post(url, json={})\n"

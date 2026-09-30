@@ -28,6 +28,7 @@ CYCLE_LEASE_SECONDS = 2 * 3600
 VALIDATOR_MAX_AGE_SECONDS = 7 * 24 * 3600
 _scheduler_started = False
 _scheduler_lock = threading.Lock()
+_scheduler_stop = threading.Event()   # set by stop_scheduler (app shutdown)
 
 
 def check_series(adapter, row: dict) -> list:
@@ -77,7 +78,8 @@ def check_series(adapter, row: dict) -> list:
     return new
 
 
-def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = False) -> dict:
+def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = False,
+                    allow_browser: bool = True) -> dict:
     """One pass over every tracked series. `adapter_factory(name)` is
     injectable for tests; defaults to the registry.
 
@@ -85,7 +87,10 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
     scheduler): the cycle is claimed first (store.claim_check_cycle), and a
     cycle that can't claim returns {"skipped": True, ...} without checking
     anything. A `scheduled` cycle is also skipped when another process
-    finished one within the interval since this one was found due."""
+    finished one within the interval since this one was found due.
+
+    `allow_browser=False` (a manual check from another device) keeps every
+    adapter from launching a browser on this PC; scheduled cycles are local."""
     now = time.time()
     min_gap = float(store.get_setting("check_interval_hours") or 0) * 3600 if scheduled else 0.0
     token = store.claim_check_cycle(now, CYCLE_LEASE_SECONDS, min_gap)
@@ -95,12 +100,12 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
             background_jobs.set_result(job_id, summary)
         return summary
     try:
-        return _run_claimed_cycle(job_id, adapter_factory)
+        return _run_claimed_cycle(job_id, adapter_factory, allow_browser)
     finally:
         store.release_check_cycle(token)
 
 
-def _run_claimed_cycle(job_id, adapter_factory) -> dict:
+def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
     summary = {"checked": 0, "new": 0, "errors": {}, "queued": []}
@@ -115,6 +120,7 @@ def _run_claimed_cycle(job_id, adapter_factory) -> dict:
             continue
         try:
             adapter = factory(row["source"])
+            adapter.allow_browser = allow_browser and adapter.allow_browser
             new = check_series(adapter, row)
         except SourceError as e:
             summary["errors"][row["title"]] = f"{e.reason.value}: {e}"
@@ -145,9 +151,9 @@ def check_due(now: float = None) -> bool:
     return now - float(last) >= hours * 3600
 
 
-def start_check_now(scheduled: bool = False) -> bool:
+def start_check_now(scheduled: bool = False, allow_browser: bool = True) -> bool:
     return background_jobs.start_job(CHECK_JOB_ID, run_check_cycle, CHECK_JOB_ID,
-                                     scheduled=scheduled,
+                                     scheduled=scheduled, allow_browser=allow_browser,
                                      description="Checking tracked series for new chapters")
 
 
@@ -161,12 +167,18 @@ def ensure_scheduler_started(poll_seconds: float = 300.0):
         _scheduler_started = True
 
     def loop():
-        while True:
+        while not _scheduler_stop.is_set():
             try:
                 if store.list_tracked_series() and check_due():
                     start_check_now(scheduled=True)
             except Exception:
                 pass    # a transient DB/lock hiccup shouldn't kill the scheduler
-            time.sleep(poll_seconds)
+            _scheduler_stop.wait(poll_seconds)
 
     threading.Thread(target=loop, daemon=True, name="sources-chapter-scheduler").start()
+
+
+def stop_scheduler() -> None:
+    """Stops the scheduler for good in this process (the app's clean
+    shutdown, services/shutdown_service.py): it starts no more checks."""
+    _scheduler_stop.set()

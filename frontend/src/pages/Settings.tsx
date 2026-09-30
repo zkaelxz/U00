@@ -5,6 +5,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
+import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
@@ -107,6 +108,7 @@ export default function SettingsPage() {
           <WebSearchSection />
           <ExtensionSection />
           <AppearanceCard />
+          <DeveloperModeCard />
           <AdvancedCard {...prefProps} />
         </>
       )}

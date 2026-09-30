@@ -21,6 +21,7 @@ only.
 import portable
 portable.activate_portable_mode()
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -32,6 +33,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSi
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    assistant_routes,
     asr_options_routes,
     auth_routes,
     backup_routes,
@@ -48,6 +50,7 @@ from api.routers import (
     discover_lookup_routes,
     discover_routes,
     drama_routes,
+    events_routes,
     dub_routes,
     engine_routing_routes,
     stronger_engine_routes,
@@ -65,6 +68,7 @@ from api.routers import (
     media_routes,
     metadata_research_routes,
     metadata_routes,
+    model_reeval_routes,
     model_registry_routes,
     narration_routes,
     notification_center_routes,
@@ -74,6 +78,7 @@ from api.routers import (
     novel_routes,
     reader_routes,
     restructure_routes,
+    scanlate_routes,
     review_extras_routes,
     review_jobs_routes,
     review_lines_routes,
@@ -106,18 +111,34 @@ async def _lifespan(app: FastAPI):
     """Starts the background pieces Streamlit used to start (chapter-check
     scheduler, extension endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
-    Idempotent. The GPU-queue re-check is stopped at shutdown."""
+    Idempotent. The GPU-queue re-check is stopped at shutdown, any
+    running lightnovel-crawler import is cancelled and its program killed,
+    and job records left running by a dead process are closed (B-04)."""
+    from services import lncrawl_service
     if not getattr(app.state.settings, "background_services", False):
-        yield
+        try:
+            yield
+        finally:
+            lncrawl_service.shutdown()
         return
+    from services import jobs_service
+    try:
+        jobs_service.sweep_stale_job_records()
+    except Exception:
+        logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
-                                stop_gpu_queue_poller)
+                                start_reeval_scheduler, stop_gpu_queue_poller,
+                                stop_reeval_scheduler)
     start_background_services()
     start_gpu_queue_poller()
+    start_reeval_scheduler()
     try:
         yield
     finally:
         stop_gpu_queue_poller()
+        lncrawl_service.shutdown()
+
+        stop_reeval_scheduler()
 
 
 def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
@@ -171,6 +192,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
     app.include_router(jobs_routes.router)
+    app.include_router(events_routes.router)
     app.include_router(job_stage_routes.router)
     app.include_router(settings_routes.router)
     app.include_router(translate_routes.router)
@@ -219,6 +241,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(notification_center_routes.router)
     app.include_router(asr_options_routes.router)
     app.include_router(comic_routes.router)
+    app.include_router(scanlate_routes.router)
     app.include_router(engine_routing_routes.router)
     app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
@@ -228,10 +251,12 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(novel_files_routes.router)
     app.include_router(benchmark_routes.router)
     app.include_router(model_registry_routes.router)
+    app.include_router(model_reeval_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
+    app.include_router(assistant_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

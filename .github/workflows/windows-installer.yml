@@ -1,0 +1,221 @@
+name: Windows Installer
+
+# Step 80b: builds BaiheStudio-Setup-<version>.exe (installer/baihe.iss,
+# payload from installer/build_installer.py), uploads it as an artifact,
+# and smoke-tests it: silent install into a temp folder, start the server
+# with the installed launcher, GET /api/health and the React app, check the
+# library landed in the data folder (not the program folder), stop, silent
+# uninstall, and check the data folder survived.
+#
+# On demand only (Run workflow, or pushing an installer-v* tag) -- never on
+# every PR: Actions minutes have run out before, and windows-latest bills at
+# 2x. A tag's version is the tag without "installer-v".
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the installer (e.g. 0.1.0)"
+        required: false
+        default: "0.1.0-dev"
+  push:
+    tags:
+      - "installer-v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Real observed duration (run 36667149394, 2026-09-30): 2m20s for the
+  # whole job, cold npm cache included. 20 minutes leaves room for slower
+  # runner provisioning and downloads without letting a hung step bill the
+  # 2x Windows rate for long.
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      INNO_VERSION: "6.7.3"
+      INNO_URL: "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
+      INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+    steps:
+      # Actions pinned by commit (tag in the comment; each runs on Node 24).
+      # No token left on disk: npm ci runs package install scripts.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          persist-credentials: false
+
+      # Same minor version as the bundled Python (installer/build_installer.py
+      # PYTHON_VERSION): pip evaluates python_version markers for the build
+      # interpreter when it downloads the wheels.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Inno Setup (pinned)
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP "innosetup.exe"
+          Invoke-WebRequest -Uri $env:INNO_URL -OutFile $exe -TimeoutSec 300
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:INNO_SHA256) { Write-Error "Inno Setup hash $hash != $env:INNO_SHA256"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP "InnoSetup6"
+          $p = Start-Process -FilePath $exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/CURRENTUSER","/DIR=`"$dir`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Inno Setup install exited $($p.ExitCode)"; exit 1 }
+          "ISCC=$dir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Pick the version
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if ($env:GITHUB_REF -like "refs/tags/installer-v*") {
+            $v = $env:GITHUB_REF.Substring("refs/tags/installer-v".Length)
+          } else {
+            $v = $env:INPUT_VERSION
+            if (-not $v) { $v = "0.1.0-dev" }
+          }
+          if ($v -notmatch '^[0-9A-Za-z.+-]{1,40}$') { Write-Error "Version '$v' may only use letters, digits, '.', '+' and '-'"; exit 1 }
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build the installer
+        shell: pwsh
+        run: python installer/build_installer.py --version "$env:APP_VERSION" --iscc "$env:ISCC"
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: BaiheStudio-Setup-${{ env.APP_VERSION }}
+          path: |
+            build/installer/output/BaiheStudio-Setup-*.exe
+            build/installer/payload/manifest.json
+          if-no-files-found: error
+
+      - name: Smoke test -- silent install
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $app = Join-Path $env:RUNNER_TEMP "baihe-app"
+          $data = Join-Path $env:RUNNER_TEMP "baihe-data"
+          $log = Join-Path $env:RUNNER_TEMP "setup.log"
+          # Exported first, so the log step can find install.log if Setup fails.
+          "APP_DIR=$app" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DATA_DIR=$data" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app`"","/DATADIR=`"$data`"","/LOG=`"$log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
+          $marker = Join-Path $app "app\INSTALLED"
+          if (-not (Test-Path $marker)) { Write-Error "No $marker"; exit 1 }
+          $first = (Get-Content $marker -Encoding utf8 | Where-Object { $_ -and -not $_.StartsWith("#") } | Select-Object -First 1).Trim()
+          if ($first -ne $data) { Write-Error "INSTALLED names '$first', expected '$data'"; exit 1 }
+          foreach ($bad in @("app\.env", "app\library", "app\tests", "app\model_cache")) {
+            if (Test-Path (Join-Path $app $bad)) { Write-Error "$bad must not be installed"; exit 1 }
+          }
+          if (-not (Test-Path (Join-Path $app "app\frontend\dist\index.html"))) { Write-Error "frontend\dist missing"; exit 1 }
+
+      - name: Smoke test -- start the installed app
+        shell: pwsh
+        run: |
+          & "$env:APP_DIR\python\python.exe" -s "$env:APP_DIR\app\installer\launcher.py" --no-browser
+          if ($LASTEXITCODE -ne 0) { Write-Error "launcher --no-browser exited $LASTEXITCODE"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
+          $index = Invoke-WebRequest -Uri http://127.0.0.1:8600/ -UseBasicParsing -TimeoutSec 10
+          if ($index.Headers['Content-Type'] -notlike 'text/html*') { Write-Error "/ served as '$($index.Headers['Content-Type'])'"; exit 1 }
+          $m = [regex]::Match($index.Content, '/assets/[^"'']+\.js')
+          if (-not $m.Success) { Write-Error "No /assets/*.js in index.html"; exit 1 }
+          $js = Invoke-WebRequest -Uri ("http://127.0.0.1:8600" + $m.Value) -UseBasicParsing -TimeoutSec 10
+          $ctype = [string]$js.Headers['Content-Type']
+          if (-not ($ctype.StartsWith('text/javascript') -or $ctype.StartsWith('application/javascript'))) { Write-Error "$($m.Value) served as '$ctype'"; exit 1 }
+          # Opening the library creates it -- in the data folder, never the program folder.
+          $dramas = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/library/dramas -UseBasicParsing -TimeoutSec 30
+          if ($dramas.StatusCode -ne 200) { Write-Error "/api/library/dramas answered $($dramas.StatusCode)"; exit 1 }
+          if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "library.db is not in the data folder"; exit 1 }
+          if (Test-Path "$env:APP_DIR\app\library") { Write-Error "a library folder appeared in the program folder"; exit 1 }
+          Write-Host "Installed app answers; library is in $env:DATA_DIR"
+
+      # Stop stops everything: a clean shutdown, and a long-running child of
+      # the server (a stand-in for ffmpeg/Chromium, put into the server's Job
+      # Object) doesn't outlive it; no process from the install folder is left.
+      - name: Smoke test -- stop ends the server and its children
+        shell: pwsh
+        run: |
+          $child = python installer/smoke_child.py "$env:APP_DIR"
+          if ($LASTEXITCODE -ne 0) { Write-Error "couldn't start the stand-in child"; exit 1 }
+          $child = [int]($child | Select-Object -Last 1)
+          if (-not (Get-Process -Id $child -ErrorAction SilentlyContinue)) { Write-Error "stand-in child isn't running"; exit 1 }
+          $out = & "$env:APP_DIR\python\python.exe" -s "$env:APP_DIR\app\installer\launcher.py" --stop
+          Write-Host $out
+          if ("$out" -notlike "*clean shutdown*") { Write-Error "expected a clean shutdown, got: $out"; exit 1 }
+          Start-Sleep -Seconds 3
+          if (Get-Process -Id $child -ErrorAction SilentlyContinue) { Write-Error "the server's child process outlived Stop"; exit 1 }
+          $left = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:APP_DIR, [StringComparison]::OrdinalIgnoreCase) }
+          if ($left) { $left | Format-Table ProcessId, ExecutablePath; Write-Error "processes from the install folder are still running"; exit 1 }
+          Write-Host "Stop ended the server and its children."
+
+      - name: Smoke test -- stop and silent uninstall
+        shell: pwsh
+        run: |
+          & "$env:APP_DIR\python\python.exe" -s "$env:APP_DIR\app\installer\launcher.py" --stop
+          # A marker the uninstaller must leave alone (silent uninstall keeps user data).
+          Set-Content -Path "$env:DATA_DIR\.env" -Value "BAIHE_SMOKE_TEST=1"
+          $p = Start-Process -FilePath "$env:APP_DIR\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
+          # unins000.exe hands off to a temp copy and returns at once; wait for it.
+          for ($i = 0; $i -lt 120 -and (Test-Path "$env:APP_DIR\unins000.exe"); $i++) { Start-Sleep -Seconds 1 }
+          foreach ($gone in @("unins000.exe", "python", "app")) {
+            if (Test-Path (Join-Path $env:APP_DIR $gone)) { Write-Error "$gone is still there after uninstall"; exit 1 }
+          }
+          if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "uninstall removed the library"; exit 1 }
+          if (-not (Test-Path "$env:DATA_DIR\.env")) { Write-Error "uninstall removed .env"; exit 1 }
+          Write-Host "Uninstalled; the data folder was kept."
+
+      # Clean uninstall (/CLEAN): a second install into new folders, then
+      # everything Baihe made goes -- and nothing outside it is touched.
+      - name: Smoke test -- clean uninstall
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build/installer/output/BaiheStudio-Setup-*.exe | Select-Object -First 1
+          $app2 = Join-Path $env:RUNNER_TEMP "baihe-app2"
+          $data2 = Join-Path $env:RUNNER_TEMP "baihe-data2"
+          $log2 = Join-Path $env:RUNNER_TEMP "setup2.log"
+          "DATA_DIR2=$data2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$app2`"","/DATADIR=`"$data2`"","/LOG=`"$log2`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Setup exited $($p.ExitCode)"; exit 1 }
+          & "$app2\python\python.exe" -s "$app2\app\installer\launcher.py" --no-browser
+          if ($LASTEXITCODE -ne 0) { Write-Error "launcher --no-browser exited $LASTEXITCODE"; exit 1 }
+          Invoke-WebRequest -Uri http://127.0.0.1:8600/api/library/dramas -UseBasicParsing -TimeoutSec 30 | Out-Null
+          Set-Content -Path "$data2\.env" -Value "BAIHE_SMOKE_TEST=1"
+          # Baihe's own temp folder goes; anything else in %TEMP% and the
+          # runner's other files stay.
+          $ownTemp = Join-Path $env:TEMP "baihe_smoke_clean"
+          $otherTemp = Join-Path $env:TEMP "notbaihe_smoke_clean"
+          New-Item -ItemType Directory -Force -Path $ownTemp, $otherTemp | Out-Null
+          $sentinel = Join-Path $env:RUNNER_TEMP "sentinel.txt"
+          Set-Content -Path $sentinel -Value "keep"
+          $p = Start-Process -FilePath "$app2\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLEAN" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
+          # The uninstaller runs from a temp copy after unins000.exe returns:
+          # wait for everything it removes, not just the install folder.
+          for ($i = 0; $i -lt 120 -and ((Test-Path $app2) -or (Test-Path $data2) -or (Test-Path $ownTemp)); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $app2) { Get-ChildItem -Recurse $app2 | Select-Object -First 20 FullName; Write-Error "the install folder is still there"; exit 1 }
+          if (Test-Path $data2) { Get-ChildItem -Recurse $data2 | Select-Object -First 20 FullName; Write-Error "the data folder is still there"; exit 1 }
+          if (Test-Path $ownTemp) { Write-Error "Baihe's temp folder is still there"; exit 1 }
+          if (-not (Test-Path $otherTemp)) { Write-Error "clean uninstall removed a temp folder that isn't Baihe's"; exit 1 }
+          if (-not (Test-Path $sentinel)) { Write-Error "clean uninstall removed a file outside its folders"; exit 1 }
+          if (-not (Test-Path "$env:DATA_DIR\library\library.db")) { Write-Error "clean uninstall touched the first install's data folder"; exit 1 }
+          Write-Host "Clean uninstall removed everything Baihe made and nothing else."
+
+      - name: Logs on failure
+        if: failure() || cancelled()
+        shell: pwsh
+        run: |
+          foreach ($f in @("$env:RUNNER_TEMP\setup.log", "$env:DATA_DIR\launcher\install.log", "$env:DATA_DIR\launcher\server.log", "$env:DATA_DIR\library\logs\app.log", "$env:RUNNER_TEMP\setup2.log", "$env:DATA_DIR2\launcher\install.log", "$env:DATA_DIR2\launcher\server.log")) {
+            if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
+          }

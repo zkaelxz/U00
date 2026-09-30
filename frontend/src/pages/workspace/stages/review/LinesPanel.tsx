@@ -77,7 +77,7 @@ type Target = 'first' | 'last' | number
 type Pending = { target: Target; edit?: boolean }
 
 const PHONE = '(max-width: 640px)'
-const WIDE = '(min-width: 1024px)'
+const WIDE = '(min-width: 641px)'
 // How long a line opened from a search result stays highlighted.
 const JUMP_HIGHLIGHT_MS = 4000
 const ALL_LINES_ONLY = 'Merge and add work in the All lines view (no filter or search).'
@@ -107,7 +107,7 @@ function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, onLineCount, onFlaggedCount, goTo }: Props) {
   const isPhone = useMediaQuery(PHONE)
-  // Wide screens: a source video gets its own sticky card beside the lines.
+  // Tablets and wider: a source video gets its own sticky card beside the lines.
   const isWide = useMediaQuery(WIDE)
   const [filter, setFilter] = useState<LineFilter>('all')
   const [page, setPage] = useState(1)
@@ -136,7 +136,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const player = useRef<PlayerHandle>(null)
   // Phones: the player's video and tools sit here, under the sticky toolbar.
   const [playerDock, setPlayerDock] = useState<HTMLDivElement | null>(null)
-  // Wide screens with a video: the video, seek bar and subtitles sit in the side card.
+  // Tablets and wider, with a video: the video, seek bar and subtitles sit in the side card.
   const [sideDock, setSideDock] = useState<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)

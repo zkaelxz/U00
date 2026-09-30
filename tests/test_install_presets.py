@@ -23,6 +23,7 @@ KNOWN_PYPI_DISTS = {
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
     "pypdf", "genanki", "ebooklib", "plyer", "playwright",
+    "lightnovel-crawler",
     "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
     "numpy", "httpx", "qwen-asr", "jiwer",
 }

@@ -217,10 +217,12 @@ class TestPersistentProfiles:
         assert "第一章" in text and not fresh.headed
 
     def test_login_window_waits_for_the_person_with_no_timeout(self, isolated_db, fake_browser):
+        # No overall deadline: it waits in short steps only so an app
+        # shutdown can end the wait (tests/test_shutdown.py).
         launcher = fake_browser(gated(comic_page))
         auth_browser.manual_login(self.URL)
         headed = next(c for c in launcher.contexts if not c.headless)
-        assert headed.waits == [("close", 0)]
+        assert headed.waits == [("close", page_fetch.LOGIN_POLL_MS)]
         assert headed.visits == [self.URL]
 
     def test_closing_the_window_without_signing_in_is_reported_plainly(self, isolated_db,
