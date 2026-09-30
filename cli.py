@@ -537,6 +537,26 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     return names
 
 
+def _resolve_glossary_terms(drama: dict, refs) -> list:
+    """--term values (a term id or the exact source text) -> term ids of the
+    drama's series glossary. SystemExit if a value matches no term or several."""
+    series_id = drama.get("series_id")
+    terms = db.list_glossary_terms(series_id) if series_id else []
+    ids = []
+    for ref in refs:
+        ref = str(ref).strip()
+        hits = [t for t in terms
+                if (ref.isdigit() and t["id"] == int(ref)) or (t.get("term_original") or "") == ref]
+        if not hits:
+            raise SystemExit(f"--term {ref!r} matches no term in this drama's glossary.")
+        if len(hits) > 1:
+            raise SystemExit(f"--term {ref!r} matches {len(hits)} glossary terms "
+                             f"(ids {', '.join(str(t['id']) for t in hits)}); use the id.")
+        if hits[0]["id"] not in ids:
+            ids.append(hits[0]["id"])
+    return ids
+
+
 def cmd_translate(args):
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
@@ -545,6 +565,8 @@ def cmd_translate(args):
         raise SystemExit("--glossary-affected needs --id (one drama at a time, as in the app).")
     if getattr(args, "include_hand_edited", False) and not glossary_affected:
         raise SystemExit("--include-hand-edited only applies with --glossary-affected.")
+    if getattr(args, "term", None) and not glossary_affected:
+        raise SystemExit("--term only applies with --glossary-affected.")
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
@@ -642,8 +664,15 @@ def cmd_translate(args):
             # Same selection as the app's "Re-translate lines affected by the
             # glossary": lines whose English isn't known to be machine-made
             # are left alone unless --include-hand-edited.
+            term_ids = (_resolve_glossary_terms(d, args.term)
+                        if getattr(args, "term", None) else None)
             target_ids = set(glossary_retranslate_service.affected_line_ids(
-                d["id"], include_hand_edited=getattr(args, "include_hand_edited", False)))
+                d["id"], include_hand_edited=getattr(args, "include_hand_edited", False),
+                term_ids=term_ids))
+            print(f"#{d['id']} glossary terms: "
+                  + (", ".join(str(i) for i in sorted(term_ids)) if term_ids is not None
+                     else "all")
+                  + f"; {len(target_ids)} lines selected.")
             if not target_ids:
                 print(f"#{d['id']} skipped: no machine-translated lines are affected by the "
                       f"glossary (hand-edited lines need --include-hand-edited).")
@@ -1023,6 +1052,10 @@ def main():
     p_translate.add_argument("--include-hand-edited", action="store_true",
                              help="With --glossary-affected: also replace hand-edited lines "
                                   "(a snapshot is saved first).")
+    p_translate.add_argument("--term", action="append", default=None, metavar="ID_OR_TEXT",
+                             help="With --glossary-affected: only the lines these glossary terms "
+                                  "affect (a term id, or its exact source text; repeat for "
+                                  "several). Default: every term.")
     p_translate.add_argument("--ollama-num-ctx", type=int, default=None,
                               help="Override Ollama's context window size. Only ever raises it "
                                    "above the automatic per-prompt estimate, never below -- "
