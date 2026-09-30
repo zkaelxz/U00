@@ -166,7 +166,7 @@ class LayoutChanged(SourceError):
 
     def __init__(self, what: str):
         super().__init__(f"mangaz's page/response has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.UNKNOWN)
+                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
 
 
 class CryptoUnavailable(SourceError):

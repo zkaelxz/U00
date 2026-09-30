@@ -787,3 +787,18 @@ def test_developer_report_api_needs_developer_mode_and_the_pc(isolated_db, monke
     remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
                         raise_server_exceptions=False)
     assert remote.post("/api/assistant/report", json={}).status_code in (401, 403)
+
+
+def test_source_failures_tool_is_redacted_and_bounded(isolated_db, monkeypatch):
+    from sources import health, registry
+    monkeypatch.setattr(registry, "adapter_classes", lambda: {"alpha": object})
+    health.record_failure("alpha", "LAYOUT_CHANGED",
+                          "https://a.invalid/x?key=sk-abcdefghijklmnopqrstuvwxyz0123456789",
+                          now=1_700_000_000.0, base_backoff=10)
+    health.record_failure("https://pasted.example", "SERVER_ERROR", "x", base_backoff=10)
+    out = svc.run_tool("source_failures", {})
+    assert out["ok"] is True
+    assert out["output"] == "alpha: layout_changed x1, last seen 2023-11-14 22:13 UTC"
+    health.reset("alpha")
+    health.record_success("alpha", 0.1)
+    assert svc.run_tool("source_failures", {})["output"] == "No recent source failures."

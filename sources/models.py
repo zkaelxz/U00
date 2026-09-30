@@ -39,7 +39,10 @@ LADDER_ORDER = [AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER,
 class FailureReason(str, Enum):
     """Why one tier's attempt failed (Step 23 item 2b). Never collapsed
     into a bare "blocked"."""
-    HTTP_ERROR = "HTTP_ERROR"
+    HTTP_ERROR = "HTTP_ERROR"            # a network failure or a 4xx that isn't more specific
+    NOT_FOUND = "NOT_FOUND"              # 404/410: this page is gone; the site itself is fine
+    SERVER_ERROR = "SERVER_ERROR"        # 5xx: the site is down or erroring
+    LAYOUT_CHANGED = "LAYOUT_CHANGED"    # a required selector is missing: the adapter is stale
     TIMEOUT = "TIMEOUT"
     RATE_LIMIT = "RATE_LIMIT"
     JAVASCRIPT_REQUIRED = "JAVASCRIPT_REQUIRED"

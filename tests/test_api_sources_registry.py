@@ -125,6 +125,14 @@ def test_health_error_scrubbed(client, seeded):
     assert SECRET not in err and seeded not in err
 
 
+def test_health_detail_has_a_plain_category(client, seeded):
+    h = client.get("/api/sources/manhuagui").json()["health_detail"]
+    assert h["last_error_type"] == "ConnectError" and h["last_error_category"] == "other"
+    health.record_failure("manhuagui", "LAYOUT_CHANGED", "x")
+    h = client.get("/api/sources/manhuagui").json()["health_detail"]
+    assert h["last_error_category"] == "layout_changed"
+
+
 def test_tracked_url_has_no_query(client, seeded):
     t = client.get("/api/sources/tracked").json()
     assert t[0]["url"] == "https://www.manhuagui.com/comic/1/"

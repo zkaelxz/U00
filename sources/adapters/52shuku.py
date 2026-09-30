@@ -48,7 +48,7 @@ class LayoutChanged(SourceError):
 
     def __init__(self, what: str):
         super().__init__(f"52shuku's page layout has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.UNKNOWN)
+                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
 
 
 def _soup(html: str):

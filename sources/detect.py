@@ -150,8 +150,10 @@ def classify(status: Optional[int], headers=None, body: str = "", url: str = "",
         reasons.append(FailureReason.PURCHASE_REQUIRED)
     if status == 403 and not reasons:
         reasons.append(FailureReason.ACCESS_DENIED)
+    if status in (404, 410) and not reasons:
+        reasons.append(FailureReason.NOT_FOUND)
     if status is not None and status >= 500 and not reasons:
-        reasons.append(FailureReason.HTTP_ERROR)
+        reasons.append(FailureReason.SERVER_ERROR)
     if status is not None and 400 <= status < 500 and not reasons:
         reasons.append(FailureReason.HTTP_ERROR)
 

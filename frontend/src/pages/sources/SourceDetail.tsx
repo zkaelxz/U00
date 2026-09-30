@@ -7,7 +7,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { SourceAttempt, SourceDetail as Detail, SourceHealth } from '../../types/sources'
 import { humanizeValue as humanize } from '../../components/labels'
 import { SourceAccess } from './SourceAccess'
-import { ago, healthLine, isoTime, pausedFor, tierLines } from './sourcesFormat'
+import { ago, healthLine, healthTooltip, isoTime, pausedFor, tierLines } from './sourcesFormat'
 
 type Props = {
   name: string
@@ -87,7 +87,7 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
           <dd>{tierLines(detail.tiers).join(' · ')}</dd>
         </div>
       </dl>
-      <p className="muted">{healthLine(detail.health_detail)}</p>
+      <p className="muted" title={healthTooltip(detail.health_detail)}>{healthLine(detail.health_detail)}</p>
       {paused && (
         <p className="warn">
           {paused}{' '}

@@ -1988,6 +1988,9 @@ class SourceHealth(BaseModel):
     last_success: Optional[float] = None
     last_failure: Optional[float] = None
     last_error_type: Optional[str] = None
+    last_error_category: Optional[str] = Field(
+        default=None, description="blocked, site_down, page_missing, layout_changed, slow, "
+                                  "needs_sign_in or other; null when there is no error.")
     last_error: Optional[str] = None
     last_latency: Optional[float] = None
     unavailable_until: Optional[float] = None

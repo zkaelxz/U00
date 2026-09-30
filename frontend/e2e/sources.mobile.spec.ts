@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { mockAccess } from './sourcesAccessMocks'
 import { NOVEL_PREVIEW, mockImports } from './sourcesImportMocks'
 import { SERIES_LINKS, mockSources, searchResult } from './sourcesMocks'
 
@@ -92,6 +93,22 @@ test('phone: source settings render as cards with 44 px toggles', async ({ page 
   await expect(settings.getByRole('spinbutton', { name: 'Cache limit (MB)' })).toBeVisible()
   await noSideways(page)
   await tallTargets(page)
+  expect(s.unmocked).toEqual([])
+})
+
+test('phone: a failing source shows its plain-language reason, raw type in the tooltip', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockAccess(page, s)
+  await page.goto('/#/sources')
+  const settings = page.getByRole('region', { name: 'Source settings' })
+  await settings.getByText('Source settings').click()
+  const card = settings.locator('ul.source-cards > li').nth(1)
+  await card.getByRole('button', { name: 'Details' }).click()
+  const line = card.getByText(/Last failure .* \(site down\)/)
+  await expect(line).toBeVisible()
+  await expect(line).toHaveAttribute('title', 'Error type: SERVER_ERROR')
+  await expect(card).not.toContainText('SERVER_ERROR')
+  await noSideways(page)
   expect(s.unmocked).toEqual([])
 })
 

@@ -121,13 +121,21 @@ Cover these cases:
 - page-list parsing
 - mirror fallback (primary raises or returns 5xx, then the backup
   answers)
-- a clean error when the site's markup changes
+- a clean error when the site's markup changes: raise your `LayoutChanged`
+  with `FailureReason.LAYOUT_CHANGED` (the API answers 503 with
+  `details.reason` `LAYOUT_CHANGED` and the source's health records it, so it
+  counts toward the 🔴 light and reads "layout changed" in the UI)
 
 ## 4. What you get for free
 
 - A row in **Sources → Sources, health & diagnostics**, with a
   🟢/🟡/🔴 light, a capabilities record, per-tier **Test Static**,
   **Test Browser** and **Test Authenticated** buttons, and diagnostics.
+  Failures are labelled in plain words (blocked, site down, page missing,
+  layout changed, slow, needs sign-in) from the recorded error type. A 404/410
+  (`NOT_FOUND`) is not recorded against the source's health, so one dead
+  chapter URL never turns it 🔴; 5xx (`SERVER_ERROR`) and network errors
+  (`HTTP_ERROR`) count, as do timeouts and rate limits.
 - A place in multi-source search and in the URL front door.
 - Chapter tracking, with new-chapter notifications.
 - Multi-chapter selective import. Pages land in Scanlate the same way a

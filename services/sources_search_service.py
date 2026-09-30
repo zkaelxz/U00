@@ -29,7 +29,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import _require_source, _scrub, _scrub_any, safe_url
-from sources import chapter_order, ladder, registry
+from sources import chapter_order, generic_import, health, ladder, registry
 from sources.http import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
                             SourceError, SourceUnavailable, TermsProhibited)
@@ -52,6 +52,17 @@ class _JobFailed(Exception):
 # ---------------------------------------------------------------------------
 # Error mapping
 # ---------------------------------------------------------------------------
+
+def _note_layout_change(source, message: str):
+    """A stale selector is raised by the adapter after its fetch succeeded, so
+    the HTTP client never sees it. Record it so the source's health shows it."""
+    if not source:
+        return
+    try:
+        health.record_failure(source, FailureReason.LAYOUT_CHANGED.value, message)
+    except Exception:
+        pass  # health is best-effort; the error view must still be returned
+
 
 def _error_view(exc, source: str = None) -> dict:
     """A SourceError (or anything else) as {status, code, message, details}."""
@@ -83,6 +94,19 @@ def _error_view(exc, source: str = None) -> dict:
         status = exc.status if exc.status in _CLASS_BY_STATUS else 500
         return {"status": status, "code": _CLASS_BY_STATUS.get(status, ServiceError).code,
                 "message": str(exc), "details": {"reason": "RESPONSE_REFUSED"}}
+    if isinstance(exc, generic_import.NoContentFound):
+        return {"status": 422, "code": InvalidInputError.code, "message": msg,
+                "details": {"reason": "NO_CONTENT"}}
+    if isinstance(exc, SourceError) and exc.reason == FailureReason.LAYOUT_CHANGED:
+        _note_layout_change(source, msg)
+        return {"status": 503, "code": DependencyUnavailableError.code, "message": msg,
+                "details": {"reason": "LAYOUT_CHANGED"}}
+    if isinstance(exc, SourceError) and exc.reason == FailureReason.NOT_FOUND:
+        return {"status": 404, "code": NotFoundError.code, "message": msg,
+                "details": {"reason": "NOT_FOUND"}}
+    if isinstance(exc, SourceError) and exc.reason == FailureReason.SERVER_ERROR:
+        return {"status": 503, "code": DependencyUnavailableError.code, "message": msg,
+                "details": {"reason": "SERVER_ERROR"}}
     if isinstance(exc, SourceError):
         return {"status": 500, "code": ServiceError.code, "message": msg,
                 "details": {"reason": exc.reason.value}}
