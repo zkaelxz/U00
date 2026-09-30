@@ -101,11 +101,6 @@ def _job_view(job_id: str):
             "error": _redact(job.get("error"))[:300] if job.get("error") else None}
 
 
-def _job_active(job_id: str) -> bool:
-    job = background_jobs.get_status(job_id)
-    return bool(job) and job.get("status") in ("running", "queued")
-
-
 # ---------------------------------------------------------------------------
 # Q02: Deno
 # ---------------------------------------------------------------------------
@@ -149,10 +144,12 @@ def get_deno_status() -> dict:
 
 def start_deno_install(confirm: bool = False) -> dict:
     """PC only (the route is local_only()). 409 while any job, restore,
-    reset, cleanup or install runs, or when Deno is already on PATH;
-    422 unconfirmed or on an OS/CPU with neither winget nor a table row."""
+    reset, cleanup or install runs, or when Deno is already installed (on
+    PATH, or in ~/.deno/bin or winget's links folder though not on PATH:
+    an existing binary is never replaced); 422 unconfirmed or on an OS/CPU
+    with neither winget nor a table row."""
     gaps._guard(confirm)
-    if shutil.which("deno"):
+    if _deno_installed_somewhere():
         raise AlreadyInstalled("Deno is already installed.")
     if not _use_winget() and _deno_download_url() is None:
         raise gaps.AdminActionNotPossible(
@@ -336,8 +333,9 @@ def _download_and_unpack(say):
 
 
 def _unpack_binary(zip_path: str):
-    """Only the single top-level `deno`/`deno.exe` member is written, to a
-    temporary name next to the target and then moved into place."""
+    """Only the single top-level `deno`/`deno.exe` member is written, into
+    a file created exclusively: an existing binary there is never replaced
+    (the start refuses that case; this closes the gap to the job running)."""
     dest = diagnostics._deno_default_install_path()
     name = os.path.basename(dest)
     try:
@@ -346,20 +344,22 @@ def _unpack_binary(zip_path: str):
             if member is None or member.file_size > DENO_MAX_BYTES * 4:
                 raise DenoInstallFailed("The Deno download did not contain Deno.")
             os.makedirs(os.path.dirname(dest), exist_ok=True)
-            tmp = dest + ".partial"
             try:
-                with zf.open(member) as src, open(tmp, "wb") as out:
+                out = open(dest, "xb")
+            except FileExistsError:
+                raise DenoInstallFailed("Deno is already installed; nothing was changed.") from None
+            try:
+                with zf.open(member) as src, out:
                     shutil.copyfileobj(src, out, _CHUNK)
             except BaseException:
                 try:
-                    os.remove(tmp)
+                    os.remove(dest)       # only the file this call created
                 except OSError:
                     pass
                 raise
     except zipfile.BadZipFile:
         raise DenoInstallFailed("The Deno download was not a valid zip file.") from None
-    os.chmod(tmp, os.stat(tmp).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    os.replace(tmp, dest)
+    os.chmod(dest, os.stat(dest).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 # ---------------------------------------------------------------------------
@@ -392,14 +392,15 @@ def start_upgrade_check(name: str, target: str = None, confirm: bool = False) ->
     if target != checked["target"]:
         raise gaps.AdminActionStale("The update check has changed since; check for updates again.")
     dist, version = checked["dist"], checked["target"]
+    # Started and labelled under one lock: the state names a package only
+    # once its job really started, and the job's own writes (tail, result)
+    # wait for this lock, so a second request can't relabel the first run.
     with _STATE_LOCK:
-        if _job_active(UPGRADE_CHECK_JOB_ID):
-            raise gaps.AdminActionJobsRunning("Another update test is running.")
+        if not background_jobs.start_job(UPGRADE_CHECK_JOB_ID, _upgrade_check_job, name, dist,
+                                         version, description=f"Testing {name} {version}"):
+            raise gaps.AdminActionJobsRunning(
+                "An update test or a library restore is already running; try again when it ends.")
         _UPGRADE_CHECK.update(package=name, target=version, tail=[], last=None)
-    if not background_jobs.start_job(UPGRADE_CHECK_JOB_ID, _upgrade_check_job, name, dist,
-                                     version, description=f"Testing {name} {version}"):
-        raise gaps.AdminActionJobsRunning(
-            "An update test or a library restore is already running; try again when it ends.")
     return {"job_id": UPGRADE_CHECK_JOB_ID, "started": True}
 
 

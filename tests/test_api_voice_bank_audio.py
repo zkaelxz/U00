@@ -105,3 +105,8 @@ def test_needs_media_stream(isolated_db, tmp_path):
     assert c.get(url, headers=_h(kid)).status_code == 403     # household default: no media
     auth_service.grant_permission(u["id"], "media.stream")
     assert c.get(url, headers=_h(kid)).status_code == 200
+
+
+def test_oversized_id_is_422_not_500(client):
+    assert client.get(f"/api/library/voice-bank/{2**31}/audio").status_code == 422
+    assert client.get(f"/api/library/voice-bank/{2**63}/audio").status_code == 422

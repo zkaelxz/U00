@@ -343,3 +343,41 @@ def test_auth_on_reads_admin_writes_pc_only(env):
                           headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403, path
     assert background_jobs.get_status(svc.DENO_JOB_ID) is None
     assert background_jobs.get_status(svc.UPGRADE_CHECK_JOB_ID) is None
+
+
+def test_deno_installed_off_path_is_409_and_never_replaced(client, env):
+    """Security review of #458: a Deno in ~/.deno/bin that isn't on PATH
+    (needs a restart, or pinned by hand) is 'already installed'."""
+    _serve_release(env)
+    env["dest"].parent.mkdir(parents=True)
+    env["dest"].write_bytes(b"PINNED")
+    r = client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "conflict"
+    assert env["requests"] == [] and background_jobs.get_status(svc.DENO_JOB_ID) is None
+    assert env["dest"].read_bytes() == b"PINNED"
+
+
+def test_deno_unpack_never_overwrites(env, tmp_path):
+    """The job re-checks at write time: a binary that appeared after the
+    start is left alone."""
+    z = tmp_path / "d.zip"
+    z.write_bytes(_zip())
+    env["dest"].parent.mkdir(parents=True)
+    env["dest"].write_bytes(b"PINNED")
+    with pytest.raises(svc.DenoInstallFailed):
+        svc._unpack_binary(str(z))
+    assert env["dest"].read_bytes() == b"PINNED"
+
+
+def test_upgrade_check_state_only_changes_when_the_job_starts(client, env, monkeypatch):
+    """Security review of #458: a refused start must not relabel the
+    running (or last) test with another package."""
+    _cache_update()
+    svc._UPGRADE_CHECK.update(package="jieba", target="1.0", tail=["a"],
+                              last={"ok": True, "verdict": "safe"})
+    monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+    r = client.post("/api/diagnostics/dependencies/edge_tts/test-upgrade",
+                    json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 409
+    s = client.get("/api/diagnostics/upgrade-check").json()
+    assert s["package"] == "jieba" and s["target"] == "1.0" and s["result"]["verdict"] == "safe"
