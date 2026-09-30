@@ -102,9 +102,14 @@ async def _lifespan(app: FastAPI):
     """Starts the background pieces Streamlit used to start (chapter-check
     scheduler, extension endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
-    Idempotent. The GPU-queue re-check is stopped at shutdown."""
+    Idempotent. The GPU-queue re-check is stopped at shutdown, and any
+    running lightnovel-crawler import is cancelled and its program killed."""
+    from services import lncrawl_service
     if not getattr(app.state.settings, "background_services", False):
-        yield
+        try:
+            yield
+        finally:
+            lncrawl_service.shutdown()
         return
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 stop_gpu_queue_poller)
@@ -114,6 +119,7 @@ async def _lifespan(app: FastAPI):
         yield
     finally:
         stop_gpu_queue_poller()
+        lncrawl_service.shutdown()
 
 
 def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:

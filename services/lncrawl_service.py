@@ -26,7 +26,11 @@ Safety of a run (the lncrawl 4.x CLI: `lncrawl crawl --noin -f epub
   the drama folder, removed in `finally`; the child gets the environment
   minus anything that looks like a key, token or password;
 - a timeout, a cap on the output it prints and on the size of its data
-  folder; cancel or any cap kills the whole process tree;
+  folder; cancel or any cap kills the whole process tree (POSIX session;
+  on Windows a Job Object, so its children die with it, plus taskkill /T);
+- stopping the app cancels every running import and kills its tree
+  (`shutdown`, from the API's lifespan and atexit); a data folder left
+  behind by a crash is swept at the next start (`cleanup_stale_workdirs`);
 - what it printed is redacted (keys, tokens, paths, URL queries) and only a
   short tail is ever shown or stored;
 - the EPUB goes through `novel_attach_service`'s EPUB path with its size,
@@ -67,6 +71,10 @@ LOG_TAIL_CHARS = 480                       # jobs_service keeps result strings <
 _POLL_SECONDS = 0.5
 _SIZE_CHECK_SECONDS = 5.0
 _KILL_WAIT_SECONDS = 10.0
+_REAP_JOIN_SECONDS = 2.0
+# A work folder older than this can't belong to a live run (the timeout
+# ends every run sooner), so the startup sweep may remove it.
+STALE_WORKDIR_SECONDS = TIMEOUT_SECONDS + 30 * 60
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[@-_]")
 _URL = re.compile(r"(https?://[^\s/?#'\"<>]+)[^\s'\"<>]*", re.IGNORECASE)
@@ -168,7 +176,10 @@ def child_env(data_dir: str) -> dict:
     """The parent's environment minus anything secret-looking (and Baihe's
     own settings), with lncrawl pointed at the temp data folder."""
     env = {k: v for k, v in os.environ.items()
-           if not _SECRET_ENV.search(k) and not k.upper().startswith("BAIHE_")}
+           if not _SECRET_ENV.search(k) and not k.upper().startswith(("BAIHE_", "LNCRAWL_"))
+           and k.upper() != "DATABASE_URL"}
+    # LNCRAWL_CONFIG / DATABASE_URL would point lncrawl at a config or
+    # database outside the temp folder (lncrawl 4.x config.py).
     env.update({"LNCRAWL_DATA_PATH": data_dir, "PYTHONIOENCODING": "utf-8",
                 "PYTHONUTF8": "1", "NO_COLOR": "1", "TERM": "dumb"})
     return env
@@ -301,6 +312,174 @@ def _fail(job_id: str, message: str, output: str = "") -> RuntimeError:
     return RuntimeError(message)
 
 
+# --- running processes: kill helpers, the Windows Job Object, shutdown -----
+
+_active = {}                 # job_id -> (Popen, Windows job handle or None)
+_active_lock = threading.Lock()
+_atexit_registered = False
+
+
+def _windows_job(proc):
+    """A Windows Job Object holding `proc` (and so every process it starts
+    afterwards), set to kill them all when the job is closed or terminated.
+    None elsewhere or on any failure (taskkill /T still applies)."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Basic(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t),
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class _Io(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class _Extended(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", _Basic), ("IoInfo", _Io),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+        k32.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int,
+                                                ctypes.c_void_p, wintypes.DWORD)
+        k32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+        k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = _Extended()
+        info.BasicLimitInformation.LimitFlags = 0x2000    # KILL_ON_JOB_CLOSE
+        if not (k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+                and k32.AssignProcessToJobObject(job, int(proc._handle))):
+            k32.CloseHandle(job)
+            return None
+        return job
+    except Exception:
+        return None
+
+
+def _windows_job_call(name: str, job, *args):
+    try:
+        import ctypes
+        from ctypes import wintypes
+        fn = getattr(ctypes.WinDLL("kernel32", use_last_error=True), name)
+        fn.argtypes = (wintypes.HANDLE,) + tuple(wintypes.UINT for _ in args)
+        fn(job, *args)
+    except Exception:
+        pass
+
+
+def _kill_running(proc, job):
+    """lncrawl is still running (cancel, a cap, the timeout, shutdown)."""
+    if job is not None:
+        _windows_job_call("TerminateJobObject", job, 1)
+    background_jobs._kill_tree(proc)
+
+
+def _kill_leftovers(proc, job):
+    """lncrawl has exited but something it started still holds the output
+    pipe. The Job Object ends them on Windows. On POSIX the process group
+    is killed: its id can't have been reused while a member (the pipe
+    holder) is alive. Never taskkill by PID here: lncrawl's own PID may
+    already belong to another process."""
+    if job is not None:
+        _windows_job_call("TerminateJobObject", job, 1)
+    elif os.name != "nt":
+        background_jobs._kill_tree(proc)
+
+
+def _register(job_id, proc, job):
+    global _atexit_registered
+    with _active_lock:
+        _active[job_id] = (proc, job)
+        if not _atexit_registered:
+            import atexit
+            atexit.register(shutdown)
+            _atexit_registered = True
+
+
+def _unregister(job_id):
+    with _active_lock:
+        _active.pop(job_id, None)
+
+
+def running_imports() -> int:
+    with _active_lock:
+        return len(_active)
+
+
+def shutdown(wait: float = _KILL_WAIT_SECONDS) -> int:
+    """App shutdown: cancels every lncrawl import running in this process
+    and kills its process tree, then waits (bounded) for the jobs to clean
+    up their work folders. Returns how many were stopped; never raises."""
+    with _active_lock:
+        items = list(_active.items())
+    for job_id, (proc, job) in items:
+        try:
+            background_jobs.request_cancel(job_id)
+            if proc.poll() is None:
+                _kill_running(proc, job)
+        except Exception:
+            pass
+    deadline = time.monotonic() + wait
+    while items and running_imports() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return len(items)
+
+
+def cleanup_stale_workdirs(max_age: float = STALE_WORKDIR_SECONDS, now: float = None) -> int:
+    """Startup sweep: removes `.lncrawl_*` work folders in drama folders that
+    no run in this process owns and that are older than max_age (longer than
+    any run may last), e.g. after a crash or a Windows grandchild that kept
+    a file open. Symlinks are left alone. Returns how many were removed;
+    never raises."""
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        dramas = os.listdir(db.DRAMAS_DIR)
+    except OSError:
+        return 0
+    for drama in dramas:
+        base = os.path.join(db.DRAMAS_DIR, drama)
+        try:
+            if os.path.islink(base) or not os.path.isdir(base):
+                continue
+            if drama.isdigit() and background_jobs.is_running(job_id_for(int(drama))):
+                continue
+            names = os.listdir(base)
+        except OSError:
+            continue
+        for name in names:
+            if not name.startswith(".lncrawl_"):
+                continue
+            path = os.path.join(base, name)
+            try:
+                if os.path.islink(path) or not os.path.isdir(path):
+                    continue
+                if now - os.lstat(path).st_mtime < max_age:
+                    continue
+                shutil.rmtree(path)
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def _run_process(job_id: str, argv: list, work: str) -> str:
     """Runs lncrawl; returns its (redacted) output. Raises JobCancelled on
     cancel and RuntimeError on a timeout, a cap, or a non-zero exit."""
@@ -309,6 +488,8 @@ def _run_process(job_id: str, argv: list, work: str) -> str:
     proc = subprocess.Popen(argv, cwd=work, env=child_env(work), shell=False,
                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, **group)
+    job = _windows_job(proc)
+    _register(job_id, proc, job)
     reader = _OutputReader(proc.stdout)
     started = time.monotonic()
     next_size_check = started + _SIZE_CHECK_SECONDS
@@ -332,23 +513,32 @@ def _run_process(job_id: str, argv: list, work: str) -> str:
             background_jobs.update_progress(
                 job_id, 0.1, f"lightnovel-crawler is downloading... ({minutes} min)")
             time.sleep(_POLL_SECONDS)
+        if stop_reason is None and background_jobs.is_cancel_requested(job_id):
+            stop_reason = "cancel"     # killed from outside (app shutdown) after a cancel
     finally:
-        # Also after a normal exit: anything lncrawl left running in its
-        # process group would otherwise keep the pipe (and the job) open.
-        background_jobs._kill_tree(proc)
         try:
-            proc.wait(timeout=_KILL_WAIT_SECONDS)
-        except subprocess.TimeoutExpired:
-            pass
-        reader.thread.join(timeout=_KILL_WAIT_SECONDS)
-        if not reader.thread.is_alive():
-            # close() would block on the reader's pending read otherwise
-            # (a surviving grandchild holding the pipe); then the daemon
-            # thread and the pipe are left to the process instead.
-            try:
-                proc.stdout.close()
-            except Exception:
-                pass
+            if proc.poll() is None:
+                _kill_running(proc, job)
+                try:
+                    proc.wait(timeout=_KILL_WAIT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass
+            reader.thread.join(timeout=_REAP_JOIN_SECONDS)
+            if reader.thread.is_alive():
+                _kill_leftovers(proc, job)
+                reader.thread.join(timeout=_KILL_WAIT_SECONDS)
+            if not reader.thread.is_alive():
+                # close() would block on the reader's pending read otherwise
+                # (a survivor still holding the pipe); then the daemon thread
+                # and the pipe are left to the process instead.
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
+            if job is not None:
+                _windows_job_call("CloseHandle", job)    # KILL_ON_JOB_CLOSE
+        finally:
+            _unregister(job_id)
     output = redact_output(reader.text(), hide=((work, "<work folder>"), (argv[0], "lncrawl")))
     if stop_reason == "cancel":
         raise background_jobs.JobCancelled(job_id)

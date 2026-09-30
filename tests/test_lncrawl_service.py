@@ -146,6 +146,8 @@ class TestArgv:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
         monkeypatch.setenv("BAIHE_API_AUTH", "on")
         monkeypatch.setenv("HF_TOKEN", "hf_x")
+        monkeypatch.setenv("LNCRAWL_CONFIG", "/home/me/lncrawl.json")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://u@h/db")
         seen = _popen(monkeypatch, on_start=_write_epub)
         did = db.create_drama(title_en="D")
         job = svc.start_import(did, URL, "first", 5)["job_id"]
@@ -157,6 +159,7 @@ class TestArgv:
         env = kw["env"]
         assert "ANTHROPIC_API_KEY" not in env and "HF_TOKEN" not in env
         assert not any(k.startswith("BAIHE_") for k in env)
+        assert "LNCRAWL_CONFIG" not in env and "DATABASE_URL" not in env
         # lncrawl's data folder is a temp folder inside the drama folder
         assert os.path.dirname(env["LNCRAWL_DATA_PATH"]) == db.drama_dir(did)
         assert kw["cwd"] == env["LNCRAWL_DATA_PATH"]
@@ -357,6 +360,40 @@ class TestJob:
         assert fast, "the process group is killed after a normal exit too"
         assert pipe.closed is False     # never closed under a blocked read
 
+    def test_normal_exit_does_not_kill_by_pid(self, isolated_db, program, monkeypatch, fast):
+        # lncrawl exited and nothing holds the pipe: its PID may already be
+        # reused, so no kill is sent at all.
+        _popen(monkeypatch, on_start=_write_epub)
+        did = db.create_drama(title_en="D")
+        assert _wait(svc.start_import(did, URL)["job_id"])["status"] == "done"
+        assert fast == []
+        assert svc.running_imports() == 0
+
+    def test_app_shutdown_cancels_and_kills(self, isolated_db, program, monkeypatch, fast):
+        _popen(monkeypatch, finish_after=None)
+        did = db.create_drama(title_en="D")
+        job = svc.start_import(did, URL)["job_id"]
+        for _ in range(200):
+            if svc.running_imports():
+                break
+            time.sleep(0.01)
+        assert svc.shutdown(wait=5) == 1
+        assert svc.running_imports() == 0
+        s = _wait(job)
+        assert s["status"] == "cancelled"
+        assert fast and fast[0].killed
+        assert _drama_tmp_dirs(did) == []
+
+    def test_api_lifespan_stops_imports(self, isolated_db, monkeypatch):
+        from fastapi.testclient import TestClient
+        from api.api_config import ApiSettings
+        from api.server import create_app
+        calls = []
+        monkeypatch.setattr(svc, "shutdown", lambda *a, **k: calls.append(1) or 0)
+        with TestClient(create_app(ApiSettings())) as c:
+            c.get("/api/health")
+        assert calls == [1]
+
     def test_timeout_kills_the_process(self, isolated_db, program, monkeypatch, fast):
         monkeypatch.setattr(svc, "TIMEOUT_SECONDS", 0.05)
         _popen(monkeypatch, finish_after=None)
@@ -383,6 +420,52 @@ class TestJob:
         assert s["status"] == "error" and "grew past" in s["error"]
         assert fast and fast[0].killed
         assert _drama_tmp_dirs(did) == []
+
+
+# --- startup sweep ---------------------------------------------------------
+
+class TestStaleSweep:
+    def _folder(self, did, name, age):
+        path = os.path.join(db.drama_dir(did), name)
+        os.makedirs(os.path.join(path, "novels"))
+        old = time.time() - age
+        os.utime(path, (old, old))
+        return path
+
+    def test_removes_only_old_unowned_work_folders(self, isolated_db, tmp_path):
+        did = db.create_drama(title_en="D")
+        stale = self._folder(did, ".lncrawl_old", svc.STALE_WORKDIR_SECONDS + 60)
+        fresh = self._folder(did, ".lncrawl_new", 60)
+        other = self._folder(did, ".ocr_old", svc.STALE_WORKDIR_SECONDS + 60)
+        target = tmp_path / "elsewhere"
+        target.mkdir()
+        link = os.path.join(db.drama_dir(did), ".lncrawl_link")
+        os.symlink(str(target), link)
+        assert svc.cleanup_stale_workdirs() == 1
+        assert not os.path.exists(stale)
+        assert os.path.isdir(fresh) and os.path.isdir(other) and target.is_dir()
+
+    def test_keeps_the_folder_of_a_running_import(self, isolated_db, monkeypatch):
+        did = db.create_drama(title_en="D")
+        stale = self._folder(did, ".lncrawl_old", svc.STALE_WORKDIR_SECONDS + 60)
+        monkeypatch.setattr(background_jobs, "is_running", lambda jid: jid == f"lncrawl_{did}")
+        assert svc.cleanup_stale_workdirs() == 0 and os.path.isdir(stale)
+
+    def test_startup_runs_the_sweep(self, monkeypatch):
+        import api.background as bg
+        calls = []
+        monkeypatch.setattr(bg, "_started", None)
+        monkeypatch.setattr(svc, "cleanup_stale_workdirs", lambda: calls.append(1) or 0)
+        from services import drama_service, auto_backup_service
+        monkeypatch.setattr(drama_service, "cleanup_stale_tombstones", lambda: 0)
+        monkeypatch.setattr(auto_backup_service, "cleanup_stale_leftovers", lambda: 0)
+        monkeypatch.setattr(auto_backup_service, "periodic_tick", lambda: None)
+        from sources import chapter_check
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: None)
+        from sources import store
+        monkeypatch.setattr(store, "get_setting", lambda name: False)
+        bg.start_background_services()
+        assert calls == [1]
 
 
 # --- redaction --------------------------------------------------------------

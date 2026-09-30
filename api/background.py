@@ -17,7 +17,8 @@ Also at startup (Step 43): the automatic-backup due-check
 turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
 drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
-(`auto_backup_service.cleanup_stale_leftovers`).
+(`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
+folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`).
 The due-check then repeats hourly from the GPU-queue poller thread below
 (`auto_backup_service.periodic_tick`), so no extra thread is added.
 
@@ -101,6 +102,11 @@ def start_background_services() -> dict:
         drama_service.cleanup_stale_tombstones()
     except Exception as exc:
         _log("leftover deleted-drama folders were not swept: %s", exc)
+    try:
+        from services import lncrawl_service
+        lncrawl_service.cleanup_stale_workdirs()
+    except Exception as exc:
+        _log("leftover lightnovel-crawler folders were not swept: %s", exc)
     try:
         from services import auto_backup_service
         auto_backup_service.cleanup_stale_leftovers()
