@@ -7,6 +7,9 @@ expects (Step 23 item 12).
 chapters (10.5), and the common non-numeric parts (Prologue, Interlude,
 Side Story, Epilogue...). The original title is never changed; sorting
 only adds a normalized key alongside it.
+
+Imports and chapter lists go through reading_order, which keeps the
+adapter's (the site's) order and sorts only for adapters that opt out.
 """
 
 import re
@@ -122,6 +125,17 @@ def sort_chapters(chapters, key=lambda c: c.title):
         keyed.append((k, c))
     keyed.sort(key=lambda kc: kc[0])
     return [c for _, c in keyed]
+
+
+def reading_order(adapter, chapters):
+    """The chapters in the order to import and list them: the adapter's own
+    (the source site's) unless it says its listing isn't in reading order
+    (`chapters_in_site_order` False), in which case natural order within
+    each section."""
+    chapters = list(chapters)
+    if getattr(adapter, "chapters_in_site_order", True):
+        return chapters
+    return sort_chapters_grouped(chapters)
 
 
 def sort_chapters_grouped(chapters):

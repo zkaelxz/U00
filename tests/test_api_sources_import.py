@@ -33,9 +33,9 @@ HOST = "https://fake.invalid"
 
 
 def _chapters(name, series_id):
-    return [ChapterInfo(name, series_id, "c10", "第10章", f"{HOST}/c/10?t={SECRET}"),
+    return [ChapterInfo(name, series_id, "c1", "第1章", f"{HOST}/c/1?t={SECRET}"),
             ChapterInfo(name, series_id, "c2", "第2章", f"{HOST}/c/2?t={SECRET}"),
-            ChapterInfo(name, series_id, "c1", "第1章", f"{HOST}/c/1?t={SECRET}")]
+            ChapterInfo(name, series_id, "c10", "第10章", f"{HOST}/c/10?t={SECRET}")]
 
 
 def _make(name, comic=False, gate=None, calls=None, fail=None):
@@ -480,3 +480,48 @@ def test_add_page_images_claims_the_index_whatever_the_extension(fakes, monkeypa
     assert [(p["idx"], p["filename"]) for p in db.list_pages(did)] == [
         (2, os.path.join("pages", "page_0002.png"))]
     assert sorted(os.listdir(pages_dir)) == ["page_0000.jpg", "page_0001.claim", "page_0002.png"]
+
+
+# ---------------------------------------------------------------------------
+# Chapters keep the source site's order (no re-sorting by title)
+# ---------------------------------------------------------------------------
+
+def _site_order_chapters(name, series_id):
+    """A volume opening with a prologue, an unnumbered special between
+    numbered chapters, and an afterword last -- the site's own order."""
+    titles = [("p", "序章"), ("c1", "第1话"), ("sp", "特别篇 温泉"), ("c2", "第2话"),
+              ("af", "后记")]
+    return [ChapterInfo(name, series_id, cid, t, f"{HOST}/c/{cid}", group="第1卷")
+            for cid, t in titles]
+
+
+def test_import_keeps_site_order_for_specials_and_prologue(client, fakes):
+    Fake = _make("alpha")
+    Fake.get_chapters = lambda self, series_id: _site_order_chapters("alpha", series_id)
+    fakes["alpha"] = Fake
+    did = _novel()
+    client.post("/api/sources/alpha/import",
+                json={"series_id": "s1", "chapter_ids": ["af", "c2", "sp", "c1", "p"],
+                      "drama_id": did})
+    _, b = _result(client, f"sourceimport_{did}")
+    assert [c["chapter_id"] for c in b["result"]["chapters"]] == ["p", "c1", "sp", "c2", "af"]
+    assert Fake.calls == ["p", "c1", "sp", "c2", "af"]
+    text = _raw(did)
+    idx = [text.index(f"text of {c} ") for c in ("p", "c1", "sp", "c2", "af")]
+    assert idx == sorted(idx)
+
+
+def test_check_returns_new_chapters_in_site_order_and_leaves_known_alone(client, fakes):
+    Fake = _make("alpha")
+    listed = _site_order_chapters("alpha", "s1")
+    Fake.get_chapters = lambda self, series_id: list(listed)
+    fakes["alpha"] = Fake
+    did = _novel()
+    store.track_series("alpha", "s1", "Series T", "", drama_id=did, known_chapters=listed[:3])
+    row = store.list_tracked_series()[0]
+    before = store.known_chapter_ids("alpha", "s1")
+    assert before == {"p", "c1", "sp"}
+    new = chapter_check.check_series(Fake(), row)
+    assert [c.chapter_id for c in new] == ["c2", "af"]
+    assert store.known_chapter_ids("alpha", "s1") == before | {"c2", "af"}
+    assert chapter_check.check_series(Fake(), row) == []

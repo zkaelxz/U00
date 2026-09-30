@@ -117,7 +117,8 @@ class TestSeriesAndChapters:
     def test_chapters_sort_naturally_within_their_sections(self, isolated_db):
         from sources import chapter_order
         a, _ = _adapter({f"{W}/comic/17332/": html(fx.SERIES_PAGE)})
-        ordered = chapter_order.sort_chapters_grouped(a.get_chapters("17332"))
+        assert a.chapters_in_site_order is False
+        ordered = chapter_order.reading_order(a, a.get_chapters("17332"))
         assert [c.title for c in ordered] == ["第01话", "第02话", "第03话", "番外 夏日"]
 
 
