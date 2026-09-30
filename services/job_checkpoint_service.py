@@ -12,7 +12,7 @@ Checkpoints (item 2's pattern, for any job with countable units):
     ...skip those units, and after each new one:
     record_unit(scope, unit_id, payload)
     ...when the whole job has saved its real output:
-    clear(scope)
+    clear_prefix("narration_tag", drama_id)
 
 The scope folds in the input, the model and the settings, so a run over
 different text or with a different engine never reuses another run's
@@ -89,11 +89,6 @@ def done_units(scope: str) -> dict:
     return out
 
 
-def clear(scope: str) -> None:
-    with _conn() as conn:
-        conn.execute("DELETE FROM job_checkpoints WHERE scope = ?", (scope,))
-
-
 def clear_prefix(job_kind: str, owner) -> None:
     """Drops every scope of `job_kind` for `owner` (e.g. a deleted drama, or
     a finished run whose older, differently-keyed attempts are now moot)."""
@@ -109,9 +104,6 @@ def _cache_key(kind, input_hash, model, settings) -> str:
     ).encode("utf-8")).hexdigest()
 
 
-_MISS = object()
-
-
 def cache_get(kind: str, input_hash: str, model: str, settings=None, default=None):
     with _conn() as conn:
         row = conn.execute("SELECT value_json FROM result_cache WHERE cache_key = ?",
@@ -122,10 +114,6 @@ def cache_get(kind: str, input_hash: str, model: str, settings=None, default=Non
         return json.loads(row[0])
     except ValueError:
         return default
-
-
-def cache_has(kind: str, input_hash: str, model: str, settings=None) -> bool:
-    return cache_get(kind, input_hash, model, settings, default=_MISS) is not _MISS
 
 
 def cache_put(kind: str, input_hash: str, model: str, settings, value) -> None:
@@ -139,10 +127,3 @@ def cache_put(kind: str, input_hash: str, model: str, settings, value) -> None:
             "DELETE FROM result_cache WHERE kind = ? AND cache_key NOT IN ("
             "SELECT cache_key FROM result_cache WHERE kind = ? "
             "ORDER BY created_at DESC LIMIT ?)", (kind, kind, CACHE_MAX_PER_KIND))
-
-
-def cache_clear(kind: str = None) -> int:
-    with _conn() as conn:
-        cur = (conn.execute("DELETE FROM result_cache WHERE kind = ?", (kind,)) if kind
-               else conn.execute("DELETE FROM result_cache"))
-        return cur.rowcount

@@ -473,14 +473,22 @@ def _novel_glossary_cache(engine, engine_name):
     model = f"{engine_name}:{getattr(engine, 'model', '') or ''}"
     settings = {"max_tokens": 4000}
 
+    # A cache failure (a locked or full disk) must never fail a paid run.
     def get(prompt):
-        return job_checkpoint_service.cache_get(
-            "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model, settings)
+        try:
+            return job_checkpoint_service.cache_get(
+                "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model,
+                settings)
+        except Exception:
+            return None
 
     def put(prompt, text):
-        job_checkpoint_service.cache_put(
-            "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model, settings,
-            text)
+        try:
+            job_checkpoint_service.cache_put(
+                "glossary_from_novel", job_checkpoint_service.hash_text(prompt), model,
+                settings, text)
+        except Exception:
+            pass
     return get, put
 
 

@@ -249,21 +249,6 @@ def _refresh_queue_messages_locked():
             _mirror_locked(entry["job_id"])
 
 
-def queue_position(job_id: str):
-    """1-based place of a queued GPU job in line, or None if it isn't
-    waiting in this process's queue."""
-    with _lock:
-        position = 0
-        for entry in _gpu_queue:
-            job = _jobs.get(entry["job_id"])
-            if not job or job.get("status") != "queued":
-                continue
-            position += 1
-            if entry["job_id"] == job_id:
-                return position
-    return None
-
-
 def _gpu_slot_available_locked(job_id, description):
     """Caller must already hold _lock. True if job_id may actually start
     running right now -- nothing else, in this process, another one
@@ -344,17 +329,20 @@ def _timing_start(job_id, thread_job=True):
     timing run starts when it actually runs. Never raises."""
     try:
         from services import job_timing_service
-        job_timing_service.start_run(job_id)
+        token = job_timing_service.start_run(job_id)
         if thread_job:
             job_timing_service.set_current_job(job_id)
+        return token
     except Exception:
-        pass
+        return None
 
 
-def _timing_finish(job_id, thread_job=True):
+def _timing_finish(job_id, token, thread_job=True):
+    """`token` keeps a new run of the same job id, started the moment this
+    one was marked finished, from being closed by this one."""
     try:
         from services import job_timing_service
-        job_timing_service.finish_run(job_id)
+        job_timing_service.finish_run(job_id, token=token)
         if thread_job:
             job_timing_service.set_current_job(None)
     except Exception:
@@ -367,7 +355,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
         from translate_engines import redact_secrets
         logger = applog.get_logger()
         logger.info(f"job {job_id} started")
-        _timing_start(job_id)
+        _timing = _timing_start(job_id)
         try:
             target(*args, **kwargs)
             _description = None
@@ -402,7 +390,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
             _notify_job_finished(_description, "error")
         finally:
-            _timing_finish(job_id)
+            _timing_finish(job_id, _timing)
             _release_gpu_slot(job_id, gpu_touching)
             _promote_next_queued_gpu_job()
 
@@ -700,7 +688,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     object, cleanup can be immediate and complete instead)."""
     import applog
     logger = applog.get_logger()
-    _timing_start(job_id, thread_job=False)
+    _timing = _timing_start(job_id, thread_job=False)
     try:
         outcome = None
         while True:
@@ -807,7 +795,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _description = _jobs[job_id].get("description")
         _notify_job_finished(_description, _final_status)
     finally:
-        _timing_finish(job_id, thread_job=False)
+        _timing_finish(job_id, _timing, thread_job=False)
         _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()
 

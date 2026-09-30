@@ -832,6 +832,7 @@ def init_db():
             glossary_hash TEXT,
             settings_hash TEXT,
             input_hash TEXT,
+            output_hash TEXT,
             software_version TEXT,
             created_at REAL NOT NULL,
             PRIMARY KEY (drama_id, line_id)

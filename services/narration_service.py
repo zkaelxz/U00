@@ -130,15 +130,21 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model):
         "narration_tag", drama_id, job_checkpoint_service.hash_text(text),
         f"{engine_name}:{getattr(engine, 'model', model) or ''}",
         {"max_chunk_chars": MAX_CHUNK_CHARS})
-    done = {int(k): v for k, v in job_checkpoint_service.done_units(scope).items()
-            if isinstance(v, str) and k.lstrip("-").isdigit()}
+    try:
+        done = {int(k): v for k, v in job_checkpoint_service.done_units(scope).items()
+                if isinstance(v, str) and k.lstrip("-").isdigit()}
+    except Exception:   # checkpoints are a convenience; never fail the run
+        done = {}
     if done:
         background_jobs.update_progress(
             job_id, 0.2, f"Resuming: {len(done)} of {len(lines)} chunks already tagged...")
 
     def _checkpoint(batch_labels):
-        for idx, label in batch_labels.items():
-            job_checkpoint_service.record_unit(scope, idx, label)
+        try:
+            for idx, label in batch_labels.items():
+                job_checkpoint_service.record_unit(scope, idx, label)
+        except Exception:
+            pass
 
     by_idx = translate_engines.tag_speakers_by_id(
         {ln.idx: ln.zh for ln in lines}, engine, known,
@@ -159,5 +165,8 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model):
         db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")
     db.save_lines(drama_id, lines)
     db.update_drama(drama_id, status="aligned")
-    job_checkpoint_service.clear_prefix("narration_tag", drama_id)
+    try:
+        job_checkpoint_service.clear_prefix("narration_tag", drama_id)
+    except Exception:
+        pass
     background_jobs.set_result(job_id, {"line_count": len(lines)})

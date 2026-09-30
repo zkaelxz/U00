@@ -31,7 +31,6 @@ def test_cache_hits_only_for_the_same_input_model_and_settings(isolated_db):
     h = cp.hash_text("你好")
     cp.cache_put("demo", h, "claude:x", {"a": 1, "b": 2}, {"out": "hello"})
     assert cp.cache_get("demo", h, "claude:x", {"b": 2, "a": 1}) == {"out": "hello"}
-    assert cp.cache_has("demo", h, "claude:x", {"a": 1, "b": 2})
     assert cp.cache_get("demo", cp.hash_text("再见"), "claude:x", {"a": 1, "b": 2}) is None
     assert cp.cache_get("demo", h, "claude:y", {"a": 1, "b": 2}) is None
     assert cp.cache_get("demo", h, "claude:x", {"a": 1, "b": 3}) is None
@@ -47,7 +46,6 @@ def test_cache_keeps_a_bounded_number_of_rows_per_kind(isolated_db, monkeypatch)
     cp.cache_put("keep", "x", "m", None, "other kind")
     assert [cp.cache_get("demo", str(i), "m") for i in range(5)] == [None, None, 2, 3, 4]
     assert cp.cache_get("keep", "x", "m") == "other kind"
-    assert cp.cache_clear("demo") == 3
 
 
 # --- checkpoints (item 2) ---------------------------------------------------
@@ -184,8 +182,8 @@ def test_per_line_provenance_is_recorded_and_retrievable(isolated_db):
                                  Line(idx=1, start=1, end=2, zh="再见", en="bye")])
     lines = isolated_db.load_line_objects(did)
     glossary = [{"term_original": "林", "term_translation": "Lin", "policy": "keep_pinyin"}]
-    on_save = line_provenance_service.tracker(did, lines, "claude", "claude-x", "1", glossary,
-                                              settings={"locale": "en-US"})
+    on_save = line_provenance_service.tracker(did, lines, lambda: ("claude", "claude-x"), "1",
+                                              glossary, settings={"locale": "en-US"})
     lines[0].en = "hello"
     on_save(lines)   # line 1's text is unchanged: no record for it
     prov = line_provenance_service.get(did, lines[0].id)
@@ -319,7 +317,7 @@ def test_stages_route_follows_job_visibility(isolated_db):
 
 # --- GPU queue position (item 6) -----------------------------------------------
 
-def test_queued_gpu_jobs_show_their_place_in_line(monkeypatch):
+def test_queued_gpu_jobs_show_their_place_in_line(isolated_db, monkeypatch):
     monkeypatch.setattr(background_jobs, "get_gpu_limit_enabled", lambda: True)
     monkeypatch.setattr(background_jobs, "_gpu_slot_available_locked", lambda *a: False)
     ids = ["q_a", "q_b", "q_c"]
@@ -329,11 +327,9 @@ def test_queued_gpu_jobs_show_their_place_in_line(monkeypatch):
         messages = [background_jobs.get_status(j)["message"] for j in ids]
         assert messages[0] == background_jobs.GPU_WAIT_MESSAGE
         assert messages[1].endswith("number 2 in line") and messages[2].endswith("number 3 in line")
-        assert [background_jobs.queue_position(j) for j in ids] == [1, 2, 3]
         assert background_jobs.cancel_queued("q_a")
         assert background_jobs.get_status("q_b")["message"] == background_jobs.GPU_WAIT_MESSAGE
         assert background_jobs.get_status("q_c")["message"].endswith("number 2 in line")
-        assert background_jobs.queue_position("q_a") is None
     finally:
         for j in ids:
             background_jobs.clear_job(j)
@@ -384,3 +380,97 @@ def test_dub_loaders_check_vram_before_loading(monkeypatch, loader, args):
     monkeypatch.setitem(dub._tada, "model", None)
     with pytest.raises(vram_service.InsufficientVramError):
         getattr(dub, loader)(*args)
+
+
+def test_provenance_is_ignored_once_the_translation_changes(isolated_db):
+    did = isolated_db.create_drama(title_en="P")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+    lines = isolated_db.load_line_objects(did)
+    on_save = line_provenance_service.tracker(did, lines, lambda: ("claude", "claude-x"), "1", [])
+    lines[0].en = "hello"
+    on_save(lines)
+    assert line_provenance_service.get(did, lines[0].id, current_en="hello")["engine"] == "claude"
+    # An edit or an activated DeepL version rewrote the line since.
+    lines[0].en = "hi there"
+    assert line_provenance_service.get(did, lines[0].id, current_en="hi there") is None
+    info = debug_view.explain_line(did, lines[0], lines)
+    assert info["provenance"] is None and info["model"] != "claude-x"
+    assert "No per-line record" in info["prompt_version_note"]
+
+
+def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
+    from services import workspace_job_service as wjs
+
+    class Claude:
+        model = "claude-x"
+
+    class DeepSeek:
+        model = "deepseek-chat"
+
+    engine = translate_engines.FallbackEngine([Claude(), DeepSeek()], ["claude", "deepseek"])
+    did = isolated_db.create_drama(title_en="F")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一", en=""),
+                                 Line(idx=1, start=1, end=2, zh="二", en="")])
+    lines = isolated_db.load_line_objects(did)
+
+    def fake_translate(ls, eng, **kw):
+        ls[0].en = "one"
+        kw["save_cb"](ls)
+        eng.active = 1   # quota hit on Claude: the run fell back to DeepSeek
+        ls[1].en = "two"
+        kw["save_cb"](ls)
+        return ls, []
+
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(wjs.bulk_translate, "finish_translation_run", lambda *a, **k: False)
+    wjs.run_translate_job("translate_f", did, lines, engine, {}, "", "", False, "en-US",
+                          [], "", "claude>deepseek", "default")
+    assert line_provenance_service.get(did, lines[0].id)["engine"] == "claude"
+    second = line_provenance_service.get(did, lines[1].id)
+    assert (second["engine"], second["model"]) == ("deepseek", "deepseek-chat")
+
+
+def test_an_old_runs_finish_does_not_close_a_new_run_of_the_same_job(isolated_db):
+    old = job_timing_service.start_run("same", now=10.0)
+    new = job_timing_service.start_run("same", now=20.0)    # restarted at once
+    job_timing_service.finish_run("same", now=21.0, token=old)
+    job_timing_service.mark_stage("same", "Translate", now=22.0)
+    job_timing_service.finish_run("same", now=25.0, token=new)
+    runs = job_timing_service.list_runs("same")
+    assert [r["run_started_at"] for r in runs] == [20.0]
+    assert [s["stage"] for s in runs[0]["stages"]] == ["Preparing", "Translate"]
+
+
+def test_process_jobs_get_timing_too(isolated_db):
+    background_jobs.start_process_job("proc_timing", _proc_ok, description="Proc")
+    assert _wait("proc_timing")["status"] == "done"
+    run = _wait_runs("proc_timing")[0]
+    assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
+    background_jobs.clear_job("proc_timing")
+
+
+def test_a_reply_without_usable_terms_is_not_cached(isolated_db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(tguide, "call_llm_json",
+                        lambda *a, **k: calls.append(1) or '["林", {"error": "x"}]')
+    cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
+    tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    n = len(calls)
+    tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    assert n and len(calls) == 2 * n
+
+
+def test_a_broken_cache_never_fails_the_run(isolated_db, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(cp, "cache_get", boom)
+    monkeypatch.setattr(cp, "cache_put", boom)
+    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps(
+        [{"term": "林", "suggested_translation": "Lin"}]))
+    cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
+    assert tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+
+
+def _proc_ok(result_queue):
+    result_queue.put(("ok", None))

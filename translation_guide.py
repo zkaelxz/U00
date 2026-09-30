@@ -603,8 +603,8 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
 
     response_cache (Step 41): optional (get(prompt) -> text or None,
     put(prompt, text)). A re-run after a crash or cancel then re-sends only
-    the passages the earlier run never finished. Only a reply that parsed
-    into a non-empty term list is cached, so a failed call is retried.
+    the passages the earlier run never finished. Only a reply with at least
+    one usable term is cached, so a failed or empty call is retried.
     """
     if not getattr(engine, "supports_reference", False):
         return []
@@ -657,7 +657,8 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]",
                                  usage_cb=usage_cb)
         entries = _parse_json_array(text, 0)
-        if response_cache and not cached and isinstance(entries, list) and entries:
+        if (response_cache and not cached and isinstance(entries, list)
+                and any(isinstance(e, dict) and e.get("term") for e in entries)):
             response_cache[1](prompt, text)
         if isinstance(entries, list):
             for e in entries:

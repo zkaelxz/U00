@@ -69,7 +69,7 @@ def explain_line(drama_id: int, line, all_lines=None, glossary_terms=None,
                                for n in all_lines[pos + 1:pos + 1 + context_after]]
 
     from services import line_provenance_service
-    provenance = (line_provenance_service.get(drama_id, line.id)
+    provenance = (line_provenance_service.get(drama_id, line.id, current_en=line.en or "")
                   if getattr(line, "id", None) is not None else None)
     versions = db.list_translation_versions(drama_id)
     active_version = next((v for v in versions if v["is_active"]), None)

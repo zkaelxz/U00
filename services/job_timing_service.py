@@ -49,12 +49,14 @@ def current_job():
 
 
 def start_run(job_id, now=None):
+    """Returns the run's token (its start time) for finish_run, or None."""
     try:
         now = time.time() if now is None else now
         with _lock:
             _open[job_id] = {"run": now, "stage": None, "t0": now, "cost": 0.0}
+        return now
     except Exception:
-        pass
+        return None
 
 
 def add_cost(usd, job_id=None):
@@ -113,10 +115,14 @@ def mark_stage(job_id, stage, now=None):
         pass
 
 
-def finish_run(job_id, now=None):
+def finish_run(job_id, now=None, token=None):
+    """With `token` (start_run's return), finishes only that run: a new run
+    of the same job id that started meanwhile is left alone."""
     try:
         now = time.time() if now is None else now
         with _lock:
+            if token is not None and (_open.get(job_id) or {}).get("run") != token:
+                return
             row = _close_stage_locked(job_id, now, final=True)
             run = _open.pop(job_id, None)
         _insert([row])
