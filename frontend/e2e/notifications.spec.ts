@@ -1,4 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+
+import { expect, test } from './fixtures'
 
 // Settings > Notifications (Step 44) and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
