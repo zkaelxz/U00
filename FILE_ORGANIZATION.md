@@ -214,6 +214,12 @@ baihe-subtitler/
 │   ├── line_provenance_service.py Step 41 -- per-line engine/model/prompt/glossary/software version
 │   │                             of the latest translation (recorded by the translate job)
 │   ├── vram_service.py           Step 41 -- free-VRAM fit check before a GPU model load (dub loaders)
+│   ├── diagnostics_installs_service.py  Q02/Q06 -- Deno install (winget, or the official release zip
+│   │                             from a static table: allowlisted https hops, timeouts, byte cap,
+│   │                             .sha256sum check) and "Test first" for an update target, both as
+│   │                             background jobs (deno_install, upgrade_check) behind the install guard
+│   ├── voice_bank_audio_service.py L19 -- a voice-bank entry's clip for streaming: audio types only,
+│   │                             must resolve inside the voice-bank folder, symlinks refused
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -390,6 +396,7 @@ baihe-subtitler/
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── job_stage_schemas.py      Step 41 per-stage job timing models (kept apart from schemas.py)
+│   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
@@ -485,6 +492,10 @@ baihe-subtitler/
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
 │       │                         model-cache/hf|piper/{name}/delete (POST, local_only + confirm; API batch 1,
 │       │                         react-misc-parity)
+│       ├── diagnostics_installs_routes.py /api/diagnostics/deno, /upgrade-check (GET, admin.diagnostics);
+│       │                         /deno/install, /dependencies/{pkg}/test-upgrade (POST, local_only +
+│       │                         confirm; background jobs, polled)
+│       ├── voice_bank_audio_routes.py GET/HEAD /api/library/voice-bank/{entry_id}/audio (media.stream)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -508,7 +519,8 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList (+ libraryFilters.ts: the More filters, pure), DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ConfirmButton (two-step delete), VoiceBankPlayButton (Play/Stop one
+│   │                              voice-bank clip; Library, Characters, Voices), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note).
@@ -541,8 +553,11 @@ baihe-subtitler/
 │   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
-│   │                              helpers, unit-tested), diagnostics.css; API in
-│   │                              src/api/diagnostics.ts
+│   │                              helpers, unit-tested), DenoInstall (Setup card: Install Deno job +
+│   │                              denoInstallText.ts), UpgradeTest ("Test first" result + upgradeTestText.ts),
+│   │                              useServerJobStatus + jobPoll.ts (poll a server job's status),
+│   │                              diagnostics.css; API in src/api/diagnostics.ts and
+│   │                              src/api/diagnosticsInstalls.ts (types/diagnosticsInstalls.ts)
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:

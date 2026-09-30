@@ -186,3 +186,9 @@
 /* Model cache rows with a delete button. */
 .diag-cache li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .diag-cache li > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* "Test first" result and the Deno install block (Q06, Q02). */
+.pkg-list > li > .upgrade-test { flex: 1 1 100%; min-width: 0; }
+.upgrade-test > p, .deno-install p { margin: 0; }
+.upgrade-test progress, .deno-install progress { width: 100%; max-width: 24rem; }
+.deno-install { margin-top: var(--space-3); }
