@@ -603,6 +603,21 @@ class TestCmdAlignUsesDramaSettings:
         assert released == [True]
         assert isolated_db.load_lines(did) == []
 
+    def test_debug_traceback_and_failure_text_are_redacted(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db)
+        monkeypatch.setenv("BAIHE_CLI_DEBUG", "1")
+
+        def boom(*a, **k):
+            raise RuntimeError("fetch http://bob:hunter2@proxy.example/x?key=ABCDEF123456 failed")
+        monkeypatch.setattr(cli, "transcribe_for_timing", boom)
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli.cmd_align(self._args(id=did))
+        text = out.getvalue() + err.getvalue()
+        assert "Traceback" in text and "proxy.example" in text
+        assert "hunter2" not in text and "ABCDEF123456" not in text
+
     def test_default_whisper_diff_alignment_is_unaffected(self, isolated_db, monkeypatch):
         """No alignment_method saved -- must still use the plain
         character-diff aligner, same as before this fix."""
