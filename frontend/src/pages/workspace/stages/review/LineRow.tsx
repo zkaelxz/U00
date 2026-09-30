@@ -213,7 +213,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           <button
             type="button"
             className={buttonClass('ghost', 'sm')}
-            aria-label={`Show line ${lineNumber(line.idx)} on its page`}
+            aria-label={`Show on its page: line ${lineNumber(line.idx)}`}
             onClick={() => actions.showOnPage(line.id)}
           >
             Show on its page

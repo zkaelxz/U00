@@ -106,3 +106,51 @@ test('with Use AI off the rules preview still runs as before', async ({ page }) 
   await expect(page.getByTestId('resegment-preview')).toContainText('Nothing to re-segment.')
   await expect(group.getByRole('switch', { name: 'Use AI' })).toBeEnabled()
 })
+
+test('a discarded preview stays discarded when Use AI is turned off and on again', async ({ page }) => {
+  const calls = await mockAiResegment(page)
+  const group = await openAiStructure(page)
+  await group.getByRole('button', { name: 'Preview with AI' }).click()
+  await expect(page.getByTestId('resegment-ai-preview')).toContainText('3 → 5 lines')
+  await page.getByTestId('resegment-ai-preview').getByRole('button', { name: 'Discard' }).click()
+  const useAi = group.getByRole('switch', { name: 'Use AI' })
+  await useAi.click()
+  await useAi.click()
+  await expect(group.getByRole('button', { name: 'Preview with AI' })).toBeEnabled()
+  await expect(page.getByTestId('resegment-ai-preview')).toHaveCount(0)
+  expect(calls.applies).toEqual([])
+})
+
+test('a refusal the apply job finds at run time asks for the typed confirm', async ({ page }) => {
+  const calls = await mockAiResegment(page, { preview: { ...PREVIEW, needs_confirm: false, translated: 0, flagged: 0 } })
+  let applied = 0
+  await page.route('**/api/jobs/resegment_3', (route) => {
+    applied += 1
+    return route.fulfill({
+      json: {
+        job_id: 'resegment_3', status: applied === 1 ? 'error' : 'done', progress: null, message: '', description: null,
+        error: applied === 1 ? 'Re-segmenting would clear translations, flags or notes on the lines being split -- pass confirm=true.' : null,
+        gpu_touching: false, started_at: 1, finished_at: 2, updated_at: 1,
+      },
+    })
+  })
+  const group = await openAiStructure(page)
+  await group.getByRole('button', { name: 'Preview with AI' }).click()
+  const shown = page.getByTestId('resegment-ai-preview')
+  await shown.getByRole('button', { name: 'Apply' }).click()
+  await expect(group.getByTestId('resegment-ai-notice')).toContainText('would be dropped')
+  await shown.getByLabel('Type resegment to confirm').fill('resegment')
+  await shown.getByRole('button', { name: 'Apply' }).click()
+  await expect(page.getByTestId('resegment-ai-preview')).toHaveCount(0)
+  expect(calls.applies.map((b) => b.confirm)).toEqual([false, true])
+})
+
+test('Preview with AI waits while another job runs on the drama (no paid call)', async ({ page }) => {
+  const calls = await mockAiResegment(page)
+  await page.route('**/api/jobs', (route) =>
+    route.fulfill({ json: { items: [{ job_id: 'bulk_flag_3', status: 'running', progress: null, message: '', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1 }], count: 1 } }))
+  const group = await openAiStructure(page)
+  await expect(group.getByRole('button', { name: 'Preview with AI' })).toBeDisabled()
+  await expect(group.getByTestId('resegment-ai-wait')).toContainText('A job is running on this drama.')
+  expect(calls.previewStarts).toEqual([])
+})

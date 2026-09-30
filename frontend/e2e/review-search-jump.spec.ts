@@ -28,7 +28,7 @@ test('a search hit on page 2 opens on its page, active and highlighted', async (
 
   await page.getByRole('searchbox', { name: 'Search lines' }).or(page.getByRole('textbox', { name: 'Search lines' })).fill('独一无二')
   await expect(rows).toHaveCount(1)
-  const show = page.getByRole('button', { name: 'Show line 45 on its page' })
+  const show = page.getByRole('button', { name: 'Show on its page: line 45' })
   await expect(show).toBeVisible()
   await show.click()
 
@@ -49,4 +49,19 @@ test('no "Show on its page" outside a search', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
   await expect(page.getByRole('button', { name: /on its page/ })).toHaveCount(0)
+})
+
+test('an unsaved edit in the search results is saved before the jump', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  const rows = page.locator('.review-line:not(.review-skeleton)')
+  await expect(rows).toHaveCount(40)
+  await page.getByPlaceholder('Search source or translation').fill('独一无二')
+  await expect(rows).toHaveCount(1)
+  await rows.first().getByTestId('line-en').click()
+  await rows.first().getByLabel('Translation').fill('One of a kind')
+  await page.getByRole('button', { name: 'Show on its page: line 45' }).click()
+  const hit = page.locator('.review-line[aria-current="true"]')
+  await expect(hit).toContainText('#45')
+  await expect(hit).toContainText('One of a kind')
+  await expect(rows).toHaveCount(10)
 })

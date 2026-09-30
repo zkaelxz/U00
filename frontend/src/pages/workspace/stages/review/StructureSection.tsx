@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import {
   applyLlmResegmentPreview,
@@ -70,6 +70,13 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
   const { job, done, error: pollError } = useJob(jobId, { runKey, onDone: (j) => jobDone(j) })
   const running = jobId !== null && !done && !pollError
   const blocked = jobRunning || running ? JOB_RUNNING_MESSAGE : null
+  // Discard only hides a preview (the server keeps it until applied or
+  // replaced): remember which one, so turning Use AI on again doesn't bring
+  // it back. Bumped on every new preview, so a slow quiet read of an older
+  // one can't land over it.
+  const discarded = useRef<string | null>(null)
+  const previewSeq = useRef(0)
+  const previewKey = (p: LlmPreview) => `${p.engine}:${p.source_line_ids.join(',')}:${JSON.stringify(p.changed)}`
 
   const clearAi = () => {
     setAiPreview(null)
@@ -77,9 +84,11 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
     setNotice(null)
   }
 
-  const fetchAiPreview = (quiet: boolean) =>
-    getLlmResegmentPreview(dramaId).then(
+  const fetchAiPreview = (quiet: boolean) => {
+    const seq = previewSeq.current
+    return getLlmResegmentPreview(dramaId).then(
       (p) => {
+        if (quiet && (seq !== previewSeq.current || discarded.current === previewKey(p))) return
         setAiPreview((cur) => (quiet && cur ? cur : p))
         setConfirmAsked(false)
         if (!quiet) setNotice(null)
@@ -90,6 +99,9 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
         else setError(e)
       },
     )
+  }
+  // A paid call just ran: re-read this month's spend for the cost note.
+  const refreshConfig = () => getTranslateConfig(dramaId).then(setConfig, () => {})
 
   function jobDone(j: JobRecord) {
     if (phase === 'rules') {
@@ -97,6 +109,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
       onJobDone()
       onChanged()
     } else if (phase === 'ai-preview') {
+      void refreshConfig()
       if (jobSucceeded(j)) void fetchAiPreview(false)
     } else if (jobSucceeded(j)) {
       clearAi()
@@ -141,6 +154,8 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
 
   const startAiPreview = () => {
     setError(null)
+    previewSeq.current += 1
+    discarded.current = null
     clearAi()
     startLlmResegmentPreview(dramaId, pick).then((r) => {
       setPhase('ai-preview')
@@ -166,6 +181,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
     )
   }
   const discardAi = () => {
+    if (aiPreview) discarded.current = previewKey(aiPreview)
     clearAi()
     if (!running) setJobId(null)
   }
@@ -210,10 +226,11 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
               {resegmentCostNote(config, engine)}
             </p>
             <div className="actions">
-              <button type="button" disabled={running || !engineOk} onClick={startAiPreview}>
+              <button type="button" disabled={running || jobRunning || !engineOk} onClick={startAiPreview}>
                 {running && phase === 'ai-preview' ? 'Previewing…' : aiPreview ? 'Preview again with AI' : 'Preview with AI'}
               </button>
             </div>
+            {jobRunning && !running && <p className="muted" data-testid="resegment-ai-wait">{JOB_RUNNING_MESSAGE}</p>}
             {notice && (
               <p className="reseg-ai-warn" role="alert" data-testid="resegment-ai-notice">
                 {notice}

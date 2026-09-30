@@ -28,7 +28,7 @@ test('phone: a search hit opens on its page from a 44px button', async ({ page }
   await page.getByPlaceholder('Search source or translation').fill('独一无二')
   await expect(rows).toHaveCount(1)
 
-  const show = page.getByRole('button', { name: 'Show line 45 on its page' })
+  const show = page.getByRole('button', { name: 'Show on its page: line 45' })
   const box = await show.boundingBox()
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
