@@ -447,3 +447,47 @@ class TestRequirementsPackageNameParserItself:
             if name:
                 names.add(name.lower())
         assert names == {"requests", "urllib3"}
+
+
+def _absolute_imports(path):
+    """(line, module) for every absolute import in `path`; `from x import y`
+    also yields `x.y`, so `from db import foo` and `import db` both show."""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=path)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node.lineno, alias.name
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            yield node.lineno, node.module
+            for alias in node.names:
+                yield node.lineno, f"{node.module}.{alias.name}"
+
+
+def _imports_of(dirname, forbidden):
+    offenders = []
+    for path in _py_files_under(dirname):
+        for line, module in _absolute_imports(path):
+            if module == forbidden or module.startswith(forbidden + "."):
+                offenders.append(f"{os.path.relpath(path, PROJECT_ROOT)}:{line} {module}")
+    return offenders
+
+
+class TestLayering:
+    """The layers only call downward (CLAUDE.md): services stay UI- and
+    HTTP-free so the CLI and the API share them, and routers reach the
+    database only through a service, where ownership and whitelists live."""
+
+    def test_services_do_not_import_the_api(self):
+        assert _imports_of("services", "api") == []
+
+    def test_routers_do_not_import_db(self):
+        assert _imports_of(os.path.join("api", "routers"), "db") == []
+
+    def test_checker_sees_both_import_forms(self, tmp_path):
+        p = tmp_path / "m.py"
+        p.write_text("import db\nfrom db import save_lines\nfrom api.auth import x\n"
+                     "from . import db as local\n")
+        found = [m for _l, m in _absolute_imports(str(p))]
+        assert "db" in found and "db.save_lines" in found and "api.auth" in found
+        assert "local" not in found and not any(m.startswith(".") for m in found)
