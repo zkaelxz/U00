@@ -58,6 +58,10 @@ MAX_DRAMAS_PER_IMPORT = 200
 MAX_LISTED_DRAMAS = 5000
 _MAX_DB_BYTES = 1024 ** 3
 _MAX_ROWS_PER_IMPORT = 3_000_000
+# Byte caps on what an import reads (values are loaded whole, and JSON ones
+# parsed): one value, and all the chosen dramas' rows together.
+_MAX_VALUE_BYTES = 64 * 1024 ** 2
+_MAX_IMPORT_BYTES = 512 * 1024 ** 2
 _SQLITE_MAGIC = b"SQLite format 3\x00"
 _BAD_FILE = "That file isn't a Baihe backup, or it is damaged."
 _TOO_LARGE = "The uploaded file is too large."
@@ -154,7 +158,8 @@ class _Backup:
             las.validate_backup_file(upload, check_disk=False, check_limits=True)
             try:
                 with zipfile.ZipFile(upload) as zf:
-                    self.db_path = abs_._extract_db(zf, tmp, _MAX_DB_BYTES)
+                    # No SQL runs on it until _check_db's guarded connection.
+                    self.db_path = abs_._extract_db(zf, tmp, _MAX_DB_BYTES, check=False)
             except (OSError, zipfile.BadZipFile, KeyError):
                 raise InvalidInputError(_BAD_FILE) from None
             self.zip_path = upload
@@ -252,14 +257,16 @@ def _check_ids(drama_ids) -> list:
 def _check_row_limits(src, ids: list):
     """Refuses an import whose rows (the dramas' children, their pages'
     bubbles and their series' glossary, characters and memory) exceed
-    _MAX_ROWS_PER_IMPORT; each of those tables is read whole per drama."""
+    _MAX_ROWS_PER_IMPORT, or whose values (those rows plus the dramas and
+    series rows) exceed _MAX_VALUE_BYTES each or _MAX_IMPORT_BYTES in all;
+    each of those tables is read whole per drama."""
     total = 0
     marks = ",".join("?" for _ in ids)
+    in_series = f"IN (SELECT series_id FROM dramas WHERE id IN ({marks}))"
     wheres = [(table, f"drama_id IN ({marks})") for table in abs_._CHILD_TABLES]
     if abs_._has_table(src, "pages"):
         wheres.append(("bubbles", f"page_id IN (SELECT id FROM pages WHERE drama_id IN ({marks}))"))
-    wheres += [(table, f"series_id IN (SELECT series_id FROM dramas WHERE id IN ({marks}))")
-               for table in abs_._SERIES_CHILDREN]
+    wheres += [(table, f"series_id {in_series}") for table in abs_._SERIES_CHILDREN]
     for table, where in wheres:
         if not abs_._has_table(src, table):
             continue
@@ -267,6 +274,21 @@ def _check_row_limits(src, ids: list):
         if total > _MAX_ROWS_PER_IMPORT:
             raise InvalidInputError("Those dramas hold too many rows to import at once; "
                                     "import fewer of them.")
+    size = 0
+    for table, where in [("dramas", f"id IN ({marks})"), ("series", f"id {in_series}")] + wheres:
+        if not abs_._has_table(src, table):
+            continue
+        cols = ['"' + c.replace('"', '""') + '"' for c in abs_._columns(src, table)]
+        if not cols:
+            continue
+        sizes = ", ".join(f"MAX(length(CAST({c} AS BLOB))), SUM(length(CAST({c} AS BLOB)))"
+                          for c in cols)
+        row = src.execute(f'SELECT {sizes} FROM "{table}" WHERE {where}', ids).fetchone()
+        biggest = max((v or 0) for v in row[0::2])
+        size += sum((v or 0) for v in row[1::2])
+        if biggest > _MAX_VALUE_BYTES or size > _MAX_IMPORT_BYTES:
+            raise InvalidInputError("Those dramas hold too much data to import at once "
+                                    "(or one value is too large); import fewer of them.")
 
 
 def _live_titles() -> set:

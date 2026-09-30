@@ -3,8 +3,10 @@ POST /api/backups/import/list and /import). No network, no models."""
 
 import contextlib
 import io
+import json
 import os
 import sqlite3
+import time
 import zipfile
 
 import pytest
@@ -725,3 +727,72 @@ def test_form_fields_are_checked(client):
         assert _post_import(client, data, [bad]).status_code == 422, bad
     assert client.post("/api/backups/import/list", data={"file": "not a file"}).status_code == 422
     assert len(_dramas()) == 3
+
+
+def test_zip_database_gets_no_unguarded_sql(client):
+    """A zip's library.db is only queried on the guarded connection: a view
+    named dramas that never returns a row is refused at once, and the
+    library is not left locked."""
+    a, b, g = _world()
+
+    def swap(c):
+        c.execute("DROP TABLE dramas")
+        c.execute("CREATE VIEW dramas AS WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL "
+                  "SELECT i + 1 FROM n) SELECT i AS id, '' AS title_en, '' AS title_zh, "
+                  "'' AS media_type FROM n WHERE i < 0")
+    raw = _db_bytes(swap)
+    data = _fixture_zip(lambda z: z.writestr("library.db", raw))
+    started = time.monotonic()
+    assert _post_list(client, data).status_code == 422
+    assert _post_import(client, data, [a]).status_code == 422
+    assert time.monotonic() - started < 10
+    assert not background_jobs.maintenance_active()
+    assert background_jobs.acquire_exclusive("restore")
+    background_jobs.release_exclusive()
+
+
+def test_saved_versions_dub_filenames_are_sanitised(client):
+    a, b, g = _world()
+    _legit_media(a)
+    items = [{"id": 1, "en": "x", "dub_filename": "/etc/passwd"},
+             {"id": 2, "en": "y", "dub_filename": "dub_clips/line_0001.wav"},
+             {"id": 3, "en": "z", "dub_filename": "../1/dub_clips/line_0001.wav"}]
+    with _conn() as c:
+        _ins(c, "translation_versions", drama_id=a, label="v", lines_json=json.dumps(items),
+             created_at="x")
+        _ins(c, "line_history", drama_id=a, label="h", snapshot_json=json.dumps(items),
+             created_at="x")
+        _ins(c, "line_history", drama_id=a, label="odd",
+             snapshot_json=json.dumps({"dub_filename": "/etc/passwd"}), created_at="x")
+        c.commit()
+    for data in (_manual_zip(), _db_bytes(lambda c: None)):
+        r = _post_import(client, data, [a])
+        assert r.status_code == 200, r.text
+        new = r.json()["imported"][0]["drama_id"]
+        kept = "dub_clips/line_0001.wav" if r.json()["imported"][0]["media_imported"] else None
+        with _conn() as c:
+            [v] = c.execute("SELECT lines_json FROM translation_versions WHERE drama_id = ?",
+                            (new,)).fetchall()
+            hist = dict(c.execute("SELECT label, snapshot_json FROM line_history "
+                                  "WHERE drama_id = ?", (new,)).fetchall())
+        for value in (v[0], hist["h"]):
+            assert [i["dub_filename"] for i in json.loads(value)] == [None, kept, None]
+        assert json.loads(hist["odd"]) == []
+
+
+def test_value_and_total_byte_caps(client, monkeypatch):
+    a, b, g = _world()
+    with _conn() as c:
+        _ins(c, "line_history", drama_id=g, label="big", snapshot_json="[" + " " * 5000 + "]",
+             created_at="x")
+        c.commit()
+    data = _manual_zip()
+    monkeypatch.setattr(bis, "_MAX_VALUE_BYTES", 4096)
+    r = _post_import(client, data, [g])
+    assert r.status_code == 422 and "too much data" in r.text
+    monkeypatch.setattr(bis, "_MAX_VALUE_BYTES", 64 * 1024 ** 2)
+    monkeypatch.setattr(bis, "_MAX_IMPORT_BYTES", 4096)
+    assert _post_import(client, data, [g]).status_code == 422
+    assert len(_dramas()) == 3
+    monkeypatch.undo()
+    assert _post_import(client, data, [g]).status_code == 200

@@ -669,14 +669,18 @@ def _ro_uri(path: str) -> str:
     return f"file:{quote(os.path.abspath(path))}?mode=ro"
 
 
-def _extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None) -> str:
+def _extract_db(zf: zipfile.ZipFile, dest_dir: str, max_bytes: int = None,
+                check: bool = True) -> str:
     """library.db from the snapshot into dest_dir, checked with SQLite
-    (quick_check) before anything reads it."""
+    (quick_check) before anything reads it. check=False copies it without
+    running any SQL: the caller checks it on its own guarded connection."""
     dest = os.path.join(dest_dir, "library.db")
     if zf.getinfo("library.db").file_size > (max_bytes or _MAX_MEMBER_BYTES):
         raise InvalidInputError(_BAD_SNAPSHOT)
     with zf.open("library.db") as src, open(dest, "wb") as out:
         shutil.copyfileobj(src, out, 1024 * 1024)
+    if not check:
+        return dest
     try:
         with contextlib.closing(sqlite3.connect(_ro_uri(dest), uri=True)) as conn:
             conn.execute("PRAGMA trusted_schema = OFF")
@@ -1015,16 +1019,23 @@ def _sanitise_file_refs(table: str, row: dict, import_as):
             row[col] = _import_file_ref(import_as.get("media_dir"), row[col], subdir)
 
 
-def _remap_json_lines(value, line_map):
+def _remap_json_lines(value, line_map, import_as=None):
+    """Points the saved lines' ids at the new lines. import_as (see
+    _copy_drama): each saved dub_filename is sanitised like lines'
+    (restoring the version writes it back into lines), and a value that
+    isn't a list of lines becomes an empty list."""
     try:
         items = json.loads(value) if value else None
-    except ValueError:
-        return value
+    except (ValueError, RecursionError):
+        return value if import_as is None else "[]"
     if not isinstance(items, list):
-        return value
+        return value if import_as is None else "[]"
     for item in items:
         if isinstance(item, dict) and "id" in item:
             item["id"] = line_map.get(item["id"])
+        if import_as is not None and isinstance(item, dict) and "dub_filename" in item:
+            item["dub_filename"] = _import_file_ref(import_as.get("media_dir"),
+                                                    item["dub_filename"], "dub_clips")
     return json.dumps(items, ensure_ascii=False)
 
 
@@ -1183,7 +1194,7 @@ def _copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None) -> 
                     continue
             if table in _LINE_JSON:
                 col = _LINE_JSON[table]
-                child[col] = _remap_json_lines(child.get(col), line_map)
+                child[col] = _remap_json_lines(child.get(col), line_map, import_as)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 line_map[old] = new
