@@ -57,47 +57,6 @@ class TestBrowser:
         assert launcher.find_app_browser(cands, exists=lambda p: False) is None
 
 
-class TestStopServer:
-    def _pid(self, data_dir, pid="4242"):
-        d = data_dir / "launcher"
-        d.mkdir(parents=True, exist_ok=True)
-        (d / launcher.PID_FILE_NAME).write_text(pid)
-        return d / launcher.PID_FILE_NAME
-
-    def test_kills_our_own_server(self, data_dir, tmp_path):
-        py = str(tmp_path / "python" / "python.exe")
-        pid_file = self._pid(data_dir)
-        alive = {4242: py}
-        killed = []
-
-        def kill(pid):
-            killed.append(pid)
-            alive.pop(pid)
-        msg = launcher.stop_server(py, image_of=alive.get, kill=kill, sleep=lambda s: None)
-        assert killed == [4242]
-        assert "Stopped" in msg
-        assert not pid_file.exists()
-
-    def test_leaves_a_reused_pid_alone(self, data_dir, tmp_path):
-        pid_file = self._pid(data_dir)
-        killed = []
-        msg = launcher.stop_server(str(tmp_path / "python.exe"),
-                                   image_of=lambda pid: r"C:\Windows\notepad.exe",
-                                   kill=killed.append)
-        assert killed == []
-        assert "isn't running" in msg
-        assert not pid_file.exists()
-
-    def test_nothing_to_stop(self, data_dir, tmp_path):
-        killed = []
-        assert "isn't running" in launcher.stop_server(str(tmp_path / "python.exe"),
-                                                       image_of=lambda p: None, kill=killed.append)
-        self._pid(data_dir, "not a number")
-        assert "isn't running" in launcher.stop_server(str(tmp_path / "python.exe"),
-                                                       image_of=lambda p: None, kill=killed.append)
-        assert killed == []
-
-
 class TestLaunch:
     def test_already_running_just_opens_a_window(self, data_dir, monkeypatch):
         opened, started = [], []
@@ -381,6 +340,32 @@ class TestRun:
 # ---------------------------------------------------------- Step 80b stop/clean
 
 
+class _FakeProc:
+    """A process opened by handle (launcher._WinProcess stand-in)."""
+
+    def __init__(self, image, exits_on_shutdown=True, exits_on_terminate=True):
+        self._image, self.alive = image, True
+        self.exits_on_shutdown, self.exits_on_terminate = exits_on_shutdown, exits_on_terminate
+        self.terminated = self.closed = False
+        self.waits = []
+
+    def image(self):
+        return self._image
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
+        return not self.alive
+
+    def terminate(self):
+        self.terminated = True
+        if self.exits_on_terminate:
+            self.alive = False
+        return True
+
+    def close(self):
+        self.closed = True
+
+
 class TestStopSequence:
     def _setup(self, data_dir, pid="4242", port="8600", token="t" * 43):
         d = data_dir / "launcher"
@@ -390,20 +375,31 @@ class TestStopSequence:
             (d / launcher.TOKEN_FILE_NAME).write_text(token)
         return d
 
+    def _stop(self, tmp_path, proc, shutdown=None, ended=None, opened=None, **kw):
+        py = str(tmp_path / "python.exe")
+
+        def open_proc(pid):
+            if opened is not None:
+                opened.append(pid)
+            return proc
+        return launcher.stop_server(
+            py, open_proc=open_proc,
+            shutdown=shutdown or (lambda port, token: False),
+            end_group=lambda n: (ended.append(n) if ended is not None else None) or False, **kw)
+
     def test_clean_shutdown_first(self, data_dir, tmp_path):
         d = self._setup(data_dir, port="8601")
-        py = str(tmp_path / "python.exe")
-        alive = {4242: py}
-        asked, killed, ended = [], [], []
+        proc = _FakeProc(str(tmp_path / "python.exe"))
+        asked, ended, opened = [], [], []
 
         def shutdown(port, token):
             asked.append((port, token))
-            alive.pop(4242)      # the server exits by itself
+            proc.alive = False       # the server exits by itself
             return True
-        msg = launcher.stop_server(py, image_of=alive.get, kill=killed.append, sleep=lambda s: None,
-                                   shutdown=shutdown, end_group=lambda n: ended.append(n) or False)
+        msg = self._stop(tmp_path, proc, shutdown, ended, opened)
+        assert opened == [4242]
         assert asked == [(8601, "t" * 43)]
-        assert killed == []
+        assert not proc.terminated and proc.closed
         assert ended == [launcher.group_name()]      # leftover sweep always runs
         assert "clean shutdown" in msg
         assert not (d / launcher.PID_FILE_NAME).exists()
@@ -411,43 +407,58 @@ class TestStopSequence:
 
     def test_forced_when_the_server_doesnt_stop_in_time(self, data_dir, tmp_path):
         self._setup(data_dir)
-        py = str(tmp_path / "python.exe")
-        alive = {4242: py}
-        killed = []
+        proc = _FakeProc(str(tmp_path / "python.exe"))
+        msg = self._stop(tmp_path, proc, lambda port, token: True, grace=1)
+        assert proc.terminated and "ended" in msg
+        assert proc.waits[0] == 1          # the grace period, through the handle
 
-        def kill(pid):
-            killed.append(pid)
-            alive.pop(pid)
-        msg = launcher.stop_server(py, image_of=alive.get, kill=kill, sleep=lambda s: None,
-                                   shutdown=lambda port, token: True, end_group=lambda n: False,
-                                   grace=1)
-        assert killed == [4242]
-        assert "ended" in msg
+    def test_reports_a_stop_that_failed(self, data_dir, tmp_path):
+        self._setup(data_dir)
+        proc = _FakeProc(str(tmp_path / "python.exe"), exits_on_terminate=False)
+        assert "Couldn't stop" in self._stop(tmp_path, proc)
 
     def test_forced_without_a_token(self, data_dir, tmp_path):
         self._setup(data_dir, token=None)
-        py = str(tmp_path / "python.exe")
-        alive = {4242: py}
-        asked, killed = [], []
-        launcher.stop_server(py, image_of=alive.get, kill=lambda p: (killed.append(p), alive.pop(p)),
-                             sleep=lambda s: None, shutdown=lambda *a: asked.append(a) or True,
-                             end_group=lambda n: False)
-        assert asked == [] and killed == [4242]
+        proc = _FakeProc(str(tmp_path / "python.exe"))
+        asked = []
+        self._stop(tmp_path, proc, lambda *a: asked.append(a) or True)
+        assert asked == [] and proc.terminated
+
+    def test_already_gone_after_a_failed_request_is_clean(self, data_dir, tmp_path):
+        # The shutdown request timed out, but the server acted on it.
+        self._setup(data_dir)
+        proc = _FakeProc(str(tmp_path / "python.exe"))
+
+        def shutdown(port, token):
+            proc.alive = False
+            return False
+        assert "clean shutdown" in self._stop(tmp_path, proc, shutdown)
+        assert not proc.terminated
 
     def test_never_signals_a_process_that_isnt_ours(self, data_dir, tmp_path):
         self._setup(data_dir)
-        asked, killed = [], []
-        msg = launcher.stop_server(str(tmp_path / "python.exe"),
-                                   image_of=lambda pid: r"C:\Windows\notepad.exe",
-                                   kill=killed.append, shutdown=lambda *a: asked.append(a) or True,
-                                   end_group=lambda n: False)
-        assert asked == [] and killed == []
+        proc = _FakeProc(r"C:\Windows\notepad.exe")
+        asked = []
+        msg = self._stop(tmp_path, proc, lambda *a: asked.append(a) or True)
+        assert asked == [] and not proc.terminated and proc.closed
         assert "isn't running" in msg
+        assert not (data_dir / "launcher" / launcher.PID_FILE_NAME).exists()
+
+    def test_nothing_to_stop(self, data_dir, tmp_path):
+        assert "isn't running" in self._stop(tmp_path, None)       # no pid file
+        self._setup(data_dir, pid="not a number")
+        assert "isn't running" in self._stop(tmp_path, None)
+        self._setup(data_dir)
+        assert "isn't running" in self._stop(tmp_path, None)       # pid no longer running
 
     def test_leftovers_are_ended_even_without_a_server(self, data_dir, tmp_path):
-        msg = launcher.stop_server(str(tmp_path / "python.exe"), image_of=lambda p: None,
-                                   kill=lambda p: pytest.fail("killed"), end_group=lambda n: True)
+        msg = launcher.stop_server(str(tmp_path / "python.exe"), open_proc=lambda p: None,
+                                   end_group=lambda n: True)
         assert "left running" in msg
+
+    def test_open_process_is_a_no_op_off_windows(self):
+        if os.name != "nt":
+            assert launcher.open_process(os.getpid()) is None
 
 
 class TestShutdownRequest:
@@ -467,7 +478,7 @@ class TestShutdownRequest:
             seen["url"], seen["headers"], seen["data"] = req.full_url, dict(req.header_items()), req.data
             seen["method"], seen["timeout"] = req.get_method(), timeout
             return Resp()
-        monkeypatch.setattr(launcher.urllib.request, "urlopen", fake_urlopen)
+        monkeypatch.setattr(launcher, "_local_open", fake_urlopen)
         assert launcher.request_clean_shutdown(8601, "tok") is True
         assert seen["url"] == "http://127.0.0.1:8601/api/system/shutdown"
         assert seen["method"] == "POST" and seen["data"] == b"{}" and seen["timeout"] == 5.0
@@ -476,10 +487,18 @@ class TestShutdownRequest:
         assert headers["x-baihe-local"] == "1"
         assert headers["content-type"] == "application/json"
 
+    def test_loopback_calls_skip_any_proxy(self):
+        import urllib.request
+        # An empty ProxyHandler replaces the default one (which reads the
+        # system proxy), so no proxy handler is left in the opener at all.
+        assert not [h for h in launcher._LOOPBACK_OPENER.handlers
+                    if isinstance(h, urllib.request.ProxyHandler) and h.proxies]
+        assert "http_open" not in dir(urllib.request.ProxyHandler({}))
+
     def test_failure_is_false(self, monkeypatch):
         def boom(*a, **k):
             raise OSError("refused")
-        monkeypatch.setattr(launcher.urllib.request, "urlopen", boom)
+        monkeypatch.setattr(launcher, "_local_open", boom)
         assert launcher.request_clean_shutdown(8600, "tok") is False
 
 
@@ -506,9 +525,9 @@ class TestServerStartToken:
         assert env[process_guard.GROUP_NAME_ENV] == launcher.group_name()
         assert env[process_guard.GROUP_NAME_ENV].startswith("Local\\BaiheStudio-")
 
-    def test_console_title_is_best_effort(self):
-        # Off Windows (or with no console to attach to) it just says no.
-        assert launcher.set_console_title(1, "x", tries=1, sleep=lambda s: None) in (True, False)
+    @pytest.mark.skipif(os.name == "nt", reason="off Windows there's no console API")
+    def test_console_title_says_no_off_windows(self):
+        assert launcher.set_console_title(1, "x", tries=1, sleep=lambda s: None) is False
 
 
 class TestDataDirLockdown:
@@ -526,7 +545,7 @@ class TestDataDirLockdown:
 
         def run(cmd, **kw):
             calls.append(cmd)
-            return R(sid_out) if cmd[0] == "whoami" else R(code=rc)
+            return R(sid_out) if cmd[0].lower().endswith("whoami.exe") else R(code=rc)
         return run
 
     def test_new_folder_outside_the_profile_is_limited_to_this_account(self, tmp_path):
@@ -535,7 +554,8 @@ class TestDataDirLockdown:
                                                profile=str(tmp_path / "Users" / "kae"), is_windows=True)
         assert ok is True
         icacls = calls[-1]
-        assert icacls[:3] == ["icacls", str(tmp_path / "D-Baihe"), "/inheritance:r"]
+        assert icacls[0].lower().endswith(os.path.join("system32", "icacls.exe"))
+        assert icacls[1:3] == [str(tmp_path / "D-Baihe"), "/inheritance:r"]
         assert "*S-1-5-21-1-2-3-1001:(OI)(CI)F" in icacls
         assert "*S-1-5-18:(OI)(CI)F" in icacls and "*S-1-5-32-544:(OI)(CI)F" in icacls
         assert "Limited the data folder" in log.text
@@ -554,7 +574,28 @@ class TestDataDirLockdown:
         calls, log = [], self._Log()
         assert postinstall.restrict_new_data_dir(tmp_path / "D", True, log, run=self._run(calls, sid_out=""),
                                                  profile=str(tmp_path / "P"), is_windows=True) is False
-        assert [c[0] for c in calls] == ["whoami"]
+        assert len(calls) == 1 and calls[0][0].lower().endswith("whoami.exe")
+
+    def test_undecodable_output_never_fails_the_install(self, tmp_path):
+        def run(cmd, **kw):
+            raise UnicodeDecodeError("cp1252", b"\x81", 0, 1, "undefined")
+        assert postinstall.current_user_sid(run) is None
+        log = self._Log()
+        assert postinstall.restrict_new_data_dir(tmp_path / "D", True, log, run=run,
+                                                 profile=str(tmp_path / "P"), is_windows=True) is False
+
+    def test_decoding_is_tolerant(self, tmp_path):
+        seen = []
+
+        class R:
+            stdout, returncode = '"pc\\k","S-1-5-21-9"', 0
+
+        def run(cmd, **kw):
+            seen.append(kw)
+            return R()
+        postinstall.restrict_new_data_dir(tmp_path / "D", True, self._Log(), run=run,
+                                          profile=str(tmp_path / "P"), is_windows=True)
+        assert seen and all(kw.get("errors") == "replace" for kw in seen)
 
 
 class TestCreatedFlag:
@@ -574,6 +615,10 @@ class TestCreatedFlag:
 
     def test_main_passes_the_flag(self, monkeypatch, tmp_path):
         seen = {}
-        monkeypatch.setattr(postinstall, "run", lambda w, d, created=False: seen.update(created=created) or 0)
+        monkeypatch.setattr(postinstall, "run", lambda w, d, created=False, new=False:
+                            seen.update(created=created, new=new) or 0)
         assert postinstall.main(["--wheels", "w", "--data-dir", str(tmp_path), "--data-dir-created"]) == 0
-        assert seen["created"] is True
+        assert seen == {"created": True, "new": False}
+        assert postinstall.main(["--wheels", "w", "--data-dir", str(tmp_path), "--data-dir-created",
+                                 "--data-dir-new"]) == 0
+        assert seen == {"created": True, "new": True}

@@ -100,16 +100,18 @@ Filename: "{app}\python\python.exe"; Parameters: "-s ""{app}\app\installer\launc
 var
   DataDirPage: TInputDirWizardPage;
   PostInstallFailed: Boolean;
-  DataDirCreatedBySetup: Boolean;
+  DataDirCreatedBySetup, DataDirIsNew: Boolean;
   // Uninstall state, read in InitializeUninstall while the files still exist.
   UninstDataDir: String;
   UninstDataDirCreated: Boolean;
   ProgramOwned: Boolean;
   DeleteLibrary, DeleteSettings, DeleteModels, CleanAll: Boolean;
   LibraryBox, SettingsBox, ModelsBox, CleanBox: TNewCheckBox;
+  PrevLibrary, PrevSettings, PrevModels: Boolean;
 
 const
   CreatedFlagLine = '# created-by-setup';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{973BDBB4-4ADC-4E54-973B-682E2A04362F}_is1';
 
 function DefaultDataDir(): String;
 begin
@@ -144,14 +146,31 @@ begin
       '): updates and uninstalling replace that folder.';
 end;
 
+// True if AppDir is a Baihe Studio install: its manifest.json names the
+// product and this installer's AppId (build_installer.write_manifest), or
+// this app's own uninstall entry says it's installed there. A folder that
+// merely has some other program's manifest.json doesn't count.
+function IsBaiheInstallDir(const AppDir: String): Boolean;
+var
+  Manifest: AnsiString;
+  Location: String;
+begin
+  Result := False;
+  if LoadStringFromFile(AddBackslash(AppDir) + 'manifest.json', Manifest) then
+    Result := (Pos('"product": "Baihe Studio"', Manifest) > 0) and
+      (Pos('973BDBB4-4ADC-4E54-973B-682E2A04362F', Manifest) > 0);
+  if (not Result) and RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', Location) then
+    Result := NormDir(Location) = NormDir(AppDir);
+end;
+
 // '' unless the install folder already holds a python or app folder that
-// Baihe Studio didn't put there (its own installs carry manifest.json):
-// updating would overwrite it, and uninstalling would delete it.
+// Baihe Studio didn't put there: updating would overwrite it, and
+// uninstalling would delete it.
 function InstallDirProblem(const AppDir: String): String;
 begin
   Result := '';
   if (DirExists(AddBackslash(AppDir) + 'python') or DirExists(AddBackslash(AppDir) + 'app'))
-     and not FileExists(AddBackslash(AppDir) + 'manifest.json') then
+     and not IsBaiheInstallDir(AppDir) then
     Result := 'The folder ' + AppDir + ' already has a "python" or "app" folder that Baihe Studio ' +
       'didn''t install. Choose an empty folder, or a new one.';
 end;
@@ -213,7 +232,8 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Problem: String;
+  Problem, OldDir: String;
+  OldCreated: Boolean;
 begin
   Result := True;
   if CurPageID = wpSelectDir then
@@ -236,11 +256,17 @@ begin
     // An existing folder outside the user's own profile keeps whatever
     // permissions it has, which may let other accounts on this PC read
     // the API keys saved there. (A new folder there is limited to this
-    // account by the install step.)
-    else if DirExists(DataDir()) and not IsInsideOrSame(DataDir(), ExpandConstant('{%USERPROFILE}')) then
-      Result := MsgBox('The folder ' + DataDir() + ' already exists outside your user folder, so other ' +
+    // account by the install step.) Not asked again when an update keeps
+    // the folder the previous install already used.
+    else
+    begin
+      OldDir := ReadMarker(AddBackslash(WizardDirValue()) + 'app\INSTALLED', WizardDirValue(), OldCreated);
+      if DirExists(DataDir()) and (NormDir(OldDir) <> NormDir(DataDir()))
+         and not IsInsideOrSame(DataDir(), ExpandConstant('{%USERPROFILE}')) then
+        Result := MsgBox('The folder ' + DataDir() + ' already exists outside your user folder, so other ' +
         'accounts on this PC may be able to read what''s in it, including the API keys Baihe Studio ' +
         'saves there.' + #13#10#13#10 + 'Use it anyway?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    end;
   end;
 end;
 
@@ -299,7 +325,8 @@ begin
   // it, or an earlier install did): only then may a clean uninstall
   // remove the folder itself. Read before the old marker is replaced.
   OldDir := ReadMarker(ExpandConstant('{app}\app\INSTALLED'), ExpandConstant('{app}'), OldCreated);
-  DataDirCreatedBySetup := (not DirExists(DataDir())) or
+  DataDirIsNew := not DirExists(DataDir());
+  DataDirCreatedBySetup := DataDirIsNew or
     (OldCreated and (NormDir(OldDir) = NormDir(DataDir())));
   Result := DataDirWriteProblem(DataDir());
   if Result = '' then
@@ -323,6 +350,10 @@ begin
     ' --data-dir "' + DataDir() + '"';
   if DataDirCreatedBySetup then
     Params := Params + ' --data-dir-created';
+  // Only a folder made just now is limited to this account; an update
+  // leaves the permissions the user may have adjusted since.
+  if DataDirIsNew then
+    Params := Params + ' --data-dir-new';
   Log('Running the install step: python.exe ' + Params);
   if not Exec(ExpandConstant('{app}\python\python.exe'), Params, ExpandConstant('{app}\app'),
       SW_HIDE, ewWaitUntilTerminated, ResultCode) then
@@ -366,14 +397,24 @@ begin
   Result.Checked := False;
 end;
 
-// "Remove everything" ticks the three boxes above it.
+// "Remove everything" ticks the three boxes above it; unticking it puts
+// them back the way they were.
 procedure CleanBoxClick(Sender: TObject);
 begin
   if CleanBox.Checked then
   begin
+    PrevLibrary := LibraryBox.Checked;
+    PrevSettings := SettingsBox.Checked;
+    PrevModels := ModelsBox.Checked;
     LibraryBox.Checked := True;
     SettingsBox.Checked := True;
     ModelsBox.Checked := True;
+  end
+  else
+  begin
+    LibraryBox.Checked := PrevLibrary;
+    SettingsBox.Checked := PrevSettings;
+    ModelsBox.Checked := PrevModels;
   end;
 end;
 
@@ -386,7 +427,27 @@ var
   Intro: TNewStaticText;
   OkButton, CancelButton: TNewButton;
   Confirmed: Boolean;
+  CleanCaption, CleanWarning: String;
 begin
+  PrevLibrary := False;
+  PrevSettings := False;
+  PrevModels := False;
+  if UninstDataDirCreated then
+  begin
+    // Setup made this folder, so a clean uninstall removes all of it --
+    // including anything the user has since put there themselves.
+    CleanCaption := 'Remove everything (clean uninstall): all of the above and the whole data folder';
+    CleanWarning := 'This permanently deletes the folder' + #13#10 + UninstDataDir + #13#10 +
+      'and EVERYTHING in it, including any files you put there yourself, as well as your ' +
+      'library, settings and API keys, and downloaded models.';
+  end
+  else
+  begin
+    CleanCaption := 'Remove everything (clean uninstall): all of the above and the rest of Baihe Studio''s files';
+    CleanWarning := 'This permanently deletes your library, settings and API keys, downloaded models ' +
+      'and Baihe Studio''s other files in' + #13#10 + UninstDataDir + #13#10 +
+      '(anything else in that folder is left alone).';
+  end;
   Form := CreateCustomForm(ScaleX(500), ScaleY(290), False, False);
   try
     Form.Caption := 'Uninstall {#AppName}';
@@ -405,7 +466,7 @@ begin
     LibraryBox := AddCheckBox(Form, 'Also delete my library (all projects, translations, audio/video, backups)', ScaleY(84));
     SettingsBox := AddCheckBox(Form, 'Also delete my saved settings and API keys (.env)', ScaleY(112));
     ModelsBox := AddCheckBox(Form, 'Also delete downloaded AI models (model_cache)', ScaleY(140));
-    CleanBox := AddCheckBox(Form, 'Remove everything (clean uninstall): all of the above and every other file Baihe Studio made', ScaleY(178));
+    CleanBox := AddCheckBox(Form, CleanCaption, ScaleY(178));
     CleanBox.OnClick := @CleanBoxClick;
 
     OkButton := TNewButton.Create(Form);
@@ -433,12 +494,17 @@ begin
       Confirmed := True;
       if Result and CleanBox.Checked then
       begin
-        Confirmed := MsgBox('Remove everything?' + #13#10#13#10 +
-          'This permanently deletes your library, settings and API keys, downloaded models and ' +
-          'every other file Baihe Studio made in:' + #13#10 + UninstDataDir + #13#10#13#10 +
+        Confirmed := MsgBox('Remove everything?' + #13#10#13#10 + CleanWarning + #13#10#13#10 +
           'It can''t be undone.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
         if not Confirmed then
+        begin
+          // Back to what the user had ticked before "Remove everything"
+          // (explicitly: whether or not unticking fires OnClick).
           CleanBox.Checked := False;
+          LibraryBox.Checked := PrevLibrary;
+          SettingsBox.Checked := PrevSettings;
+          ModelsBox.Checked := PrevModels;
+        end;
       end;
     until Confirmed;
     if Result then
@@ -471,7 +537,7 @@ begin
   DeleteModels := False;
   CleanAll := False;
   // Only folders Baihe Studio put there are ever removed (see InstallDirProblem).
-  ProgramOwned := FileExists(ExpandConstant('{app}\manifest.json')) and
+  ProgramOwned := IsBaiheInstallDir(ExpandConstant('{app}')) and
     FileExists(ExpandConstant('{app}\app\installer\launcher.py'));
   UninstDataDir := ReadMarker(ExpandConstant('{app}\app\INSTALLED'), ExpandConstant('{app}'),
     UninstDataDirCreated);
@@ -495,37 +561,57 @@ begin
   List := List + #13#10 + '  - ' + Line;
 end;
 
-procedure DeleteTree(const Path, Name: String; var Removed: String);
+procedure DeleteTree(const Path, Name: String; var Removed, Left: String);
 begin
   if DirExists(Path) then
   begin
-    DelTree(Path, True, True, True);
-    AddLine(Removed, Name);
+    if DelTree(Path, True, True, True) and not DirExists(Path) then
+      AddLine(Removed, Name)
+    else
+      AddLine(Left, Name + ' - couldn''t be removed completely (a file may be in use)');
   end;
 end;
 
-// Deletes %TEMP%\baihe_* folders: Baihe Studio's own temporary work
-// folders (every tempfile prefix it uses starts with "baihe_"). Returns
-// how many.
-function DeleteOwnTempFolders(): Integer;
+// Deletes the %TEMP% items matching Pattern (folders, or files when
+// Files is set). Returns how many.
+function DeleteTempMatches(const Pattern: String; Files: Boolean): Integer;
 var
   Temp: String;
   Rec: TFindRec;
+  IsDir: Boolean;
 begin
   Result := 0;
   Temp := GetEnv('TEMP');
   if Temp = '' then
     Exit;
-  if FindFirst(AddBackslash(Temp) + 'baihe_*', Rec) then
+  if FindFirst(AddBackslash(Temp) + Pattern, Rec) then
   try
     repeat
-      if (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+      IsDir := (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0;
+      if IsDir and not Files then
+      begin
         if DelTree(AddBackslash(Temp) + Rec.Name, True, True, True) then
           Result := Result + 1;
+      end
+      else if Files and not IsDir then
+      begin
+        if DeleteFile(AddBackslash(Temp) + Rec.Name) then
+          Result := Result + 1;
+      end;
     until not FindNext(Rec);
   finally
     FindClose(Rec);
   end;
+end;
+
+// Baihe Studio's own named leftovers in %TEMP%: work folders named
+// baihe_*, extension page files baihe_page_*, and torch pin lists
+// baihe-torch-pins-*. (Temporary folders Python names itself, tmp*, can't
+// be told apart from other programs' and are left alone.) Returns how many.
+function DeleteOwnTempItems(): Integer;
+begin
+  Result := DeleteTempMatches('baihe_*', False) + DeleteTempMatches('baihe_page_*', True) +
+    DeleteTempMatches('baihe-torch-pins-*', True);
 end;
 
 procedure NoteShared(const Path, Name: String; var Left: String);
@@ -549,8 +635,8 @@ begin
   // Baihe Studio put them there.
   if ProgramOwned then
   begin
-    DeleteTree(ExpandConstant('{app}\python'), 'the bundled Python and its packages', Removed);
-    DeleteTree(ExpandConstant('{app}\app'), 'the program files', Removed);
+    DeleteTree(ExpandConstant('{app}\python'), 'the bundled Python and its packages', Removed, Left);
+    DeleteTree(ExpandConstant('{app}\app'), 'the program files', Removed, Left);
   end;
   RemoveDir(ExpandConstant('{app}'));
 
@@ -559,19 +645,19 @@ begin
     if CleanAll and UninstDataDirCreated then
     begin
       // Setup created this folder, so everything in it is Baihe Studio's.
-      DeleteTree(UninstDataDir, 'the data folder ' + UninstDataDir + ' and everything in it', Removed);
+      DeleteTree(UninstDataDir, 'the data folder ' + UninstDataDir + ' and everything in it', Removed, Left);
     end
     else
     begin
       // Only these named items, never the folder's other contents: the
       // folder may be one the user picked and shares with other files.
       if DeleteLibrary then
-        DeleteTree(UninstDataDir + '\library', 'your library (projects, backups, logs, caches, browser profiles)', Removed);
+        DeleteTree(UninstDataDir + '\library', 'your library (projects, backups, logs, caches, browser profiles)', Removed, Left);
       if DeleteSettings and FileExists(UninstDataDir + '\.env') then
         if DeleteFile(UninstDataDir + '\.env') then
           AddLine(Removed, 'your settings and API keys (.env)');
       if DeleteModels then
-        DeleteTree(UninstDataDir + '\model_cache', 'downloaded AI models', Removed);
+        DeleteTree(UninstDataDir + '\model_cache', 'downloaded AI models', Removed, Left);
       // The launcher's own files (not user data), by name, then its folder
       // only if that leaves it empty.
       DeleteFile(UninstDataDir + '\launcher\server.pid');
@@ -590,13 +676,15 @@ begin
   if not CleanAll then
     Exit;
 
-  Temps := DeleteOwnTempFolders();
+  Temps := DeleteOwnTempItems();
   if Temps > 0 then
-    AddLine(Removed, IntToStr(Temps) + ' temporary work folder(s) in %TEMP%');
+    AddLine(Removed, IntToStr(Temps) + ' of Baihe Studio''s temporary items in %TEMP% (baihe_*)');
   AddLine(Removed, 'the Start menu and desktop shortcuts, and the Apps entry');
   NoteShared(ExpandConstant('{localappdata}\ms-playwright'), 'Playwright browsers', Left);
   NoteShared(ExpandConstant('{localappdata}\pip\cache'), 'pip''s download cache', Left);
   NoteShared(ExpandConstant('{%USERPROFILE}\.cache\huggingface'), 'Hugging Face''s default model cache', Left);
+  NoteShared(ExpandConstant('{%USERPROFILE}\.deno'), 'Deno (the JavaScript runtime Diagnostics can install)', Left);
+  AddLine(Left, 'temporary files other programs could also have made (%TEMP%\tmp*)');
   AddLine(Left, 'automatic backups you pointed at a folder outside the data folder, if any');
 
   Summary := 'Clean uninstall finished.' + #13#10#13#10 + 'Removed:' + Removed;

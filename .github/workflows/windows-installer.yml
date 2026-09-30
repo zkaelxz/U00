@@ -205,7 +205,9 @@ jobs:
           Set-Content -Path $sentinel -Value "keep"
           $p = Start-Process -FilePath "$app2\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CLEAN" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Write-Error "Uninstall exited $($p.ExitCode)"; exit 1 }
-          for ($i = 0; $i -lt 120 -and (Test-Path $app2); $i++) { Start-Sleep -Seconds 1 }
+          # The uninstaller runs from a temp copy after unins000.exe returns:
+          # wait for everything it removes, not just the install folder.
+          for ($i = 0; $i -lt 120 -and ((Test-Path $app2) -or (Test-Path $data2) -or (Test-Path $ownTemp)); $i++) { Start-Sleep -Seconds 1 }
           if (Test-Path $app2) { Get-ChildItem -Recurse $app2 | Select-Object -First 20 FullName; Write-Error "the install folder is still there"; exit 1 }
           if (Test-Path $data2) { Get-ChildItem -Recurse $data2 | Select-Object -First 20 FullName; Write-Error "the data folder is still there"; exit 1 }
           if (Test-Path $ownTemp) { Write-Error "Baihe's temp folder is still there"; exit 1 }

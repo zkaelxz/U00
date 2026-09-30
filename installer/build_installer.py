@@ -57,6 +57,9 @@ PYTHON_EMBED_URL = (f"https://www.python.org/ftp/python/{PYTHON_VERSION}/"
                     f"python-{PYTHON_VERSION}-embed-amd64.zip")
 PYTHON_EMBED_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
 
+# baihe.iss's AppId (without Inno's leading "{{" escape).
+INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
+
 # The runtime half of installer/ that ships; the rest (this script, the
 # .iss) is build-only.
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py")
@@ -345,6 +348,10 @@ def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
     wheels = [{"file": p.name, "sha256": sha256_of(p), "bytes": p.stat().st_size}
               for p in sorted(wheels_dir.glob("*.whl"))]
     manifest = {
+        # What Setup and the uninstaller check to tell a Baihe Studio
+        # install folder from any other folder with a manifest.json.
+        "product": "Baihe Studio",
+        "app_id": INSTALLER_APP_ID,
         "app_version": version,
         "python": {"version": python_version, "embed_sha256": python_sha256},
         "requirements": "requirements-core.txt",

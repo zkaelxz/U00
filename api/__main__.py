@@ -38,13 +38,22 @@ def _serve():
     # Step 80b: when the installed launcher started us, every child process
     # (ffmpeg, Chromium, pip...) ends with this one (process_guard), and its
     # clean-stop route can make the server exit (shutdown_service).
+    import os
     import process_guard
     from services import shutdown_service
     process_guard.contain_children()
+    # Neither value is for the processes the server starts.
+    shutdown_service.take_token_from_environment()
+    os.environ.pop(process_guard.GROUP_NAME_ENV, None)
+    # timeout_graceful_shutdown: an open connection (a media stream the app
+    # window holds) can't keep a clean stop past the launcher's grace period.
     server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
-                                           port=settings.port))
+                                           port=settings.port, timeout_graceful_shutdown=3))
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
-    server.run()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        pass   # Ctrl+C: a normal stop, as with uvicorn.run
 
 
 def _grant_admin(email: str) -> int:

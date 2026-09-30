@@ -19,6 +19,7 @@ PATH = "/api/system/shutdown"
 
 @pytest.fixture(autouse=True)
 def _fresh(monkeypatch):
+    monkeypatch.setattr(shutdown_service, "_token", "")
     monkeypatch.setattr(shutdown_service, "_started", False)
     monkeypatch.setattr(shutdown_service, "_stopper", None)
     monkeypatch.delenv(shutdown_service.TOKEN_ENV, raising=False)
@@ -48,6 +49,13 @@ class TestService:
         assert not shutdown_service.token_matches("short")
         monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
         assert shutdown_service.enabled()
+
+    def test_token_leaves_the_environment(self, monkeypatch):
+        # Processes the server starts must not inherit it.
+        monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
+        shutdown_service.take_token_from_environment()
+        assert shutdown_service.TOKEN_ENV not in os.environ
+        assert shutdown_service.enabled() and shutdown_service.token_matches(TOKEN)
 
     def test_token_match(self, monkeypatch):
         monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
@@ -123,6 +131,11 @@ class TestRoute:
         assert _post(_client(), token=token).status_code == 403
         assert self.calls == []
 
+    def test_at_the_pc_with_auth_on_needs_no_session(self, monkeypatch):
+        # The launcher has no session; a PC-only route lets it through.
+        monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
+        assert _post(_client(auth="on")).status_code == 202
+
     def test_pc_only(self, monkeypatch):
         monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
         # Not from the PC (auth on, remote): refused before anything happens.
@@ -180,10 +193,46 @@ def test_python_m_api_registers_the_stopper_and_the_job(monkeypatch):
         def run(self):
             seen["ran"] = True
     monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
+    monkeypatch.setenv(process_guard.GROUP_NAME_ENV, "Local\\BaiheStudio-test")
     monkeypatch.setattr(process_guard, "contain_children", lambda: seen.setdefault("contained", True))
     monkeypatch.setenv("BAIHE_API_HOST", "127.0.0.1")
     monkeypatch.delenv("BAIHE_API_ENV", raising=False)
     main_mod._serve()
     assert seen["ran"] and seen["contained"]
+    # Neither value is passed on to the processes the server starts.
+    assert shutdown_service.TOKEN_ENV not in os.environ
+    assert process_guard.GROUP_NAME_ENV not in os.environ
+    assert shutdown_service.token_matches(TOKEN)
+    assert seen["config"].timeout_graceful_shutdown == 3
     assert shutdown_service._stopper is not None
     shutdown_service._stopper()   # sets should_exit on the real server object
+
+
+def test_ctrl_c_is_a_normal_stop(monkeypatch):
+    import api.__main__ as main_mod
+    import uvicorn
+
+    class FakeServer:
+        should_exit = False
+
+        def __init__(self, config):
+            pass
+
+        def run(self):
+            raise KeyboardInterrupt
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    monkeypatch.setattr(process_guard, "contain_children", lambda: False)
+    monkeypatch.setenv("BAIHE_API_HOST", "127.0.0.1")
+    monkeypatch.delenv("BAIHE_API_ENV", raising=False)
+    main_mod._serve()   # no traceback, like uvicorn.run
+
+
+def test_queued_jobs_leave_the_queue_first(monkeypatch):
+    from services import jobs_service
+    order = []
+    monkeypatch.setattr(background_jobs, "active_job_ids", lambda: ["q", "r"])
+    monkeypatch.setattr(background_jobs, "cancel_queued", lambda j: order.append(("unqueue", j)))
+    monkeypatch.setattr(jobs_service, "cancel_job", lambda j, principal=None: order.append(("cancel", j)))
+    shutdown_service.cancel_all_jobs()
+    assert order == [("unqueue", "q"), ("unqueue", "r"), ("cancel", "q"), ("cancel", "r")]

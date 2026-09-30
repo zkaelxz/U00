@@ -31,7 +31,6 @@ Standard library only: it runs before anything else is known to work.
 """
 
 import argparse
-import json
 import os
 import secrets
 import socket
@@ -112,9 +111,19 @@ def app_url(port: int) -> str:
     return f"http://127.0.0.1:{port}/"
 
 
+# Loopback calls never go through a proxy: Windows' system proxy doesn't
+# skip 127.0.0.1 by itself, and the shutdown token must only ever reach
+# this PC's own server.
+_LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _local_open(req, timeout):
+    return _LOOPBACK_OPENER.open(req, timeout=timeout)
+
+
 def health_ok(port: int, timeout: float = 1.0) -> bool:
     try:
-        with urllib.request.urlopen(f"{app_url(port)}api/health", timeout=timeout) as r:
+        with _local_open(f"{app_url(port)}api/health", timeout) as r:
             return r.status == 200
     except Exception:
         return False
@@ -289,25 +298,53 @@ def open_window(url: str) -> None:
     webbrowser.open(url)
 
 
-def _process_image(pid: int):
-    """Full path of process `pid`'s executable, or None (not running, not
-    ours to see, or not Windows)."""
+class _WinProcess:
+    """One process, opened once by handle. Checking its image, waiting for
+    it and ending it all go through that handle, so none of them can ever
+    reach a different process that Windows later gives the same pid."""
+
+    def __init__(self, handle, kernel32):
+        self._h, self._k = handle, kernel32
+
+    def image(self):
+        import ctypes
+        from ctypes import wintypes
+        buf = ctypes.create_unicode_buffer(32768)
+        size = wintypes.DWORD(len(buf))
+        if not self._k.QueryFullProcessImageNameW(self._h, 0, buf, ctypes.byref(size)):
+            return None
+        return buf.value
+
+    def wait(self, seconds: float) -> bool:
+        """True once the process has exited (0 = just check)."""
+        return self._k.WaitForSingleObject(self._h, max(0, int(seconds * 1000))) == 0
+
+    def terminate(self) -> bool:
+        return bool(self._k.TerminateProcess(self._h, 1))
+
+    def close(self):
+        self._k.CloseHandle(self._h)
+
+
+def open_process(pid: int):
+    """A _WinProcess for `pid`, or None (not running, not ours to open, or
+    not Windows)."""
     if os.name != "nt":
         return None
     import ctypes
     from ctypes import wintypes
-    kernel32 = ctypes.windll.kernel32
-    handle = kernel32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return None
-    try:
-        buf = ctypes.create_unicode_buffer(32768)
-        size = wintypes.DWORD(len(buf))
-        if not kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
-            return None
-        return buf.value
-    finally:
-        kernel32.CloseHandle(handle)
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.OpenProcess.restype = wintypes.HANDLE
+    k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                             ctypes.POINTER(wintypes.DWORD))
+    k.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    k.WaitForSingleObject.restype = wintypes.DWORD
+    k.TerminateProcess.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    k.CloseHandle.argtypes = (wintypes.HANDLE,)
+    # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE
+    handle = k.OpenProcess(0x1000 | 0x00100000 | 0x0001, False, int(pid))
+    return _WinProcess(handle, k) if handle else None
 
 
 def _same_file(a, b) -> bool:
@@ -333,56 +370,48 @@ def request_clean_shutdown(port: int, token: str, timeout: float = 5.0) -> bool:
         headers={"Content-Type": "application/json", "X-Baihe-Local": "1",
                  "X-Baihe-Shutdown-Token": token})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _local_open(req, timeout) as r:
             return r.status == 202
     except Exception:
         return False
 
 
-def _wait_gone(pid, image_of, seconds, sleep) -> bool:
-    for _ in range(int(seconds * 2)):
-        if not image_of(pid):
-            return True
-        sleep(0.5)
-    return not image_of(pid)
-
-
-def stop_server(python_exe=None, image_of=_process_image, kill=None, sleep=time.sleep,
-                shutdown=request_clean_shutdown, end_group=process_guard.terminate_group,
-                grace: float = STOP_GRACE_SECONDS) -> str:
+def stop_server(python_exe=None, open_proc=open_process, shutdown=request_clean_shutdown,
+                end_group=process_guard.terminate_group, grace: float = STOP_GRACE_SECONDS,
+                force_wait: float = FORCE_WAIT_SECONDS) -> str:
     """Stops the server this launcher started and everything it started.
 
     1. A clean shutdown: the server cancels its jobs (the normal cancel
        path) and exits, within `grace` seconds.
-    2. If it's still running after that: force-end it and its process tree.
+    2. If it's still running after that: end it.
     3. Always: end this install's Job Object (process_guard), which takes
        any leftover child process (ffmpeg, Chromium, pip...) with it.
 
-    Only the recorded pid is ever signalled, and only when that process
-    really is this install's own python.exe -- a stale pid file whose
-    number Windows has since reused is left alone. Returns a plain-words
-    result; never raises for "nothing to stop"."""
+    The recorded pid is opened once and used only through that handle, and
+    only when the process really is this install's own python.exe: a stale
+    pid file whose number Windows has reused for another program, before or
+    during the stop, never leads to that program being signalled. Returns a
+    plain-words result; never raises for "nothing to stop"."""
     python_exe = python_exe or console_python()
     ldir = launcher_dir()
     pid, port = _read_pid_file()
-    image = image_of(pid) if pid is not None else None
-    ours = bool(image) and _same_file(image, python_exe)
+    proc = open_proc(pid) if pid is not None else None
     how = None
-    if ours:
-        try:
-            token = (ldir / TOKEN_FILE_NAME).read_text(encoding="ascii").strip()
-        except OSError:
-            token = ""
-        if token and shutdown(port, token) and _wait_gone(pid, image_of, grace, sleep):
-            how = "clean"
-        else:
-            if kill is None:
-                def kill(p):
-                    subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"],
-                                   capture_output=True, timeout=30)
-            kill(pid)
-            _wait_gone(pid, image_of, FORCE_WAIT_SECONDS, sleep)
-            how = "forced"
+    try:
+        image = proc.image() if proc is not None else None
+        if image and _same_file(image, python_exe):
+            try:
+                token = (ldir / TOKEN_FILE_NAME).read_text(encoding="ascii").strip()
+            except OSError:
+                token = ""
+            if (token and shutdown(port, token) and proc.wait(grace)) or proc.wait(0):
+                how = "clean"
+            else:
+                proc.terminate()
+                how = "forced" if proc.wait(force_wait) else "failed"
+    finally:
+        if proc is not None:
+            proc.close()
     leftovers = end_group(group_name())
     for name in (PID_FILE_NAME, TOKEN_FILE_NAME):
         (ldir / name).unlink(missing_ok=True)
@@ -390,6 +419,9 @@ def stop_server(python_exe=None, image_of=_process_image, kill=None, sleep=time.
         return "Stopped Baihe Studio's server (clean shutdown)."
     if how == "forced":
         return "Stopped Baihe Studio's server (it didn't stop in time, so it was ended)."
+    if how == "failed":
+        return ("Couldn't stop Baihe Studio's server. Close its window, or end python.exe "
+                "in Task Manager.")
     if leftovers:
         return "Stopped processes Baihe Studio had left running."
     return "Baihe Studio's server isn't running."

@@ -31,6 +31,15 @@ JOB_GRACE_SECONDS = 8.0
 _stopper = None
 _lock = threading.Lock()
 _started = False
+_token = ""
+
+
+def take_token_from_environment() -> None:
+    """`python -m api` calls this once at startup: keeps the token in this
+    module and removes it from the environment, so the processes the
+    server starts (yt-dlp, Chromium, pip builds...) never inherit it."""
+    global _token
+    _token = os.environ.pop(TOKEN_ENV, "") or _token
 
 
 def register_stopper(fn) -> None:
@@ -39,12 +48,16 @@ def register_stopper(fn) -> None:
     _stopper = fn
 
 
+def _expected() -> str:
+    return _token or os.environ.get(TOKEN_ENV, "")
+
+
 def enabled() -> bool:
-    return len(os.environ.get(TOKEN_ENV, "")) >= MIN_TOKEN_LENGTH
+    return len(_expected()) >= MIN_TOKEN_LENGTH
 
 
 def token_matches(given) -> bool:
-    expected = os.environ.get(TOKEN_ENV, "")
+    expected = _expected()
     if len(expected) < MIN_TOKEN_LENGTH or not isinstance(given, str) or not given:
         return False
     return hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
@@ -56,6 +69,10 @@ def cancel_all_jobs() -> list:
     from services import jobs_service
     from services.service_errors import ServiceError
     ids = background_jobs.active_job_ids()
+    # Queued jobs come off the queue first, so finishing the running one
+    # can't start a queued one mid-shutdown. A no-op for running jobs.
+    for job_id in ids:
+        background_jobs.cancel_queued(job_id)
     for job_id in ids:
         try:
             jobs_service.cancel_job(job_id)
@@ -63,7 +80,6 @@ def cancel_all_jobs() -> list:
             # Not mirrored to job_records, or finished meanwhile: the
             # in-memory flag (and a queued job's own cancel) still apply.
             background_jobs.request_cancel(job_id)
-            background_jobs.cancel_queued(job_id)
         except Exception:
             background_jobs.request_cancel(job_id)
     return ids

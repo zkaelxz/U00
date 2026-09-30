@@ -74,6 +74,9 @@ account, SYSTEM and Administrators (`icacls /inheritance:r`, by SID). An
 page warns that other accounts may be able to read it and asks before using it.
 Setup records in the marker (`# created-by-setup`) whether it created the
 folder, which is what lets a clean uninstall remove the folder itself (§8).
+The lock-down runs only when Setup makes the folder; an update neither redoes
+it (the user may have adjusted the permissions since) nor repeats the warning
+for the folder the previous install already used.
 
 **How the app finds its data**: `portable.data_dir()`:
 
@@ -145,9 +148,11 @@ same as `start.bat`.
 1. Wizard: install folder (default `%LOCALAPPDATA%\Programs\Baihe Studio`),
    then the data folder page, then an optional desktop shortcut.
    Free-space check. Setup refuses an install folder that already holds a
-   `python\` or `app\` folder Baihe Studio didn't put there (its own installs
-   carry `manifest.json`): an update would overwrite it and an uninstall would
-   delete it.
+   `python\` or `app\` folder Baihe Studio didn't put there: an update would
+   overwrite it and an uninstall would delete it. "Baihe Studio's own" means
+   its `manifest.json` names the product and this installer's AppId, or this
+   app's uninstall entry points at the folder; some other program's
+   `manifest.json` doesn't count.
 2. `PrepareToInstall`: check both folders again, note whether the data folder
    is new, check it can be written, and stop a server a previous install
    started (`launcher.py --stop`) so its files can be replaced.
@@ -216,13 +221,20 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
   1. **Clean shutdown.** It sends `POST /api/system/shutdown` with that token.
      The server cancels its running and queued jobs through the normal cancel
      path, gives them up to 8 s, and exits. The launcher waits up to 15 s.
-  2. **Forced stop.** If the server is still running, the launcher ends it and
-     its process tree (`taskkill /T /F`). This happens only after checking
-     that the recorded pid really is this install's own `python.exe`; a stale
-     pid that Windows has reused is never touched.
+  2. **Forced stop.** If the server is still running, the launcher ends it.
+     The recorded pid is opened once, and its image is checked to be this
+     install's own `python.exe`. Waiting and ending both go through that
+     handle, so a pid that Windows reuses before or during the stop can never
+     be signalled.
   3. **Sweep.** Whatever happened, it then ends this install's Job Object by
      name, which catches any leftover child. Nothing outside this install's
      job or pid is ever signalled.
+- **Loopback calls.** The launcher's loopback calls bypass any system proxy,
+  so the token only ever reaches this PC's server.
+- **Token lifetime.** The server takes the token (and the job name) out of its
+  environment at startup, so the processes it starts don't inherit them.
+- **Graceful-shutdown cap.** uvicorn's graceful shutdown is capped at 3 s, so
+  an open media stream can't hold the clean stop past the launcher's grace.
 - **Routes.** The shutdown route is `local_only()` and needs the token. A
   server not started by the installed launcher has no token, so the route is
   a 404 there, and `start.bat` behaves as before.
@@ -287,7 +299,10 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
    delete my library; delete my saved settings and API keys (`.env`); delete
    downloaded AI models (`model_cache`); and **Remove everything (clean
    uninstall)**, which ticks the other three and asks a second time, naming
-   the data folder, before going ahead. Cancel aborts the uninstall.
+   the data folder, before going ahead. When Setup made that folder, the
+   warning says plainly that the whole folder goes, including any files the
+   user put there. Answering No puts the other boxes back the way they were.
+   Cancel aborts the uninstall.
 3. The program is removed: `{app}\python` (including pip-installed packages)
    and `{app}\app`, but only when Baihe Studio put them there (the install
    has its `manifest.json`); then the shortcuts and the uninstall entry.
@@ -309,13 +324,20 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
   `extension_token.txt`, Piper voices), `.env`, `model_cache`, and the
   launcher's files. If the user picked an existing folder, only those named
   items go, and the folder is removed only if that leaves it empty.
-- **Temporary folders.** Baihe Studio's own work folders in `%TEMP%`
-  (`baihe_*`) are removed; nothing else in `%TEMP%` is.
+- **Temporary items.** Baihe Studio's own named items in `%TEMP%` are removed:
+  `baihe_*` work folders, `baihe_page_*` files and `baihe-torch-pins-*` files.
+  Nothing else in `%TEMP%` is removed. Temporary folders Python names itself
+  (`tmp*`) can't be told apart from other programs', so they're listed as left.
+  Close any other running copy of Baihe Studio first, because its live
+  `baihe_*` folders would go too.
 - **Shared, left in place and listed as such:**
   - Playwright's browsers (`%LOCALAPPDATA%\ms-playwright`);
   - pip's download cache;
   - Hugging Face's default cache in `%USERPROFILE%\.cache`;
+  - Deno in `%USERPROFILE%\.deno`;
   - automatic backups pointed at a folder outside the data folder.
+- **Failures.** Anything that can't be deleted (a file in use) is listed as
+  such, never reported as removed.
 - **Summary.** A summary of what was removed and what was left is shown, and
   written to the uninstall log.
 

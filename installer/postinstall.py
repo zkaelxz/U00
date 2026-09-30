@@ -94,12 +94,21 @@ def _inside(path: Path, parent) -> bool:
     return p == q or p.startswith(q.rstrip("\\/") + os.sep)
 
 
+def _system32(exe: str) -> str:
+    """Full path, so the bundled Python's folder or the working folder is
+    never searched for a program of the same name first."""
+    root = os.environ.get("SystemRoot") or r"C:\Windows"
+    return os.path.join(root, "System32", exe)
+
+
 def current_user_sid(run=subprocess.run):
     """This account's SID (`whoami /user`), or None."""
     try:
-        out = run(["whoami", "/user", "/fo", "csv", "/nh"], capture_output=True,
-                  text=True, timeout=30).stdout
-    except (OSError, subprocess.SubprocessError):
+        # errors="replace": the console code page can hold bytes the ANSI
+        # code page can't decode (an account name with an umlaut).
+        out = run([_system32("whoami.exe"), "/user", "/fo", "csv", "/nh"], capture_output=True,
+                  text=True, errors="replace", timeout=30).stdout
+    except Exception:
         return None
     sid = out.strip().rsplit(",", 1)[-1].strip().strip('"')
     return sid if sid.startswith("S-1-") else None
@@ -109,31 +118,33 @@ def lockdown_command(data_dir: Path, sid: str) -> list:
     """icacls: no inherited permissions; full control for this account,
     SYSTEM and Administrators only (by SID, so it works on any language of
     Windows)."""
-    return ["icacls", str(data_dir), "/inheritance:r",
+    return [_system32("icacls.exe"), str(data_dir), "/inheritance:r",
             "/grant:r", f"*{sid}:(OI)(CI)F",
             "/grant:r", "*S-1-5-18:(OI)(CI)F",
             "/grant:r", "*S-1-5-32-544:(OI)(CI)F"]
 
 
-def restrict_new_data_dir(data_dir: Path, created: bool, log, run=subprocess.run,
+def restrict_new_data_dir(data_dir: Path, new: bool, log, run=subprocess.run,
                           profile=None, is_windows=None) -> bool:
     """A data folder Setup created outside the user's profile (say
     D:\\Baihe) would otherwise inherit that drive's permissions, which
     often let every account on the PC read it -- and .env holds the API
     keys. Limits it to this account. A folder that already existed keeps
-    its permissions (Setup warned about that on its data-folder page); one
-    inside the profile is already private. Never fails the install."""
+    its permissions (Setup warned about that on its data-folder page), and
+    so does one limited by an earlier install (an upgrade doesn't redo it);
+    one inside the profile is already private. Never fails the install."""
     is_windows = (os.name == "nt") if is_windows is None else is_windows
     profile = os.environ.get("USERPROFILE", "") if profile is None else profile
-    if not is_windows or not created or _inside(data_dir, profile):
+    if not is_windows or not new or _inside(data_dir, profile):
         return False
     sid = current_user_sid(run)
     if not sid:
         log.write("Couldn't read this account's SID; the data folder keeps its permissions.\n")
         return False
     try:
-        result = run(lockdown_command(data_dir, sid), capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.SubprocessError) as e:
+        result = run(lockdown_command(data_dir, sid), capture_output=True, text=True,
+                     errors="replace", timeout=60)
+    except Exception as e:
         log.write(f"Couldn't limit the data folder to this account: {e}\n")
         return False
     log.write(f"Limited the data folder to this account (icacls exit code {result.returncode}).\n")
@@ -202,7 +213,7 @@ def _run(cmd, log, env, cwd):
 
 
 def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
-        created: bool = False, restrict=restrict_new_data_dir) -> int:
+        created: bool = False, new: bool = False, restrict=restrict_new_data_dir) -> int:
     python_exe = python_exe or sys.executable
     wheels_dir = Path(wheels_dir)
     data = validate_data_dir(data_dir, app_dir.parent)
@@ -217,7 +228,7 @@ def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
     with open(log_dir / LOG_NAME, "a", encoding="utf-8", errors="replace") as log:
         log.write(f"\n=== Baihe Studio install step, {datetime.datetime.now().isoformat(timespec='seconds')} ===\n")
         log.write(f"app: {app_dir}\ndata: {data}\npython: {python_exe}\n")
-        restrict(data, created, log)
+        restrict(data, new, log)
         steps = (
             (bootstrap_pip_command(python_exe, wheels_dir), 3, "Setting up pip failed."),
             (core_install_command(python_exe, wheels_dir, app_dir), 4,
@@ -240,9 +251,12 @@ def main(argv=None) -> int:
     parser.add_argument("--data-dir", required=True, help="the per-user data folder")
     parser.add_argument("--data-dir-created", action="store_true",
                         help="Setup created the data folder (it's Baihe Studio's own)")
+    parser.add_argument("--data-dir-new", action="store_true",
+                        help="Setup created it just now: limit it to this account")
     args = parser.parse_args(argv)
     try:
-        return run(args.wheels, args.data_dir, created=args.data_dir_created)
+        return run(args.wheels, args.data_dir, created=args.data_dir_created,
+                   new=args.data_dir_new)
     except OSError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2

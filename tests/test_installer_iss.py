@@ -121,14 +121,26 @@ class TestUninstall:
         # only when this install owns them (L5).
         assert "[UninstallDelete]" not in iss
         init = _func(iss, "InitializeUninstall")
-        assert "ProgramOwned := FileExists(ExpandConstant('{app}\\manifest.json'))" in init
+        assert "ProgramOwned := IsBaiheInstallDir(ExpandConstant('{app}'))" in init
         step = _func(iss, "CurUninstallStepChanged")
         owned = step[step.index("if ProgramOwned then"):step.index("RemoveDir(ExpandConstant('{app}'))")]
         assert "{app}\\python" in owned and "{app}\\app" in owned
 
     def test_setup_refuses_a_foreign_python_or_app_folder(self, iss):
         problem = _func(iss, "InstallDirProblem")
-        assert "manifest.json" in problem and "'python'" in problem and "'app'" in problem
+        assert "IsBaiheInstallDir(AppDir)" in problem and "'python'" in problem and "'app'" in problem
+        # Any other program's manifest.json doesn't count: it must name this
+        # product and AppId (build_installer.write_manifest), or this app's
+        # own uninstall entry must point at the folder.
+        owned = _func(iss, "IsBaiheInstallDir")
+        assert '"product": "Baihe Studio"' in owned
+        app_id = re.search(r"AppId=\{\{([0-9A-F-]+)\}", iss).group(1)
+        assert app_id in owned and app_id in iss.split("UninstallKey =", 1)[1].split("\n", 1)[0]
+        assert "InstallLocation" in owned
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "installer"))
+        import build_installer
+        assert build_installer.INSTALLER_APP_ID == app_id
         assert "InstallDirProblem(" in _func(iss, "PrepareToInstall")
         assert "InstallDirProblem(" in _func(iss, "NextButtonClick")
 
@@ -175,8 +187,34 @@ class TestUninstall:
         for shared in ("ms-playwright", "pip\\cache", ".cache\\huggingface"):
             assert shared in step
         assert "NoteShared(" in step and "Left in place:" in step
-        temp = _func(iss, "DeleteOwnTempFolders")
-        assert "'baihe_*'" in temp and "FILE_ATTRIBUTE_DIRECTORY" in temp
+        temp = _func(iss, "DeleteOwnTempItems")
+        for pattern in ("'baihe_*'", "'baihe_page_*'", "'baihe-torch-pins-*'"):
+            assert pattern in temp
+        assert "FILE_ATTRIBUTE_DIRECTORY" in _func(iss, "DeleteTempMatches")
+        assert ".deno" in step
+
+    def test_declining_the_clean_confirmation_restores_the_boxes(self, iss):
+        ask = _func(iss, "AskWhatToDelete")
+        declined = ask[ask.index("if not Confirmed then"):]
+        for box, prev in (("LibraryBox", "PrevLibrary"), ("SettingsBox", "PrevSettings"),
+                          ("ModelsBox", "PrevModels")):
+            assert f"{box}.Checked := {prev};" in declined
+            assert f"{prev} := {box}.Checked;" in _func(iss, "CleanBoxClick")
+
+    def test_clean_warning_says_the_whole_folder_when_setup_made_it(self, iss):
+        ask = _func(iss, "AskWhatToDelete")
+        created = ask[ask.index("if UninstDataDirCreated then"):ask.index("  else\n")]
+        assert "EVERYTHING in it, including any files you put there yourself" in created
+
+    def test_failed_deletions_are_reported(self, iss):
+        tree = _func(iss, "DeleteTree")
+        assert "if DelTree(Path, True, True, True) and not DirExists(Path) then" in tree
+        assert "couldn''t be removed" in tree
+
+    def test_lockdown_only_for_a_folder_made_now(self, iss):
+        assert "DataDirIsNew := not DirExists(DataDir());" in _func(iss, "PrepareToInstall")
+        post = _func(iss, "RunPostInstall")
+        assert "if DataDirIsNew then" in post and "--data-dir-new" in post
 
     def test_created_flag_round_trip(self, iss):
         assert "CreatedFlagLine = '# created-by-setup';" in iss
@@ -192,6 +230,8 @@ class TestUninstall:
     def test_existing_folder_outside_the_profile_is_warned_about(self, iss):
         nxt = _func(iss, "NextButtonClick")
         assert "{%USERPROFILE}" in nxt and "API keys" in nxt and "MB_DEFBUTTON2" in nxt
+        # ...but not again on an update that keeps the same folder.
+        assert "NormDir(OldDir) <> NormDir(DataDir())" in nxt
 
     def test_stops_the_server_first(self, iss):
         assert any("--stop" in e for e in _entries(iss, "UninstallRun"))
