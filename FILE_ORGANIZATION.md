@@ -916,7 +916,6 @@ baihe-subtitler/
 | `known_sites.py` | directory of official platforms |
 | `navigator.py` | translate a foreign site's labels + navigation steps |
 | `epub_io.py` | EPUB import/export |
-| `export_package.py` | per-drama archive bundle |
 
 The `services/` and `api/` packages and `frontend/` (the React + FastAPI
 migration; history in `docs/archive/migration-react-fastapi.md`)
