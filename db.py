@@ -3099,6 +3099,14 @@ def insert_preset(name: str, translation_engine: str = None, engine_model: str =
         return cur.lastrowid
 
 
+def set_preset_engine_model(preset_id: int, engine_model: str):
+    """Step 40's guided switch: changes only a preset's model."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE presets SET engine_model = ?, updated_at = ? WHERE id = ?",
+                     (engine_model, datetime.datetime.utcnow().isoformat(), preset_id))
+        conn.commit()
+
+
 def list_presets():
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
