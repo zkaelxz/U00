@@ -244,12 +244,6 @@ def _generate_rsa_keypair(key_size: int = 512, public_exponent: int = 65537):
         return private_numbers.private_key()
 
 
-def _public_key_pem(public_key) -> str:
-    from cryptography.hazmat.primitives import serialization
-    return public_key.public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode("ascii")
-
-
 def _rsa_decrypt_pkcs1(private_key, ciphertext: bytes) -> bytes:
     from cryptography.hazmat.primitives.asymmetric import padding
     return private_key.decrypt(ciphertext, padding.PKCS1v15())

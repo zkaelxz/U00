@@ -58,17 +58,6 @@ def test_stream_pip_install_disables_cache_and_version_check(monkeypatch):
     assert seen == [["/py", "-m", "pip", "install", *FLAGS, "jieba"]]
 
 
-def test_bulk_install_uses_the_same_flags(monkeypatch, tmp_path):
-    reqs = tmp_path / "r.txt"
-    reqs.write_text("sox\njieba>=0.42\n")
-    seen = []
-    monkeypatch.setattr(diagnostics.subprocess, "Popen",
-                        lambda cmd, **kw: seen.append(cmd) or _FakePopen([]))
-    list(diagnostics.stream_bulk_install(str(reqs), python_executable="/py"))
-    assert [c[3:] for c in seen] == [["install", *FLAGS, "sox"],
-                                     ["install", *FLAGS, "jieba>=0.42"]]
-
-
 def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: None)

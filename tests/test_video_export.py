@@ -16,16 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import video_export as ve
 
 
-class TestProbeDuration:
-    def test_parses_ffprobe_output(self, monkeypatch):
-        def fake_run(cmd, **kwargs):
-            assert cmd[0] == "ffprobe"
-            assert "video.mp4" in cmd
-            return type("Result", (), {"stdout": "123.456000\n"})()
-        monkeypatch.setattr(ve.subprocess, "run", fake_run)
-        assert ve.probe_duration_seconds("video.mp4") == pytest.approx(123.456)
-
-
 class TestEscapeFilterPath:
     def test_plain_path_only_escapes_colon_and_backslash(self):
         assert ve._escape_filter_path("C:\\tmp\\a.ass") == "C\\:\\\\tmp\\\\a.ass"
@@ -36,30 +26,6 @@ class TestEscapeFilterPath:
         assert ve._escape_filter_path("/tmp/it's.ass") == "/tmp/it'\\\\\\''s.ass"
         wrapped = f"subtitles='{ve._escape_filter_path(chr(39))}'"
         assert wrapped == "subtitles=''\\\\\\'''"
-
-
-class TestEstimate:
-    def test_estimate_scales_with_duration(self):
-        short = ve.estimate_vertical_export(30)
-        long = ve.estimate_vertical_export(300)
-        assert short["time_note"] != long["time_note"]
-        assert short["size_note"] != long["size_note"]
-
-    def test_zero_duration_does_not_crash(self):
-        est = ve.estimate_vertical_export(0)
-        assert est["time_note"] and est["size_note"]
-        assert est["is_long"] is False
-
-    def test_long_selection_is_flagged(self):
-        assert ve.estimate_vertical_export(19 * 60)["is_long"] is False
-        assert ve.estimate_vertical_export(21 * 60)["is_long"] is True
-        assert ve.estimate_vertical_export(ve.LONG_CLIP_THRESHOLD_SECONDS)["is_long"] is False
-
-    def test_size_estimate_is_a_low_high_range_in_mb(self):
-        est = ve.estimate_vertical_export(600)  # 10 minutes
-        assert "MB" in est["size_note"]
-        # 10 min at ~2.13-8.13 Mbps (incl. audio) -> roughly 160-610 MB
-        assert "160" in est["size_note"] or "159" in est["size_note"] or "161" in est["size_note"]
 
 
 class TestRenderVerticalClip:

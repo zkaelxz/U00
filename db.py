@@ -2160,25 +2160,6 @@ def list_dramas_by_series(series_id: int):
     return dramas
 
 
-def distinct_values(column: str) -> List[str]:
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(f"SELECT DISTINCT {column} FROM dramas WHERE {column} IS NOT NULL AND {column} != ''").fetchall()
-    return sorted({r[0] for r in rows})
-
-
-def distinct_voice_actors() -> List[str]:
-    """voice_actors is comma-separated per row -- split and dedupe."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT voice_actors FROM dramas WHERE voice_actors IS NOT NULL AND voice_actors != ''").fetchall()
-    names = set()
-    for r in rows:
-        for name in r[0].split(","):
-            name = name.strip()
-            if name:
-                names.add(name)
-    return sorted(names)
-
-
 # ---------------------------------------------------------------------------
 # Lines CRUD
 # ---------------------------------------------------------------------------
