@@ -48,6 +48,7 @@ from api.routers import (
     drama_routes,
     dub_routes,
     engine_routing_routes,
+    stronger_engine_routes,
     export_routes,
     extension_routes,
     glossary_routes,
@@ -206,6 +207,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(notification_center_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(engine_routing_routes.router)
+    app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
     app.include_router(voice_clone_routes.router)

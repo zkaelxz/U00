@@ -17,7 +17,8 @@ class CapabilityRoute(BaseModel):
     requires: str
     engine: str
     default_engine: str
-    is_default: bool
+    is_default: bool  # unset; with unset_label, the capability is off
+    unset_label: Optional[str] = None  # label of the unset option when unset means "off"
     engine_supported: bool
     choices: List[str]
 

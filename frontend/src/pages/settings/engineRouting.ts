@@ -59,7 +59,8 @@ export function withChoice(c: CapabilityRoute, engine: string | null): Capabilit
   return {
     ...c,
     engine: next,
-    is_default: engine === null || engine === c.default_engine,
+    // With unset_label only "unset" is off; picking the default engine is a real choice.
+    is_default: engine === null || (!c.unset_label && engine === c.default_engine),
     engine_supported: c.choices.includes(next),
   }
 }
@@ -75,3 +76,10 @@ export function replaceEngine(r: EngineRouting, e: EngineRouteStatus): EngineRou
 export function workingCount(r: EngineRouting): number {
   return r.engines.filter((e) => e.status === 'working').length
 }
+
+// The unset option's text: "Off (no suggestions)" where unset means off,
+// else "Use default (<engine>)".
+export const unsetOptionLabel = (c: CapabilityRoute, engineLabel: (e: string) => string): string =>
+  c.unset_label ?? `Use default (${engineLabel(c.default_engine)})`
+
+export const unsetBadge = (c: CapabilityRoute): string => (c.unset_label ? 'off' : 'default')

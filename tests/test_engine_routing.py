@@ -79,6 +79,18 @@ class TestResolve:
             routing.set_capability_engine("translation.cheap", name)
             assert settings_service.get_default_engine() == name
 
+    def test_stronger_engine_is_off_until_picked_even_when_equal_to_default(self, isolated_db):
+        entry = routing._capability_entry("translation.high_quality")
+        assert entry["is_default"] is True and entry["unset_label"] == "Off (no suggestions)"
+        default = settings_service.get_default_engine()
+        entry = routing.set_capability_engine("translation.high_quality", default)
+        assert entry["is_default"] is False and entry["engine"] == default
+        assert routing.is_configured("translation.high_quality")
+        entry = routing.set_capability_engine("translation.high_quality", None)
+        assert entry["is_default"] is True
+        assert not routing.is_configured("translation.high_quality")
+        assert routing._capability_entry("llm.instructions")["unset_label"] is None
+
     def test_a_stale_stored_value_reads_back_as_the_default(self, isolated_db):
         db.set_app_setting("capability.llm.instructions", "deepl")  # not an LLM
         assert routing.resolve_capability("llm.instructions") == settings_service.get_default_engine()
