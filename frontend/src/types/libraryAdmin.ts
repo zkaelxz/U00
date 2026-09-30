@@ -14,7 +14,7 @@ export const STORAGE_PRESETS = [
 export type LibraryStatus = (typeof LIBRARY_STATUSES)[number]
 export type LibraryListTag = (typeof LIBRARY_LIST_TAGS)[number]
 export type StoragePreset = (typeof STORAGE_PRESETS)[number][0]
-export type ArtifactKind = 'backup' | 'export' | 'database'
+export type ArtifactKind = 'backup' | 'export' | 'database' | 'user_backup'
 
 // Fixed job ids (library_admin_service.*_JOB_ID).
 export const ADMIN_JOB_IDS = {
@@ -22,6 +22,7 @@ export const ADMIN_JOB_IDS = {
   export: 'library_export_zip',
   backup: 'library_backup',
   database: 'library_db_backup',
+  userBackup: 'library_user_backup',
 } as const
 
 // error: not_found | job_running | delete_failed | not_translated

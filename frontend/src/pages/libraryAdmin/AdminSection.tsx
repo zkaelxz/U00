@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 
+import { listAdminUsers } from '../../api/adminUsers'
 import { listJobs } from '../../api/jobs'
-import { cleanStorage, restoreBackup, scanStorage, startBackup, startExport } from '../../api/libraryAdmin'
+import {
+  cleanStorage, restoreBackup, scanStorage, startBackup, startExport, startUserBackup,
+} from '../../api/libraryAdmin'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { TypedConfirm } from '../../components/TypedConfirm'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import type { AdminUser } from '../../types/adminUsers'
 import {
   ADMIN_JOB_IDS, STORAGE_PRESETS, type LibraryStorageScan, type StoragePreset,
 } from '../../types/libraryAdmin'
@@ -77,7 +81,51 @@ function BackupBlock() {
       <ErrorBanner error={full.startError} describe={SERVER} />
       <AdminJobLine job={database} busyText="Backing up the database…" artifact="database" />
       <ErrorBanner error={database.startError} describe={SERVER} />
+      <UserBackup />
     </div>
+  )
+}
+
+/** Backup of just one person's dramas and series, for moving to their own install. */
+function UserBackup() {
+  const job = useAdminJob(ADMIN_JOB_IDS.userBackup, 'user_backup')
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [owner, setOwner] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    // No user list (auth off, or not allowed): only the PC's own items.
+    listAdminUsers().then((r) => !cancelled && setUsers(r.users), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <>
+      <Field
+        label="Backup of just my stuff"
+        help="Only these dramas and series, with their media. No other person's items and no sign-in data. Restore it into a new install."
+      >
+        <select value={owner} onChange={(e) => setOwner(e.target.value)}>
+          <option value="">Items owned at this PC</option>
+          {users.map((u) => (
+            <option key={u.id} value={String(u.id)}>{u.display_name || u.email}</option>
+          ))}
+        </select>
+      </Field>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={job.active}
+          onClick={() => void job.start(() => startUserBackup(owner ? Number(owner) : null))}
+        >
+          Back up just these items
+        </button>
+      </div>
+      <AdminJobLine job={job} busyText="Backing up…" artifact="user_backup" />
+      <ErrorBanner error={job.startError} describe={SERVER} />
+    </>
   )
 }
 

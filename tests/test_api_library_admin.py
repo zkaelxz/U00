@@ -309,6 +309,35 @@ class TestExportBackupArtifacts:
         # a full backup has not been made
         assert client.get(f"{BASE}/artifacts/backup/info").status_code == 404
 
+    def test_user_backup_job_info_download(self, client):
+        uid = auth_service.add_user("owner@example.com")["id"]
+        _new("Mine", owner_user_id=uid)
+        _new("Not mine")
+        r = _clean(client.post(f"{BASE}/backup/user", json={"user_id": uid}))
+        assert r.status_code == 200 and r.json() == {"job_id": las.USER_BACKUP_JOB_ID}
+        st = _wait(las.USER_BACKUP_JOB_ID)
+        assert st["status"] == "done", st.get("error")
+        data = self._download(client, "user_backup", "application/zip")
+        las.validate_backup_zip(data)
+        assert "owner" not in client.get(f"{BASE}/artifacts/user_backup/info").json()["name"]
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            raw = zf.read("library.db")
+        assert b"Mine" in raw and b"Not mine" not in raw and b"owner@example.com" not in raw
+        # the full backup is a separate artifact
+        assert client.get(f"{BASE}/artifacts/backup/info").status_code == 404
+
+    @pytest.mark.parametrize("body,status", [
+        ({"user_id": 999}, 404), ({"user_id": 0}, 422), ({"user_id": "1"}, 422),
+        ({"user_id": True}, 422), ({"user": 1}, 422)])
+    def test_user_backup_bad_user(self, client, body, status):
+        r = _clean(client.post(f"{BASE}/backup/user", json=body))
+        assert r.status_code == status, r.text
+        assert background_jobs.list_all_jobs() == {}
+
+    def test_user_backup_duplicate_409(self, client):
+        _put_job(las.USER_BACKUP_JOB_ID)
+        assert client.post(f"{BASE}/backup/user", json={}).status_code == 409
+
     def test_backup_duplicate_409_and_strict_flag(self, client):
         _put_job(las.BACKUP_JOB_ID)
         assert client.post(f"{BASE}/backup", json={}).status_code == 409
@@ -477,7 +506,9 @@ _LOCAL_ONLY = [
                                         "confirm_text": "DELETE"}}),
     ("post", "/export", {"json": {}}),
     ("post", "/backup", {"json": {"database_only": True}}),
+    ("post", "/backup/user", {"json": {}}),
     ("get", "/artifacts/backup", {}),
+    ("get", "/artifacts/user_backup", {}),
     ("post", "/restore", {"files": {"file": ("b.zip", b"PK", "application/zip")},
                           "data": {"confirm": "true", "confirm_text": "RESTORE"},
                           "headers": {"X-Baihe-Local": "1"}}),
@@ -598,7 +629,8 @@ class TestAuthOn:
 
 class TestMaintenanceBlocksArchiving:
     @pytest.mark.parametrize("path,body", [("/export", {}), ("/backup", {}),
-                                           ("/backup", {"database_only": True})])
+                                           ("/backup", {"database_only": True}),
+                                           ("/backup/user", {})])
     def test_409_during_delete_or_cleanup(self, client, path, body):
         _new("A", "translated")
         assert background_jobs.enter_maintenance()

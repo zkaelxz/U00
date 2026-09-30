@@ -3068,6 +3068,7 @@ class LibraryArtifactKind(str, Enum):
     backup = "backup"
     export = "export"
     database = "database"
+    user_backup = "user_backup"
 
 
 class LibraryBulkStatusRequest(BaseModel):
@@ -3111,6 +3112,13 @@ class LibraryBackupRequest(BaseModel):
     """database_only=true: the database snapshot alone (fast, small)."""
     model_config = ConfigDict(extra="forbid")
     database_only: StrictBool = False
+
+
+class LibraryUserBackupRequest(BaseModel):
+    """Backup of one person's dramas and series. user_id omitted or null:
+    the items owned at the PC (no owner)."""
+    model_config = ConfigDict(extra="forbid")
+    user_id: Optional[StrictInt] = Field(None, ge=1)
 
 
 class LibraryStorageCleanRequest(BaseModel):

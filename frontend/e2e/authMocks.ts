@@ -67,6 +67,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/voice-bank': EMPTY,
   // The header bell (every page) polls this.
   '/api/notifications': EMPTY,
+  // The Library admin panel's per-person backup picker.
+  '/api/admin/users': { users: [] },
   // Settings > Signed-in devices, for a signed-in person: just this device.
   '/api/auth/sessions': {
     sessions: [{ id: 1, device: 'Chrome on Windows', created_at: 1759000000, last_seen_at: 1759000000, expires_at: 1761592000, ip_prefix: '203.0.113', current: true }],
@@ -77,7 +79,7 @@ const GET_FIXTURES: Record<string, unknown> = {
 
 // The Library admin panel polls its last backup/export job and artifact;
 // with none made yet the real API answers 404 not_found, as here.
-const GET_NOT_FOUND = /^\/api\/(jobs\/library_(backup|db_backup|export_zip)|library\/admin\/artifacts\/(backup|database|export)\/info)$/
+const GET_NOT_FOUND = /^\/api\/(jobs\/library_(backup|db_backup|user_backup|export_zip)|library\/admin\/artifacts\/(backup|database|user_backup|export)\/info)$/
 
 export interface AuthMockState {
   me: MeBody

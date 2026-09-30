@@ -165,6 +165,7 @@ describe('AdminSection', () => {
   it('on the PC: export, backup, restore and storage blocks', () => {
     const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'local', exportable: 3, exporter: idleJob() }))
     for (const text of ['Export all translated (3)', 'Back up library', 'Database only',
+      'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
       'Site sign-ins are never included.', 'accept=".zip"', '>Scan</button>', 'Scan first.']) {
       expect(out).toContain(text)
     }

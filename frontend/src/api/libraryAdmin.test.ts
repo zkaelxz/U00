@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   artifactDownloadUrl, bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, cleanStorage, deletePreset,
   deleteVoiceBankEntry, getArtifactInfo, restoreBackup, scanStorage, startBackup, startExport,
+  startUserBackup,
 } from './libraryAdmin'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -48,10 +49,12 @@ describe('library admin api', () => {
     await startExport(undefined, f)
     await startExport([2], f)
     await startBackup(true, f)
+    await startUserBackup(null, f)
+    await startUserBackup(7, f)
     await cleanStorage('minimal', f)
     const bodies = mock.mock.calls.map(([, i]) => JSON.parse(i.body))
     expect(bodies).toEqual([
-      {}, { drama_ids: [2] }, { database_only: true },
+      {}, { drama_ids: [2] }, { database_only: true }, {}, { user_id: 7 },
       { preset: 'minimal', confirm: true, confirm_text: 'CLEAN' },
     ])
     for (const [, init] of mock.mock.calls) expect(localHeader(init)).toBe('1')

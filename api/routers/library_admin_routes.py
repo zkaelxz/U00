@@ -24,7 +24,7 @@ from api.schemas import (
     LibraryBulkStatusRequest, LibraryBulkTagRequest, LibraryBulkTranslateRequest,
     LibraryBulkTranslateStarted, LibraryExportRequest, LibraryExportStarted, LibraryJobStarted,
     LibraryRestoreDone, LibraryStorageCleanRequest, LibraryStorageCleanResult,
-    LibraryStoragePreset, LibraryStorageScan)
+    LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest)
 from services import library_admin_service as las
 from services import media_upload_service
 from services.service_errors import InvalidInputError, NotFoundError
@@ -36,7 +36,7 @@ _ERR = {422: {"model": ErrorResponse}}
 _ERR_409 = {409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 _ERR_404 = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 _MEDIA_TYPES = {"backup": "application/zip", "export": "application/zip",
-                "database": "application/octet-stream"}
+                "database": "application/octet-stream", "user_backup": "application/zip"}
 _NO_ARTIFACT = "No artifact available."
 _TOO_LARGE = "The uploaded file is too large."
 
@@ -100,6 +100,13 @@ def post_backup(body: LibraryBackupRequest = None):
     if body is not None and body.database_only:
         return las.start_database_backup()
     return las.start_backup()
+
+
+@router.post("/backup/user", dependencies=[local_only()], response_model=LibraryJobStarted,
+             responses={404: {"model": ErrorResponse}, **_ERR_409},
+             summary="Start a backup of one person's dramas and series (no user: the PC's)")
+def post_user_backup(body: LibraryUserBackupRequest = None):
+    return las.start_user_backup(body.user_id if body else None)
 
 
 @router.get("/artifacts/{kind}/info", dependencies=[require_permission("admin.library")],
