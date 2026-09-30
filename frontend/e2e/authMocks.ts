@@ -67,11 +67,13 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/voice-bank': EMPTY,
   // The header bell (every page) polls this.
   '/api/notifications': EMPTY,
+  // The Library admin panel's per-person backup picker.
+  '/api/admin/users': { users: [] },
 }
 
 // The Library admin panel polls its last backup/export job and artifact;
 // with none made yet the real API answers 404 not_found, as here.
-const GET_NOT_FOUND = /^\/api\/(jobs\/library_(backup|db_backup|export_zip)|library\/admin\/artifacts\/(backup|database|export)\/info)$/
+const GET_NOT_FOUND = /^\/api\/(jobs\/library_(backup|db_backup|user_backup|export_zip)|library\/admin\/artifacts\/(backup|database|user_backup|export)\/info)$/
 
 export interface AuthMockState {
   me: MeBody
