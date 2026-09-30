@@ -7,6 +7,7 @@ import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
 import { AutoBackupCard } from './settings/AutoBackupCard'
 import { ExtensionSection } from './settings/ExtensionSection'
+import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
@@ -71,6 +72,7 @@ export default function SettingsPage() {
           <SpendingCard {...prefProps} />
           <NotificationsSection />
           <AutoBackupCard />
+          <JellyfinSection />
           <ExtensionSection />
           <AppearanceCard />
           <AdvancedCard {...prefProps} />
