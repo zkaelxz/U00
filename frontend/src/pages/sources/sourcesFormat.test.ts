@@ -213,6 +213,7 @@ describe('header, health and detail', () => {
     expect(errorCategoryLabel({ ...failed, last_error_category: 'site_down' })).toBe('site down')
     expect(errorCategoryLabel({ ...failed, last_error_category: 'page_missing' })).toBe('page missing')
     expect(errorCategoryLabel({ ...failed, last_error_category: 'needs_sign_in' })).toBe('needs sign-in')
+    expect(errorCategoryLabel({ ...failed, last_error_category: 'domains_unreachable' })).toBe('every known address is unreachable')
     expect(errorCategoryLabel({ ...failed, last_error_category: 'new_thing' })).toBe('failed')
     expect(errorCategoryLabel({ ...failed, last_error_category: null, last_error_type: null })).toBeNull()
     expect(pausedFor(240)).toBe('Paused for another 4 min.')

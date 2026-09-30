@@ -251,3 +251,12 @@ ul.source-cards > li {
 .web-search { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .web-search .list-head { flex-wrap: wrap; }
 .web-result-domain { overflow-wrap: anywhere; }
+
+/* Source addresses: one group per source */
+.source-domains h5 { margin: 0; font-size: var(--font-sm); }
+.source-domain-list { list-style: none; }
+.source-domain-list code { overflow-wrap: anywhere; }
+.source-domain-add { display: flex; gap: var(--space-2); align-items: center; }
+.source-domain-add input { flex: 1 1 auto; min-width: 0; }
+.source-domain-proposals { display: grid; gap: var(--space-1); }
+.source-domain-proposals p { margin: 0; }
