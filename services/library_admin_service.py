@@ -1,7 +1,8 @@
 """
 services/library_admin_service.py -- the Library tab's destructive and
 admin actions (migration E0 remainder): bulk status/tags/delete, bulk
-translate, export-all zip, full backup, restore and storage cleanup.
+translate, export-all zip, full backup, backup of one person's items,
+restore and storage cleanup.
 
 Service half only; no router yet. Rules this module keeps:
   - Destructive actions need `confirm is True` plus an exact typed word
@@ -68,15 +69,18 @@ BULK_TRANSLATE_JOB_ID = "bulk_series_translate"  # same id the Streamlit tab use
 EXPORT_JOB_ID = "library_export_zip"
 BACKUP_JOB_ID = "library_backup"
 DATABASE_BACKUP_JOB_ID = "library_db_backup"
+USER_BACKUP_JOB_ID = "library_user_backup"
 AUTO_BACKUP_JOB_ID = "library_auto_backup"  # services/auto_backup_service.py
 
 # Both under LIBRARY_DIR/backups, which a full backup already skips, so an
 # export or old backup is never zipped into the next backup.
 _ARTIFACT_SUBDIRS = {"backup": ("backups",), "export": ("backups", "exports"),
-                     "database": ("backups", "database")}
-_ARTIFACT_EXT = {"backup": ".zip", "export": ".zip", "database": ".db"}
+                     "database": ("backups", "database"),
+                     "user_backup": ("backups", "user_backups")}
+_ARTIFACT_EXT = {"backup": ".zip", "export": ".zip", "database": ".db", "user_backup": ".zip"}
+# Fixed prefixes: a file name never carries a user's name or email.
 _ARTIFACT_PREFIX = {"backup": "baihe_library_backup", "export": "dramas_export",
-                    "database": "library"}
+                    "database": "library", "user_backup": "baihe_my_items_backup"}
 _EXPORTABLE_STATUSES = ("translated", "dubbed", "exported")
 
 
@@ -149,6 +153,7 @@ def _maintenance(action: str):
         raise ConflictError(f"A restore is in progress; {action} is not possible right now.")
     try:
         for job_id, label in ((BACKUP_JOB_ID, "backup"), (AUTO_BACKUP_JOB_ID, "backup"),
+                              (USER_BACKUP_JOB_ID, "backup"),
                               (EXPORT_JOB_ID, "library export")):
             if _job_id_running(job_id):
                 raise ConflictError(f"A {label} is running -- wait for it to finish before "
@@ -552,6 +557,234 @@ def start_database_backup() -> dict:
                                      DATABASE_BACKUP_JOB_ID, description="Database backup"):
         raise ConflictError("A database backup is already running.")
     return {"job_id": DATABASE_BACKUP_JOB_ID}
+
+
+# --------------------------------------------------------------------------
+# backup of one owner's items ("backup of just my stuff")
+# --------------------------------------------------------------------------
+
+# How the per-owner backup treats every library.db table. Default-deny: a
+# table missing here is dropped from the copy at run time, and
+# tests/test_user_backup.py fails until it is classified.
+#   owned_dramas / owned_series: only the owner's rows (NULL owner = the PC
+#       owner), owner column cleared (the target install's PC owner)
+#   drama: rows of a kept drama only (a NULL drama_id is nobody's: dropped)
+#   page: rows of a kept page only; series: rows of a kept series only
+#   series_character: kept drama and kept series character only
+#   user: rows of the owner only, user column cleared
+#   profiles: household profiles that kept rows point at, plus the default
+#   style_scope: the learned style of a kept series only
+#   keep: household-wide, nothing personal
+#   empty: every row dropped
+USER_BACKUP_TABLES = {
+    "dramas": ("owned_dramas", "the owner's dramas"),
+    "series": ("owned_series", "the owner's series"),
+    "lines": ("drama", ""), "characters": ("drama", ""), "pages": ("drama", ""),
+    "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
+    "consistency_issues": ("drama", ""), "vocab_lookups": ("drama", ""),
+    "usage_log": ("drama", ""), "line_history": ("drama", ""), "progress": ("drama", ""),
+    "personal_notes": ("drama", ""), "reading_history": ("drama", ""),
+    "translation_versions": ("drama", ""), "bug_reports": ("drama", ""),
+    "wiki_entries": ("drama", ""), "edit_samples": ("drama", ""),
+    "line_provenance": ("drama", ""), "metadata_research_results": ("drama", ""),
+    "metadata_field_provenance": ("drama", ""),
+    "voice_suggestion_dismissals": ("series_character", ""),
+    "bubbles": ("page", ""),
+    "glossary_terms": ("series", ""), "series_characters": ("series", ""),
+    "translation_memory": ("series", ""),
+    "translate_history": ("user", "the owner's standalone translations"),
+    "profiles": ("profiles", "reader data is per library, on the default profile"),
+    "style_profile": ("style_scope", "the global profile is learned from everyone's edits"),
+    "known_titles": ("keep", "the household's title catalogue"),
+    "presets": ("keep", "household workspace presets"),
+    "users": ("empty", "auth"), "user_permissions": ("empty", "auth"),
+    "auth_sessions": ("empty", "auth"), "audit_log": ("empty", "auth"),
+    "bulk_jobs": ("empty", "provider batch ids of this PC's API accounts; a restored "
+                           "in-flight batch could be polled again"),
+    "bulk_job_lines": ("empty", "belongs to bulk_jobs"),
+    "voice_bank": ("empty", "household clips; the clip files are not copied either"),
+    "job_records": ("empty", "this PC's job history"),
+    "job_checkpoints": ("empty", "this PC's job state"),
+    "job_stage_timings": ("empty", "this PC's job history"),
+    "gpu_lock": ("empty", "this PC's job state"),
+    "result_cache": ("empty", "cached model output from every user's runs"),
+    "metadata_research_cache": ("empty", "lookups from every user"),
+    "app_settings": ("empty", "this PC's settings"),
+    "assistant_backlog": ("empty", "this PC's maintenance notes"),
+    "benchmark_cases": ("empty", "this PC's test set, may quote any drama"),
+    "benchmark_runs": ("empty", "belongs to benchmark_cases"),
+    "benchmark_sessions": ("empty", "this PC's benchmark runs"),
+    "benchmark_results": ("empty", "belongs to benchmark_sessions"),
+    "model_candidates": ("empty", "this PC's model choices"),
+    "model_decisions": ("empty", "this PC's model choices"),
+}
+# Pre-Step-2 migration copies (_backup_step2_<table>) hold rows of every
+# drama; they are dropped from the copy.
+_DROPPED_TABLE_PREFIX = "_backup_step2_"
+
+
+def _user_backup_filter(path: str, owner_id) -> list:
+    """Cuts the snapshot at `path` down to one owner's items (owner_id
+    None: the PC owner, owner_user_id NULL), following
+    USER_BACKUP_TABLES, and compacts it. Returns the kept drama ids.
+
+    Series shared between users: a series goes with its owner, with its
+    glossary, characters and translation memory. A drama is kept only
+    when its owner is kept, so another user's drama in the owner's series
+    stays behind; the owner's drama in someone else's series is kept
+    without that series (series_id cleared, and links to that series'
+    characters removed)."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(path, isolation_level=None)
+        try:
+            conn.execute("PRAGMA secure_delete = ON")
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN")
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND name NOT LIKE 'sqlite_%'").fetchall()]
+
+            def cols(t):
+                return {r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')}
+
+            def keep_only(t, where, args=()):
+                # IS NOT 1: a NULL (e.g. a NULL drama_id) counts as not kept.
+                conn.execute(f'DELETE FROM "{t}" WHERE ({where}) IS NOT 1', args)
+
+            for t in ("keep_dramas", "keep_series", "keep_pages", "keep_chars"):
+                conn.execute(f"CREATE TEMP TABLE {t} (id INTEGER PRIMARY KEY)")
+            conn.execute("INSERT INTO temp.keep_dramas SELECT id FROM dramas "
+                         "WHERE owner_user_id IS ?", (owner_id,))
+            conn.execute("INSERT INTO temp.keep_series SELECT id FROM series "
+                         "WHERE owner_user_id IS ?", (owner_id,))
+            in_dramas = "drama_id IN (SELECT id FROM temp.keep_dramas)"
+            in_series = "series_id IN (SELECT id FROM temp.keep_series)"
+            rules = {t: USER_BACKUP_TABLES.get(t, ("drop", ""))[0] for t in tables}
+            for t in tables:
+                if t.startswith(_DROPPED_TABLE_PREFIX) or rules[t] == "drop":
+                    if not t.startswith(_DROPPED_TABLE_PREFIX):
+                        log.warning("Per-user backup: unclassified table %s left out", t)
+                    conn.execute(f'DROP TABLE "{t}"')
+                    continue
+                rule = rules[t]
+                need = {"drama": "drama_id", "series_character": "drama_id", "page": "page_id",
+                        "series": "series_id", "user": "user_id"}.get(rule)
+                if rule == "empty" or (need and need not in cols(t)):
+                    conn.execute(f'DELETE FROM "{t}"')
+                elif rule in ("owned_dramas", "owned_series"):
+                    keep = "keep_dramas" if rule == "owned_dramas" else "keep_series"
+                    keep_only(t, f"id IN (SELECT id FROM temp.{keep})")
+                    conn.execute(f'UPDATE "{t}" SET owner_user_id = NULL')
+                elif rule in ("drama", "series"):
+                    keep_only(t, in_dramas if rule == "drama" else in_series)
+                elif rule == "user":
+                    keep_only(t, "user_id IS ?", (owner_id,))
+                    conn.execute(f'UPDATE "{t}" SET user_id = NULL')
+            # Second pass: rules that depend on rows kept above.
+            if "pages" in rules:
+                conn.execute("INSERT INTO temp.keep_pages SELECT id FROM pages")
+            if "series_characters" in rules:
+                conn.execute("INSERT INTO temp.keep_chars SELECT id FROM series_characters")
+            for t, rule in rules.items():
+                if rule == "page" and "page_id" in cols(t):
+                    keep_only(t, "page_id IN (SELECT id FROM temp.keep_pages)")
+                elif rule == "series_character" and "drama_id" in cols(t):
+                    keep_only(t, in_dramas + " AND series_character_id IN "
+                                 "(SELECT id FROM temp.keep_chars)")
+                elif rule == "style_scope":
+                    keep_only(t, "scope IN (SELECT 'series:' || id FROM temp.keep_series)")
+                elif rule == "profiles":
+                    used = [f'SELECT profile_id FROM "{u}"' for u in
+                            ("progress", "personal_notes", "reading_history")
+                            if rules.get(u) == "drama" and "profile_id" in cols(u)]
+                    used.append(f'SELECT MIN(id) FROM "{t}"')
+                    keep_only(t, f"id IN ({' UNION '.join(used)})")
+            if "series_id" in cols("dramas"):
+                conn.execute(f"UPDATE dramas SET series_id = NULL WHERE series_id IS NOT NULL "
+                             f"AND NOT {in_series}")
+            if "series_character_id" in cols("characters"):
+                conn.execute("UPDATE characters SET series_character_id = NULL "
+                             "WHERE series_character_id IS NOT NULL AND series_character_id "
+                             "NOT IN (SELECT id FROM temp.keep_chars)")
+            kept_tables = [t for t, r in rules.items() if r not in ("empty", "drop")
+                           and not t.startswith(_DROPPED_TABLE_PREFIX)]
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
+                marks = ", ".join("?" for _ in kept_tables) or "NULL"
+                conn.execute(f"DELETE FROM sqlite_sequence WHERE name NOT IN ({marks})",
+                             kept_tables)
+            for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                        "AND name LIKE 'sqlite_stat%'").fetchall():
+                conn.execute(f'DROP TABLE "{name}"')
+            kept = [r[0] for r in conn.execute("SELECT id FROM temp.keep_dramas ORDER BY id")]
+            conn.execute("COMMIT")
+            conn.execute("VACUUM")
+            return kept
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        raise OSError("snapshot could not be filtered") from None
+
+
+def _drama_media_files(drama_id: int):
+    """(full path, zip name) for every regular file in the drama's own
+    folder. The folder must be a real directory directly under dramas/;
+    symlinks (files or folders) and any `.env` are skipped."""
+    base = db.DRAMAS_DIR
+    folder = os.path.join(base, str(drama_id))
+    if (os.path.islink(folder) or not os.path.isdir(folder)
+            or os.path.dirname(os.path.realpath(folder)) != os.path.realpath(base)):
+        return
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        for fname in files:
+            full = os.path.join(root, fname)
+            if fname == ".env" or os.path.islink(full) or not os.path.isfile(full):
+                continue
+            yield full, os.path.relpath(full, db.LIBRARY_DIR).replace(os.sep, "/")
+
+
+def write_user_backup_zip(dest: str, owner_id=None):
+    """A backup zip of one owner's items (owner_id None: the PC owner):
+    the snapshot cut down by _user_backup_filter, plus only the kept
+    dramas' own folders under dramas/. Nothing else from the library
+    folder (voice bank, benchmark files, sources.db, other dramas'
+    folders) is included. The live library is only read."""
+    with tempfile.TemporaryDirectory() as snapdir:
+        snap = os.path.join(snapdir, "library.db")
+        _sanitized_snapshot(snap)
+        kept = _user_backup_filter(snap, owner_id)
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+            for did in kept:
+                for full, arcname in _drama_media_files(did):
+                    zf.write(full, arcname)
+            zf.write(snap, "library.db")
+
+
+def _user_backup_job(job_id, owner_id):
+    name, size = _write_artifact("user_backup", ".zip", "The backup could not be written.",
+                                 lambda dest: write_user_backup_zip(dest, owner_id))
+    background_jobs.set_result(job_id, {"name": name, "size": size})
+    background_jobs.update_progress(job_id, 1.0, "Backup ready.")
+
+
+def start_user_backup(user_id=None) -> dict:
+    """Job: backup zip of one owner's dramas and series, restorable into a
+    fresh install with restore_backup. user_id None: the items owned at
+    the PC (no owner). Unknown user: NotFoundError. Fetch the file with
+    admin_artifact_path("user_backup")."""
+    if user_id is not None:
+        if (isinstance(user_id, bool) or not isinstance(user_id, int)
+                or not 1 <= user_id <= drama_service.MAX_ID):
+            raise InvalidInputError("A user id is a positive whole number.")
+        if db.auth_get_user(user_id) is None:
+            raise NotFoundError("No such user.")
+    _refuse_during_maintenance("backup")
+    _refuse_duplicate(USER_BACKUP_JOB_ID, "backup")
+    if not background_jobs.start_job(USER_BACKUP_JOB_ID, _user_backup_job, USER_BACKUP_JOB_ID,
+                                     user_id, description="Backup of one person's items"):
+        raise ConflictError("A backup is already running.")
+    return {"job_id": USER_BACKUP_JOB_ID}
 
 
 # --------------------------------------------------------------------------
