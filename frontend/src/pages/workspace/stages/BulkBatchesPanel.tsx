@@ -52,7 +52,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
   const cancelButtons = useRef(new Map<number, HTMLButtonElement>())
   const noteRef = useRef<HTMLParagraphElement>(null)
   const regionRef = useRef<HTMLDivElement>(null)
-  const [returnFocusTo, setReturnFocusTo] = useState<number | null>(null)
+  const returnFocusTo = useRef<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -81,11 +81,11 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
     if (confirmId !== null) yesRef.current?.focus()
   }, [confirmId])
   useEffect(() => {
-    if (returnFocusTo === null || confirmId !== null) return
-    const target = cancelButtons.current.get(returnFocusTo) ?? noteRef.current ?? regionRef.current
+    if (returnFocusTo.current === null || confirmId !== null) return
+    const target = cancelButtons.current.get(returnFocusTo.current) ?? noteRef.current ?? regionRef.current
     target?.focus()
-    setReturnFocusTo(null)
-  }, [returnFocusTo, confirmId, jobs, note])
+    returnFocusTo.current = null
+  }, [confirmId, jobs, note])
 
   if (jobs === null && !error) return null
   // Nothing to show or resume until a batch exists (rule 8); Bulk lives under Advanced.
@@ -118,8 +118,8 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
       })
       .finally(() => {
         setCancelling(false)
+        returnFocusTo.current = id
         setConfirmId(null)
-        setReturnFocusTo(id)
       })
   }
 
@@ -143,7 +143,7 @@ export function BulkBatchesPanel({ reloadKey }: Props) {
         <button type="button" className={buttonClass('danger', 'sm')} ref={yesRef} disabled={cancelling} onClick={() => cancel(j.bulk_job_id)}>
           {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
         </button>
-        <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelling} onClick={() => { setConfirmId(null); setReturnFocusTo(j.bulk_job_id) }}>Keep it</button>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelling} onClick={() => { returnFocusTo.current = j.bulk_job_id; setConfirmId(null) }}>Keep it</button>
       </span>
     )
   }

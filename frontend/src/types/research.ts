@@ -58,6 +58,27 @@ export interface ResearchRequest {
   refresh?: boolean
 }
 
+// One stored per-field evidence row. The API also returns source URLs; the
+// note shows source titles only.
+export interface ProvenanceRow {
+  id: number
+  field: string
+  value: string
+  source?: string | null
+  source_url?: string | null
+  sources: ResearchSource[]
+  retrieved_at?: string | null
+  confidence?: number | null
+  last_verified?: string | null
+  // 'applied' (replaced), 'alternate' (saved beside) or 'verified' (confirmed).
+  status: string
+}
+
+export interface ProvenanceList {
+  drama_id: number
+  fields: ProvenanceRow[]
+}
+
 export interface ResearchApplied {
   drama_id: number
   replaced: string[]
