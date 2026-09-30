@@ -17,7 +17,8 @@ from api.assistant_schemas import (AssistantAnswer, AssistantAskRequest, Assista
                                    AssistantBacklogAdd, AssistantBacklogCleared,
                                    AssistantBacklogDeleted, AssistantBacklogItem,
                                    AssistantChangelog, AssistantChangelogRequest,
-                                   AssistantConfirm, AssistantSettings,
+                                   AssistantConfirm, AssistantReport,
+                                   AssistantReportRequest, AssistantSettings,
                                    AssistantSettingsUpdate, AssistantTools)
 from api.auth import local_only
 from api.schemas import ErrorResponse
@@ -54,7 +55,17 @@ def get_tools():
              responses=_ERRS)
 def post_ask(body: AssistantAskRequest):
     return svc.ask(body.question, [t.model_dump() for t in body.chat_history],
-                   engine_name=body.engine, model=body.model)
+                   engine_name=body.engine, model=body.model, escalate=body.escalate,
+                   consent=body.consent, evidence=body.evidence)
+
+
+@router.post("/report", dependencies=[local_only()], response_model=AssistantReport,
+             summary="PC only: a redacted problem report (the chat, tool output and the "
+                     "support report) for the user to copy to a developer. Nothing is uploaded",
+             responses=_ERRS)
+def post_report(body: AssistantReportRequest):
+    return svc.developer_report([t.model_dump() for t in body.chat_history],
+                                question=body.question, evidence=body.evidence)
 
 
 @router.post("/changelog", dependencies=[local_only()], response_model=AssistantChangelog,

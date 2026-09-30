@@ -3,6 +3,7 @@ import { ApiError } from '../../api/client'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, type BadgeTone } from '../../components/labels'
 import type { AskResponse, AssistantSettings, AssistantSettingsPatch, BacklogKind, ChatTurn } from '../../types/assistant'
+import type { TierFailure } from './escalation'
 
 export const DEVELOPER_MODE_HELP = 'Shows maintenance tools (the AI maintenance assistant) in the menu. Off by default.'
 export const PC_ONLY_TEXT = 'The maintenance assistant is available on the PC only.'
@@ -51,6 +52,9 @@ export function assistantErrorText(e: unknown): string {
   const status = err?.status
   const consent = consentEngineOf(e)
   if (consent !== null) return consentNeededText(consent)
+  if (status === 409 && (err?.details as { reason?: string } | undefined)?.reason === 'escalation_consent_required') {
+    return 'Asking a cloud tier needs your OK each time. Use “Ask a stronger model” and confirm.'
+  }
   if (status === 403 || err?.code === 'forbidden') return PC_ONLY_TEXT
   if (status === 409) return MODE_OFF_TEXT
   if (status === 503) return NO_KEY_TEXT
@@ -68,6 +72,8 @@ export interface Exchange {
   question: string
   response: AskResponse | null
   error: string | null
+  // Set when a tier could not answer: which one, and which tier the user may ask next.
+  failure?: TierFailure | null
 }
 
 /** chat_history for the next ask: each answered question and its answer text only. */

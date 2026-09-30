@@ -97,6 +97,37 @@ def test_missing_review_engine_is_reported_not_hidden(engines, monkeypatch):
     assert out["review"]["verdict"] == "unavailable" and "review engine" in out["review"]["notes"]
 
 
+@pytest.fixture
+def ladder(engines, monkeypatch):
+    """claude is tier 1; the escalation confirm names only the tier asked."""
+    monkeypatch.setattr(svc, "tier_ladder", lambda choices=None: [
+        {"tier": 1, "engine": "claude", "local": False, "consent": True}])
+    monkeypatch.setattr(svc, "_ollama_is_local", lambda: True)
+
+
+def test_escalation_never_sends_the_fix_to_an_unconfirmed_cloud_reviewer(ladder):
+    chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nLooks right."])
+    out = svc.ask("x", engine_name="claude", escalate=True, consent=True, chat=chat)
+    assert [c[0] for c in chat.calls] == ["claude"]  # gemini was never asked
+    assert out["review"] is None and "cloud engine" in out["review_skipped"]
+    assert out["proposed_patches"]  # the fix is still shown
+
+
+def test_escalation_still_reviews_on_a_local_reviewer(ladder):
+    svc.set_settings({"review_engine": "ollama"})
+    chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nLooks right."])
+    out = svc.ask("x", engine_name="claude", escalate=True, consent=True, chat=chat)
+    assert [c[0] for c in chat.calls] == ["claude", "ollama"]
+    assert out["review"]["verdict"] == "agrees" and out["review_skipped"] == ""
+
+
+def test_a_plain_ask_still_uses_the_cloud_reviewer(ladder):
+    chat = EngineChat(claude=[PATCH], gemini=["VERDICT: AGREES\nLooks right."])
+    out = svc.ask("x", chat=chat)
+    assert [c[0] for c in chat.calls] == ["claude", "gemini"]
+    assert out["review"]["engine"] == "gemini" and out["review_skipped"] == ""
+
+
 def test_no_review_without_a_patch_or_when_off(engines):
     chat = EngineChat(claude=["Nothing to fix; the log shows a network timeout."])
     assert svc.ask("x", chat=chat)["review"] is None
