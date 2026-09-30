@@ -70,10 +70,17 @@ def detect_language(text: str) -> str:
     return ""
 
 
+# Attribute runs stop at the next "<" as well as ">" (_ATTR): with `[^>]+`
+# every "<meta" start in text like "<meta <meta <meta ..." (no ">") scans to
+# the end, which is quadratic, and pasted page source reaches these
+# (POST /api/sources/url/preview-pasted, up to 5 MB).
+_ATTR = r"[^<>]+"
+
+
 def _og(html: str, prop: str) -> str:
-    m = re.search(r"""<meta[^>]+property=["']og:%s["'][^>]+content=["']([^"']*)""" % prop,
+    m = re.search(r"""<meta%sproperty=["']og:%s["']%scontent=["']([^"']*)""" % (_ATTR, prop, _ATTR),
                   html or "", re.I) or \
-        re.search(r"""<meta[^>]+content=["']([^"']*)["'][^>]+property=["']og:%s["']""" % prop,
+        re.search(r"""<meta%scontent=["']([^"']*)["']%sproperty=["']og:%s["']""" % (_ATTR, _ATTR, prop),
                   html or "", re.I)
     return m.group(1).strip() if m else ""
 
@@ -89,7 +96,8 @@ def classify_html(url: str, html: str) -> Preview:
     m = _CHAPTER_IN_TITLE.search(p.title)
     p.chapter = m.group(1) if m else ""
     og_type = _og(html, "type").lower()
-    has_video_tag = bool(re.search(r"<video[^>]+src=|<video\b[^>]*>\s*<source", html or "", re.I))
+    has_video_tag = bool(re.search(r"<video%ssrc=|<video\b[^<>]*>\s*<source" % _ATTR,
+                                   html or "", re.I))
     if og_type.startswith("video") or has_video_tag or _og(html, "video"):
         p.content_type = VIDEO
         p.language = detect_language(p.title)
