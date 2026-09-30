@@ -843,6 +843,7 @@ class SourceClient:
                       "current_action": "Idle", "current_delay": 0.0,
                       "access_method": "Normal HTTP"}
         self.attempts = []   # AttemptRecord per failed/succeeded request, for diagnostics
+        self.last_page = None   # (final url, text) of the last successful HTML GET
 
     def _limited_transport(self, method, url, headers, data, timeout):
         """The real transport under this client's body limits; cancel is
@@ -1042,6 +1043,8 @@ class SourceClient:
                     if cacheable and _host_key(resp.url or url) == _host_key(url) \
                             and urlsplit(resp.url or url).scheme == urlsplit(url).scheme:
                         self.cache.put(url, resp.content)
+                    if is_page and method.upper() == "GET":
+                        self.last_page = (resp.url or url, body)
                     if poll is not None and method.upper() == "GET":
                         low = {k.lower(): v for k, v in resp.headers.items()}
                         poll.gets.append((url, resp.url, resp.status_code,

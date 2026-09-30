@@ -24,6 +24,7 @@ import { PacingForm } from './PacingForm'
 import { ProxyForm } from './ProxyForm'
 import { RecentExtractions } from './RecentExtractions'
 import { SourceDetail } from './SourceDetail'
+import { SourceDomains } from './SourceDomains'
 import { healthText, healthTone, pacingSummary, profileLine, settingsSummary } from './sourcesFormat'
 
 type Props = {
@@ -274,6 +275,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
           ))}
         </Section>
       )}
+      <SourceDomains />
       <RecentExtractions />
     </Section>
   )

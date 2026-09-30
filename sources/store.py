@@ -386,7 +386,9 @@ RETRY_STATUSES = ("failed", "not_attempted")
 # "partial": the chapter an unexpected error interrupted mid-write -- some of
 # its pages or text may be in the drama already, so it is shown (check it
 # first) but never part of the automatic retry.
-MANIFEST_STATUSES = RETRY_STATUSES + ("partial",)
+# "needs_ai": the page loaded but the adapter's layout no longer matches; it
+# waits for the person to confirm an AI recovery, so it is not retried either.
+MANIFEST_STATUSES = RETRY_STATUSES + ("partial", "needs_ai")
 
 
 def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):

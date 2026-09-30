@@ -301,6 +301,7 @@ const ERROR_CATEGORY_LABELS: Record<string, string> = {
   layout_changed: 'layout changed',
   slow: 'slow',
   needs_sign_in: 'needs sign-in',
+  domains_unreachable: 'every known address is unreachable',
   other: 'failed',
 }
 

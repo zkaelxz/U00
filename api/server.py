@@ -108,6 +108,7 @@ from api.routers import (
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    update_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
     web_search_routes,
@@ -230,6 +231,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
         app.add_middleware(HouseholdGate, public_url=settings.public_url)
     install_error_handlers(app)
     app.include_router(system_routes.router)
+    app.include_router(update_routes.router)
     app.include_router(library_routes.router)
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)

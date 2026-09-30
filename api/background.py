@@ -18,12 +18,15 @@ turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
 drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
-folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`).
+folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`), and
+update installers no longer needed (`update_service.cleanup_leftovers`).
 Also, only when the owner turned "Resume interrupted translation batches"
 on (`translate_run_service.resume_interrupted_at_startup`, off by default),
 pending bulk batches are resumed through the manual resume's code path.
 The due-check then repeats hourly from the GPU-queue poller thread below
-(`auto_backup_service.periodic_tick`), so no extra thread is added.
+(`auto_backup_service.periodic_tick`), so no extra thread is added; so does
+the once-a-day update check, only when the owner turned it on
+(`update_service.periodic_tick`; it never downloads).
 
 Both `ensure_*` functions are once-per-process and safe to call again, so
 this is idempotent. Off when `ApiSettings.background_services` is False:
@@ -78,6 +81,11 @@ def start_gpu_queue_poller(interval: float = None) -> bool:
                     auto_backup_service.periodic_tick()
                 except Exception as exc:
                     _log("automatic backup check failed: %s", exc)
+                try:
+                    from services import update_service
+                    update_service.periodic_tick()
+                except Exception as exc:
+                    _log("update check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
         _gpu_poller = (thread, stop)
@@ -151,7 +159,10 @@ def start_remote_health_monitor(settings, interval: float = None,
                                 first: float = None) -> bool:
     global _remote_health_poller
     from services import remote_health_service as rhs
-    if not rhs.remote_access_enabled(settings.public_url, settings.household_port):
+    # Without sign-in settings `python -m api` does not start the household
+    # listener, so there is nothing to probe or alert about.
+    if not (settings.sign_in_configured
+            and rhs.remote_access_enabled(settings.public_url, settings.household_port)):
         return False
     interval = rhs.CHECK_INTERVAL_SECONDS if interval is None else float(interval)
     first = rhs.FIRST_CHECK_SECONDS if first is None else float(first)
@@ -211,6 +222,11 @@ def start_background_services() -> dict:
         auto_backup_service.periodic_tick()   # the startup due-check
     except Exception as exc:
         _log("automatic backup check failed: %s", exc)
+    try:
+        from services import update_service
+        update_service.cleanup_leftovers()
+    except Exception as exc:
+        _log("leftover update installers were not swept: %s", exc)
     try:
         from services import translate_run_service
         translate_run_service.resume_interrupted_at_startup()

@@ -5,6 +5,7 @@
 //      (sent by startNovelUrlImport in sourcesExtraction.ts, with the AI fallback fields)
 //   R3 POST /api/sources/{name}/import          {series_id, chapter_ids, drama_id} -> same job id
 //   R4 POST /api/sources/tracked                {source, series_id, tracked: true, drama_id?} -> TrackedSeries[]
+//   POST /api/sources/{name}/import/{chapter_id}/ai-recover {series_id, drama_id, engine, confirm} -> same job id
 //   GET /api/sources/{name}/import-state?series_id=&drama_id= -> ImportState (Step 107)
 //   R5 POST /api/media/dramas/{id}/download-url {url, audio_only, confirm_replace_audio} -> {job_id: 'urlmedia_<drama>'}
 //
@@ -13,7 +14,7 @@
 // (local_only), so it goes through pcOnlyFetch; its job is read with
 // GET /api/jobs/{id}. Chapter imports send ids only, never URLs or objects.
 import type { SourcesJobStarted, TrackedSeries } from '../types/sources'
-import type { ChapterImportRequest, ImportState, UrlDownloadRequest } from '../types/sourcesImport'
+import type { AiRecoverRequest, ChapterImportRequest, ImportState, UrlDownloadRequest } from '../types/sourcesImport'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -30,6 +31,10 @@ export const startUrlPreview = (url: string, f?: Fetch) =>
 
 export const startChapterImport = (source: string, body: ChapterImportRequest, f?: Fetch) =>
   postJson<SourcesJobStarted>(`/api/sources/${seg(source)}/import`, body, f)
+
+/** One AI call on a chapter whose page layout changed; the job ends in a Review extraction. */
+export const startAiRecover = (source: string, chapterId: string, body: AiRecoverRequest, f?: Fetch) =>
+  postJson<SourcesJobStarted>(`/api/sources/${seg(source)}/import/${seg(chapterId)}/ai-recover`, body, f)
 
 /** Chapters already imported into the drama, and the ones to retry (reads only). */
 export function getImportState(source: string, seriesId: string, dramaId: number, f?: Fetch) {

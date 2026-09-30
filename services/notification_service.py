@@ -83,9 +83,6 @@ DISABLED_ENV = "BAIHE_NOTIFY_DISABLED"
 
 HTTP_TIMEOUT = (3.05, 5)
 SEND_DEADLINE = 10.0          # wall clock for one POST, however slowly the server replies
-BAIHE_OWN_PORTS = (8501, 8600, 8756)   # Streamlit, API default, extension bridge
-API_PORT_ENV = "BAIHE_API_PORT"
-HOUSEHOLD_PORT_ENV = "BAIHE_API_HOUSEHOLD_PORT"
 BURST_WINDOW = 5.0
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
@@ -182,20 +179,6 @@ def _is_local_ip(ip) -> bool:
     return any(ip.version == n.version and ip in n for n in _LOCAL_NETS)
 
 
-def _baihe_ports() -> set:
-    """Ports a loopback ntfy target may never use: Baihe's own servers,
-    plus BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT when set (environment
-    or .env)."""
-    ports = set(BAIHE_OWN_PORTS)
-    for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
-        for raw in (os.environ.get(name), _settings().resolve_env_names((name,))):
-            try:
-                ports.add(int(str(raw).strip()))
-            except (TypeError, ValueError):
-                pass
-    return ports
-
-
 def _effective_port(parts) -> int:
     return parts.port or (443 if parts.scheme == "https" else 80)
 
@@ -255,7 +238,7 @@ def validate_url(channel, value, allow_local=None) -> str:
             or not literal.is_global):
         raise InvalidInputError(bad)   # link-local, reserved, multicast ...
     if ((loopback_name or (literal is not None and _unmap(literal).is_loopback))
-            and _effective_port(parts) in _baihe_ports()):
+            and _effective_port(parts) in _settings().baihe_own_ports()):
         raise InvalidInputError(_NTFY_OWN_PORT)
     return value
 
@@ -385,7 +368,7 @@ def _resolve_local(parts) -> str:
         if not _is_local_ip(ip):
             raise _Refused()   # a mix of local and other addresses is refused too
         if _unmap(ip).is_loopback:
-            own_ports = _baihe_ports() if own_ports is None else own_ports
+            own_ports = _settings().baihe_own_ports() if own_ports is None else own_ports
             if port in own_ports:
                 raise _Refused()   # never one of Baihe's own servers on this PC
         first = first or raw

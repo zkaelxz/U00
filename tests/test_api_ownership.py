@@ -42,6 +42,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
     "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
+    "chapter_id": "a source chapter id, not an item; the AI-recover route takes the drama in "
+                  "its body and sources_import_service._require_drama checks ownership",
     "domain": "source profile domain (admin.settings)",
     "kind": "an artifact/profile kind, not an item",
     "engine": "an engine name (PC-only key routes, engine Test)",

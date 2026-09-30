@@ -192,6 +192,12 @@ def test_monitor_not_started_when_remote_access_is_off(env, no_network):
     assert background._remote_health_poller is None
 
 
+def test_monitor_not_started_without_sign_in_settings(env, no_network):
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT)
+    assert background.start_remote_health_monitor(settings) is False
+    assert background._remote_health_poller is None
+
+
 def test_monitor_runs_the_check_when_on(env, monkeypatch):
     ran = threading.Event()
     calls = []
@@ -200,7 +206,8 @@ def test_monitor_runs_the_check_when_on(env, monkeypatch):
         calls.append((url, port, host, isinstance(stop, threading.Event)))
         ran.set()
     monkeypatch.setattr(rhs, "run_check", fake_run)
-    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT)
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
     try:
         assert background.start_remote_health_monitor(settings, interval=0.01, first=0.01)
         assert background.start_remote_health_monitor(settings) is False   # one at a time
@@ -349,6 +356,16 @@ def test_route_off_and_not_checked(env, no_network):
     assert r.json()["state"] == "unknown" and r.json()["checked_at"] is None
 
 
+def test_route_says_why_when_the_public_url_was_ignored(env, no_network):
+    from api.api_config import load_settings
+    settings = load_settings({"BAIHE_PUBLIC_URL": "http://bad.example/x",
+                              "BAIHE_API_HOUSEHOLD_PORT": str(PORT)})
+    assert settings.public_url == "" and "BAIHE_PUBLIC_URL" in settings.public_url_error
+    r = _local(create_app(settings)).get("/api/diagnostics/remote-health")
+    assert r.json()["state"] == "off"
+    assert "BAIHE_PUBLIC_URL" in r.json()["message"] and "bad.example" not in r.text
+
+
 def test_route_returns_states_without_secrets_hosts_or_paths(env, monkeypatch, listener_up):
     env.write_text(f"{rhs.IP_CHECK_ENV}={CHECK_URL}\n")
     monkeypatch.setattr(rhs, "_peer_certificate", lambda host, port: _cert(9))
@@ -475,7 +492,8 @@ def test_monitor_stop_ends_a_running_cycle_within_the_join(env, monkeypatch, spi
         entered.set()
         return real_bounded(fn, timeout, stop)
     monkeypatch.setattr(rhs, "_bounded", bounded)
-    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT)
+    settings = ApiSettings(public_url=PUBLIC_URL, household_port=PORT,
+                           google_client_id="cid", google_client_secret="s")
     try:
         assert background.start_remote_health_monitor(settings, interval=0.01, first=0.01)
         thread = background._remote_health_poller[0]

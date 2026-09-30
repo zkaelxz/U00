@@ -78,6 +78,13 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/diagnostics/remote-health/ip-check': { configured: false },
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
+  // Settings > App updates (PC only): a source checkout, never checked.
+  '/api/system/update': {
+    current: null, installed: false, latest: null, update_available: false, notes: '', installer_name: null,
+    size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
+    verified: false, verified_version: null, verified_name: null, can_install: false, auto_check: false,
+    custom_source: false,
+  },
   // Settings > Signed-in devices, for a signed-in person: just this device.
   '/api/auth/sessions': {
     sessions: [{ id: 1, device: 'Chrome on Windows', created_at: 1759000000, last_seen_at: 1759000000, expires_at: 1761592000, ip_prefix: '203.0.113', current: true }],

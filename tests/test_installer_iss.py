@@ -48,6 +48,12 @@ class TestSetup:
         assert re.fullmatch(r"\{\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}",
                             _setup_value(iss, "AppId"))
 
+    def test_one_setup_at_a_time(self, iss):
+        # The app's Install button opens Setup; a second click must not open
+        # a second one (Inno refuses while this mutex exists).
+        assert _setup_value(iss, "SetupMutex") == \
+            r"BaiheStudioSetupMutex,Global\BaiheStudioSetupMutex"
+
     def test_64_bit_and_disk_space(self, iss):
         assert _setup_value(iss, "ArchitecturesInstallIn64BitMode") == "x64compatible"
         assert _setup_value(iss, "ExtraDiskSpaceRequired") == "{#ExtraDiskSpace}"
@@ -321,8 +327,10 @@ class TestWorkflow:
 
     def test_smoke_test_covers_stop_and_clean_uninstall(self, wf):
         # Stop ends the server's children (smoke_child.py joins its job);
-        # a /CLEAN uninstall removes Baihe's folders and nothing else.
+        # a /CLEAN uninstall removes Baihe's folders and nothing else; only
+        # the Setup launch path (breakaway) leaves the server's job.
         for needle in ("--stop", "smoke_child.py", "outlived Stop", '"/CLEAN"',
+                       "smoke_child.py --breakaway-check", "breakaway check failed",
                        "notbaihe_smoke_clean", "sentinel.txt",
                        "touched the first install's data folder"):
             assert needle in wf, needle

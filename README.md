@@ -348,6 +348,15 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   (default `8600`), `BAIHE_API_ENV` (`development` or `production`,
   default `production`; development enables auto-reload and CORS for the
   Vite ports) and `BAIHE_API_CORS_ORIGINS` (see `api/api_config.py`).
+- **Changing the port.** `BAIHE_API_PORT` is read from the environment
+  (not `.env`), so `setx BAIHE_API_PORT 8601` and restart Baihe. The host is
+  always `127.0.0.1`. `start.bat`, `start.ps1` and the installed launcher
+  honour it (window, health check, `--stop`); the Vite dev proxy needs
+  `BAIHE_API_URL=http://127.0.0.1:8601` to match. The household listener's
+  port is separate (`BAIHE_API_HOUSEHOLD_PORT`); never forward either port
+  through the router. Baihe also refuses its own ports as ntfy, SearXNG and
+  Jellyfin targets. The Windows boot service (PR #575, not merged yet) pins
+  8600 and ignores `BAIHE_API_PORT`.
 - The React app calls the relative path `/api`; the Vite dev server
   (5173) and `npm run preview` (4173) proxy it to
   `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.
