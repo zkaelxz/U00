@@ -64,6 +64,10 @@ def get_diarization_config(drama_id: int) -> dict:
         # ran on ("cuda"/"cpu"), None before any run that recorded it.
         "last_device": last_run["device"],
         "audio_available": audio_path is not None,
+        # Parity D06: lines whose speaker was corrected by hand, so the
+        # client can ask before a run with overwrite_manual replaces them.
+        "manual_speaker_count": sum(1 for r in db.load_lines(drama_id)
+                                    if r.get("speaker_manual")),
     }
 
 
