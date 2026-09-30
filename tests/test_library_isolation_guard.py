@@ -25,7 +25,8 @@ def test_library_paths_point_away_from_the_real_library():
     import applog
     import dictionary
     import page_server
-    from sources import store
+    from services import bug_report_service
+    from sources import profiles, store
 
     paths = {
         "db.LIBRARY_DIR": db.LIBRARY_DIR,
@@ -38,8 +39,10 @@ def test_library_paths_point_away_from_the_real_library():
         "profiles": store.browser_profiles_root(),
         "page_server token": page_server.token_path(),
         "dictionary.CEDICT_PATH": dictionary.CEDICT_PATH,
+        "applog": applog.get_logger()._baihe_log_path,
+        "source_profiles": profiles.profiles_dir(),
+        "bug reports": bug_report_service._reports_dir(),
     }
-    assert applog  # its log path is derived from db.LIBRARY_DIR per call
     leaked = {k: v for k, v in paths.items() if _under_real_library(v)}
     assert not leaked, f"still pointing at the real library: {leaked}"
 
