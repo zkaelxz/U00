@@ -104,7 +104,7 @@ baihe-subtitler/
 │   │                             focused on using the app]
 │   └── windows-installer-design.md   Windows installer/uninstaller: Step 80's design, updated
 │                                 for React + FastAPI and built in Step 80b (installer/)
-│                                 [design + as-built reference]
+│                                 [design + as-built reference; the research notes are in archive/]
 │
 │   Note: the numbered build-order roadmap (`docs/baihe-roadmap.md`) and its own status table
 │   don't live in this repo — they're tracked on the separate planning branch

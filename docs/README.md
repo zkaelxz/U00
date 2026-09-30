@@ -33,8 +33,8 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
   review policy, verification, git/safety.
 - **`testing-and-ci.md`** — test commands, gotchas, current merge gate,
   CI-minutes notes.
-- **`windows-installer-design.md`** — Step 80's installer/uninstaller
-  architecture; design only, nothing built.
+- **`windows-installer-design.md`** — the Windows installer/uninstaller:
+  Step 80's design, as built in Step 80b (`installer/`).
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the main `README.md` so
   that stays focused on using the app.
