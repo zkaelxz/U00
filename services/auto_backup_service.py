@@ -1,8 +1,6 @@
 """
-services/auto_backup_service.py -- roadmap Step 43 as redefined by the user
-(2026-09-29): an opt-in automatic backup that keeps a few rotating copies,
-plus restoring a single drama from any of them. (The roadmap's original
-Step 43, universal soft-delete, was replaced by this.)
+services/auto_backup_service.py -- an opt-in automatic backup that keeps a
+few rotating copies, plus restoring a single drama from any of them.
 
 - Settings (app_settings): enabled (off by default), frequency
   (daily/weekly/monthly, daily by default), include_media (off: database

@@ -111,7 +111,7 @@ if ($LASTEXITCODE -ne 0) {
     } elseif (-not (Get-Command python -ErrorAction SilentlyContinue)) {
         Write-Host "Python wasn't found on PATH."
         Write-Host ""
-        Write-Host "Install Python 3.9 or newer from https://python.org/downloads/"
+        Write-Host "Install Python 3.10 or newer from https://python.org/downloads/"
         Write-Host "and make sure to tick 'Add python.exe to PATH' during setup,"
         Write-Host "then run this again."
     } else {

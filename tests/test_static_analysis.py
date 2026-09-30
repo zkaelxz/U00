@@ -228,6 +228,76 @@ class TestSignInHttpTimeouts:
         assert _find_httpx_calls_missing_timeout(str(p)) == ([2, 3, 6], 5)
 
 
+def _find_socket_calls_missing_timeout(path):
+    """(lineno list, number checked) for `socket.create_connection(...)`
+    without `timeout=`, and for `socket.socket()` bound in a `with` whose
+    body never calls `.settimeout(`: a silent peer would otherwise block
+    the caller forever."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    problems, checked = [], 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "socket" \
+                and node.func.attr == "create_connection":
+            checked += 1
+            if not any(kw.arg == "timeout" for kw in node.keywords) and len(node.args) < 2:
+                problems.append(node.lineno)
+        if isinstance(node, ast.With):
+            for item in node.items:
+                c = item.context_expr
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) \
+                        and isinstance(c.func.value, ast.Name) and c.func.value.id == "socket" \
+                        and c.func.attr == "socket":
+                    checked += 1
+                    if not any(isinstance(n, ast.Attribute) and n.attr == "settimeout"
+                               for b in node.body for n in ast.walk(b)):
+                        problems.append(node.lineno)
+    return sorted(problems), checked
+
+
+class TestInstallerAndRemoteHealthTimeouts:
+    def test_installer_launcher(self):
+        path = os.path.join(PROJECT_ROOT, "installer", "launcher.py")
+        assert _find_requests_calls_missing_timeout(path) == []
+        src = open(path, encoding="utf-8").read()
+        opens = re.findall(r"_OPENER\.open\([^)]*\)", src)
+        assert opens, "the check no longer sees the launcher's health call"
+        assert all("timeout=" in call for call in opens), opens
+        problems, checked = _find_socket_calls_missing_timeout(path)
+        assert checked >= 1, "the checker no longer sees the launcher's port probe"
+        assert problems == [], f"socket use without a timeout at line(s): {problems}"
+
+    def test_remote_health_service_sockets(self):
+        path = os.path.join(PROJECT_ROOT, "services", "remote_health_service.py")
+        problems, checked = _find_socket_calls_missing_timeout(path)
+        assert checked >= 2, "the checker no longer sees the TLS and listener connections"
+        assert problems == [], f"socket use without a timeout at line(s): {problems}"
+
+    def test_socket_checker_catches_missing_timeouts(self, tmp_path):
+        p = tmp_path / "mod.py"
+        p.write_text("import socket\n"
+                     "socket.create_connection((h, 1))\n"
+                     "socket.create_connection((h, 1), timeout=3)\n"
+                     "with socket.socket() as s:\n"
+                     "    s.connect_ex(a)\n"
+                     "with socket.socket() as s:\n"
+                     "    s.settimeout(1)\n")
+        assert _find_socket_calls_missing_timeout(str(p)) == ([2, 4], 4)
+
+    def test_httpx_calls_outside_oidc_service_have_timeouts(self):
+        problems = {}
+        for f in _project_py_files():
+            # The client-name heuristic would flag any `with ... as x` file,
+            # so only files that import httpx or Authlib are checked.
+            if not re.search(r"^\s*(import|from)\s+(httpx|authlib)\b",
+                             open(f, encoding="utf-8").read(), re.M):
+                continue
+            bad, _ = _find_httpx_calls_missing_timeout(f)
+            if bad:
+                problems[os.path.relpath(f, PROJECT_ROOT)] = bad
+        assert problems == {}, f"httpx/Authlib call(s) missing timeout=: {problems}"
+
+
 _SDK_CLIENTS = ("Anthropic", "AsyncAnthropic", "OpenAI", "AsyncOpenAI")
 
 
