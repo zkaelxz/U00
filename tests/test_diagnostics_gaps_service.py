@@ -473,6 +473,45 @@ def test_reset_holds_the_library_exclusively(monkeypatch):
     background_jobs.clear_job("m3_probe")
 
 
+def test_reset_waits_for_a_finished_jobs_thread_to_exit(isolated_db, monkeypatch):
+    """A job reads as done while its thread still writes to the database
+    (notification, timing row). Deleting and recreating the database under
+    it failed the reset with "database is locked"; the reset must wait."""
+    import threading
+    order = []
+    in_tail, release, waiting = threading.Event(), threading.Event(), threading.Event()
+
+    def blocked_notify(*args, **kwargs):
+        in_tail.set()
+        release.wait(10)
+        order.append("job thread done with the database")
+
+    real_wait = background_jobs.wait_for_job_threads
+
+    def spy_wait(timeout):
+        waiting.set()
+        return real_wait(timeout)
+
+    monkeypatch.setattr(background_jobs, "_notify_job_finished", blocked_notify)
+    monkeypatch.setattr(background_jobs, "wait_for_job_threads", spy_wait)
+    monkeypatch.setattr(db, "reset_library", lambda: order.append("reset"))
+    assert background_jobs.start_job("translate_1", lambda: None)
+    assert in_tail.wait(10)
+    assert background_jobs.get_status("translate_1")["status"] == "done"
+
+    result = {}
+    resetter = threading.Thread(
+        target=lambda: result.update(svc.reset_library(confirm=True, confirm_text="RESET")))
+    resetter.start()
+    try:
+        assert waiting.wait(10), "the reset did not wait for the job's thread"
+    finally:
+        release.set()
+    resetter.join(10)
+    assert result.get("ok") is True
+    assert order == ["job thread done with the database", "reset"]
+
+
 def test_reset_releases_the_hold_when_it_fails(monkeypatch):
     _no_jobs(monkeypatch)
 
