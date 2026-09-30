@@ -63,11 +63,12 @@ describe('assistant tier ladder helpers', () => {
   })
 
   it('lists exactly what will be sent, and says so for a first question with no tool output', () => {
-    const lines = sendSummary({ question: 'q', history: [], evidence: '' }, 'ollama')
-    expect(lines).toEqual(['Your question.', 'No earlier messages (this is the first question).', 'No tool output (the previous tier gathered none).'])
-    const more = sendSummary({ question: 'q', history: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }], evidence: 'x'.repeat(1200) }, 'ollama')
+    const lines = sendSummary({ question: 'q', history: [], evidence: '' })
+    expect(lines).toEqual(['Your question.', 'No earlier messages (this is the first question).', 'No tool output (the earlier tiers gathered none).'])
+    const more = sendSummary({ question: 'q', history: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }], evidence: 'x'.repeat(1200) })
     expect(more[1]).toBe('The last 2 messages of this chat.')
-    expect(more[2]).toMatch(/Ollama’s read-only tools found \(1,200 characters, redacted\)/)
+    // The evidence can hold every earlier tier's tool output, not just the last tier's.
+    expect(more[2]).toBe('What the earlier tiers’ read-only tools found (1,200 characters, redacted).')
   })
 
   it('warns that a cloud tier leaves the PC, and about the Gemini free tier', () => {

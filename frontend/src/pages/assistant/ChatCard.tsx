@@ -94,8 +94,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   }
 
   const escalate = (index: number, next: string) => {
-    const x = exchanges[index]
-    setOffer({ plan: escalationPlan(exchanges, index), engine: next, from: x.response?.engine ?? x.failure?.engine ?? null })
+    setOffer({ plan: escalationPlan(exchanges, index), engine: next })
   }
 
   return (
@@ -199,7 +198,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
   )
 }
 
-type Offer = { plan: EscalationPlan; engine: string; from: string | null }
+type Offer = { plan: EscalationPlan; engine: string }
 
 function TurnActions({ next, onEscalate, onReport }: { next: string | null; onEscalate: (next: string) => void; onReport: () => void }) {
   return (
@@ -225,7 +224,7 @@ type EscalateProps = {
 }
 
 function EscalateDialog({ offer, settings, onSettings, onClose, onSend }: EscalateProps) {
-  const { plan, engine, from } = offer
+  const { plan, engine } = offer
   const tier = (settings.tiers ?? []).find((t) => t.engine === engine)
   const local = tier?.local ?? (settings.local_engines ?? []).includes(engine)
   // The server also refuses without the saved per-provider consent.
@@ -237,7 +236,7 @@ function EscalateDialog({ offer, settings, onSettings, onClose, onSend }: Escala
         <p>{privacyNote(engine, local)}</p>
         <p>{local ? `${name} gets:` : `What will be sent to ${name}:`}</p>
         <ul>
-          {sendSummary(plan, from).map((line) => (
+          {sendSummary(plan).map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
@@ -424,6 +423,11 @@ function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
         </figure>
       ))}
       {response.review && <Review review={response.review} />}
+      {response.review_skipped && (
+        <p className="muted" data-testid="assistant-review-skipped">
+          {response.review_skipped}
+        </p>
+      )}
       {(response.suggested_backlog ?? []).length > 0 && (
         <ul className="assistant-suggestions" aria-label="Suggested backlog items">
           {response.suggested_backlog.map((s, i) => (

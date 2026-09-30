@@ -1143,10 +1143,18 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
             answer += ("\n\n[The answer looks cut off (an unclosed code block); any fix in it "
                        "is incomplete. Ask for just the patch.]")
         patches = extract_patches(raw)
-        review = None
-        if patches and get_settings()["roles_enabled"]:
-            review = independent_review(question, answer, patches, engine_name, chat=chat,
-                                        tests_already_run=result["tests_run"])
+        review, review_skipped = None, ""
+        settings = get_settings()
+        if patches and settings["roles_enabled"]:
+            # The escalation dialog lists only the tier being asked; a cloud
+            # reviewer would send the question, answer and patches to a
+            # provider the user didn't confirm.
+            if escalate and settings["review_engine"] and not _is_local_engine(settings["review_engine"]):
+                review_skipped = ("The reviewer is a cloud engine, so it wasn't asked as part of "
+                                  "this escalation. Ask for a review separately.")
+            else:
+                review = independent_review(question, answer, patches, engine_name, chat=chat,
+                                            tests_already_run=result["tests_run"])
     finally:
         _ASK_LOCK.release()
     tier, next_engine = _tier_of(engine_name, ladder)
@@ -1159,6 +1167,7 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
         "engine": engine_name,
         "model": model,
         "review": review,
+        "review_skipped": review_skipped,
         "tier": tier,
         "local": _is_local_engine(engine_name),
         "next_engine": next_engine,

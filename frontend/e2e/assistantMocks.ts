@@ -167,7 +167,12 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     }
     if (s.tiers) {
       const evidence = picked === 'ollama' ? 'RESULT t1 (inspect_logs, ok):\nERROR dub stage: no speaker' : ''
-      return json(route, { ...ANSWER, review: s.review, engine: picked, local: isLocal(picked), evidence, ...tierOf(picked) })
+      // An escalation never sends the fix to a cloud reviewer the dialog didn't mention.
+      const skip = body.escalate && s.rolesEnabled && s.reviewEngine && !isLocal(s.reviewEngine)
+      const review = skip
+        ? { review: null, review_skipped: 'The reviewer is a cloud engine, so it wasn’t asked as part of this escalation. Ask for a review separately.' }
+        : { review: s.review }
+      return json(route, { ...ANSWER, ...review, engine: picked, local: isLocal(picked), evidence, ...tierOf(picked) })
     }
     return json(route, { ...ANSWER, review: s.review })
   })

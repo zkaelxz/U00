@@ -129,6 +129,9 @@ class AssistantAnswer(BaseModel):
     engine: str
     model: Optional[str] = None
     review: Optional[AssistantReview] = None
+    # Why a proposed fix got no review (an escalation never sends it to a
+    # cloud reviewer the user didn't confirm); empty when not skipped.
+    review_skipped: str = ""
     # Which tier answered (None: an engine outside the ladder), whether it
     # ran on this PC, the tier the user may escalate to next, and the
     # redacted tool output that escalation or a developer report would carry.

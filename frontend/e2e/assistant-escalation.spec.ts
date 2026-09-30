@@ -9,7 +9,9 @@ const asks = (s: Awaited<ReturnType<typeof mockAssistant>>) =>
   s.calls.filter((c) => c.method === 'POST' && c.path === '/api/assistant/ask').map((c) => c.body as Record<string, unknown>)
 
 test('ask on Ollama, escalate to Gemini with consent, answer labelled with its tier', async ({ page }) => {
-  const s = await mockAssistant(page, { developerMode: true, tiers: ['ollama', 'gemini'], cloudConsent: { claude: false, gemini: false } })
+  const s = await mockAssistant(page, {
+    developerMode: true, tiers: ['ollama', 'gemini'], cloudConsent: { claude: false, gemini: false }, rolesEnabled: true, reviewEngine: 'claude',
+  })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
   await chat.getByRole('textbox', { name: 'Question' }).fill('Why does the Dub stage skip lines?')
@@ -21,7 +23,7 @@ test('ask on Ollama, escalate to Gemini with consent, answer labelled with its t
   await expect(dialog).toContainText('This leaves your PC and goes to Gemini')
   await expect(dialog).toContainText('Google may use what you send to improve its products')
   await expect(dialog).toContainText('Your question.')
-  await expect(dialog).toContainText('What Ollama’s read-only tools found')
+  await expect(dialog).toContainText('What the earlier tiers’ read-only tools found')
   // Nothing is sent before the user confirms, and not before the provider is allowed.
   const send = dialog.getByRole('button', { name: 'Send to Gemini' })
   await expect(send).toBeDisabled()
@@ -32,6 +34,7 @@ test('ask on Ollama, escalate to Gemini with consent, answer labelled with its t
 
   await expect(chat.getByTestId('assistant-tier')).toHaveCount(2)
   await expect(chat.getByTestId('assistant-tier').nth(1)).toHaveText('Tier 2 · Gemini · cloud')
+  await expect(chat.getByTestId('assistant-review-skipped')).toHaveText(/The reviewer is a cloud engine/)
   const escalated = asks(s)[1]
   expect(escalated).toMatchObject({ question: 'Why does the Dub stage skip lines?', engine: 'gemini', escalate: true, consent: true, chat_history: [] })
   expect(String(escalated.evidence)).toContain('RESULT t1 (inspect_logs, ok)')

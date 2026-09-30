@@ -119,6 +119,8 @@ export interface AskResponse {
   engine: string
   model: string | null
   review?: AssistantReview | null
+  // Why a proposed fix got no review (an escalation never sends it to an unconfirmed cloud reviewer).
+  review_skipped?: string
   // Which tier answered (null: an engine outside the ladder) and whether it ran on this PC.
   tier?: number | null
   local?: boolean

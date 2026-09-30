@@ -80,14 +80,14 @@ export function escalationPlan(exchanges: Exchange[], index: number): Escalation
 }
 
 /** The dialog's plain list of exactly what will be sent. */
-export function sendSummary(plan: EscalationPlan, previous: string | null): string[] {
+export function sendSummary(plan: EscalationPlan): string[] {
   const n = plan.history.length
   return [
     'Your question.',
     n ? `The last ${n} ${n === 1 ? 'message' : 'messages'} of this chat.` : 'No earlier messages (this is the first question).',
     plan.evidence
-      ? `What ${previous ? engineName(previous) : 'the previous tier'}’s read-only tools found (${plan.evidence.length.toLocaleString()} characters, redacted).`
-      : 'No tool output (the previous tier gathered none).',
+      ? `What the earlier tiers’ read-only tools found (${plan.evidence.length.toLocaleString()} characters, redacted).`
+      : 'No tool output (the earlier tiers gathered none).',
   ]
 }
 
