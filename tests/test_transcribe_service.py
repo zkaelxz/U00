@@ -339,13 +339,6 @@ def _no_real_whisper_load(monkeypatch):
     monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
 
 
-@pytest.fixture(autouse=True)
-def _no_real_whisper_load(monkeypatch):
-    """The job body pre-loads the Whisper model to report stage/device;
-    tests never load a real model."""
-    monkeypatch.setattr(core_module, "load_whisper_model", lambda *a, **k: object())
-
-
 class TestRunTranscribeAndApplyJob:
     def test_model_loading_message_and_gpu_device_reported(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
