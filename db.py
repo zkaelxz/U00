@@ -1067,8 +1067,65 @@ def init_db():
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
         conn.commit()
+    _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
     _migrate_step26e_profiles()
+
+
+def _init_benchmark_lab_schema():
+    """Step 38 (Benchmark Lab): golden-set tiers on benchmark_cases, plus a
+    per-run record (benchmark_sessions: engine/model/prompt version/context,
+    aggregate score, latency, cost, VRAM) and its per-case results. Additive
+    only; the older benchmark_runs history is left as it was."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS benchmark_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT DEFAULT '',
+            stage TEXT,              -- 'translation', 'transcription', 'ocr'
+            engine TEXT,             -- translate engine, 'whisper', or an OCR backend
+            model TEXT,
+            prompt_version TEXT DEFAULT '',
+            context_settings TEXT,   -- JSON
+            case_filter TEXT,        -- JSON: which cases were selected
+            arena_group TEXT,        -- shared by runs started together (Model Arena)
+            status TEXT,             -- running / done / stopped_cap / cancelled / failed
+            case_count INTEGER DEFAULT 0,
+            scored_count INTEGER DEFAULT 0,
+            passed_count INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
+            aggregate_score REAL,
+            avg_latency_seconds REAL,
+            total_cost_usd REAL DEFAULT 0.0,
+            peak_vram_mb REAL,
+            note TEXT,
+            created_at TEXT,
+            finished_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS benchmark_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            case_id INTEGER,
+            case_label TEXT,
+            output_text TEXT,
+            score REAL,
+            metric TEXT,             -- 'similarity', 'cer', 'wer'
+            passed INTEGER,
+            duration_seconds REAL,
+            cost_usd REAL DEFAULT 0.0,
+            error TEXT,
+            created_at TEXT,
+            FOREIGN KEY (session_id) REFERENCES benchmark_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_benchmark_results_session ON benchmark_results(session_id);
+        """)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(benchmark_cases)").fetchall()}
+        for col, coltype in (("tier", "TEXT DEFAULT 'application'"), ("set_name", "TEXT DEFAULT ''"),
+                             ("origin_drama_id", "INTEGER"), ("origin_line_id", "INTEGER")):
+            if col not in cols:
+                _safe_alter(conn, f"ALTER TABLE benchmark_cases ADD COLUMN {col} {coltype}")
+        conn.commit()
 
 
 _LINE_REF_TABLE_DDL = {
@@ -3874,6 +3931,115 @@ def latest_benchmark_run_per_case(stage: str = None):
     for r in rows:
         latest[r["case_id"]] = dict(r)  # later rows overwrite earlier ones -- id order
     return latest
+
+
+# ---------------------------------------------------------------------------
+# Step 38: Benchmark Lab -- golden-set cases and persistent per-run records.
+# services/benchmark_lab_service.py holds the logic; this is persistence.
+# ---------------------------------------------------------------------------
+
+def create_benchmark_lab_case(label: str, stage: str, source_language: str, source_text: str,
+                              reference_text: str, tier: str, set_name: str,
+                              content_type: str = "novel", origin_drama_id: int = None,
+                              origin_line_id: int = None) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO benchmark_cases (label, stage, content_type, source_language, source_text, "
+            "reference_text, tier, set_name, origin_drama_id, origin_line_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (label, stage, content_type, source_language, source_text, reference_text, tier,
+             set_name, origin_drama_id, origin_line_id, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_benchmark_case(case_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM benchmark_cases WHERE id = ?", (case_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_benchmark_case(set_name: str, source_text: str, origin_line_id: int = None):
+    """An existing case in `set_name` with this source text (or, for a
+    regression case, from this line) -- so an import or "add as regression
+    test" run twice doesn't store the same example twice."""
+    with contextlib.closing(get_conn()) as conn:
+        if origin_line_id is not None:
+            row = conn.execute(
+                "SELECT * FROM benchmark_cases WHERE set_name = ? AND origin_line_id = ?",
+                (set_name, origin_line_id)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM benchmark_cases WHERE set_name = ? AND source_text = ?",
+                (set_name, source_text)).fetchone()
+    return dict(row) if row else None
+
+
+def create_benchmark_session(fields: dict) -> int:
+    cols = ("label", "stage", "engine", "model", "prompt_version", "context_settings",
+            "case_filter", "arena_group", "status", "case_count", "note")
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            f"INSERT INTO benchmark_sessions ({', '.join(cols)}, created_at) "
+            f"VALUES ({', '.join('?' for _ in cols)}, ?)",
+            tuple(fields.get(c) for c in cols) + (datetime.datetime.utcnow().isoformat(),))
+        conn.commit()
+        return cur.lastrowid
+
+
+_BENCHMARK_SESSION_UPDATABLE = {"status", "scored_count", "passed_count", "error_count",
+                                "aggregate_score", "avg_latency_seconds", "total_cost_usd",
+                                "peak_vram_mb", "note", "finished_at", "case_count"}
+
+
+def update_benchmark_session(session_id: int, **fields):
+    bad = set(fields) - _BENCHMARK_SESSION_UPDATABLE
+    if bad:
+        raise ValueError(f"not updatable: {sorted(bad)}")
+    if not fields:
+        return
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute(f"UPDATE benchmark_sessions SET {', '.join(f'{k} = ?' for k in fields)} "
+                     "WHERE id = ?", tuple(fields.values()) + (session_id,))
+        conn.commit()
+
+
+def get_benchmark_session(session_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM benchmark_sessions WHERE id = ?", (session_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_benchmark_sessions(limit: int = 50, stage: str = None):
+    with contextlib.closing(get_conn()) as conn:
+        if stage:
+            rows = conn.execute("SELECT * FROM benchmark_sessions WHERE stage = ? "
+                                "ORDER BY id DESC LIMIT ?", (stage, limit)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM benchmark_sessions ORDER BY id DESC LIMIT ?",
+                                (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_benchmark_result(session_id: int, case: dict, result: dict):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute(
+            "INSERT INTO benchmark_results (session_id, case_id, case_label, output_text, score, "
+            "metric, passed, duration_seconds, cost_usd, error, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, case.get("id"), case.get("label"), result.get("output_text", ""),
+             result.get("score"), result.get("metric"),
+             None if result.get("passed") is None else int(bool(result["passed"])),
+             result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
+             datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+
+
+def list_benchmark_results(session_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM benchmark_results WHERE session_id = ? ORDER BY id",
+                            (session_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
