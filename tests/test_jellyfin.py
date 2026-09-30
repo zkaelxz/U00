@@ -246,6 +246,16 @@ def test_send_title_is_sanitized(setup):
     assert ".." not in made[0].parent.name
 
 
+def test_send_refused_while_a_job_runs_for_the_drama(setup, monkeypatch):
+    drama, lib = setup
+    from services import drama_service
+    monkeypatch.setattr(drama_service, "job_running_for_drama", lambda did: did == drama)
+    with pytest.raises(ConflictError) as e:
+        jf.send_to_jellyfin(drama, item_id="ep1")
+    assert e.value.details["reason"] == "job_running"
+    assert not (lib / "Show" / "S01E01.eng.srt").exists()
+
+
 def test_refresh_failure_keeps_the_file(setup):
     drama, lib = setup
     FakeSession.routes[("POST", "/Items/ep1/Refresh")] = lambda p: Resp(500)

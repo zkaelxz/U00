@@ -45,7 +45,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
-from services import artifact_service, export_service, settings_service
+from services import artifact_service, drama_service, export_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -158,7 +158,8 @@ def _baihe_ports() -> set:
 
 def _check_target(url: str):
     """Refuses a server address that resolves anywhere a Jellyfin server
-    cannot sensibly be (see the module docstring)."""
+    cannot sensibly be (see the module docstring). The lookup itself has no
+    timeout of its own: it relies on the OS resolver's timeout."""
     parts = urlsplit(url)
     try:
         port = parts.port or (443 if parts.scheme == "https" else 80)
@@ -434,6 +435,9 @@ def send_to_jellyfin(drama_id: int, item_id: Optional[str] = None, fmt: str = "s
         raise InvalidInputError("That Jellyfin item id is not valid.")
     if item_id and media != "none":
         raise InvalidInputError("Media is only copied when adding a new title folder.")
+    if drama_service.job_running_for_drama(drama_id):  # e.g. a dubbed video still being written
+        raise ConflictError("A background job is still running for this drama. Wait for it to "
+                            "finish, then send it to Jellyfin.", details={"reason": "job_running"})
 
     text = _subtitle_text(drama_id, fmt, field)
     if not text.strip():
