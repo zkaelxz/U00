@@ -871,3 +871,34 @@ def test_auth_on_recent_route_needs_library_read_and_filters(env, no_timer):
     for p in ("library.read",):
         auth_service.revoke_permission(kid_id, p)
     assert c.get("/api/notifications", headers=_h(kid)).status_code == 403
+
+
+def test_push_leaves_out_a_private_drama_title_but_the_in_app_list_keeps_it(env, no_timer):
+    _write(env, discord=DISCORD)
+    shared = db.create_drama(title_en="Open Garden")
+    private = db.create_drama(title_en="Secret Garden", owner_user_id=5, is_private=1)
+    ns.notify_job_finished(f"Translation (drama #{shared})", "done", job_id=f"translate_{shared}")
+    ns.notify_job_finished(f"Translation (drama #{private})", "done",
+                           job_id=f"translate_{private}", owner_user_id=5)
+    assert [m for _s, m, _c in ns._pending] == ["Finished: Translation - Open Garden",
+                                                "Finished: Translation"]
+    assert _texts() == ["Finished: Translation - Secret Garden",
+                        "Finished: Translation - Open Garden"]
+
+
+def test_ids_increase_but_do_not_count_hidden_events(env, no_timer, monkeypatch):
+    clock = iter([1000.0, 1000.0, 1000.0, 1000.001, 2000.0])
+    monkeypatch.setattr(ns.time, "time", lambda: next(clock))
+    for i in range(5):
+        ns.notify_job_finished(f"Job {i}", "done", job_id=f"job_{i}")
+    ids = [e["id"] for e in reversed(ns.list_recent(None))]
+    assert ids == [1000000, 1000001, 1000002, 1000003, 2000000]
+
+
+def test_other_users_jobs_do_not_push_out_a_viewers_own_events(env, no_timer):
+    kid = {"user_id": 7, "is_admin": False, "is_local_owner": False}
+    ns.notify_job_finished("Discover extract", "done", job_id="discover_mine", owner_user_id=7)
+    for i in range(ns.RECENT_MAX * 2):
+        ns.notify_job_finished("Library backup", "done", job_id=f"library_{i}")
+    assert [e["text"] for e in ns.list_recent(kid)] == ["Finished: Discover extract"]
+    assert len(ns.list_recent(None)) == ns.RECENT_MAX
