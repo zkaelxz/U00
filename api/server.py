@@ -50,6 +50,7 @@ from api.routers import (
     export_routes,
     extension_routes,
     glossary_routes,
+    jellyfin_routes,
     jobs_routes,
     library_admin_routes,
     library_routes,
@@ -178,6 +179,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(media_routes.router)
     app.include_router(narration_routes.router)
     app.include_router(metadata_routes.router)
+    app.include_router(jellyfin_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(review_extras_routes.router)
