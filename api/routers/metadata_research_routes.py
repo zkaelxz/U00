@@ -40,7 +40,8 @@ def research(payload: ResearchRequest, request: Request, drama_id: int = Path(ge
     require_engines_allowed(request, "gemini")
     with llm_slot(request):
         return metadata_research_service.research(
-            drama_id, mode=payload.mode, model=payload.model, allow_paid=payload.allow_paid)
+            drama_id, mode=payload.mode, model=payload.model, allow_paid=payload.allow_paid,
+            refresh=payload.refresh)
 
 
 @router.post("/dramas/{drama_id}/research/apply", dependencies=[require_permission("admin.library")],
@@ -49,7 +50,8 @@ def research(payload: ResearchRequest, request: Request, drama_id: int = Path(ge
              responses=_ERRS)
 def apply_research(payload: ResearchApply, request: Request, drama_id: int = Path(ge=1)):
     return metadata_research_service.apply_research(
-        drama_id, payload.research_id, payload.choices, principal=request.state.principal)
+        drama_id, payload.research_id, payload.choices, seen=payload.seen,
+        principal=request.state.principal)
 
 
 @router.get("/dramas/{drama_id}/provenance", dependencies=[require_permission("library.read")],

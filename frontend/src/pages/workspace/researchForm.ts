@@ -1,4 +1,4 @@
-import type { ResearchBudget, ResearchChoice, ResearchField } from '../../types/research'
+import type { ResearchBudget, ResearchChoice, ResearchField, ResearchMode } from '../../types/research'
 
 // Pure logic for the Source stage's "Research online" panel (Step 37).
 
@@ -15,7 +15,7 @@ const LABELS: Record<string, string> = {
 export const fieldLabel = (key: string) => LABELS[key] ?? key
 
 // The choices offered for a row. A conflict always gets all three; an empty
-// field is use-or-skip; a matching value needs no choice.
+// field is use-or-skip; a matching value can have its sources recorded.
 export function choicesFor(f: ResearchField): { value: ResearchChoice; label: string }[] {
   if (f.status === 'conflict') {
     return [
@@ -30,14 +30,24 @@ export function choicesFor(f: ResearchField): { value: ResearchChoice; label: st
       { value: 'replace', label: 'Use' },
     ]
   }
-  return []
+  return [
+    { value: 'keep', label: 'Leave' },
+    { value: 'confirm', label: 'Record sources' },
+  ]
 }
 
 // Nothing is pre-chosen to overwrite: conflicts start on "keep", and new
 // values start on "keep" too, so applying writes only what the user picked.
 export function defaultChoices(fields: ResearchField[]): Record<string, ResearchChoice> {
   const out: Record<string, ResearchChoice> = {}
-  for (const f of fields) if (f.status !== 'same') out[f.field] = 'keep'
+  for (const f of fields) out[f.field] = 'keep'
+  return out
+}
+
+// The drama's value the user was shown next to each chosen field.
+export function seenValues(fields: ResearchField[], choices: Record<string, ResearchChoice>): Record<string, string | null> {
+  const out: Record<string, string | null> = {}
+  for (const f of fields) if (choices[f.field] && choices[f.field] !== 'keep') out[f.field] = f.current ?? null
   return out
 }
 
@@ -54,17 +64,23 @@ export function confidenceLabel(c: number | null | undefined): string {
 }
 
 export function budgetLine(b: ResearchBudget): string {
-  return `${b.free_remaining} of ${b.free_daily_limit} free searches left today`
+  return `${b.free_remaining} free searches left today`
 }
 
+export const usd = (n: number) => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`)
+
 // What a lookup will cost, shown before it runs.
-export function costLine(b: ResearchBudget, allowPaid: boolean): string {
+export function costLine(b: ResearchBudget, mode: ResearchMode, model: string, allowPaid: boolean): string {
   const paidSearch = b.free_remaining <= 0
-  if (paidSearch && !allowPaid) return 'Free searches are used up for today.'
+  if (paidSearch && !allowPaid) return 'The free searches are used up for now.'
   if (b.free_tier_key) return 'Free (free-tier Gemini key).'
-  const fee = paidSearch ? ` + $${b.paid_price_per_search_usd.toFixed(3)} search fee` : ''
-  return `Paid Gemini key: a few tenths of a cent in tokens${fee}.`
+  const tokens = b.estimates_usd?.[mode]?.[model] ?? 0
+  const fee = paidSearch ? b.paid_price_per_search_usd : 0
+  return `About ${usd(tokens + fee)} on your paid Gemini key${fee ? ' (includes the search fee)' : ''}.`
 }
+
+// Google's grounding terms ask for the search suggestions to be shown.
+export const googleSearchUrl = (q: string) => `https://www.google.com/search?q=${encodeURIComponent(q)}`
 
 export function hostOf(url: string): string {
   try {

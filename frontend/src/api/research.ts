@@ -14,7 +14,9 @@ export const getResearchBudget = (f: Fetch = fetch) =>
 export const researchMetadata = (id: number, req: ResearchRequest, f: Fetch = fetch) =>
   postJson<ResearchResult>(`${base(id)}/research`, req, f)
 
-// The server takes values from the stored result; only the choices are sent.
+// The server takes values from the stored result; only the choices are sent,
+// with the drama's values the user was shown (a 409 if they changed since).
 export const applyResearch = (
-  id: number, researchId: string, choices: Record<string, ResearchChoice>, f: Fetch = fetch,
-) => postJson<ResearchApplied>(`${base(id)}/research/apply`, { research_id: researchId, choices }, f)
+  id: number, researchId: string, choices: Record<string, ResearchChoice>,
+  seen: Record<string, string | null>, f: Fetch = fetch,
+) => postJson<ResearchApplied>(`${base(id)}/research/apply`, { research_id: researchId, choices, seen }, f)

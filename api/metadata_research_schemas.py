@@ -14,6 +14,7 @@ class ResearchRequest(BaseModel):
     mode: Literal["quick", "deep", "verify"] = "quick"
     model: Optional[str] = Field(None, max_length=60)
     allow_paid: bool = False
+    refresh: bool = False
 
 
 class ResearchSource(BaseModel):
@@ -38,6 +39,8 @@ class ResearchRelated(BaseModel):
 class ResearchBudget(BaseModel):
     free_daily_limit: int
     used_today: int
+    free_monthly_limit: int
+    used_this_month: int
     free_remaining: int
     paid_price_per_search_usd: float
     free_tier_key: bool
@@ -46,6 +49,7 @@ class ResearchBudget(BaseModel):
     month_spend_usd: float
     models: list[str]
     modes: list[str]
+    estimates_usd: dict[str, dict[str, float]]
 
 
 class ResearchResult(BaseModel):
@@ -58,6 +62,7 @@ class ResearchResult(BaseModel):
     fields: list[ResearchField]
     sources: list[ResearchSource]
     related: list[ResearchRelated]
+    search_queries: list[str] = []
     cost_usd: float
     budget: ResearchBudget
 
@@ -66,13 +71,16 @@ class ResearchApply(BaseModel):
     """Values come from the stored research result, never from the client."""
     model_config = ConfigDict(extra="forbid")
     research_id: str = Field(min_length=64, max_length=64)
-    choices: dict[str, Literal["keep", "replace", "save_both"]] = Field(max_length=20)
+    choices: dict[str, Literal["keep", "replace", "save_both", "confirm"]] = Field(max_length=20)
+    # The drama's value the user was shown for each chosen field (null = empty).
+    seen: dict[str, Optional[str]] = Field(default_factory=dict, max_length=20)
 
 
 class ResearchApplied(BaseModel):
     drama_id: int
     replaced: list[str]
     saved_alternates: list[str]
+    confirmed: list[str]
     kept: list[str]
     drama: dict
 

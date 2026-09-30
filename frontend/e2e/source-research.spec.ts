@@ -4,9 +4,11 @@ import { expect, test } from '@playwright/test'
 // (no Gemini, no network); the drama read hits the real seeded API.
 
 const budget = {
-  free_daily_limit: 500, used_today: 2, free_remaining: 498, paid_price_per_search_usd: 0.035,
+  free_daily_limit: 500, used_today: 2, free_monthly_limit: 5000, used_this_month: 2,
+  free_remaining: 498, paid_price_per_search_usd: 0.035,
   free_tier_key: true, key_configured: true, monthly_cap_usd: 0, month_spend_usd: 0,
   models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], modes: ['quick', 'deep', 'verify'],
+  estimates_usd: { quick: { 'gemini-flash-lite-latest': 0.002, 'gemini-flash-latest': 0.004 } },
 }
 const result = {
   drama_id: 1, research_id: 'a'.repeat(64), cached: false, mode: 'quick', model: 'gemini-flash-lite-latest',
@@ -18,6 +20,7 @@ const result = {
   ],
   sources: [{ title: 'example.org', url: 'https://example.org/a' }],
   related: [{ title: 'Baihe (manga)', relation: 'manga adaptation' }],
+  search_queries: ['白河 drama cast'],
   budget: { ...budget, used_today: 3, free_remaining: 497 },
 }
 
@@ -27,10 +30,10 @@ test('research shows per-field sources, never pre-chooses an overwrite, applies 
   await page.route('**/api/metadata/dramas/1/research', (route) => route.fulfill({ json: result }))
   await page.route('**/api/metadata/dramas/1/research/apply', (route) => {
     applied.push(route.request().postDataJSON())
-    return route.fulfill({ json: { drama_id: 1, replaced: [], saved_alternates: ['title_en'], kept: [] } })
+    return route.fulfill({ json: { drama_id: 1, replaced: [], saved_alternates: ['title_en'], confirmed: [], kept: [] } })
   })
   await page.goto('/#/drama/1/source')
-  await expect(page.getByText('498 of 500 free searches left today')).toBeVisible()
+  await expect(page.getByText('498 free searches left today')).toBeVisible()
   await page.locator('.section-title', { hasText: 'Research online' }).click()
   await expect(page.getByTestId('research-cost')).toHaveText('Free (free-tier Gemini key).')
   await page.getByRole('button', { name: 'Research online' }).click()
@@ -40,6 +43,7 @@ test('research shows per-field sources, never pre-chooses an overwrite, applies 
   await expect(list.getByRole('link', { name: 'example.org' })).toHaveAttribute('href', 'https://example.org/a')
   await expect(list).toContainText('No source cited for this value.')
   await expect(page.getByRole('list', { name: 'Related works' })).toContainText('Baihe (manga)')
+  await expect(page.getByRole('link', { name: '白河 drama cast' })).toHaveAttribute('href', /google\.com\/search\?q=/)
   const title = page.getByRole('group', { name: 'English title: what to do' })
   await expect(title.getByRole('radio', { name: 'Keep existing' })).toBeChecked()
   const apply = page.getByRole('button', { name: 'Apply choices' })
@@ -47,7 +51,7 @@ test('research shows per-field sources, never pre-chooses an overwrite, applies 
   await title.getByRole('radio', { name: 'Save both' }).check()
   await apply.click()
   await expect(page.getByRole('status').filter({ hasText: 'kept beside the existing value' })).toBeVisible()
-  expect(applied).toEqual([{ research_id: 'a'.repeat(64), choices: { title_en: 'save_both' } }])
+  expect(applied).toEqual([{ research_id: 'a'.repeat(64), choices: { title_en: 'save_both' }, seen: { title_en: 'Old' } }])
 })
 
 test('used-up free searches need the paid toggle before a lookup', async ({ page }) => {
@@ -61,7 +65,7 @@ test('used-up free searches need the paid toggle before a lookup', async ({ page
   const run = page.getByRole('button', { name: 'Research online' })
   await expect(run).toBeDisabled()
   await page.getByRole('switch', { name: 'Allow paid searches' }).click()
-  await expect(page.getByTestId('research-cost')).toContainText('$0.035 search fee')
+  await expect(page.getByTestId('research-cost')).toContainText('includes the search fee')
   await expect(run).toBeEnabled()
   await run.click()
   await expect(page.getByRole('list', { name: 'Researched metadata' })).toBeVisible()

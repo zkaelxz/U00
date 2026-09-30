@@ -1,7 +1,7 @@
 // Mirrors api/metadata_research_schemas.py (roadmap Step 37: grounded research).
 
 export type ResearchMode = 'quick' | 'deep' | 'verify'
-export type ResearchChoice = 'keep' | 'replace' | 'save_both'
+export type ResearchChoice = 'keep' | 'replace' | 'save_both' | 'confirm'
 
 export interface ResearchSource {
   title?: string | null
@@ -20,6 +20,8 @@ export interface ResearchField {
 export interface ResearchBudget {
   free_daily_limit: number
   used_today: number
+  free_monthly_limit: number
+  used_this_month: number
   free_remaining: number
   paid_price_per_search_usd: number
   free_tier_key: boolean
@@ -28,6 +30,8 @@ export interface ResearchBudget {
   month_spend_usd: number
   models: string[]
   modes: string[]
+  // Token cost of one lookup (before any paid search fee), by mode then model.
+  estimates_usd: Record<string, Record<string, number>>
 }
 
 export interface ResearchResult {
@@ -40,6 +44,7 @@ export interface ResearchResult {
   fields: ResearchField[]
   sources: ResearchSource[]
   related: { title: string; relation: string }[]
+  search_queries: string[]
   cost_usd: number
   budget: ResearchBudget
 }
@@ -48,11 +53,13 @@ export interface ResearchRequest {
   mode: ResearchMode
   model?: string
   allow_paid?: boolean
+  refresh?: boolean
 }
 
 export interface ResearchApplied {
   drama_id: number
   replaced: string[]
   saved_alternates: string[]
+  confirmed: string[]
   kept: string[]
 }

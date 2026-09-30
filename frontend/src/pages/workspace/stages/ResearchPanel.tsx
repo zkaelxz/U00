@@ -9,7 +9,8 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { ResearchBudget, ResearchChoice, ResearchMode, ResearchResult } from '../../../types/research'
 import {
-  budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, hostOf,
+  budgetLine, choicesFor, confidenceLabel, costLine, defaultChoices, effectiveChoices, fieldLabel, googleSearchUrl,
+  hostOf, seenValues, usd,
 } from '../researchForm'
 import { useStage } from '../StageContext'
 import './preamble.css'
@@ -53,6 +54,7 @@ function Choice({ name, label, value, options, onChange }: {
 export function ResearchPanel() {
   const { dramaId, refetchDrama } = useStage()
   const [budget, setBudget] = useState<ResearchBudget | null>(null)
+  const [budgetFailed, setBudgetFailed] = useState(false)
   const [mode, setMode] = useState<ResearchMode>('quick')
   const [model, setModel] = useState('gemini-flash-lite-latest')
   const [allowPaid, setAllowPaid] = useState(false)
@@ -63,13 +65,13 @@ export function ResearchPanel() {
   const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
-    getResearchBudget().then(setBudget, () => setBudget(null))
+    getResearchBudget().then(setBudget, () => setBudgetFailed(true))
   }, [])
 
-  const run = () => {
+  const run = (refresh = false) => {
     setBusy(true)
     setNotice(null)
-    researchMetadata(dramaId, { mode, model, allow_paid: allowPaid }).then(
+    researchMetadata(dramaId, { mode, model, allow_paid: allowPaid, refresh }).then(
       (r) => {
         setError(null)
         setResult(r)
@@ -89,13 +91,14 @@ export function ResearchPanel() {
   const apply = () => {
     if (!result) return
     setBusy(true)
-    applyResearch(dramaId, result.research_id, toApply).then(
+    applyResearch(dramaId, result.research_id, toApply, seenValues(result.fields, choices)).then(
       (r) => {
         setError(null)
         setResult(null)
         const parts = []
         if (r.replaced.length) parts.push(`${r.replaced.length} field(s) updated`)
         if (r.saved_alternates.length) parts.push(`${r.saved_alternates.length} kept beside the existing value`)
+        if (r.confirmed.length) parts.push(`${r.confirmed.length} confirmed`)
         setNotice(`${parts.join(', ')}. Sources saved with each field.`)
         setBusy(false)
         refetchDrama()
@@ -108,7 +111,7 @@ export function ResearchPanel() {
   }
 
   const needsPaid = !!budget && budget.free_remaining <= 0
-  const blocked = !budget?.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
+  const blocked = !budget || !budget.key_configured || (needsPaid && (!allowPaid || budget.free_tier_key))
 
   return (
     <section className="panel" aria-label="Research online">
@@ -122,6 +125,7 @@ export function ResearchPanel() {
             Looks the title up with Google Search through your Gemini key and shows where each value came from.
             Nothing is saved until you choose.
           </p>
+          {budgetFailed && <p className="muted">Couldn't load the search allowance. Reload the page to try again.</p>}
           {budget && !budget.key_configured && (
             <p className="muted">Add a Gemini key in Settings to use this.</p>
           )}
@@ -144,17 +148,24 @@ export function ResearchPanel() {
               <Toggle checked={allowPaid} onChange={setAllowPaid} />
             </Field>
           )}
-          {budget && <p className="muted" data-testid="research-cost">{costLine(budget, allowPaid)}</p>}
+          {budget && <p className="muted" data-testid="research-cost">{costLine(budget, mode, model, allowPaid)}</p>}
           <div>
-            <button type="button" className={buttonClass('primary')} disabled={busy || blocked} onClick={run}>
+            <button type="button" className={buttonClass('primary')} disabled={busy || blocked} onClick={() => run()}>
               {busy && !result ? 'Researching…' : 'Research online'}
             </button>
           </div>
 
           {result && result.fields.length > 0 && (
             <>
-              <p className="muted">
-                {result.cached ? 'From an earlier lookup (no search used).' : `Looked up ${new Date(result.retrieved_at).toLocaleString()}.`}
+              <p className="muted" data-testid="research-when">
+                {result.cached
+                  ? `From a lookup on ${new Date(result.retrieved_at).toLocaleString()} (no search used). `
+                  : `Looked up just now${result.cost_usd > 0 ? `, cost ${usd(result.cost_usd)}` : ''}. `}
+                {result.cached && (
+                  <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy || blocked} onClick={() => run(true)}>
+                    Look up again
+                  </button>
+                )}
               </p>
               <ul className="research-rows" aria-label="Researched metadata">
                 {result.fields.map((f) => {
@@ -207,6 +218,17 @@ export function ResearchPanel() {
                     ))}
                   </ul>
                 </div>
+              )}
+              {result.search_queries.length > 0 && (
+                <p className="research-sources" aria-label="Google Search suggestions">
+                  Google searches used:{' '}
+                  {result.search_queries.map((q, i) => (
+                    <span key={q}>
+                      {i > 0 && ', '}
+                      <a href={googleSearchUrl(q)} target="_blank" rel="noopener noreferrer nofollow">{q}</a>
+                    </span>
+                  ))}
+                </p>
               )}
               <div className="source-file">
                 <button type="button" className={buttonClass('primary')} disabled={busy || !Object.keys(toApply).length} onClick={apply}>

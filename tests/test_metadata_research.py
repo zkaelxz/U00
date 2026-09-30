@@ -129,6 +129,76 @@ def test_free_budget_used_up_refuses_unless_paid_allowed(setup):
     assert r["cost_usd"] >= mrs.GROUNDED_PAID_PRICE_USD
 
 
+def test_monthly_free_limit_also_applies(setup):
+    drama, fake = setup
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": "2000-01-01", "count": 0,
+                                            "month": mrs._today()[:7],
+                                            "month_count": mrs.GROUNDED_FREE_MONTHLY})
+    assert mrs.budget_status()["free_remaining"] == 0
+    with pytest.raises(ConflictError):
+        mrs.research(drama)
+    assert fake.calls == []
+
+
+def test_every_search_query_counts(setup, monkeypatch):
+    drama, fake = setup
+    fake.data["candidates"][0]["groundingMetadata"]["webSearchQueries"] = ["a", "b", "c"]
+    r = mrs.research(drama)
+    assert r["budget"]["used_today"] == 3 and r["budget"]["used_this_month"] == 3
+    assert r["search_queries"] == ["a", "b", "c"]
+
+
+def test_failed_call_still_counts(setup, monkeypatch):
+    drama, _ = setup
+    monkeypatch.setattr(mrs, "_call_gemini", lambda *a: (_ for _ in ()).throw(TimeoutError()))
+    from services.service_errors import DependencyUnavailableError
+    with pytest.raises(DependencyUnavailableError):
+        mrs.research(drama)
+    assert mrs.budget_status()["used_today"] == 1  # Google may have run it
+
+
+def test_concurrent_lookups_cannot_share_the_last_free_search(setup, monkeypatch):
+    drama, _ = setup
+    db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD - 1,
+                                            "month": mrs._today()[:7], "month_count": 0})
+    import threading
+    results, barrier = [], threading.Barrier(2)
+
+    def slow_call(*a):
+        return _response({"studio": "S"})
+    monkeypatch.setattr(mrs, "_call_gemini", slow_call)
+    orig = mrs._usage
+
+    def racing_usage():
+        out = orig()
+        try:
+            barrier.wait(timeout=0.5)
+        except threading.BrokenBarrierError:
+            pass
+        return out
+    monkeypatch.setattr(mrs, "_usage", racing_usage)
+
+    def run(mode):
+        try:
+            mrs.research(drama, mode=mode)
+            results.append("ok")
+        except ConflictError:
+            results.append("refused")
+    threads = [threading.Thread(target=run, args=(m,)) for m in ("quick", "deep")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == ["ok", "refused"]
+
+
+def test_refresh_spends_a_new_search(setup):
+    drama, fake = setup
+    mrs.research(drama)
+    r = mrs.research(drama, refresh=True)
+    assert len(fake.calls) == 2 and r["cached"] is False
+
+
 def test_paid_search_refused_on_free_tier_key(setup, monkeypatch):
     drama, fake = setup
     monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: True)
@@ -160,31 +230,73 @@ def test_conflicting_field_is_never_overwritten_without_a_choice(setup):
     drama, _ = setup
     r = mrs.research(drama)
     # applying only "director" leaves the conflicting title untouched
-    out = mrs.apply_research(drama, r["research_id"], {"director": "replace"})
+    out = mrs.apply_research(drama, r["research_id"], {"director": "replace"},
+                             seen={"director": None})
     assert out["replaced"] == ["director"]
     d = db.get_drama(drama)
     assert d["title_en"] == "Old Title" and d["director"] == "Jane Doe"
     # keep writes nothing
-    mrs.apply_research(drama, r["research_id"], {"title_en": "keep"})
+    mrs.apply_research(drama, r["research_id"], {"title_en": "keep"})  # needs no `seen`
     assert db.get_drama(drama)["title_en"] == "Old Title"
     assert [p["field"] for p in db.list_field_provenance(drama)] == ["director"]
     # save both keeps the existing value and records the researched one beside it
-    out = mrs.apply_research(drama, r["research_id"], {"title_en": "save_both"})
+    out = mrs.apply_research(drama, r["research_id"], {"title_en": "save_both"},
+                             seen={"title_en": "Old Title"})
     assert out["saved_alternates"] == ["title_en"]
     assert db.get_drama(drama)["title_en"] == "Old Title"
     rows = {p["field"]: p for p in db.list_field_provenance(drama)}
     assert rows["title_en"]["status"] == "alternate" and rows["title_en"]["value"] == "New Title"
 
 
+def test_apply_refuses_when_drama_changed_since_lookup(setup):
+    drama, _ = setup
+    r = mrs.research(drama)
+    db.update_drama(drama, director="Edited Meanwhile")  # e.g. saved in Details
+    with pytest.raises(ConflictError) as e:
+        mrs.apply_research(drama, r["research_id"], {"director": "replace"},
+                           seen={"director": None})
+    assert e.value.details["reason"] == "changed"
+    assert db.get_drama(drama)["director"] == "Edited Meanwhile"
+    with pytest.raises(InvalidInputError):  # a write needs the value that was shown
+        mrs.apply_research(drama, r["research_id"], {"director": "replace"})
+
+
+def test_confirm_records_a_matching_value(setup):
+    drama, _ = setup
+    r = mrs.research(drama, mode="verify")
+    out = mrs.apply_research(drama, r["research_id"], {"author": "confirm"},
+                             seen={"author": "Someone"})
+    assert out["confirmed"] == ["author"]
+    row = db.list_field_provenance(drama)[0]
+    assert row["status"] == "verified" and row["value"] == "Someone"
+    with pytest.raises(InvalidInputError):  # confirm is only for a matching value
+        mrs.apply_research(drama, r["research_id"], {"title_en": "confirm"},
+                           seen={"title_en": "Old Title"})
+
+
+def test_segment_spanning_fields_does_not_leak_sources(setup, monkeypatch):
+    drama, _ = setup
+    monkeypatch.setattr(mrs, "_call_gemini", FakeGemini(_response(
+        {"author": "Someone", "summary": "A story written by Someone about rivers."},
+        supports=[{"segment": {"text": '"summary": "A story written by Someone about rivers."'},
+                   "groundingChunkIndices": [1]},
+                  {"segment": {"text": '"author": "Someone"'}, "groundingChunkIndices": [0]}])))
+    by = {f["field"]: f for f in mrs.research(drama)["fields"]}
+    assert [s["url"] for s in by["author"]["sources"]] == ["https://example.org/a"]
+    assert [s["url"] for s in by["summary"]["sources"]] == ["https://wiki.example/b"]
+
+
 def test_provenance_is_stored_per_field(setup):
     drama, _ = setup
     r = mrs.research(drama)
-    mrs.apply_research(drama, r["research_id"], {"title_en": "replace", "director": "replace"})
+    mrs.apply_research(drama, r["research_id"], {"title_en": "replace", "director": "replace"},
+                       seen={"title_en": "Old Title", "director": None})
     rows = {p["field"]: p for p in mrs.list_provenance(drama)["fields"]}
     assert rows["title_en"]["source_url"] == "https://example.org/a"
     assert rows["director"]["source_url"] == "https://wiki.example/b"
     for p in rows.values():
-        assert p["retrieved_at"] and p["last_verified"] and p["status"] == "applied"
+        assert p["retrieved_at"] and p["status"] == "applied"
+        assert p["last_verified"] == r["retrieved_at"]  # when the sources were checked
     assert rows["title_en"]["confidence"] == 0.82
     assert db.get_drama(drama)["title_en"] == "New Title"
 
@@ -218,7 +330,7 @@ def test_research_input_errors(setup, monkeypatch):
     assert fake.calls == []
 
 
-def test_api_failure_is_fixed_text_and_counts_nothing(setup, monkeypatch):
+def test_api_failure_is_fixed_text(setup, monkeypatch):
     drama, _ = setup
 
     def boom(*a):
@@ -227,7 +339,7 @@ def test_api_failure_is_fixed_text_and_counts_nothing(setup, monkeypatch):
     from services.service_errors import DependencyUnavailableError
     with pytest.raises(DependencyUnavailableError) as e:
         mrs.research(drama)
-    assert KEY not in str(e.value) and mrs.budget_status()["used_today"] == 0
+    assert KEY not in str(e.value)
 
 
 def test_unreadable_answer_is_not_cached(setup, monkeypatch):
@@ -299,7 +411,8 @@ def test_routes_round_trip(client, setup):
     body = r.json()
     assert KEY not in r.text and body["budget"]["used_today"] == 1
     a = client.post(f"/api/metadata/dramas/{drama}/research/apply",
-                    json={"research_id": body["research_id"], "choices": {"director": "replace"}})
+                    json={"research_id": body["research_id"], "choices": {"director": "replace"},
+                          "seen": {"director": None}})
     assert a.status_code == 200, a.text
     assert a.json()["drama"]["director"] == "Jane Doe"
     p = client.get(f"/api/metadata/dramas/{drama}/provenance")
@@ -316,6 +429,20 @@ def test_routes_errors(client, setup):
     db.set_app_setting(mrs.BUDGET_SETTING, {"date": mrs._today(), "count": mrs.GROUNDED_FREE_RPD})
     assert client.post(f"/api/metadata/dramas/{drama}/research", json={}).status_code == 409
     assert client.post(f"/api/metadata/dramas/{drama}/research/apply",
-                       json={"research_id": "0" * 64,
-                             "choices": {"title_en": "replace"}}).status_code == 404
+                       json={"research_id": "0" * 64, "choices": {"title_en": "replace"},
+                             "seen": {"title_en": "Old Title"}}).status_code == 404
     assert client.get("/api/metadata/dramas/99999/provenance").status_code == 404
+
+
+def test_remote_research_needs_engines_paid(setup):
+    from tests.test_api_permissions import _app, _h, _remote, _user, _user_named
+    drama, fake = setup
+    c = _remote(_app())
+    _u, s = _user()
+    url = f"/api/metadata/dramas/{drama}/research"
+    assert c.post(url, json={}, headers=_h(s)).status_code == 403  # no media.import_url
+    _u2, both = _user_named("both@example.com", "media.import_url", "engines.paid")
+    _u3, imp = _user_named("imp@example.com", "media.import_url")
+    assert c.post(url, json={}, headers=_h(imp)).status_code == 403  # Gemini is paid
+    assert c.post(url, json={}, headers=_h(both)).status_code == 200
+    assert c.get("/api/metadata/research/budget", headers=_h(s)).status_code == 200

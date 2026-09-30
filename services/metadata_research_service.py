@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -48,12 +49,21 @@ MODES = ("quick", "deep", "verify")
 # The user picks the model; a lookup never switches to another one on its own.
 MODELS = ("gemini-flash-lite-latest", "gemini-flash-latest")
 DEFAULT_MODEL = MODELS[0]
-CHOICES = ("keep", "replace", "save_both")
+CHOICES = ("keep", "replace", "save_both", "confirm")
 
-# Google Search grounding: 500 grounded requests/day free, shared across the
-# Flash variants; beyond that $35 per 1,000 grounded prompts.
+# Google Search grounding (ai.google.dev pricing, checked 2026-09-30): the
+# 2.5 Flash models allow 500 grounded prompts/day free, then $35 / 1,000; the
+# 3.x Flash models allow 5,000 search queries/month free (shared), then $14 /
+# 1,000. The "-latest" aliases don't say which generation they are, so both
+# limits apply at once (whichever runs out first), every search query the
+# model ran counts, and a paid search is priced at the higher rate. Google's
+# day starts at midnight Pacific; the counter's day starts at 08:00 UTC,
+# which is never earlier than Google's, so it never shows more left than
+# there is.
 GROUNDED_FREE_RPD = 500
+GROUNDED_FREE_MONTHLY = 5000
 GROUNDED_PAID_PRICE_USD = 0.035
+_DAY_OFFSET = datetime.timedelta(hours=8)
 # Rough per-lookup token sizes, only for the up-front cost estimate.
 EST_INPUT_TOKENS = {"quick": 800, "deep": 1200, "verify": 1200}
 EST_OUTPUT_TOKENS = {"quick": 800, "deep": 2000, "verify": 1000}
@@ -76,33 +86,53 @@ def _now() -> datetime.datetime:
 
 
 def _today() -> str:
-    return _now().date().isoformat()
+    return (_now() - _DAY_OFFSET).date().isoformat()
 
 
-def _used_today() -> int:
+_budget_lock = threading.Lock()
+
+
+def _usage() -> tuple:
+    """(searches today, searches this month) on Google's calendar."""
     saved = db.get_app_setting(BUDGET_SETTING) or {}
-    if saved.get("date") != _today():
-        return 0
+    today = _today()
     try:
-        return max(0, int(saved.get("count") or 0))
-    except (TypeError, ValueError):
-        return 0
+        day = max(0, int(saved.get("count") or 0)) if saved.get("date") == today else 0
+        month = max(0, int(saved.get("month_count") or 0)) \
+            if saved.get("month") == today[:7] else 0
+    except (TypeError, ValueError, AttributeError):
+        return 0, 0
+    return day, month
 
 
-def _count_search():
-    db.set_app_setting(BUDGET_SETTING, {"date": _today(), "count": _used_today() + 1})
+def _free_remaining(day: int, month: int) -> int:
+    return max(0, min(GROUNDED_FREE_RPD - day, GROUNDED_FREE_MONTHLY - month))
+
+
+def _count_searches(n: int = 1) -> int:
+    """Adds n searches; returns how many were free before adding. Held under
+    a lock so two lookups at once can't both take the last free search."""
+    with _budget_lock:
+        day, month = _usage()
+        today = _today()
+        db.set_app_setting(BUDGET_SETTING, {"date": today, "count": day + n,
+                                            "month": today[:7], "month_count": month + n})
+        return _free_remaining(day, month)
 
 
 def budget_status() -> dict:
-    used = _used_today()
+    day, month = _usage()
     cap = settings_service.get_monthly_cap_usd()
-    return {"free_daily_limit": GROUNDED_FREE_RPD, "used_today": used,
-            "free_remaining": max(0, GROUNDED_FREE_RPD - used),
+    return {"free_daily_limit": GROUNDED_FREE_RPD, "used_today": day,
+            "free_monthly_limit": GROUNDED_FREE_MONTHLY, "used_this_month": month,
+            "free_remaining": _free_remaining(day, month),
             "paid_price_per_search_usd": GROUNDED_PAID_PRICE_USD,
             "free_tier_key": settings_service.get_gemini_free_tier(),
             "key_configured": bool(settings_service.resolve_key("gemini")),
             "monthly_cap_usd": cap, "month_spend_usd": round(db.get_month_spend(), 4),
-            "models": list(MODELS), "modes": list(MODES)}
+            "models": list(MODELS), "modes": list(MODES),
+            "estimates_usd": {m: {mo: round(estimate_cost(m, mo, False), 4) for mo in MODELS}
+                              for m in MODES}}
 
 
 def _entity(drama: dict, mode: str) -> dict:
@@ -199,7 +229,7 @@ def _parse_response(data: dict) -> dict:
     come from the grounding supports whose text contains that field's value."""
     candidates = data.get("candidates") or []
     if not candidates:
-        return {"fields": {}, "sources": [], "related": []}
+        return {"fields": {}, "sources": [], "related": [], "search_queries": []}
     cand = candidates[0] or {}
     parts = ((cand.get("content") or {}).get("parts")) or []
     text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
@@ -235,6 +265,11 @@ def _parse_response(data: dict) -> dict:
             continue
         used, score = [], None
         for seg, idx, s in supports:
+            # A segment that names other fields' keys but not this one's is
+            # about them (e.g. an author name repeated inside the summary).
+            keys = [k for k in RESEARCH_FIELDS if f'"{k}"' in seg]
+            if keys and key not in keys:
+                continue
             if value in seg or (len(seg) >= 20 and seg in value):
                 used.extend(i for i in idx if i not in used)
                 if s is not None:
@@ -256,7 +291,11 @@ def _parse_response(data: dict) -> dict:
                             "relation": _clip(rel.get("relation"), 100)})
         if len(related) >= MAX_RELATED:
             break
-    return {"fields": fields, "sources": sources, "related": related}
+    # Google's grounding terms ask for the search suggestions to be shown;
+    # the app shows the queries as links to a Google search.
+    queries = [_clip(q, 200) for q in (meta.get("webSearchQueries") or [])
+               if isinstance(q, str) and q.strip()][:MAX_RELATED]
+    return {"fields": fields, "sources": sources, "related": related, "search_queries": queries}
 
 
 def _rows(result: dict, drama: dict) -> list:
@@ -278,6 +317,7 @@ def _response(drama_id: int, drama: dict, key: str, result: dict, cached: bool) 
             "mode": result["mode"], "model": result["model"],
             "retrieved_at": result["retrieved_at"], "fields": _rows(result, drama),
             "sources": result.get("sources") or [], "related": result.get("related") or [],
+            "search_queries": result.get("search_queries") or [],
             "cost_usd": 0.0 if cached else result.get("cost_usd", 0.0),
             "budget": budget_status()}
 
@@ -289,9 +329,42 @@ def estimate_cost(mode: str, model: str, paid_search: bool) -> float:
     return cost + (GROUNDED_PAID_PRICE_USD if paid_search else 0.0)
 
 
+def _refuse_paid(allow_paid: bool, free_tier: bool):
+    if not allow_paid:
+        raise ConflictError(
+            "The free online searches are used up (they reset daily, and there is also a "
+            f"monthly limit). Allow paid searches (about ${GROUNDED_PAID_PRICE_USD:.3f} each) "
+            "or try again later.", details={"reason": "free_budget_used"})
+    if free_tier:
+        raise ConflictError("A free-tier Gemini key cannot run paid searches.",
+                            details={"reason": "free_tier_key"})
+
+
+def _check_cap(mode: str, model: str, paid_search: bool):
+    estimate = estimate_cost(mode, model, paid_search)
+    cap = settings_service.get_monthly_cap_usd()
+    if cap and estimate > 0:
+        spend = db.get_month_spend()
+        if spend + estimate > cap:
+            raise ConflictError(
+                f"This lookup (about ${estimate:.3f}) would pass this month's spending cap "
+                f"(${cap:.2f}, ${spend:.2f} used). Raise it in Settings.",
+                details={"reason": "monthly_cap"})
+
+
+def _search_query_count(data: dict) -> int:
+    try:
+        meta = (data.get("candidates") or [{}])[0].get("groundingMetadata") or {}
+        return len(meta.get("webSearchQueries") or [])
+    except (AttributeError, IndexError, TypeError):
+        return 0
+
+
 def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
-             allow_paid: bool = False) -> dict:
-    """One grounded lookup; writes nothing to the drama. Unknown drama 404;
+             allow_paid: bool = False, refresh: bool = False) -> dict:
+    """One grounded lookup; writes nothing to the drama. A repeat of the same
+    lookup comes from the cache (no search used) unless `refresh` asks for a
+    new one. Unknown drama 404;
     bad mode/model or no title 422; free allowance used up without
     allow_paid, a paid search on a free-tier key, or the monthly cap 409;
     no key / API failure 503 (fixed text)."""
@@ -306,46 +379,41 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     if not (entity["title_zh"] or entity["title_en"]):
         raise InvalidInputError("Add a title first; research looks the title up.")
     key = _cache_key(entity, mode, model)
-    cached = db.get_research_cache(key)
+    cached = None if refresh else db.get_research_cache(key)
     if cached:
         return _response(drama_id, drama, key, cached, cached=True)
 
     api_key = settings_service.resolve_key("gemini")
     if not api_key:
         raise DependencyUnavailableError("No Gemini key is configured. Set one in Settings first.")
-    paid_search = _used_today() >= GROUNDED_FREE_RPD
+    free_tier = settings_service.get_gemini_free_tier()
+    paid_search = _free_remaining(*_usage()) <= 0
     if paid_search:
-        if not allow_paid:
-            raise ConflictError(
-                f"Today's {GROUNDED_FREE_RPD} free online searches are used up. They reset "
-                f"tomorrow (UTC), or allow paid searches (about ${GROUNDED_PAID_PRICE_USD:.3f} "
-                "each).", details={"reason": "free_budget_used"})
-        if settings_service.get_gemini_free_tier():
-            raise ConflictError("A free-tier Gemini key cannot run paid searches.",
-                                details={"reason": "free_tier_key"})
-    estimate = estimate_cost(mode, model, paid_search)
-    cap = settings_service.get_monthly_cap_usd()
-    if cap and estimate > 0:
-        spend = db.get_month_spend()
-        if spend + estimate > cap:
-            raise ConflictError(
-                f"This lookup (about ${estimate:.3f}) would pass this month's spending cap "
-                f"(${cap:.2f}, ${spend:.2f} used). Raise it in Settings.",
-                details={"reason": "monthly_cap"})
-
+        _refuse_paid(allow_paid, free_tier)
+    _check_cap(mode, model, paid_search)
+    # Take the search before the call (under a lock), so two lookups at once
+    # can't both use the last free one; a failed call still counts, since
+    # Google may have run the search anyway.
+    paid_search = _count_searches(1) <= 0
+    if paid_search:
+        _refuse_paid(allow_paid, free_tier)
     try:
         data = _call_gemini(api_key, model, _prompt(entity, mode))
     except Exception as e:  # never echo: the text could carry request details
         log.warning("Grounded research failed: %s",
                     translate_engines.redact_secrets(type(e).__name__))
         raise DependencyUnavailableError(_UNAVAILABLE) from None
-    _count_search()
+    extra = max(0, _search_query_count(data) - 1)
+    paid_extra = 0
+    if extra:  # the 3.x models bill every query the model ran
+        free_left = _count_searches(extra)
+        paid_extra = max(0, extra - free_left)
     usage = translate_engines.gemini_usage(data.get("usageMetadata"))
     cost = 0.0
-    if not settings_service.get_gemini_free_tier():
+    if not free_tier:
         cost = translate_engines.estimate_cost(model, usage["input_tokens"],
                                                usage["output_tokens"])
-        cost += GROUNDED_PAID_PRICE_USD if paid_search else 0.0
+        cost += GROUNDED_PAID_PRICE_USD * ((1 if paid_search else 0) + paid_extra)
     db.log_usage(drama_id, "gemini", model, "metadata_research", usage["input_tokens"],
                  usage["output_tokens"], cost)
     try:
@@ -360,9 +428,15 @@ def research(drama_id: int, mode: str = "quick", model: Optional[str] = None,
     return _response(drama_id, drama, key, result, cached=False)
 
 
-def apply_research(drama_id: int, research_id: str, choices: dict, principal=None) -> dict:
-    """choices: {field: "keep" | "replace" | "save_both"}. Values come from
-    the cached research result, never from the client. Returns
+def apply_research(drama_id: int, research_id: str, choices: dict, seen: Optional[dict] = None,
+                   principal=None) -> dict:
+    """choices: {field: "keep" | "replace" | "save_both" | "confirm"}. Values
+    come from the cached research result, never from the client. `seen`
+    holds, per chosen field, the drama's value the user was shown next to the
+    research; if it has changed since (an edit in Details, another user),
+    nothing is written (409), so a value the user never saw is never
+    replaced. "confirm" records the sources for a value that already matches.
+    Returns
     {"drama_id", "replaced", "saved_alternates", "kept", "drama"}."""
     drama = _require_drama(drama_id)
     if not isinstance(research_id, str) or not _RESEARCH_ID.match(research_id):
@@ -378,30 +452,46 @@ def apply_research(drama_id: int, research_id: str, choices: dict, principal=Non
             raise InvalidInputError(f"{field} is not in this research result.",
                                     details={"allowed": sorted(fields)})
         if choice not in CHOICES:
-            raise InvalidInputError("Each choice must be keep, replace or save_both.",
+            raise InvalidInputError("Each choice must be keep, replace, save_both or confirm.",
                                     details={"allowed": list(CHOICES)})
+        if choice == "keep":
+            continue
+        current = (drama.get(field) or "").strip()
+        if not isinstance(seen, dict) or field not in seen:
+            raise InvalidInputError(f"Send the {field} value you were shown.")
+        if (seen[field] or "").strip() != current:
+            raise ConflictError("This drama's details changed since the research was shown. "
+                                "Look again before applying.", details={"reason": "changed",
+                                                                       "field": field})
+        if choice == "confirm" and fields[field]["value"] != current:
+            raise InvalidInputError(f"{field} does not match the research; choose another option.")
     replace = {f: fields[f]["value"] for f, c in choices.items() if c == "replace"}
     if replace:
         detail = drama_service.update_drama_metadata(drama_id, principal=principal, **replace)
     else:
         detail = None
-    now = _now().isoformat() + "Z"
-    saved = []
+    saved, confirmed = [], []
     for field, choice in choices.items():
         if choice == "keep":
             continue
         item = fields[field]
         if choice == "save_both" and item["value"] == (drama.get(field) or "").strip():
             continue  # nothing to keep beside: it is the same value
+        status = {"replace": "applied", "save_both": "alternate", "confirm": "verified"}[choice]
+        # last_verified is when the sources were checked (the lookup), not
+        # when the user clicked Apply on a possibly older cached result.
         db.add_field_provenance(
-            drama_id, field, item["value"], "applied" if choice == "replace" else "alternate",
+            drama_id, field, item["value"], status,
             sources=item.get("sources"), retrieved_at=result.get("retrieved_at"),
-            confidence=item.get("confidence"), last_verified=now)
+            confidence=item.get("confidence"), last_verified=result.get("retrieved_at"))
+        if choice == "confirm":
+            confirmed.append(field)
         if choice == "save_both":
             saved.append(field)
     if detail is None:
         detail = library_service.get_library_drama(drama_id)
     return {"drama_id": drama_id, "replaced": sorted(replace), "saved_alternates": saved,
+            "confirmed": confirmed,
             "kept": sorted(f for f, c in choices.items() if c == "keep"), "drama": detail}
 
 
