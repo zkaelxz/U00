@@ -99,6 +99,7 @@ import stat
 import tempfile
 import threading
 import time
+import uuid
 import zipfile
 import zlib
 
