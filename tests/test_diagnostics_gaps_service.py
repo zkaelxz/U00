@@ -287,6 +287,9 @@ def test_install_rejects_unknown_package(monkeypatch):
 
 def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     _no_jobs(monkeypatch)
+    # The command line depends on whether torch is installed on the machine
+    # running the tests (it then gets a `-c <pins>` file); pin that down.
+    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines", lambda: [])
     seen = []
     _fake_pip(monkeypatch, seen=seen)
     for fn in (svc.install_dependency, svc.upgrade_dependency):
@@ -296,6 +299,24 @@ def test_install_and_upgrade_run_with_timeout_and_redact(monkeypatch):
     assert all(t == svc.PIP_TIMEOUT_SECONDS for _c, t in seen)
     assert seen[0][0][3:] == ["install", "--no-cache-dir", "--disable-pip-version-check",
                               "edge_tts"]
+
+
+def test_install_pins_the_installed_torch_family_with_a_temporary_constraints_file(monkeypatch):
+    _no_jobs(monkeypatch)
+    monkeypatch.setattr(svc.diagnostics, "torch_pin_lines",
+                        lambda: ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"])
+    contents = {}
+
+    def fake(cmd, timeout, cwd=None, env=None):
+        path = cmd[cmd.index("-c") + 1]
+        with open(path, encoding="utf-8") as f:
+            contents["pins"] = f.read().split()
+        contents["path"] = path
+        yield {"returncode": 0, "timed_out": False}
+    monkeypatch.setattr(svc, "_stream_tree", fake)
+    assert svc.install_dependency("edge_tts", confirm=True)["ok"] is True
+    assert contents["pins"] == ["torch==2.11.0+cpu", "torchaudio==2.11.0+cpu"]
+    assert not os.path.exists(contents["path"])      # removed after the run
 
 
 def test_pip_timeout_or_failure_is_not_ok(monkeypatch):
