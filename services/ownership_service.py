@@ -448,10 +448,6 @@ def owns_job(principal, job_id, owner_user_id) -> bool:
     return bool(row) and row.get("owner_user_id") == uid
 
 
-def require_job_visible(principal, job_id, owner_user_id) -> None:
-    if not can_see_job(principal, job_id, owner_user_id):
-        raise NotFoundError("No such job.")
-
 
 def require_job_changeable(principal, job_id, owner_user_id) -> None:
     """For cancel/stop after the visibility check: 403 for a job the
