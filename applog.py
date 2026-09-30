@@ -9,6 +9,8 @@ and reconfigures if it changed, rather than caching it once -- tests
 redirect LIBRARY_DIR per-test via db.configure_library_dir(), and a
 cached path from an earlier test's already-deleted temp directory would
 make later log writes fail.
+
+Every record is secret-redacted on its way to the file (_RedactSecretsFilter).
 """
 
 import logging
@@ -18,6 +20,25 @@ import os
 import db
 
 _LOGGER_NAME = "baihe"
+
+
+class _RedactSecretsFilter(logging.Filter):
+    """Runs translate_engines.redact_secrets over every record before it's
+    written: the formatted message and any traceback text. A caller that
+    redacts its own message but passes exc_info=True would otherwise still
+    log the raw exception (and any key in it) in the traceback."""
+
+    def filter(self, record):
+        from translate_engines import redact_secrets
+        record.msg = redact_secrets(record.getMessage())
+        record.args = None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact_secrets(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact_secrets(record.stack_info)
+        return True
 
 
 def get_logger():
@@ -32,6 +53,7 @@ def get_logger():
             log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
         handler.setFormatter(logging.Formatter(
             "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler.addFilter(_RedactSecretsFilter())
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
         logger.propagate = False
