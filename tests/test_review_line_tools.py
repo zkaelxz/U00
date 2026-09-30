@@ -359,6 +359,31 @@ class TestShorten:
         assert len(hist) == 2
         assert db.get_line_history_snapshot(hist[0]["id"])[edited]["en"] == manual
 
+    @pytest.mark.parametrize("change", [{"flag": "idiom", "flag_note": "mine"},
+                                        {"flag_note": "changed"}, {"sfx": True}])
+    def test_flag_or_sfx_change_between_runs_gets_its_own_snapshot(self, client, monkeypatch,
+                                                                    change):
+        # Restore brings back a snapshot's flags and SFX marks, so one set
+        # between two runs must stay undoable from History.
+        did, ids = _seed([Line(idx=i, start=i, end=i + 1, zh="字", en=LONG, flag="name",
+                               flag_note="n") for i in range(5)])
+        monkeypatch.setattr(line_tools_service, "MAX_SHORTEN_LINES", 2)
+
+        def fake(work, engine, usage_cb=None):
+            for w in work:
+                w.en = "s"
+            return work
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        assert client.post(_shorten(did), json={"confirm": True}).json()["snapshot_saved"]
+        lines = db.load_line_objects(did)
+        for f, v in change.items():
+            setattr(lines[4], f, v)
+        db.save_lines(did, lines, fields=tuple(change))
+        second = client.post(_shorten(did), json={"confirm": True}).json()
+        assert second["snapshot_saved"] and len(db.list_line_history(did)) == 2
+        snap = db.get_line_history_snapshot(db.list_line_history(did)[0]["id"])
+        assert {f: snap[4][f] for f in change} == change
+
     def test_confirm_must_be_a_real_boolean(self, client, monkeypatch):
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)

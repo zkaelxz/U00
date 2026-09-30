@@ -591,9 +591,11 @@ def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     """Restores a history snapshot over the current lines, after taking a
     "before restore" snapshot (so the restore itself can be undone). Lines
     are matched by permanent id (core.restore_saved_lines / adopt_ids,
-    Step 25l): a line whose id still exists keeps its notes/emotion and
-    any flag the snapshot didn't store; a line merged/deleted since gets a
-    fresh id and nothing is reattached by position. Refused while a job
+    Step 25l): a line whose id still exists keeps its notes/emotion; flag,
+    flag note and SFX mark come from the snapshot (or, for a snapshot saved
+    before those were recorded, stay as the line has them now); a line
+    merged/deleted since gets a fresh id and nothing is reattached by
+    position. Refused while a job
     runs on the drama. No confirm field: the tab's Restore has none."""
     get_line_history_snapshot(drama_id, history_id)  # 404 unless it's this drama's
     # the raw rows: the read above returns dub_filename as a bare basename

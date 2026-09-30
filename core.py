@@ -64,14 +64,21 @@ def lines_from_rows(rows) -> list:
     return [line_from_row(r) for r in rows]
 
 
-def adopt_ids(restored, current) -> list:
+# Fields a snapshot/version records since the undo fix; older ones lack them.
+SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx")
+
+
+def adopt_ids(restored, current, recorded=()) -> list:
     """For restoring a saved snapshot/translation version over the current
     lines: gives each restored line the permanent id (and `orig`) of the
     current line it replaces -- by id when the snapshot recorded one, else
     by position (snapshots from before Step 2 have no ids) -- so notes and
     emotions stay attached instead of being deleted with the old rows.
-    Fields a snapshot doesn't store (flag, flag_note, dub_filename, sfx) are
-    carried over from the matched line rather than wiped.
+    Fields a snapshot doesn't store (dub_filename in a version; flag,
+    flag_note and sfx in one saved before they were recorded) are carried
+    over from the matched line rather than wiped. `recorded` names the
+    SAVED_MARK_FIELDS the snapshot did store: those keep the snapshot's own
+    value, since after a merge the matched line may hold another line's flag.
 
     Positional fallback only applies to a line whose snapshot never
     recorded an id at all (pre-Step-2). A line whose id *was* recorded but
@@ -98,9 +105,10 @@ def adopt_ids(restored, current) -> list:
         used.add(match.id)
         ln.id, ln.orig = match.id, match.orig
         for f in ("flag", "flag_note", "dub_filename"):
-            if getattr(ln, f) in (None, ""):
+            if f not in recorded and getattr(ln, f) in (None, ""):
                 setattr(ln, f, getattr(match, f))
-        ln.sfx = ln.sfx or match.sfx
+        if "sfx" not in recorded:
+            ln.sfx = ln.sfx or match.sfx
         # Snapshots/versions from before Step 25c didn't record
         # speaker_manual -- restoring the same speaker the line has now
         # keeps its hand-corrected mark instead of silently dropping it.
@@ -114,7 +122,8 @@ def lines_from_saved(rows) -> list:
     (db.get_line_history_snapshot / get_translation_version) -> Lines."""
     return [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
                  en=r.get("en") or "", speaker=r.get("speaker"),
-                 dub_filename=r.get("dub_filename"),
+                 dub_filename=r.get("dub_filename"), flag=r.get("flag") or None,
+                 flag_note=r.get("flag_note") or "", sfx=bool(r.get("sfx")),
                  speaker_manual=bool(r.get("speaker_manual")), id=r.get("id"))
             for r in rows]
 
@@ -142,7 +151,8 @@ def restore_saved_lines(rows, current, translation_only: bool = False) -> list:
     if translation_only and saved_matches_lines(rows, current):
         en_by_id = {r["id"]: r.get("en") or "" for r in rows}
         return [replace(ln, en=en_by_id[ln.id]) for ln in current]
-    return adopt_ids(lines_from_saved(rows), current)
+    recorded = {f for f in SAVED_MARK_FIELDS if rows and all(f in r for r in rows)}
+    return adopt_ids(lines_from_saved(rows), current, recorded)
 
 
 def fmt_ts(seconds: float) -> str:
