@@ -421,6 +421,8 @@ def _check_config(stage: str, cfg) -> dict:
                 if not model or len(model) > 100 or any(ch.isspace() for ch in model) \
                         or ".." in model or model.startswith("/"):
                     raise InvalidInputError("That model isn't offered for this engine.")
+            elif entry["models"] is None and model == _default_model(engine):
+                model = None   # an engine without a model picker: its built-in model
             elif entry["models"] is None or model not in entry["models"]:
                 raise InvalidInputError("That model isn't offered for this engine.")
         return {"engine": engine, "model": model}
@@ -502,10 +504,12 @@ def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,
 
 def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
               case_ids: list = None, label: str = "", prompt_version: str = "",
-              use_gpu: bool = None) -> dict:
+              use_gpu: bool = None, max_cost_usd: float = None) -> dict:
     """Starts a background run: one benchmark_sessions row per config
     (several configs = one Model Arena group). Refused when the monthly cap
-    is used up or the estimate is over what's left of it."""
+    is used up or the estimate is over what's left of it. max_cost_usd is an
+    optional cap on the run's total real spend across all its configs (0 =
+    free engines only); the run stops with stopped_cap once it is reached."""
     label = _clean_text(label, "label", required=False, max_len=MAX_LABEL_CHARS)
     prompt_version = _clean_text(prompt_version, "prompt_version", required=False, max_len=60)
     est = estimate(stage, configs, tier, set_name, case_ids)
@@ -543,7 +547,7 @@ def start_run(stage: str, configs: list, tier: str = None, set_name: str = None,
             "case_count": len(cases)}))
     plan = list(zip(session_ids, checked, engines or [None] * len(checked)))
     started = background_jobs.start_job(
-        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu,
+        JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd,
         gpu_touching=stage != "translation" or any(c["engine"] in ("ollama", "nllb") for c in checked),
         description="Benchmark run")
     if not started:
@@ -636,9 +640,9 @@ def _reset_vram():
         pass
 
 
-def _run_job(job_id, stage, plan, case_ids, use_gpu):
+def _run_job(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
     try:
-        _run_plan(job_id, stage, plan, case_ids, use_gpu)
+        _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap)
     finally:
         # A crash mid-run must not leave a run looking "running" forever.
         for sid, _cfg, _key in plan:
@@ -648,11 +652,12 @@ def _run_job(job_id, stage, plan, case_ids, use_gpu):
                                             note="The run stopped unexpectedly.")
 
 
-def _run_plan(job_id, stage, plan, case_ids, use_gpu):
+def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None):
     cases = {c["id"]: c for c in db.list_benchmark_cases(stage)}
     ordered = [cases[i] for i in case_ids if i in cases]
     total_steps = max(1, len(ordered) * len(plan))
     step = 0
+    run_spent = 0.0     # real spend across every config in this run
     for session_id, cfg, api_key in plan:
         db.update_benchmark_session(session_id, status="running")
         engine, cap, capped = None, None, False
@@ -670,8 +675,14 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 continue
             if _cap_applies(cfg["engine"]):
                 monthly = settings_service.get_monthly_cap_usd()
-                cap, refusal = translate_engines.resolve_cost_cap(
-                    None, monthly, db.get_month_spend() if monthly else 0.0)
+                # resolve_cost_cap reads 0 as "no cap", so a job cap that is
+                # used up (or 0) is handled here, never passed through.
+                job_left = None if job_cap is None else max(float(job_cap) - run_spent, 0.0)
+                if job_left is not None and job_left <= 0:
+                    cap, refusal = None, "This run's spending limit is reached."
+                else:
+                    cap, refusal = translate_engines.resolve_cost_cap(
+                        job_left, monthly, db.get_month_spend() if monthly else 0.0)
                 if refusal:
                     db.update_benchmark_session(session_id, status="stopped_cap", note=refusal,
                                                 finished_at=_now())
@@ -719,6 +730,7 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu):
                 passed += 1 if r["passed"] else 0
             durations.append(r.get("duration_seconds") or 0.0)
             step += 1
+        run_spent += spent
         db.update_benchmark_session(
             session_id, status=status, scored_count=len(scores), passed_count=passed,
             error_count=errors,

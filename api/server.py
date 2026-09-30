@@ -65,6 +65,7 @@ from api.routers import (
     media_routes,
     metadata_research_routes,
     metadata_routes,
+    model_reeval_routes,
     model_registry_routes,
     narration_routes,
     notification_center_routes,
@@ -111,13 +112,16 @@ async def _lifespan(app: FastAPI):
         yield
         return
     from api.background import (start_background_services, start_gpu_queue_poller,
-                                stop_gpu_queue_poller)
+                                start_reeval_scheduler, stop_gpu_queue_poller,
+                                stop_reeval_scheduler)
     start_background_services()
     start_gpu_queue_poller()
+    start_reeval_scheduler()
     try:
         yield
     finally:
         stop_gpu_queue_poller()
+        stop_reeval_scheduler()
 
 
 def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
@@ -228,6 +232,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(novel_files_routes.router)
     app.include_router(benchmark_routes.router)
     app.include_router(model_registry_routes.router)
+    app.include_router(model_reeval_routes.router)
 
     app.include_router(diagnostics_installs_routes.router)
     app.include_router(voice_bank_audio_routes.router)

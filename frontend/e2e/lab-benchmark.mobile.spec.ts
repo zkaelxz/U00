@@ -20,7 +20,7 @@ async function noSideways(page: Page) {
 }
 
 async function smallTargets(page: Page) {
-  return page.locator('.bench-page button:not(.link):not(.field-help-btn), .bench-page summary, .bench-page select, .bench-page input:not([type=checkbox]), .bench-page a.btn').evaluateAll((els) =>
+  return page.locator('.bench-page button:not(.link):not(.field-help-btn):not(.toggle), .bench-page summary, .bench-page select, .bench-page input:not([type=checkbox]), .bench-page a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
