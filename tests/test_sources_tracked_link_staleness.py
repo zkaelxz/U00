@@ -92,6 +92,13 @@ def _p(uid):
             "admin_override": False}
 
 
+def _user(email, is_admin=False):
+    """A user holding sources.import, the permission a tracked link needs."""
+    uid = db.auth_create_user(email, is_admin=is_admin)
+    db.auth_grant_permission(uid, "sources.import")
+    return uid
+
+
 @pytest.fixture
 def env(isolated_db, monkeypatch):
     classes = {}
@@ -139,8 +146,8 @@ def made_private(env):
     """A owns a shared novel drama; B (who may edit it while it is shared)
     links a tracked series to it; A then makes the drama private."""
     env["alpha"] = _make("alpha")
-    a = db.auth_create_user("a@example.com")
-    b = db.auth_create_user("b@example.com")
+    a = _user("a@example.com")
+    b = _user("b@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
     _track("alpha")
@@ -156,13 +163,13 @@ def _denied(did, env, name="alpha"):
     summary = chapter_check.run_check_cycle()
     _wait(pipeline.import_job_id(did))
     assert summary["new"] == 2 and summary["queued"] == []
-    assert summary["errors"] == {"Series T": chapter_check.LINK_OWNER_DENIED}
+    assert summary["errors"] == {"Series T": chapter_check.LINK_UNAVAILABLE}
     assert env[name].calls == []
     assert not os.path.exists(_raw_path(did))
     assert store.imported_chapter_ids(name, SERIES, did) == set()
     row = _row(name)
     assert row["drama_id"] == did          # the link is kept, not cleared
-    assert row["last_check_error"] == "The link owner can no longer edit the drama."
+    assert row["last_check_error"] == "Auto-import skipped: the linked drama is not available."
 
 
 def _imports(did, env, name="alpha"):
@@ -188,8 +195,8 @@ def test_desired_private_drama_gets_no_auto_import_from_another_users_link(made_
 def shared_link(env):
     """A owns a shared novel drama that B links a tracked series to."""
     env["alpha"] = _make("alpha")
-    a = db.auth_create_user("a@example.com")
-    b = db.auth_create_user("b@example.com")
+    a = _user("a@example.com")
+    b = _user("b@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
     _track("alpha")
@@ -200,7 +207,68 @@ def shared_link(env):
 def test_link_owner_still_imports_while_the_drama_stays_shared(shared_link, env):
     _a, b, did = shared_link
     assert _row("alpha")["linked_by_user_id"] == b
+    assert "sources.import" in auth_service.member_principal(b)["permissions"]
     _imports(did, env)
+
+
+def test_link_owner_without_sources_import_gets_no_import(shared_link, env):
+    _a, b, did = shared_link
+    auth_service.revoke_permission(b, "sources.import")
+    assert own.can_edit_drama(_p(b), did)     # still sees and could edit the drama
+    _denied(did, env)
+
+
+def test_drama_moved_into_another_users_private_series_is_denied(shared_link, env):
+    a, _b, did = shared_link
+    sid = db.create_series("A's private series", owner_user_id=a, is_private=True)
+    own.assign_drama_series(_p(a), did, sid)
+    _denied(did, env)
+
+
+def test_series_made_private_is_denied(env):
+    env["alpha"] = _make("alpha")
+    a = _user("a@example.com")
+    b = _user("b@example.com")
+    sid = db.create_series("A's series", owner_user_id=a, is_private=False)
+    did = db.create_drama(title_en="A's novel", media_type="novel",
+                          content_mode="novel_narration", owner_user_id=a, is_private=0)
+    own.assign_drama_series(_p(a), did, sid)
+    _track("alpha")
+    tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(b))
+    own.set_private(_p(a), "series", sid, True)
+    _denied(did, env)
+
+
+def test_member_principal_is_least_privilege(isolated_db):
+    admin = db.auth_create_user("admin@example.com", is_admin=True)
+    member = _user("m@example.com")
+    for uid in (admin, member):
+        p = auth_service.member_principal(uid)
+        assert p["user_id"] == uid
+        assert p["is_admin"] is False and p["is_local_owner"] is False
+        assert p["admin_override"] is False
+        assert not set(p["permissions"]) & set(auth_service.ADMIN_PERMISSIONS)
+    assert auth_service.member_principal(admin)["permissions"] == []
+    assert auth_service.member_principal(member)["permissions"] == ["sources.import"]
+    assert auth_service.member_principal(987654) is None
+    auth_service.deactivate_user(member)
+    assert auth_service.member_principal(member) is None
+
+
+def test_set_tracked_records_the_actor_as_link_owner(env, monkeypatch):
+    from services import sources_search_service as search
+    b = _user("b@example.com")
+    did = db.create_drama(title_en="Shared", media_type="novel",
+                          content_mode="novel_narration", is_private=0)
+    monkeypatch.setattr(sources_registry_service, "_require_source", lambda name: None)
+    result = {"kind": "series", "series_id": SERIES, "info": {"title": "Series T"},
+              "chapters": [{"chapter_id": "c1", "title": "Chapter c1"}]}
+    real_status = background_jobs.get_status
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: (
+        {"status": "done", "result": result} if jid == search.SERIES_JOB_PREFIX + "alpha"
+        else real_status(jid)))
+    sources_registry_service.set_tracked("alpha", SERIES, True, drama_id=did, principal=_p(b))
+    assert _row("alpha")["linked_by_user_id"] == b
 
 
 def test_deactivated_link_owner_gets_no_import(shared_link, env):
@@ -221,8 +289,8 @@ def test_admin_link_is_checked_as_a_member(env):
     """An admin at the PC may link another user's private drama (the admin
     override); the scheduled check acts for them only as a member."""
     env["alpha"] = _make("alpha")
-    a = db.auth_create_user("a@example.com")
-    admin = db.auth_create_user("admin@example.com", is_admin=True)
+    a = _user("a@example.com")
+    admin = _user("admin@example.com", is_admin=True)
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=1)
     _track("alpha")
@@ -236,7 +304,7 @@ def test_null_link_owner_keeps_importing(env):
     """Auth off / the PC owner made the link: no owner is stored and the
     cycle imports as before, even into a private drama."""
     env["alpha"] = _make("alpha")
-    a = db.auth_create_user("a@example.com")
+    a = _user("a@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=1)
     _track("alpha")
@@ -247,7 +315,7 @@ def test_null_link_owner_keeps_importing(env):
 
 def test_owner_linking_their_own_drama_then_making_it_private_still_imports(env):
     env["alpha"] = _make("alpha")
-    a = db.auth_create_user("a@example.com")
+    a = _user("a@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
     _track("alpha")
@@ -321,8 +389,8 @@ def test_desired_deleted_drama_gets_no_import_and_row_reports_it(env, comic):
     assert not os.path.exists(_drama_folder(did))
     row = _row(name)
     assert row["drama_id"] == did          # the link is kept, not cleared
-    assert row["last_check_error"] == "The linked drama was deleted."
-    assert summary["errors"] == {"Series T": "The linked drama was deleted."}
+    assert row["last_check_error"] == "Auto-import skipped: the linked drama is not available."
+    assert summary["errors"] == {"Series T": chapter_check.LINK_UNAVAILABLE}
     assert store.imported_chapter_ids(name, SERIES, did) == set()
 
 

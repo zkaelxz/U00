@@ -228,8 +228,11 @@ def _add_missing_columns(conn) -> None:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
                 conn.commit()
-            except sqlite3.OperationalError:
-                pass    # another connection added it first
+            except sqlite3.OperationalError as e:
+                # Only "another connection added it first" is fine.
+                if "duplicate column name" not in str(e).lower() and column not in {
+                        r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                    raise
 
 
 # ---------------------------------------------------------------------------
