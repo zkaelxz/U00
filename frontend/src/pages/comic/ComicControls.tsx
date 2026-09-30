@@ -117,9 +117,11 @@ export function ComicViewControl({ children, ...props }: PrefsProps & { children
   )
 }
 
-export function ComicPager({ page, count, rtl, onGo, compact = false }: {
+export function ComicPager({ page, count, rtl, onGo, compact = false, loading = false }: {
   page: number
   count: number
+  // Pages not loaded yet: a disabled pager that takes the loaded pager's space.
+  loading?: boolean
   // Mirror the pager (forward on the left), for right-to-left paging.
   rtl: boolean
   onGo: (n: number) => void
@@ -127,12 +129,12 @@ export function ComicPager({ page, count, rtl, onGo, compact = false }: {
   compact?: boolean
 }) {
   const prev = (
-    <button key="prev" type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => onGo(page - 1)}>
+    <button key="prev" type="button" aria-label="Previous page" disabled={loading || page <= 1} onClick={() => onGo(page - 1)}>
       {rtl ? '›' : '‹'}
     </button>
   )
   const next = (
-    <button key="next" type="button" aria-label="Next page" disabled={page >= count} onClick={() => onGo(page + 1)}>
+    <button key="next" type="button" aria-label="Next page" disabled={loading || page >= count} onClick={() => onGo(page + 1)}>
       {rtl ? '‹' : '›'}
     </button>
   )
@@ -149,13 +151,13 @@ export function ComicPager({ page, count, rtl, onGo, compact = false }: {
         dir={rtl ? 'rtl' : 'ltr'}
         aria-label="Page"
         aria-valuetext={`Page ${page} of ${count}`}
-        disabled={count <= 1}
+        disabled={loading || count <= 1}
         onChange={(e) => onGo(Number(e.target.value))}
       />
       {rtl ? prev : next}
       {!compact && (
         <span className="comic-page-label" data-testid="comic-page-label" aria-live="polite">
-          Page {page} of {count}
+          {loading ? 'Page - of -' : `Page ${page} of ${count}`}
         </span>
       )}
     </nav>

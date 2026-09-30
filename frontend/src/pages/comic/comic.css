@@ -142,7 +142,7 @@
 }
 .comic-phone .comic-page { max-width: none; scroll-margin-top: 48px; }
 .comic-phone .comic-stage-paged .comic-zoom-layer { place-items: start center; }
-.comic-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.comic-count { flex: 0 0 auto; min-width: 7ch; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 .comic-bottom { display: flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-2); min-height: 56px; }
 .comic-bottom .comic-pager { flex: 1 1 auto; }
 .comic-bottom .comic-pager > button { min-width: 48px; min-height: 44px; }

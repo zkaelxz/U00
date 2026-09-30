@@ -231,3 +231,17 @@ test('screenshots: desktop vertical, paged right to left and the text panel', as
     await page.unrouteAll({ behavior: 'ignoreErrors' })
   }
 })
+
+test('the top bar does not move when the pages finish loading', async ({ page }) => {
+  await mockComic(page, { pagesDelayMs: 1500 })
+  await page.goto('/#/comic/7')
+  const translate = page.getByRole('button', { name: 'Translate', exact: true })
+  await expect(label(page)).toHaveText('Page - of -')
+  await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('button', { name: 'Next page' })).toBeDisabled()
+  const before = await translate.boundingBox()
+  await expect(label(page)).toHaveText('Page 1 of 8')
+  const after = await translate.boundingBox()
+  expect(before).not.toBeNull()
+  expect(after).toEqual(before)
+  await noSideways(page)
+})
