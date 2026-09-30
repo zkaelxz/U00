@@ -25,14 +25,17 @@ from services import library_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
-_SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields if f != "custom_tags")
+_SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
+                        if f not in ("custom_tags", "is_private", "owned_by_me"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
-                       if f not in ("custom_tags", "has_audio", "has_novel_reference",
+                       if f not in ("custom_tags", "is_private", "owned_by_me", "has_audio", "has_novel_reference",
                                     "has_cover_art", "source_url"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
     return DramaSummary(**{f: drama.get(f) for f in _SUMMARY_FIELDS},
+                        is_private=drama.get("sharing_private"),
+                        owned_by_me=drama.get("sharing_owned"),
                         custom_tags=library_service.split_custom_tags(drama))
 
 

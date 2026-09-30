@@ -3,6 +3,7 @@ import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
 import { dramaName, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
+import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
 interface Props {
@@ -41,6 +42,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
                   Details
                 </button>
               </div>
+              <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
             </div>
           </li>
         )

@@ -630,3 +630,33 @@ def test_new_run_over_a_stale_running_record_takes_the_new_owner(isolated_db):
     # Progress updates of the same run keep it.
     db.save_job_record("sources_search", "done", started_at=2.0, owner_user_id=None)
     assert db.get_job_record("sources_search")["owner_user_id"] == 2
+
+
+class TestLibrarySharingFlags:
+    """The Library list tells the client each item's private flag and whether
+    the viewer created it, so the sharing control needs no extra call."""
+
+    def test_drama_flags(self, world):
+        w = world
+        client = _client(_app())
+        items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["a"]).json()["items"]}
+        assert items[w["private"]]["is_private"] is True
+        assert items[w["private"]]["owned_by_me"] is True
+        assert items[w["shared"]]["is_private"] is False
+        assert items[w["in_pseries"]]["is_private"] is True      # follows its series
+        b_items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["b"]).json()["items"]}
+        assert b_items[w["shared"]]["owned_by_me"] is False
+        off = _local(_app("off")).get("/api/library/dramas").json()["items"]
+        assert all(d["owned_by_me"] is False for d in off)
+        detail = client.get(f"/api/library/dramas/{w['shared']}", headers=w["a"]).json()
+        assert detail["is_private"] is None
+
+    def test_series_flags(self, world):
+        w = world
+        db.create_drama(title_en="Second", source_language="zh", series_id=w["pseries"],
+                        owner_user_id=w["a_id"])
+        client = _client(_app())
+        mine = client.get("/api/library/series", headers=w["a"]).json()["items"]
+        assert mine[0]["is_private"] is True and mine[0]["owned_by_me"] is True
+        admin = client.get("/api/library/series", headers=w["admin"]).json()["items"]
+        assert admin[0]["owned_by_me"] is False

@@ -20,6 +20,7 @@ import {
   type MoreFilters,
 } from './libraryFilters'
 import { countDramas, dramaName, readHref, workspaceHref } from './libraryView'
+import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
 // Same choices the Streamlit Library tab offers.
@@ -273,6 +274,7 @@ export function LibraryList({
                             <td>
                               <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
                               {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
+                              <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
                             </td>
                             <td>{mediaTypeLabel(d.media_type)}</td>
                             <td>{languageLabel(d.source_language)}</td>
