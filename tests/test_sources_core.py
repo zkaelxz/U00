@@ -288,10 +288,16 @@ class TestPerHostPacing:
 
     def test_concurrent_threads_on_one_host_are_spaced(self, isolated_db):
         import threading
+        from sources import http
         reset_pacing_state()
         clock = FakeClock()
         urls = [f"https://busyhost.invalid/{i}" for i in range(12)]
         t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        # The claim time is recorded while the host lock is still held, so
+        # a thread switch between claiming and sending can't reorder it.
+        hs = http._host("busyhost.invalid", 0.0)
+        claims = []
+        hs["lock"] = _SpyLock(on_release=lambda: claims.append(hs["last"]))
         clients = [self._client(f"src{i}", t, clock, min_delay=2.0, max_delay=2.0,
                                 max_concurrent=3) for i in range(4)]
         threads = [threading.Thread(target=lambda c=c, i=i: [c.get(u) for u in urls[i::4]])
@@ -300,18 +306,18 @@ class TestPerHostPacing:
             th.start()
         for th in threads:
             th.join(10)
-        times = sorted(call["t"] for call in t.calls)
-        assert len(times) == 12
-        assert all(b - a >= 2.0 - 1e-9 for a, b in zip(times, times[1:]))
+        assert len(t.calls) == 12 and len(claims) == 12
+        assert all(b - a >= 2.0 - 1e-9 for a, b in zip(claims, claims[1:]))
 
     def test_cancel_interrupts_a_thread_queued_behind_another_hosts_wait(self, isolated_db):
         import threading
+        from sources import http
         from sources.http import Cancelled
         reset_pacing_state()
         clock = FakeClock()
         t = ScriptedTransport({"https://q.invalid/1": html("x"), "https://q.invalid/2": html("x"),
                                "https://q.invalid/3": html("x")}, clock)
-        waiting, release = threading.Event(), threading.Event()
+        waiting, release, queued_up = threading.Event(), threading.Event(), threading.Event()
 
         def blocking_sleep(s):
             waiting.set()
@@ -320,24 +326,83 @@ class TestPerHostPacing:
         first = self._client("first", t, clock, sleep=blocking_sleep,
                              host_min_interval={"q.invalid": 30.0})
         first.get("https://q.invalid/1")
+        hs = http._host("q.invalid", 0.0)
+        queued_got = []
+
+        def on_try(got):
+            if threading.current_thread().name == "queued":
+                queued_got.append(got)
+                if not got:
+                    queued_up.set()      # timed out: really blocked behind the holder
+        hs["lock"] = _SpyLock(on_try=on_try)
         worker = threading.Thread(target=first.get, args=("https://q.invalid/2",))
         worker.start()
         try:
-            assert waiting.wait(10)
+            assert waiting.wait(10)      # the worker holds q.invalid's turn, mid-wait
             cancel = threading.Event()
             queued = self._client("queued", t, clock, cancel_check=cancel.is_set)
             errors = []
-            th = threading.Thread(target=lambda: _capture(errors, queued.get,
-                                                          "https://q.invalid/3"))
+            th = threading.Thread(name="queued", target=lambda: _capture(
+                errors, queued.get, "https://q.invalid/3"))
             th.start()
+            assert queued_up.wait(10)
             cancel.set()
             th.join(10)
             assert not th.is_alive()
             assert errors and isinstance(errors[0], Cancelled)
+            assert queued_got and not any(queued_got)   # cancelled while still waiting
         finally:
             release.set()
             worker.join(10)
         assert "https://q.invalid/3" not in t.urls()
+
+    def test_host_spellings_share_one_clock(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = ["https://WWW.Spelled.invalid/1", "https://www.spelled.invalid:443/2",
+                "https://www.spelled.invalid/3"]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        c = self._client("spelled", t, clock, host_min_interval={"www.spelled.invalid": 10.0})
+        for u in urls:
+            c.get(u)
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([10.0, 10.0])
+
+    def test_generic_importer_client_declares_the_owning_adapters_interval(self, isolated_db):
+        from sources import generic_import
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = ["https://www.mangaz.com/book/detail/1", "https://www.mangaz.com/book/detail/2"]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        # No adapter client has run since the reset: the interval must come
+        # from the importer's own client.
+        c = generic_import._client(url=urls[0])
+        assert c.source == "mangaz"
+        c.transport, c.sleep, c.clock, c.rng = t, clock.sleep, clock.clock, FixedRng(0.0)
+        for u in urls:
+            c.get(u)
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(120.0)
+
+
+class _SpyLock:
+    """A Lock that reports each acquire attempt's result and runs a hook
+    just before each release (still holding it)."""
+
+    def __init__(self, on_try=None, on_release=None):
+        import threading
+        self._lock = threading.Lock()
+        self.on_try, self.on_release = on_try, on_release
+
+    def acquire(self, blocking=True, timeout=-1):
+        got = self._lock.acquire(blocking, timeout)
+        if self.on_try:
+            self.on_try(got)
+        return got
+
+    def release(self):
+        if self.on_release:
+            self.on_release()
+        self._lock.release()
 
 
 def _capture(errors, fn, *args):

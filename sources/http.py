@@ -4,9 +4,10 @@ generic importer go through (Step 23 items 2, 3, 3b, 4).
 
 What it guarantees, structurally rather than by convention:
   * Human-paced: a random 1-3s gap (configurable) between requests to
-    the same source, one request in flight per source by default, and an
-    adapter can declare a stricter per-host minimum (e.g. a robots.txt
-    Crawl-delay).
+    the same host, whichever source name or client sends them, one
+    request in flight per source by default, and an adapter can declare a
+    stricter per-host minimum (e.g. a robots.txt Crawl-delay) that every
+    client fetching that host then honours.
   * Session-shaped: every so often (a randomized request count, default
     8-20) the source takes one longer pause (default 30-90s) before
     continuing -- like a person setting the app down and coming back --
@@ -759,6 +760,25 @@ def _state(source: str, max_concurrent: int) -> dict:
         return st
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _host_key(url: str) -> str:
+    """The pace key for a URL: the lowercased host name, plus the port
+    only when it isn't the scheme's default, so `WWW.Example.com`,
+    `www.example.com:443` and `www.example.com` share one clock."""
+    parts = urlsplit(url)
+    try:
+        host, port = (parts.hostname or "").lower(), parts.port
+    except ValueError:            # a malformed port; the request itself will fail
+        return parts.netloc.lower()
+    if not host:
+        return parts.netloc.lower()
+    if port is not None and port != _DEFAULT_PORTS.get(parts.scheme.lower()):
+        host += f":{port}"
+    return host
+
+
 def _host(host: str, min_interval: float) -> dict:
     """The host's shared pace state. Its minimum interval is the largest
     any client has declared for it, so a client that declares none (the
@@ -873,7 +893,8 @@ class SourceClient:
             self._maybe_take_a_break(st)
         finally:
             st["break_lock"].release()
-        hs = _host(host, float(self.policy.host_min_interval.get(host, 0.0)))
+        declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
+        hs = _host(host, float(declared.get(host, 0.0)))
         self._acquire_cancellable(hs["lock"])
         try:
             gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
@@ -946,7 +967,7 @@ class SourceClient:
         given = {k.lower() for k in hdrs}
         conditional = {k: v for k, v in conditional.items() if k.lower() not in given}
         hdrs.update(conditional)
-        host = urlsplit(url).netloc
+        host = _host_key(url)
         st = _state(self.source, self.policy.max_concurrent)
 
         attempt_no = 0
@@ -1059,7 +1080,7 @@ class SourceClient:
             poll.other_requests += 1
         st = _state(self.source, self.policy.max_concurrent)
         with st["sem"]:
-            self._wait_turn(urlsplit(url).netloc, st)
+            self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1
             self._status(action or f"{access_method}: {url}", 0.0)
