@@ -30,3 +30,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# installer/build_installer.py output (payload, downloaded Python, Setup .exe)
+/build/

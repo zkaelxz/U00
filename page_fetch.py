@@ -654,7 +654,21 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
             yield page
 
 
+# Set when the app is shutting down (services/shutdown_service.py): no new
+# browser starts, and a sign-in window closes on its own thread (Playwright's
+# sync objects can't be closed from another one). Anything still running
+# after the grace period ends with the server's Job Object (process_guard).
+_SHUTDOWN = threading.Event()
+LOGIN_POLL_MS = 1000
+
+
+def request_shutdown() -> None:
+    _SHUTDOWN.set()
+
+
 def _require_playwright():
+    if _SHUTDOWN.is_set():
+        raise RuntimeError("Baihe Studio is shutting down; no new browser is started.")
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -776,6 +790,29 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
     return html, _visible_lines(html)
 
 
+def _playwright_timeout_error():
+    try:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        return PlaywrightTimeout
+    except ImportError:
+        class _NoTimeout(Exception):
+            pass
+        return _NoTimeout
+
+
+def _wait_for_close(context) -> None:
+    """Waits, however long it takes, for the person to close the window --
+    in short steps, so an app shutdown ends the wait too (and _shut then
+    closes the browser on this, its own, thread)."""
+    timeout_error = _playwright_timeout_error()
+    while not _SHUTDOWN.is_set():
+        try:
+            context.wait_for_event("close", timeout=LOGIN_POLL_MS)
+            return
+        except timeout_error:
+            continue
+
+
 def open_login_window(url: str, profile_dir: str, launcher=None):
     """Opens a visible browser window on the persistent profile at `url`
     and waits -- with no timeout -- until the person closes it. They sign
@@ -802,7 +839,7 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
                 # if the proxy demonstrably carries this browser's traffic.
                 if proxy is not None and proxy.proxied == 0:
                     raise ProxyBypassed(_BYPASSED) from None  # the window is still open; the person can navigate there themselves
-            context.wait_for_event("close", timeout=0)   # 0 = wait for the person, however long
+            _wait_for_close(context)
         finally:
             _shut(pw, context)
     finally:

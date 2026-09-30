@@ -1,4 +1,18 @@
-# Frontend release zip
+# Releases
+
+## Windows installer (end users)
+
+Installed users get the React screens inside the installer, so they don't
+need the zip below (user decision, 2026-09-30). To build
+`BaiheStudio-Setup-<version>.exe`, go to Actions → **Windows Installer** →
+Run workflow, or push a tag `installer-v<version>`. The workflow builds the
+installer, smoke-tests a silent install and uninstall, and uploads the
+`.exe` as a run artifact. Attach it to a GitHub release by hand. To build
+locally on Windows (Python 3.12, Node.js 22 and Inno Setup 6 needed), run
+`python installer/build_installer.py --version <version>`. Design and
+behaviour: `docs/windows-installer-design.md`.
+
+# Frontend release zip (source checkouts)
 
 End users run the app without Node.js. The React frontend is built once, on
 a developer's PC, and published as a zip on a GitHub release. GitHub Actions

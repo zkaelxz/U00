@@ -28,6 +28,7 @@ CYCLE_LEASE_SECONDS = 2 * 3600
 VALIDATOR_MAX_AGE_SECONDS = 7 * 24 * 3600
 _scheduler_started = False
 _scheduler_lock = threading.Lock()
+_scheduler_stop = threading.Event()   # set by stop_scheduler (app shutdown)
 
 
 def check_series(adapter, row: dict) -> list:
@@ -166,12 +167,18 @@ def ensure_scheduler_started(poll_seconds: float = 300.0):
         _scheduler_started = True
 
     def loop():
-        while True:
+        while not _scheduler_stop.is_set():
             try:
                 if store.list_tracked_series() and check_due():
                     start_check_now(scheduled=True)
             except Exception:
                 pass    # a transient DB/lock hiccup shouldn't kill the scheduler
-            time.sleep(poll_seconds)
+            _scheduler_stop.wait(poll_seconds)
 
     threading.Thread(target=loop, daemon=True, name="sources-chapter-scheduler").start()
+
+
+def stop_scheduler() -> None:
+    """Stops the scheduler for good in this process (the app's clean
+    shutdown, services/shutdown_service.py): it starts no more checks."""
+    _scheduler_stop.set()

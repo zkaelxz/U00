@@ -3955,6 +3955,12 @@ class SourcesProxyRequest(BaseModel):
     url: StrictStr = Field("", max_length=500)
 
 
+# Step 80b: clean stop for the installed app (POST /api/system/shutdown).
+class ShutdownResponse(BaseModel):
+    status: str = Field(description="`stopping`: jobs were asked to stop and the server exits shortly.")
+    cancelled_jobs: int = Field(description="How many running or queued jobs were asked to stop.")
+
+
 # --- Step 115b: import with lightnovel-crawler (external program) -----------
 
 class LncrawlStatus(BaseModel):

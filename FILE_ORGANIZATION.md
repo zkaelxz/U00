@@ -47,12 +47,26 @@ baihe-subtitler/
 │
 ├── .github/
 │   ├── pull_request_template.md
-│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check)
+│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check),
+│                                 windows-installer.yml (on demand / installer-v* tags: builds the
+│                                 Setup .exe and smoke-tests a silent install + uninstall)
 │
 ├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
 │
 ├── assets/
 │   └── app_icon.ico              used by make_shortcut.bat / packaging
+│
+├── installer/                    Windows installer (Step 80b; docs/windows-installer-design.md)
+│   ├── baihe.iss                 Inno Setup 6 script: per-user install, data-folder page,
+│   │                             shortcuts, uninstaller (user data kept unless a box is ticked)
+│   ├── build_installer.py        build-time: stages the app + frontend/dist (no .env/library/
+│   │                             tests), pinned embeddable Python, core wheels, manifest; runs ISCC
+│   ├── launcher.py               runtime (ships as app\installer\): the Start-menu shortcut --
+│   │                             starts `python -m api` on loopback, opens the window; --stop
+│   ├── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
+│   │                             pip from its wheel, installs requirements-core offline
+│   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
+│                                 workflow's "Stop ends every child" check
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -91,10 +105,9 @@ baihe-subtitler/
 │   │                             they were diagnosed and fixed [audit record, append-only;
 │   │                             deliberately kept separate from README.md so that stays
 │   │                             focused on using the app]
-│   └── windows-installer-design.md   Step 80 Windows installer/uninstaller architecture
-│                                 [design proposal, nothing built yet; written for an
-│                                 implementing session or the user to read before Step 80's
-│                                 build work starts]
+│   └── windows-installer-design.md   Windows installer/uninstaller: Step 80's design, updated
+│                                 for React + FastAPI and built in Step 80b (installer/)
+│                                 [design + as-built reference; the research notes are in archive/]
 │
 │   Note: the numbered build-order roadmap (`docs/baihe-roadmap.md`) and its own status table
 │   don't live in this repo — they're tracked on the separate planning branch
@@ -243,6 +256,9 @@ baihe-subtitler/
 │   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
+│   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
+│   │                             cancels this process's jobs, stops page_server; the launcher's token-gated
+│   │                             POST /api/system/shutdown, a closed console window and Ctrl+C run it
 │   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
 │   │                             hooks name what changed, each stream re-reads it through the GET routes'
 │   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
@@ -811,7 +827,8 @@ baihe-subtitler/
 | `applog.py` | a single rotating log file for the whole app |
 | `diagnostics.py` | environment self-check: which optional dependencies/models are available |
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
-| `portable.py` | lets the whole app folder be copied/moved and still work |
+| `process_guard.py` | Windows Job Object that ends every child process (ffmpeg, Playwright's Node and Chromium, pip...) with the API server, however it was started, plus the console-close handler that runs the clean stop first; `launcher.py --stop` can end an install's whole group (Step 80b) |
+| `portable.py` | lets the whole app folder be copied/moved and still work; `data_dir()` is where library/, .env and (installed copies) model caches live -- the app folder for a source checkout, the per-user data folder for an installed copy (Step 80b) |
 | `ui_theme.py` | design system (CSS, layout primitives) |
 | `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
 | `storage.py` | disk usage, cache cleanup |

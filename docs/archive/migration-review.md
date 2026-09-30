@@ -1278,3 +1278,5 @@ stays fully usable in Streamlit the whole time, and each phase is useful
 on its own even if the migration later stops. Phase 3 (job runner
 extraction) also pays off for Streamlit and `cli.py` whether or not React
 ever replaces anything.
+
+**Step 80b -- installed app's clean stop (2026-09-30).** New `services/shutdown_service.py` and `POST /api/system/shutdown` in `api/routers/system_routes.py` (`local_only()`, 202). The route exists only when the installed launcher started the server with a one-time token (`BAIHE_SHUTDOWN_TOKEN`, sent back as `X-Baihe-Shutdown-Token`, constant-time compare); otherwise it is a 404. It cancels this process's running and queued jobs through `jobs_service.cancel_job` (new read-only `background_jobs.active_job_ids()`), waits up to 8 s, then sets uvicorn's `should_exit` (`python -m api` now runs `uvicorn.Server` directly outside development mode so it can register that stopper). `process_guard.py` puts the launcher-started server into a named kill-on-close Windows Job Object so child processes end with it. Tests: `tests/test_shutdown.py`.

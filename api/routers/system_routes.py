@@ -4,11 +4,19 @@ api/routers/system_routes.py -- liveness and API metadata.
 `/api/health` never touches the database or any optional package, so it
 answers "is the server up" and nothing else; a client should use a real
 endpoint's own error to learn anything more specific.
+
+`POST /api/system/shutdown` (Step 80b) is the installed launcher's clean
+stop: PC-only, and it exists only when the launcher started the server
+with a one-time token (services/shutdown_service.py); otherwise it is a 404.
 """
 
-from fastapi import APIRouter, Request
-from api.auth import _auth_enabled, is_local_request, public_route
-from api.schemas import API_VERSION, HealthResponse, MetaResponse
+from typing import Optional
+
+from fastapi import APIRouter, Header, Request
+from api.auth import _auth_enabled, is_local_request, local_only, public_route
+from api.schemas import API_VERSION, HealthResponse, MetaResponse, ShutdownResponse
+from services import shutdown_service
+from services.service_errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -26,3 +34,15 @@ def meta(request: Request):
     local = not _auth_enabled(request.app) or is_local_request(request)
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
                         environment=request.app.state.settings.environment, local=local)
+
+
+@router.post("/system/shutdown", dependencies=[local_only()], response_model=ShutdownResponse,
+             status_code=202, summary="Stop the installed app's server cleanly")
+def shutdown(x_baihe_shutdown_token: Optional[str] = Header(default=None)):
+    # Only the installed launcher knows the token (it started this server
+    # with it); a server started any other way has no shutdown route.
+    if not shutdown_service.enabled():
+        raise NotFoundError("Not found.")
+    if not shutdown_service.token_matches(x_baihe_shutdown_token):
+        raise ForbiddenError("Not allowed.")
+    return ShutdownResponse(**shutdown_service.request_shutdown())

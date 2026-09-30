@@ -322,55 +322,13 @@ _atexit_registered = False
 def _windows_job(proc):
     """A Windows Job Object holding `proc` (and so every process it starts
     afterwards), set to kill them all when the job is closed or terminated.
-    None elsewhere or on any failure (taskkill /T still applies)."""
+    None elsewhere or on any failure (taskkill /T still applies). It nests
+    inside the server's own job (process_guard), so a cancel can end just
+    this tree."""
     if os.name != "nt":
         return None
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        class _Basic(ctypes.Structure):
-            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
-                        ("PerJobUserTimeLimit", ctypes.c_int64),
-                        ("LimitFlags", wintypes.DWORD),
-                        ("MinimumWorkingSetSize", ctypes.c_size_t),
-                        ("MaximumWorkingSetSize", ctypes.c_size_t),
-                        ("ActiveProcessLimit", wintypes.DWORD),
-                        ("Affinity", ctypes.c_size_t),
-                        ("PriorityClass", wintypes.DWORD),
-                        ("SchedulingClass", wintypes.DWORD)]
-
-        class _Io(ctypes.Structure):
-            _fields_ = [(n, ctypes.c_uint64) for n in (
-                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
-                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
-
-        class _Extended(ctypes.Structure):
-            _fields_ = [("BasicLimitInformation", _Basic), ("IoInfo", _Io),
-                        ("ProcessMemoryLimit", ctypes.c_size_t),
-                        ("JobMemoryLimit", ctypes.c_size_t),
-                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.CreateJobObjectW.restype = wintypes.HANDLE
-        k32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
-        k32.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int,
-                                                ctypes.c_void_p, wintypes.DWORD)
-        k32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
-        k32.CloseHandle.argtypes = (wintypes.HANDLE,)
-        job = k32.CreateJobObjectW(None, None)
-        if not job:
-            return None
-        info = _Extended()
-        info.BasicLimitInformation.LimitFlags = 0x2000    # KILL_ON_JOB_CLOSE
-        if not (k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
-                and k32.AssignProcessToJobObject(job, int(proc._handle))):
-            k32.CloseHandle(job)
-            return None
-        return job
-    except Exception:
-        return None
+    import process_guard
+    return process_guard.create_kill_on_close_job(int(proc._handle))
 
 
 def _windows_job_call(name: str, job, *args):
