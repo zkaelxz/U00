@@ -14,6 +14,7 @@ import threading
 import time
 
 import background_jobs
+from translate_engines import redact_for_storage
 
 from . import http, ladder, registry, store
 from .models import SourceError
@@ -124,11 +125,11 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             new = check_series(adapter, row)
         except SourceError as e:
             summary["errors"][row["title"]] = f"{e.reason.value}: {e}"
-            store.mark_checked(row["source"], row["series_id"], error=str(e)[:300])
+            store.mark_checked(row["source"], row["series_id"], error=redact_for_storage(str(e))[:300])
             continue
         except Exception as e:
             summary["errors"][row["title"]] = f"{type(e).__name__}: {e}"
-            store.mark_checked(row["source"], row["series_id"], error=str(e)[:300])
+            store.mark_checked(row["source"], row["series_id"], error=redact_for_storage(str(e))[:300])
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
