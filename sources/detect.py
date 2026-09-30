@@ -13,7 +13,9 @@ from typing import Optional
 
 from .models import FailureReason
 
-_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+# No "<" inside the tag or the title text: a lazy `(.*?)</title>` is
+# quadratic on many unclosed "<title>" tags (pasted page source can be 5 MB).
+_TITLE_RE = re.compile(r"<title[^<>]*>([^<]*)</title>", re.I)
 _TAG_RE = re.compile(r"<(script|style|noscript)\b.*?</\1>|<[^>]+>", re.I | re.S)
 
 # Cloudflare's managed/JS challenge. `cf-mitigated: challenge` is the

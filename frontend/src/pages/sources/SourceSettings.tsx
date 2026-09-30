@@ -22,6 +22,7 @@ import type { SourceHealth, SourceProfileDomain, SourcesSettings, SourceSummary 
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { PacingForm } from './PacingForm'
 import { ProxyForm } from './ProxyForm'
+import { RecentExtractions } from './RecentExtractions'
 import { SourceDetail } from './SourceDetail'
 import { healthText, healthTone, pacingSummary, profileLine, settingsSummary } from './sourcesFormat'
 
@@ -273,6 +274,7 @@ function LocalSettings({ phone, sources, onSource, onHealth, onAdultChanged }: P
           ))}
         </Section>
       )}
+      <RecentExtractions />
     </Section>
   )
 }

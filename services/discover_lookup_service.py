@@ -45,6 +45,9 @@ MAX_URL_LEN = 2000
 MAX_BULK_URLS = 10
 MAX_COMMIT_ENTRIES = 500
 MAX_GOAL_LEN = 500
+# Pasted listing text (DI07 manual fallback). Only the first 12,000
+# characters reach the engine (bulk_import.extract_listing_entries_llm).
+MAX_PASTED_LISTING_CHARS = 200_000
 MAX_LABELS = 150
 TARGET_LANGUAGES = ("English", "Vietnamese", "Chinese", "Japanese", "Korean")
 
@@ -53,7 +56,7 @@ NAV_JOB_ID = "discover_navigation_help"
 
 # Functions that call an LLM engine (and so may spend on a paid one).
 PAID_ENGINE_FUNCTIONS = ("translate_query", "import_suggestion", "bulk_extract",
-                         "navigation_help")
+                         "bulk_extract_pasted", "navigation_help")
 
 _SUGGEST_FIELDS = ("title_en", "title_zh", "author", "studio", "director",
                    "voice_actors", "summary")
@@ -317,6 +320,57 @@ def bulk_extract(urls, source_label="", engine_name: Optional[str] = None) -> di
     engine = _build_engine(engine_name)
     return _start(BULK_JOB_ID, "bulk listing extraction", _run_bulk_extract,
                   clean, source_label, engine)
+
+
+PASTED_PAGE_LABEL = "Pasted text"
+
+
+def _run_bulk_extract_pasted(job_id, text, source_label, engine):
+    run = uuid.uuid4().hex[:12]
+    row = {"url": PASTED_PAGE_LABEL, "ok": False, "needs_manual": False, "count": 0,
+           "message": ""}
+    entries, seen, full_urls = [], set(), {}
+    background_jobs.update_progress(job_id, 0.1, "Reading the pasted text")
+    try:
+        found = bulk_import.extract_listing_from_text(text, engine, source_name=source_label)
+        for raw in found or []:
+            e = _clean_entry(raw)
+            if e is None or e["title"] in seen:
+                continue
+            seen.add(e["title"])
+            e["entry_id"] = f"{run}-{len(entries)}"
+            e["source_url"] = ""
+            full_urls[e["entry_id"]] = ""       # pasted: no page URL to store
+            entries.append(e)
+            row["count"] += 1
+        row["ok"] = row["count"] > 0
+        row["message"] = "" if row["ok"] else "Found no titles in the pasted text."
+    except (InvalidInputError, UnsupportedOperationError, DependencyUnavailableError) as err:
+        row["message"] = _redact(err.message)
+    except Exception:
+        row["message"] = _ENGINE_FAILED
+    background_jobs.update_progress(job_id, 1.0, "Read the pasted text")
+    background_jobs.set_result(job_id, {"entries": entries, "pages": [row],
+                                        "source_label": source_label,
+                                        "_source_urls": full_urls})
+
+
+def bulk_extract_pasted(text, source_label="", engine_name: Optional[str] = None) -> dict:
+    """The manual fallback for listings a plain fetch can't read: extract
+    catalogue entries from listing text the person copied from their
+    browser. Same job and result shape as bulk_extract (one "page", no
+    source URL), so the same review and bulk_commit follow. Fetches and
+    writes nothing."""
+    if not isinstance(text, str) or not text.strip():
+        raise InvalidInputError("Paste the listing text first.")
+    if len(text) > MAX_PASTED_LISTING_CHARS:
+        raise InvalidInputError(
+            f"The pasted text is too long (at most {MAX_PASTED_LISTING_CHARS:,} characters).")
+    source_label = _check_text("source_label", source_label, 100, required=False)
+    engine_name = _check_engine(engine_name)
+    engine = _build_engine(engine_name)
+    return _start(BULK_JOB_ID, "bulk listing extraction", _run_bulk_extract_pasted,
+                  text, source_label, engine)
 
 
 def bulk_extract_result(principal=None) -> dict:

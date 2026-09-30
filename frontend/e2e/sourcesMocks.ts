@@ -229,6 +229,17 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     record(route)
     return notFound(route)
   })
+  // The site check (SO02) and identify media (SO08) look for an earlier run
+  // on mount, and Source settings lists recent pasted-link imports (SO16):
+  // none here (sourcesToolsMocks.ts overrides these).
+  await page.route(/\/api\/sources\/jobs\/sources_url_(preflight|identify)\/result$/, (route) => {
+    record(route)
+    return notFound(route)
+  })
+  await page.route(/\/api\/sources\/url\/extractions(\?.*)?$/, (route) => {
+    record(route)
+    return json(route, [])
+  })
   await page.route(/\/api\/jobs\/sources_search\/cancel$/, (route) => {
     record(route)
     s.search = 'done'
