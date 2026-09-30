@@ -88,8 +88,9 @@ def post_tracked(payload: SourceTrackRequest, request: Request):
 @router.post("/tracked/drama", dependencies=[require_permission("sources.import")], response_model=List[TrackedSeries],
              summary="Which drama a tracked series auto-imports into (null = none; fetches nothing)",
              responses=_ERR)
-def post_tracked_drama(payload: SourceTrackedDramaRequest):
-    return tracking.set_tracked_drama(payload.source, payload.series_id, payload.drama_id)
+def post_tracked_drama(payload: SourceTrackedDramaRequest, request: Request):
+    return tracking.set_tracked_drama(payload.source, payload.series_id, payload.drama_id,
+                                      principal=request.state.principal)
 
 
 @router.post("/check-now", dependencies=[require_permission("sources.import")], response_model=SourcesJobStarted,
