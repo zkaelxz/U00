@@ -13,6 +13,8 @@ import { buttonClass } from '../../components/uiClasses'
 import type { AskResponse, AssistantSettings, BacklogItem, BacklogKind, SuggestedBacklogItem } from '../../types/assistant'
 import { CloudConsent } from './CloudConsent'
 import { CopyButton } from './CopyButton'
+import { ReviewRolesSection } from './ReviewRolesSection'
+import { verdictInfo } from './reviewFormat'
 import {
   MODE_OFF_TEXT,
   PATCH_LABEL,
@@ -140,6 +142,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
         onModel={onModel}
         onSettings={onSettings}
       />
+      <ReviewRolesSection settings={settings} implementEngine={engine} onSettings={onSettings} />
     </Card>
   )
 }
@@ -181,6 +184,7 @@ function Answer({ response, onAddToBacklog }: { response: AskResponse; onAddToBa
           <CopyButton text={p.patch} label="Copy proposed fix" />
         </figure>
       ))}
+      {response.review && <Review review={response.review} />}
       {(response.suggested_backlog ?? []).length > 0 && (
         <ul className="assistant-suggestions" aria-label="Suggested backlog items">
           {response.suggested_backlog.map((s, i) => (
@@ -189,6 +193,42 @@ function Answer({ response, onAddToBacklog }: { response: AskResponse; onAddToBa
         </ul>
       )}
     </div>
+  )
+}
+
+function Review({ review }: { review: NonNullable<AskResponse['review']> }) {
+  const info = verdictInfo(review.verdict)
+  const calls = review.tool_calls ?? []
+  return (
+    <section className="assistant-review" aria-label="Independent review" data-testid="assistant-review">
+      <div className="assistant-call-head">
+        <strong>Independent review</strong>
+        <Badge tone={info.tone}>{info.label}</Badge>
+        {review.engine && (
+          <span className="muted">
+            {humanize('engine', review.engine)}
+            {review.model ? ` · ${review.model}` : ''}
+          </span>
+        )}
+      </div>
+      <p className="muted">{info.text}</p>
+      {review.notes && <div className="assistant-answer">{review.notes}</div>}
+      {calls.length > 0 && (
+        <Section title={`Reviewer's tools (${calls.length})`}>
+          <ul className="assistant-calls" aria-label="Reviewer's tools">
+            {calls.map((c) => (
+              <li key={c.id}>
+                <div className="assistant-call-head">
+                  <code className="assistant-call-name">{c.name}</code>
+                  <Badge tone={c.ok ? 'ok' : 'bad'}>{c.ok ? 'OK' : 'Failed'}</Badge>
+                </div>
+                <code className="assistant-call-args">{compactArgs(c.args)}</code>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </section>
   )
 }
 
