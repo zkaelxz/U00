@@ -27,7 +27,8 @@ export interface UrlPreview {
 }
 
 // not_attempted (Step 107): the run stopped (cancel, browser check) before this chapter.
-export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted'
+// needs_ai: the page loaded but the adapter's layout no longer fits; waits for an AI-recovery confirm.
+export type ChapterOutcome = 'imported' | 'skipped' | 'failed' | 'not_found' | 'not_attempted' | 'needs_ai'
 
 export interface ChapterImportRow {
   chapter_id: string
@@ -73,6 +74,14 @@ export interface ChapterImportRequest {
   drama_id: number
 }
 
+// POST /api/sources/{name}/import/{chapter_id}/ai-recover (engine required, confirm must be true)
+export interface AiRecoverRequest {
+  series_id: string
+  drama_id: number
+  engine: string
+  confirm: true
+}
+
 export interface UrlDownloadRequest {
   url: string
   audio_only: boolean
@@ -86,7 +95,8 @@ export interface ImportRetryRow {
   chapter_id: string
   title: string
   // partial: interrupted mid-write -- shown, never retried automatically
-  status: 'failed' | 'not_attempted' | 'partial'
+  // needs_ai: layout changed -- waits for an AI-recovery confirm, never retried automatically
+  status: 'failed' | 'not_attempted' | 'partial' | 'needs_ai'
   error: string
 }
 

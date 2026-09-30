@@ -152,6 +152,8 @@ export function outcomeSummary(r: ChapterImportResult): string {
   if (missing) parts.push(`${missing} not found`)
   const notTried = r.not_attempted_count ?? r.chapters.filter((c) => c.outcome === 'not_attempted').length
   if (notTried) parts.push(`${notTried} not attempted`)
+  const needsAi = r.chapters.filter((c) => c.outcome === 'needs_ai').length
+  if (needsAi) parts.push(`${needsAi} need AI help`)
   return (r.cancelled ? 'Stopped. ' : '') + parts.join(' · ')
 }
 
@@ -164,6 +166,7 @@ export function outcomeText(c: ChapterImportRow): string {
   if (c.outcome === 'skipped') return 'Already imported'
   if (c.outcome === 'not_found') return 'No longer on the site'
   if (c.outcome === 'not_attempted') return 'Not attempted'
+  if (c.outcome === 'needs_ai') return 'Needs AI help'
   if (c.outcome === 'failed') {
     const why = c.error ? safeDetail(c.error) : null
     return why ? `Failed: ${why}` : 'Failed'
@@ -174,7 +177,7 @@ export function outcomeText(c: ChapterImportRow): string {
 export const outcomeTone = (outcome: string) =>
   outcome === 'imported' ? 'ok'
     : outcome === 'failed' ? 'bad'
-      : outcome === 'not_found' || outcome === 'not_attempted' ? 'warn' : 'muted'
+      : outcome === 'not_found' || outcome === 'not_attempted' || outcome === 'needs_ai' ? 'warn' : 'muted'
 
 /** Comic imports: pages are stored, but React has no page viewer yet. */
 export function comicNote(r: ChapterImportResult): string | null {
@@ -209,12 +212,19 @@ export function chapterMarks(state: ImportState | null): Map<string, ChapterMark
       marks.set(r.chapter_id, { label: 'Check first', tone: 'bad', note: r.error ? safeDetail(r.error) : null })
       continue
     }
+    if (r.status === 'needs_ai') {
+      marks.set(r.chapter_id, { label: 'Needs AI help', tone: 'warn', note: null })
+      continue
+    }
     const failed = r.status === 'failed'
     const why = failed && r.error ? safeDetail(r.error) : null
     marks.set(r.chapter_id, { label: failed ? 'Failed' : 'Not attempted', tone: failed ? 'bad' : 'warn', note: why })
   }
   return marks
 }
+
+/** The chapters waiting for the person to confirm an AI read. */
+export const needsAiRows = (state: ImportState | null) => state?.retry.filter((r) => r.status === 'needs_ai') ?? []
 
 /** What Select all ticks: every chapter not already imported into the drama. */
 export function selectableChapters(chapters: SeriesChapter[], state: ImportState | null): SeriesChapter[] {
@@ -228,9 +238,10 @@ export function selectAllLabel(selectable: number, total: number): string {
 }
 
 /** The retry set: the drama's saved import state, else the run that just finished.
- * A "partial" chapter (interrupted mid-write) is never retried automatically. */
+ * A "partial" chapter (interrupted mid-write) and a "needs_ai" one (waiting for the
+ * person's AI confirm) are never retried automatically. */
 export function retryIds(state: ImportState | null, result: ChapterImportResult | null): string[] {
-  if (state) return state.retry.filter((r) => r.status !== 'partial').map((r) => r.chapter_id)
+  if (state) return state.retry.filter((r) => r.status !== 'partial' && r.status !== 'needs_ai').map((r) => r.chapter_id)
   return result?.retry_chapter_ids ?? []
 }
 

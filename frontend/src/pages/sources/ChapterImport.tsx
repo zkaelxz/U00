@@ -21,11 +21,13 @@ import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { SeriesChapter, TrackedSeries } from '../../types/sources'
+import { AiRecover } from './AiRecover'
 import { DramaPicker } from './DramaPicker'
+import { ExtractionReview } from './ExtractionReview'
 import type { ChapterImportState } from './useChapterImport'
 import { describeSourceError, percent } from './sourcesFormat'
 import {
-  comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, outcomeTone, retryLabel, retryNote,
+  comicNote, importIds, importLabel, importReason, outcomeSummary, outcomeText, needsAiRows, outcomeTone, retryLabel, retryNote,
 } from './urlImportFormat'
 
 type SetupProps = {
@@ -44,6 +46,7 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
   const { dramas } = imp
   const outcomesRef = useRef<HTMLDivElement>(null)
   const { job, running, shownResult } = imp
+  const [reviewClosed, setReviewClosed] = useState(false)
 
   // A run started here finished: bring its outcomes into view.
   useEffect(() => {
@@ -72,6 +75,17 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
           </button>
           {retryNote(imp.retry.length) && <span className="muted">{retryNote(imp.retry.length)}</span>}
         </div>
+      )}
+      <AiRecover
+        rows={needsAiRows(imp.importState.state)}
+        disabled={running}
+        onConfirm={(id, engine) => {
+          setReviewClosed(false)
+          imp.recover(id, engine)
+        }}
+      />
+      {imp.recoveryReview && imp.dramaId && !reviewClosed && (
+        <ExtractionReview dramaId={imp.dramaId} onClose={() => setReviewClosed(true)} />
       )}
       {!tracked && <TrackRow source={source} seriesId={seriesId} dramaId={imp.dramaId} onTracked={onTracked} />}
       <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />

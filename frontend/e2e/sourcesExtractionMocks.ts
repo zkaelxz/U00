@@ -115,7 +115,7 @@ export async function mockExtraction(page: Page, s: MockState, m: ImportMockStat
   }
   await page.route(/\/api\/sources\/url\/ai-engines$/, (route) => {
     record(route)
-    return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude' })
+    return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude', free: ['ollama'] })
   })
   const start = (route: Route) => {
     record(route)

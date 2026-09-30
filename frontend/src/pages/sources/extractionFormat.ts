@@ -44,6 +44,12 @@ export function aiRequestFields(choice: AiChoice, engines: AiEngines | null): Ai
 
 export const engineLabel = (name: string) => (name === 'ollama' ? 'Ollama (on this PC)' : humanize('engine', name))
 
+/** What the confirm shows before one AI call on a chapter: engine, call count, paid or not. */
+export function recoverSummary(engine: string, engines: AiEngines | null): string {
+  const paid = !(engines?.free ?? []).includes(engine)
+  return `${engineLabel(engine)} · 1 AI call · ${paid ? 'may use paid credits' : 'free engine'}`
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`
 
 // ---------------------------------------------------------------- following next-chapter links
@@ -125,6 +131,7 @@ export const REVIEW_WHY: Record<string, string> = {
   low_confidence: 'Baihe isn’t sure it found the right parts of the page, so nothing was saved yet.',
   asked: 'You asked to check the result before it is saved.',
   diagnostics: 'Sources diagnostics mode is on, so every result is shown here first.',
+  recovery: 'This chapter’s page no longer matched the source’s reader, so AI read it once. Nothing was saved yet: check the text, then import it.',
   follow: 'Baihe followed the next-chapter links. Nothing was saved yet: untick any page you don’t want, then import.',
 }
 

@@ -29,7 +29,8 @@ import db
 from . import ladder, registry, store
 from .cache import RawCache
 from .http import Cancelled
-from .models import ChallengeDetected, ChapterInfo, SourceError, TermsProhibited
+from .models import (ChallengeDetected, ChapterInfo, FailureReason, SourceError,
+                     TermsProhibited)
 
 # Scanlate's uploader accepts these as-is; anything else (webp, avif,
 # gif...) is converted to PNG first so downstream code sees the same
@@ -202,6 +203,8 @@ _NO_BOOKKEEPING = "Could not update the import records; nothing was saved for th
 _NOT_RECORDED = "The chapter could not be recorded as imported; retry it."
 _NOT_SAVED = "Could not save the chapter text; retry it."
 _ROLLED_BACK = "Could not save this chapter's pages; none were kept. Retry it."
+NEEDS_AI_TEXT = ("The page loaded but this source's layout has changed. "
+                 "Needs AI help: confirm.")
 
 
 def _warn(message: str):
@@ -319,8 +322,24 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     return ""
 
 
+def append_recovered_chapter(source: str, ch, drama_id: int, text: str) -> str:
+    """Writes a chapter the adapter could not read (text an AI-assisted
+    extraction recovered, confirmed by the person) the way run_import_job
+    writes one: appended, recorded as imported, then its retry marker
+    cleared. Returns "" on success, else the error (the chapter is marked
+    retryable)."""
+    error = _append_chapter_text(source, ch, drama_id, text)
+    if not error and not _record_imported(source, ch, drama_id):
+        error = _NOT_RECORDED
+    if error:
+        _mark_retryable(source, ch, drama_id, error)
+        return error
+    _clear_in_flight(source, ch, drama_id)
+    return ""
+
+
 def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
-                   skip_ids=None):
+                   skip_ids=None, on_layout_changed=None):
     """Background-job body. `chapters` are ChapterInfo (or their dicts) --
     only the ones the person ticked. Stores a result dict with per-chapter
     outcomes, the final Source Access stats, and a hand-off record if a
@@ -329,7 +348,13 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
     `skip_ids`: chapter ids (matched by id, never by position) not to fetch
     -- e.g. already imported into this drama; each gets a
     {"skipped": True} outcome. Every chapter imported is recorded in
-    store.imported_chapters."""
+    store.imported_chapters.
+
+    A text chapter whose page loaded but no longer matches the adapter
+    (LAYOUT_CHANGED) is recorded as "needs_ai" and ends the run: the rest
+    are not attempted. `on_layout_changed(ch, url, html)` is told the page
+    the adapter read (both None when it is not known). This job never
+    holds an engine."""
     if db.get_drama(drama_id) is None:
         raise SourceError("The drama to import into no longer exists.")
     skip_ids = {str(i) for i in (skip_ids or ())}
@@ -363,6 +388,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         adapter.client.status_cb = publish
         adapter.client.cancel_check = lambda: background_jobs.is_cancel_requested(job_id)
 
+    from translate_engines import redact_secrets
     handoff = None
     cancelled = False
     try:
@@ -412,7 +438,25 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                         # Unrecorded pages would be imported again by a retry.
                         _discard_pages(drama_id, page_ids)
                 else:
-                    text = adapter.get_chapter_text(ch)
+                    adapter.client.last_page = None
+                    try:
+                        text = adapter.get_chapter_text(ch)
+                    except SourceError as e:
+                        if e.reason != FailureReason.LAYOUT_CHANGED:
+                            raise
+                        try:
+                            store.record_import_retry(
+                                source, ch.series_id, drama_id,
+                                [(ch.chapter_id, redact_secrets(ch.title or ""), "needs_ai",
+                                  NEEDS_AI_TEXT)])
+                        except Exception:
+                            _warn("Could not record a chapter that needs AI help")
+                        results.append({"chapter_id": ch.chapter_id, "title": ch.title,
+                                        "ok": False, "needs_ai": True, "error": NEEDS_AI_TEXT})
+                        if on_layout_changed is not None:
+                            url, html = adapter.client.last_page or (None, None)
+                            on_layout_changed(ch, url, html)
+                        break
                     error = _append_chapter_text(source, ch, drama_id, text)
                     if error:
                         _mark_retryable(source, ch, drama_id, error)

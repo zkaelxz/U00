@@ -36,11 +36,24 @@ class SourcesUrlImportFollowRequest(SourcesUrlImportAiRequest):
     follow_pages: StrictInt = Field(default=1, ge=1, le=MAX_FOLLOW_PAGES)
 
 
+class SourcesAiRecoverRequest(BaseModel):
+    """POST /api/sources/{name}/import/{chapter_id}/ai-recover. The person's
+    confirm for one AI call on a chapter whose page layout changed; `engine`
+    is required and `confirm` must be true."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: StrictStr = Field(min_length=1, max_length=200)
+    drama_id: StrictInt = Field(ge=1)
+    engine: StrictStr = Field(min_length=1, max_length=40)
+    confirm: StrictBool
+
+
 class SourcesAiEngines(BaseModel):
     """Engine names the AI fallback can use, and the saved default when it
     is one of them. Names only: no key and no key status."""
     engines: List[str]
     default: Optional[str] = None
+    # The engines that need no `engines.paid` (the rest may be paid).
+    free: List[str] = []
 
 
 class SourcesComicUrlImportRequest(SourcesUrlImportAiRequest):
@@ -166,7 +179,7 @@ class ExtractionReview(BaseModel):
     drama_id: int
     revision: str
     content_type: Literal["novel", "comic"]
-    why: Literal["low_confidence", "asked", "diagnostics", "follow"]
+    why: Literal["low_confidence", "asked", "diagnostics", "follow", "recovery"]
     display_url: Optional[str] = None
     confidence: ExtractionConfidence
     report: ExtractionReport

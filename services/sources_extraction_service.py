@@ -78,6 +78,7 @@ from services import settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_registry_service import _scrub, safe_url
+from services.sources_search_service import _JobFailed
 from sources import adaptive, ai_extract, pipeline, profiles
 from sources import store as src_store
 
@@ -102,8 +103,11 @@ def default_ai_engine() -> Optional[str]:
 
 
 def engines_view() -> dict:
-    """{engines, default} for the picker. Names only: no key, no key status."""
-    return {"engines": ai_engines(), "default": default_ai_engine()}
+    """{engines, free, default} for the picker. Names only: no key, no key
+    status. `free`: the ones that need no `engines.paid`."""
+    engines = ai_engines()
+    return {"engines": engines, "default": default_ai_engine(),
+            "free": [e for e in engines if e in translate_engines.FREE_ENGINES]}
 
 
 def resolve_ai_engine_name(use_ai, engine) -> Optional[str]:
@@ -170,6 +174,7 @@ WHY_LOW_CONFIDENCE = "low_confidence"
 WHY_ASKED = "asked"
 WHY_DIAGNOSTICS = "diagnostics"
 WHY_FOLLOWED = "follow"
+WHY_RECOVERY = "recovery"     # an adapter chapter the person confirmed AI help for
 
 
 @dataclass
@@ -190,9 +195,16 @@ class _Review:
     sizes: dict = field(default_factory=dict)        # candidate id -> bytes on disk
     chain: list = field(default_factory=list)        # novel: adaptive.FollowedPage after the first
     follow_stop: str = ""    # why following stopped ("" = not a followed import)
+    recovery: dict = None    # {source, series_id, chapter_id, title}: an adapter chapter
 
 
 _REVIEWS = {}
+# The chapter page an adapter read when its layout had changed, kept so the
+# person's AI-recovery confirm needn't fetch it again:
+# (drama_id, source, series_id, chapter_id) -> (created_at, url, html, title).
+_LAYOUT_PAGES = {}
+MAX_LAYOUT_PAGE_CHARS = 2_000_000
+MAX_LAYOUT_PAGES_PER_DRAMA = 3
 _LOCK = threading.Lock()
 
 
@@ -275,9 +287,45 @@ def _prune(now: float):
         _discard(_REVIEWS.pop(oldest, None))
 
 
+def stash_layout_page(drama_id: int, source: str, series_id: str, chapter_id: str,
+                      url, html, title: str = ""):
+    """Keeps the page of a chapter whose layout changed (nothing when the
+    page is unknown or over MAX_LAYOUT_PAGE_CHARS), for take_layout_page."""
+    if not url or not html or len(html) > MAX_LAYOUT_PAGE_CHARS:
+        return
+    now = time.time()
+    with _LOCK:
+        for k in [k for k, v in _LAYOUT_PAGES.items() if now - v[0] > REVIEW_TTL]:
+            del _LAYOUT_PAGES[k]
+        _LAYOUT_PAGES[(int(drama_id), source, str(series_id), str(chapter_id))] = (
+            now, url, html, title or "")
+        mine = sorted((k for k in _LAYOUT_PAGES if k[0] == int(drama_id)),
+                      key=lambda k: _LAYOUT_PAGES[k][0])
+        for k in mine[:-MAX_LAYOUT_PAGES_PER_DRAMA]:
+            del _LAYOUT_PAGES[k]
+        while len(_LAYOUT_PAGES) > MAX_REVIEWS:
+            del _LAYOUT_PAGES[min(_LAYOUT_PAGES, key=lambda k: _LAYOUT_PAGES[k][0])]
+
+
+def take_layout_page(drama_id: int, source: str, series_id: str, chapter_id: str):
+    """(url, html, title) kept by stash_layout_page, removed as it is
+    taken; None when it is gone or expired."""
+    with _LOCK:
+        got = _LAYOUT_PAGES.pop((int(drama_id), source, str(series_id), str(chapter_id)), None)
+    if got is None or time.time() - got[0] > REVIEW_TTL:
+        return None
+    return got[1:]
+
+
+def review_open(drama_id: int) -> bool:
+    with _LOCK:
+        _prune(time.time())
+        return int(drama_id) in _REVIEWS
+
+
 def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, report,
                 why: str, candidates=(), pc_only: bool = False, chain=(),
-                follow_stop: str = "") -> bool:
+                follow_stop: str = "", recovery: dict = None) -> bool:
     """Called by an import job instead of writing: keeps what it extracted
     for review. Replaces any earlier review for the drama. False when there
     is nothing to review (no result). `chain`: the pages read after this
@@ -286,7 +334,8 @@ def open_review(drama_id: int, kind: str, url: str, html: str, data: dict, repor
         return False
     rv = _Review(int(drama_id), kind, url, ai_extract.PageModel(html or "", url), data, report,
                  why, list(candidates), None, _new_revision(), time.time(), bool(pc_only),
-                 chain=list(chain) if kind == "novel" else [], follow_stop=str(follow_stop or ""))
+                 chain=list(chain) if kind == "novel" else [], follow_stop=str(follow_stop or ""),
+                 recovery=recovery)
     if kind == "comic":
         try:
             _spill(rv)
@@ -684,11 +733,31 @@ def approve_profile(drama_id: int, revision: str, principal=None) -> dict:
 
 # ----- import --------------------------------------------------------------
 
+def _recovered_import(job_id: str, drama_id: int, text: str, heading: str, rv: _Review):
+    """A reviewed adapter chapter goes in the way the adapter's own import
+    writes one (recorded as imported, retry marker cleared)."""
+    from sources.models import ChapterInfo
+    rec = rv.recovery
+    ch = ChapterInfo(rec["source"], rec["series_id"], rec["chapter_id"],
+                     rec["title"] or heading)
+    error = pipeline.append_recovered_chapter(rec["source"], ch, drama_id, text)
+    if error:
+        err = {"status": 500, "code": "import_failed", "message": error}
+        background_jobs.set_result(job_id, {"kind": "review_import", "content_type": "novel",
+                                            "error": err})
+        raise _JobFailed(error)
+    background_jobs.set_result(job_id, {"kind": "review_import", "content_type": "novel",
+                                        "char_count": len(text), "pages_imported": 1})
+
+
 def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Review):
     try:
         if background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, 0.5, "Saving the reviewed result...")
+        if rv.recovery:
+            _recovered_import(job_id, drama_id, *snapshot[0], rv)
+            return
         if kind == "novel":
             chars = 0
             for n, (text, heading) in enumerate(snapshot):
@@ -755,6 +824,9 @@ def start_review_import(drama_id: int, revision: str, principal=None,
     if rv.kind == "novel":
         if media not in imp.NOVEL_MEDIA_TYPES:
             raise InvalidInputError("Novel text imports into a novel drama.")
+        if rv.recovery and rv.recovery["chapter_id"] in src_store.imported_chapter_ids(
+                rv.recovery["source"], rv.recovery["series_id"], drama_id):
+            raise ConflictError("That chapter was imported since this review opened.")
         parts = [(data.get("content") or "", _first_heading(rv, data))]
         parts += [(p.text or "", p.title or "") for p in rv.chain]
         snapshot = [parts[i] for i in _chosen_pages(rv, pages)]

@@ -8,6 +8,8 @@ export interface AiEngines {
   engines: string[]
   // The saved default engine, when the fallback can use it.
   default: string | null
+  // The engines that need no `engines.paid`; the others may be paid.
+  free?: string[]
 }
 
 // The opt-in fields a URL import sends (omitted = off).
@@ -41,7 +43,7 @@ export interface ComicUrlImportResult {
 
 // ---------------------------------------------------------------- SO10 review
 
-export type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics' | 'follow'
+export type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics' | 'follow' | 'recovery'
 export type ConfidenceBucket = 'HIGH' | 'MEDIUM' | 'LOW' | 'FAILED'
 
 export interface FieldConfidence {
