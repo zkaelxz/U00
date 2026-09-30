@@ -28,6 +28,7 @@ Audited 2026-09-30 against `baihe-subtitler` @ f09a592. Scope: the content-sourc
   - `cache_index.url`;
   - `extraction_cache.url`;
   - `seen_images.chapter_url`.
+  - `chapter_poll_validators.url` (Step 106, once it lands): the chapter-list URL, query included.
 
   `translate_engines.redact_secrets` would not catch these parameter names anyway. The stronger `_SENSITIVE_PARAM` exists only in `sources/ai_extract.py`. These tokens are not account credentials and never reach a remote client, because API reads are scrubbed. They are still on disk and in library backups. The `xfail(strict=True)` test `test_url_tokens_are_not_stored` pins health, attempts, capabilities and the cache index. Fix idea: one shared URL scrubber at the write sites, and the cache keyed by a hash of the URL.
 
@@ -38,9 +39,10 @@ Audited 2026-09-30 against `baihe-subtitler` @ f09a592. Scope: the content-sourc
 
 ## Tests (`tests/test_sources_credential_audit.py`)
 
-- **Static:** these checks cover the sources layer, `page_fetch.py` and every yt-dlp cookie consumer (`video_download`, `live_translate`, the URL-media, Live and settings services and routes):
+- **Static:** these checks cover the sources layer, `page_fetch.py` and the API/service consumers of the yt-dlp cookie setting (`video_download`, `live_translate`, the URL-media, Live and settings services and routes). The Streamlit consumers under `tabs/` are not scanned, because Streamlit is frozen and being deleted:
   - no `.storage_state()`, `.add_cookies()`, `.cookies()` or `storage_state=`, no `document.cookie`/`localStorage`/`sessionStorage` script, and no `open`/`connect`/`copytree` of a profile folder;
   - `.cookies` is read only through the two exact expressions above (a new read fails until it is listed, with a reason, in the test and this note);
   - no store, health, job-result, drama, JSON, file-write or log call is passed headers, cookies, a cookie-derived `ticket`, a yt-dlp info dict (`raw_metadata`, `result_info`), or `asdict()`/`vars()` of an object.
 - **Behavioural:** a client sends Cookie and Authorization headers. The fake server answers with Set-Cookie and cookies, as a 200 (cached), a challenge, a 403 and a 5xx. The requests also run through the ladder and the capability record, and a chapter check fails. None of the values ends up in any sources.db table, the raw-cache files, the client's attempts or stats, the log or stdout/stderr. The sources layer does no logging today, so the log check guards against future logging only.
+- **Limits of the static checks:** the sink check matches names, not data flow. A cookie value renamed to an unlisted variable, or passed through `logging.log`, `traceback.print_exc`, `warnings.warn` or an exception's text, is not caught.
 - **Not covered:** the real `requests` transport's cookie-jar handling, `get_with_mirrors`, the signed-in browser tier, and the yt-dlp path at run time. The static checks guard these instead.

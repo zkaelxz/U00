@@ -67,7 +67,9 @@ PROFILE_READS = {"storage_state", "add_cookies", "cookies", "get_cookies", "clea
 PROFILE_PATHS = {"profile_dir", "browser_profile_dir", "browser_profiles_root"}
 
 
-# Every consumer of the yt-dlp cookie setting, besides the sources layer.
+# The API/service consumers of the yt-dlp cookie setting, besides the sources
+# layer. The Streamlit ones (tabs/) are not scanned: Streamlit is frozen and
+# being deleted by 2026-10-30.
 YTDLP_COOKIE_FILES = ("video_download.py", "live_translate.py", "services/url_media_service.py",
                       "services/live_service.py", "services/settings_service.py",
                       "api/routers/settings_routes.py", "api/routers/live_routes.py",
@@ -100,11 +102,11 @@ def _functions(tree):
     return out
 
 
-_DOCSTRINGS = set()
-
-
 def _is_docstring(node) -> bool:
-    return id(node) in _DOCSTRINGS
+    # Marked on the node itself (per tree): an id() set would outlive the
+    # tree and CPython reuses ids, so a later file's real string could be
+    # taken for an old docstring and skipped.
+    return getattr(node, "_is_docstring", False)
 
 
 def _mark_docstrings(tree):
@@ -112,7 +114,7 @@ def _mark_docstrings(tree):
         if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
                 and n.body and isinstance(n.body[0], ast.Expr) \
                 and isinstance(n.body[0].value, ast.Constant):
-            _DOCSTRINGS.add(id(n.body[0].value))
+            n.body[0].value._is_docstring = True
     return tree
 
 
