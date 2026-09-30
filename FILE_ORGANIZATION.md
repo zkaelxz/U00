@@ -202,6 +202,10 @@ baihe-subtitler/
 │   │                             (persists page_server_enabled) and token reveal; for local_only routes
 │   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
 │   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
+│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
+│   ├── jellyfin_service.py       Step 39 -- optional Jellyfin connector (off by default): settings (key in .env),
+│   │                             test connection, read-only scan for items missing a subtitle language, send
+│   │                             subtitles (+ optional video) into the library folder in Jellyfin's naming, refresh
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
 │   │                             also the in-app list for the header bell (last 50 events, memory only,
 │   │                             filtered by job visibility) and the jobs/new-chapters push categories
@@ -223,6 +227,13 @@ baihe-subtitler/
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
+│   ├── engine_routing_service.py Step 36 -- capability-based task routing: resolve_capability("translation.cheap"|
+│   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
+│   │                             -> the engine chosen in Settings (else a default; never switches on its own);
+│   │                             per-engine status + one-call Test (router: engine_routing_routes.py)
+│   ├── stronger_engine_service.py Step 99 -- suggest (never switch to) the "translation.high_quality" engine for a
+│   │                             hard line (QC flag, glossary conflict, ambiguous term); single-line try that
+│   │                             returns text only, cap-checked, spend logged (router: stronger_engine_routes.py)
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
@@ -300,6 +311,9 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields),
 │   │                             romanize credits (writes only the *_romanized fields)
+│   ├── metadata_research_service.py  Step 37 -- "Research online": Gemini Google Search grounding,
+│   │                             per-field cited sources, entity-keyed cache, daily free-search budget,
+│   │                             Keep/Replace/Save-both apply with per-field provenance
 │   ├── cover_art_service.py      Drama cover art (P14): checked PNG/JPEG/WebP upload re-encoded without
 │   │                             metadata, stored as cover.<ext>; resolves the file to serve
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
@@ -394,6 +408,10 @@ baihe-subtitler/
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
+│   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
+│   ├── stronger_engine_schemas.py Step 99 stronger-engine suggestion models
+│   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
+│   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 
@@ -412,6 +430,10 @@ baihe-subtitler/
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
+│       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
+│       │                         (admin.settings); PC-only POST capabilities/{capability}, engines/{engine}/test
+│       ├── stronger_engine_routes.py /api/stronger-engine/dramas/{id} (Step 99): GET suggestions (lines.read),
+│       │                         POST lines/{line_id}/try (review.use + paid-engine gate; writes nothing)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
@@ -456,6 +478,8 @@ baihe-subtitler/
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37), .../romanize-credits (admin.library + engines check)
+│       ├── metadata_research_routes.py  GET /api/metadata/research/budget, POST .../dramas/{id}/research,
+│       │                         .../research/apply, GET .../provenance (Step 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|attach-from-sources|ocr-chapter,
 │       │                         GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
@@ -509,6 +533,10 @@ baihe-subtitler/
 │       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
 │       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
 │       ├── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
+│       │                         /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
+│       │                         key-write gate; Step 44)
+│       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
+│                                 /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
 │       │                         also use the key-write gate; Step 44)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
