@@ -423,6 +423,12 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
     long-running stand-in child (`ping`) into the server's Job Object. The
     smoke test asserts that `--stop` reports a clean shutdown, the child is
     gone, and no process from the install folder is left.
+  - **Breakaway check.** `installer/smoke_child.py --breakaway-check` runs a
+    stand-in server with the real `process_guard.contain_children()`. Its
+    job must refuse `CREATE_BREAKAWAY_FROM_JOB` except inside
+    `breakaway_allowed()` (the update installer's Setup launch). Ending the
+    job must end an ordinary child and a child in a nested job, and leave the
+    Setup-style child running.
   - **Clean-uninstall check.** A second install into new folders is
     clean-uninstalled with `/CLEAN`. The smoke test asserts that the install
     folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
@@ -440,7 +446,31 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 
 - An offline installer-side tier picker and GPU/torch opt-in (§6). Today these
   are online, through Diagnostics.
-- An updater that reads `manifest.json`, and delta updates (§7).
+- Delta updates, and an updater that reads the per-component `manifest.json` (§7).
+  What exists: Settings → App updates checks the public GitHub Releases
+  (`BAIHE_UPDATE_REPO`, default `zkaelxz/U00`; no token) for a newer `v*`
+  release, and on the user's clicks downloads the whole installer into
+  `<data>\library\updates\`, checks it against the release's `.sha256` and
+  opens its normal Setup from a private temp copy (hashed again; the server's
+  environment minus the shutdown token, job name and secret-named variables;
+  let out of the server's Job Object only for that launch). It picks the
+  newest `v*` release that has the installer and its `.sha256`, so other
+  releases (`frontend-v*`) don't hide it. The app keeps running
+  until the user clicks Install in Setup, which stops the server as in §7; a
+  cancelled Setup changes nothing. That SHA-256 comes
+  from the same release as the installer, so it detects a broken or truncated
+  download, not a tampered release: it is not a signature. The version shown
+  is `manifest.json`'s `app_version`. A daily check is a setting, off by
+  default; nothing is ever downloaded or installed without a click.
+  Private releases: the app sends no credentials (no token, `~/.netrc`
+  ignored), so it can only read public releases. If the releases repository
+  goes private, GitHub answers the check with a 404 and the card says no
+  release was found. Keep in-app updates on public releases (a separate
+  public, installers-only repository set in `BAIHE_UPDATE_REPO` works), and
+  use the manual route for private ones: download the installer and its
+  `.sha256` from the releases page, check it with `Get-FileHash`, run Setup
+  (docs/runbook.md §1). Shipping a token in the app is not an option: every
+  installed copy would hold the same secret.
 - Code signing (§1).
 - Moving an existing source-checkout library into the installed app. For now,
   point the data folder at the checkout folder (it holds `library\` and `.env`),
