@@ -227,6 +227,10 @@ baihe-subtitler/
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
+│   ├── engine_routing_service.py Step 36 -- capability-based task routing: resolve_capability("translation.cheap"|
+│   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
+│   │                             -> the engine chosen in Settings (else a default; never switches on its own);
+│   │                             per-engine status + one-call Test (router: engine_routing_routes.py)
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
@@ -400,6 +404,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── engine_routing_schemas.py Step 36 "Which engine does what" request/response models
 │   ├── metadata_research_schemas.py  grounded research models (Step 37; kept apart from schemas.py)
 │   ├── jellyfin_schemas.py       Jellyfin connector models (Step 39; kept apart from schemas.py)
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
@@ -420,6 +425,8 @@ baihe-subtitler/
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
+│       ├── engine_routing_routes.py /api/settings/engine-routing (Step 36): GET capabilities + engine status
+│       │                         (admin.settings); PC-only POST capabilities/{capability}, engines/{engine}/test
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
