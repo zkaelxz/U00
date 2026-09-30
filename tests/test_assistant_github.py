@@ -292,3 +292,72 @@ def test_every_github_route_is_pc_only(env, fake):
                                                           "sha256": "0" * 64, "confirm": True})):
         assert remote.post(path, json=body, headers=h).status_code == 403, path
     assert fake.calls == [] and not env.exists()
+
+
+# --- security review fixes ------------------------------------------------------------
+
+@pytest.mark.parametrize("path", [".github/workflows/tests.yml", ".GitHub/x.yml", "a/.GIT/config"])
+def test_ci_workflows_and_git_internals_are_refused(path):
+    with pytest.raises(gh.InvalidInputError):
+        gh.parse_patch(f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")
+
+
+@pytest.mark.parametrize("extra", ["Binary files a/x.png and b/x.png differ",
+                                   "old mode 100644", "rename from x.py", "GIT binary patch",
+                                   "some stray commentary"])
+def test_unsupported_or_hidden_lines_are_refused(extra):
+    patch = f"--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n{extra}\n"
+    with pytest.raises(gh.InvalidInputError):
+        gh.parse_patch(patch)
+
+
+def test_plain_git_diff_headers_are_fine():
+    patch = ("diff --git a/x.py b/x.py\nindex 111..222 100644\n--- a/x.py\n+++ b/x.py\n"
+             "@@ -1 +1 @@\n-a\n+b\n")
+    assert gh.parse_patch(patch)[0]["new"] == "x.py"
+
+
+def test_context_free_inserts_and_out_of_order_hunks_are_refused():
+    with pytest.raises(gh.ConflictError):
+        gh.apply_file_patch("a\nb\n", gh.parse_patch("--- a/x.py\n+++ b/x.py\n@@ -9,0 +10 @@\n+z\n")[0])
+    two = gh.parse_patch("--- a/x.py\n+++ b/x.py\n@@ -3 +3 @@\n-c\n+C\n@@ -1 +1 @@\n-a\n+A\n")[0]
+    with pytest.raises(gh.ConflictError):  # the second hunk may not match before the first
+        gh.apply_file_patch("a\nb\nc\n", two)
+
+
+def test_confirmation_is_bound_to_repo_and_base(ready):
+    prev = gh.preview(PATCH, "Fix")
+    gh.set_settings({"base_branch": "main"})
+    with pytest.raises(gh.ConflictError):
+        gh.deliver(PATCH, "Fix", sha256=prev["sha256"], confirm=True)
+    assert ready.calls == []
+
+
+def test_dot_repo_names_are_refused(env):
+    for bad in ("me/..", "me/."):
+        with pytest.raises(gh.InvalidInputError):
+            gh.set_settings({"repo": bad})
+
+
+def test_add_under_an_existing_file_is_refused(ready):
+    patch = "--- /dev/null\n+++ b/services/dub_service.py/x.py\n@@ -0,0 +1 @@\n+x\n"
+    with pytest.raises(gh.ConflictError):
+        gh.deliver(patch, "Fix", sha256=gh.patch_sha256(patch, "me/app", "baihe-subtitler"),
+                   confirm=True)
+    assert all(m == "GET" for m, *_ in ready.calls)
+
+
+def test_failed_pr_names_the_branch_it_left(ready, monkeypatch):
+    real = ready.request
+
+    def no_draft(method, url, **kw):
+        if url.endswith("/pulls"):
+            return Resp(422, {"message": "Draft pull requests are not supported"})
+        return real(method, url, **kw)
+
+    monkeypatch.setattr(gh.requests, "request", no_draft)
+    prev = gh.preview(PATCH, "Fix")
+    with pytest.raises(gh.ServiceError) as e:
+        gh.deliver(PATCH, "Fix", sha256=prev["sha256"], confirm=True)
+    assert "baihe-assistant/fix-" in e.value.message and "Draft pull requests" in e.value.message
+    assert not any(m in ("PATCH", "PUT", "DELETE") for m, *_ in ready.calls)

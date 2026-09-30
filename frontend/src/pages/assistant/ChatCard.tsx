@@ -186,7 +186,8 @@ function Answer({ response, question, github, onAddToBacklog }: AnswerProps) {
           </figcaption>
           <pre className="assistant-pre">{p.patch}</pre>
           <CopyButton text={p.patch} label="Copy proposed fix" />
-          <DeliverPr patch={p.patch} question={question} github={github} />
+          {/* Keyed by repo and base: changing either drops an open preview. */}
+          <DeliverPr key={`${github?.repo ?? ''}|${github?.base_branch ?? ''}`} patch={p.patch} question={question} github={github} />
         </figure>
       ))}
       {response.review && <Review review={response.review} />}

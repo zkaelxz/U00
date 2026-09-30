@@ -73,31 +73,34 @@ export function GithubCard({ status, onStatus }: Props) {
           Save repository
         </button>
       </div>
-      <form
-        className="assistant-engine"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!token.trim()) return
-          run(
-            setGithubToken(token.trim()),
-            (r) => {
-              setToken('')
-              onStatus({ ...status, token_configured: r.token_configured })
-            },
-            true,
-          )
-        }}
-      >
+      {/* Not a <form>: a browser shouldn't offer to save the token as a password. */}
+      <div className="assistant-engine">
         <Field
           label="Token"
-          help="A fine-grained GitHub token with Contents and Pull requests write access to this repository only. Stored on this PC; never shown again."
+          help="A fine-grained GitHub token with Contents and Pull requests write access to this repository only (not Workflows). Stored on this PC; never shown again."
         >
-          <input type="password" value={token} autoComplete="off" placeholder={status.token_configured ? 'Set (hidden)' : 'Paste a token'} onChange={(e) => setToken(e.target.value)} />
+          <input type="password" value={token} autoComplete="new-password" placeholder={status.token_configured ? 'Set (hidden)' : 'Paste a token'} onChange={(e) => setToken(e.target.value)} />
         </Field>
         <div className="assistant-actions">
-          <button type="submit" className={buttonClass('secondary', 'sm')} disabled={busy || !token.trim()}>
-            Save token
-          </button>
+          <ConfirmButton
+            name="GitHub token"
+            label="Save token…"
+            confirmLabel="Confirm: save the GitHub token"
+            verb="save"
+            tone="primary"
+            busy={busy}
+            disabled={!token.trim()}
+            onConfirm={() =>
+              run(
+                setGithubToken(token.trim()),
+                (r) => {
+                  setToken('')
+                  onStatus({ ...status, token_configured: r.token_configured })
+                },
+                true,
+              )
+            }
+          />
           {status.token_configured && (
             <ConfirmButton
               name="GitHub token"
@@ -108,7 +111,7 @@ export function GithubCard({ status, onStatus }: Props) {
             />
           )}
         </div>
-      </form>
+      </div>
       <p className="muted">
         Token: <Badge tone={status.token_configured ? 'ok' : 'neutral'}>{status.token_configured ? 'Set' : 'Not set'}</Badge>
       </p>

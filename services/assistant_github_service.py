@@ -46,7 +46,7 @@ MAX_PATCH_CHARS = 200_000
 MAX_FILES = 20
 MAX_TITLE = 200
 MAX_BODY = 20_000
-_REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
+_REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$")
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$")
 _PATH_RE = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_./ -]{0,299}$")
 _SETTINGS_PREFIX = "assistant.github."
@@ -207,6 +207,12 @@ def test_connection() -> dict:
 # Unified diff parsing and applying (pure Python, strict)
 # ---------------------------------------------------------------------------
 
+_UNSUPPORTED_MARKERS = ("Binary files ", "GIT binary patch", "old mode ", "new mode ",
+                        "rename from ", "rename to ", "copy from ", "copy to ",
+                        "similarity index ", "new file mode 120000", "new file mode 160000",
+                        "deleted file mode 120000", "deleted file mode 160000")
+# Ordinary `git diff` header lines that carry no content change.
+_GIT_HEADER_LINES = ("diff --git ", "index ", "new file mode 100", "deleted file mode 100")
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
@@ -218,8 +224,13 @@ def _clean_path(raw: str):
         raw = raw[2:]
     parts = raw.split("/")
     if (not _PATH_RE.match(raw) or raw.startswith("/") or any(p in ("", ".", "..") for p in parts)
-            or parts[0] == ".git" or ".git" in parts):
+            or any(p.lower() == ".git" for p in parts)):
         raise InvalidInputError(_OUTSIDE_PATH)
+    # .github/ holds CI workflows: a PR changing one runs that code with the
+    # repo's CI token before anyone reviews it (it could push to the base).
+    if parts[0].lower() == ".github":
+        raise InvalidInputError("Changes under .github/ (CI workflows) can't be delivered from "
+                                "the app; make them by hand.")
     return raw
 
 
@@ -243,6 +254,9 @@ def parse_patch(patch: str) -> list:
             files.append(cur)
             i += 2
             continue
+        if line.startswith(_UNSUPPORTED_MARKERS):
+            raise InvalidInputError("The patch has a binary, mode, rename or copy change, which "
+                                    "can't be delivered from the app.")
         m = _HUNK_RE.match(line)
         if m and cur is not None:
             old_left = int(m.group(2)) if m.group(2) is not None else 1
@@ -278,6 +292,11 @@ def parse_patch(patch: str) -> list:
                 i += 1
             cur["hunks"].append(hunk)
             continue
+        # Nothing may hide between or after the files: what is shown must be
+        # exactly what is delivered.
+        if cur is not None and line.strip() and not line.startswith(_GIT_HEADER_LINES):
+            raise InvalidInputError("The patch has lines outside its files' hunks. "
+                                    "Ask the assistant for a clean unified diff.")
         i += 1
     if not files:
         raise InvalidInputError("That isn't a unified diff (no ---/+++ file headers).")
@@ -314,19 +333,26 @@ def apply_file_patch(old_text, f: dict) -> str:
     if had_eol:
         lines = lines[:-1]
     offset = 0
+    floor = 0  # a hunk may only match after the previous hunk's end
+    stale = ConflictError(f"The patch doesn't match the current {f['old']} on the base "
+                          "branch. Ask the assistant for a fresh patch.")
     for h in f["hunks"]:
         old_block = [t for k, t in h["lines"] if k in (" ", "-")]
         new_block = [t for k, t in h["lines"] if k in (" ", "+")]
-        want = max(0, h["old_start"] - 1 + offset) if old_block else h["old_start"] + offset
-        if lines[want:want + len(old_block)] != old_block:
-            spots = [i for i in range(len(lines) - len(old_block) + 1)
-                     if lines[i:i + len(old_block)] == old_block] if old_block else []
+        if not old_block:
+            # A context-free insert can't be checked against the file.
+            raise ConflictError(f"A change to {f['old']} has no context lines to check it "
+                                "against. Ask the assistant for a patch with context.")
+        want = max(0, h["old_start"] - 1 + offset)
+        if want < floor or lines[want:want + len(old_block)] != old_block:
+            spots = [i for i in range(floor, len(lines) - len(old_block) + 1)
+                     if lines[i:i + len(old_block)] == old_block]
             if len(spots) != 1:
-                raise ConflictError(f"The patch doesn't match the current {f['old']} on the base "
-                                    "branch. Ask the assistant for a fresh patch.")
+                raise stale
             want = spots[0]
         lines[want:want + len(old_block)] = new_block
         offset += len(new_block) - len(old_block)
+        floor = want + len(new_block)
     if kind == "delete":
         if any(ln for ln in lines):
             raise ConflictError(f"The patch deletes {f['old']} but doesn't remove all of it.")
@@ -343,8 +369,11 @@ def _normalize(patch: str) -> str:
     return patch.replace("\r\n", "\n").rstrip("\n") + "\n"
 
 
-def patch_sha256(patch: str) -> str:
-    return hashlib.sha256(_normalize(patch).encode("utf-8")).hexdigest()
+def patch_sha256(patch: str, repo: str = "", base: str = "") -> str:
+    """Binds the confirmation to this exact diff AND the repo and base it
+    was shown going to: changing either after the preview needs a new one."""
+    text = f"{repo}\n{base}\n{_normalize(patch)}"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _check_title(title) -> str:
@@ -372,7 +401,8 @@ def preview(patch: str, title: str) -> dict:
         "repo": status["repo"], "base_branch": status["base_branch"],
         "branch_prefix": BRANCH_PREFIX, "title": title,
         "files": [{"path": f["new"] or f["old"], "change": change_kind(f)} for f in files],
-        "patch": _normalize(patch), "sha256": patch_sha256(patch),
+        "patch": _normalize(patch),
+        "sha256": patch_sha256(patch, status["repo"], status["base_branch"]),
     }
 
 
@@ -393,8 +423,9 @@ def deliver(patch: str, title: str, body: str = "", sha256: str = None,
     if not isinstance(body, str) or len(body) > MAX_BODY:
         raise InvalidInputError(f"The description must be at most {MAX_BODY} characters.")
     files = parse_patch(patch)
-    if not isinstance(sha256, str) or sha256 != patch_sha256(patch):
-        raise ConflictError("This patch isn't the one you previewed. Preview it again.")
+    if not isinstance(sha256, str) or sha256 != patch_sha256(patch, repo, base):
+        raise ConflictError("This patch, repository or base branch isn't the one you previewed. "
+                            "Preview it again.")
     branch = _branch_name(title)
     if branch == base or not branch.startswith(BRANCH_PREFIX):
         raise ServiceError("Refused: the new branch name isn't a fresh assistant branch.")
@@ -410,7 +441,10 @@ def _deliver(token, repo, base, branch, title, body, files) -> dict:
     base_sha = _call(token, "GET", f"/repos/{repo}/git/ref/heads/{_q(base)}")["object"]["sha"]
     base_tree = _call(token, "GET", f"/repos/{repo}/git/commits/{base_sha}")["tree"]["sha"]
     tree = _call(token, "GET", f"/repos/{repo}/git/trees/{base_tree}", params={"recursive": "1"})
-    modes = {e.get("path"): e.get("mode") for e in tree.get("tree", []) if e.get("type") == "blob"}
+    if tree.get("truncated"):
+        raise ConflictError("The repository is too large to check safely through the API.")
+    entries_by_path = {e.get("path"): e for e in tree.get("tree", [])}
+    modes = {p: e.get("mode") for p, e in entries_by_path.items() if e.get("type") == "blob"}
     entries = []
     for f in files:
         path = f["new"] or f["old"]
@@ -421,11 +455,18 @@ def _deliver(token, repo, base, branch, title, body, files) -> dict:
             except ServiceError:
                 got = None
             if got is not None:
-                if got.get("type") != "file" or got.get("encoding") != "base64":
+                if (not isinstance(got, dict) or got.get("type") != "file"
+                        or got.get("encoding") != "base64"):
                     raise ConflictError(f"{path} can't be patched through the API (not a small text file).")
-                old_text = base64.b64decode(got.get("content", "")).decode("utf-8")
-        elif path in modes:
-            raise ConflictError(f"{path} already exists on the base branch.")
+                try:
+                    old_text = base64.b64decode(got.get("content", "")).decode("utf-8")
+                except (ValueError, UnicodeDecodeError):
+                    raise ConflictError(f"{path} isn't a UTF-8 text file.") from None
+        else:
+            # An add must not land on an existing file or folder, or under a file.
+            prefixes = ["/".join(path.split("/")[:k]) for k in range(1, path.count("/") + 1)]
+            if path in entries_by_path or any(modes.get(p) for p in prefixes):
+                raise ConflictError(f"{path} already exists on the base branch.")
         new_text = apply_file_patch(old_text, f)
         mode = modes.get(path, "100644")
         if mode not in ("100644", "100755"):
@@ -440,8 +481,15 @@ def _deliver(token, repo, base, branch, title, body, files) -> dict:
     _call(token, "POST", f"/repos/{repo}/git/refs", json={"ref": f"refs/heads/{branch}", "sha": commit})
     pr_body = ("Proposed by Baihe's maintenance assistant and delivered from the app after "
                "the owner reviewed this exact diff. Review before merging.\n\n" + (body or "")).strip()
-    pr = _call(token, "POST", f"/repos/{repo}/pulls",
-               json={"title": title, "head": branch, "base": base, "body": pr_body, "draft": True})
+    try:
+        pr = _call(token, "POST", f"/repos/{repo}/pulls",
+                   json={"title": title, "head": branch, "base": base, "body": pr_body,
+                         "draft": True})
+    except ServiceError as e:
+        # The app never deletes a ref, so the new branch stays: say which.
+        raise ServiceError(f"The branch {branch} was created, but opening the pull request "
+                           f"failed ({e.message}) You can open it on GitHub from that branch, "
+                           "or delete the branch there.") from None
     url = pr.get("html_url") or ""
     if not url.startswith("https://github.com/"):
         url = ""
