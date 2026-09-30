@@ -32,3 +32,12 @@ torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics.TORC
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
 urllib3>=2.6           # a floor, not a cap: requests alone would allow 1.26, which has no
                        # read1 (sources/http.py, url_media_service) and CVE-2025-66471.
+
+# The API stack is pinned exactly to the versions installer/wheels.lock.txt ships, so
+# CI and source installs test what the installer bundles. Bump these together with the
+# lock (tests/test_constraints_lock_parity.py fails if they differ).
+fastapi==0.142.1
+pydantic==2.13.5
+starlette==1.7.0
+python-multipart==0.0.32
+uvicorn==0.54.0

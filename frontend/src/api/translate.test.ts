@@ -7,6 +7,7 @@ import {
   languagePair,
   translateApi,
   usableEngines,
+  MAX_TRANSLATE_TEXT_CHARS,
   validateTranslateInput,
 } from './translate'
 
@@ -52,6 +53,8 @@ describe('translate logic', () => {
     expect(validateTranslateInput('  ', 'x')).toMatch(/text/)
     expect(validateTranslateInput('hi', '')).toMatch(/engine/)
     expect(validateTranslateInput('hi', 'x')).toBeNull()
+    expect(validateTranslateInput('a'.repeat(MAX_TRANSLATE_TEXT_CHARS), 'x')).toBeNull()
+    expect(validateTranslateInput('a'.repeat(MAX_TRANSLATE_TEXT_CHARS + 1), 'x')).toMatch(/2,000,000 characters/)
   })
 })
 

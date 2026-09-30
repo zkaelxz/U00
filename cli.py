@@ -1035,7 +1035,7 @@ def main():
                                    "Defaults to the same per-content-mode preset Workspace picks "
                                    "(\"novel\" for a novel-narration drama, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
-    p_translate.add_argument("--locale", default=None, choices=["en-US", "en-GB", "en-AU"],
+    p_translate.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                              help="Default: the Settings English variant (en-US until changed).")
     p_translate.add_argument("--female-pronouns", action="store_true",
                            help="Default ambiguous pronouns to she/her (the Workspace "
@@ -1139,7 +1139,7 @@ def main():
     # reached cmd_translate, since these were never defined here.
     p_run.add_argument("--status", default=None)
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
-    p_run.add_argument("--locale", default=None, choices=["en-US", "en-GB", "en-AU"],
+    p_run.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                         help="Default: the Settings English variant (en-US until changed).")
     p_run.add_argument("--female-pronouns", action="store_true",
                            help="Default ambiguous pronouns to she/her (the Workspace "

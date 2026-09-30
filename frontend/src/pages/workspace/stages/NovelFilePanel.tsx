@@ -35,6 +35,7 @@ import { useStage } from '../StageContext'
 import {
   NOVEL_FILE_EXTENSIONS,
   checkNovelFile,
+  epubSizeProblem,
   novelFileStatusLine,
   novelFileSummary,
   pasteProblem,
@@ -87,7 +88,7 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [reloads, setReloads] = useState(0)
-  const fileProblem = file ? checkNovelFile(kind, file.name) : null
+  const fileProblem = file ? checkNovelFile(kind, file.name) ?? epubSizeProblem(file) : null
   const textProblem = pasteProblem(text)
   const ready = source === 'file' ? !!file && !fileProblem : !!text.trim() && !textProblem
 

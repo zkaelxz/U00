@@ -19,6 +19,17 @@ export function checkNovelFile(kind: NovelFileKind, name: string): string | null
   return allowed.includes(ext) ? null : `${base || 'That file'} is not a ${allowed.join(', ')} file.`
 }
 
+// services/novel_attach_service.py MAX_EPUB_BYTES (also the cap for a raw-novel .epub).
+export const MAX_NOVEL_EPUB_BYTES = 50 * 1024 * 1024
+
+/** Why an .epub is too big to upload, or null (other file kinds are not checked here). */
+export function epubSizeProblem(file: { name: string; size: number }): string | null {
+  const base = file.name.split(/[\\/]/).pop() ?? ''
+  return base.toLowerCase().endsWith('.epub') && file.size > MAX_NOVEL_EPUB_BYTES
+    ? `${base} is larger than the ${MAX_NOVEL_EPUB_BYTES / 1024 / 1024} MB limit for EPUB files.`
+    : null
+}
+
 function size(bytes: number): string {
   return bytes < 1024 ? `${bytes} bytes` : `${Math.round(bytes / 1024).toLocaleString()} KB`
 }
