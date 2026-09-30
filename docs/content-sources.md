@@ -405,6 +405,15 @@ path as Workspace's "Video URL" option, with the same cookie settings.
 | What it is | A locally generated three-chapter comic, plus a "Challenge test" series that always answers like a Cloudflare challenge. It goes through the real paced client, so the status view and the hand-off can be tried without the network. |
 | Tests | `tests/test_sources_workflows.py`, `tests/test_sources_tab.py` |
 
+## If a site blocks your IP or region
+
+Nothing in the app needs a proxy: source requests go direct by default. If a
+site refuses your IP or region (or throttles it), set the optional source
+proxy (`http_proxy_url` in the Sources settings, HTTP or HTTPS only, empty by
+default, applied to every source adapter's requests). The API shows only
+whether one is set, never the value, and it can only be changed from the PC.
+Check the site's terms before routing around a block.
+
 ## Manual checks still to do
 
 These have only been run against offline fixtures. Tick them off once
