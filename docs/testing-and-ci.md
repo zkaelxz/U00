@@ -40,8 +40,10 @@ they cannot currently be re-derived from Actions run history, so re-verify befor
   don't add a test that needs a real API key, a GPU, or a downloaded
   model.
 - Use the `isolated_db` fixture (`tests/conftest.py`) for anything that
-  touches the database or `db.LIBRARY_DIR`, so tests never touch a real
-  library folder.
+  touches the database or `db.LIBRARY_DIR`, so each test gets a fresh
+  library. Underneath that, `tests/conftest.py` points the whole run at a
+  temp library before any test module loads, and fails any test that opens
+  the real `library/` folder (`tests/test_library_isolation_guard.py`).
 - A test that needs an optional library (`jieba`, `pytesseract`, `cv2`,
   `paddleocr`, ...) should `pytest.importorskip` it, not hard-import it,
   so a core-only install still gets a clean run.

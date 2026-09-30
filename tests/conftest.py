@@ -25,6 +25,77 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
 
+# --- never touching the real library ---------------------------------
+#
+# Every library-rooted path (library.db, dramas/, sources.db, source_cache/,
+# profiles/, backups/, logs/, the page-server token...) is derived from
+# db.LIBRARY_DIR, which defaults to <repo>/library -- the user's real data.
+# A test without isolated_db used to run against it: an autouse fixture's
+# clear_all_jobs() wiped job_records there, and the source-adapter tests
+# wrote source_health rows into its sources.db. So the whole run is
+# pointed at a temp library here, before any test module is imported, and
+# isolated_db still gives each test that asks a fresh one on top.
+REAL_LIBRARY_DIR = os.path.abspath(db.LIBRARY_DIR)
+_SESSION_ROOT = tempfile.mkdtemp(prefix="baihe_test_session_")
+db.configure_library_dir(os.path.join(_SESSION_ROOT, "library"))
+
+import dictionary  # noqa: E402  (the one path not derived from db.LIBRARY_DIR)
+dictionary.CEDICT_PATH = os.path.join(db.LIBRARY_DIR, "cedict.txt")
+
+# Belt and braces: anything that still reaches the real library -- a path
+# captured before the redirect, a hard-coded one -- raises, and is recorded
+# so a caller that swallows the error still fails its test.
+_REAL_LIBRARY_HITS = []
+_GUARDED_EVENTS = frozenset({
+    "open", "sqlite3.connect", "os.mkdir", "os.remove", "os.rmdir",
+    "os.rename", "shutil.rmtree", "os.listdir", "os.scandir",
+})
+
+
+def _is_real_library_path(path) -> bool:
+    if isinstance(path, bytes):
+        path = os.fsdecode(path)
+    if not isinstance(path, (str, os.PathLike)):
+        return False  # a file descriptor
+    # Relative paths are skipped: the audit event doesn't carry dir_fd, so
+    # shutil.rmtree's os.open("library", dir_fd=...) inside a temp folder
+    # would look like the real one. The app builds its paths from
+    # db.LIBRARY_DIR, which is absolute.
+    if not os.path.isabs(path):
+        return False
+    path = os.path.normpath(path)
+    return path == REAL_LIBRARY_DIR or path.startswith(REAL_LIBRARY_DIR + os.sep)
+
+
+def _real_library_audit_hook(event, args):
+    if event not in _GUARDED_EVENTS:
+        return
+    for path in args[:2] if event == "os.rename" else args[:1]:
+        if _is_real_library_path(path):
+            _REAL_LIBRARY_HITS.append(f"{event} {path}")
+            raise RuntimeError(f"test touched the real library: {event} {path}")
+
+
+sys.addaudithook(_real_library_audit_hook)
+
+
+def pytest_configure(config):
+    config._baihe_real_library_hits = _REAL_LIBRARY_HITS
+
+
+def pytest_unconfigure(config):
+    shutil.rmtree(_SESSION_ROOT, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _fail_on_real_library_access():
+    """Fails the test if anything in it reached the real library, even
+    when the guard's error was caught and swallowed on the way."""
+    _REAL_LIBRARY_HITS.clear()
+    yield
+    hits, _REAL_LIBRARY_HITS[:] = list(_REAL_LIBRARY_HITS), []
+    assert not hits, f"test touched the real library: {hits}"
+
 # --- keeping the real torch importable -------------------------------
 #
 # torch registers C++ operators when its module body runs, so running
@@ -112,14 +183,14 @@ def isolated_db():
     library sitting straight in /tmp every pytest-xdist worker's restore
     scratch landed in one shared folder, and a test asserting "restore
     left nothing behind" saw another worker's in-flight staging dir."""
-    previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+    previous = db.LIBRARY_DIR
     parent_dir = tempfile.mkdtemp(prefix="baihe_test_")
     temp_dir = os.path.join(parent_dir, "library")
     os.makedirs(temp_dir)
     db.configure_library_dir(temp_dir)
     db.init_db()
     yield db
-    db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+    db.configure_library_dir(previous)
     shutil.rmtree(parent_dir, ignore_errors=True)
 
 
@@ -127,8 +198,7 @@ def _reset_background_jobs_memory():
     """Drops background_jobs' in-process state: job records, the GPU
     queue, the restore's exclusive hold, the maintenance count and the
     per-job cancel-check cache. In memory only -- clear_all_jobs() would
-    also wipe job_records in whatever library db.LIBRARY_DIR points at,
-    which outside an isolated_db test can be a real one."""
+    also wipe job_records in whatever library db.LIBRARY_DIR points at."""
     import background_jobs as bg
     with bg._lock:
         bg._jobs.clear()
