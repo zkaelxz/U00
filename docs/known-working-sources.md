@@ -43,6 +43,7 @@ Site, language, type, hosts and flags come from the adapter itself; status, date
 | 饭角 Fanjiao | `fanjiao` | zh | audio_drama | `fanjiao.co` |  | ❔ no status recorded | — |  |
 | 轻之国度 (lightnovel.fun) | `lightnovel_fun` | zh | novel | `www.lightnovel.fun` |  | ✅ | 2026-09-30 | Search, series, chapters (across volumes) and chapter text confirmed live 2026-09-30. Public `/book` and `/reader` pages only; locked 轻币 chapters are reported, never unlocked; EPUB/file-locker links never followed. `lightnovel.us` returned 503. |
 | 小説家になろう (Syosetu) | `syosetu` | ja | novel | `ncode.syosetu.com` |  | ⚠️ | 2026-09-30 | Page structure read live 2026-09-30 and the adapter run offline against saved pages; no import run through the app. **Terms: the ToS (第14条 23) forbid automated access except via the official API** (recorded, not enforced; shipped by owner decision 2026-09-30). 18+ works (`novel18.syosetu.com`) unsupported; 18+/login/removed-work handling unverified live. |
+| 飘天文学 (Piaotian) | `piaotian` | zh | novel | `www.piaotia.com`, `ptwxz.com` |  | ⚠️ | 2026-09-30 | Page structure read live 2026-09-30 (book page, whole-book list, chapter, 404 and 200 error pages, search) and the adapter run offline against those saved pages; no chapter imported through the app. Search page 2, login/age interstitials and the site's own search throttle unverified live. No terms page found (UNKNOWN, not permitted); the site hosts reposted copyrighted fiction. |
 
 ## Generic paste-a-URL (no adapter) — confirmed on real, specific sites
 
