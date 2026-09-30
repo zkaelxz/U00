@@ -127,6 +127,20 @@ export interface MediaAnalysis {
   has_audio: boolean
   audio_track_count: number
   sample_rate: number | null
+  // Parity P05 (B1); optional so an older server still type-checks.
+  width?: number | null
+  height?: number | null
+  fps?: number | null
+  subtitle_tracks?: MediaSubtitleTrack[]
+  suggested_pipeline?: string[] // advisory steps, plain words
+  content_type_guess?: string | null // a media type value
+  content_type_reason?: string | null
+}
+
+export interface MediaSubtitleTrack {
+  index: number | null
+  codec: string
+  language: string | null
 }
 
 export interface AutofillRequest {

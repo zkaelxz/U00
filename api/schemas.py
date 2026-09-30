@@ -1443,6 +1443,11 @@ class MediaAnalysis(BaseModel):
     fps: Optional[float] = None
     subtitle_tracks: List["MediaSubtitleTrack"] = Field(default_factory=list)
     suggested_pipeline: List[str] = Field(default_factory=list)  # advisory; nothing is applied
+    # A media type value (streamer_vod / asmr / audio_drama / video_drama) and
+    # a one-line reason, from filename keywords and track shape; applied only
+    # when the user picks "Use this content type".
+    content_type_guess: Optional[str] = None
+    content_type_reason: Optional[str] = None
 
 
 class MediaSubtitleTrack(BaseModel):
