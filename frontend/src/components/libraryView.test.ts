@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { continueItems, countDramas, parseTime, readHref, shownTags, tileText } from './libraryView'
+import { continueItems, countDramas, parseTime, readHref, shownTags, tileText, workspaceHref } from './libraryView'
 
 const t = (title_en: string | null, title_zh: string | null) => ({ title_en, title_zh })
 
@@ -59,5 +59,9 @@ describe('small helpers', () => {
   it('sends comics to the comic reader', () => {
     expect(readHref({ id: 4, media_type: 'manga' })).toBe('#/comic/4')
     expect(readHref({ id: 4, media_type: 'novel' })).toBe('#/read/4')
+  })
+  it('opens a drama on its current stage unless a stage is given', () => {
+    expect(workspaceHref(7)).toBe('#/drama/7')
+    expect(workspaceHref(7, 'export')).toBe('#/drama/7/export')
   })
 })
