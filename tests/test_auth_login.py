@@ -825,8 +825,11 @@ class TestSettings:
             "cid", SECRET, "https://baihe.example.com")
         assert s.sign_in_configured is True
         assert load_settings({}).sign_in_configured is False
-        with pytest.raises(ValueError):
-            load_settings({"BAIHE_PUBLIC_URL": "http://baihe.example.com"})
+        bad = load_settings({"BAIHE_GOOGLE_CLIENT_ID": "cid", "BAIHE_GOOGLE_CLIENT_SECRET": SECRET,
+                             "BAIHE_PUBLIC_URL": "http://baihe.example.com"})
+        assert bad.public_url == "" and "BAIHE_PUBLIC_URL" in bad.public_url_error
+        assert bad.sign_in_configured is False
+        assert "baihe.example.com" not in bad.public_url_error
 
     def test_env_file_read_only_at_real_startup(self, tmp_path, monkeypatch):
         from services import settings_service

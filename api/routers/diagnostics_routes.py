@@ -42,7 +42,11 @@ def get_overview():
                     "listener); states and fixed messages only")
 def get_remote_health(request: Request):
     settings = request.app.state.settings
-    return remote_health_service.get_status(settings.public_url, settings.household_port)
+    status = remote_health_service.get_status(settings.public_url, settings.household_port)
+    if settings.public_url_error and status["state"] == "off":
+        status = {**status, "message": "Remote sign-in is off because BAIHE_PUBLIC_URL "
+                                       "in .env is not valid."}
+    return status
 
 
 @router.get("/remote-health/ip-check", dependencies=[local_only()],
