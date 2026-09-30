@@ -16,55 +16,6 @@ import os
 import subprocess
 import tempfile
 
-# Step 6e: vertical/shorts export -- a selection longer than this gets a
-# soft "consider a shorter clip" prompt instead of a hard block, since
-# re-encoding a full multi-hour episode vertically by accident is slow and
-# heavy, but exporting a long vertical clip is still a real (if less
-# common) use case.
-LONG_CLIP_THRESHOLD_SECONDS = 20 * 60
-
-
-def probe_duration_seconds(video_path: str) -> float:
-    """Total duration of a video/audio file, via ffprobe (bundled with the
-    ffmpeg install this app already requires)."""
-    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-           "-of", "default=noprint_wrappers=1:nokey=1", video_path]
-    out = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
-    return float(out.stdout.strip())
-
-
-def _fmt_mmss(seconds: float) -> str:
-    m, s = divmod(int(round(max(seconds, 0))), 60)
-    return f"{m}:{s:02d}"
-
-
-def estimate_vertical_export(duration_seconds: float) -> dict:
-    """A rough, honest estimate for rendering a vertical clip of this
-    length -- software video encoding speed varies enormously by CPU and
-    resolution, so this is a range scaled to the clip's own length and
-    typical H.264/AAC bitrates, not a benchmarked number for any specific
-    machine (the same "honest range, not false precision" approach as the
-    diarization-duration estimate in tabs/workspace_tab.py).
-
-    Returns {"time_note", "size_note", "is_long"}.
-    """
-    duration_seconds = max(duration_seconds, 0.0)
-    time_note = (
-        f"Usually takes roughly {_fmt_mmss(duration_seconds * 0.5)}"
-        f"–{_fmt_mmss(duration_seconds * 3)} to render, depending on your CPU and the "
-        f"clip's resolution (software video encoding -- there's no progress bar for this)."
-    )
-    # Typical H.264 bitrates for a vertical short: ~2 Mbps (heavily
-    # compressed) to ~8 Mbps (high quality), plus ~128kbps AAC audio.
-    low_mb = duration_seconds * (2_000_000 + 128_000) / 8 / 1_000_000
-    high_mb = duration_seconds * (8_000_000 + 128_000) / 8 / 1_000_000
-    size_note = (f"Estimated output size: ~{low_mb:.0f}–{high_mb:.0f} MB "
-                 "(H.264 video + AAC audio, typical bitrates).")
-    return {
-        "time_note": time_note,
-        "size_note": size_note,
-        "is_long": duration_seconds > LONG_CLIP_THRESHOLD_SECONDS,
-    }
 
 
 def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
