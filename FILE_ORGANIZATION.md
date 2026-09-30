@@ -218,6 +218,7 @@ baihe-subtitler/
 │   │                             export job notion_export_<id> that creates the drama's page once and then
 │   │                             updates only Baihe's own properties and "Baihe transcript" block in place
 │   │                             (page id in dramas.notion_page_id); fixed host, throttled, chunked, 429 back-off
+│   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -440,6 +441,7 @@ baihe-subtitler/
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
+│   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
@@ -565,6 +567,8 @@ baihe-subtitler/
 │       ├── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
 │       │                         /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
 │       │                         key-write gate; Step 44)
+│       ├── asr_options_routes.py /api/settings/asr-options (GET admin.settings, POST local_only;
+│       │                         Steps 103/104)
 │       └── jellyfin_routes.py    /api/jellyfin/config (GET/POST), /key, /key/clear, /test, /scan,
 │                                 /dramas/{id}/send -- all local_only (Step 39)
 │       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
@@ -602,7 +606,7 @@ baihe-subtitler/
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
-│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
+│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`), useMossExperimental (Step 104 toggle)
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
@@ -636,7 +640,9 @@ baihe-subtitler/
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
 │   │                              target database/page link, test connection; PC only, unit-tested helpers);
 │   │                              API in src/api/notion.ts (types/notion.ts). Export > Export to Notion is
-│   │                              src/pages/workspace/stages/ExportNotion.tsx (job + "Open in Notion" link)
+│   │                              src/pages/workspace/stages/ExportNotion.tsx (job + "Open in Notion" link).
+│   │                              TranscriptionExperimentsCard (Settings > Transcription experiments, Steps
+│   │                              103/104: Qwen3-ASR batch size, MOSS toggle; PC only); API in src/api/asrOptions.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
@@ -678,7 +684,8 @@ baihe-subtitler/
 │   │                              AddTitle, BulkImport (+ PastedListing), ExternalLink (http(s)-only links), useDiscoverJob
 │   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
 │   │                              unit-tested), discover.css
-│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
+│   ├── src/pages/workspace/stages/  also DiarizationDeviceNote (Transcribe > Speakers: GPU/CPU of the last
+│   │                              pyannote run, Step 101; API in src/api/asrOptions.ts), AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
 │   │                              Glossary > From novel / From lines, and the novel one on Source),
 │   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
 │   │                              (Translate: review glossary before translating), useGlossaryRun
@@ -766,7 +773,7 @@ baihe-subtitler/
 **ASR / transcription & alignment**
 | File | Does |
 |---|---|
-| `asr_backend.py` | pluggable transcription: Whisper (default) vs Qwen3-ASR |
+| `asr_backend.py` | pluggable transcription (BACKENDS/get_backend): Whisper (default), Qwen3-ASR (optional batching, Step 103), MOSS-Transcribe-Diarize (experimental, Step 104) |
 | `asr_benchmark.py` | Whisper vs Qwen3-ASR/ForcedAligner, one clip at a time |
 | `audio_preprocess.py` | optional audio preprocessing before transcription |
 | `forced_align.py` | Qwen3-ForcedAligner timing (alternative to `core.py`'s Whisper-diff alignment) |
