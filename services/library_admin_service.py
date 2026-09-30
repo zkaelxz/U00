@@ -483,15 +483,17 @@ def _sanitized_snapshot(dest: str):
 def _backup_excluded_top_level() -> tuple:
     """Top-level library entries a backup never contains: old backups and
     exports, saved site sign-ins, approved source profiles (a restore keeps
-    the current ones either way) and the browser-extension token."""
-    return wjs._restore_kept_names()
+    the current ones either way), the browser-extension token and the
+    sources raw-content cache (rebuildable: a missing file is a cache miss)."""
+    from sources import store as src_store
+    return wjs._restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
 def write_backup_zip(dest: str, include_media: bool = True, manifest=None):
     """Writes a backup zip to `dest`: a sanitized library.db snapshot and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
-    token), the live database files, symlinks and any `.env`. `manifest`,
+    token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
     if given, is called with the snapshot's path and returns bytes stored
     as manifest.json (so it describes exactly the database in the zip)."""
     library_dir = db.LIBRARY_DIR

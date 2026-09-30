@@ -60,6 +60,7 @@ import background_jobs
 from services import (engine_routing_service, line_provenance_service, narration_service,
                       settings_service, transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
+from services.service_errors import DependencyUnavailableError
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
 
 
@@ -338,6 +339,16 @@ def cmd_diarize(args):
         _run_batch(dramas, step, "diarize")
 
 
+def _qwen3_missing(exc) -> RuntimeError:
+    """Same as the API (dependency_missing): a drama saved to use Qwen3
+    forced alignment fails rather than quietly using a method nobody chose."""
+    detail = translate_engines.redact_secrets(str(exc))
+    return RuntimeError(
+        "Qwen3-ASR isn't installed, so Qwen3 forced alignment can't run. "
+        "Install qwen-asr from Diagnostics (or: pip install qwen-asr torch), "
+        f"or change this drama's alignment method. ({detail})")
+
+
 def cmd_align(args):
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
 
@@ -365,6 +376,12 @@ def cmd_align(args):
         # never applies here and there's nothing to read for it.)
         whisper_size = args.whisper_size or d.get("whisper_size") or DEFAULT_WHISPER_SIZE
         alignment_method = d.get("alignment_method") or "whisper_diff"
+        if alignment_method == "qwen3_forced_align":
+            # Checked before any transcription, as the API does.
+            try:
+                transcribe_service._require_qwen3_packages("Qwen3 forced alignment")
+            except DependencyUnavailableError as exc:
+                raise _qwen3_missing(exc) from exc
         # Glossary names plus raw-novel excerpt, shared with the API path.
         initial_prompt = transcribe_service.build_auto_initial_prompt(d["id"])
         # Same saved tuning the service's transcribe job uses
@@ -393,18 +410,27 @@ def cmd_align(args):
             except word_align.WordAlignError as exc:
                 print(f"#{d['id']} long-line realignment skipped: {exc}")
         user_lines = split_user_transcript(transcript_text)
-        if alignment_method == "qwen3_forced_align":
-            try:
-                import forced_align
-                lines = forced_align.align_with_qwen3(
-                    audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
-            except (ImportError, ModelDownloadError, ValueError) as exc:
-                print(f"#{d['id']} Qwen3 forced alignment unavailable ({exc}) -- using the "
-                      "default character-alignment method for this run.")
+        try:
+            if alignment_method == "qwen3_forced_align":
+                try:
+                    import forced_align
+                    lines = forced_align.align_with_qwen3(
+                        audio_path, user_lines, segments, language=language, use_gpu=use_gpu)
+                except ImportError as exc:
+                    raise _qwen3_missing(exc) from exc
+                except ModelDownloadError as exc:
+                    detail = translate_engines.redact_secrets(str(exc))
+                    raise RuntimeError(
+                        f"Qwen3 forced alignment model download failed: {detail}") from exc
+                except ValueError as exc:
+                    print(f"#{d['id']} Qwen3 forced alignment couldn't align this transcript "
+                          f"({exc}) -- using the default character-alignment method for this run.")
+                    lines = align_transcript_to_timing(user_lines, segments)
+            else:
                 lines = align_transcript_to_timing(user_lines, segments)
-        else:
-            lines = align_transcript_to_timing(user_lines, segments)
-        release_gpu_models()
+        finally:
+            # Also on a failure: _run_batch carries on with the next drama.
+            release_gpu_models()
         if not _replace_drama_lines(d["id"], lines, "before re-transcribe"):
             return
         # Same untouched-output record the Workspace transcription writes.
