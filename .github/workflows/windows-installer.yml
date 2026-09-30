@@ -348,9 +348,8 @@ jobs:
           if ($caddy.Status -ne 'Stopped' -or $caddy.StartType -ne 'Disabled') { Write-Error "a refused enable-remote changed Caddy"; exit 1 }
           if (Test-Path "$admin\caddy\Caddyfile") { Write-Error "a refused enable-remote wrote a Caddyfile"; exit 1 }
           if (Get-NetFirewallRule -DisplayName "*Baihe*" -ErrorAction SilentlyContinue) { Write-Error "a firewall rule exists"; exit 1 }
-          foreach ($port in @(80, 443)) {
-            if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) { Write-Error "port $port is listening"; exit 1 }
-          }
+          # Not port 80: the runner image already has a listener there.
+          if (Get-NetTCPConnection -State Listen -LocalPort 443 -ErrorAction SilentlyContinue) { Write-Error "port 443 is listening"; exit 1 }
           $test = Join-Path $env:RUNNER_TEMP "caddy-validate"
           New-Item -ItemType Directory -Force -Path $test | Out-Null
           $script = Join-Path $test "render.py"
