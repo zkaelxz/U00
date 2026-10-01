@@ -178,6 +178,8 @@ test('tasks list what they need, sizes, links, and install one package at a time
   await openSection(page, /^Packages/)
 
   await expect(page.getByTestId('install-tasks').getByRole('heading', { name: 'Install by task' })).toBeVisible()
+  // The task groups start folded; open each to see its tasks.
+  for (const summary of await page.getByTestId('install-tasks').locator('summary').all()) await summary.click()
   const zh = page.getByTestId('task-reader_zh')
   await expect(zh.locator('.pill')).toHaveText('1 of 3 installed')
   await expect(zh).toContainText('approx. 21 MB to download')
