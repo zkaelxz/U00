@@ -30,7 +30,7 @@ test('phone: every section open, no sideways scroll, 44 px targets', async ({ pa
   const s = await mockDiscover(page, { bulk: 'done', nav: 'done' })
   await page.goto('/#/discover')
   await expect(page.getByTestId('catalog-count')).toHaveText('2 of 2 saved titles')
-  for (const name of ['Search baihehub', 'Site navigation helper', 'Open a site', 'Bulk import from listing pages']) {
+  for (const name of ['Search baihehub', 'Open a site or explain a page', 'Bulk import from listing pages']) {
     await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${name}$`) }) }).click()
   }
   await expect(page.getByTestId('bulk-review')).toBeVisible()
@@ -43,7 +43,7 @@ test('phone: every section open, no sideways scroll, 44 px targets', async ({ pa
   await expect(page.getByTestId('search-links')).toBeVisible()
   await page.getByTestId('catalog-list').getByRole('button', { name: 'Add 女将军和长公主 to Library' }).click()
   await expect(page.getByRole('link', { name: 'In your Library — open' })).toHaveAttribute('href', '#/drama/42')
-  await page.getByLabel('Site URL').fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
+  await page.getByLabel('Page URL', { exact: true }).fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
   await noSideways(page)
   await tallTargets(page)
   const hit = await page.getByRole('switch', { name: 'Translate English to Chinese first' }).evaluate(

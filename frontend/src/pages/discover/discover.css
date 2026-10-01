@@ -28,7 +28,6 @@
 .discover-page .field-control > textarea { width: 100%; }
 .discover-ok { color: var(--ok); margin: 0; }
 .discover-empty { display: grid; gap: var(--space-2); justify-items: start; }
-.discover-open { display: inline-flex; align-items: center; min-height: 44px; }
 
 ul.discover-list, ul.discover-review { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
 .discover-card {
