@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
   belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel,
-  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone,
+  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone,
   type TaskRunResult,
 } from './installPresets'
 
@@ -107,5 +107,13 @@ describe('install presets helpers', () => {
     expect(safeSourceUrl('javascript:alert(1)')).toBeNull()
     expect(safeSourceUrl('https://evil.example/project/x/')).toBeNull()
     expect(safeSourceUrl(null)).toBeNull()
+  })
+})
+
+describe('task group summary', () => {
+  it('counts the tasks that still need something, else says all set up', () => {
+    const ready = task({ id: 'r', installed_count: 3, to_install: [] })
+    expect(taskGroupSummary([task({ id: 'a' }), ready, task({ id: 'b' })])).toBe('2 still to set up')
+    expect(taskGroupSummary([ready])).toBe('All set up')
   })
 })

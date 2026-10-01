@@ -23,6 +23,9 @@ export const setUserActive = (id: number, active: boolean, f?: Fetch) =>
 export const revokeUserSessions = (id: number, f?: Fetch) =>
   postJson<AdminSessionsRevoked>(`${BASE}/users/${id}/revoke-sessions`, undefined, f)
 
+export const revokeUserAdmin = (id: number, f?: Fetch) =>
+  postJson<AdminUser>(`${BASE}/users/${id}/revoke-admin`, undefined, f)
+
 /** "?limit=50&action=..." with empty filters left out. */
 export function auditQuery(q: AuditQuery = {}): string {
   const p = new URLSearchParams()

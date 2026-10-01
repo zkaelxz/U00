@@ -55,6 +55,21 @@ export function adminTargetBlock(user: AdminUser, pc: PcMode): string | null {
   return user.is_admin && pc !== 'local' ? ADMIN_PC_ONLY : null
 }
 
+/** Show "Remove admin…" at all? Only on an admin row, and only on the PC:
+ * the server refuses it anywhere else, so remote tabs don't get the button. */
+export function showRevokeAdmin(user: AdminUser, pc: PcMode): boolean {
+  return user.is_admin && pc === 'local'
+}
+
+/** Why this admin's rights can't be removed now, or null if they can. */
+export function revokeAdminBlock(user: AdminUser, users: AdminUser[]): string | null {
+  if (user.is_self) return "You can't remove your own admin rights."
+  if (user.is_active && activeAdminCount(users) <= 1) {
+    return "The last active admin can't lose admin rights. Baihe needs at least one."
+  }
+  return null
+}
+
 /** Each row button's reason to be off (null = allowed); the row's own rules come first. */
 export function rowBlocks(user: AdminUser, users: AdminUser[], pc: PcMode) {
   const admin = adminTargetBlock(user, pc)
@@ -94,6 +109,7 @@ const ACTIONS: Record<string, string> = {
   'user.activate': 'User activated',
   'user.deactivate': 'User deactivated',
   'user.grant_admin_local': 'Admin granted on the PC',
+  'user.revoke_admin': 'Admin rights removed',
   'user.bind_google': 'Google account linked',
   'permission.grant': 'Permission granted',
   'permission.revoke': 'Permission removed',
