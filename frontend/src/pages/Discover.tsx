@@ -7,10 +7,9 @@
  * Catalogue (search, filters, details, add to Library, remove: DI02/DI03),
  * Find on official platforms (DI04),
  * Add a title (from a URL or by hand: DI09/DI10), and under More tools
- * (folded Sections, rarely used): Search baihehub (DI06), Site navigation
- * helper (DI05), Bulk import (DI07), Open a site (DI08: a new tab, not an
- * in-app frame). Frequent blocks are Cards (docs/design/ui-refresh-spec.md
- * rule 16); one column at every width, capped at 860px.
+ * (folded Sections, rarely used): Search baihehub (DI06), Open a site or
+ * explain a page (DI05/DI08: a new tab, not an in-app frame), Bulk import (DI07).
+ * Frequent blocks are Cards (docs/design/ui-refresh-spec.md rule 16); one column at every width, capped at 860px.
  */
 import { useEffect, useState } from 'react'
 
@@ -25,8 +24,7 @@ import { AddTitle } from './discover/AddTitle'
 import { BaihehubPanel } from './discover/BaihehubPanel'
 import { BulkImport } from './discover/BulkImport'
 import { CatalogPanel } from './discover/CatalogPanel'
-import { discoverEngines, isHttpUrl } from './discover/discoverFormat'
-import { ExternalLink } from './discover/ExternalLink'
+import { discoverEngines } from './discover/discoverFormat'
 import { FindPanel } from './discover/FindPanel'
 import { NavigationHelp } from './discover/NavigationHelp'
 import './discover/discover.css'
@@ -92,42 +90,13 @@ export default function DiscoverPage() {
         <Section title="Search baihehub" summary="Chinese titles database" storageKey="discover.baihehub">
           <BaihehubPanel engine={engine} canTranslate={aiReady} />
         </Section>
-        <Section title="Site navigation helper" summary="Steps for a site you don't read" storageKey="discover.nav">
+        <Section title="Open a site or explain a page" summary="New tab, or steps for a site you don't read" storageKey="discover.nav">
           <NavigationHelp engine={engine} aiReady={aiReady} />
         </Section>
         <Section title="Bulk import from listing pages" summary="Up to 10 tag or ranking pages" storageKey="discover.bulk">
           <BulkImport engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
         </Section>
-        <Section title="Open a site" summary="In a new tab" storageKey="discover.open">
-          <OpenSite />
-        </Section>
       </Card>
-    </div>
-  )
-}
-
-// DI08. The Streamlit tab embedded the site in a frame; most large sites
-// forbid that, so this opens a normal tab to use next to the helper above.
-function OpenSite() {
-  const [url, setUrl] = useState('')
-  return (
-    <div className="discover-block">
-      <p className="muted discover-lead">
-        Opens a site in a new browser tab, to use side by side with the navigation helper. (Most sites refuse to be shown
-        inside another app.)
-      </p>
-      <div className="discover-row">
-        <Field label="Site URL">
-          <input type="url" value={url} maxLength={2000} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />
-        </Field>
-        {isHttpUrl(url) ? (
-          <span className="discover-open">
-            <ExternalLink href={url}>Open in a new tab</ExternalLink>
-          </span>
-        ) : (
-          <span className="muted discover-open">Enter an http(s) address.</span>
-        )}
-      </div>
     </div>
   )
 }

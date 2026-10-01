@@ -104,11 +104,16 @@ test('baihehub search falls back to a browser link; navigation helper shows step
   await expect(bh.getByRole('link', { name: 'Run this search in your browser' })).toHaveAttribute('href', 'https://baihehub.com/search?q=x')
   expect(posts(s, '/translate-query')).toHaveLength(0) // already Chinese
 
-  await openSection(page, 'Site navigation helper')
-  const go = page.getByRole('button', { name: 'Get navigation steps' })
+  await openSection(page, 'Open a site or explain a page')
+  const go = page.getByRole('button', { name: 'Explain this page' })
   await expect(go).toBeDisabled()
+  const open = page.getByRole('button', { name: 'Open site' })
+  await expect(open).toBeDisabled()
   await page.getByLabel('Start from a known site').selectOption({ label: 'JJWXC (晋江文学城)' })
   await expect(page.getByLabel('Page URL', { exact: true })).toHaveValue('https://www.jjwxc.net')
+  await expect(page.getByRole('link', { name: 'Open site' })).toHaveAttribute('href', /^https:\/\/www\.jjwxc\.net\/?$/)
+  await expect(page.getByRole('link', { name: 'Open site' })).toHaveAttribute('target', '_blank')
+  await expect(go).toBeDisabled()
   await page.getByLabel('What are you trying to do?').fill('find audio dramas')
   await go.click()
   const result = page.getByTestId('nav-result')
