@@ -28,14 +28,14 @@ const PREFS = {
 
 function overview() {
   return {
-    engine_keys: { claude: false, ollama_url: false, libretranslate_url: false, gpt_sovits_url: false },
+    engine_keys: { claude: false, ollama_url: false, gpt_sovits_url: false },
     gpu_limit_enabled: true,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,
     bulk_auto_resume: false,
     preferences: { ...PREFS },
-    endpoints: { ollama_url: null as string | null, libretranslate_url: null, gpt_sovits_url: null },
+    endpoints: { ollama_url: null as string | null, gpt_sovits_url: null },
     monthly_cap_env_usd: 0,
     effective_monthly_cap_usd: 0,
     choices: {
@@ -82,7 +82,7 @@ async function mockSettings(page: Page) {
 
 // Defaults and Spending are always-open Cards; the rest are
 // Sections (folds) inside the Advanced Card.
-const CARDS = ['Defaults for new dramas', 'Spending']
+const CARDS = ['Translation style', 'Spending']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
     ? page.getByRole('region', { name: title, exact: true })
@@ -109,20 +109,18 @@ test.afterEach(async ({ page }) => {
 test('defaults for new dramas save only what changed', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  const s = await open(page, 'Defaults for new dramas')
+  const s = await open(page, 'Translation style')
   const save = s.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
-  await s.getByLabel('Translation engine', { exact: true }).selectOption('deepseek')
   await s.getByLabel('English variant', { exact: true }).selectOption('en-GB')
   await s.getByLabel('Style note', { exact: true }).fill('Keep it short.')
   await save.click()
   await expect(s.getByRole('status')).toHaveText('Saved.')
   expect(posts).toEqual([
-    { path: '/api/settings', body: { default_engine: 'deepseek', default_locale: 'en-GB', default_style_note: 'Keep it short.' } },
+    { path: '/api/settings', body: { default_locale: 'en-GB', default_style_note: 'Keep it short.' } },
   ])
   await expect(save).toBeDisabled()
-  await expect(s.locator('.card-meta')).toHaveText('DeepSeek · English (UK) · style note')
-  await expect(s.getByRole('option', { name: 'DeepSeek' })).toHaveCount(2) // engine names humanized (engine + summary engine)
+  await expect(s.locator('.card-meta')).toHaveText('English (UK) · style note')
   expect(unmocked).toEqual([])
 })
 
@@ -194,7 +192,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
 test('the theme is changed from the header button, not from Settings', async ({ page }) => {
   await mockSettings(page)
   await page.goto('/#/settings')
-  await expect(block(page, 'Defaults for new dramas')).toBeVisible()
+  await expect(block(page, 'Translation style')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Theme: / })).toBeVisible()
@@ -206,10 +204,10 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  for (const title of ['Defaults for new dramas', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
+  for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
-      title === 'Server addresses' ? /^\d of 3 set · PC only$/ : 'PC only')
+      title === 'Server addresses' ? /^\d of 2 set · PC only$/ : 'PC only')
   }
   expect(unmocked).toEqual([])
 })

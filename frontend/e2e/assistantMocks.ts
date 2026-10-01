@@ -25,7 +25,7 @@ export const ANSWER = {
   model: null,
 }
 
-export const TOOLS = {
+const TOOLS = {
   tools: [
     { name: 'search_code', description: 'Searches the source code.', tier: 'green' },
     { name: 'read_file', description: 'Reads one file in the repo.', tier: 'green' },
@@ -34,20 +34,20 @@ export const TOOLS = {
   write_tools: [],
 }
 
-export interface BacklogRow {
+interface BacklogRow {
   id: number
   kind: 'bug' | 'feature' | 'note'
   text: string
   created_at: string
 }
 
-export interface Call {
+interface Call {
   method: string
   path: string
   body: unknown
 }
 
-export interface AssistantMock {
+interface AssistantMock {
   developerMode: boolean
   local: boolean
   engine: string | null

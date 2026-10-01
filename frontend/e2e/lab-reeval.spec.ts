@@ -41,13 +41,13 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await expect(c.locator('summary', { hasText: 'Decision history' })).toContainText('None yet')
   expect(posts).toEqual([])
 
-  // Add LibreTranslate (free): a new candidate.
-  await c.getByLabel('Candidate engine', { exact: true }).selectOption('libretranslate')
+  // Add NLLB (free): a new candidate.
+  await c.getByLabel('Candidate engine', { exact: true }).selectOption('nllb')
   await c.getByLabel('Note', { exact: true }).fill('free fallback')
   await c.getByRole('button', { name: 'Add candidate' }).click()
-  await expect(c.getByTestId('reeval-added')).toHaveText('Added LibreTranslate as a candidate.')
+  await expect(c.getByTestId('reeval-added')).toHaveText('Added NLLB · facebook/nllb-200-distilled-600M as a candidate.')
   const list = c.getByRole('list', { name: 'Candidate models' })
-  await expect(list.locator(':scope > li', { hasText: 'LibreTranslate' })).toContainText('Open')
+  await expect(list.locator(':scope > li', { hasText: 'NLLB' })).toContainText('Open')
 
   // Estimate (spends nothing); production has no key, so Run now stays off and says why.
   await c.getByRole('button', { name: 'Estimate cost' }).click()
@@ -56,18 +56,18 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await expect(c.getByTestId('reeval-run-reason')).toHaveText('Claude has no key. Set one in Settings.')
 
   // Reject asks for a reason first.
-  await c.getByRole('button', { name: 'Reject LibreTranslate' }).click()
+  await c.getByRole('button', { name: 'Reject NLLB' }).click()
   await c.getByLabel('Why reject it?', { exact: true }).fill('too literal')
-  await c.getByRole('button', { name: 'Reject LibreTranslate' }).click()
-  await expect(c.getByTestId('reeval-candidate-status')).toContainText('Rejected LibreTranslate')
-  const item = list.locator(':scope > li', { hasText: 'LibreTranslate' })
+  await c.getByRole('button', { name: 'Reject NLLB' }).click()
+  await expect(c.getByTestId('reeval-candidate-status')).toContainText('Rejected NLLB')
+  const item = list.locator(':scope > li', { hasText: 'NLLB' })
   await expect(item).toContainText('Rejected')
   await expect(item).toContainText('rejected: too literal')
-  await expect(item.getByRole('button', { name: 'Reopen LibreTranslate' })).toBeVisible()
+  await expect(item.getByRole('button', { name: 'Reopen NLLB' })).toBeVisible()
 
   // Re-adding it shows the recorded decision instead of "added".
   await c.getByRole('button', { name: 'Add candidate' }).click()
-  await expect(c.getByTestId('reeval-known')).toContainText(/LibreTranslate: Already evaluated on \d{4}-\d{2}-\d{2}, rejected: too literal/)
+  await expect(c.getByTestId('reeval-known')).toContainText(/NLLB · facebook\/nllb-200-distilled-600M: Already evaluated on \d{4}-\d{2}-\d{2}, rejected: too literal/)
   await expect(c.getByTestId('reeval-added')).toHaveCount(0)
 
   // The decision is in the history.
@@ -107,7 +107,7 @@ test('estimate, then Run now (confirm: true), progress, and the report against p
   await expect(first).toContainText('+3.4 pts')
   await expect(first).toContainText('+610 ms')
   await expect(first).toContainText('+3.8 GB')
-  const second = rows.locator(':scope > li', { hasText: 'LibreTranslate' })
+  const second = rows.locator(':scope > li', { hasText: 'NLLB' })
   await expect(second).toContainText('−11.0 pts')
   await expect(second).toContainText('−900 ms')
   await expect(second).toContainText('−5.3 GB')
@@ -128,8 +128,8 @@ test('promote needs the second press, sends the reason, and says what changes', 
   const { calls, unmocked } = await mockReeval(page, overview({ withReport: true }))
   await page.goto('/#/benchmark')
   const c = card(page)
-  const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'LibreTranslate' })
-  await expect(row).toContainText("Settings' default engine changes from Ollama to LibreTranslate.")
+  const row = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'NLLB' })
+  await expect(row).toContainText("Settings' default engine changes from Ollama to NLLB.")
   await expect(row).toContainText('Presets keep their own model')
   const qwen = c.getByRole('list', { name: 'Candidates against production' }).locator(':scope > li', { hasText: 'qwen2.5:14b' })
   await expect(qwen).toContainText("Settings' default engine stays Ollama.")
@@ -175,15 +175,15 @@ test('reject asks a reason, reopen puts it back, re-adding a rejected model show
   await gemini.getByRole('button', { name: 'Reopen Gemini · gemini-flash-latest' }).click()
   await expect(gemini).toContainText('Open')
 
-  const libre = list.locator(':scope > li', { hasText: 'LibreTranslate' })
-  await libre.getByRole('button', { name: 'Reject LibreTranslate' }).click()
-  await libre.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
-  await libre.getByRole('button', { name: 'Cancel' }).click()
+  const nllbItem = list.locator(':scope > li', { hasText: 'NLLB' })
+  await nllbItem.getByRole('button', { name: 'Reject NLLB' }).click()
+  await nllbItem.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
+  await nllbItem.getByRole('button', { name: 'Cancel' }).click()
   expect(calls.filter((x) => x.path.endsWith('/reject'))).toEqual([])
-  await libre.getByRole('button', { name: 'Reject LibreTranslate' }).click()
-  await libre.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
-  await libre.getByRole('button', { name: 'Reject LibreTranslate' }).click()
-  await expect(libre).toContainText('rejected: worse on idioms')
+  await nllbItem.getByRole('button', { name: 'Reject NLLB' }).click()
+  await nllbItem.getByLabel('Why reject it?', { exact: true }).fill('worse on idioms')
+  await nllbItem.getByRole('button', { name: 'Reject NLLB' }).click()
+  await expect(nllbItem).toContainText('rejected: worse on idioms')
   expect(calls.find((x) => x.path.endsWith('/reject'))).toEqual({ method: 'POST', path: '/candidates/2/reject', body: { reason: 'worse on idioms' } })
   expect(unmocked).toEqual([])
 })

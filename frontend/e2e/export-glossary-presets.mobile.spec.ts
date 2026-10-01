@@ -49,7 +49,7 @@ const PRESETS = { items: [{ id: 7, name: 'A rather long preset name for a phone'
 test('export video sections and Mark as exported on a phone', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   await expectTall(page.getByRole('button', { name: 'Mark as exported' }))
-  await page.getByText('More export', { exact: true }).click()
+  await page.getByText('Video and audio', { exact: true }).click()
   const softsub = page.getByRole('group', { name: 'Video with a subtitle track' })
   const dubbed = page.getByRole('group', { name: 'Video with the dub audio' })
   await expectTall(softsub.getByRole('button'))

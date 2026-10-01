@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Diagnostics admin sections and Settings > Browser extension (desktop).
 // Every install, upgrade, reset and extension POST is mocked; a catch-all
@@ -186,6 +187,50 @@ test('a running job blocks install and reset with a reason, and Jobs stays open'
   expect(unmocked).toEqual([])
 })
 
+test('Jobs fold: newest 10 first, Show more, and permanent Delete with two presses', async ({ page }) => {
+  const unmocked = await guard(page)
+  let items = [
+    job({ job_id: 'run_1', description: 'Running one' }),
+    ...Array.from({ length: 14 }, (_, i) => job({
+      job_id: `old_${i}`, status: i === 0 ? 'error' : 'done', error: i === 0 ? 'x'.repeat(300) : null,
+      description: `Old job ${i}`, finished_at: 2, started_at: 100 - i,
+    })),
+  ]
+  await mockPage(page, { jobs: items })
+  await page.route('**/api/jobs', (r) => r.fulfill({ json: { items, count: items.length } }))
+  const deleted: string[] = []
+  await page.route('**/api/jobs/old_3/delete', (r) => {
+    deleted.push('old_3')
+    items = items.filter((j) => j.job_id !== 'old_3')
+    return r.fulfill({ json: { job_id: 'old_3', deleted: true } })
+  })
+  await page.route('**/api/jobs/clear-finished', (r) => {
+    items = items.filter((j) => j.status === 'running')
+    return r.fulfill({ json: { deleted_count: 13 } })
+  })
+  await page.goto('/#/diagnostics')
+  const rows = page.getByTestId('job-list').locator('tbody tr')
+  await expect(rows).toHaveCount(10)
+  await expect(rows.first()).toContainText('Running one')
+  await expect(page.getByTestId('jobs-more')).toContainText('Showing 10 of 15')
+  await page.getByRole('button', { name: 'Show 5 more' }).click()
+  await expect(rows).toHaveCount(15)
+  await expect(page.getByTestId('jobs-more')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Delete Old job 3' }).click()
+  expect(deleted).toEqual([])
+  await page.getByRole('button', { name: 'Confirm delete Old job 3' }).click()
+  await expect(rows).toHaveCount(14)
+  expect(deleted).toEqual(['old_3'])
+  await expect(rows.first().getByRole('button', { name: /^Delete/ })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Delete all finished jobs' }).click()
+  await expect(page.getByTestId('jobs-clear')).toContainText('Permanent')
+  await page.getByRole('button', { name: /Confirm delete 13 finished/ }).click()
+  await expect(rows).toHaveCount(1)
+  expect(unmocked).toEqual([])
+})
+
 test('reset: exact RESET, sends the confirm word, then says so with a link', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, { stats: { total_dramas: 12, total_lines: 48210, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} } })
@@ -239,6 +284,7 @@ test('away from the PC: no install, reset or extension controls and no extension
   await expect(page.locator('.danger-zone')).toContainText('Run this on the main PC.')
 
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('PC only')
   await expect(ext).toContainText('Run this on the main PC.')
@@ -292,6 +338,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
 
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   await page.waitForTimeout(300)
@@ -448,6 +495,7 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
     return r.fulfill({ json: { enabled: true, running: true, restart_needed: false } })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('Off · still running until Baihe restarts')
   // The status is the Card's meta line, next to the switch.
@@ -482,7 +530,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   const engines = [
     { name: 'claude', label: 'Claude', free: false, models: ['claude-sonnet-5', 'claude-opus-4-8'], key_configured: false },
-    { name: 'libretranslate', label: 'LibreTranslate', free: false, models: null, key_configured: true },
+    { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
   ]
   let current: Record<string, unknown> = { engine: null, model: null, ready: false, engines }
   const saves: unknown[] = []
@@ -490,11 +538,12 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     if (r.request().method() === 'POST') {
       const body = r.request().postDataJSON() as { engine: string | null; model: string | null }
       saves.push(body)
-      current = { ...current, ...body, ready: body.engine === 'libretranslate' }
+      current = { ...current, ...body, ready: body.engine === 'nllb' }
     }
     return r.fulfill({ json: current })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   const picker = ext.getByRole('combobox', { name: 'Translate pages with' })
   await expect(picker).toHaveValue('')
@@ -508,14 +557,14 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await ext.getByRole('combobox', { name: 'Model' }).selectOption('claude-opus-4-8')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-opus-4-8')
 
-  await picker.selectOption('libretranslate')
+  await picker.selectOption('nllb')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
-    'Pages are translated with LibreTranslate. The key stays on this PC.')
+    'Pages are translated with NLLB. The key stays on this PC.')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveCount(0)
   expect(saves).toEqual([
     { engine: 'claude', model: null },
     { engine: 'claude', model: 'claude-opus-4-8' },
-    { engine: 'libretranslate', model: null },
+    { engine: 'nllb', model: null },
   ])
   expect(unmocked).toEqual([])
 })

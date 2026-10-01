@@ -410,9 +410,7 @@ dramas in a real Chromium: list, filter, detail. In a separate check,
 Streamlit's own Library tab applied the same Favorite filter through the
 same service in a real browser.
 
-Screenshots: `docs/migration-screenshots/react-library.png` (React, seeded
-e2e data) and `docs/migration-screenshots/streamlit-library-filtered.png`
-(Streamlit Library tab after the service extraction, Favorite filter on).
+(The before/after screenshots were deleted; git history has them.)
 
 ---
 

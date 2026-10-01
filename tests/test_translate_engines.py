@@ -15,6 +15,7 @@ import pytest
 
 import translate_engines as te
 from core import Line
+from tests import fake_engine
 
 
 class RateLimitError(Exception):
@@ -1562,12 +1563,12 @@ class TestNLLBEngine:
 
 class TestFreeEngineLabelling:
     """Step 1d item 4: every free-to-use option is clearly labelled as
-    such (test_offline, ollama, nllb, libretranslate always; gemini only
+    such (test_offline, ollama, nllb always; gemini only
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
     def test_free_engines_set_matches_the_roadmap_table(self):
-        assert te.FREE_ENGINES == {"test_offline", "ollama", "nllb", "libretranslate"}
+        assert te.FREE_ENGINES == {"fake", "ollama", "nllb"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
@@ -1615,7 +1616,7 @@ class TestGetEngineFreeTierPassthrough:
         # Every other engine class's __init__ has no free_tier parameter --
         # this must not raise a TypeError just because the caller always
         # passes the kwarg.
-        engine = te.get_engine("test_offline", free_tier=True)
+        engine = te.get_engine("fake", free_tier=True)
         assert not hasattr(engine, "free_tier")
 
     def test_free_tier_reaches_gemini_even_with_an_explicit_model(self):
@@ -1648,7 +1649,7 @@ class TestGetEngineOllamaBaseUrlPassthrough:
         # Every other engine class's __init__ has no base_url parameter --
         # this must not raise a TypeError just because the caller always
         # passes the kwarg.
-        engine = te.get_engine("test_offline", base_url="http://gpu-box:11434")
+        engine = te.get_engine("fake", base_url="http://gpu-box:11434")
         assert not hasattr(engine, "base_url")
 
 
@@ -1787,7 +1788,7 @@ class TestCallLlmJson:
         assert calls == [1]
 
     def test_test_offline_engine_declines_without_crashing(self):
-        engine = te.TestOfflineEngine()
+        engine = fake_engine.FakeEngine()
         assert engine.client is None  # by design
         result = te.call_llm_json(engine, "prompt", fallback="[]")
         assert result == "[]"
@@ -1827,16 +1828,16 @@ class TestCallLlmJson:
         assert captured["timeout"] is not None
 
     def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
-        """NLLB/LibreTranslate (translation-only, no .client,
+        """NLLB (translation-only, no .client,
         not Gemini/Ollama/test_offline) used to silently return the bare
         fallback here too -- the same "looks like it worked, did
         nothing" failure mode as the Ollama bug above, just for a
         different set of engines. Now raises instead of pretending to
         have produced a real (empty) result."""
         class FakeTranslationOnlyEngine:
-            name = "libretranslate"
+            name = "nllb"
 
-        with pytest.raises(RuntimeError, match="libretranslate can't run this feature"):
+        with pytest.raises(RuntimeError, match="nllb can't run this feature"):
             te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
@@ -2240,17 +2241,17 @@ class TestOfflineTestEngine:
     no API key, no network, and no spend. These guard that promise."""
 
     def test_registered_as_an_engine(self):
-        assert "test_offline" in te.ENGINES
+        assert "fake" in te.ENGINES
 
     def test_works_with_no_api_key(self):
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         assert engine is not None
-        engine2 = te.get_engine("test_offline", None)
+        engine2 = te.get_engine("fake", None)
         assert engine2 is not None
 
     def test_translates_every_line_without_network(self):
         lines = [Line(idx=i, start=float(i), end=float(i) + 1, zh=f"第{i}句") for i in range(6)]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         _, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
         assert errors == []
         assert all(ln.en for ln in lines)
@@ -2258,7 +2259,7 @@ class TestOfflineTestEngine:
     def test_output_is_obviously_placeholder(self):
         # Must never be mistakable for a real translation.
         lines = [Line(idx=0, start=0, end=1, zh="真实对白")]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         te.translate_lines_with_engine(lines, engine, {})
         assert lines[0].en.startswith("[TEST]")
 
@@ -2267,19 +2268,19 @@ class TestOfflineTestEngine:
 
     def test_records_usage_so_dashboard_path_is_exercised(self):
         lines = [Line(idx=0, start=0, end=1, zh="测试")]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         te.translate_lines_with_engine(lines, engine, {})
         assert engine.last_usage["input_tokens"] > 0
 
     def test_long_lines_are_truncated_in_placeholder(self):
         lines = [Line(idx=0, start=0, end=1, zh="字" * 200)]
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         te.translate_lines_with_engine(lines, engine, {})
         assert len(lines[0].en) < 100
 
     def test_has_no_sdk_client_so_llm_features_decline_cleanly(self):
         # Free-form LLM helpers check for .client; None must not crash them.
-        engine = te.get_engine("test_offline")
+        engine = te.get_engine("fake")
         assert engine.client is None
         # Step 55: a decline-cleanly response is still a batch that couldn't
         # actually be checked -- counted as failed, not silently zeroed out.

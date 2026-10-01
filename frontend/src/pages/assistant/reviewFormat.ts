@@ -2,7 +2,7 @@
 import type { BadgeTone } from '../../components/labels'
 import type { ReviewVerdict } from '../../types/assistant'
 
-export const REVIEW_VERDICTS: Record<ReviewVerdict, { label: string; tone: BadgeTone; text: string }> = {
+const REVIEW_VERDICTS: Record<ReviewVerdict, { label: string; tone: BadgeTone; text: string }> = {
   agrees: { label: 'Agrees', tone: 'ok', text: 'The reviewer found no problem with this fix.' },
   concerns: { label: 'Concerns', tone: 'warn', text: 'The reviewer found problems. Read them before using this fix.' },
   unclear: { label: 'No verdict', tone: 'neutral', text: 'The reviewer gave no clear verdict. Read its notes.' },

@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { mockSources, searchResult } from './sourcesMocks'
 import { WEB_RESULTS, emptySearch, mockWebSearch } from './webSearchMocks'
+import { openSettingsGroups } from './settingsNav'
 
 // Web-search fallback (roadmap item 114). Sources jobs are mocked
 // (sourcesMocks.ts) and so is /api/web-search (no SearXNG).
@@ -76,6 +77,7 @@ test('settings: off by default, saves the address with confirm, Test, then turn 
   })
   await page.route('**/api/web-search/test', (route) => route.fulfill({ json: { ok: true, result_count: 7 } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Web search' })
   await expect(card).toContainText('Off')
   const sw = card.getByRole('switch', { name: 'Use web search' })
@@ -103,6 +105,7 @@ test('settings: a refused address change explains the key-write gate', async ({ 
       : route.fulfill({ json: { enabled: false, base_url: null } }),
   )
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Web search' })
   await card.getByRole('textbox', { name: 'SearXNG address' }).fill('http://localhost:8888')
   await card.getByRole('button', { name: 'Save', exact: true }).click()
@@ -116,6 +119,7 @@ test('settings: flipping the switch keeps an address typed but not saved', async
     return route.fulfill({ json: cfg })
   })
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Web search' })
   const box = card.getByRole('textbox', { name: 'SearXNG address' })
   await box.fill('http://192.168.1.20:8888')

@@ -28,8 +28,8 @@ import { apiUrl } from './client'
 
 export type StreamMode = 'connecting' | 'push' | 'poll'
 
-export const EVENTS_PATH = '/api/events?topics=jobs,notifications,live'
-export const STREAM_EVENTS = ['job', 'job_gone', 'notifications', 'live', 'resync', 'ping'] as const
+const EVENTS_PATH = '/api/events?topics=jobs,notifications,live'
+const STREAM_EVENTS = ['job', 'job_gone', 'notifications', 'live', 'resync', 'ping'] as const
 export const FALLBACK_AFTER = 2
 export const BASE_BACKOFF_MS = 500
 export const MAX_BACKOFF_MS = 30_000
@@ -57,7 +57,7 @@ export interface EventSourceLike {
   close(): void
 }
 
-export interface HubDeps {
+interface HubDeps {
   url?: string
   create?: ((url: string) => EventSourceLike) | null
   setTimer?: (fn: () => void, ms: number) => unknown

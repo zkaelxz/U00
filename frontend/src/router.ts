@@ -6,6 +6,7 @@ export type Route =
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   | { name: 'drama'; id: number; stage: string | null }
   | { name: 'settings' }
+  | { name: 'admin' }
   | { name: 'diagnostics' }
   // compare: the raw "engine:model,engine:model" value of ?compare= (Model
   // health's "Compare in Benchmark Lab"; pages/benchmark/benchmarkForm.ts reads it).
@@ -28,6 +29,7 @@ export function parseRoute(hash: string): Route {
   const [head, a, b] = parts
   if (head === 'library-tools' && parts.length === 1) return { name: 'library-tools' }
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
+  if (head === 'admin' && parts.length === 1) return { name: 'admin' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'benchmark' && parts.length === 1) {
     // Kept raw (still %-encoded) so a ":" or "," inside a model name can't be misread.
@@ -64,10 +66,6 @@ export function routeHref(r: Route): string {
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'benchmark' && r.compare) return `#/benchmark?compare=${r.compare}`
   return `#/${r.name}`
-}
-
-export function navigate(r: Route) {
-  window.location.hash = routeHref(r)
 }
 
 export function useRoute(): Route {

@@ -38,10 +38,9 @@ def test_list_engines_reports_booleans(tmp_path):
 def test_list_engines_keyless_engines_report_configured(tmp_path):
     env_path = _write_env(tmp_path, "")
     engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
-    assert engines["test_offline"]["key_configured"] is True
+    assert engines["fake"]["key_configured"] is True
     assert engines["nllb"]["key_configured"] is True
     assert engines["ollama"]["key_configured"] is True
-    assert engines["libretranslate"]["key_configured"] is True
 
 
 def test_list_engines_reflects_configured_key(tmp_path):
@@ -65,26 +64,29 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
     assert engines["gemini"]["models"] == list(translate_engines.GEMINI_MODELS.keys())
     assert engines["ollama"]["models"] == list(translate_engines.OLLAMA_MODELS.keys())
     assert engines["nllb"]["models"] == list(translate_engines.NLLB_MODELS.keys())
-    assert engines["test_offline"]["models"] is None
+    assert engines["fake"]["models"] is None
 
 
 def test_list_engines_does_not_offer_the_removed_engines(tmp_path):
-    env_path = _write_env(tmp_path, "BAIHE_DEEPL_KEY=stale\nBAIHE_GOOGLE_KEY=stale\n")
+    env_path = _write_env(tmp_path, "BAIHE_DEEPL_KEY=stale\nBAIHE_GOOGLE_KEY=stale\n"
+                          "BAIHE_LIBRETRANSLATE_URL=http://stale.example:5000\n")
     names = {e["name"] for e in translate_service.list_engines(env_path)}
-    assert not names & {"deepl", "google"}
+    assert not names & {"deepl", "google", "libretranslate"}
     assert not set(translate_engines.ENGINES) & translate_engines.REMOVED_ENGINES
     assert "stale" not in repr(settings_service.key_status(env_path))
-    assert not {"deepl", "google"} & set(settings_service.key_status(env_path))
+    assert not {"deepl", "google", "libretranslate", "libretranslate_url"} & set(
+        settings_service.key_status(env_path))
+    assert "stale.example" not in repr(settings_service.get_settings_overview(env_path))
 
 
 def test_list_history_returns_what_was_saved(isolated_db):
     import db
-    db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+    db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
     history = translate_service.list_history()
     assert len(history) == 1
     assert history[0]["source_language"] == "zh"
     assert history[0]["target_language"] == "en"
-    assert history[0]["engine"] == "test_offline"
+    assert history[0]["engine"] == "fake"
     assert history[0]["source_text"] == "你好"
     assert history[0]["translated_text"] == "[TEST] Hello"
 
@@ -92,52 +94,33 @@ def test_list_history_returns_what_was_saved(isolated_db):
 def test_list_history_respects_limit(isolated_db):
     import db
     for i in range(5):
-        db.save_translate_history("zh", "en", "test_offline", f"src-{i}", f"out-{i}")
+        db.save_translate_history("zh", "en", "fake", f"src-{i}", f"out-{i}")
     history = translate_service.list_history(limit=2)
     assert len(history) == 2
 
 
 class TestTranslate:
     def test_test_offline_produces_deterministic_output_and_saves_history(self, isolated_db):
-        result = translate_service.translate("你好", "test_offline", "zh", "en")
+        result = translate_service.translate("你好", "fake", "zh", "en")
         assert result == {"translated_text": "[TEST] 你好"}
         history = translate_service.list_history()
         assert len(history) == 1
-        assert history[0]["engine"] == "test_offline"
+        assert history[0]["engine"] == "fake"
         assert history[0]["translated_text"] == "[TEST] 你好"
 
     def test_unknown_engine_is_invalid_input(self, isolated_db):
         with pytest.raises(InvalidInputError):
             translate_service.translate("hi", "not_a_real_engine", "zh", "en")
 
-    def test_unsupported_direction_is_refused(self, isolated_db):
-        # libretranslate en->zh is explicitly refused by
-        # standalone_direction_support -- see translate_engines.py.
+    def test_unsupported_direction_is_refused(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
         with pytest.raises(UnsupportedOperationError):
-            translate_service.translate("hello", "libretranslate", "en", "zh")
+            translate_service.translate("hello", "nllb", "en", "zh")
 
-    def test_libretranslate_uses_saved_url_and_sends_no_placeholder_key(
-            self, isolated_db, monkeypatch):
-        monkeypatch.setenv("BAIHE_LIBRETRANSLATE_URL", "http://lt.example:5001/")
-        calls = []
-
-        class _Resp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"translatedText": "Hello"}
-
-        def fake_post(url, json=None, timeout=None):
-            calls.append((url, json))
-            return _Resp()
-
-        import requests
-        monkeypatch.setattr(requests, "post", fake_post)
-        result = translate_service.translate("你好", "libretranslate", "zh", "en")
-        assert result == {"translated_text": "Hello"}
-        assert calls[0][0] == "http://lt.example:5001/translate"
-        assert "api_key" not in calls[0][1]
+    def test_a_removed_engine_is_refused_with_a_clear_message(self, isolated_db):
+        with pytest.raises(InvalidInputError, match="was removed"):
+            translate_service.translate("hello", "libretranslate", "zh", "en")
 
     def test_missing_key_raises_dependency_unavailable(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -153,9 +136,6 @@ class TestTranslate:
         # own `api_key is None and engine_name != "nllb"` guard).
         assert translate_service.resolve_api_key("nllb") is None
 
-    def test_resolve_api_key_test_offline_is_literal_offline(self):
-        assert translate_service.resolve_api_key("test_offline") == "offline"
-
     def test_resolve_api_key_ollama_defaults_to_local(self, tmp_path):
         env_path = _write_env(tmp_path, "")
         assert translate_service.resolve_api_key("ollama", env_path) == "local"
@@ -164,21 +144,21 @@ class TestTranslate:
 class TestClearHistory:
     def test_without_confirm_raises_and_leaves_history_untouched(self, isolated_db):
         import db
-        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         with pytest.raises(InvalidInputError):
             translate_service.clear_history()
         assert len(db.list_translate_history()) == 1
 
     def test_confirm_false_raises_and_leaves_history_untouched(self, isolated_db):
         import db
-        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         with pytest.raises(InvalidInputError):
             translate_service.clear_history(confirm=False)
         assert len(db.list_translate_history()) == 1
 
     def test_confirm_true_clears_history(self, isolated_db):
         import db
-        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         result = translate_service.clear_history(confirm=True)
         assert result == {"cleared": True}
         assert db.list_translate_history() == []

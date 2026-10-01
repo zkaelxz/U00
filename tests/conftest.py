@@ -151,6 +151,16 @@ def restore_real_modules() -> list:
     return restored
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _fake_engine_installed():
+    """The key-free fake engine every pipeline test translates with. It is
+    not part of the app (see tests/fake_engine.py)."""
+    from tests import fake_engine
+    fake_engine.install()
+    yield
+    fake_engine.uninstall()
+
+
 @pytest.fixture(autouse=True)
 def _keep_real_torch_importable():
     """Restores the real torch (and friends) after every test, so a fake

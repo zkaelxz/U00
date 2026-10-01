@@ -12,6 +12,7 @@ import { Card } from '../../components/Card'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { EngineKeyResult, SettingsOverview } from '../../types/settings'
+import { SAVED_ON_PC_NOTE } from './preferences'
 import { SettingsKeyForm } from '../SettingsKeyForm'
 import { keyRows } from '../settingsKeys'
 
@@ -58,7 +59,7 @@ export function ApiKeysCard({ settings, onKey }: Props) {
       <p className="settings-note">
         {remote
           ? 'Setting keys is PC only.'
-          : 'Keys are saved to .env on the Baihe PC and never shown again. Setting them works only on that PC (on when started with start.bat; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1). You can also edit .env.'}
+          : SAVED_ON_PC_NOTE}
       </p>
     </Card>
   )

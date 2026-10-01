@@ -8,7 +8,7 @@ export interface DomainEntry {
   customized: boolean; last_good: string | null; pending_proposals: number
 }
 
-export const DOMAIN_ENTRIES: DomainEntry[] = [
+const DOMAIN_ENTRIES: DomainEntry[] = [
   {
     source: 'alpha', display_name: 'Alpha Comics', domains: ['alpha.example', 'alpha-mirror.example'],
     default_domains: ['alpha.example', 'alpha-mirror.example'], customized: false, last_good: 'alpha.example', pending_proposals: 1,

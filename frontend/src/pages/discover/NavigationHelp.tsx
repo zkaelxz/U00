@@ -1,9 +1,10 @@
 /*
- * Discover > Site navigation helper (DI05). For a site in a language you
- * don't read: the PC reads the public page, translates its visible labels
- * and writes step-by-step help for the site's own interface (a job; 2+ AI
- * calls). It never signs in, buys or fetches content. Steps are shown as
- * plain text (the model writes Markdown; nothing is rendered as HTML).
+ * Discover > Open a site or explain a page. One page-URL field with two
+ * actions: open the site in a new tab (needs only a URL; most sites refuse to
+ * be framed), or, for a site in a language you don't read, have the PC read the
+ * public page, translate its visible labels and write step-by-step help for the site's own interface (a job;
+ * 2+ AI calls). Explaining never signs in, buys or fetches content. Steps are
+ * shown as plain text (the model writes Markdown; nothing is rendered as HTML).
  */
 import { useEffect, useState, type FormEvent } from 'react'
 
@@ -13,6 +14,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { NavigationHelpResult, Platform } from '../../types/discover'
 import { TARGET_LANGUAGES, isHttpUrl } from './discoverFormat'
+import { ExternalLink } from './ExternalLink'
 import { useDiscoverJob } from './useDiscoverJob'
 
 export function NavigationHelp({ engine, aiReady }: { engine: string; aiReady: boolean }) {
@@ -26,8 +28,9 @@ export function NavigationHelp({ engine, aiReady }: { engine: string; aiReady: b
     listPlatforms().then(setPlatforms, () => setPlatforms([]))
   }, [])
 
+  const urlOk = isHttpUrl(url)
   const missing = [
-    !isHttpUrl(url) && 'a page URL',
+    !urlOk && 'a page URL',
     !goal.trim() && 'what you are trying to do',
     !aiReady && 'an AI engine (set a key in Settings)',
   ].filter(Boolean) as string[]
@@ -43,8 +46,9 @@ export function NavigationHelp({ engine, aiReady }: { engine: string; aiReady: b
   return (
     <form className="discover-block" onSubmit={submit}>
       <p className="muted discover-lead">
-        For sites in a language you don't read: paste a public page's address and say what you want to do. You get its
-        menu labels translated and steps for using the site yourself. It doesn't sign in, buy or download anything.
+        Paste a public page's address. Open it in a new tab to use side by side, or, for a site in a language you don't
+        read, say what you want to do and get its menu labels translated plus steps for using it yourself. Explaining
+        doesn't sign in, buy or download anything.
       </p>
       <Field label="Start from a known site">
         <select value="" onChange={(e) => e.target.value && setUrl(e.target.value)}>
@@ -75,10 +79,19 @@ export function NavigationHelp({ engine, aiReady }: { engine: string; aiReady: b
           ))}
         </select>
       </Field>
-      {missing.length > 0 && <p className="muted">Still needed: {missing.join('; ')}.</p>}
+      {missing.length > 0 && <p className="muted">To explain the page you still need: {missing.join('; ')}.</p>}
       <div className="discover-row">
+        {urlOk ? (
+          <ExternalLink href={url.trim()} className={buttonClass('secondary')}>
+            Open site
+          </ExternalLink>
+        ) : (
+          <button type="button" className={buttonClass('secondary')} disabled>
+            Open site
+          </button>
+        )}
         <button type="submit" className={buttonClass('secondary')} disabled={missing.length > 0 || running} aria-busy={running}>
-          {running ? 'Working…' : 'Get navigation steps'}
+          {running ? 'Working…' : 'Explain this page'}
         </button>
         {running && (
           <span className="muted" role="status">

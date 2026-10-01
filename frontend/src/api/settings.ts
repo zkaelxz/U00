@@ -15,7 +15,6 @@ export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'gpu_limit_enabled', label: 'Limit GPU jobs to one at a time' },
   { key: 'notify_on_completion', label: 'Notify when a job finishes' },
   { key: 'use_gpu', label: 'Use the GPU for transcription' },
-  { key: 'gemini_free_tier', label: 'Gemini free tier (slower, rate-limited)' },
   { key: 'bulk_auto_resume', label: 'Resume batches on start' },
 ]
 
@@ -40,7 +39,7 @@ export const setEngineKey = (engine: string, value: string, f?: Fetch) =>
 export const clearEngineKey = (engine: string, f?: Fetch) =>
   postJson<EngineKeyResult>(`${keyPath(engine)}/clear`, { confirm: true }, f)
 
-// Endpoint URLs (Ollama, LibreTranslate, GPT-SoVITS): saved to .env on the
+// Endpoint URLs (Ollama, GPT-SoVITS): saved to .env on the
 // PC behind the same guard as keys.
 const endpointPath = (name: EndpointName) => `/api/settings/endpoints/${encodeURIComponent(name)}`
 export const setEndpointUrl = (name: EndpointName, url: string, f?: Fetch) =>

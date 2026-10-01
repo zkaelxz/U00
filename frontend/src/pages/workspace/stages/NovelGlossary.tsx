@@ -61,7 +61,7 @@ interface Props {
 // adds the checked ones (with any edits) to the series glossary, matched by
 // term text, never by position. After adding, bumpGlossaryTerms() makes the
 // Glossary table re-read.
-export function GlossaryExtract({ source, title, storageKey }: Props) {
+function GlossaryExtract({ source, title, storageKey }: Props) {
   const { dramaId, drama } = useStage()
   const text = SOURCE_TEXT[source]
   const isPhone = useMediaQuery('(max-width: 640px)')

@@ -231,8 +231,6 @@ def add_candidate(engine: str, model: str = None, note: str = "",
     rejected) comes back as-is with its recorded decision rather than being
     added again as if it were new."""
     _check_capability(capability)
-    if engine == "test_offline":
-        raise InvalidInputError("The offline test engine produces fake output; it can't be a candidate.")
     cfg = benchmark_lab_service._check_config("translation", {"engine": engine, "model": model})
     model = cfg["model"] or benchmark_lab_service._default_model(cfg["engine"])
     note = (note or "").strip()[:200]

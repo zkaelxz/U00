@@ -44,9 +44,8 @@ URL you have the right to download from, only.
   React app from `frontend/dist` (a release zip, see
   [`docs/RELEASE.md`](docs/RELEASE.md)).
 - **Streamlit app (removed).** The old UI (`app.py`, `tabs/`) was deleted;
-  `legacy/streamlit` and the `pre-streamlit-removal` tag hold the last version
-  (`docs/streamlit-retirement-plan.md`). Some of this README's older
-  sections may still use its wording; the React app is the only UI.
+  `legacy/streamlit` and the `pre-streamlit-removal` tag hold the last version.
+  The React app is the only UI.
 - **FastAPI + React app (the app going forward).** An HTTP API (`api/`)
   and a React frontend (`frontend/`) over the *same* library, database and
   background jobs. Pages: Library, the per-drama Workspace
@@ -68,10 +67,8 @@ URL you have the right to download from, only.
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
-[`docs/STATUS.md`](docs/STATUS.md) (current status and what's next),
-[`docs/migration-frontend-plan.md`](docs/migration-frontend-plan.md)
-(React phase plan) and [`docs/archive/`](docs/archive/) (migration
-history, old bug tracker).
+[`docs/STATUS.md`](docs/STATUS.md) (current status and what's next) and
+[`docs/archive/`](docs/archive/) (migration history, old bug tracker).
 
 ## Features
 
@@ -111,7 +108,7 @@ history, old bug tracker).
   same speaker into one natural subtitle when they're close enough in
   time, rather than just flagging pacing issues.
 - **In-app Q&A**: ask questions about a drama grounded in its own
-  transcript/translation, right in the Reader tab.
+  transcript/translation, right in the Reader.
 - **Vocabulary export**: every word looked up in the Reader is saved
   and exportable as Anki-importable CSV or a proper `.apkg` deck.
 - **Click-to-seek Reader audio**: embeds the current page's audio span
@@ -129,7 +126,7 @@ history, old bug tracker).
 - **Speaker diarization** (audio drama mode): distinguishes voices in
   the audio so lines can be grouped and named by character.
 - **Multi-engine translation**: Claude, DeepSeek, Gemini, Ollama,
-  NLLB, or LibreTranslate.
+  or NLLB.
 - **AI dubbing with optional voice cloning**: free TTS (edge-tts) by
   default; attach a reference clip per character for real voice
   cloning (F5-TTS) instead. If you have an existing audio drama for a
@@ -152,7 +149,7 @@ history, old bug tracker).
   and definition -- built for proofing translations and casual
   language learning, not just producing subtitles.
 - **In-app playback**: watch/listen to the original, dub, or narration
-  track directly in the Reader tab.
+  track directly in the Reader.
 - **Scanlate (manga/comic typesetting)**: hybrid workflow -- auto-
   detect speech bubbles, auto-clean the original text, auto-translate
   and place text, then adjust position/size/font/text per bubble
@@ -245,13 +242,13 @@ pip install -r requirements-optional.txt -c constraints.txt   # everything else,
 package — skip `pyannote.audio` if you're not diarizing, skip `f5-tts`
 if you're not cloning voices, etc.; install just the lines you need
 instead of the whole file. The same picking is available with no
-typing at all from the Diagnostics tab's own Install buttons, once the
+typing at all from the Diagnostics page's own Install buttons, once the
 app is running. If you'd rather install everything in one shot instead
 of picking, `requirements.txt` is those three files combined (it also
 pulls in `pytest`, via `requirements-optional.txt`).
 
 **First run:** start the app, open **Settings** and add the API key for
-the translation engine you'll use (or pick `test_offline`, see below).
+the translation engine you'll use, or use a free local one (Ollama, NLLB).
 Keys are read from a `.env` file next to `start.bat` (copy `.env.example`
 to `.env`; it is excluded from version control) or from environment
 variables. Models such as Whisper download on first use.
@@ -396,18 +393,6 @@ python -m api                                     # then open http://127.0.0.1:8
 
 Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only.
 
-### Trying it for free first
-
-Before spending anything, run a drama through with the `test_offline`
-engine. It needs no API key, no network, and costs nothing -- it emits
-obvious `[TEST]` placeholder text so it can never be mistaken for a real
-translation. The point is to confirm the whole pipeline works on your
-machine (align -> translate -> review -> merge -> export -> dub) before
-a single token is billed.
-
-Pick `test_offline` as the translation engine in the Workspace tab. The
-API key field disappears; everything else behaves normally.
-
 ### Resetting for testing
 
 Diagnostics -> Danger zone -> **Reset everything**. Deletes every drama,
@@ -426,8 +411,7 @@ everything, use the delete button in Library or Workspace instead.
 | `deepseek` | Cheap, strong on Chinese. Supports novel reference. |
 | `gemini` | Close to DeepSeek on price (Flash-Lite tier), strong on Chinese/Japanese. Supports novel reference. Google's model lineup/pricing changes often — see `GEMINI_MODELS` in `translate_engines.py` if a run starts erroring. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
-| `libretranslate` | Self-hosted [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) or [LTEngine](https://github.com/LibreTranslate/LTEngine). Pure MT, no reference-novel awareness. **See the cost note below — "open source" is not the same as "free to use".** |
-| `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. A real translation (unlike `test_offline`), but pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
+| `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. Pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
 
 Only `claude`, `deepseek`, `gemini`, and `ollama` (LLM-based) can do
 speaker attribution for novel-narration mode — the pure-MT engines will just tag
@@ -451,8 +435,8 @@ isolation — a pronoun or someone referred to only by relation ("her",
 "that guy") a few lines back has nothing to resolve against, and the
 model has to guess fresh every batch instead of staying consistent with
 what came right before it. Defaults to 6 lines; 0 turns it off. Doesn't
-apply to the pure-MT engines (NLLB, LibreTranslate) — they
-translate one line at a time with no concept of surrounding context at
+apply to the pure-MT engines (NLLB) — it
+translates one line at a time with no concept of surrounding context at
 all.
 
 For a **streamer with multiple VODs**, this same context mechanism is
@@ -474,18 +458,10 @@ different claims:
 | `deepseek` | Paid per token, far cheaper than Claude | API key |
 | `gemini` | Paid per token, close to DeepSeek on the Flash-Lite tier | API key from aistudio.google.com |
 | `ollama` | No billing | Your own hardware — a model worth using wants real RAM/VRAM |
-| `libretranslate` | No billing **if self-hosted** | Your own server. LibreTranslate wants ~8GB RAM and ~10GB disk for full language support. LTEngine's best model (gemma3-27b) wants roughly a 24GB-VRAM GPU; CPU-only runs, but slowly. |
 | `nllb` | No billing, ever | Nothing beyond `pip install transformers sentencepiece` and disk space for the model (2.4GB for the 600M size, 5.2GB for 1.3B). Runs on CPU, just slower than with a GPU. |
 
-**The hosted libretranslate.com API is a paid service** with pricing
-tiers and requires a key — pointing this app at it is not free. The
-AGPL-3.0 licence makes the *software* free, not that endpoint. And
-self-hosting doesn't remove the cost so much as move it: you pay in
-hardware, setup, and maintenance instead of per-token billing.
-
-The genuinely no-cost path is `ollama` or self-hosted
-`libretranslate`/LTEngine **on hardware you already own**. Everything
-else bills you, one way or another.
+The genuinely no-cost path is `ollama` or `nllb` **on hardware you already
+own**. Everything else bills you, one way or another.
 
 ### Claude model selection
 
@@ -497,7 +473,7 @@ erroring, check console.anthropic.com for what's currently available.
 ### Translation guide (style, terms, and notes)
 
 The craft layer -- what separates a mechanical translation from a good
-one. Configured per drama in the Workspace tab's Translation section.
+one. Configured per drama in the Workspace's Translation section.
 
 **Style presets** change register and pacing guidance:
 - *Audio drama* -- written to be spoken: contractions, breath-length
@@ -629,8 +605,8 @@ voiced with roughly the right energy.
 
 For a streamer, "Title (English)" and "Title (Chinese)" double as the
 stream's translated and untranslated name — no separate fields needed.
-There's also a **Source URL** field (Workspace's "Edit metadata"
-expander) to keep the original YouTube/stream link on the drama record,
+There's also a **Source URL** field (Workspace's "Edit details"
+section) to keep the original YouTube/stream link on the drama record,
 auto-filled when the audio/video is downloaded via a URL.
 
 A **series** isn't only for a book's numbered volumes — assign every
@@ -645,11 +621,11 @@ Named characters are the piece that's genuinely new: a per-drama
 recordings — `SPEAKER_00` in one stream isn't necessarily the same person
 as `SPEAKER_00` in the next. So "Su Shan" needs to exist as her own
 series-level record, independent of any single drama's speaker labels.
-Once she's added (in the same "Series glossary" expander, or the moment
+Once she's added (in the same "Series glossary" section, or the moment
 you type a new name in section 6 and check "Remember this as a known
 character"), every later stream in that series shows her in a dropdown in
 section 6 ("Name your characters") — pick her instead of retyping and
-re-spelling her name each time. Renaming her once (same expander) updates
+re-spelling her name each time. Renaming her once (same section) updates
 every drama she's linked to; nothing needs a per-drama edit for a name
 correction.
 
@@ -716,7 +692,7 @@ trimmed to fit. Accepts .txt, .md, or .epub.
 
 Some platforms serve chapters as images specifically to block copy/
 paste. If that's what you're working with, upload the page images in
-the novel-narration section's OCR expander instead of pasting text.
+the novel-narration section's OCR section instead of pasting text.
 
 Default backend (Tesseract): `pip install pytesseract pillow`, plus
 the Tesseract binary with the matching language pack:
@@ -889,7 +865,7 @@ this doesn't re-cost anything already done.
 ### Live (experimental)
 
 For translating a stream as it happens rather than after the fact: the
-🔴 Live tab pulls a running stream, cuts it into short chunks (10-60s,
+🔴 The Live page pulls a running stream, cuts it into short chunks (10-60s,
 your choice) as they arrive, transcribes and translates each chunk in
 the background, and shows a growing feed of original + translated lines
 you refresh manually.
@@ -1004,7 +980,7 @@ markers. Chapters come from the novel's own headings (第一章 / Chapter 1),
 or one per paragraph when it has none. From the CLI, use
 `python cli.py dub --id N --m4b`.
 
-In the Workspace tab, use **"Auto-extract reference clips"** after
+In the Workspace, use **"Auto-extract reference clips"** after
 diarizing an audio drama to pull clean per-character clips
 automatically. For novel-only dramas with no audio, you'd supply a
 reference clip yourself.
@@ -1027,7 +1003,7 @@ especially if you'd ever share the dubbed files beyond personal use.
 
 ### Interactive Reader
 
-A dedicated tab for reading raw + translated text side-by-side, built
+A dedicated page for reading raw + translated text side-by-side, built
 for proofing and casual language learning, not just producing
 subtitles/dubs.
 
@@ -1041,7 +1017,7 @@ subtitles/dubs.
   works fully offline). Japanese/Korean, and any Chinese word CC-CEDICT
   doesn't have, fall back to an LLM-generated definition using the
   surrounding text as context -- these need an API key entered in the
-  Reader tab, batched once per page rather than per word.
+  Reader, batched once per page rather than per word.
 - **Paginated**: large episodes/chapters are split into pages so the
   page doesn't need to segment/define thousands of words at once.
 
@@ -1123,10 +1099,10 @@ Per-line operations in the Reader, for polishing rather than batch work:
 
 **Ask about this drama**: a chat box, grounded only in the lines
 you've loaded so far, for open-ended questions about the story — needs
-an API key entered on this tab, same as the tools above.
+an API key entered on this page, same as the tools above.
 
 **Vocabulary export**: see the Features section above (Anki-importable
-CSV or a proper `.apkg` deck) — available from this tab for whatever
+CSV or a proper `.apkg` deck) — available from this page for whatever
 words you've looked up or queued while reading.
 
 ### Library experience
@@ -1136,7 +1112,7 @@ The app is meant to feel like a proper library, not a folder of files.
 **Progress & resume**
 - Reading percentage and last page tracked per drama, saved automatically as you page through the Reader
 - Audio position stored separately from reading position, so listening and reading don't overwrite each other
-- **Continue** shelf on the Library tab: cover art, progress bar, one-click resume to where you left off. Resume opens the Reader or Workspace at your saved place
+- **Continue** shelf on the Library page: cover art, progress bar, one-click resume to where you left off. Resume opens the Reader or Workspace at your saved place
 - Reading history log, clearable
 
 **Metadata**
@@ -1153,9 +1129,9 @@ The app is meant to feel like a proper library, not a folder of files.
 
 **Export all as .zip**: bundles subtitle files (and dub tracks, where generated) for every translated/dubbed/exported drama in one download.
 
-**Backup & restore**: a database-only snapshot, or a full zip of the database plus media (streamed to disk rather than held in memory, so it scales to a large library). Restoring validates the zip before touching anything and needs a confirm checkbox. Signed-in browser sessions from the Sources tab aren't included — you'll need to sign back in after a restore.
+**Backup & restore**: a database-only snapshot, or a full zip of the database plus media (streamed to disk rather than held in memory, so it scales to a large library). Restoring validates the zip before touching anything and needs a confirm checkbox. Signed-in browser sessions from the Sources page aren't included — you'll need to sign back in after a restore.
 
-**Presets**: saved Workspace configurations (engine, style, locale, pronoun default) can be renamed or deleted from the Library tab.
+**Presets**: saved Workspace configurations (engine, style, locale, pronoun default) can be renamed or deleted from the Library page.
 
 **Translation versions**
 - Every translation run is saved as a named version tagged with its engine and model
@@ -1163,7 +1139,7 @@ The app is meant to feel like a proper library, not a folder of files.
 - Side-by-side diff view showing only the lines that actually differ
 - Activate whichever version reads better; switching snapshots the current one first
 
-**Story tools** (Reader tab, grounded strictly in the drama's own lines)
+**Story tools** (Reader, grounded strictly in the drama's own lines)
 - *Who is this character?* — role, relationships, and speech notes, drawn from lines that actually mention them
 - *Relationship map* — structured cast + relationships, rendered as a Mermaid diagram
 - *Recap* — "previously..." summary of what you've read, spoiler-safe (never references past your current page)
@@ -1177,7 +1153,7 @@ The app is meant to feel like a proper library, not a folder of files.
 **Undo / version history**: snapshots of a drama's lines are taken
 automatically before the two operations that discard work irreversibly
 -- a **force re-translate** and an **applied merge**. Restore any
-snapshot from the "Version history / undo" expander in the Workspace
+snapshot from the "Version history / undo" section in the Workspace
 tab; restoring takes its own snapshot first, so you can undo an undo.
 Only the 10 most recent snapshots per drama are kept.
 
@@ -1191,7 +1167,7 @@ silently absent.
 
 ### Finding titles
 
-The Discover tab's title search looks at titles **you've saved locally** --
+The Discover page's title search looks at titles **you've saved locally** --
 it is not a web search, and with an empty library it returns nothing.
 Load the starter titles first, or add your own.
 
@@ -1338,8 +1314,6 @@ before final render.
 **Also available:**
 - **Custom fonts** — upload `.ttf`/`.otf` files per style category for
   rendering.
-- **Manual erase/heal brush** — not available since the Streamlit UI was
-  removed; it returns when Scanlate moves to React.
 - **Bulk find & replace** — across every saved bubble in a drama, with
   a preview before applying.
 - **Export detected font styles** — as JSON, for reuse.
@@ -1365,7 +1339,7 @@ A Chrome/Edge extension that sends the comic page you're looking at into
 Baihe and draws the translation over it in place, with a toggle to hide
 the overlays and click-to-see-the-original.
 
-It complements the Sources tab rather than replacing it: the adapters do
+It complements the Sources page rather than replacing it: the adapters do
 bulk import and chapter tracking, this is "translate what I'm looking at
 right now." It also reaches pages an adapter structurally can't — ones
 delivered as `blob:` objects that only exist inside the tab, ones a site's
@@ -1399,7 +1373,7 @@ versions all reference a drama by ID, so reusing a deleted one would let
 leftover rows re-attach to the wrong work -- and any backup taken before
 the deletion would restore into a conflicting record.
 
-The Library table shows a tidy sequential **#** column for display
+The Library pagele shows a tidy sequential **#** column for display
 alongside the real `id`, which gives orderly numbering without putting
 your data at risk.
 
@@ -1499,7 +1473,7 @@ scanlate job.
   saved -- you just don't get speaker labels until you fix and re-run it.
 - **Settings page**: enter each API key/endpoint once, reused as the
   default everywhere else. Keys are never shown back by the API.
-- **Backup & restore** (Library tab): zips the whole library --
+- **Backup & restore** (Library page): zips the whole library --
   database plus every drama's audio/video/dub files and reference
   clips -- for download, with a matching restore flow. Worth doing
   before any big batch run. The zip is streamed to disk, so it scales
@@ -1513,11 +1487,11 @@ scanlate job.
 - **SQLite WAL mode**: smoother concurrent reads/writes at library scale.
 - **Library dashboard**: total dramas, lines translated, API calls
   logged, estimated spend, status/type breakdowns, and a "recently
-  active" list, all at the top of the Library tab.
+  active" list, all at the top of the Library page.
 - **Bulk actions** (Library): select multiple dramas via checkboxes,
   set status or delete them together instead of one at a time.
 - **Global search**: search text across every drama's lines from the
-  Library tab, not just within one title.
+  Library page, not just within one title.
 - **Cost tracking**: real token usage captured from Claude/DeepSeek API
   responses, logged per drama, with a cost breakdown table in the
   dashboard. Estimates only -- pricing changes over time.
@@ -1544,7 +1518,7 @@ compress into a glossary of names/relationships/key phrases instead.
 ### Scaling to 50–100+ dramas
 
 - SQLite + per-drama folders handle this volume fine locally.
-- Use Library tab filters to track progress (e.g. `status = not started`).
+- Use Library page filters to track progress (e.g. `status = not started`).
 - Use `cli.py` for unattended batch runs.
 - For cost/speed at real volume, consider the Anthropic **Batch API**
   (roughly half the per-token cost, async) — ask if you want the app
@@ -1640,9 +1614,8 @@ aligned but not translated: 391 timed entries, every one empty.
 
 Check the Library dashboard's "Lines translated X / Y" metric, or the
 Workspace's line count next to your drama. If translation hasn't run,
-press **Translate all lines** first -- or use the free `test_offline`
-engine to confirm the whole export pipeline works before spending
-anything on a real translation.
+press **Translate all lines** first (Ollama and NLLB are free if you
+would rather not spend anything).
 
 The export buttons now warn before this happens rather than after:
 zero translated lines disables the English/bilingual downloads outright,
@@ -1686,7 +1659,7 @@ confirming a fresh install is working before you start real work.
 
 ### Diagnostics ("Check my setup")
 
-A dedicated 🩺 tab that reports, in one place:
+A Diagnostics page that reports, in one place:
 - Python version and whether ffmpeg is on PATH
 - Which optional dependencies are actually installed, grouped by what
   they power (core / translation engines / optional features), with an
@@ -1699,7 +1672,7 @@ A dedicated 🩺 tab that reports, in one place:
 None of the above appears until you click "🔍 Run diagnostics" -- the
 tab is empty on load.
 
-The same tab also holds:
+The same page also holds:
 - **Running jobs** -- a live view of every background job across the
   whole app (translate, transcribe, dub, diarize, Live capture, etc.)
   with progress bars and a per-job cancel button.
@@ -1720,13 +1693,13 @@ The same tab also holds:
   report (strips API keys, paths, and username).
 - **Log** -- the last 50 lines of the app's own log file.
 
-Run this first whenever something isn't working. The same tab holds
+Run this first whenever something isn't working. The same page holds
 the "Reset everything" danger-zone button described in
 [Resetting for testing](#usage).
 
 ### Accuracy benchmark
 
-Also in the 🩺 Diagnostics tab, above the danger zone: catches a
+Also in the Diagnostics page, above the danger zone: catches a
 pipeline "improvement" that actually makes things worse. `run_tests.py`
 proves the code does what it's supposed to against mocked libraries --
 it can't tell you whether a VAD-threshold change, a new translation

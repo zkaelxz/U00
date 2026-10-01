@@ -291,8 +291,8 @@ class SettingsChoices(BaseModel):
 class SettingsOverview(BaseModel):
     """Non-secret settings snapshot (Migration Slice 10) -- engine_keys
     reports only whether a key/endpoint is configured, never its value
-    (D2: keys are server-side only). endpoints carries the Ollama,
-    LibreTranslate and GPT-SoVITS URLs only when they have no userinfo,
+    (D2: keys are server-side only). endpoints carries the Ollama
+    and GPT-SoVITS URLs only when they have no userinfo,
     query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
@@ -322,6 +322,7 @@ class TranslateEngine(BaseModel):
 
 class TranslateEngineListResponse(BaseModel):
     items: List[TranslateEngine]
+    default_engine: Optional[str] = None  # Settings' default engine
 
 
 class TranslateHistoryEntry(BaseModel):
@@ -365,7 +366,6 @@ class ExportReadiness(BaseModel):
     zh_filled: int
     en_filled: int
     fully_translated: bool
-    test_mode_output: bool
     overlap_count: int
     auto_qc_issue_count: int
     dense_line_count: int
@@ -1276,6 +1276,15 @@ class JobCancelResult(BaseModel):
     status: str
 
 
+class JobDeleteResult(BaseModel):
+    job_id: str
+    deleted: bool
+
+
+class JobsClearFinishedResult(BaseModel):
+    deleted_count: int
+
+
 class ArtifactInfo(BaseModel):
     name: str
     size: int
@@ -1848,7 +1857,7 @@ class EngineKeyResult(BaseModel):
 
 
 class EndpointUrlSetRequest(BaseModel):
-    """Ollama / LibreTranslate / GPT-SoVITS URL (settings parity G06). An
+    """Ollama / GPT-SoVITS URL (settings parity G06). An
     http(s) URL with no userinfo, query or fragment."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(..., max_length=300)

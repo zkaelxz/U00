@@ -43,14 +43,12 @@ _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
 # reads and writes instead of its own app setting; "default": the engine used
 # while unset (_DEFAULT_ENGINE = Settings' default engine); "choices": an
 # extra allow-list (or a function returning one) on top of "requires";
-# "exclude": engines never offered; "unset_label": the capability is OFF
-# while unset (its unset option is labelled with this, and only an explicit
+# "unset_label": the capability is OFF while unset (its unset option is labelled with this, and only an explicit
 # choice counts as set, even one equal to the default).
 CAPABILITIES = {
     "translation.cheap": {
         "label": "Everyday translation",
-        "help": ("Translates a drama that has no engine of its own. The same setting as "
-                 "\"Default engine for new dramas\"."),
+        "help": "Used for each new drama, and for a drama that has no engine of its own.",
         "requires": translate_engines.CAP_TRANSLATE,
         "pref": "default_engine",
         "choices": settings_service.engine_preference_choices,
@@ -62,13 +60,12 @@ CAPABILITIES = {
                  "you choose it."),
         "requires": translate_engines.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
-        "exclude": ("test_offline",),  # fake output is never "stronger"
         "unset_label": "Off (no suggestions)",  # Step 99 offers nothing while unset
     },
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
         "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
-                 "For a drama translated with NLLB or LibreTranslate (which "
+                 "For a drama translated with NLLB (which "
                  "can't follow instructions), they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
@@ -97,7 +94,7 @@ TEST_TIMEOUT_S = 45
 _testing = set()
 _testing_lock = threading.Lock()
 # Engines whose Test isn't offered: NLLB downloads a large model on first use.
-_NO_TEST = {"nllb": "NLLB downloads a large model on first use; check it in Diagnostics."}
+_NO_TEST = {"nllb": "NLLB downloads a large model on first use, so it has no Test here. Diagnostics only checks that its software is installed."}
 
 
 def _definition(capability: str) -> dict:
@@ -113,7 +110,7 @@ def engine_choices(capability: str) -> list:
     if d.get("choices"):
         allowed = d["choices"]()
         names = [n for n in names if n in allowed]
-    return [n for n in names if n not in d.get("exclude", ())]
+    return names
 
 
 def _stored(capability: str):

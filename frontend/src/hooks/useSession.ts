@@ -21,7 +21,7 @@ export type SessionState =
   | { status: 'ready'; me: AuthMe }
   | { status: 'unavailable' }
 
-export type GateView = 'connecting' | 'login' | 'app'
+type GateView = 'connecting' | 'login' | 'app'
 
 let state: SessionState = { status: 'loading' }
 const listeners = new Set<() => void>()

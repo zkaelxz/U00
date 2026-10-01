@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures'
+import { openSettingsGroups } from './settingsNav'
 
 // Needs SettingsPage wired at #/settings (the lead does that); until then
 // the placeholder is shown and this spec fails by design.
@@ -7,7 +8,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
   // API keys are always visible now (no fold), with the .env explanation.
-  await expect(page.getByRole('region', { name: 'API keys' }).getByText(/Setting them works only on that PC/)).toBeVisible()
+  await expect(page.getByRole('region', { name: 'API keys' }).getByText('Saved on the Baihe PC and never shown again.')).toBeVisible()
   const before = await box.isChecked()
 
   // The toggle updates optimistically; wait for the save to finish before reloading,
@@ -80,8 +81,9 @@ test('away from the PC the key rows show status only, with no Set buttons', asyn
 
 test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const switches = page.getByRole('region', { name: 'Jobs' }).getByRole('switch')
-  await expect(switches).toHaveCount(5)
+  await expect(switches).toHaveCount(4)
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
   const sw = page.getByRole('switch', { name: /Gemini free tier/ })

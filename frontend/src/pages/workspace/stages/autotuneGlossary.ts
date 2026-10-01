@@ -22,6 +22,27 @@ export function autotuneProgressText(status: string, message: string): string {
   return m ? `Testing ${m[1]} of ${m[2]} (${m[3]} ms)…` : 'Testing…'
 }
 
+// "2:05" (or "1:02:05"): whole seconds as a clock.
+export function formatElapsed(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const ss = String(s % 60).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+// Time left, from how long the finished candidates took: null until one has
+// finished (the job reports "candidate N of M" as each starts, so N-1 are done).
+export function autotuneEta(elapsedSeconds: number, message: string): string | null {
+  const m = /(\d+)\s+of\s+(\d+)/i.exec(message)
+  if (!m) return null
+  const n = Number(m[1])
+  const total = Number(m[2])
+  if (n < 2 || total < n) return null
+  const left = ((total - n + 1) * elapsedSeconds) / (n - 1)
+  return `about ${formatElapsed(Math.round(left))} left`
+}
+
 export function autotuneBlocker(hasAudio: boolean, busy: boolean): string | null {
   if (busy) return 'Wait for the running job to finish.'
   if (!hasAudio) return 'Still needed: audio on this drama.'
@@ -39,7 +60,7 @@ export function autotuneApplyErrorText(err: unknown): string | null {
 
 // --- Glossary from novel -----------------------------------------------
 
-export interface Blocker {
+interface Blocker {
   text: string
   link: string
   href: string

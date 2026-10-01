@@ -9,7 +9,7 @@ import { novelGlossaryApplyErrorText, novelGlossaryProgressText } from './autotu
 
 export type GlossarySource = 'novel' | 'lines'
 
-export interface SourceText {
+interface SourceText {
   title: string
   intro: (engine: string) => string
   testId: string
@@ -34,7 +34,7 @@ export const SOURCE_TEXT: Record<GlossarySource, SourceText> = {
 }
 
 // The lines run is one LLM call, so it has no meaningful percentage.
-export function linesGlossaryProgressText(status: string): string {
+function linesGlossaryProgressText(status: string): string {
   return status === 'queued' ? 'Waiting to start…' : 'Scanning the lines…'
 }
 

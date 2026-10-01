@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { mockAssistant } from './assistantMocks'
+import { gearLink, openGear } from './settingsNav'
 
 // Phone project (390x844, touch): the Maintenance assistant. Every /api/assistant call is mocked.
 
@@ -30,8 +31,8 @@ async function tallTargets(page: Page) {
 test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
-  const nav = page.getByRole('navigation', { name: 'Main' })
-  await expect(nav.getByRole('link', { name: 'Assistant' })).toBeVisible()
+  await openGear(page)
+  await expect(gearLink(page, 'Assistant')).toBeVisible()
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
   await chat.getByRole('textbox', { name: 'Question' }).fill('Why does dub skip lines?')
   await chat.getByRole('button', { name: 'Ask', exact: true }).click()
@@ -59,7 +60,7 @@ test('phone: ask, tools, patch and backlog fit the screen with 44 px targets', a
 test('phone: mode off shows only the switch, with a 44 px hit area', async ({ page }) => {
   await mockAssistant(page)
   await page.goto('/#/assistant')
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Assistant' })).toHaveCount(0)
+  await expect(gearLink(page, 'Assistant')).toHaveCount(0)
   const sw = page.getByRole('region', { name: 'Developer Mode is off' }).getByRole('switch', { name: 'Developer Mode' })
   const hit = await sw.evaluate((el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height)
   expect(hit).toBeGreaterThanOrEqual(44)

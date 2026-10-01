@@ -56,7 +56,7 @@ OPTIONAL_DEPENDENCIES = {
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
     "openai": ("openai", "DeepSeek translation engine", "engine"),
-    "requests": ("requests", "LibreTranslate/metadata lookup/navigator", "engine"),
+    "requests": ("requests", "metadata lookup/navigator", "engine"),
     "bs4": ("bs4", "metadata lookup, navigator, bulk import", "feature"),
     "pyannote.audio": ("pyannote.audio", "speaker diarization", "feature"),
     "soundfile": ("soundfile", "speaker diarization, vocal separation chunking, word-level realignment", "feature"),

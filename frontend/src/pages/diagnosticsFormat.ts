@@ -3,6 +3,34 @@ import type { JobRecord } from '../types/jobs'
 
 export const isActive = (status: string) => status === 'queued' || status === 'running'
 
+export const isFinished = (status: string) => status === 'done' || status === 'error' || status === 'cancelled'
+
+export const JOBS_PAGE_SIZE = 10
+
+// Queued/running jobs first (they are what the viewer is waiting on), then
+// the rest, each group keeping the server's newest-first order.
+export function orderJobs(jobs: JobRecord[]): JobRecord[] {
+  return [...jobs.filter((j) => isActive(j.status)), ...jobs.filter((j) => !isActive(j.status))]
+}
+
+// The first `limit` jobs of an ordered list; active jobs are never cut off.
+export function visibleJobs(ordered: JobRecord[], limit: number): JobRecord[] {
+  const active = ordered.filter((j) => isActive(j.status)).length
+  return ordered.slice(0, Math.max(limit, active))
+}
+
+// "2 running, 1 failed" / "None running" (+ queued and failed when present).
+export function jobsSummary(jobs: JobRecord[]): string {
+  const count = (pred: (j: JobRecord) => boolean) => jobs.filter(pred).length
+  const running = count((j) => j.status === 'running')
+  const queued = count((j) => j.status === 'queued')
+  const failed = count((j) => j.status === 'error')
+  const parts = [running ? `${running} running` : 'None running']
+  if (queued) parts.push(`${queued} queued`)
+  if (failed) parts.push(`${failed} failed`)
+  return parts.join(', ')
+}
+
 export const hasActiveJobs = (jobs: JobRecord[]) => jobs.some((j) => isActive(j.status))
 
 export function splitDependencies(deps: Record<string, DependencyStatus>) {

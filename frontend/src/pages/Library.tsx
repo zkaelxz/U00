@@ -224,7 +224,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets }: {
             </Field>
           )}
           {!!presets.data?.items.length && (
-            <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and locale.">
+            <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and English variant.">
               <select value={extras.preset} onChange={setExtra('preset')}>
                 <option value="">No preset</option>
                 {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
