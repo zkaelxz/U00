@@ -1,6 +1,6 @@
 # Status
 
-What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 21e3872, Remove Streamlit #502) on 2026-09-30.
+What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 1cd9d01, cleanup #598) on 2026-10-01.
 Each session replaces its own entry here when it finishes. Git and the PR list win over this file.
 
 ## Where the app is
@@ -10,23 +10,24 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 - Remote access: sign-in (Google OIDC, #412/#413), ownership (#414, #445), deny-by-default permissions, the D5 admin and household
   listeners (#526, #528), private-by-default sharing with an admin Sharing screen (#523, #530) and the admin audit log (#522) are merged.
   The route table in `docs/remote-access-decision.md` is enforced by `tests/test_api_permissions.py`.
-  Don't expose the API beyond loopback until the Caddy/LAN checks (step 140) are done. No Caddy config is in the repo yet.
+  Don't expose the API beyond loopback until the Caddy/LAN checks (step 140) are done. The Caddy template (`deploy/caddy/Caddyfile.template`), the Caddy helper (`installer/caddy`) and the owner-run `enable-remote` / `disable-remote` / `status` (#592) are in the repo; the certificate/DDNS health banner is merged (#568).
 - Recently merged: Steps 36-44 (#464-#476, #473 auto-backups, refined in #516), 42 maintenance assistant (#532) and 72 fix-as-draft-PR (#479),
   80b Windows installer (#498, hash-pinned wheels #514), 143 import dramas from a backup file (#534), SSE push `GET /api/events` (#494),
   job reattach (#495), glossary-affected re-translate (#525, CLI `--term` #537), opt-in auto-resume of bulk batches (#513),
   `scripts/dependency_canary.py` (#531), maintainer runbook (#533), and the source-adapter steps 111-116 (#482-#490).
+- Merged since: WP2 #539, WP3 #543, WP4 #540, backup ownership #542, import cleanup #541, comic pager #538, step 142 export (#546,
+  `POST /api/library/admin/backup/user`, PC only; not included: tracked series and other `sources.db` data, the voice bank, settings,
+  other profiles' reading data), the WP5 boot service (#575) with its port selection (#597), Caddy and owner-run enable/disable/status (#592),
+  and the library temp folder (#595).
 
 ## In flight and queued
-Queue, in order (lead session merges once CI is green):
-1. WP2 #539
-2. WP3 #543
-3. WP4 #540
-4. Backup ownership #542
-5. Import cleanup #541
-6. Comic pager #538
-7. Step 142 export: done (#546, `POST /api/library/admin/backup/user`, PC only). Not included: tracked series and other `sources.db` data, the voice bank, settings, other profiles' reading data.
-8. WP5 boot service
-9. Step 141 build
+Open (lead session merges once CI is green):
+- #599 (PR): boot service `set-port`, a "Baihe Studio service" Start-menu menu, and the launcher follows the service port. Fixes in progress.
+- `diagnostics-ports` (branch, no PR yet): a Diagnostics "Ports" panel.
+- `automate-manual-checks` (branch, no PR): unmerged e2e tests.
+- #589 is parked unmerged (see Live capture and SSRF below).
+- WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
+- Step 141 build (after its spec).
 
 Deferred: Step 108 (adapter interfaces), and the `db.py` and `api/schemas.py` splits.
 
@@ -43,17 +44,18 @@ Live capture and SSRF (owner decision 2026-09-30):
 
 Notes:
 - #596 removed the Streamlit-only functions `eta_text`, `autotune_subprocess_worker`, `distinct_custom_tags`, `redundant_tts_install_warning`, `manual_lines_that_would_change`, `get_epub_chapter_count`, `lookup_metadata` (and `lookup_metadata_from_text`), `can_probably_embed`, `pages_to_pdf`, `line_audio_clip`, `parse_timestamp`, `unsaved_line_count` and `stage_statuses_from_index`. Docs and specs that still mention them are historical.
-- The boot service's port is chosen with `BAIHE_API_PORT`; run Setup again so the service follows (`docs/windows-installer-design.md` §11).
+- The boot service's port is chosen with `BAIHE_API_PORT`; run Setup again so the service follows (`docs/windows-installer-design.md` §11). #597 is merged; #599 (open) adds `set-port`.
+- Auto backup (`services/auto_backup_service.py`) keeps 2 daily and 2 weekly copies, per library. The library `tmp` folder (`storage.TEMP_DIRNAME`: job work folders and partial exports, swept of leftovers at startup, #595) is left out of backups and kept across restores.
 
 Parked import and export follow-ups (owner decision 2026-09-30, revisit only if they cause trouble):
 - The chapter list is fetched twice: the import job re-lists, and listing never seeds the raw cache. Only lightnovel_fun's volume walk repeats real page fetches.
-- `media_export_service` builds in the system temp dir and `shutil.move`s to the final path; across drives that is a copy, so a failure can leave a half-copied file.
+- `media_export_service` still builds in the system temp dir (`tempfile.TemporaryDirectory()`, not the library `tmp` folder) and `shutil.move`s to the final path; across drives that is a copy, so a failure can leave a half-copied file.
 - Rows written before the at-rest redaction change (`access_attempts`, `source_health`, `tracked_series.last_check_error`, `job_records`) are only scrubbed on read. In-memory job messages are not query-stripped; check that the job API scrubs them.
 
 Resource for the deferred manual Scanlate canvas editor: tldraw (github.com/tldraw/tldraw), an infinite-canvas SDK with custom shapes, tools and drawing. Check it again if that feature resumes. The Scanlate-specific image editing tools would still need custom work, and its repository says production use requires a license key, so check the license terms first.
 
 ## Next
-- Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership and the D5 listeners are merged; left: the Caddy config, LAN test with a real certificate, router port last (140).
+- Remote access, steps 133-140 (other household members and phones use the PC's library). Sign-in, ownership, the D5 listeners, the boot service and the Caddy config with owner-run enable are merged; left: the owner's LAN test with a real certificate and the router port last (140).
 - Step 141: spec only (migration-architect) for the standalone PC shell and the "This PC" / "Connect to my PC" toggle.
 - Step 142 and 143 are both merged (#546 exports one person's items, #534 imports). Decided by the owner (2026-09-30): tracked series and the voice bank do not travel (the person re-tracks; no dubbing planned), and the export stays PC only.
 
