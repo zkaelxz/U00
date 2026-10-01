@@ -36,7 +36,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
 
 DEFAULT_ENGINE = "claude"
 # LLM-capable engines that can tag speakers (pure MT engines cannot).
-TAG_ENGINES = ["claude", "deepseek", "gemini", "ollama"]
+TAG_ENGINES = ["claude", "deepseek", "gemini", "openai", "ollama"]
 MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
 
 

@@ -45,7 +45,5 @@ def test_frontend_labels_cover_every_engine_and_key():
 
 
 def test_frontend_labels_have_no_unknown_extras():
-    """'openai' is the only label the backend doesn't know; it's kept for
-    job and history records that name that engine."""
     known = set(translate_engines.ENGINES) | set(settings_service.ENV_NAMES)
-    assert _engine_labels() - known == {"openai"}
+    assert _engine_labels() - known == set()

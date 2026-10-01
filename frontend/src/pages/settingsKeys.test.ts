@@ -88,11 +88,12 @@ describe('key api calls', () => {
 
 describe('keyRows', () => {
   it('lists write-only secrets first, then other keys, never the server addresses', () => {
-    const rows = keyRows({ ollama_url: true, groq: false, claude: true, openai: false, gpt_sovits_url: false })
+    const rows = keyRows({ ollama_url: true, groq: false, claude: true, openai: false, mistral: false, gpt_sovits_url: false })
     expect(rows).toEqual([
       { engine: 'claude', label: 'Claude', writable: true },
+      { engine: 'openai', label: 'OpenAI', writable: true },
       { engine: 'groq', label: 'Groq', writable: true },
-      { engine: 'openai', label: 'OpenAI', writable: false },
+      { engine: 'mistral', label: 'Mistral', writable: false },
     ])
   })
 })

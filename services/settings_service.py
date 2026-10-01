@@ -31,6 +31,7 @@ ENV_NAMES = {
     # that name isn't guaranteed to also work as a Gemini API key
     # (different products, often different projects).
     "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
+    "openai": ("BAIHE_OPENAI_KEY", "OPENAI_API_KEY"),
     "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
     "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ollama_url": ("BAIHE_OLLAMA_URL",),
@@ -290,7 +291,7 @@ _MAX_STYLE_NOTE_LENGTH = 2000
 _MAX_NUM_CTX = 1_048_576
 _MAX_MONTHLY_CAP = 1_000_000.0
 LOCALE_CHOICES = ("en-US", "en-GB", "en-AU")
-SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini")
+SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
 
 
 def _engine_choices() -> tuple:
@@ -583,7 +584,7 @@ def clear_endpoint_url(name: str, env_path: str = None) -> dict:
 
 # Slice 24: write-only secret keys. URL settings and the numeric cap are
 # not secrets and stay out; only real keys/tokens can be set here.
-KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "groq", "hf_token")
+KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "openai", "groq", "hf_token")
 _MAX_KEY_LENGTH = 512
 
 
