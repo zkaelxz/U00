@@ -1,7 +1,7 @@
 """
 Step 40b: scheduled model re-evaluation and promotion
 (services/model_reeval_service.py). Mocked engines only (test_offline,
-libretranslate patched to an offline fake).
+ollama patched to an offline fake).
 """
 import datetime
 import time
@@ -50,8 +50,8 @@ class GoodEngine:
 
 
 class WeakEngine(GoodEngine):
-    """The production model (as libretranslate): answers badly."""
-    name = "libretranslate"
+    """The production model (as ollama): answers badly."""
+    name = "ollama"
 
     def translate_batch(self, zh_lines, context):
         return ["Hmm" for _ in zh_lines]
@@ -60,8 +60,8 @@ class WeakEngine(GoodEngine):
 @pytest.fixture
 def world(isolated_db, monkeypatch):
     monkeypatch.setitem(translate_engines.ENGINES, "nllb", GoodEngine)
-    monkeypatch.setitem(translate_engines.ENGINES, "libretranslate", WeakEngine)
-    settings_service.set_settings({"default_engine": "libretranslate"})
+    monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
+    settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
     # A scheduled run needs a spending limit: a monthly cap here.
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda env_path=None: 10.0)
@@ -78,7 +78,7 @@ def _run_now(**kw):
 class TestCandidates:
     def test_production_defaults_to_settings_engine(self, world):
         prod = svc.get_production()
-        assert (prod["engine"], prod["source"]) == ("libretranslate", "settings")
+        assert (prod["engine"], prod["source"]) == ("ollama", "settings")
 
     def test_add_and_reject_is_recorded_and_surfaced(self, world):
         c = svc.add_candidate("nllb", note="try it")["candidate"]
@@ -105,7 +105,7 @@ class TestCandidates:
 
     def test_production_model_is_not_a_candidate(self, world):
         with pytest.raises(InvalidInputError):
-            svc.add_candidate("libretranslate")
+            svc.add_candidate("ollama")
 
 
 class TestRunAndReport:
@@ -114,7 +114,7 @@ class TestRunAndReport:
         out = _run_now()
         assert out["arena_group"] and out["candidate_ids"] == [c["id"]]
         prod_run, cand_run = (db.get_benchmark_session(s) for s in out["session_ids"])
-        assert prod_run["engine"] == "libretranslate" and cand_run["engine"] == "nllb"
+        assert prod_run["engine"] == "ollama" and cand_run["engine"] == "nllb"
         assert prod_run["arena_group"] == cand_run["arena_group"]
         assert db.list_benchmark_results(cand_run["id"])  # rows in benchmark_results
         rep = svc.report()
@@ -126,8 +126,8 @@ class TestRunAndReport:
     def test_running_never_promotes(self, world):
         svc.add_candidate("nllb")
         _run_now()
-        assert svc.get_production()["engine"] == "libretranslate"
-        assert settings_service.get_default_engine() == "libretranslate"
+        assert svc.get_production()["engine"] == "ollama"
+        assert settings_service.get_default_engine() == "ollama"
         assert db.list_model_candidates("translation")[0]["status"] == "candidate"
 
     def test_promotion_needs_explicit_confirm(self, world):
@@ -135,7 +135,7 @@ class TestRunAndReport:
         _run_now()
         with pytest.raises(InvalidInputError):
             svc.promote(c["id"], confirm=False)
-        assert svc.get_production()["engine"] == "libretranslate"
+        assert svc.get_production()["engine"] == "ollama"
         out = svc.promote(c["id"], confirm=True, reason="scored higher")
         assert out["production"]["engine"] == "nllb"
         assert out["default_engine_changed"] is True
@@ -242,9 +242,9 @@ class TestReviewFixes:
         _run_now()
         svc.promote(c["id"], confirm=True)
         assert svc.get_production()["source"] == "promoted"
-        settings_service.set_settings({"default_engine": "libretranslate"})
+        settings_service.set_settings({"default_engine": "ollama"})
         prod = svc.get_production()
-        assert (prod["engine"], prod["source"]) == ("libretranslate", "settings")
+        assert (prod["engine"], prod["source"]) == ("ollama", "settings")
 
     def test_candidate_equal_to_new_production_is_left_out(self, world):
         svc.add_candidate("nllb")
@@ -339,7 +339,7 @@ class TestSpendAndBusyGuards:
         svc.set_settings(True, 30, tier="public", set_name="g")
         _enabled_days_ago(31)
         self._no_cap(monkeypatch)
-        assert svc.run_if_due() is True     # libretranslate / nllb cost $0
+        assert svc.run_if_due() is True     # ollama / nllb cost $0
         _wait()
 
     @pytest.mark.parametrize("busy", ["running", "queued", "exclusive", "maintenance"])

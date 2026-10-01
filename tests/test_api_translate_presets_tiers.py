@@ -252,12 +252,13 @@ def test_apply_preset_saves_engine_and_returns_form_values(client, isolated_db, 
     assert d["translation_engine"] == "gemini" and d["title_zh"] == "D"
 
 
-def test_a_stored_preset_naming_a_removed_engine_still_lists_and_applies(client, isolated_db):
+@pytest.mark.parametrize("engine", ["deepl", "libretranslate"])
+def test_a_stored_preset_naming_a_removed_engine_still_lists_and_applies(client, isolated_db, engine):
     did = db.create_drama(title_zh="D", translation_engine="claude")
-    pid = db.save_preset("Old", translation_engine="deepl", style_preset="subtitle")
+    pid = db.save_preset("Old", translation_engine=engine, style_preset="subtitle")
     items = client.get("/api/library/presets")
     assert items.status_code == 200, items.text
-    assert [p["translation_engine"] for p in items.json()["items"]] == ["deepl"]
+    assert [p["translation_engine"] for p in items.json()["items"]] == [engine]
     r = client.post(APPLY.format(did), json={"preset_id": pid})
     assert r.status_code == 200, r.text
     assert db.get_drama(did)["translation_engine"] == "claude"

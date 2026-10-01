@@ -45,7 +45,6 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   gemini: 'Gemini',
   ollama: 'Ollama (local)',
   nllb: 'NLLB (offline)',
-  libretranslate: 'LibreTranslate',
 }
 
 // The API's `label` is a long description, not a name, so the picker shows
