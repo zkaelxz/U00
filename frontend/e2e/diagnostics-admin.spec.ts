@@ -186,6 +186,50 @@ test('a running job blocks install and reset with a reason, and Jobs stays open'
   expect(unmocked).toEqual([])
 })
 
+test('Jobs fold: newest 10 first, Show more, and permanent Delete with two presses', async ({ page }) => {
+  const unmocked = await guard(page)
+  let items = [
+    job({ job_id: 'run_1', description: 'Running one' }),
+    ...Array.from({ length: 14 }, (_, i) => job({
+      job_id: `old_${i}`, status: i === 0 ? 'error' : 'done', error: i === 0 ? 'x'.repeat(300) : null,
+      description: `Old job ${i}`, finished_at: 2, started_at: 100 - i,
+    })),
+  ]
+  await mockPage(page, { jobs: items })
+  await page.route('**/api/jobs', (r) => r.fulfill({ json: { items, count: items.length } }))
+  const deleted: string[] = []
+  await page.route('**/api/jobs/old_3/delete', (r) => {
+    deleted.push('old_3')
+    items = items.filter((j) => j.job_id !== 'old_3')
+    return r.fulfill({ json: { job_id: 'old_3', deleted: true } })
+  })
+  await page.route('**/api/jobs/clear-finished', (r) => {
+    items = items.filter((j) => j.status === 'running')
+    return r.fulfill({ json: { deleted_count: 13 } })
+  })
+  await page.goto('/#/diagnostics')
+  const rows = page.getByTestId('job-list').locator('tbody tr')
+  await expect(rows).toHaveCount(10)
+  await expect(rows.first()).toContainText('Running one')
+  await expect(page.getByTestId('jobs-more')).toContainText('Showing 10 of 15')
+  await page.getByRole('button', { name: 'Show 5 more' }).click()
+  await expect(rows).toHaveCount(15)
+  await expect(page.getByTestId('jobs-more')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Delete Old job 3' }).click()
+  expect(deleted).toEqual([])
+  await page.getByRole('button', { name: 'Confirm delete Old job 3' }).click()
+  await expect(rows).toHaveCount(14)
+  expect(deleted).toEqual(['old_3'])
+  await expect(rows.first().getByRole('button', { name: /^Delete/ })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Delete all finished jobs' }).click()
+  await expect(page.getByTestId('jobs-clear')).toContainText('Permanent')
+  await page.getByRole('button', { name: /Confirm delete 13 finished/ }).click()
+  await expect(rows).toHaveCount(1)
+  expect(unmocked).toEqual([])
+})
+
 test('reset: exact RESET, sends the confirm word, then says so with a link', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, { stats: { total_dramas: 12, total_lines: 48210, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} } })

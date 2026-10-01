@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
-  upsertJob,
+  upsertJob, isFinished, jobsSummary, orderJobs, visibleJobs,
   describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, jobStatusLine, splitDependencies,
 } from './diagnosticsFormat'
 
@@ -63,5 +63,25 @@ describe('upsertJob', () => {
     expect(upsertJob(list, j('b', 'done')).map((x) => `${x.job_id}:${x.status}`)).toEqual(['a:running', 'b:done'])
     expect(upsertJob(list, j('c')).map((x) => x.job_id)).toEqual(['c', 'a', 'b'])
     expect(list.map((x) => x.status)).toEqual(['running', 'running'])
+  })
+  it('orders active jobs first, keeping the order within each group', () => {
+    const jobs = [job({ job_id: 'a' }), job({ job_id: 'b', status: 'running' }), job({ job_id: 'c', status: 'error' }), job({ job_id: 'd', status: 'queued' })]
+    expect(orderJobs(jobs).map((j) => j.job_id)).toEqual(['b', 'd', 'a', 'c'])
+  })
+  it('limits the list but never hides an active job', () => {
+    const jobs = orderJobs([...Array.from({ length: 12 }, (_, i) => job({ job_id: `f${i}` })), job({ job_id: 'r', status: 'running' })])
+    expect(visibleJobs(jobs, 10)).toHaveLength(10)
+    expect(visibleJobs(jobs, 10)[0].job_id).toBe('r')
+    expect(visibleJobs(jobs, 99)).toHaveLength(13)
+    expect(visibleJobs([job({ status: 'running' }), job({ status: 'queued' })], 1)).toHaveLength(2)
+  })
+  it('summarises counts', () => {
+    expect(jobsSummary([job({}), job({ status: 'cancelled' })])).toBe('None running')
+    expect(jobsSummary([job({ status: 'running' }), job({ status: 'running' }), job({ status: 'error' })])).toBe('2 running, 1 failed')
+    expect(jobsSummary([job({ status: 'queued' })])).toBe('None running, 1 queued')
+  })
+  it('knows finished statuses', () => {
+    expect(['done', 'error', 'cancelled'].every(isFinished)).toBe(true)
+    expect(isFinished('running') || isFinished('queued')).toBe(false)
   })
 })

@@ -226,3 +226,37 @@ class TestGetJob:
     def test_raises_not_found_for_an_unknown_job(self, isolated_db):
         with pytest.raises(NotFoundError):
             jobs_service.get_job("nope")
+
+
+class TestDeleteJobs:
+    def test_deletes_finished_job_memory_and_row(self, isolated_db):
+        import background_jobs
+        _run_job_with_result("fin", {})
+        db.save_job_record("fin", status="done")
+        assert jobs_service.delete_job("fin", confirm=True) == {"job_id": "fin", "deleted": True}
+        assert db.get_job_record("fin") is None
+        assert background_jobs.get_status("fin") is None
+
+    @pytest.mark.parametrize("status", ["queued", "running"])
+    def test_active_job_refused(self, isolated_db, status):
+        from services.service_errors import ConflictError
+        db.save_job_record("act", status=status)
+        with pytest.raises(ConflictError):
+            jobs_service.delete_job("act", confirm=True)
+        assert db.get_job_record("act") is not None
+
+    def test_unknown_and_unconfirmed(self, isolated_db):
+        from services.service_errors import InvalidInputError
+        with pytest.raises(NotFoundError):
+            jobs_service.delete_job("nope", confirm=True)
+        db.save_job_record("f", status="error")
+        with pytest.raises(InvalidInputError):
+            jobs_service.delete_job("f")
+        assert db.get_job_record("f") is not None
+
+    def test_clear_finished_leaves_active(self, isolated_db):
+        for jid, st in (("a", "done"), ("b", "error"), ("c", "cancelled"),
+                        ("d", "running"), ("e", "queued")):
+            db.save_job_record(jid, status=st)
+        assert jobs_service.clear_finished_jobs(confirm=True) == {"deleted_count": 3}
+        assert {r["job_id"] for r in db.list_job_records()} == {"d", "e"}

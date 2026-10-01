@@ -28,9 +28,12 @@ async function guard(page: Page): Promise<string[]> {
 
 test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
-  await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 1, items: [{
+  await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 2, items: [{
     job_id: 'translate_1', status: 'running', progress: 0.4, message: 'Batch 2 of 5', error: null,
     description: 'Translate Signal', gpu_touching: false, started_at: Date.now() / 1000 - 185, finished_at: null, updated_at: 0,
+  }, {
+    job_id: 'dub_2', status: 'error', progress: null, message: '', error: `Provider failed: ${long}`,
+    description: 'Dub Signal', gpu_touching: false, started_at: 10, finished_at: 20, updated_at: 0,
   }] } }))
   await page.route('**/api/diagnostics/log**', (r) =>
     r.fulfill({ json: { lines: [`12:00 ERROR ${long}`, '12:01 INFO fine'] } }))
@@ -44,6 +47,10 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   await expect(card).toContainText('Running 40% · 3m')
   const cancel = card.getByRole('button', { name: 'Cancel' })
   expect((await cancel.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  // A failed job's card: readable name, Delete on its own 44px line, no sideways scroll.
+  const failed = page.locator('ul.job-cards > li').nth(1)
+  expect((await failed.locator('strong').boundingBox())!.width).toBeGreaterThan(150)
+  expect((await failed.getByRole('button', { name: /^Delete/ }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')

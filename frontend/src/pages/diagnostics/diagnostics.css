@@ -135,6 +135,11 @@
 .job-cards { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
 .job-cards > li { padding: var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); display: grid; gap: var(--space-1); }
 .job-cards p { margin: 0; }
+.job-cards > li, .job-cards strong { min-width: 0; overflow-wrap: anywhere; }
+/* A long failure message wraps inside its own cell and is cut to a few lines. */
+.job-detail { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.job-name { min-width: 10rem; overflow-wrap: anywhere; }
+[data-testid='job-list'] td:nth-child(2) { max-width: 24rem; }
 .job-cards .job-cancel { display: flex; justify-content: flex-end; }
 
 /* Job history entries. */
