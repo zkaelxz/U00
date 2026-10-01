@@ -69,7 +69,11 @@ test('the settings start folded once the drama has lines, with the model line st
   await shot(page, 'transcribe-folded-desktop')
   await page.locator('.section-title', { hasText: /^Transcribe settings$/ }).click()
   await expect(page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language')).toBeVisible()
-  // Remembered: still open after a reload.
+  // Remembered: still open after a reload. Section saves the state in its toggle
+  // handler, which runs after the open attribute changes, so wait for the save.
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.transcribe')))
+    .toBe('1')
   await page.reload()
   await expect(page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language')).toBeVisible()
 })
