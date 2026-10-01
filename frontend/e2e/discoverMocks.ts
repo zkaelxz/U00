@@ -21,7 +21,7 @@ const TITLES = [
 
 const ENGINES = [
   { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
-  { name: 'libretranslate', label: 'LibreTranslate', free: false, models: null, key_configured: true },
+  { name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true },
   { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: true },
 ]
 

@@ -84,5 +84,12 @@ details.user-menu > summary::after { content: '▾'; color: var(--muted); }
   .app-header nav { order: 3; }
   /* Basis 0: sits beside the title, takes the rest of the row, and the email truncates. */
   .header-end { flex: 1 1 0; justify-content: flex-end; }
+  /* Icon buttons keep their 44px; only the user menu's email gives way. */
+  .header-end { gap: var(--space-1); }
+  .header-end > :not(.user-menu) { flex-shrink: 0; }
+  /* Title yields first (ellipsis), then the email; the user menu keeps a 44px arrow. */
+  .app-header { gap: var(--space-2); }
+  .app-header h1 { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
+  details.user-menu, details.user-menu > summary { min-width: 44px; }
   details.user-menu > summary { max-width: 100%; }
 }

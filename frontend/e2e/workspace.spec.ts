@@ -30,7 +30,7 @@ async function mockRun(page: Page, dramaId: number) {
 
 // Advanced options are collapsed by default (and remembered once opened).
 async function openAdvanced(page: Page) {
-  const details = page.locator('details.section').filter({ has: page.getByText('Advanced', { exact: true }) }).last()
+  const details = page.locator('.section-title', { hasText: /^Advanced$/ }).locator('xpath=ancestor::details[1]')
   await expect(details).toBeVisible()
   if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
   await expect(details).toHaveAttribute('open', '')
@@ -114,7 +114,7 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
-  await page.locator('details.section', { hasText: 'Speakers' }).last().locator(':scope > summary').click()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
@@ -180,9 +180,9 @@ test('source options offer turbo with a ja/ko hint, the Taiwan script label and 
   const language = page.getByRole('region', { name: 'Transcribe' }).getByLabel('Source language', { exact: true })
   await language.selectOption('ja')
   await size.selectOption('large-v3-turbo')
-  await expect(page.getByRole('note')).toContainText('weaker on Japanese and Korean')
+  await expect(page.getByRole('note').filter({ hasText: 'weaker' })).toContainText('weaker on Japanese and Korean')
   await language.selectOption('zh')
-  await expect(page.getByRole('note')).toHaveCount(0)
+  await expect(page.getByRole('note').filter({ hasText: 'weaker' })).toHaveCount(0)
   await expect(page.getByLabel('Chinese script', { exact: true }).locator('option', { hasText: 'Traditional (Taiwan, Hong Kong)' })).toHaveCount(1)
   await expect(page.getByTestId('gpu-note')).toContainText(/GPU: (on|off) - change in Settings/)
 })

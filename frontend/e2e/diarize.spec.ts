@@ -21,7 +21,7 @@ test('detect speakers only sends a speaker range and catches a bad one', async (
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
   // Speaker counts and "Detect speakers only" live in the Speakers section.
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   const detect = page.getByRole('button', { name: 'Detect speakers only' })
 
   // An inverted range is caught before anything is sent.
@@ -70,7 +70,7 @@ test('transcribe with speaker detection sends the speaker range', async ({ page 
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
   const detectAfter = page.getByRole('switch', { name: 'Detect speakers after transcribing' })
   if (!(await detectAfter.isChecked())) await detectAfter.click()
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')

@@ -65,7 +65,7 @@ CAPABILITIES = {
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
         "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
-                 "For a drama translated with NLLB or LibreTranslate (which "
+                 "For a drama translated with NLLB (which "
                  "can't follow instructions), they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
@@ -94,7 +94,7 @@ TEST_TIMEOUT_S = 45
 _testing = set()
 _testing_lock = threading.Lock()
 # Engines whose Test isn't offered: NLLB downloads a large model on first use.
-_NO_TEST = {"nllb": "NLLB downloads a large model on first use; check it in Diagnostics."}
+_NO_TEST = {"nllb": "NLLB downloads a large model on first use, so it has no Test here. Diagnostics only checks that its software is installed."}
 
 
 def _definition(capability: str) -> dict:

@@ -72,7 +72,7 @@ describe('translate form', () => {
   })
 
   it('offers only fallback engines of the main engine\'s kind, not already used', () => {
-    const all = ['claude', 'gemini', 'openai', 'nllb', 'libretranslate']
+    const all = ['claude', 'gemini', 'openai', 'nllb']
     expect(isTranslationOnly('nllb')).toBe(true)
     expect(isTranslationOnly('claude')).toBe(false)
     expect(sameEngineKind('claude', 'openai')).toBe(true)
@@ -83,7 +83,7 @@ describe('translate form', () => {
     expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 1)).toEqual(['openai'])
     expect(fallbackOptions(all, 'claude', ['gemini', 'openai'], 0)).toEqual(['gemini'])
     // Translation-only main engine: translation-only engines only.
-    expect(fallbackOptions(all, 'nllb', [], -1)).toEqual(['libretranslate'])
+    expect(fallbackOptions(all, 'nllb', [], -1)).toEqual([])
   })
 
   it('flags a fallback of a different kind from the main engine', () => {
@@ -91,12 +91,10 @@ describe('translate form', () => {
     expect(fallbackKindMismatch('claude', ['gemini', ''])).toBe(false)
     expect(fallbackKindMismatch('claude', ['nllb'])).toBe(true)
     expect(validateRun({ ...base, engine: 'claude', fallbacks: ['gemini'] }, 'x')).toBeNull()
-    expect(validateRun({ ...base, engine: 'nllb', fallbacks: ['libretranslate'] }, 'x')).toBeNull()
     // The main engine switched kind after the fallback was picked.
     expect(validateRun({ ...base, engine: 'nllb', fallbacks: ['gemini'] }, 'x')).toBe(FALLBACK_KIND_MESSAGE)
     // With no engine chosen, the drama's default engine decides the kind.
     expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'claude')).toBe(FALLBACK_KIND_MESSAGE)
-    expect(validateRun({ ...base, fallbacks: ['nllb'] }, 'libretranslate')).toBeNull()
     // Reflect/Bulk are refused first, with their own reason.
     expect(validateRun({ ...base, engine: 'claude', reflect: true, fallbacks: ['nllb'] }, 'x')).toMatch(/normal run/)
   })

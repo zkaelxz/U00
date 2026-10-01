@@ -204,6 +204,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
     route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'No stream in this test.' } } }))
   // The header bell (every page) polls this; not part of the comic flow.
   await page.route(/\/api\/notifications$/, (route) => json(route, { items: [] }))
+  // The header Jobs button (every page) reads this; not part of the comic flow.
+  await page.route(/\/api\/jobs$/, (route) => json(route, { items: [] }))
   await page.route(new RegExp(`/api/library/dramas/${id}$`), (route) => {
     record(route)
     return json(route, {
