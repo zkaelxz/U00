@@ -125,7 +125,7 @@ map), [`docs/README.md`](docs/README.md) (docs index),
     [Streamer VODs & archives](#streamer-vods--archives)).
 - **Speaker diarization** (audio drama mode): distinguishes voices in
   the audio so lines can be grouped and named by character.
-- **Multi-engine translation**: Claude, DeepSeek, Gemini, Ollama,
+- **Multi-engine translation**: Claude, DeepSeek, Gemini, OpenAI, Ollama,
   or NLLB.
 - **AI dubbing with optional voice cloning**: free TTS (edge-tts) by
   default; attach a reference clip per character for real voice
@@ -410,10 +410,11 @@ everything, use the delete button in Library or Workspace instead.
 | `claude` | Best for tone/character voice. Supports novel reference + prompt caching. |
 | `deepseek` | Cheap, strong on Chinese. Supports novel reference. |
 | `gemini` | Close to DeepSeek on price (Flash-Lite tier), strong on Chinese/Japanese. Supports novel reference. Google's model lineup/pricing changes often — see `GEMINI_MODELS` in `translate_engines.py` if a run starts erroring. |
+| `openai` | OpenAI GPT models (default `gpt-5-mini`) over the Chat Completions API, set with `BAIHE_OPENAI_KEY`. Pay per token. Supports novel reference. OpenAI's model lineup/pricing changes often — see `OPENAI_MODELS` in `translate_engines.py` if a run starts erroring. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
 | `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. Pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
 
-Only `claude`, `deepseek`, `gemini`, and `ollama` (LLM-based) can do
+Only `claude`, `deepseek`, `gemini`, `openai`, and `ollama` (LLM-based) can do
 speaker attribution for novel-narration mode — the pure-MT engines will just tag
 everything "Narrator".
 
@@ -457,6 +458,7 @@ different claims:
 | `claude` | Paid per token | API key from console.anthropic.com (separate from, and billed separately to, a Claude.ai subscription) |
 | `deepseek` | Paid per token, far cheaper than Claude | API key |
 | `gemini` | Paid per token, close to DeepSeek on the Flash-Lite tier | API key from aistudio.google.com |
+| `openai` | Paid per token | API key from platform.openai.com |
 | `ollama` | No billing | Your own hardware — a model worth using wants real RAM/VRAM |
 | `nllb` | No billing, ever | Nothing beyond `pip install transformers sentencepiece` and disk space for the model (2.4GB for the 600M size, 5.2GB for 1.3B). Runs on CPU, just slower than with a GPU. |
 

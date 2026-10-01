@@ -46,6 +46,18 @@ GEMINI_MODELS = {
     "gemini-3.1-flash-lite": "3.1 Flash-Lite -- cheaper, lighter tier (no quality claim yet)",
 }
 
+# OpenAI's Chat Completions endpoint, the one place its address is set.
+OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
+
+# Selectable OpenAI models. The default is the first-listed mini tier; the
+# lineup changes often, so check platform.openai.com/docs/models if a run
+# starts failing, and update this and PRICING_PER_MILLION_TOKENS together.
+OPENAI_MODELS = {
+    "gpt-5-mini": "GPT-5 mini -- balanced quality and cost (recommended default)",
+    "gpt-5-nano": "GPT-5 nano -- cheapest, lower nuance",
+    "gpt-5": "GPT-5 -- highest quality, most expensive",
+}
+
 PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
@@ -78,6 +90,11 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
+    # OpenAI list prices as recalled from platform.openai.com/docs/pricing
+    # (not re-verified here); re-check before budgeting a large batch.
+    "gpt-5-mini": {"input": 0.25, "output": 2.0},
+    "gpt-5-nano": {"input": 0.05, "output": 0.40},
+    "gpt-5": {"input": 1.25, "output": 10.0},
 }
 
 
@@ -92,7 +109,7 @@ CACHE_WRITE_PRICE_FACTOR = 1.25
 
 # Provider families whose unpriced models fall back to that family's highest
 # known rates (see estimate_cost).
-_PRICED_FAMILY_PREFIXES = ("claude-", "gemini-", "deepseek-")
+_PRICED_FAMILY_PREFIXES = ("claude-", "gemini-", "deepseek-", "gpt-")
 
 
 def _highest_family_rates(model: str):
@@ -950,6 +967,10 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
         except (KeyError, IndexError):
             return fallback
 
+    if isinstance(engine, OpenAIEngine):
+        return call_with_backoff(lambda: engine.chat(
+            [{"role": "user", "content": prompt}], usage_cb=usage_cb))
+
     if isinstance(engine, OllamaEngine):
         import requests
         resp = requests.post(f"{engine.base_url}/api/chat", json={
@@ -1266,6 +1287,80 @@ class GeminiEngine:
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="gemini")
+
+
+# ---------------------------------------------------------------------------
+# OpenAI -- plain Chat Completions REST call, key in an Authorization header
+# ---------------------------------------------------------------------------
+
+class OpenAIEngine:
+    """OpenAI's Chat Completions endpoint called with `requests` (no SDK, so
+    no extra dependency). It has no `.client` on purpose: call_llm_json and
+    qa._dispatch_chat reach it through chat()."""
+    name = "openai"
+    supports_reference = True
+
+    def __init__(self, api_key: str, model: str = "gpt-5-mini", url: str = OPENAI_CHAT_URL):
+        self.api_key = api_key
+        self.model = model
+        self.url = url
+        self.last_usage = _empty_usage()
+
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+    def build_request_body(self, messages: list) -> dict:
+        return {"model": self.model, "messages": messages}
+
+    def chat(self, messages: list, usage_cb=None) -> str:
+        """One Chat Completions call: the reply text. Raises
+        ContentModerationBlocked on a refusal or a content_filter stop, and
+        requests.HTTPError (message already redacted, response kept so rate
+        limits are still recognised) on an HTTP error."""
+        import requests
+        resp = requests.post(self.url, headers=self._headers(),
+                             json=self.build_request_body(messages), timeout=SDK_REQUEST_TIMEOUT)
+        if not resp.ok:
+            detail = ""
+            try:
+                detail = str((resp.json().get("error") or {}).get("message") or "")[:300]
+            except Exception:
+                pass
+            raise requests.HTTPError(
+                redact_secrets(f"OpenAI returned HTTP {resp.status_code}"
+                               + (f": {detail}" if detail else "")), response=resp)
+        data = resp.json()
+        usage = data.get("usage") or {}
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+        parsed = {"input_tokens": usage.get("prompt_tokens") or 0,
+                  "output_tokens": usage.get("completion_tokens") or 0,
+                  "cache_read_tokens": cached}
+        _add_usage(self.last_usage, parsed)
+        if usage_cb:
+            usage_cb(parsed["input_tokens"], parsed["output_tokens"])
+        choices = data.get("choices") or []
+        if not choices:
+            raise ContentModerationBlocked("openai", "no choices returned")
+        message = choices[0].get("message") or {}
+        content = message.get("content") or ""
+        if not content and message.get("refusal"):
+            raise ContentModerationBlocked("openai", message["refusal"])
+        if not content and choices[0].get("finish_reason") == "content_filter":
+            raise ContentModerationBlocked("openai", "content_filter")
+        return content.strip()
+
+    def translate_batch(self, zh_lines, context: dict):
+        system_text = build_stable_system_text(context)
+        self.last_usage = _empty_usage()
+
+        def call_model(numbered):
+            return self.chat([
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": build_batch_user_message(context, numbered)},
+            ])
+
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+                                                line_ids=context.get("line_ids"), engine_name="openai")
 
 
 # ---------------------------------------------------------------------------
@@ -1886,6 +1981,7 @@ ENGINES = {
     "claude": ClaudeEngine,
     "deepseek": DeepSeekEngine,
     "gemini": GeminiEngine,
+    "openai": OpenAIEngine,
     "ollama": OllamaEngine,
     "nllb": NLLBEngine,
 }
@@ -1929,6 +2025,7 @@ ENGINE_CAPABILITIES = {
     "deepseek": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP}),
     "gemini": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP,
                          CAP_GROUNDED_SEARCH}),
+    "openai": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT}),
     "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
     "nllb": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
 }
@@ -2254,6 +2351,7 @@ ENGINE_NOTES = {
     "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
     "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
     "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
+    "openai": "OpenAI GPT models over the Chat Completions API (key from platform.openai.com). Pay per token; supports novel reference. Model names and prices change -- check OPENAI_MODELS if a run starts failing.",
     "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
     "nllb": "🧪 Free — for testing: offline, translation only. Non-commercial licence.",
 }

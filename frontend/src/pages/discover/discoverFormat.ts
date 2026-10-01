@@ -22,7 +22,7 @@ export const PLATFORM_TYPES = ['novel', 'manhwa', 'manga', 'manhua', 'audio_dram
 export const TARGET_LANGUAGES = ['English', 'Vietnamese', 'Chinese', 'Japanese', 'Korean']
 
 // Engines the server accepts here (translate_engines supports_reference).
-const DISCOVER_ENGINE_IDS = new Set(['claude', 'deepseek', 'gemini', 'ollama'])
+const DISCOVER_ENGINE_IDS = new Set(['claude', 'deepseek', 'gemini', 'openai', 'ollama'])
 
 /** Picker entries: engines the Discover routes accept that have a key (or need none). */
 export function discoverEngines(all: TranslateEngine[]): TranslateEngine[] {

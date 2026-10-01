@@ -27,7 +27,7 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 #     at a locally-run server, not a hosted API that requires an account
 #     key. There's nothing meaningful to "configure" in the same sense as an
 #     API key, so it's reported as configured too.
-# Everything else (claude/deepseek/gemini) maps directly onto
+# Everything else (claude/deepseek/gemini/openai) maps directly onto
 # services.settings_service.key_status(), which is keyed by the same engine
 # name for these three.
 _NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
@@ -37,6 +37,7 @@ _NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
 _ENGINE_MODEL_DICTS = {
     "claude": translate_engines.CLAUDE_MODELS,
     "gemini": translate_engines.GEMINI_MODELS,
+    "openai": translate_engines.OPENAI_MODELS,
     "ollama": translate_engines.OLLAMA_MODELS,
     "nllb": translate_engines.NLLB_MODELS,
 }

@@ -43,6 +43,7 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   claude: 'Claude',
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
+  openai: 'OpenAI',
   ollama: 'Ollama (local)',
   nllb: 'NLLB (offline)',
 }
