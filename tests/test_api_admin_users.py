@@ -23,7 +23,8 @@ REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
 ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
           ("POST", "/api/admin/users/{id}/deactivate"), ("POST", "/api/admin/users/{id}/activate"),
-          ("POST", "/api/admin/users/{id}/revoke-sessions")]
+          ("POST", "/api/admin/users/{id}/revoke-sessions"),
+          ("POST", "/api/admin/users/{id}/revoke-admin")]
 
 
 def _app(auth="on"):
@@ -83,6 +84,7 @@ def test_anonymous_and_household_refused(isolated_db):
         assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
     assert db.auth_get_user(target["id"])["is_active"] == 1
     assert _audit("user.deactivate") == [] and _audit("session.revoke_all") == []
+    assert _audit("user.revoke_admin") == []
 
 
 def test_admin_write_needs_csrf(isolated_db):
@@ -252,6 +254,142 @@ def test_local_owner_manages_users_with_auth_off(isolated_db):
     assert [e["user_id"] for e in _audit("user.deactivate")] == [None]
     # Off mode serves loopback only.
     assert _remote(_app("off")).get("/api/admin/users").status_code == 403
+
+
+# --- revoke admin ------------------------------------------------------------------
+
+def test_revoke_admin_makes_a_normal_active_member(isolated_db):
+    a, _s = _admin()
+    b, bs = _admin("second@example.com")
+    extra = auth_service.create_session(b["id"])
+    row = auth_service.revoke_admin(b["id"], actor_id=a["id"], at_pc=True)
+    assert row["id"] == b["id"] and not row["is_admin"] and row["is_active"]
+    assert row["active_sessions"] == 0 and not row["is_self"]
+    assert row["permissions"] == sorted(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+    stored = db.auth_get_user(b["id"])
+    assert stored["is_admin"] == 0 and stored["is_active"] == 1
+    # Sessions ended: no cached admin session survives.
+    assert auth_service.resolve_session(bs["session_token"]) is None
+    assert auth_service.resolve_session(extra["session_token"]) is None
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.revoke_admin")] == \
+        [(a["id"], f"user {b['id']}")]
+    # A fresh sign-in is a member's: no admin.* permission, no override.
+    p = auth_service.resolve_session(auth_service.create_session(b["id"])["session_token"])
+    assert not p["is_admin"] and not p["admin_override"]
+    assert not any(x.startswith("admin.") for x in p["permissions"])
+
+
+def test_grant_admin_restores_a_demoted_admin(isolated_db):
+    a, _s = _admin()
+    b, _bs = _admin("second@example.com")
+    auth_service.revoke_admin(b["id"], actor_id=a["id"], at_pc=True)
+    again = auth_service.grant_admin_local("second@example.com")
+    assert again["id"] == b["id"] and again["is_admin"] and again["is_active"]
+
+
+def test_revoke_admin_gives_defaults_only_to_an_empty_account(isolated_db):
+    _admin()
+    b = auth_service.grant_admin_local("b@example.com")
+    for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+        db.auth_revoke_permission(b["id"], p)
+    db.auth_grant_permission(b["id"], "admin.users")   # a stale admin row doesn't count
+    assert auth_service.revoke_admin(b["id"], at_pc=True)["permissions"] == \
+        sorted(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS)
+    # A member permission already stored: kept as is, nothing added.
+    c = auth_service.grant_admin_local("c@example.com")
+    for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+        db.auth_revoke_permission(c["id"], p)
+    db.auth_grant_permission(c["id"], "media.stream")
+    assert auth_service.revoke_admin(c["id"], at_pc=True)["permissions"] == ["media.stream"]
+
+
+def test_revoke_admin_refusals(isolated_db):
+    a, _s = _admin()
+    m, _ms = _member()
+    with pytest.raises(NotFoundError):
+        auth_service.revoke_admin(4242, at_pc=True)
+    with pytest.raises(ConflictError, match="isn't an admin"):
+        auth_service.revoke_admin(m["id"], at_pc=True)
+    b = auth_service.grant_admin_local("b@example.com")
+    with pytest.raises(ConflictError, match="your own admin rights"):
+        auth_service.revoke_admin(b["id"], actor_id=b["id"], at_pc=True)
+    with pytest.raises(ForbiddenError):
+        auth_service.revoke_admin(b["id"], actor_id=a["id"])   # away from the PC
+    auth_service.revoke_admin(b["id"], at_pc=True)
+    # a is now the only active admin.
+    with pytest.raises(ConflictError, match="last active admin"):
+        auth_service.revoke_admin(a["id"], at_pc=True)
+    assert db.auth_get_user(a["id"])["is_admin"] == 1
+    assert len(_audit("user.revoke_admin")) == 1
+    # An inactive admin doesn't count towards the last one, and can be demoted.
+    c = auth_service.grant_admin_local("c@example.com")
+    auth_service.deactivate_user(c["id"])
+    assert not auth_service.revoke_admin(c["id"], at_pc=True)["is_admin"]
+    assert db.auth_get_user(c["id"])["is_active"] == 0
+
+
+def test_revoke_admin_guarded_write_refuses_the_second_of_two(isolated_db):
+    a = auth_service.grant_admin_local("a@example.com")
+    b = auth_service.grant_admin_local("b@example.com")
+    assert db.auth_revoke_admin_keeping_an_admin(a["id"]) is True
+    assert db.auth_revoke_admin_keeping_an_admin(b["id"]) is False
+    assert db.auth_get_user(b["id"])["is_admin"] == 1
+    assert db.auth_revoke_admin_keeping_an_admin(a["id"]) is False   # not an admin now
+    assert db.auth_revoke_admin_keeping_an_admin(9999) is False
+    # Against a concurrent deactivate too: with only b and c active admins, a
+    # deactivate of c and a demote of b can't both pass.
+    c = auth_service.grant_admin_local("c@example.com")
+    assert db.auth_deactivate_user_keeping_an_admin(c["id"]) is True
+    assert db.auth_revoke_admin_keeping_an_admin(b["id"]) is False
+
+
+def test_revoke_admin_route_pc_only_and_member_forbidden(isolated_db):
+    remote, local = _remote(_app()), _local(_app())
+    a, s = _admin()
+    b, bs = _admin("second@example.com")
+    m, ms = _member()
+    r = remote.post(f"/api/admin/users/{b['id']}/revoke-admin", headers=_h(s))
+    assert r.status_code == 403 and r.json()["error"]["message"] == auth_service.ADMIN_AT_PC_ONLY
+    r = local.post(f"/api/admin/users/{b['id']}/revoke-admin", headers=_h(ms))
+    assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
+    r = local.post(f"/api/admin/users/{b['id']}/revoke-admin", headers=_h(s, csrf=False))
+    assert r.status_code == 403 and r.json()["error"]["code"] == "csrf_failed"
+    assert db.auth_get_user(b["id"])["is_admin"] == 1 and auth_service.resolve_session(bs["session_token"])
+    assert not _audit("user.revoke_admin")
+    r = local.post(f"/api/admin/users/{a['id']}/revoke-admin", headers=_h(s))
+    assert r.status_code == 409 and "your own admin rights" in r.json()["error"]["message"]
+    r = local.post(f"/api/admin/users/{m['id']}/revoke-admin", headers=_h(s))
+    assert r.status_code == 409 and "isn't an admin" in r.json()["error"]["message"]
+    assert local.post("/api/admin/users/9999/revoke-admin", headers=_h(s)).status_code == 404
+    r = local.post(f"/api/admin/users/{b['id']}/revoke-admin", headers=_h(s))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    body = r.json()
+    assert body["id"] == b["id"] and not body["is_admin"] and body["is_active"]
+    assert auth_service.resolve_session(bs["session_token"]) is None
+    # The local owner (auth off) can't demote the last active admin either.
+    r = _local(_app("off")).post(f"/api/admin/users/{a['id']}/revoke-admin", headers=LOCAL_POST)
+    assert r.status_code == 409 and "last active admin" in r.json()["error"]["message"]
+    assert db.auth_get_user(a["id"])["is_admin"] == 1
+
+
+def test_cli_revoke_admin(isolated_db, capsys):
+    from api.__main__ import main
+    a = auth_service.grant_admin_local("a@example.com")
+    b = auth_service.grant_admin_local("b@example.com")
+    s = auth_service.create_session(b["id"])
+    assert main(["revoke-admin", "B@Example.com"]) == 0
+    out = capsys.readouterr().out
+    assert "b@example.com is no longer an admin" in out and out.count("\n") == 1
+    assert s["session_token"] not in out
+    assert not db.auth_get_user(b["id"])["is_admin"] and db.auth_get_user(b["id"])["is_active"]
+    assert [e["user_id"] for e in _audit("user.revoke_admin")] == [None]
+    assert main(["revoke-admin", "b@example.com"]) == 2
+    assert "isn't an admin" in capsys.readouterr().err
+    assert main(["revoke-admin", "ghost@example.com"]) == 2
+    assert "No such user" in capsys.readouterr().err
+    assert main(["revoke-admin", a["email"]]) == 2
+    assert "last active admin" in capsys.readouterr().err
+    assert db.auth_get_user(a["id"])["is_admin"] == 1
 
 
 # --- audit view --------------------------------------------------------------------
