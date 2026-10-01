@@ -229,7 +229,7 @@ def _admin_view(user: dict, actor_id, now: float) -> dict:
 
 
 ADMIN_AT_PC_ONLY = ("Admin accounts can only be changed at the PC. "
-                    "Use: python -m api deactivate/grant-admin <email>")
+                    "Use: python -m api revoke-admin/deactivate/grant-admin <email>")
 
 
 def _require_pc_for_admin(row, at_pc: bool):

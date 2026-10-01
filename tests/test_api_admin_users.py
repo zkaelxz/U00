@@ -279,6 +279,14 @@ def test_revoke_admin_makes_a_normal_active_member(isolated_db):
     assert not any(x.startswith("admin.") for x in p["permissions"])
 
 
+def test_grant_admin_restores_a_demoted_admin(isolated_db):
+    a, _s = _admin()
+    b, _bs = _admin("second@example.com")
+    auth_service.revoke_admin(b["id"], actor_id=a["id"], at_pc=True)
+    again = auth_service.grant_admin_local("second@example.com")
+    assert again["id"] == b["id"] and again["is_admin"] and again["is_active"]
+
+
 def test_revoke_admin_gives_defaults_only_to_an_empty_account(isolated_db):
     _admin()
     b = auth_service.grant_admin_local("b@example.com")
