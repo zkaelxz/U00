@@ -313,8 +313,8 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
   for (const width of [1280, 1024]) {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/library')
-    await expect(page.getByTestId('api-status')).toBeVisible()
     const bell = page.getByRole('button', { name: /^Notifications/ })
+    await expect(bell).toBeVisible()
     const b = (await bell.boundingBox())!
     const nav = (await page.getByRole('navigation', { name: 'Main' }).boundingBox())!
     // 1280: the bell did not push the header onto a second row.
