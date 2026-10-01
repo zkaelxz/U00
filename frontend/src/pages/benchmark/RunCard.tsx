@@ -4,6 +4,7 @@ import {
   estimateBenchmark, startBenchmarkRun, type BenchmarkConfig, type BenchmarkEstimate,
   type BenchmarkOptions, type BenchmarkRunStarted, type BenchmarkSet, type BenchmarkStage, type BenchmarkTier,
 } from '../../api/benchmark'
+import { modelOptionLabel } from '../../api/translate'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
@@ -296,7 +297,7 @@ function ConfigRow({ stage, options, config, index, onChange }: {
           >
             <option value="">Default</option>
             {engine.models.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>
             ))}
           </select>
         </Field>

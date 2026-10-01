@@ -109,6 +109,18 @@ export function lastCheckedLine(checkedAt: string | null | undefined): string {
   return when ? `Providers last checked ${when}` : 'Providers not checked yet'
 }
 
+export const OFFER_MODELS_LABEL = "Also offer models Claude, Gemini and DeepSeek list that this app doesn't know yet"
+export const OFFER_MODELS_HELP =
+  "Their cost is estimated at the highest rate for that provider until the app is updated. Uses the list from your last Check now."
+
+/** The line under the opt-in: what it adds now, or what to do first. */
+export function offerModelsNote(status: Pick<ModelStatus, 'checked_at' | 'offer_provider_models' | 'extra_models'>): string | null {
+  if (!status.offer_provider_models) return null
+  if (!status.checked_at) return 'No check has run yet. Press "Check providers now" to load the lists.'
+  const n = Object.values(status.extra_models ?? {}).reduce((sum, ids) => sum + ids.length, 0)
+  return n > 0 ? `${n} extra ${n === 1 ? 'model is' : 'models are'} offered from the last check.` : 'The last check listed no extra models.'
+}
+
 export interface EngineCheckLine {
   engine: string
   label: string

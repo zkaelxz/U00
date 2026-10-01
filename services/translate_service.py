@@ -50,6 +50,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
     key/endpoint is configured for it (never the key value itself -- see
     services.settings_service.key_status). The Gemini label reflects the
     persisted "Gemini free tier" setting (translate_engines.engine_picker_label)."""
+    from services import model_registry_service  # imports this module at load time
     key_status = settings_service.key_status(env_path)
     gemini_free_tier = settings_service.get_gemini_free_tier()
     engines = []
@@ -59,11 +60,18 @@ def list_engines(env_path: Optional[str] = None) -> list:
             key_configured = True
         else:
             key_configured = bool(key_status.get(name, False))
+        models = list(model_dict.keys()) if model_dict is not None else None
+        extras = model_registry_service.extra_models(name)
+        if extras:
+            # DeepSeek has no built-in picker: its default plus the extras.
+            models = (models if models is not None
+                      else [model_registry_service._default_model(name)]) + extras
         engines.append({
             "name": name,
             "label": translate_engines.engine_picker_label(name, gemini_free_tier),
             "free": name in translate_engines.FREE_ENGINES,
-            "models": list(model_dict.keys()) if model_dict is not None else None,
+            "models": models,
+            "model_labels": {m: model_registry_service.extra_model_label(name, m) for m in extras},
             "key_configured": key_configured,
         })
     return engines
