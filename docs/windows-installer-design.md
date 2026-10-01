@@ -643,6 +643,8 @@ prompt are not run in CI.
    (`docs/household-access.md`). The script only ever runs `netsh ... show rule`.
 4. The service stays local-only until `enable-remote` is run.
 
+The owner's step-by-step guide, with a table of which ports are opened or forwarded (only 443; port 80 is neither), is `docs/household-access.md`.
+
 A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
 cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
 `caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every

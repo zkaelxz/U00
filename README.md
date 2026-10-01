@@ -291,13 +291,9 @@ would need to bundle a full Python interpreter plus every ML dependency
 this app can use, multi-gigabytes either way, so that isn't what this
 does.
 
-### Access from other devices (not available yet)
+### Access from other devices
 
-The app is **loopback-only** (`127.0.0.1`): only the PC running it can
-open it. The API has no login yet, so `start.bat` never binds it to your
-network and no longer prints a LAN address. Phone and household access
-comes back once authentication and permissions exist; see
-[`docs/remote-access-decision.md`](docs/remote-access-decision.md).
+By default the app is **loopback-only** (`127.0.0.1`): only the PC running it can open it, and the PC's own window (port 8600) is never exposed to the network. Household members can reach it from their own devices through remote access, which is opt-in: the installed background service plus Caddy (HTTPS on port 443) in front of a separate household listener with Google sign-in always on. Nothing opens a router port or a firewall rule for you. The step-by-step guide, including which ports are opened, is [`docs/household-access.md`](docs/household-access.md); the design is [`docs/remote-access-decision.md`](docs/remote-access-decision.md).
 `start.bat --server-only` still runs the server without opening a window
 (same effect as setting `BAIHE_SERVER_ONLY`).
 

@@ -155,10 +155,10 @@ Deployment note (Caddy): Caddy must target the household listener, `reverse_prox
 - **Own-port guards:** the Jellyfin server address, the SearXNG base URL and a local ntfy topic may never point at one of Baihe's own loopback ports; `BAIHE_API_HOUSEHOLD_PORT`, when set, is one of them, like `BAIHE_API_PORT`, 8501 and 8756.
 - **Migrating from single-port sign-in.** The household port is unset by default, and leaving it unset changes nothing. Anyone who today signs in on the single port (`BAIHE_API_AUTH=on`, a proxy pointed at 8600) must migrate before setting it, because startup refuses the combination:
   1. Set `BAIHE_API_AUTH=off`. It now applies only to the admin listener on 8600, the PC's own window, which then serves direct loopback requests only.
-  2. Set `BAIHE_API_HOUSEHOLD_PORT=8610` (any free loopback port other than 8600 and 8756).
+  2. Set `BAIHE_API_HOUSEHOLD_PORT=8610` (any free loopback port other than the admin port and 8756; the installer's `enable-remote` also refuses 8501, 8600 and 8601, and the service's own port).
   3. Point the reverse proxy (Caddy) at the household port, `reverse_proxy 127.0.0.1:8610`, never at 8600.
   4. Configure Google sign-in (`BAIHE_GOOGLE_CLIENT_ID`, `BAIHE_GOOGLE_CLIENT_SECRET`, `BAIHE_PUBLIC_URL`) as before; it is used by the household listener, where sign-in is always on.
-  5. Startup refuses (exits with an error) the household port if `BAIHE_API_AUTH=on` for the admin listener or with a non-loopback `BAIHE_API_HOST`; the error names the setting to change. In development mode (`BAIHE_API_ENV=development`) the household listener is skipped with a warning.
+  5. Startup exits with an error only if `BAIHE_API_AUTH=on` for the admin listener or `BAIHE_API_HOST` is non-loopback next to a household port; the error names the setting to change. Every other problem (including development mode, `BAIHE_API_ENV=development`) skips only the household listener with a warning.
   6. Rollback: unset `BAIHE_API_HOUSEHOLD_PORT` (and point the proxy back, or turn sign-in back on for the single port as before).
 
   Nothing here opens a router port; forwarding a port from the router to the proxy remains a step only the user takes.
