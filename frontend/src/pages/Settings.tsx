@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ApiError } from '../api/client'
 import {
   clampGpuMaxParallel,
@@ -40,6 +40,50 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
     'Resume interrupted translation batches when the app starts. Off by default: resumed batches can spend on your engine account.',
 }
 
+type FoldId = 'jobs' | 'engines' | 'defaults' | 'alerts' | 'sharing' | 'integrations' | 'advanced' | 'experimental'
+
+const FOLD_LABEL: Record<FoldId, string> = {
+  jobs: 'Jobs',
+  engines: 'Engines and keys',
+  defaults: 'Translation and spending',
+  alerts: 'Notifications, backups, updates',
+  sharing: 'Sharing and devices',
+  integrations: 'Integrations',
+  advanced: 'Advanced',
+  experimental: 'Experimental & developer',
+}
+
+// One collapsible group. The jump links must not touch location.hash: the app routes on it.
+function Fold({
+  id,
+  signals,
+  summary,
+  defaultOpen,
+  single,
+  children,
+}: {
+  id: FoldId
+  signals: Record<string, number>
+  summary: string
+  defaultOpen?: boolean
+  single?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div id={`settings-${id}`} className={single ? 'settings-fold settings-fold-single' : 'settings-fold'}>
+      <Section
+        title={FOLD_LABEL[id]}
+        summary={summary}
+        storageKey={`settings.${id}`}
+        defaultOpen={defaultOpen}
+        openSignal={signals[id] ?? 0}
+      >
+        {children}
+      </Section>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -47,6 +91,19 @@ export default function SettingsPage() {
   // (a replaced key keeps configured=true but clears its Test).
   const [routingToken, setRoutingToken] = useState(0)
   const bumpRouting = () => setRoutingToken((t) => t + 1)
+  // Jump links: bump a section's signal (opens it), then scroll once it is open.
+  const [signals, setSignals] = useState<Record<string, number>>({})
+  const [jumpTo, setJumpTo] = useState<{ id: FoldId; n: number } | null>(null)
+  function jump(id: FoldId) {
+    setSignals((cur) => ({ ...cur, [id]: (cur[id] ?? 0) + 1 }))
+    setJumpTo((cur) => ({ id, n: (cur?.n ?? 0) + 1 }))
+  }
+  useEffect(() => {
+    if (!jumpTo) return
+    const el = document.getElementById(`settings-${jumpTo.id}`)
+    el?.scrollIntoView({ block: 'start' })
+    el?.querySelector('summary')?.focus({ preventScroll: true })
+  }, [jumpTo])
 
   useEffect(() => {
     // 403: not an admin. The admin cards stay hidden; Sharing below still shows.
@@ -92,73 +149,95 @@ export default function SettingsPage() {
       }
     : null
 
-  // Always-open Cards for what people change on most visits; integrations
-  // and experimental options sit in collapsed Sections at the end. Remote
-  // access and the household's accounts live on the Admin page.
+  // Cards are grouped into folds: Jobs and Engines and keys start open, the
+  // rest are folded and remember their state. Remote access and the
+  // household's accounts live on the Admin page.
+  const navIds: FoldId[] = prefProps
+    ? ['jobs', 'engines', 'defaults', 'alerts', 'sharing', 'integrations', 'advanced', 'experimental']
+    : ['sharing']
   return (
     <section className="panel page-narrow settings-page" aria-label="Settings">
       <h2>Settings</h2>
+      <nav className="settings-jump" aria-label="Jump to a settings section">
+        {navIds.map((id) => (
+          <button key={id} type="button" className="settings-jump-link" onClick={() => jump(id)}>
+            {FOLD_LABEL[id]}
+          </button>
+        ))}
+      </nav>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {settings && prefProps && (
         <>
-          <Card title="Jobs" aria-label="Jobs">
-            <div className="setting-list">
-              {TOGGLES.map(({ key, label }) => (
-                <Field key={key} label={label} help={TOGGLE_HELP[key]}>
-                  <Toggle checked={settings[key]} onChange={(next) => toggle(key, next)} />
+          <Fold id="jobs" signals={signals} summary="Background jobs and GPU" defaultOpen single>
+            <Card title="Jobs" aria-label="Jobs">
+              <div className="setting-list">
+                {TOGGLES.map(({ key, label }) => (
+                  <Field key={key} label={label} help={TOGGLE_HELP[key]}>
+                    <Toggle checked={settings[key]} onChange={(next) => toggle(key, next)} />
+                  </Field>
+                ))}
+                <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
+                  <input
+                    type="number"
+                    min={1}
+                    max={GPU_MAX_PARALLEL_MAX}
+                    step={1}
+                    value={settings.gpu_max_parallel}
+                    disabled={!settings.gpu_limit_enabled}
+                    onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
+                  />
                 </Field>
-              ))}
-              <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
-                <input
-                  type="number"
-                  min={1}
-                  max={GPU_MAX_PARALLEL_MAX}
-                  step={1}
-                  value={settings.gpu_max_parallel}
-                  disabled={!settings.gpu_limit_enabled}
-                  onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
-                />
-              </Field>
-            </div>
-          </Card>
-          <ApiKeysCard
-            settings={settings}
-            onKey={(r) => {
-              setSettings((cur) =>
-                cur ? { ...cur, engine_keys: { ...cur.engine_keys, [r.engine]: r.configured } } : cur,
-              )
-              bumpRouting()
-            }}
-          />
-          <EngineRoutingCard
-            refreshToken={routingToken}
-            geminiFreeTier={settings.gemini_free_tier}
-            onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
-          />
-          <DefaultsCard {...prefProps} />
-          <SpendingCard {...prefProps} />
-          <NotificationsSection />
-          <AutoBackupCard />
-          <AppUpdatesCard />
+              </div>
+            </Card>
+          </Fold>
+          <Fold id="engines" signals={signals} summary="API keys and which engine does what" defaultOpen>
+            <ApiKeysCard
+              settings={settings}
+              onKey={(r) => {
+                setSettings((cur) =>
+                  cur ? { ...cur, engine_keys: { ...cur.engine_keys, [r.engine]: r.configured } } : cur,
+                )
+                bumpRouting()
+              }}
+            />
+            <EngineRoutingCard
+              refreshToken={routingToken}
+              geminiFreeTier={settings.gemini_free_tier}
+              onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
+            />
+          </Fold>
+          <Fold id="defaults" signals={signals} summary="English variant, style note, monthly cap">
+            <DefaultsCard {...prefProps} />
+            <SpendingCard {...prefProps} />
+          </Fold>
+          <Fold id="alerts" signals={signals} summary="Notifications, automatic backups, app updates">
+            <NotificationsSection />
+            <AutoBackupCard />
+            <AppUpdatesCard />
+          </Fold>
         </>
       )}
-      {/* Outside the settings gate: every signed-in person has a share-new-items choice. */}
-      <SharingCard />
-      {/* Also outside it: every signed-in person manages their own devices. */}
-      <DevicesCard />
+      {/* Outside the settings gate: every signed-in person has a share-new-items choice
+          and manages their own devices. */}
+      <Fold id="sharing" signals={signals} summary="Share new items, signed-in devices">
+        <SharingCard />
+        <DevicesCard />
+      </Fold>
       {settings && prefProps && (
         <>
-          <Section title="Integrations" summary="Jellyfin, Notion, web search, browser extension" storageKey="settings.integrations">
+          <Fold id="integrations" signals={signals} summary="Jellyfin, Notion, web search, browser extension">
             <JellyfinSection />
             <NotionSection />
             <WebSearchSection />
             <ExtensionSection />
-          </Section>
-          <AdvancedCard {...prefProps} />
-          <Section title="Experimental & developer" summary="Transcription experiments, Developer Mode" storageKey="settings.experimental">
+          </Fold>
+          <Fold id="advanced" signals={signals} summary="OCR, offline models, downloads and server addresses" single>
+            <AdvancedCard {...prefProps} />
+          </Fold>
+          <Fold id="experimental" signals={signals} summary="Transcription experiments, Developer Mode">
             <TranscriptionExperimentsCard />
             <DeveloperModeCard />
-          </Section>
+          </Fold>
         </>
       )}
     </section>

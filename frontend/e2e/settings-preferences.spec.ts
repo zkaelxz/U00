@@ -87,7 +87,7 @@ const CARDS = ['Translation style', 'Spending']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
     ? page.getByRole('region', { name: title, exact: true })
-    : page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+    : page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
 
 async function open(page: Page, title: string) {
   if (CARDS.includes(title)) {
@@ -95,7 +95,7 @@ async function open(page: Page, title: string) {
     await expect(card).toBeVisible()
     return card
   }
-  const section = page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+  const section = page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
   await section.locator('summary').click()
   await expect(section).toHaveAttribute('open', '')
   return section

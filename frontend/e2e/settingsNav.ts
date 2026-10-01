@@ -1,12 +1,10 @@
 import type { Locator, Page } from '@playwright/test'
 
-// Settings keeps integrations and experimental options in collapsed
-// sections; a spec for one of those cards opens the section first.
+// Settings folds most groups (Integrations, Alerts, Advanced and so on); a spec for a card in one of those opens them all first.
 export async function openSettingsGroups(page: Page) {
-  for (const title of ['Integrations', 'Experimental & developer']) {
-    const summary = page.locator('details.section > summary', { hasText: title }).first()
-    // The groups only render once Settings has loaded (and only for an admin).
-    if (!(await summary.waitFor({ state: 'attached', timeout: 4000 }).then(() => true, () => false))) continue
+  // The groups only render once Settings has loaded (and only for an admin).
+  await page.locator('.settings-fold > details.section > summary').first().waitFor({ state: 'attached', timeout: 4000 }).catch(() => {})
+  for (const summary of await page.locator('.settings-fold > details.section > summary').all()) {
     if (!(await summary.evaluate((el) => (el.parentElement as HTMLDetailsElement).open))) await summary.click()
   }
   // The opened section can land a field's help icon under the pointer, which opens its tooltip.
