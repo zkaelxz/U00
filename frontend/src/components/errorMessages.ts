@@ -62,7 +62,7 @@ export function describeError(
 export type EngineFailureKind = 'not_running' | 'no_model' | 'key_rejected' | 'rate_limited' | 'timed_out' | 'unreachable' | 'other'
 
 // Engines that run on this PC (or a server the user runs); a refused connection means "not started".
-const LOCAL_ENGINES = new Set(['ollama', 'libretranslate'])
+const LOCAL_ENGINES = new Set(['ollama'])
 
 /** A one-sentence, plain summary of an engine test failure; the raw text stays as the "Details". */
 export function summarizeEngineFailure(
