@@ -283,8 +283,8 @@ class TestReaderEndpoint:
 
         def boom(*a, **k):
             raise AssertionError("the reader endpoint made a live dictionary lookup call")
-        import dictionary
-        monkeypatch.setattr(dictionary, "build_word_definitions", boom)
+        from services import reader_service
+        monkeypatch.setattr(reader_service, "_define_words_llm", boom)
         resp = client.get(f"/api/reader/dramas/{did}/page")
         assert resp.status_code == 200
 

@@ -20,7 +20,7 @@ NOTE on baihehub.com specifically: its pages are a client-rendered
 `search_baihehub()` calls directly -- no browser rendering needed. If
 that ever stops returning results, it falls back to handing you the
 human-browsable search URL -- open that, copy the URL of anything
-interesting, and use `import_title_from_url()` on it instead.
+interesting, and import it from that URL in Discover instead.
 """
 
 def translate_query_to_zh(query: str, engine) -> str:
@@ -186,45 +186,3 @@ def seed_known_titles(db_module):
             db_module.create_known_title(**entry)
             added += 1
     return added
-
-
-def import_title_from_url(url: str, engine, media_type_hint: str = None,
-                           allow_render: bool = True):
-    """Fetches a listing page and extracts catalog metadata for the
-    known_titles library. Returns (entry_dict, status) so the caller can
-    distinguish "this page had no metadata" from "we couldn't actually
-    read this page" -- which used to look identical."""
-    import page_fetch, metadata_lookup
-    result = page_fetch.smart_fetch(url, allow_render=allow_render)
-    if not result["text"].strip():
-        return {}, {"ok": False, "message": result["message"],
-                    "needs_manual": result["needs_manual"]}
-
-    meta = metadata_lookup.extract_metadata_llm(result["text"], engine)
-    if not meta:
-        return {}, {"ok": False, "needs_manual": result["needs_manual"],
-                    "message": "Read the page but found no title metadata. " + result["message"]}
-
-    media_type = media_type_hint
-    if not media_type:
-        if "/audio-dramas/" in url or "audio" in url:
-            media_type = "audio_drama"
-        elif "/books/" in url or "novel" in url:
-            media_type = "novel"
-        elif "/manhuas/" in url or "manga" in url or "manhwa" in url:
-            media_type = "manhua"
-        else:
-            media_type = "other"
-
-    return {
-        "title_original": meta.get("title_zh") or meta.get("title_en") or "",
-        "title_en": meta.get("title_en") or "",
-        "author": meta.get("author") or "",
-        "tags": "",
-        "summary_en": meta.get("summary") or "",
-        "summary_original": "",
-        "source_name": "baihehub" if "baihehub.com" in url else "imported",
-        "source_url": url,
-        "language": "zh",
-        "media_type": media_type,
-    }, {"ok": True, "needs_manual": False, "message": result["message"]}

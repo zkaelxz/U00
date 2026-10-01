@@ -13,41 +13,6 @@ import json
 import html
 
 
-def build_page_audio_data_uri(audio_path: str, start: float, end: float, max_seconds: float = 600):
-    """Extracts the [start, end] span of the source audio (clamped to
-    max_seconds to keep the embedded page from bloating) and returns it
-    as a base64 data: URI for embedding directly in the reader HTML.
-    Returns None if the span is empty, the file doesn't exist, or
-    ffmpeg fails -- the reader just renders without click-to-seek in
-    that case rather than breaking the whole page.
-    """
-    import subprocess
-    import base64
-    import tempfile
-    import os
-
-    if not audio_path or not os.path.exists(audio_path):
-        return None
-    duration = min(end - start, max_seconds)
-    if duration <= 0:
-        return None
-
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-        out_path = tmp.name
-    try:
-        cmd = ["ffmpeg", "-y", "-ss", str(max(0, start)), "-t", str(duration),
-               "-i", audio_path, "-acodec", "libmp3lame", "-b:a", "96k", out_path]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
-        with open(out_path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("ascii")
-        return f"data:audio/mp3;base64,{encoded}"
-    except Exception:
-        return None
-    finally:
-        if os.path.exists(out_path):
-            os.unlink(out_path)
-
-
 THEMES = {
     "light": {"bg": "#fafafa", "fg": "#1a1a1a", "sub": "#444", "border": "#e5e5e5",
               "hover": "#ffe9a8", "active": "#ffd35c", "rt": "#888"},

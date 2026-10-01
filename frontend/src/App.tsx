@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
-import type { MetaResponse } from './api/types'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AssistantPage from './pages/Assistant'
@@ -27,19 +26,19 @@ import { ReportProblemButton } from './report/ReportProblem'
 import { routeHref, useRoute } from './router'
 import type { Route } from './router'
 
+// Shown only when the server can't be reached; the version lives in
+// Diagnostics and in problem reports, where it is useful.
 function ApiStatus() {
-  const [meta, setMeta] = useState<MetaResponse | null>(null)
   const [down, setDown] = useState(false)
 
   useEffect(() => {
-    api.meta().then(setMeta, () => setDown(true))
+    api.meta().catch(() => setDown(true))
   }, [])
 
-  if (down) return <span className="badge bad">API unreachable</span>
-  if (!meta) return <span className="badge">Connecting…</span>
+  if (!down) return null
   return (
-    <span className="badge ok" data-testid="api-status">
-      API v{meta.api_version}{meta.environment ? ` · ${meta.environment}` : ''}
+    <span className="badge bad" data-testid="api-status" title="Check that Baihe Studio is still running on this PC.">
+      Can't reach Baihe
     </span>
   )
 }
