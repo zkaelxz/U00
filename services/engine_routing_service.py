@@ -94,7 +94,7 @@ TEST_TIMEOUT_S = 45
 _testing = set()
 _testing_lock = threading.Lock()
 # Engines whose Test isn't offered: NLLB downloads a large model on first use.
-_NO_TEST = {"nllb": "NLLB downloads a large model on first use; check it in Diagnostics."}
+_NO_TEST = {"nllb": "NLLB downloads a large model on first use, so it has no Test here. Diagnostics only checks that its software is installed."}
 
 
 def _definition(capability: str) -> dict:

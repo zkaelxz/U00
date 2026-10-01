@@ -74,7 +74,7 @@ test('settings: off by default, saves the address, never shows the key, scan is 
 test('export: Send to Jellyfin is hidden while the connector is off', async ({ page }) => {
   await mockConfig(page, { ...on, enabled: false })
   await page.goto('/#/drama/1/export')
-  await expect(page.getByRole('heading', { name: 'Export' }).or(page.getByText('More export')).first()).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Export' }).or(page.getByText('Video and audio')).first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Send to Jellyfin' })).toHaveCount(0)
 })
 

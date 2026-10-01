@@ -73,3 +73,24 @@ test('a refused change rolls the choice back and says it is PC only', async ({ p
   await expect(card(page).getByRole('button', { name: 'Test Fake' })).toBeDisabled()
   await page.evaluate(() => sessionStorage.removeItem('baihe.pcOnly'))
 })
+
+test('a failed Ollama test shows a plain summary with the raw error under Details', async ({ page }) => {
+  const raw = "HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded [WinError 10061]"
+  await page.route('**/api/settings/engine-routing/engines/ollama/test', async (route) => {
+    const res = await page.request.get('/api/settings/engine-routing')
+    const body = await res.json()
+    const e = body.engines.find((x: { engine: string }) => x.engine === 'ollama')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...e, status: 'failed', last_test: { ok: false, tested_at: new Date().toISOString(), error: raw } }),
+    })
+  })
+  await page.goto('/#/settings')
+  const row = page.getByTestId('engine-ollama')
+  await row.getByRole('button', { name: /^Test / }).click()
+  await expect(row.getByText(/isn't running.*ollama\.com/)).toBeVisible()
+  await expect(row.getByText(raw)).toBeHidden()
+  await row.getByText('Details', { exact: true }).click()
+  await expect(row.getByText(raw)).toBeVisible()
+})

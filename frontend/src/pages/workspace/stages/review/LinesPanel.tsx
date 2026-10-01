@@ -18,6 +18,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
+import { usePersistedState } from '../../../../hooks/usePersistedState'
 import { useShortcut } from '../../../../hooks/useShortcut'
 import { routeHref } from '../../../../router'
 import type { RestructureResult } from '../../../../types/restructure'
@@ -131,6 +132,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [sheetNote, setSheetNote] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
+  // Row density is a per-viewer choice, remembered in localStorage.
+  const [compact, setCompact] = usePersistedState('review.compact', false)
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
   const player = useRef<PlayerHandle>(null)
@@ -932,6 +935,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           replaceOpen={replaceOpen}
           onToggleReplace={toggleReplace}
           onKeys={() => setKeysOpen(true)}
+          compact={compact}
+          onCompact={setCompact}
           player={
             mediaKind ? (
               <Player
@@ -1009,7 +1014,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             )}
           </div>
         )}
-        <ul className="review-lines" ref={listRef}>
+        <ul className={compact ? 'review-lines is-compact' : 'review-lines'} ref={listRef}>
           {shown.map((l) => (
             <LineRow
               key={l.id}

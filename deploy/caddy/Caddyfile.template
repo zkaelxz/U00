@@ -147,6 +147,7 @@
 		path /api/characters/series/*/characters/*/delete
 		path /api/characters/dramas/*/reference-clip /api/characters/dramas/*/reference-clip/remove
 		path /api/scanlate/dramas/*/pages
+		path /api/jobs/clear-finished /api/jobs/*/delete
 	}
 	@pc_only_delete {
 		method DELETE
