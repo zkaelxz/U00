@@ -1301,6 +1301,12 @@ class OpenAIEngine:
     supports_reference = True
 
     def __init__(self, api_key: str, model: str = "gpt-5-mini", url: str = OPENAI_CHAT_URL):
+        # OpenAI accepts models (o-series, gpt-4) priced well above anything in
+        # PRICING_PER_MILLION_TOKENS; a client-chosen name that reached here would
+        # be costed too low (or at $0) and slip past the spending caps.
+        if model not in OPENAI_MODELS:
+            from services.service_errors import InvalidInputError
+            raise InvalidInputError("That model isn't offered for this engine.")
         self.api_key = api_key
         self.model = model
         self.url = url

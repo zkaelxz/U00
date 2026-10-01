@@ -9,7 +9,7 @@ import db
 import translate_engines as te
 from core import Line
 from services import settings_service, translate_run_service, translate_service
-from services.service_errors import DependencyUnavailableError
+from services.service_errors import DependencyUnavailableError, InvalidInputError
 
 KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -166,3 +166,17 @@ def test_translate_run_refuses_when_no_key_and_estimate_counts_against_the_cap(i
     assert est["cap_applies"] is True and est["free"] is False and est["estimated_usd"] > 0
     with pytest.raises(DependencyUnavailableError):
         translate_run_service.start_translate_run(did, engine_name="openai")
+
+
+@pytest.mark.parametrize("model", ["o1", "gpt-4", "gpt-4-turbo", "chatgpt-4o-latest", "gpt-9-future"])
+def test_a_model_the_app_does_not_offer_is_refused_so_it_cannot_dodge_the_cost_caps(model):
+    with pytest.raises(InvalidInputError):
+        te.get_engine("openai", KEY, model)
+    with pytest.raises(InvalidInputError):
+        te.OpenAIEngine(KEY, model)
+
+
+def test_every_offered_model_is_priced_and_accepted():
+    for model in te.OPENAI_MODELS:
+        assert model in te.PRICING_PER_MILLION_TOKENS
+        assert te.get_engine("openai", KEY, model).model == model
