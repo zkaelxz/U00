@@ -187,6 +187,12 @@ def get_gemini_free_tier() -> bool:
     return _get_bool_setting("gemini_free_tier")
 
 
+def get_offer_provider_models() -> bool:
+    """Opt-in: the Claude model picker also offers models Anthropic lists
+    (from the last manual model check) that the app doesn't know yet."""
+    return _get_bool_setting("offer_provider_models")
+
+
 def get_bulk_auto_resume() -> bool:
     """Opt-in: resume interrupted bulk translation batches when the API
     starts. Default False (a resumed batch can spend on the engine account)."""
@@ -211,6 +217,7 @@ def get_settings_overview(env_path: str = None) -> dict:
         "use_gpu": get_use_gpu(),
         "gemini_free_tier": get_gemini_free_tier(),
         "bulk_auto_resume": get_bulk_auto_resume(),
+        "offer_provider_models": get_offer_provider_models(),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "monthly_cap_env_usd": _parse_cap(resolve_key("monthly_cap_usd", env_path)),
@@ -236,6 +243,7 @@ _WRITABLE_SETTINGS = {
     "use_gpu": lambda v: _set_app_bool("use_gpu", v),
     "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),
     "bulk_auto_resume": lambda v: _set_app_bool(BULK_AUTO_RESUME_KEY, v),
+    "offer_provider_models": lambda v: _set_app_bool("offer_provider_models", v),
 }
 
 

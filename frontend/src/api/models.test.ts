@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { checkModelProviders, getModelStatus, switchPresetModel } from './models'
+import { checkModelProviders, getModelStatus, setOfferProviderModels, switchPresetModel } from './models'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
 function reply(status: number, body: unknown) {
@@ -54,5 +54,18 @@ describe('models api', () => {
     const { f } = reply(403, { error: { code: 'forbidden', message: 'PC only.' } })
     await expect(checkModelProviders(f)).rejects.toMatchObject({ status: 403 })
     expect(getPcMode()).toBe('remote')
+  })
+})
+
+describe('setOfferProviderModels', () => {
+  afterEach(() => resetPcModeForTests())
+
+  it('posts the one boolean to /api/settings as a PC-only write', async () => {
+    const { mock, f } = reply(200, {})
+    await setOfferProviderModels(true, f)
+    const [url, init] = mock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/settings')
+    expect(JSON.parse(init.body as string)).toEqual({ offer_provider_models: true })
+    expect(localHeader(init)).toBe('1')
   })
 })

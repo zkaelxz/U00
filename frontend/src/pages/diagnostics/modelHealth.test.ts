@@ -6,7 +6,7 @@ import { parseCompareParam } from '../benchmark/benchmarkForm'
 import { parseRoute } from '../../router'
 import {
   compareHref, engineCheckLines, formatCheckedAt, healthBadge, kindHelp, lastCheckedLine, modelHealthError,
-  modelStatusLabel, modelStatusTone, sortModelItems, splitModelItems, whereLabel,
+  modelStatusLabel, modelStatusTone, offerModelsNote, OFFER_MODELS_HELP, sortModelItems, splitModelItems, whereLabel,
 } from './modelHealth'
 
 const SEV: Record<string, number> = { retired: 3, not_listed: 3, deprecated: 2, legacy: 1, current: 0, unknown: 0 }
@@ -146,5 +146,24 @@ describe('errors', () => {
     expect(modelHealthError(new ApiError(409, { code: 'conflict', message: 'see /home/user/x' }))).toBe(
       'That cannot be done right now because something else is already using it.',
     )
+  })
+})
+
+describe('offerModelsNote', () => {
+  it('says nothing while the opt-in is off', () => {
+    expect(offerModelsNote({ checked_at: null, offer_provider_models: false })).toBeNull()
+  })
+  it('asks for a check when none has run', () => {
+    expect(offerModelsNote({ checked_at: null, offer_provider_models: true })).toMatch(/Check providers now/)
+  })
+  it('counts the extra models the last check added', () => {
+    const on = { checked_at: '2026-10-01T00:00:00', offer_provider_models: true }
+    expect(offerModelsNote({ ...on, extra_models: { claude: ['claude-x'], gemini: ['gemini-y', 'gemini-z'] } })).toBe(
+      '3 extra models are offered from the last check.',
+    )
+    expect(offerModelsNote({ ...on, extra_models: {} })).toMatch(/no extra models/)
+  })
+  it('explains the cost estimate', () => {
+    expect(OFFER_MODELS_HELP).toMatch(/highest rate/)
   })
 })

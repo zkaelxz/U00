@@ -36,6 +36,9 @@ class ModelStatus(BaseModel):
     checked_at: Optional[str] = None
     engines_checked: Dict[str, EngineCheck] = Field(default_factory=dict)
     registry_updated: Optional[str] = None
+    # The opt-in to offer provider-listed models, and the ones it adds now per engine.
+    offer_provider_models: bool = False
+    extra_models: Dict[str, List[str]] = Field(default_factory=dict)
 
 
 class PresetModelSwitchRequest(BaseModel):

@@ -288,3 +288,75 @@ class TestClaudeAliases:
     def test_listed(self, model, ids, expected):
         engine = model.split("-", 1)[0]
         assert svc._listed(engine, model, ids) is expected
+
+
+class TestOfferProviderModels:
+    def _cache(self, claude=None, gemini=None, deepseek=None, ok=True):
+        engines = {}
+        for name, ids in (("claude", claude), ("gemini", gemini), ("deepseek", deepseek)):
+            if ids is not None:
+                engines[name] = {"ok": ok, "models": ids}
+        db.set_app_setting(svc.CHECK_CACHE_KEY, json.dumps({"checked_at": "2026-10-01T00:00:00",
+                                                            "engines": engines}))
+
+    def _models(self, name):
+        return next(e for e in translate_service.list_engines() if e["name"] == name)
+
+    def test_off_by_default_offers_only_built_in(self, isolated_db):
+        self._cache(claude=["claude-sonnet-5", "claude-sonnet-6"])
+        e = self._models("claude")
+        assert e["models"] == list(translate_engines.CLAUDE_MODELS)
+        assert e["model_labels"] == {}
+        assert self._models("deepseek")["models"] is None
+
+    def test_on_without_a_check_adds_nothing(self, isolated_db):
+        db.set_app_setting("offer_provider_models", True)
+        assert self._models("claude")["models"] == list(translate_engines.CLAUDE_MODELS)
+        self._cache(claude=["claude-sonnet-6"], ok=False)
+        assert self._models("claude")["models"] == list(translate_engines.CLAUDE_MODELS)
+
+    def test_on_adds_listed_chat_models_with_label(self, isolated_db):
+        db.set_app_setting("offer_provider_models", True)
+        self._cache(claude=["claude-sonnet-5", "claude-sonnet-6", "claude-embed-1", "other-1",
+                            "claude-Bad Id", "claude-sonnet-6"],
+                    gemini=["gemini-flash-latest", "gemini-9-pro", "gemini-embedding-001",
+                            "gemini-2.5-flash-image", "imagen-4"],
+                    deepseek=["deepseek-v4-flash", "deepseek-v5"])
+        c = self._models("claude")
+        assert c["models"] == list(translate_engines.CLAUDE_MODELS) + ["claude-sonnet-6"]
+        assert "highest Claude rate" in c["model_labels"]["claude-sonnet-6"]
+        assert self._models("gemini")["models"][-1:] == ["gemini-9-pro"]
+        assert len(self._models("gemini")["models"]) == len(translate_engines.GEMINI_MODELS) + 1
+        assert self._models("deepseek")["models"] == ["deepseek-v4-flash", "deepseek-v5"]
+
+    def test_never_calls_network(self, isolated_db, monkeypatch):
+        import requests
+        db.set_app_setting("offer_provider_models", True)
+        self._cache(claude=["claude-sonnet-6"])
+        monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("network"))
+        assert "claude-sonnet-6" in self._models("claude")["models"]
+
+    def test_extra_accepted_for_runs_and_presets_only_when_on(self, isolated_db):
+        from services import translate_run_service as run
+        self._cache(claude=["claude-sonnet-6"])
+        with pytest.raises(InvalidInputError):
+            run._require_offered_model("claude", "claude-sonnet-6")
+        db.set_app_setting("offer_provider_models", True)
+        run._require_offered_model("claude", "claude-sonnet-6")
+        run._require_offered_model("claude", "claude-sonnet-5")
+        with pytest.raises(InvalidInputError):
+            run._require_offered_model("claude", "claude-sonnet-7")
+        assert svc.get_status()["extra_models"] == {"claude": ["claude-sonnet-6"]}
+        assert svc._offered("claude")[-1] == "claude-sonnet-6"
+
+
+class TestUnpricedModelCost:
+    def test_unpriced_models_use_highest_rate_of_their_provider(self):
+        p = translate_engines.PRICING_PER_MILLION_TOKENS
+        for prefix in ("claude-", "gemini-", "deepseek-"):
+            fam = [r for m, r in p.items() if m.startswith(prefix)]
+            expected = (max(r["input"] for r in fam) + max(r["output"] for r in fam))
+            assert translate_engines.estimate_cost(prefix + "brand-new", 1_000_000, 1_000_000) == \
+                pytest.approx(expected)
+        assert translate_engines.estimate_cost("claude-brand-new", 1_000_000, 0) == 15.0
+        assert translate_engines.estimate_cost("unrelated-model", 1000, 1000) == 0.0

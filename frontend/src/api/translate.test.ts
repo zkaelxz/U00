@@ -5,6 +5,7 @@ import {
   engineShortName,
   engineSummary,
   languagePair,
+  modelOptionLabel,
   translateApi,
   usableEngines,
   MAX_TRANSLATE_TEXT_CHARS,
@@ -89,5 +90,16 @@ describe('translate api', () => {
       .catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(503)
+  })
+})
+
+describe('modelOptionLabel', () => {
+  const engine = { model_labels: { 'claude-new': 'claude-new -- newly listed (cost estimated at highest Claude rate)' } }
+  it('uses the server label for an offered extra model', () => {
+    expect(modelOptionLabel(engine, 'claude-new')).toContain('newly listed')
+  })
+  it('falls back to the id', () => {
+    expect(modelOptionLabel(engine, 'claude-sonnet-5')).toBe('claude-sonnet-5')
+    expect(modelOptionLabel(undefined, 'x')).toBe('x')
   })
 })

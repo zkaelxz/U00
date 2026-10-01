@@ -353,7 +353,7 @@ class TestSettingsEndpoint:
     def test_overview_contract_shape(self, client, isolated_db):
         body = client.get("/api/settings").json()
         assert set(body) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion",
-                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "preferences", "endpoints",
+                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "preferences", "endpoints",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "choices"}
         assert isinstance(body["engine_keys"], dict)
         assert "claude" in body["engine_keys"]

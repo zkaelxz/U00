@@ -300,6 +300,7 @@ class SettingsOverview(BaseModel):
     use_gpu: bool = False
     gemini_free_tier: bool = False
     bulk_auto_resume: bool = False
+    offer_provider_models: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     monthly_cap_env_usd: float = 0.0
@@ -314,6 +315,8 @@ class TranslateEngine(BaseModel):
     label: str
     free: bool
     models: Optional[List[str]] = None
+    # Label for an offered model that has no built-in entry (id -> text).
+    model_labels: Dict[str, str] = Field(default_factory=dict)
     key_configured: bool
 
 
@@ -1181,6 +1184,7 @@ class SettingsUpdateRequest(BaseModel):
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
     bulk_auto_resume: Optional[StrictBool] = None
+    offer_provider_models: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)

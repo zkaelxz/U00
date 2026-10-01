@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getPresets } from '../../../api/library'
+import { modelOptionLabel } from '../../../api/translate'
 import {
   applyTranslatePreset,
   applyWorkflowTier,
@@ -402,7 +403,7 @@ function RunPanel({
           <Field label="Model">
             <select value={f.model} onChange={(e) => set('model', e.target.value)}>
               <option value="">Engine default</option>
-              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+              {models.map((m) => <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>)}
             </select>
           </Field>
         )}

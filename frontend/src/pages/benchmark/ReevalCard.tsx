@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkSet } from '../../api/benchmark'
+import { modelOptionLabel } from '../../api/translate'
 import {
   addReevalCandidate, estimateReeval, getReevalDecisions, getReevalOverview, promoteReevalCandidate,
   rejectReevalCandidate, reopenReevalCandidate, saveReevalSettings, startReevalRun,
@@ -340,7 +341,7 @@ function AddCandidate({ options, openCount, onAdded }: { options: BenchmarkOptio
             <select value={modelValue} onChange={(e) => setModel(e.target.value)}>
               <option value="">Default</option>
               {engine.models.map((m) => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m} value={m}>{modelOptionLabel(engine, m)}</option>
               ))}
             </select>
           </Field>

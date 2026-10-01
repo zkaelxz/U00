@@ -119,3 +119,26 @@ def test_switch_unknown_preset_and_extra_fields(isolated_db):
     assert c.post("/api/models/presets/1/switch",
                   json={"from_model": "a", "to_model": "b", "confirm": True,
                         "api_key": "x"}).status_code == 422
+
+
+def test_offer_provider_models_toggle_is_pc_only_and_shows_in_status(isolated_db):
+    assert _local().get("/api/models/status").json()["offer_provider_models"] is False
+    adm = {**_session(True), **LOCAL_HDR}
+    assert _remote().post("/api/settings", headers=adm,
+                          json={"offer_provider_models": True}).status_code == 403
+    assert _local().post("/api/settings", headers=LOCAL_HDR,
+                         json={"offer_provider_models": "yes"}).status_code == 422
+    r = _local().post("/api/settings", headers=LOCAL_HDR, json={"offer_provider_models": True})
+    assert r.status_code == 200 and r.json()["offer_provider_models"] is True
+    assert _local().get("/api/models/status").json()["offer_provider_models"] is True
+
+
+def test_translate_engines_route_labels_extra_models(isolated_db):
+    import json
+    db.set_app_setting("offer_provider_models", True)
+    db.set_app_setting(svc.CHECK_CACHE_KEY, json.dumps({"checked_at": "2026-10-01T00:00:00", "engines": {
+        "claude": {"ok": True, "models": ["claude-sonnet-6"]}}}))
+    items = _local().get("/api/translate/engines").json()["items"]
+    claude = next(e for e in items if e["name"] == "claude")
+    assert "claude-sonnet-6" in claude["models"]
+    assert "newly listed" in claude["model_labels"]["claude-sonnet-6"]

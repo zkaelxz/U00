@@ -24,6 +24,7 @@ import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../.
 import type { ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { humanize } from '../../components/labels'
+import { modelOptionLabel } from '../../api/translate'
 import {
   COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
 } from '../diagnostics/diagnosticsAdmin'
@@ -189,7 +190,7 @@ function EnginePicker() {
                   <option value="">Default</option>
                   {models.map((m) => (
                     <option key={m} value={m}>
-                      {m}
+                      {modelOptionLabel(settings.engines.find((e) => e.name === settings.engine), m)}
                     </option>
                   ))}
                 </select>

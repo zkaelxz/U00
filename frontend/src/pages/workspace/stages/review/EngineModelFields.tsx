@@ -1,6 +1,7 @@
 import { Field } from '../../../../components/Field'
 import { humanize } from '../../../../components/labels'
 import type { TranslateEngine } from '../../../../types/translate'
+import { modelOptionLabel } from '../../../../api/translate'
 
 // Engine and model pickers shared by the check jobs and fix-flagged. Paid
 // engines stay behind the server's engines.paid check; this only chooses.
@@ -42,7 +43,7 @@ export function EngineModelFields({
             <option value="">Engine default</option>
             {models.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {modelOptionLabel(engines.find((e) => e.name === (engine || defaultEngine)), m)}
               </option>
             ))}
           </select>
