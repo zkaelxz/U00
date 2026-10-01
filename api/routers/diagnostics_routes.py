@@ -22,10 +22,10 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
 from api.routers.settings_routes import _read_body, _require_confirm, _require_local_admin
-from api.schemas import (DiagnosticsOverview, ErrorResponse, RemoteHealth,
+from api.schemas import (DiagnosticsOverview, ErrorResponse, PortsOverview, RemoteHealth,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
                          RemoteIpCheckStatus, RemoteIpCheckTestResult)
-from services import diagnostics_service, remote_health_service
+from services import diagnostics_service, remote_health_service, settings_service
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
@@ -47,6 +47,13 @@ def get_remote_health(request: Request):
         status = {**status, "message": "Remote sign-in is off because BAIHE_PUBLIC_URL "
                                        "in .env is not valid."}
     return status
+
+
+@router.get("/ports", dependencies=[local_only()], response_model=PortsOverview,
+            summary="PC only: the ports Baihe uses, whether each is active, and how to change it")
+def get_ports(request: Request):
+    settings = request.app.state.settings
+    return settings_service.baihe_ports(settings.port, settings.household_port, settings.public_url)
 
 
 @router.get("/remote-health/ip-check", dependencies=[local_only()],

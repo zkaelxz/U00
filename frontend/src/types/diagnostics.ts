@@ -275,6 +275,20 @@ export interface RemoteHealthCheck {
   message: string
 }
 
+/** GET /api/diagnostics/ports (PC only): numbers, flags and fixed text. */
+export interface PortEntry {
+  key: 'api' | 'household' | 'extension' | 'https'
+  label: string
+  /** null while the household listener is off. */
+  port: number | null
+  active: boolean
+  how_to_change: string
+}
+
+export interface PortsOverview {
+  ports: PortEntry[]
+}
+
 export interface RemoteHealth {
   state: RemoteHealthState
   message: string

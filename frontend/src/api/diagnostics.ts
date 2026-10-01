@@ -19,6 +19,7 @@ import type {
   DiagnosticsResetResult,
   DiagnosticsSetupChecks,
   DiagnosticsSupportReport,
+  PortsOverview,
   RemoteHealth,
   RemoteIpCheckStatus,
   RemoteIpCheckTestResult,
@@ -42,6 +43,9 @@ export const getSetupChecks = (f?: Fetch) => getJson<DiagnosticsSetupChecks>(`${
 
 // Packages grouped by task, approx. sizes, PyPI links and install caveats.
 export const getInstallPresets = (f?: Fetch) => getJson<DiagnosticsInstallPresets>(`${BASE}/install-presets`, f)
+
+// PC only (local_only on the server): a remote tab gets a 403.
+export const getPorts = (f?: Fetch) => getJson<PortsOverview>(`${BASE}/ports`, f)
 
 export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BASE}/model-cache`, f)
 
