@@ -4190,3 +4190,20 @@ class LncrawlImportRequest(BaseModel):
     chapters: Literal["all", "first", "last"] = "all"
     count: Optional[StrictInt] = Field(None, ge=1, le=5000)
     mode: Literal["append", "replace"] = "replace"
+
+
+# --- Diagnostics ports panel ---------------------------------------------------
+
+
+class PortEntry(BaseModel):
+    """One port Baihe uses: numbers, booleans and fixed text only."""
+    key: Literal["api", "household", "extension", "https"]
+    label: str
+    port: Optional[int] = None
+    active: bool
+    how_to_change: str
+
+
+class PortsOverview(BaseModel):
+    """GET /api/diagnostics/ports (PC only)."""
+    ports: List[PortEntry]

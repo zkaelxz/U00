@@ -29,6 +29,7 @@ import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
 import { ModelCacheSection } from './diagnostics/ModelCacheSection'
 import { PackagesSection } from './diagnostics/PackagesSection'
+import { PortsSection } from './diagnostics/PortsSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
@@ -203,6 +204,7 @@ export default function DiagnosticsPage() {
           />
         )}
         <PyannoteSection />
+        <PortsSection pc={pc} />
         <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
         <JobHistorySection items={history} />
         <LogSection />
