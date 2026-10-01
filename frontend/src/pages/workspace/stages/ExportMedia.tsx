@@ -47,7 +47,6 @@ export function ExportEpub() {
 
   return (
     <div className="export-block" role="group" aria-label="EPUB">
-      <h4>EPUB (novel narration)</h4>
       <Field label="Language">
         <select value={field} onChange={(e) => setField(e.target.value as 'en' | 'zh')}>
           <option value="en">English</option>

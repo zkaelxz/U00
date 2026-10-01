@@ -435,37 +435,37 @@ function RunPanel({
         >
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
         </button>
+        {blocker && (
+          <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
+            {blocker.kind === 'no-lines' && (
+              <>
+                <span>Still needed: lines to translate.</span>
+                <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+                  Go to Source
+                </ButtonLink>
+              </>
+            )}
+            {blocker.kind === 'all-translated' && (
+              <>
+                <span>All {blocker.total} line{blocker.total === 1 ? ' has' : 's have'} English.</span>
+                <button
+                  type="button"
+                  className={buttonClass('ghost', 'sm')}
+                  onClick={() => {
+                    focusAck.current = true
+                    setF((s) => ({ ...s, force: true, forceConfirmed: false }))
+                  }}
+                >
+                  Re-translate existing…
+                </button>
+              </>
+            )}
+            {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
+          </p>
+        )}
         <button type="button" className={buttonClass('ghost')} onClick={runEstimate}>Estimate cost</button>
         {estimate && <EstimateView e={estimate} />}
       </div>
-      {blocker && (
-        <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
-          {blocker.kind === 'no-lines' && (
-            <>
-              <span>Still needed: lines to translate.</span>
-              <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                Go to Source
-              </ButtonLink>
-            </>
-          )}
-          {blocker.kind === 'all-translated' && (
-            <>
-              <span>All {blocker.total} line{blocker.total === 1 ? ' has' : 's have'} English.</span>
-              <button
-                type="button"
-                className={buttonClass('ghost', 'sm')}
-                onClick={() => {
-                  focusAck.current = true
-                  setF((s) => ({ ...s, force: true, forceConfirmed: false }))
-                }}
-              >
-                Re-translate existing…
-              </button>
-            </>
-          )}
-          {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
-        </p>
-      )}
       {f.force && (
         <label className="inline stage-ack">
           <input

@@ -98,7 +98,7 @@ test('settings: a refused token write shows the key-writes hint', async ({ page 
 test('export: hidden when Notion is not set up; a hint when half set up', async ({ page }) => {
   const { state } = await mockConfig(page, empty)
   await page.goto('/#/drama/1/export')
-  await expect(page.getByText('More export').first()).toBeVisible()
+  await expect(page.getByText('Video and audio').first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Export to Notion' })).toHaveCount(0)
 
   state.cfg = { ...empty, token_configured: true }
@@ -174,7 +174,7 @@ test('away from the PC: no Notion export, and Settings says PC only', async ({ p
     return route.fulfill({ json: ready })
   })
   await page.goto('/#/drama/1/export')
-  await expect(page.getByText('More export').first()).toBeVisible()
+  await expect(page.getByText('Video and audio').first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Export to Notion' })).toHaveCount(0)
   await page.goto('/#/settings')
   const card = page.getByRole('region', { name: 'Notion' })

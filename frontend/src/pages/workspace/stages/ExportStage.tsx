@@ -111,7 +111,7 @@ export default function ExportStage() {
               <ul className="export-warnings" data-testid="readiness-warnings">
                 {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
                 {review.length > 0 && (
-                  <li className="muted">{review.join(', ')}. You can flag them under More export.</li>
+                  <li className="muted">{review.join(', ')}. You can flag them under Flag lines for review.</li>
                 )}
                 {r.test_mode_output && (
                   <li className="error" role="alert">The translations look like test-mode output, not real translations.</li>
@@ -131,9 +131,10 @@ export default function ExportStage() {
         <MarkExported />
       </section>
       {fmt === 'ass' && assStyle}
-      <Section title="More export" summary="flags, EPUB, audiobook, video">
+      <Section storageKey="export.flags" title="Flag lines for review" summary="overlaps, auto-QC, dense lines">
         <ExportFlags onDone={() => setReloads((n) => n + 1)} />
-        {drama.content_mode === 'novel_narration' && <ExportEpub />}
+      </Section>
+      <Section storageKey="export.media" title="Video and audio" summary="burned-in video, audiobook">
         {/* The burned-in video uses the ASS style too; with ASS chosen it sits above instead. */}
         {fmt !== 'ass' && assStyle}
         <ExportMediaJobs
@@ -142,6 +143,11 @@ export default function ExportStage() {
           }
         />
       </Section>
+      {drama.content_mode === 'novel_narration' && (
+        <Section storageKey="export.epub" title="EPUB" summary="novel narration">
+          <ExportEpub />
+        </Section>
+      )}
       {/* keyed by the text choice, so a video list found for one language is not reused for another */}
       <ExportJellyfin key={form.field} field={form.field} />
       <ExportNotion field={form.field} />
