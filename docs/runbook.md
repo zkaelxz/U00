@@ -43,11 +43,11 @@ Close other work first: a restore is refused while any job runs. Restores are PC
 - A failed restore leaves the current library in place.
 
 ## 4. Renew the certificate
-- The Caddy template is `deploy/caddy/Caddyfile.template` and the setup steps are in `docs/household-access.md`. Until you have gone live with it there is nothing to renew; renewal monitoring (WP5) is not built yet.
-- Caddy gets and renews certificates by itself once your domain points at this PC and ports 80/443 reach Caddy (or with a DNS-challenge build). If it fails, check:
+- The Caddy template is `deploy/caddy/Caddyfile.template` and the setup steps are in `docs/household-access.md`. Until you have gone live with it there is nothing to renew. Once remote access is on, Baihe's health banner and Diagnostics show the certificate's days left (warns under 14).
+- Caddy gets and renews certificates by itself once your domain points at this PC and TCP 443 reaches Caddy (port 80 isn't opened by the guide; Caddy's TLS-based challenge over 443 is expected to work but is untested here). If it fails, check:
   1. Caddy's logs for certificate errors.
   2. The dynamic DNS record still shows your current home IP.
-  3. The router's port forward for 80/443 is still there.
+  3. The router's port forward for 443 is still there.
   4. The PC's clock is correct.
 - User-only steps: router changes and the DNS account are yours to do by hand. Nothing here opens a router port for you.
 
