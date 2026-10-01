@@ -6,7 +6,7 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import call_with_backoff, GeminiEngine, OllamaEngine, _estimate_ollama_num_ctx
+from translate_engines import call_with_backoff, GeminiEngine, OllamaEngine, OpenAIEngine, _estimate_ollama_num_ctx
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -86,6 +86,9 @@ def _dispatch_chat(system_prompt: str, messages: list, engine, max_tokens: int =
             return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError):
             return "This engine doesn't support chat-style Q&A."
+    if isinstance(engine, OpenAIEngine):
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+        return call_with_backoff(lambda: engine.chat(full_messages))
     if isinstance(engine, OllamaEngine):
         # Same reasoning as Gemini above: no .client, so it fell through
         # to the generic decline message and Q&A silently didn't work
