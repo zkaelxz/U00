@@ -16,7 +16,7 @@ def _ts(rel):
 
 
 def _secret_engines():
-    block = re.search(r"export const SECRET_ENGINES[^=]*=\s*\[(.*?)\n\]", _ts("frontend/src/pages/settingsKeys.ts"), re.S)
+    block = re.search(r"(?:export )?const SECRET_ENGINES[^=]*=\s*\[(.*?)\n\]", _ts("frontend/src/pages/settingsKeys.ts"), re.S)
     assert block, "SECRET_ENGINES literal not found"
     return re.findall(r"engine:\s*'([^']+)'", block.group(1))
 
