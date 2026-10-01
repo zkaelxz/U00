@@ -26,7 +26,7 @@ import { testConfirmLabel } from './upgradeTestText'
 import { useServerJobStatus } from './useServerJobStatus'
 import {
   belowMinText, firstHint, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
-  sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskResultText, taskStatus,
+  sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
   taskTone,
   type TaskRunResult,
 } from './installPresets'
@@ -247,8 +247,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             </div>
             <p className="muted">Pick what you want to do; only the packages it needs are installed.</p>
             {groupTasks(sortTasksNeedingInstall(presets.tasks)).map((g) => (
-              <div key={g.group} className="diag-stack">
-                <h5 className="task-group">{g.group}</h5>
+              <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
+                summary={taskGroupSummary(g.tasks)}>
                 <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
                   {g.tasks.map((t) => (
                     <TaskRow key={t.id} task={t} packages={presets.packages}
@@ -268,7 +268,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                       )} />
                   ))}
                 </ul>
-              </div>
+              </Section>
             ))}
           </div>
         )}

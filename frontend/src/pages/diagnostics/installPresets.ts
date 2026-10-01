@@ -61,6 +61,12 @@ export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): Diagno
   return [...tasks.filter((t) => !taskReady(t)), ...tasks.filter(taskReady)]
 }
 
+/** The closed group's one-liner: how many of its tasks still need something installed. */
+export function taskGroupSummary(tasks: DiagnosticsInstallTask[]): string {
+  const need = tasks.filter((t) => !taskReady(t)).length
+  return need ? `${need} still to set up` : 'All set up'
+}
+
 const ROLE_LABELS: Record<TaskRole, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }
 
 /** "Required" / "Recommended" / "Optional", or null when the server sent no roles. */
