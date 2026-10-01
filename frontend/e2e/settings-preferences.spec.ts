@@ -28,14 +28,14 @@ const PREFS = {
 
 function overview() {
   return {
-    engine_keys: { claude: false, ollama_url: false, libretranslate_url: false, gpt_sovits_url: false },
+    engine_keys: { claude: false, ollama_url: false, gpt_sovits_url: false },
     gpu_limit_enabled: true,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,
     bulk_auto_resume: false,
     preferences: { ...PREFS },
-    endpoints: { ollama_url: null as string | null, libretranslate_url: null, gpt_sovits_url: null },
+    endpoints: { ollama_url: null as string | null, gpt_sovits_url: null },
     monthly_cap_env_usd: 0,
     effective_monthly_cap_usd: 0,
     choices: {
@@ -207,7 +207,7 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
   for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
-      title === 'Server addresses' ? /^\d of 3 set · PC only$/ : 'PC only')
+      title === 'Server addresses' ? /^\d of 2 set · PC only$/ : 'PC only')
   }
   expect(unmocked).toEqual([])
 })

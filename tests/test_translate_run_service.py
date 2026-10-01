@@ -125,7 +125,7 @@ def test_free_engines(isolated_db, cap):
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])
-    for name in ("fake", "ollama", "nllb", "libretranslate"):
+    for name in ("fake", "ollama", "nllb"):
         r = svc.estimate_translate_cost(did, name)
         assert r["free"] is True and not r["estimated_usd"] and r["cap_applies"] is False
     g = svc.estimate_translate_cost(did, "gemini", gemini_free_tier=True)
@@ -146,7 +146,7 @@ def test_monthly_refusal_and_above_cap(isolated_db, cap):
     assert r["effective_cap_usd"] == 1000.0 and r["estimate_above_cap"] is False
 
 
-@pytest.mark.parametrize("engine", ["deepl", "google"])
+@pytest.mark.parametrize("engine", ["deepl", "google", "libretranslate"])
 def test_a_removed_engine_is_refused_with_a_clear_message(isolated_db, engine):
     did = _drama()
     _seed(did, [("你好", "")])

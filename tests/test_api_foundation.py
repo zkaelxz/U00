@@ -446,9 +446,12 @@ class TestTranslateEndpoints:
         assert resp.status_code == 503
         assert _error(resp)["code"] == "dependency_unavailable"
 
-    def test_translate_unsupported_direction_is_400(self, client, isolated_db):
+    def test_translate_unsupported_direction_is_400(self, client, isolated_db, monkeypatch):
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
         resp = client.post("/api/translate", json={
-            "text": "hello", "engine": "libretranslate",
+            "text": "hello", "engine": "nllb",
             "source_language": "en", "target_language": "zh",
         })
         assert resp.status_code == 400

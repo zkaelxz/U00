@@ -16,12 +16,6 @@ export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string
     help: 'Where the local Ollama server runs. Blank uses Ollama’s default on this PC.',
   },
   {
-    name: 'libretranslate_url',
-    label: 'LibreTranslate URL',
-    placeholder: 'http://127.0.0.1:5000',
-    help: 'A LibreTranslate or LTEngine server.',
-  },
-  {
     name: 'gpt_sovits_url',
     label: 'GPT-SoVITS URL',
     placeholder: 'http://127.0.0.1:9880',

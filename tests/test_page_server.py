@@ -528,15 +528,17 @@ class TestTranslatingCapturedText:
     def test_an_unsupported_direction_is_refused_with_a_clear_message(self, token, isolated_db,
                                                                       monkeypatch):
         import translate_engines
+        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
 
         class _FakeEngine:
-            name = "libretranslate"
+            name = "nllb"
 
             def translate_batch(self, chunks, context):
                 return list(chunks)
 
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
-        page_server.set_translation_config(engine="libretranslate", api_key="local")
+        page_server.set_translation_config(engine="nllb", api_key="local")
         handler = self._post_text(token, text="hello there", source_language="en",
                                   target_language="zh")
         assert handler.status == 422

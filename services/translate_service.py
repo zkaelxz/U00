@@ -22,11 +22,11 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 # at all (see translate_engines.py's own ENGINES / FREE_ENGINES and
 # tabs/translate_tab.py's api_key handling for the reasoning below):
 #   - nllb: a locally-downloaded model, no key at all.
-#   - ollama / libretranslate: tabs/translate_tab.py treats their key field
-#     as optional, defaulting to the literal "local" when nothing is
-#     entered -- both point at a locally-run server, not a hosted API that
-#     requires an account key. There's nothing meaningful to "configure" in
-#     the same sense as an API key, so they're reported as configured too.
+#   - ollama: tabs/translate_tab.py treats its key field as optional,
+#     defaulting to the literal "local" when nothing is entered -- it points
+#     at a locally-run server, not a hosted API that requires an account
+#     key. There's nothing meaningful to "configure" in the same sense as an
+#     API key, so it's reported as configured too.
 # Everything else (claude/deepseek/gemini) maps directly onto
 # services.settings_service.key_status(), which is keyed by the same engine
 # name for these three.
@@ -91,8 +91,8 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
     engine (see tabs/translate_tab.py's own api_key handling, lines
     79-92, for the exact behavior this mirrors):
       - nllb: None -- a locally-downloaded model, nothing to pass.
-      - ollama/libretranslate: a resolved key/URL if configured, else the
-        literal "local" (both point at a locally-run server).
+      - ollama: a resolved key/URL if configured, else the literal "local"
+        (it points at a locally-run server).
       - everything else: whatever services.settings_service.resolve_key
         finds, or None if nothing is configured.
     """
@@ -134,9 +134,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
         free_tier=(settings_service.resolve_gemini_free_tier(free_tier)
                    if engine_name == "gemini" else False),
         base_url=((settings_service.resolve_key("ollama_url") or None)
-                  if engine_name == "ollama" else None),
-        libretranslate_url=((settings_service.resolve_key("libretranslate_url") or None)
-                            if engine_name == "libretranslate" else None))
+                  if engine_name == "ollama" else None))
 
     try:
         translated_text = translate_engines.standalone_translate(

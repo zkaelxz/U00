@@ -89,7 +89,7 @@ class TestRomanize:
         assert client.post("/api/metadata/dramas/999/romanize-credits", json={}).status_code == 404
         did = _drama(author="A")
         assert client.post(f"/api/metadata/dramas/{did}/romanize-credits",
-                           json={"engine": "libretranslate"}).status_code == 422   # not an LLM
+                           json={"engine": "nllb"}).status_code == 422   # not an LLM
         assert client.post(f"/api/metadata/dramas/{did}/romanize-credits",
                            json={"key": "x"}).status_code == 422           # extra field
         monkeypatch.setattr(metadata_service.settings_service, "resolve_key", lambda k: None)

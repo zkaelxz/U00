@@ -20,7 +20,7 @@ test('previews with AI, shows before → after, and Apply needs the typed confir
   await group.locator('summary', { hasText: 'Advanced' }).click()
   const engine = group.getByRole('combobox', { name: 'Engine' })
   await expect(engine.locator('option').first()).toHaveText('Default (Claude)')
-  await expect(engine.locator('option', { hasText: 'LibreTranslate' })).toHaveCount(0)
+  await expect(engine.locator('option', { hasText: 'NLLB' })).toHaveCount(0)
   await engine.selectOption('gemini')
   await group.getByRole('combobox', { name: 'Model' }).selectOption('flash')
 

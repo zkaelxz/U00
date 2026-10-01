@@ -123,7 +123,7 @@ describe('Run now', () => {
 
   it('missing keys: production and open candidates only', () => {
     const o = overview({ candidates: [cand(), cand({ id: 3, engine: 'gemini', status: 'rejected' })] })
-    const engines = [engine('claude', false), engine('deepseek', false), engine('gemini', false), engine('libretranslate')]
+    const engines = [engine('claude', false), engine('deepseek', false), engine('gemini', false), engine('nllb')]
     expect(reevalMissingKeys(o, engines).map((e) => e.name)).toEqual(['claude', 'deepseek'])
   })
 

@@ -53,12 +53,10 @@ export const ENGINE_LABELS: Record<string, string> = {
   gemini: 'Gemini',
   ollama: 'Ollama',
   nllb: 'NLLB',
-  libretranslate: 'LibreTranslate',
   groq: 'Groq',
   openai: 'OpenAI',
   hf_token: 'Hugging Face token',
   ollama_url: 'Ollama URL',
-  libretranslate_url: 'LibreTranslate URL',
   gpt_sovits_url: 'GPT-SoVITS URL',
 }
 

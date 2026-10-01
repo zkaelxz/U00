@@ -27,7 +27,7 @@ export const canReopen = (status: string) => status === 'rejected' || status ===
 export const candidateStatusLabel = (s: string) => STATUS_LABELS[s] ?? humanizeValue(s)
 export const candidateStatusTone = (s: string): BadgeTone => STATUS_TONES[s] ?? 'neutral'
 
-/** "Claude · claude-sonnet-5" / "LibreTranslate". */
+/** "Claude · claude-sonnet-5" / "NLLB". */
 export const modelLabel = (m: Pick<ProductionModel, 'engine' | 'model'>) => configLabel('translation', m.engine, m.model)
 
 /** Two models are the same pick (engine and model). */

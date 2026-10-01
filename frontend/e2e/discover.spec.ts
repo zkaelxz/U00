@@ -181,7 +181,7 @@ test('bulk import: pattern, extract job, review, add', async ({ page }) => {
 })
 
 test('no configured engine: AI actions say what is missing', async ({ page }) => {
-  await mockDiscover(page, { engines: [{ name: 'libretranslate', label: 'LibreTranslate', free: false, models: null, key_configured: true }] })
+  await mockDiscover(page, { engines: [{ name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true }] })
   await page.goto('/#/discover')
   await expect(page.getByTestId('no-engine')).toBeVisible()
   await expect(page.getByText('No AI engine is set up, so the title is searched as typed.')).toBeVisible()

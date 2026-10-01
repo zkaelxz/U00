@@ -39,7 +39,7 @@ export const setEngineKey = (engine: string, value: string, f?: Fetch) =>
 export const clearEngineKey = (engine: string, f?: Fetch) =>
   postJson<EngineKeyResult>(`${keyPath(engine)}/clear`, { confirm: true }, f)
 
-// Endpoint URLs (Ollama, LibreTranslate, GPT-SoVITS): saved to .env on the
+// Endpoint URLs (Ollama, GPT-SoVITS): saved to .env on the
 // PC behind the same guard as keys.
 const endpointPath = (name: EndpointName) => `/api/settings/endpoints/${encodeURIComponent(name)}`
 export const setEndpointUrl = (name: EndpointName, url: string, f?: Fetch) =>

@@ -291,8 +291,8 @@ class SettingsChoices(BaseModel):
 class SettingsOverview(BaseModel):
     """Non-secret settings snapshot (Migration Slice 10) -- engine_keys
     reports only whether a key/endpoint is configured, never its value
-    (D2: keys are server-side only). endpoints carries the Ollama,
-    LibreTranslate and GPT-SoVITS URLs only when they have no userinfo,
+    (D2: keys are server-side only). endpoints carries the Ollama
+    and GPT-SoVITS URLs only when they have no userinfo,
     query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
@@ -1857,7 +1857,7 @@ class EngineKeyResult(BaseModel):
 
 
 class EndpointUrlSetRequest(BaseModel):
-    """Ollama / LibreTranslate / GPT-SoVITS URL (settings parity G06). An
+    """Ollama / GPT-SoVITS URL (settings parity G06). An
     http(s) URL with no userinfo, query or fragment."""
     model_config = ConfigDict(extra="forbid")
     url: str = Field(..., max_length=300)
