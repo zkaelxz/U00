@@ -180,15 +180,15 @@ describe('keptNote', () => {
 describe('AI re-segmentation preview (R47)', () => {
   const eng = (name: string, free = false) => ({ name, label: name.toUpperCase(), free, models: null, key_configured: true })
   const config = {
-    engines: [eng('claude'), eng('ollama', true), eng('deepl'), eng('gemini')],
+    engines: [eng('claude'), eng('ollama', true), eng('nllb'), eng('gemini')],
     month_spend: 1.5,
     monthly_cap_usd: 10,
-    cap_applies_by_engine: { claude: true, ollama: false, deepl: true, gemini: false },
+    cap_applies_by_engine: { claude: true, ollama: false, nllb: true, gemini: false },
   }
 
   it('leaves translation-only engines out of the picker', () => {
     expect(resegmentEngines(config.engines).map((e) => e.name)).toEqual(['claude', 'ollama', 'gemini'])
-    expect(canResegmentWith('deepl')).toBe(false)
+    expect(canResegmentWith('nllb')).toBe(false)
     expect(canResegmentWith('')).toBe(true)
   })
 

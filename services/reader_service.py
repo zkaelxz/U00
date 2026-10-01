@@ -242,7 +242,7 @@ def _llm_engine(engine_name=None, model=None):
         raise InvalidInputError(
             f"model must be at most {MAX_MODEL_CHARS} characters with no spaces or control characters.")
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")

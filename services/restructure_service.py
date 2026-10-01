@@ -352,7 +352,7 @@ def _make_on_done(drama_id, source_ids, engine_name, engine):
 def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str]):
     engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't suggest split points.")

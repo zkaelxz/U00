@@ -482,7 +482,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   const engines = [
     { name: 'claude', label: 'Claude', free: false, models: ['claude-sonnet-5', 'claude-opus-4-8'], key_configured: false },
-    { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
+    { name: 'libretranslate', label: 'LibreTranslate', free: false, models: null, key_configured: true },
   ]
   let current: Record<string, unknown> = { engine: null, model: null, ready: false, engines }
   const saves: unknown[] = []
@@ -490,7 +490,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     if (r.request().method() === 'POST') {
       const body = r.request().postDataJSON() as { engine: string | null; model: string | null }
       saves.push(body)
-      current = { ...current, ...body, ready: body.engine === 'deepl' }
+      current = { ...current, ...body, ready: body.engine === 'libretranslate' }
     }
     return r.fulfill({ json: current })
   })
@@ -508,14 +508,14 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
   await ext.getByRole('combobox', { name: 'Model' }).selectOption('claude-opus-4-8')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-opus-4-8')
 
-  await picker.selectOption('deepl')
+  await picker.selectOption('libretranslate')
   await expect(ext.getByTestId('extension-engine-note')).toHaveText(
-    'Pages are translated with DeepL. The key stays on this PC.')
+    'Pages are translated with LibreTranslate. The key stays on this PC.')
   await expect(ext.getByRole('combobox', { name: 'Model' })).toHaveCount(0)
   expect(saves).toEqual([
     { engine: 'claude', model: null },
     { engine: 'claude', model: 'claude-opus-4-8' },
-    { engine: 'deepl', model: null },
+    { engine: 'libretranslate', model: null },
   ])
   expect(unmocked).toEqual([])
 })

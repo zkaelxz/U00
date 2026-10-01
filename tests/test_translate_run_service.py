@@ -146,12 +146,22 @@ def test_monthly_refusal_and_above_cap(isolated_db, cap):
     assert r["effective_cap_usd"] == 1000.0 and r["estimate_above_cap"] is False
 
 
+@pytest.mark.parametrize("engine", ["deepl", "google"])
+def test_a_removed_engine_is_refused_with_a_clear_message(isolated_db, engine):
+    did = _drama()
+    _seed(did, [("你好", "")])
+    with pytest.raises(InvalidInputError, match="was removed"):
+        svc.estimate_translate_cost(did, engine)
+    with pytest.raises(InvalidInputError, match="was removed"):
+        svc.start_translate_run(did, engine_name=engine)
+
+
 def test_validation(isolated_db):
     did = _drama()
     with pytest.raises(InvalidInputError):
         svc.estimate_translate_cost(did, "nope")
     with pytest.raises(UnsupportedOperationError):
-        svc.estimate_translate_cost(did, "deepl", reflect=True)
+        svc.estimate_translate_cost(did, "nllb", reflect=True)
     bad = next(iter(translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
     with pytest.raises(UnsupportedOperationError):
         svc.estimate_translate_cost(did, "gemini", model=bad, gemini_free_tier=True)

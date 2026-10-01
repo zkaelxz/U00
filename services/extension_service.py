@@ -132,7 +132,7 @@ def set_translation_settings(engine, model=None) -> dict:
     echo the input."""
     if engine is not None:
         if not isinstance(engine, str) or engine not in translate_engines.ENGINES:
-            raise InvalidInputError("Unknown translation engine.")
+            raise InvalidInputError(translate_engines.unknown_engine_message(engine))
     if model is not None:
         entry = _engine_entry(translate_service.list_engines(), engine) if engine else None
         if not isinstance(model, str) or not entry or model not in (entry["models"] or ()):

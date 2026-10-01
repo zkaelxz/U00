@@ -390,7 +390,7 @@ def test_provenance_is_ignored_once_the_translation_changes(isolated_db):
     lines[0].en = "hello"
     on_save(lines)
     assert line_provenance_service.get(did, lines[0].id, current_en="hello")["engine"] == "claude"
-    # An edit or an activated DeepL version rewrote the line since.
+    # An edit or an activated alternate version rewrote the line since.
     lines[0].en = "hi there"
     assert line_provenance_service.get(did, lines[0].id, current_en="hi there") is None
     info = debug_view.explain_line(did, lines[0], lines)

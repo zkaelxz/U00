@@ -107,7 +107,7 @@ def test_invalid_input_changes_nothing_and_echoes_nothing(env):
     c = _client()
     c.post("/api/extension/engine", json={"engine": "test_offline"})
     bad = ({"engine": "nope-" + SECRET}, {"engine": "claude", "model": "gpt-" + SECRET},
-           {"engine": None, "model": "claude-sonnet-5"}, {"engine": "deepl", "model": "x"},
+           {"engine": None, "model": "claude-sonnet-5"}, {"engine": "nllb", "model": "x"},
            {"engine": 3}, {"engine": "claude", "api_key": SECRET})
     for body in bad:
         r = c.post("/api/extension/engine", json=body)

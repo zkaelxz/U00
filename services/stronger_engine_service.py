@@ -148,8 +148,6 @@ def _estimate(engine_name: str, zh: str, prompt_chars: int, context_chars: int =
     glossary, style guide, novel excerpt) plus the line and its context,
     at the same ~3.5 chars/token as the run estimate. No key needed."""
     probe = _Probe(engine_name)
-    if engine_name in translate_engines.PRICING_PER_MILLION_CHARACTERS:
-        return round(translate_engines.estimate_cost_for_engine(probe, len(zh), 0), 6)
     input_tokens = int((prompt_chars + context_chars + len(zh)) / 3.5) + 100
     output_tokens = int(len(zh) / 2.5) + 20
     return round(translate_engines.estimate_cost_for_engine(probe, input_tokens, output_tokens), 6)

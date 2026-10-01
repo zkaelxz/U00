@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { withTranslateLines } from './stageLineMocks'
 
 // Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
-const TRANSLATION_ONLY = ['deepl', 'google', 'nllb', 'libretranslate']
+const TRANSLATION_ONLY = ['nllb', 'libretranslate']
 
 // The run and job endpoints are mocked: nothing is translated. Config,
 // estimate, glossary and characters reads hit the real seeded API.

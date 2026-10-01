@@ -92,7 +92,7 @@ def _num(name, value, lo, hi, cast=float):
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
     engine_name = engine_name or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(

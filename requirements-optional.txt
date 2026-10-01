@@ -3,7 +3,6 @@
 
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
-deepl>=1.18             # DeepL
 transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
                          # offline, no API key ever. Downloads a model
                          # (2.4-5.2GB depending on size picked) on first use.

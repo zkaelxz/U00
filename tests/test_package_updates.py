@@ -154,7 +154,7 @@ def test_real_constraints_file_parses():
 # ---- the service: check, cache, upgrade to exactly the target ----
 
 def _fake_env(monkeypatch, installed, releases):
-    monkeypatch.setattr(svc, "installable_packages", lambda: set(installed) | {"deepl"})
+    monkeypatch.setattr(svc, "installable_packages", lambda: set(installed) | {"anthropic"})
     monkeypatch.setattr(svc, "_package_installed", lambda n: n in installed)
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: installed.get(d))
     calls = []
@@ -172,7 +172,7 @@ def test_check_reports_each_installed_package_and_caches(monkeypatch):
                       {"jieba": ["0.42.0", "0.42.1"], "pypdf": ["5.0.0"]})
     out = svc.check_package_updates()
     p = out["packages"]
-    assert set(p) == {"jieba", "pypdf", "torch"}          # deepl isn't installed
+    assert set(p) == {"jieba", "pypdf", "torch"}          # anthropic isn't installed
     assert p["jieba"]["status"] == "update" and p["jieba"]["target"] == "0.42.1"
     assert p["jieba"]["installed_version"] == "0.42.0"
     assert p["pypdf"]["status"] == "up_to_date"

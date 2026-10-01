@@ -52,7 +52,7 @@ class TestStart:
     def test_bad_engine(self, isolated_db, key):
         did = _drama(isolated_db)
         with pytest.raises(InvalidInputError):
-            narration_service.start_narration_run(did, "deepl")
+            narration_service.start_narration_run(did, "nllb")
 
     def test_no_key_is_503_type(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)

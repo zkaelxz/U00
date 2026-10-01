@@ -48,7 +48,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       UnsupportedOperationError)
 
 # tabs/workspace_tab.py's _cap_applies: engines that report usage.
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "google", "deepl")
+_CAP_ENGINES = ("claude", "deepseek", "gemini")
 
 
 def _require_drama(drama_id: int) -> dict:
@@ -164,7 +164,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(f"{engine_name} can't run Reflect mode.")
     _require_offered_model(engine_name, model)
@@ -350,7 +350,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown translate engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if locale not in settings_service.LOCALE_CHOICES:
         raise InvalidInputError("Unknown English variant.")
     is_novel = drama.get("content_mode") == "novel_narration"
@@ -806,7 +806,7 @@ def save_translate_preset(name: str, translation_engine: str, engine_model: Opti
     if not name or len(name) > _PRESET_NAME_MAX:
         raise InvalidInputError(f"A preset name is 1-{_PRESET_NAME_MAX} characters.")
     if translation_engine not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown translation engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(translation_engine))
     models = next((e["models"] for e in translate_service.list_engines()
                    if e["name"] == translation_engine), None)
     if engine_model is not None and not (

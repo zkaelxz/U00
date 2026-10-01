@@ -1542,7 +1542,7 @@ class TestCliSavedSettingsFallbacks:
         err = io.StringIO()
         with contextlib.redirect_stderr(err), pytest.raises(SystemExit):
             cli.cmd_narrate_prep(argparse.Namespace(
-                id=did, engine="deepl", api_key="k", model=None, ollama_url=None))
+                id=did, engine="nllb", api_key="k", model=None, ollama_url=None))
         assert "cannot tag speakers" in err.getvalue()
 
     def test_narrate_prep_uses_saved_key_ollama_url_free_tier_and_logs_usage(
@@ -1663,7 +1663,7 @@ class TestCmdTranslateFallback:
         seen, _ = self._run(monkeypatch, _translate_args(id=did))
         assert not isinstance(seen["engine"], translate_engines.FallbackEngine)
 
-    @pytest.mark.parametrize("value", ["deepl", "claude"])
+    @pytest.mark.parametrize("value", ["nllb", "claude"])
     def test_chain_rules_skip_the_drama(self, isolated_db, monkeypatch, value):
         did = self._drama(isolated_db)
         seen, out = self._run(monkeypatch, _translate_args(id=did, fallback=value))

@@ -61,7 +61,7 @@ def test_estimate_validation(client):
     r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nope"})
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
-    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "deepl", "reflect": "true"})
+    r = client.get(f"{BASE}/{did}/estimate", params={"engine": "nllb", "reflect": "true"})
     assert r.status_code == 400
     assert "error" in r.json()
     r = client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})

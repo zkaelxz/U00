@@ -70,7 +70,7 @@ MAX_LABEL_CHARS = 120
 MAX_SET_NAME_CHARS = 60
 OCR_BACKENDS = ("tesseract", "paddle", "manga_ocr", "paddle_vl_manga")
 # Engines whose spend counts toward the monthly cap (as translate_run_service).
-_CAP_ENGINES = ("claude", "deepseek", "gemini", "google", "deepl")
+_CAP_ENGINES = ("claude", "deepseek", "gemini")
 # Languages whose transcripts are scored per character (no word spaces).
 _CHARACTER_LANGUAGES = SOURCE_LANGUAGES
 

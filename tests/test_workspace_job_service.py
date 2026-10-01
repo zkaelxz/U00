@@ -132,7 +132,7 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
     background_jobs.clear_job("bulk_revoked")
 
 
-@pytest.mark.parametrize("engine", ["google", "deepl"])
+@pytest.mark.parametrize("engine", ["claude", "deepseek"])
 def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)

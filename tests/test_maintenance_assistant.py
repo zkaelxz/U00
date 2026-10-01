@@ -194,11 +194,11 @@ def test_backlog_add_list_delete_clear(isolated_db):
 def test_developer_mode_off_by_default_and_validated(isolated_db):
     s = svc.get_settings()
     assert s["developer_mode"] is False and "claude" in s["engine_choices"]
-    assert "deepl" not in s["engine_choices"]
+    assert "nllb" not in s["engine_choices"]
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"developer_mode": "yes"})
     with pytest.raises(svc.InvalidInputError):
-        svc.set_settings({"engine": "deepl"})
+        svc.set_settings({"engine": "nllb"})
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"developer_mode": True, "bogus": 1})
     assert svc.get_settings()["developer_mode"] is False  # a bad batch changes nothing
@@ -438,7 +438,7 @@ def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_b
 
 
 def test_cloud_consent_is_validated(isolated_db):
-    for bad in ({"test_offline": True}, {"deepl": True}, {"claude": "yes"}, ["claude"]):
+    for bad in ({"test_offline": True}, {"nllb": True}, {"claude": "yes"}, ["claude"]):
         with pytest.raises(svc.InvalidInputError):
             svc.set_settings({"cloud_consent": bad})
 
@@ -589,7 +589,7 @@ def test_saved_ladder_order_is_kept_and_skips_missing_keys(isolated_db, keys):
 
 
 @pytest.mark.parametrize("bad", [["ollama", "ollama"], ["ollama", "gemini", "claude", "deepseek"],
-                                 ["deepl"], [None], "ollama", [1]])
+                                 ["nllb"], [None], "ollama", [1]])
 def test_tier_order_is_validated(isolated_db, bad):
     with pytest.raises(svc.InvalidInputError):
         svc.set_settings({"tiers": bad})
