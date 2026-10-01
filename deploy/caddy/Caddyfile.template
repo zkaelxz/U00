@@ -36,6 +36,13 @@
 		}
 	}
 
+	# Certificates are requested over TCP 443 only (the TLS-ALPN check). The
+	# HTTP check would need outside port 80, which can belong to other
+	# equipment on the network; without it Caddy never depends on port 80.
+	cert_issuer acme {
+		disable_http_challenge
+	}
+
 	servers {
 		# HTTP/3 would need UDP 443 forwarded as well; TCP 443 is enough.
 		protocols h1 h2
