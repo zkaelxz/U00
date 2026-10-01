@@ -67,7 +67,7 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
 
   // Re-adding it shows the recorded decision instead of "added".
   await c.getByRole('button', { name: 'Add candidate' }).click()
-  await expect(c.getByTestId('reeval-known')).toContainText(/NLLB: Already evaluated on \d{4}-\d{2}-\d{2}, rejected: too literal/)
+  await expect(c.getByTestId('reeval-known')).toContainText(/NLLB · facebook\/nllb-200-distilled-600M: Already evaluated on \d{4}-\d{2}-\d{2}, rejected: too literal/)
   await expect(c.getByTestId('reeval-added')).toHaveCount(0)
 
   // The decision is in the history.
