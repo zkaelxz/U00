@@ -9,10 +9,10 @@ export const SCREENS = process.env.E2E_SCREENS ?? 'test-results/screens/live'
 
 export const SID = `live_${'1'.repeat(32)}`
 
-export const ENGINES = [
+const ENGINES = [
   { name: 'deepseek', label: 'DeepSeek -- cheap', free: false, models: null, key_configured: true },
   { name: 'claude', label: 'Claude', free: false, models: null, key_configured: false },
-  { name: 'test_offline', label: 'Offline test', free: true, models: null, key_configured: true },
+  { name: 'fake', label: 'Fake', free: true, models: null, key_configured: true },
 ]
 
 export const cue = (n: number) => ({
@@ -20,7 +20,7 @@ export const cue = (n: number) => ({
   translated: `Line ${n}: a longer English translation so the phone layout has to wrap it.`,
 })
 
-export interface LiveMocks {
+interface LiveMocks {
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   polls: string[]
   unmocked: string[]
@@ -54,6 +54,8 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
   }))
   // The header bell (every page) polls this; not part of the Live flow.
   await page.route('**/api/notifications', (route) => json(route, { items: [] }))
+  // The header Jobs button (every page) reads this; not part of the Live flow.
+  await page.route((u) => u.pathname === '/api/jobs', (route) => json(route, { items: [] }))
   // The app shell's remote-access banner (PC only): remote access off.
   await page.route('**/api/diagnostics/remote-health', (route) => json(route, REMOTE_HEALTH_OFF))
   // No push stream: these specs drive the page through its polling fallback

@@ -30,7 +30,6 @@ describe('settings api', () => {
     expect(buildUpdate('use_gpu', true)).toEqual({ use_gpu: true })
     expect(TOGGLES.map((t) => t.key).sort()).toEqual([
       'bulk_auto_resume',
-      'gemini_free_tier',
       'gpu_limit_enabled',
       'notify_on_completion',
       'use_gpu',

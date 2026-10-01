@@ -238,7 +238,7 @@ export interface RetranscribeApplyResult {
 }
 
 // GET /api/workflow/dramas/{id}/progress (api/schemas.py WorkflowProgress).
-export type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
+type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
 
 export interface WorkflowStageState {
   key: string

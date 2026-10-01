@@ -29,7 +29,7 @@ export const MAX_EPUB_BYTES = 200 * 1024 * 1024
 export const MAX_EPUB_ENTRIES = 10_000
 export const MAX_EPUB_UNPACKED_BYTES = 100 * 1024 * 1024
 
-export interface EpubLimits {
+interface EpubLimits {
   maxEntries: number
   maxUnpackedBytes: number
 }
@@ -90,7 +90,7 @@ export function nodeText(root: TextNode): string {
  * close (as BeautifulSoup did for the Streamlit tab); fall back to the lenient
  * HTML parser when the chapter is not well-formed XML.
  */
-export function domHtmlToText(markup: string): string {
+function domHtmlToText(markup: string): string {
   const parser = new DOMParser()
   let doc = parser.parseFromString(markup, 'application/xhtml+xml')
   if (doc.getElementsByTagName('parsererror').length > 0) doc = parser.parseFromString(markup, 'text/html')

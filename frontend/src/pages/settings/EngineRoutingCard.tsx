@@ -13,12 +13,13 @@ import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
 import { humanize } from '../../components/labels'
+import { summarizeEngineFailure } from '../../components/errorMessages'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { CapabilityRoute, EngineRouting } from '../../types/engineRouting'
 import {
-  PREFERENCE_TASKS,
   choiceFromSelect,
   replaceCapability,
   replaceEngine,
@@ -38,11 +39,12 @@ const TITLE = 'Which engine does what'
 interface Props {
   // Bumped by the page after any key, endpoint or preference save: reload.
   refreshToken: number
-  // Called after a task that mirrors a Defaults preference is saved.
-  onPreferencesChanged: () => void
+  // The "Gemini free tier" setting lives with the engines it changes.
+  geminiFreeTier: boolean
+  onGeminiFreeTier: (next: boolean) => void
 }
 
-export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props) {
+export function EngineRoutingCard({ refreshToken, geminiFreeTier, onGeminiFreeTier }: Props) {
   const remote = usePcOnly() === 'remote'
   const [routing, setRouting] = useState<EngineRouting | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -70,7 +72,6 @@ export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props)
     try {
       const saved = await setCapabilityEngine(cap.id, engine)
       setRouting((cur) => (cur ? replaceCapability(cur, saved) : cur))
-      if (PREFERENCE_TASKS.has(cap.id)) onPreferencesChanged()
     } catch (e) {
       setRouting((cur) => (cur ? replaceCapability(cur, cap) : cur)) // roll back
       setError(e)
@@ -101,6 +102,11 @@ export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props)
       aria-label={TITLE}
       className="routing-card"
     >
+      <div className="setting-list">
+        <Field label="Gemini free tier" help="Slows Gemini requests to stay inside the free tier's rate limits.">
+          <Toggle checked={geminiFreeTier} onChange={onGeminiFreeTier} />
+        </Field>
+      </div>
       <ErrorBanner error={loadError} />
       {!routing && !loadError && <p className="muted">Loading…</p>}
       {routing && (
@@ -166,7 +172,13 @@ export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props)
                   </div>
                   {details && <p className="settings-note">{details}</p>}
                   {e.status === 'failed' && e.last_test?.error && (
-                    <p className="error routing-error">{e.last_test.error}</p>
+                    <div className="routing-error-block">
+                      <p className="error routing-error">{summarizeEngineFailure(e.engine, e.last_test.error, label).summary}</p>
+                      <details className="routing-error-details">
+                        <summary>Details</summary>
+                        <p className="settings-note">{e.last_test.error}</p>
+                      </details>
+                    </div>
                   )}
                 </li>
               )

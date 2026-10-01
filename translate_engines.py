@@ -905,13 +905,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
     silently return nothing (an empty result, not an error) instead of
     a real answer. Confirmed directly: `hasattr(engine, "client")` is
     False for GeminiEngine, so every copy fell through to its "decline
-    quietly" branch. `test_offline` had a worse version of the same gap:
-    its `.client` attribute exists but is `None` (by design, so it can
-    "decline cleanly" per its own docstring), but `hasattr(engine,
-    "client")` is True either way, so the old code took the OpenAI-shaped
-    branch and crashed on `None.chat` instead of declining -- meaning the
-    app's own "try it for free first" onboarding path crashed the moment
-    you clicked most of these features.
+    quietly" branch.
 
     usage_cb, if given, is called with (input_tokens, output_tokens)
     after a successful call, the same shape already used by the main
@@ -971,14 +965,10 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
             usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
         return data["message"]["content"].strip()
 
-    if isinstance(engine, TestOfflineEngine):
-        # fallback is already a valid, correctly-shaped "nothing found"
-        # result for every caller of this function (an empty list/object,
-        # or an empty string) -- exactly what a real engine's response
-        # collapses to today when parsing fails. Explicit here, not an
-        # accident of falling through with no client and not being
-        # Gemini/Ollama, so Test mode's own behavior can't silently
-        # change if a future engine is added above it.
+    if getattr(engine, "client", True) is None:
+        # An engine with an empty LLM client slot declines cleanly: fallback
+        # is already a valid, correctly-shaped "nothing found" result for
+        # every caller (an empty list/object or string).
         return fallback
 
     raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run this feature.")
@@ -1309,7 +1299,7 @@ class NLLBEngine:
     """Fully local, offline neural machine translation via Meta's NLLB-200
     -- no API key, no network once the model's downloaded once, no
     per-token cost. This is a REAL translation engine, not a placeholder
-    like test_offline: it actually produces usable (if rougher) English,
+    like a stub: it actually produces usable (if rougher) English,
     just with meaningfully lower quality than Claude/DeepSeek/Gemini on
     tone, idiom, and character-voice consistency, since it's pure
     sequence-to-sequence MT with no instruction-following ability at all
@@ -1370,8 +1360,8 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
     a character name, or 'Narrator' for descriptive prose. Works with
-    any LLM-capable engine (Claude, DeepSeek); pure-MT engines (NLLB,
-    LibreTranslate) can't do this and will return 'Narrator' for everything.
+    any LLM-capable engine (Claude, DeepSeek); pure-MT engines (NLLB)
+    can't do this and will return 'Narrator' for everything.
 
     id_to_zh maps each chunk's own id (its line idx) to its text. Returns
     {id: label} with an entry for EVERY id given: a label the model
@@ -1692,8 +1682,8 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     annotates .flag/.flag_note on the Line objects it's given (mutated in
     place, same convention as translate_lines_with_engine).
 
-    Only meaningful with an LLM-capable engine; pure-MT engines (NLLB,
-    LibreTranslate) can't reason about their own confidence and are left
+    Only meaningful with an LLM-capable engine; pure-MT engines (NLLB)
+    can't reason about their own confidence and are left
     untouched -- every line's .flag stays whatever it already was.
     cancel_check (B-05): called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
@@ -1742,43 +1732,6 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
             "flag check failed for %d of %d batches; their lines were not checked",
             failed_batches, n_batches)
     return lines
-
-
-class TestOfflineEngine:
-    """A no-cost, no-network engine for verifying the pipeline works.
-
-    Produces deterministic placeholder translations instead of calling any
-    API. The point is to exercise the whole flow -- align, translate,
-    review, merge, export, dub -- and confirm your install is sound
-    BEFORE spending tokens on a real run. Output is obviously fake so it
-    can never be mistaken for a real translation.
-
-    Supports the reference/glossary interface so the surrounding code
-    paths get exercised too, but it ignores the content: there's no model
-    here to follow instructions.
-    """
-    name = "test_offline"
-    supports_reference = True
-
-    def __init__(self, api_key: str = None, model: str = "test-offline"):
-        self.model = model
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
-        self.client = None  # no SDK client; free-form LLM features will decline cleanly
-
-    def translate_batch(self, zh_lines, context: dict):
-        out = []
-        for i, line in enumerate(zh_lines):
-            preview = (line or "").strip()
-            if len(preview) > 40:
-                preview = preview[:40] + "…"
-            out.append(f"[TEST] {preview}")
-        # Rough token accounting so the cost dashboard has something to show,
-        # while estimate_cost() returns 0 for this model -- as it should.
-        self.last_usage = {
-            "input_tokens": sum(len(l) for l in zh_lines),
-            "output_tokens": sum(len(o) for o in out),
-        }
-        return out
 
 
 # Ollama's own default context window can be as small as 2-4k tokens,
@@ -1924,44 +1877,6 @@ def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
     return reachable
 
 
-class LibreTranslateEngine:
-    """Talks to any LibreTranslate-compatible /translate endpoint.
-
-    Cost, accurately: the SOFTWARE is AGPL-3.0 and free, but that is not
-    the same as free to use.
-      - Self-hosted LibreTranslate: no per-word cost, but you run the
-        server. Loading all 30+ languages wants ~8GB RAM and ~10GB disk.
-      - Self-hosted LTEngine (https://github.com/LibreTranslate/LTEngine):
-        runs LLMs locally via llama.cpp for quality reportedly good
-        on some pairs. Its largest model (gemma3-27b) needs roughly a
-        24GB-VRAM GPU; CPU-only runs but is slow.
-      - The HOSTED libretranslate.com API is a paid service with pricing
-        tiers, and needs an API key.
-
-    So: free of per-token billing if you self-host and already have the
-    hardware. Not free if you point it at the public hosted endpoint."""
-    name = "libretranslate"
-    supports_reference = False
-
-    def __init__(self, api_key: str = None, base_url: str = "http://localhost:5000"):
-        # None for local LTEngine; hosted instances may need a key. The
-        # "local" placeholder services use for "no key needed" is not a key.
-        self.api_key = None if api_key == "local" else api_key
-        self.base_url = base_url.rstrip("/")
-
-    def translate_batch(self, zh_lines, context: dict):
-        import requests
-        out = []
-        for line in zh_lines:
-            payload = {"q": line, "source": "auto", "target": "en"}
-            if self.api_key:
-                payload["api_key"] = self.api_key
-            resp = requests.post(f"{self.base_url}/translate", json=payload, timeout=30)
-            resp.raise_for_status()
-            out.append(resp.json().get("translatedText", ""))
-        return out
-
-
 ENGINES = {
     # Paid/normal engines first, then the free-for-testing ones grouped
     # together at the end (see FREE_ENGINES/engine_picker_label below) --
@@ -1971,10 +1886,8 @@ ENGINES = {
     "claude": ClaudeEngine,
     "deepseek": DeepSeekEngine,
     "gemini": GeminiEngine,
-    "test_offline": TestOfflineEngine,
     "ollama": OllamaEngine,
     "nllb": NLLBEngine,
-    "libretranslate": LibreTranslateEngine,
 }
 
 # Pure machine-translation engines: no instruction-following ability at
@@ -1982,12 +1895,12 @@ ENGINES = {
 # feature used to silently produce nothing (each feature's own
 # `supports_reference` guard already declines quietly; call_llm_json's
 # fallback used to do the same before Step 1d made it raise instead).
-TRANSLATION_ONLY_ENGINES = {"nllb", "libretranslate"}
+TRANSLATION_ONLY_ENGINES = {"nllb"}
 
 # Engines that used to be offered. Saved presets, routing rules, fallback
 # chains and history rows may still name them; they are no longer in ENGINES,
 # so running with one is refused with unknown_engine_message().
-REMOVED_ENGINES = frozenset({"deepl", "google"})
+REMOVED_ENGINES = frozenset({"deepl", "google", "libretranslate"})
 
 
 def unknown_engine_message(engine_name) -> str:
@@ -2016,10 +1929,8 @@ ENGINE_CAPABILITIES = {
     "deepseek": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP}),
     "gemini": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP,
                          CAP_GROUNDED_SEARCH}),
-    "test_offline": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
     "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
     "nllb": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
-    "libretranslate": frozenset({CAP_TRANSLATE, CAP_CHEAP}),
 }
 
 
@@ -2223,17 +2134,12 @@ def standalone_direction_support(engine_name: str, source_language: str, target_
     -> zh/ja/ko is new (Step 26b item 6):
       - NLLB takes an explicit source+target pair in its own
         pipeline, so they're just as capable in either direction.
-      - Claude/DeepSeek/Gemini/test_offline are prompted for the direction
+      - Claude/DeepSeek/Gemini are prompted for the direction
         directly (build_standalone_instructions), same as any other LLM
         instruction.
       - Ollama's real capability depends entirely on whichever local model
         is loaded, which this app has no way to verify -- attempted, but
         flagged as a warning rather than assumed reliable.
-      - LibreTranslate/LTEngine's own translate_batch has no source-
-        language parameter at all (see its docstring -- self-hosted
-        language-pair coverage varies and isn't discoverable from here),
-        so English -> zh/ja/ko is refused for it rather than silently
-        attempted and possibly mistranslated or empty.
     """
     if source_language != "en":
         return True, None
@@ -2243,11 +2149,6 @@ def standalone_direction_support(engine_name: str, source_language: str, target_
             f"Ollama's quality translating English -> {target_name} depends entirely on "
             "which local model you have loaded -- some handle it well, some not at all. "
             "Check the output carefully.")
-    if engine_name == "libretranslate":
-        return False, (
-            "This app can't confirm your LibreTranslate/LTEngine server has an English "
-            "source model installed for this pair -- pick a different engine, or check "
-            "your server's supported language pairs first.")
     return True, None
 
 
@@ -2317,7 +2218,10 @@ def standalone_translate(text: str, engine, source_language: str, target_languag
 # keys, so whether a given run is "free" depends on the per-session
 # "My Gemini key is free-tier" setting (settings_tab.py), not on which
 # engine was picked. See engine_picker_label / estimate_cost_for_engine.
-FREE_ENGINES = {"test_offline", "ollama", "nllb", "libretranslate"}
+FREE_ENGINES = {"ollama", "nllb"}
+
+# Engines that run without an API key: a local model or a local server.
+KEYLESS_ENGINES = {"ollama", "nllb"}
 
 # Free-tier limits, confirmed against ai.google.dev/gemini-api/docs/rate-limits
 # in September 2026 -- Step 1d's original "~10 requests/minute on Flash" note
@@ -2350,10 +2254,8 @@ ENGINE_NOTES = {
     "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
     "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
     "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
-    "test_offline": "🧪 Free — for testing: fake output, no AI. Checks the app works; never use for real subtitles.",
     "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
     "nllb": "🧪 Free — for testing: offline, translation only. Non-commercial licence.",
-    "libretranslate": "🧪 Free — for testing: translation only. Basic quality.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
@@ -2466,8 +2368,7 @@ def effective_tier(tier_key: str):
 
 
 def get_engine(engine_name: str, api_key: str = None, model: str = None,
-               free_tier: bool = False, base_url: str = None,
-               libretranslate_url: str = None):
+               free_tier: bool = False, base_url: str = None):
     cls = ENGINES[engine_name]
     model = model or model_override_for_default(engine_name)
     kwargs = {}
@@ -2475,8 +2376,6 @@ def get_engine(engine_name: str, api_key: str = None, model: str = None,
         kwargs["free_tier"] = free_tier
     if engine_name == "ollama" and base_url:
         kwargs["base_url"] = base_url
-    if engine_name == "libretranslate" and libretranslate_url:
-        kwargs["base_url"] = libretranslate_url
     if model:
         return cls(api_key, model, **kwargs)
     return cls(api_key, **kwargs)

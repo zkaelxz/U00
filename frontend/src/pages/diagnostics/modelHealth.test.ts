@@ -124,9 +124,10 @@ describe('last check', () => {
     })
     expect(lines.map((l) => [l.label, l.ok, l.text])).toEqual([
       ['DeepSeek', false, "Couldn't check: the provider did not answer."],
-      ['Gemini', false, "Couldn't check: HTTPError: 403 Forbidden"],
+      ['Gemini', false, 'Gemini rejected the key. Check it in API keys, then test again.'],
       ['Claude', true, '12 models listed'],
     ])
+    expect(lines.find((l) => l.engine === 'gemini')?.detail).toBe('HTTPError: 403 Forbidden')
     expect(engineCheckLines({ claude: { ok: true, model_count: 1 } })[0].text).toBe('1 model listed')
   })
 })

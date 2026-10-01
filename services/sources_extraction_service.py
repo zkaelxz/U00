@@ -82,9 +82,6 @@ from services.sources_search_service import _JobFailed
 from sources import adaptive, ai_extract, pipeline, profiles
 from sources import store as src_store
 
-# The offline test engine answers every prompt with canned text; it is not
-# offered (the Streamlit picker left it out too).
-_HIDDEN_ENGINES = ("test_offline",)
 _NO_ENGINE = "Pick an AI engine for the fallback."
 _ENGINE_FAILED = "The AI engine could not be set up."
 
@@ -93,7 +90,7 @@ def ai_engines() -> list:
     """Engine names the AI fallback may use (those that take a reference
     prompt, like the Streamlit picker)."""
     return [e for e, cls in translate_engines.ENGINES.items()
-            if getattr(cls, "supports_reference", False) and e not in _HIDDEN_ENGINES]
+            if getattr(cls, "supports_reference", False)]
 
 
 def default_ai_engine() -> Optional[str]:

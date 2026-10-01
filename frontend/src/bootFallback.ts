@@ -7,9 +7,9 @@
 
 import { errorText } from './components/errorFallbackText'
 
-export const BOOT_FALLBACK_TITLE = 'Baihe Studio could not start this page.'
+const BOOT_FALLBACK_TITLE = 'Baihe Studio could not start this page.'
 // The static note in index.html's #root (shown if this script never runs).
-export const BOOT_STATIC_ID = 'boot-static'
+const BOOT_STATIC_ID = 'boot-static'
 
 export function renderBootFallback(root: HTMLElement, error: unknown) {
   if (Array.from(root.children).some((c) => c.id !== BOOT_STATIC_ID)) return false

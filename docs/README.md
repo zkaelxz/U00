@@ -27,7 +27,6 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`browser-extension.md`** — the Translate-the-page-you're-reading
   feature (Step 34/34b/96): what it does, what was verified against a
   real site.
-- **`migration-frontend-plan.md`** — the React frontend slice plan.
 - **`react-ui-guidelines.md`** — concise-UI rules for the React app and a per-screen change list.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
   review policy, verification, git/safety.
@@ -43,8 +42,6 @@ The numbered roadmap (`docs/baihe-roadmap.md`) lives on the planning branch
 - **`technical-notes.md`** — an engineering changelog of real bugs found
   and how they were fixed, kept separate from the main `README.md` so
   that stays focused on using the app.
-- **`migration-screenshots/`** — before/after screenshots referenced by
-  `archive/migration-review.md`.
 - **`STATUS.md`** — current state, in-flight work and what's next.
 - **`archive/`** — historical records kept for reference, not sources of
   truth: the migration review, handoff and React/FastAPI phase log, the

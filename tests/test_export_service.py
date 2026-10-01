@@ -32,7 +32,6 @@ class TestGetExportReadiness:
             "zh_filled": 0,
             "en_filled": 0,
             "fully_translated": False,
-            "test_mode_output": False,
             "overlap_count": 0,
             "auto_qc_issue_count": 0,
             "dense_line_count": 0,
@@ -85,12 +84,6 @@ class TestGetExportReadiness:
         isolated_db.save_lines(did, lines)
         result = export_service.get_export_readiness(did)
         assert result["overlap_count"] == 1
-
-    def test_test_mode_output_flag_reflects_translation_engine(self, isolated_db):
-        did = _drama(isolated_db, translation_engine="test_offline")
-        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
-        result = export_service.get_export_readiness(did)
-        assert result["test_mode_output"] is True
 
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):

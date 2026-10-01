@@ -59,7 +59,7 @@ From outside the LAN (a phone on mobile data, Wi-Fi off), after the router port 
 
 - [ ] `https://baihe.<your-domain>` loads with a valid padlock; `http://` redirects to `https://` only if port 80 reaches Caddy, which this guide doesn't open (see the ports table); without it, type `https://`.
 - [ ] Google sign-in works for an allowlisted member and is refused for any other account.
-- [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees Users and Audit log in Diagnostics without any buttons ("Account changes are made on the main PC."), and no other admin section works.
+- [ ] Job progress updates live; saving Settings says it is PC-only; an admin account signed in here sees Users and Audit log on the Admin page (cogwheel menu) without any buttons ("Account changes are made on the main PC."), and no other admin section works.
 - [ ] `http://<your-public-ip>:8600`, `:8610` and `:8756` don't connect.
 - [ ] After a sign-in, Caddy's access log (`BAIHE_CADDY_LOG_DIR\baihe-access.log`) holds no `?code=` or `state=`: its filter drops the query string from the logged URI, and Baihe's household listener writes no access log of its own. That covers these two logs only, so read any other log before sharing it.
 

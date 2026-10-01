@@ -3,7 +3,7 @@ import type { SessionState } from '../hooks/useSession'
 import { sharingErrorText } from '../pages/settings/sharing'
 import type { SharingKind } from '../types/sharing'
 
-export interface SharingSource {
+interface SharingSource {
   kind: SharingKind
   is_private?: boolean | null
   owned_by_me?: boolean | null
@@ -11,12 +11,12 @@ export interface SharingSource {
   series_id?: number | null
 }
 
-export type SharingView =
+type SharingView =
   | { show: false }
   | { show: true; label: 'Private' | 'Shared'; follows: boolean; actionLabel: string }
 
 /** Whether the viewer is signed in with sign-in on (the only time items have owners). */
-export function signedInWithAuth(s: SessionState): boolean {
+function signedInWithAuth(s: SessionState): boolean {
   return s.status === 'ready' && s.me.auth_enabled && s.me.signed_in
 }
 
@@ -32,7 +32,7 @@ export function sharingView(s: SessionState, item: SharingSource): SharingView {
   }
 }
 
-export type FlipOutcome = { isPrivate: boolean } | { error: string }
+type FlipOutcome = { isPrivate: boolean } | { error: string }
 
 /** Ask the server to flip the item; a refusal comes back as the server's own words. */
 export async function flipSharing(

@@ -123,7 +123,7 @@ describe('Run now', () => {
 
   it('missing keys: production and open candidates only', () => {
     const o = overview({ candidates: [cand(), cand({ id: 3, engine: 'gemini', status: 'rejected' })] })
-    const engines = [engine('claude', false), engine('deepseek', false), engine('gemini', false), engine('libretranslate')]
+    const engines = [engine('claude', false), engine('deepseek', false), engine('gemini', false), engine('nllb')]
     expect(reevalMissingKeys(o, engines).map((e) => e.name)).toEqual(['claude', 'deepseek'])
   })
 
@@ -195,8 +195,7 @@ describe('candidates', () => {
     })
   })
 
-  it('the offline test engine is never offered as a candidate', () => {
-    expect(candidateEngines([engine('test_offline'), engine('gemini')]).map((e) => e.name)).toEqual(['gemini'])
+  it('lists usable engines first', () => {
     expect(candidateEngines([engine('claude', false), engine('ollama')]).map((e) => e.name)).toEqual(['ollama', 'claude'])
   })
 

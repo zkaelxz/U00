@@ -20,7 +20,7 @@ export function jobIsForLine(job: Pick<JobRecord, 'result'> | null, lineId: numb
 
 // A finished re-transcribe job: either the proposal is ready to fetch (GET
 // .../retranscribe), or a plain-words reason why there is none.
-export type RetranscribeOutcome = { kind: 'ready' } | { kind: 'none'; text: string }
+type RetranscribeOutcome = { kind: 'ready' } | { kind: 'none'; text: string }
 
 export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 'result'>): RetranscribeOutcome {
   const reason = job.result?.failed_reason

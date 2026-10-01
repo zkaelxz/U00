@@ -12,6 +12,7 @@ import {
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
+import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { ApiKeysCard } from './settings/ApiKeysCard'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
@@ -22,7 +23,6 @@ import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
-import { RemoteAccessSection } from './settings/RemoteAccessSection'
 import { NotionSection } from './settings/NotionSection'
 import { AdvancedCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
@@ -31,12 +31,11 @@ import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
 
-const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
+const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
     'Queues GPU-heavy jobs beyond "GPU jobs at once" so they do not run out of memory.',
   notify_on_completion: 'Shows a notification when a background job finishes.',
   use_gpu: 'Transcribe on the graphics card when one is available (faster).',
-  gemini_free_tier: 'Slows Gemini requests to stay inside the free tier rate limits.',
   bulk_auto_resume:
     'Resume interrupted translation batches when the app starts. Off by default: resumed batches can spend on your engine account.',
 }
@@ -44,12 +43,9 @@ const TOGGLE_HELP: Record<SettingsToggleKey, string> = {
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsOverview | null>(null)
   const [error, setError] = useState<unknown>(null)
-  // Step 36: the routing card reloads after any key, endpoint or preference
-  // save here (a replaced key keeps configured=true but clears its Test), and
-  // the Defaults card remounts after the routing card changes a preference
-  // they share, so its draft isn't stale.
+  // The routing card reloads after any key, endpoint or preference save here
+  // (a replaced key keeps configured=true but clears its Test).
   const [routingToken, setRoutingToken] = useState(0)
-  const [defaultsKey, setDefaultsKey] = useState(0)
   const bumpRouting = () => setRoutingToken((t) => t + 1)
 
   useEffect(() => {
@@ -96,8 +92,9 @@ export default function SettingsPage() {
       }
     : null
 
-  // Layout (UI refresh §3.12): always-open Cards for what people change on
-  // most visits; rare options sit in Sections inside the "Advanced" Card.
+  // Always-open Cards for what people change on most visits; integrations
+  // and experimental options sit in collapsed Sections at the end. Remote
+  // access and the household's accounts live on the Admin page.
   return (
     <section className="panel page-narrow settings-page" aria-label="Settings">
       <h2>Settings</h2>
@@ -135,32 +132,35 @@ export default function SettingsPage() {
           />
           <EngineRoutingCard
             refreshToken={routingToken}
-            onPreferencesChanged={() =>
-              getSettings().then((s) => {
-                setSettings(s)
-                setDefaultsKey((k) => k + 1)
-              }, setError)
-            }
+            geminiFreeTier={settings.gemini_free_tier}
+            onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
           />
-          <DefaultsCard key={defaultsKey} {...prefProps} />
+          <DefaultsCard {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
-          <RemoteAccessSection />
           <AutoBackupCard />
           <AppUpdatesCard />
-          <JellyfinSection />
-          <NotionSection />
-          <TranscriptionExperimentsCard />
-          <WebSearchSection />
-          <ExtensionSection />
-          <DeveloperModeCard />
-          <AdvancedCard {...prefProps} />
         </>
       )}
       {/* Outside the settings gate: every signed-in person has a share-new-items choice. */}
       <SharingCard />
       {/* Also outside it: every signed-in person manages their own devices. */}
       <DevicesCard />
+      {settings && prefProps && (
+        <>
+          <Section title="Integrations" summary="Jellyfin, Notion, web search, browser extension" storageKey="settings.integrations">
+            <JellyfinSection />
+            <NotionSection />
+            <WebSearchSection />
+            <ExtensionSection />
+          </Section>
+          <AdvancedCard {...prefProps} />
+          <Section title="Experimental & developer" summary="Transcription experiments, Developer Mode" storageKey="settings.experimental">
+            <TranscriptionExperimentsCard />
+            <DeveloperModeCard />
+          </Section>
+        </>
+      )}
     </section>
   )
 }

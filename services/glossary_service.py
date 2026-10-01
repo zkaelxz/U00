@@ -429,10 +429,6 @@ def novel_glossary_engine(drama_id: int) -> str:
     return _drama(drama_id).get("translation_engine") or _default_engine()
 
 
-def spends_on_paid_engine(engine_name: Optional[str]) -> bool:
-    return (engine_name or _default_engine()) not in translate_engines.FREE_ENGINES
-
-
 def _normalize_proposals(proposals, known_terms) -> list:
     """Allowlisted proposal dicts keyed by term text (a repeated term keeps
     the last one); already_in_glossary is the snapshot at extraction time."""

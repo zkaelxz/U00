@@ -1,3 +1,4 @@
+import { safeDetail } from '../../components/errorMessages'
 import type { TranscribeConfigUpdate } from '../../types/workspace'
 
 // Pure client-side checks for the Source/Transcribe stage. The server
@@ -44,7 +45,7 @@ export function parseExpectedSpeakers(raw: string): number | undefined | null {
   return Number.isInteger(n) && n >= 0 && n <= 20 ? n : null
 }
 
-export interface ParsedSpeakerHints {
+interface ParsedSpeakerHints {
   expected?: number
   min?: number
   max?: number
@@ -71,6 +72,49 @@ export function parseSpeakerHints(expectedRaw: string, minRaw: string, maxRaw: s
   return { expected, min, max }
 }
 
+// A run option the server refuses, tied to the field to highlight.
+export type RunField = 'alignment_method' | 'asr_backend_choice' | 'speakers'
+export interface RunFieldProblem {
+  field: RunField
+  message: string
+}
+
+// Mirrors transcribe_service.validate_transcribe_options: option pairs the
+// server refuses for this drama's mode, caught before a round trip.
+export function runOptionProblem(
+  mode: string | undefined,
+  alignment: string,
+  asr: string,
+  mossEnabled: boolean,
+): RunFieldProblem | null {
+  if (mode === 'whisper' && alignment === 'qwen3_forced_align') {
+    return {
+      field: 'alignment_method',
+      message: 'Qwen3 forced alignment needs a transcript to align, but this drama transcribes with Whisper alone. Pick Whisper (diff) or supply a transcript.',
+    }
+  }
+  if (mode === 'whisper' && asr === 'moss_td' && !mossEnabled) {
+    return {
+      field: 'asr_backend_choice',
+      message: 'MOSS-Transcribe-Diarize is experimental and turned off. Turn it on in Settings, or pick another ASR backend.',
+    }
+  }
+  return null
+}
+
+// A 422 whose own sentence names an option: the field to highlight, with that
+// sentence (only fixed server sentences; anything path- or key-like is dropped).
+export function runProblemFromError(err: unknown): RunFieldProblem | null {
+  const e = err as { code?: string; message?: string } | null
+  if (!e || (e.code !== 'validation_error' && e.code !== 'invalid_input') || !e.message) return null
+  const message = safeDetail(e.message)
+  if (!message) return null
+  if (/forced alignment/i.test(message)) return { field: 'alignment_method', message }
+  if (/\bMOSS\b/.test(message)) return { field: 'asr_backend_choice', message }
+  if (/speakers?\b/i.test(message)) return { field: 'speakers', message }
+  return null
+}
+
 // Mirrors core.whisper_model_warning: large-v3-turbo is weaker on ja/ko.
 export function whisperModelWarning(size: string, language: string): string {
   if (size === 'large-v3-turbo' && (language === 'ja' || language === 'ko')) {
@@ -81,7 +125,7 @@ export function whisperModelWarning(size: string, language: string): string {
 
 // Source-stage run options kept for the browser session, per drama, so a
 // stage-tab switch or navigation does not wipe them.
-export interface SourceFormState {
+interface SourceFormState {
   language: string
   script: string
   transcriptText: string
@@ -173,7 +217,7 @@ const OCR_BACKENDS: Record<string, string[]> = {
 }
 export const ocrBackendOptions = (language: string | null): string[] => OCR_BACKENDS[language ?? 'zh'] ?? ['tesseract']
 
-export const OCR_MAX_IMAGES = 200
+const OCR_MAX_IMAGES = 200
 const OCR_EXTENSIONS = ['.png', '.jpg', '.jpeg']
 
 export function checkOcrImages(names: string[]): string | null {

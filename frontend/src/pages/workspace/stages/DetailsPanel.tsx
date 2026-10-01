@@ -2,24 +2,21 @@ import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getSeries, updateDramaMetadata } from '../../../api/library'
-import { getSourceConfig, updateSourceConfig } from '../../../api/source'
+import { updateSourceConfig } from '../../../api/source'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize, humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import type { LibrarySeries } from '../../../types/library'
-import type { SourceConfig } from '../../../types/workspace'
 import { SOURCE_LANGUAGES } from '../../libraryForm'
 import {
   buildDetailsPayload,
-  CONTENT_MODES,
   FIELD_LABELS,
   formFromDrama,
   isEmptyPayload,
   reseedForm,
   mediaTypeOptions,
   modeLabel,
-  modeUpdate,
   NEW_SERIES,
   PUBLICATION_STATUSES,
   serverFieldErrors,
@@ -28,6 +25,7 @@ import {
   type DetailsForm,
 } from '../detailsForm'
 import { useStage } from '../StageContext'
+import { ContentModeField } from './SourceModes'
 
 export function DetailsPanel() {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -155,6 +153,7 @@ export function DetailsPanel() {
                 ))}
               </select>
             </Field>
+            <ContentModeField />
             <Field
               label="Series"
               help="Shares characters and glossary with other dramas in the series. A drama taken out of a private series stays private."
@@ -208,107 +207,6 @@ export function DetailsPanel() {
             <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
           </Field>
         </form>
-      </Section>
-    </section>
-  )
-}
-
-// Content mode and transcript mode (POST /api/source/dramas/{id}/config).
-// `onSaved` lets the stage reload anything that reads transcript_mode.
-export function SourceModePanel({ onSaved }: { onSaved: () => void }) {
-  const { dramaId, refetchDrama } = useStage()
-  const [config, setConfig] = useState<SourceConfig | null>(null)
-  const [content, setContent] = useState('')
-  const [transcript, setTranscript] = useState('')
-  const [error, setError] = useState<unknown>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    getSourceConfig(dramaId).then(
-      (c) => {
-        if (cancelled) return
-        setConfig(c)
-        setContent(c.content_mode)
-        setTranscript(c.transcript_mode)
-      },
-      (e: unknown) => !cancelled && setError(e),
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId])
-
-  const update = config ? modeUpdate(config, content, transcript) : {}
-  const dirty = Object.keys(update).length > 0
-  const reason = !config ? 'Loading…' : !dirty ? 'Still needed: a change to save.' : null
-
-  const save = () => {
-    if (!dirty) return
-    setBusy(true)
-    updateSourceConfig(dramaId, update).then(
-      (c) => {
-        setBusy(false)
-        setError(null)
-        setConfig(c)
-        setContent(c.content_mode)
-        setTranscript(c.transcript_mode)
-        setNotice('Modes saved.')
-        refetchDrama() // streamer_vod also sets media_type
-        onSaved()
-      },
-      (e: unknown) => {
-        setBusy(false)
-        setError(e)
-      },
-    )
-  }
-
-  const transcriptOptions = config
-    ? config.transcript_mode_options.includes(config.transcript_mode)
-      ? config.transcript_mode_options
-      : [config.transcript_mode, ...config.transcript_mode_options]
-    : []
-
-  return (
-    <section className="panel" aria-label="Source modes">
-      <Section
-        storageKey="source.modes"
-        title="Source modes"
-        summary={config ? `${modeLabel(config.content_mode)} · ${modeLabel(config.transcript_mode)}` : undefined}
-      >
-        <div className="source-panel">
-          <div>
-            <button type="button" className="primary" disabled={!dirty || busy} onClick={save}>
-              Save modes
-            </button>
-            {reason && <p className="muted">{reason}</p>}
-          </div>
-          {config && (
-            <div className="source-grid">
-              <Field label="Content mode" help="Streamer VOD also sets the media type to streamer vod.">
-                <select value={content} onChange={(e) => { setNotice(null); setContent(e.target.value) }}>
-                  {(CONTENT_MODES.includes(content) ? CONTENT_MODES : [content, ...CONTENT_MODES]).map((m) => (
-                    <option key={m} value={m}>{modeLabel(m)}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field
-                label="Transcript mode"
-                help={config.has_video_source ? undefined : 'Hardsub OCR needs a source video; upload one to enable it.'}
-              >
-                <select value={transcript} onChange={(e) => { setNotice(null); setTranscript(e.target.value) }}>
-                  {transcriptOptions.map((m) => (
-                    <option key={m} value={m}>{modeLabel(m)}</option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-          )}
-          {notice && <p role="status">{notice}</p>}
-          <ErrorBanner error={error} onDismiss={() => setError(null)} />
-        </div>
       </Section>
     </section>
   )

@@ -36,7 +36,7 @@ this script covers it with the same rigor:
     paragraph text is captured -- and a <nav>'s links are not, even
     though the nav sits on the same page,
   * that text is translated for real through
-    translate_engines.standalone_translate (not mocked -- TestOfflineEngine
+    translate_engines.standalone_translate (not mocked -- FakeEngine
     needs no network or key, so the real function runs end to end),
   * the result is drawn into a panel on the page itself and saved to the
     Standalone translate tab's own history table,
@@ -143,14 +143,14 @@ def main():
 
     scanlate.detect_and_ocr_page = fake_detect
     scanlate.translate_page_bubbles = fake_translate
-    # TestOfflineEngine is real code (translate_engines.py), not a fake --
-    # it just needs no network or key, which is what makes the text-mode
-    # checks below a genuine run of standalone_translate rather than a
-    # mock of it. Standing in for get_engine at all (rather than calling
-    # the real one) only skips API-key bookkeeping the image checks don't
-    # exercise either.
-    translate_engines.get_engine = lambda *a, **kw: translate_engines.TestOfflineEngine()
-    page_server.set_translation_config(engine="test_offline", api_key="x")
+    # The fake key-free engine from the test suite: it needs no network or
+    # key, so the text-mode checks below genuinely run standalone_translate
+    # rather than a mock of it. Standing in for get_engine skips the
+    # API-key bookkeeping the image checks don't exercise either.
+    from tests import fake_engine
+    fake_engine.install()
+    translate_engines.get_engine = lambda *a, **kw: fake_engine.FakeEngine()
+    page_server.set_translation_config(engine="fake", api_key="x")
 
     server_port = free_port()
     token = page_server.load_or_create_token()
@@ -376,7 +376,7 @@ document.getElementById("viaBlob").src =
             # With nothing selected: the heuristic should pick the
             # <article>'s three paragraphs and skip the <nav> entirely,
             # then run that text through the real (unmocked)
-            # standalone_translate via TestOfflineEngine.
+            # standalone_translate via FakeEngine.
             no_selection = options.evaluate(drive, [site_url, {
                 "type": "translatePageText", "sourceLanguage": "en",
                 "targetLanguage": "zh", "store": True}])

@@ -468,7 +468,7 @@ def _wait_for_job(job_id, timeout=60):
 
 
 class TestBulkSeriesTranslate:
-    def _drama(self, isolated_db, n=2, engine="test_offline", series_id=None, status="aligned"):
+    def _drama(self, isolated_db, n=2, engine="fake", series_id=None, status="aligned"):
         did = isolated_db.create_drama(title_en=f"Drama {n}", media_type="audio_drama",
                                        content_mode="audio_drama", status=status,
                                        translation_engine=engine, series_id=series_id)
@@ -487,8 +487,8 @@ class TestBulkSeriesTranslate:
         return background_jobs.get_status(job_id)
 
     def test_translates_every_eligible_drama_with_its_own_saved_engine(self, isolated_db, monkeypatch):
-        d1 = self._drama(isolated_db, n=1, engine="test_offline")
-        d2 = self._drama(isolated_db, n=1, engine="test_offline")
+        d1 = self._drama(isolated_db, n=1, engine="fake")
+        d2 = self._drama(isolated_db, n=1, engine="fake")
         status = self._run([d1, d2], monkeypatch)
         result = status["result"]
         assert sorted(result["translated"]) == sorted([d1, d2])
@@ -515,7 +515,7 @@ class TestBulkSeriesTranslate:
 
     def test_a_drama_with_no_lines_is_skipped(self, isolated_db, monkeypatch):
         d1 = isolated_db.create_drama(title_en="Empty", status="aligned",
-                                      translation_engine="test_offline")
+                                      translation_engine="fake")
         status = self._run([d1], monkeypatch)
         assert status["result"]["skipped_no_lines"] == [d1]
 
@@ -525,7 +525,7 @@ class TestBulkSeriesTranslate:
         d1 = self._drama(isolated_db, n=1, series_id=sid)
 
         class RecordingEngine:
-            name = "test_offline"
+            name = "fake"
             supports_reference = True
 
             def __init__(self):
@@ -553,7 +553,7 @@ class TestBulkSeriesTranslate:
         _fast_poll(lt, monkeypatch)
 
         class SlowEngine:
-            name = "test_offline"
+            name = "fake"
             supports_reference = True
 
             def __init__(self):
@@ -583,7 +583,7 @@ class TestBulkSeriesTranslate:
         assert not any(r["en"] for r in isolated_db.load_lines(d1))
 
     def test_monthly_cap_not_reached_still_translates(self, isolated_db, monkeypatch):
-        d1 = self._drama(isolated_db, n=1, engine="test_offline")
+        d1 = self._drama(isolated_db, n=1, engine="fake")
         status = self._run([d1], monkeypatch, monthly_cap=100.0)
         assert status["result"]["translated"] == [d1]
 
@@ -594,7 +594,7 @@ class TestBulkSeriesTranslate:
         shared helper and `cli.py translate` already use."""
         d1 = isolated_db.create_drama(title_en="Novel Drama", status="aligned",
                                       content_mode="novel_narration",
-                                      translation_engine="test_offline")
+                                      translation_engine="fake")
         isolated_db.save_lines(d1, [Line(idx=0, start=0, end=1, zh="句0")])
 
         calls = []

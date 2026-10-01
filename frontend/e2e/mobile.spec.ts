@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Phone project only (390x844, touch): each screen fits the width and its
 // main touch targets are at least 44px tall.
@@ -105,6 +106,7 @@ test('Notion: the settings card and Export to Notion fit a phone', async ({ page
   await page.route('**/api/notion/dramas/1', (route) =>
     route.fulfill({ json: { drama_id: 1, page_id: 'abc', page_url: 'https://www.notion.so/Signal-abc' } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Notion' })
   await expect(card.getByTestId('notion-token')).toHaveText('Token saved')
   await expectNoHorizontalOverflow(page)
@@ -127,6 +129,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   await page.route('**/api/jellyfin/config', (route) =>
     route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
   await expectNoHorizontalOverflow(page)

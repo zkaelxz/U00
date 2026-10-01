@@ -417,7 +417,7 @@ def test_default_engine_is_local(dev_mode, real_build):
     assert out["engine"] == "ollama" and real_build == ["ollama"]
     s = svc.get_settings()
     assert s["default_engine"] == "ollama" and "ollama" in s["local_engines"]
-    assert s["cloud_consent"] == {"claude": False, "deepseek": False, "gemini": False}
+    assert all(s["cloud_consent"][e] is False for e in ("claude", "deepseek", "gemini"))
 
 
 def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_build, monkeypatch):
@@ -438,7 +438,7 @@ def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_b
 
 
 def test_cloud_consent_is_validated(isolated_db):
-    for bad in ({"test_offline": True}, {"nllb": True}, {"claude": "yes"}, ["claude"]):
+    for bad in ({"nllb": True}, {"claude": "yes"}, ["claude"]):
         with pytest.raises(svc.InvalidInputError):
             svc.set_settings({"cloud_consent": bad})
 
@@ -556,7 +556,7 @@ def test_remote_ollama_consent_is_saved_and_shown(isolated_db, monkeypatch):
 @pytest.fixture
 def keys(monkeypatch):
     """Which engines have a key; Ollama and the offline engine always do."""
-    have = {"ollama", "test_offline"}
+    have = {"ollama", "fake"}
     monkeypatch.setattr(svc, "_key_set", lambda name: name in have)
     return have
 

@@ -6,7 +6,7 @@ Streamlit Reader tab.
 Scope decision, confirmed by the user (2026-09-28), the real blocker
 that held this slice back: the Streamlit Reader tab's own page-load path
 does two things an HTTP GET must never silently inherit -- a **paid LLM
-call** (`dictionary.build_word_definitions`, run from a button click) and
+call** (now `_define_words_llm`, run from a button click) and
 a **DB write as a side effect of loading a page** (`db.save_vocab_lookup`
 for every word looked up). `get_reader_page_html` below does neither: it
 only serves whatever's already in `vocab_lookups` (populated by that

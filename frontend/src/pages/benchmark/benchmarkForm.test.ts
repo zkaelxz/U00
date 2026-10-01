@@ -14,7 +14,7 @@ const options: BenchmarkOptions = {
   source_languages: ['zh', 'ja', 'ko'],
   translation_engines: [
     { name: 'claude', label: 'x', free: false, models: ['sonnet', 'haiku'], key_configured: false },
-    { name: 'test_offline', label: 'x', free: true, models: null, key_configured: true },
+    { name: 'ollama', label: 'x', free: true, models: null, key_configured: true },
     { name: 'nllb', label: 'x', free: true, models: ['small'], key_configured: true },
   ],
   whisper_sizes: ['small', 'medium', 'large-v3'],
@@ -25,7 +25,7 @@ const options: BenchmarkOptions = {
 
 const sel = (over: Partial<RunSelection> = {}): RunSelection => ({
   stage: 'translation',
-  configs: [{ engine: 'test_offline' }],
+  configs: [{ engine: 'ollama' }],
   tier: '',
   setName: '',
   label: '',
@@ -39,7 +39,7 @@ const estimate = (over: Partial<BenchmarkEstimate> = {}): BenchmarkEstimate => (
 })
 
 const run = (id: number, over: Partial<BenchmarkRun> = {}): BenchmarkRun => ({
-  id, label: '', stage: 'translation', engine: 'test_offline', model: null, prompt_version: '', arena_group: null,
+  id, label: '', stage: 'translation', engine: 'ollama', model: null, prompt_version: '', arena_group: null,
   status: 'done', case_count: 2, scored_count: 2, passed_count: 1, error_count: 0, aggregate_score: 0.5,
   avg_latency_seconds: 0.1, total_cost_usd: 0, peak_vram_mb: null, note: null, created_at: null, finished_at: null,
   context_settings: {}, case_filter: {}, delta_vs_first: null, ...over,
@@ -67,7 +67,7 @@ describe('formatting', () => {
 
   it('labels engines per stage and tiers in plain words', () => {
     expect(configLabel('translation', 'claude', 'haiku')).toBe('Claude · haiku')
-    expect(configLabel('translation', 'test_offline', null)).toBe('Offline test')
+    expect(configLabel('translation', 'ollama', null)).toBe('Ollama')
     expect(configLabel('transcription', 'whisper', 'large-v3')).toBe('Whisper large-v3')
     expect(configLabel('ocr', 'manga_ocr')).toBe('Manga OCR')
     expect(tierLabel('regression')).toBe('Regression')
@@ -116,8 +116,8 @@ describe('run request', () => {
   })
 
   it('default configs pick the next unused engine, usable ones first', () => {
-    expect(defaultConfig('translation', options)).toEqual({ engine: 'test_offline' })
-    expect(defaultConfig('translation', options, [{ engine: 'test_offline' }])).toEqual({ engine: 'nllb' })
+    expect(defaultConfig('translation', options)).toEqual({ engine: 'ollama' })
+    expect(defaultConfig('translation', options, [{ engine: 'ollama' }])).toEqual({ engine: 'nllb' })
     expect(defaultConfig('transcription', options, [{ engine: 'whisper', model: 'small' }])).toEqual({ engine: 'whisper', model: 'medium' })
     expect(defaultConfig('ocr', options, [{ engine: 'tesseract' }, { engine: 'paddle' }])).toBeNull()
   })
@@ -126,7 +126,7 @@ describe('run request', () => {
     expect(restoreConfigs('translation', [{ engine: 'claude', model: 'haiku' }, { engine: 'gone' }], options)).toEqual([
       { engine: 'claude', model: 'haiku' },
     ])
-    expect(restoreConfigs('translation', [{ engine: 'claude', model: 'opus-9' }], options)).toEqual([{ engine: 'test_offline' }])
+    expect(restoreConfigs('translation', [{ engine: 'claude', model: 'opus-9' }], options)).toEqual([{ engine: 'ollama' }])
     expect(restoreConfigs('ocr', 'junk', options)).toEqual([{ engine: 'tesseract' }])
     expect(restoreConfigs('transcription', [{ engine: 'whisper', model: 'large-v3' }], options)).toEqual([{ engine: 'whisper', model: 'large-v3' }])
   })
@@ -140,7 +140,7 @@ describe('run request', () => {
   })
 
   it('lists picked translation engines with no key', () => {
-    expect(enginesMissingKey(sel({ configs: [{ engine: 'claude' }, { engine: 'test_offline' }] }), options.translation_engines).map((e) => e.name)).toEqual(['claude'])
+    expect(enginesMissingKey(sel({ configs: [{ engine: 'claude' }, { engine: 'ollama' }] }), options.translation_engines).map((e) => e.name)).toEqual(['claude'])
     expect(enginesMissingKey(sel({ stage: 'ocr', configs: [{ engine: 'claude' }] }), options.translation_engines)).toEqual([])
   })
 })
@@ -212,8 +212,8 @@ describe('arena', () => {
   })
 
   it('names compared runs, adding the label only when two share an engine', () => {
-    expect(arenaRunNames([run(1, { label: 'A' }), run(2, { engine: 'nllb' })])).toEqual(['Offline test', 'NLLB'])
-    expect(arenaRunNames([run(1, { label: 'A' }), run(2)])).toEqual(['Offline test · A', 'Offline test · run 2'])
+    expect(arenaRunNames([run(1, { label: 'A' }), run(2, { engine: 'nllb' })])).toEqual(['Ollama', 'NLLB'])
+    expect(arenaRunNames([run(1, { label: 'A' }), run(2)])).toEqual(['Ollama · A', 'Ollama · run 2'])
   })
 
   it('toggles a compare pick, at most 4', () => {
@@ -244,9 +244,9 @@ describe('plainError', () => {
 
 describe('compare links (Model health -> Benchmark Lab)', () => {
   it('builds and reads engine:model pairs, keeping ":" and "/" inside a model', () => {
-    const configs = [{ engine: 'ollama', model: 'qwen3:8b' }, { engine: 'nllb', model: 'facebook/nllb-200-distilled-600M' }, { engine: 'test_offline' }]
+    const configs = [{ engine: 'ollama', model: 'qwen3:8b' }, { engine: 'nllb', model: 'facebook/nllb-200-distilled-600M' }, { engine: 'ollama' }]
     const raw = compareParam(configs)
-    expect(raw).toBe('ollama:qwen3%3A8b,nllb:facebook%2Fnllb-200-distilled-600M,test_offline')
+    expect(raw).toBe('ollama:qwen3%3A8b,nllb:facebook%2Fnllb-200-distilled-600M,ollama')
     expect(parseCompareParam(raw)).toEqual(configs)
     expect(parseCompareParam('claude:claude-sonnet-4-6,claude:claude-sonnet-5')).toEqual([
       { engine: 'claude', model: 'claude-sonnet-4-6' }, { engine: 'claude', model: 'claude-sonnet-5' },
@@ -260,17 +260,17 @@ describe('compare links (Model health -> Benchmark Lab)', () => {
   })
 
   it('prefills offered configs and says what it left out', () => {
-    const p = comparePrefill(parseCompareParam('claude:gone-model,claude:haiku,nope:x,test_offline:some-model,claude:haiku'), options)
-    expect(p.configs).toEqual([{ engine: 'claude', model: 'haiku' }, { engine: 'test_offline' }])
+    const p = comparePrefill(parseCompareParam('claude:gone-model,claude:haiku,nope:x,ollama:some-model,claude:haiku'), options)
+    expect(p.configs).toEqual([{ engine: 'claude', model: 'haiku' }, { engine: 'ollama' }])
     expect(p.notes).toEqual([
       "Claude · gone-model isn't offered in this app any more, so it was left out.",
       "Nope · x isn't an engine the Benchmark Lab can run, so it was left out.",
-      'Offline test has no model choice here, so it runs its built-in model.',
+      'Ollama has no model choice here, so it runs its built-in model.',
     ])
   })
 
   it('stops at the most engines a run may have', () => {
-    const p = comparePrefill(parseCompareParam('claude:sonnet,claude:haiku,nllb:small,test_offline,claude'), { ...options, max_configs: 4 })
+    const p = comparePrefill(parseCompareParam('claude:sonnet,claude:haiku,nllb:small,ollama,claude'), { ...options, max_configs: 4 })
     expect(p.configs).toHaveLength(4)
     expect(p.notes).toEqual(['Claude was left out: at most 4 engines at once.'])
   })

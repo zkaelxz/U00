@@ -8,8 +8,8 @@ import type {
 } from '../../types/export'
 
 export const MAX_SPEAKER_COLORS = 200
-export const MAX_LABEL_CHARS = 100
-export const MAX_WRAP = 200
+const MAX_LABEL_CHARS = 100
+const MAX_WRAP = 200
 
 export interface AssForm {
   field: SubtitleField
@@ -186,7 +186,7 @@ export function exportFilename(base: string, dramaId: number, field: SubtitleFie
   return `${clean || `drama_${dramaId}_${field}`}.${ext}`
 }
 
-export interface ResolvedAssStyle {
+interface ResolvedAssStyle {
   font: string
   size: number
   bold: boolean

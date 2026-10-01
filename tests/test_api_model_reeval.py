@@ -46,8 +46,8 @@ def _session(admin):
 @pytest.fixture
 def world(isolated_db, monkeypatch):
     monkeypatch.setitem(translate_engines.ENGINES, "nllb", GoodEngine)
-    monkeypatch.setitem(translate_engines.ENGINES, "libretranslate", WeakEngine)
-    settings_service.set_settings({"default_engine": "libretranslate"})
+    monkeypatch.setitem(translate_engines.ENGINES, "ollama", WeakEngine)
+    settings_service.set_settings({"default_engine": "ollama"})
     lab.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv", "public")
     background_jobs.clear_job(lab.JOB_ID)
     yield
@@ -101,10 +101,10 @@ def test_full_flow_needs_explicit_promotion(world):
     assert started.status_code == 200 and started.json()["candidate_ids"] == [cid]
     _wait()
     over = c.get("/api/models/reeval").json()
-    assert over["production"]["engine"] == "libretranslate"
+    assert over["production"]["engine"] == "ollama"
     assert over["report"]["rows"][0]["quality_delta"] > 0
     assert c.post(f"/api/models/reeval/candidates/{cid}/promote", json={}).status_code == 422
-    assert c.get("/api/models/reeval").json()["production"]["engine"] == "libretranslate"
+    assert c.get("/api/models/reeval").json()["production"]["engine"] == "ollama"
     ok = c.post(f"/api/models/reeval/candidates/{cid}/promote", json={"confirm": True, "reason": "better"})
     assert ok.status_code == 200 and ok.json()["production"]["engine"] == "nllb"
     decisions = c.get("/api/models/reeval/decisions").json()["decisions"]

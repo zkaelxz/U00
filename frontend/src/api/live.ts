@@ -31,8 +31,8 @@ export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
 export const MAX_URL_LEN = 2000
 // The feed shows the newest lines (Streamlit showed 50); the page keeps more
 // in memory so a long session can't grow without bound.
-export const FEED_SHOWN = 50
-export const CUES_KEPT = 1000
+const FEED_SHOWN = 50
+const CUES_KEPT = 1000
 export const POLL_MS = 2000
 
 export interface LiveForm {

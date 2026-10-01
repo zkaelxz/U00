@@ -2,7 +2,7 @@
 // "Key: value" text. These helpers turn it into rows for the preview and
 // name the downloaded file. Pure, so they are unit-tested.
 
-export type ReportRow = {
+type ReportRow = {
   label: string
   value: string
   // Indented lines under a "Key:" line: "  - name: version" or "  <log line>".

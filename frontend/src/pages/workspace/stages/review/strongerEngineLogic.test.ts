@@ -21,7 +21,7 @@ const labels = {
 const suggestions = (over: Partial<StrongerEngineSuggestions> = {}): StrongerEngineSuggestions => ({
   drama_id: 3,
   engine: 'claude',
-  current_engine: 'test_offline',
+  current_engine: 'ollama',
   available: true,
   reason_labels: labels,
   lines: [

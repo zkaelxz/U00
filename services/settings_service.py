@@ -34,7 +34,6 @@ ENV_NAMES = {
     "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
     "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ollama_url": ("BAIHE_OLLAMA_URL",),
-    "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
     "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
     "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
 }
@@ -296,7 +295,7 @@ SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini")
 
 def _engine_choices() -> tuple:
     import translate_engines
-    return tuple(k for k in translate_engines.ENGINES if k != "test_offline")
+    return tuple(translate_engines.ENGINES)
 
 
 def engine_preference_choices() -> tuple:
@@ -509,7 +508,7 @@ def _auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool) -> str
 # route shape. Not secrets, but a URL with userinfo or a query could carry
 # one, so those are refused and never echoed back.
 
-ENDPOINT_NAMES = ("ollama_url", "libretranslate_url", "gpt_sovits_url")
+ENDPOINT_NAMES = ("ollama_url", "gpt_sovits_url")
 _MAX_URL_LENGTH = 300
 
 
