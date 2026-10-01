@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import type { DiagnosticsPackageUpdates } from '../../types/diagnostics'
 import type { DiagnosticsDenoStatus, DiagnosticsUpgradeCheckState } from '../../types/diagnosticsInstalls'
 import { canOfferDeno, denoNote, denoResultLine, showDeno } from './denoInstallText'
 import { jobProgressLine, jobRunning } from './jobPoll'
-import { testDetails, testLine } from './upgradeTestText'
+import { strandedTest, testDetails, testLine } from './upgradeTestText'
 
 const deno = (o: Partial<DiagnosticsDenoStatus> = {}): DiagnosticsDenoStatus => ({
   runtime_found: false, runtime_name: null, deno_on_path: false, deno_installed: false,
@@ -87,5 +88,24 @@ describe('Test first', () => {
       result: { ...result, verdict: 'broken', new_failures: ['tests/a.py::t'] }, output_tail: ['last'],
     }))
     expect(d.map((x) => x.title)).toEqual(['Fail with the update, pass today', 'Last lines of output'])
+  })
+})
+
+describe('Test first after leaving the page', () => {
+  const updates = (target: string) => ({
+    checked_at: 1, packages: { edge_tts: { target } },
+  }) as unknown as DiagnosticsPackageUpdates
+
+  it('a running or finished server test with no matching update row is shown on its own', () => {
+    expect(strandedTest(check({ job: running }), null)).toEqual({ name: 'edge_tts', target: '2.0.0' })
+    expect(strandedTest(check({ job: done, result }), null)).toEqual({ name: 'edge_tts', target: '2.0.0' })
+    expect(strandedTest(check({ job: running }), updates('2.1.0'))).toEqual({ name: 'edge_tts', target: '2.0.0' })
+  })
+
+  it('stays out of the way when the package row already shows it, or there is no test', () => {
+    expect(strandedTest(check({ job: running }), updates('2.0.0'))).toBeNull()
+    expect(strandedTest(check({ package: null, target: null }), null)).toBeNull()
+    expect(strandedTest(check(), null)).toBeNull()
+    expect(strandedTest(null, null)).toBeNull()
   })
 })

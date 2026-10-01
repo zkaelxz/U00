@@ -20,6 +20,7 @@ import {
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
+import { strandedTest } from './upgradeTestText'
 import { UpgradeTestResult } from './UpgradeTest'
 import { testConfirmLabel } from './upgradeTestText'
 import { useServerJobStatus } from './useServerJobStatus'
@@ -123,6 +124,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // "Test first": the server installs the update target into a throwaway
   // environment and runs the tests there (a job, minutes); polled while it runs.
   const upgradeTest = useServerJobStatus(getUpgradeCheck)
+  const stranded = strandedTest(upgradeTest.status, updates)
   const [testStart, setTestStart] = useState<{ name: string; error: string | null } | null>(null)
   const runTest = async (name: string, target: string) => {
     setTestStart({ name, error: null })
@@ -319,6 +321,12 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                   : 'Asks PyPI for newer releases; nothing is checked until you press it.')}
               </span>
             </div>
+            {stranded && (
+              <div data-testid="stranded-upgrade-test">
+                <p className="muted">Update test from earlier. It keeps running on the PC if you leave this page.</p>
+                <UpgradeTestResult state={upgradeTest.status} name={stranded.name} target={stranded.target} />
+              </div>
+            )}
             <ul aria-label="Installed packages" className="pkg-list">
               {deps.installed.map((d) => {
                 const u = updates?.packages[d.name]
