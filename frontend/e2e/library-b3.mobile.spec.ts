@@ -22,8 +22,8 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await page.route('**/api/library/series', (r) => r.fulfill({
     json: { items: [{ id: 1, name: 'A series with a long name', character_count: 9, glossary_term_count: 20, dramas: [ref(1, 'A rather long drama title that wraps on a phone', 'audio_drama'), ref(2, 'Second', 'manhua')] }] },
   }))
-  await page.goto('/')
-  await expect(page.getByTestId('stats-breakdown')).toBeVisible()
+  await page.goto('/#/library-tools')
+  await expect(page.getByRole('heading', { name: 'Library tools' })).toBeVisible()
   const tools = page.getByRole('region', { name: 'Library tools' })
   await tools.locator('summary', { hasText: 'Series' }).click()
   await tools.locator('summary', { hasText: 'Cost by drama' }).click()

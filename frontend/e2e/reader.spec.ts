@@ -120,7 +120,7 @@ test('the library detail panel links to the reader', async ({ page }) => {
 
 test('a Reading history name resumes reading', async ({ page }) => {
   python('db.save_progress(2, last_line_idx=45, last_page=2, percent_complete=51.1)')
-  await page.goto('/#/library')
+  await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await tools.locator('summary', { hasText: 'Reading history' }).click()
   const link = tools.getByRole('region', { name: 'Reading history' }).getByRole('link', { name: "Heaven Official's Blessing", exact: true })

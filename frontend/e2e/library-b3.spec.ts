@@ -58,7 +58,7 @@ const costs = {
 
 test('Cost by drama: tokens, cache hits, and free engines labelled (L04)', async ({ page }) => {
   await page.route('**/api/library/costs', (r) => r.fulfill({ json: costs }))
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await tools.locator('summary', { hasText: 'Cost by drama' }).click()
   const rows = tools.getByRole('region', { name: 'Cost by drama' }).getByRole('listitem')
@@ -84,7 +84,7 @@ const series = {
 
 test('Series view: only 2+ dramas, types, shared counts, Open (L05)', async ({ page }) => {
   await page.route('**/api/library/series', (r) => r.fulfill({ json: series }))
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await tools.locator('summary', { hasText: 'Series' }).click()
   const panel = tools.getByRole('region', { name: 'Series' })
@@ -101,7 +101,7 @@ test('Series view: only 2+ dramas, types, shared counts, Open (L05)', async ({ p
 test('Series fold is hidden when no series has 2+ dramas (L05)', async ({ page }) => {
   await page.route('**/api/library/series', (r) =>
     r.fulfill({ json: { items: [series.items[1]] } }))
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await expect(tools.locator('summary', { hasText: 'Cost by drama' }).or(tools.locator('summary', { hasText: 'Backup' })).first()).toBeVisible()
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)

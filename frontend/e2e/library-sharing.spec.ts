@@ -24,7 +24,8 @@ test('owner sees Private/Shared on their own items and can change them', async (
   await expect(ep.getByRole('button', { name: /Make private|Share with household/ })).toHaveCount(0)
   await expect(ep).toContainText('sharing is set for the whole series')
 
-  // The series control shows the server's 409 as is.
+  // The series control (on Library tools) shows the server's 409 as is.
+  await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await tools.locator('summary', { hasText: 'Series' }).click()
   await tools.getByRole('button', { name: 'Make private: Saga' }).click()

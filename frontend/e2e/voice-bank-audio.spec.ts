@@ -39,7 +39,7 @@ test('voice bank: Play only where a clip exists; plays the entry clip; a refused
       return r.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
     return r.fulfill({ body: wav(), headers: { 'content-type': 'audio/wav', 'x-content-type-options': 'nosniff' } })
   })
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   await tools(page).locator('summary', { hasText: /^Voice bank/ }).click()
   const list = tools(page).locator('.deletable-list')
   await expect(list.locator('li', { hasText: 'Lost clip' }).getByRole('button', { name: /Play/ })).toHaveCount(0)

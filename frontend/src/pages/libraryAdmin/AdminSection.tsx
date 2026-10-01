@@ -56,6 +56,9 @@ function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob })
           Export all translated ({exportable})
         </button>
       </div>
+      {!exportable && (
+        <p className="muted">Still needed: a translated drama. <a href="#/library">Pick one in the Library</a> and translate it.</p>
+      )}
       <AdminJobLine job={job} busyText="Exporting…" artifact="export" />
       <ErrorBanner error={job.startError} describe={SERVER} />
     </div>

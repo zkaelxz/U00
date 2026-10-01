@@ -43,7 +43,7 @@ test('Settings card fits a phone with 44px targets', async ({ page }) => {
 
 test('restore one drama from the newest copy on a phone', async ({ page }) => {
   const state = await mockBackups(page)
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const summary = page.locator('summary', { hasText: 'Backup & storage' })
   const details = page.locator('details.section', { has: summary })
   if ((await details.getAttribute('open')) === null) await summary.click()
@@ -87,7 +87,7 @@ test('restore one drama from the newest copy on a phone', async ({ page }) => {
 
 test('import from a backup file fits a phone with 44px targets', async ({ page }) => {
   await mockBackups(page)
-  await page.goto('/')
+  await page.goto('/#/library-tools')
   const summary = page.locator('summary', { hasText: 'Backup & storage' })
   const details = page.locator('details.section', { has: summary })
   if ((await details.getAttribute('open')) === null) await summary.click()

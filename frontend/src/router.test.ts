@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { parseRoute, routeHref } from './router'
 
 describe('parseRoute', () => {
+  it('parses the Library tools page', () => {
+    expect(parseRoute('#/library-tools')).toEqual({ name: 'library-tools' })
+    expect(parseRoute('#/library-tools/x')).toEqual({ name: 'library' })
+  })
+
   it('defaults to the library', () => {
     for (const h of ['', '#', '#/', '#/library', '#/nope', '#/settings/extra', '#/drama', '#/drama/abc', '#/drama/0/source', '#/drama/1/a/b']) {
       expect(parseRoute(h)).toEqual({ name: 'library' })
