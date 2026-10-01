@@ -152,13 +152,29 @@ class TestEnsurePytest:
     def test_a_missing_pytest_is_added_to_the_throwaway_environment_only(self, monkeypatch):
         items, calls = self._run(monkeypatch, importable=False)
         assert items[-1] == {"ok": True}
-        assert len(calls) == 1
-        assert calls[0][:5] == ["/real/python", "-m", "pip", "--python", "/venv/python"]
-        assert "pytest>=7.4" in calls[0]
+        assert len(calls) == 2
+        assert all(c[:5] == ["/real/python", "-m", "pip", "--python", "/venv/python"] for c in calls)
+        assert "pytest>=7.4" in calls[0] and "pytest-xdist" in calls[1]
 
     def test_a_failed_pytest_install_is_reported_not_ok(self, monkeypatch):
         items, _ = self._run(monkeypatch, importable=False, pip_returncode=1)
         assert items[-1] == {"ok": False}
+
+    def test_a_failed_xdist_install_does_not_fail_the_run(self, monkeypatch):
+        state = {"n": 0}
+
+        class Proc:
+            returncode = 1
+
+        monkeypatch.setattr(diagnostics.subprocess, "run", lambda *a, **k: Proc())
+
+        def fake_stream(cmd, timeout, **kw):
+            state["n"] += 1
+            yield {"returncode": 0 if state["n"] == 1 else 1, "timed_out": False}
+
+        monkeypatch.setattr(diagnostics, "_stream_process", fake_stream)
+        items = list(diagnostics._ensure_pytest("/venv/python", "/real/python", 60))
+        assert items[-1] == {"ok": True} and state["n"] == 2
 
 
 class TestPipConflicts:
