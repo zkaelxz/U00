@@ -45,6 +45,19 @@ class TestService:
         assert settings_service.get_use_gpu() is True
         assert settings_service.get_gemini_free_tier() is True
 
+    def test_gpu_max_parallel_defaults_to_one_and_is_clamped(self, isolated_db):
+        assert settings_service.get_settings_overview()["gpu_max_parallel"] == 1
+        assert settings_service.set_settings({"gpu_max_parallel": 3})["gpu_max_parallel"] == 3
+        assert background_jobs.get_gpu_max_parallel() == 3
+        assert settings_service.set_settings({"gpu_max_parallel": 99})["gpu_max_parallel"] == 4
+        assert settings_service.set_settings({"gpu_max_parallel": 0})["gpu_max_parallel"] == 1
+
+    @pytest.mark.parametrize("bad", [True, "2", 2.5, None])
+    def test_gpu_max_parallel_must_be_a_whole_number(self, isolated_db, bad):
+        with pytest.raises(InvalidInputError):
+            settings_service.set_settings({"use_gpu": True, "gpu_max_parallel": bad})
+        assert settings_service.get_use_gpu() is False  # nothing written
+
     def test_unknown_key_rejected_without_echo(self, isolated_db):
         with pytest.raises(InvalidInputError) as ei:
             settings_service.set_settings({"groq_key": "sk-secret-value"})

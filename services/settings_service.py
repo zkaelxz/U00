@@ -209,6 +209,7 @@ def get_settings_overview(env_path: str = None) -> dict:
     return {
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled(),
+        "gpu_max_parallel": background_jobs.get_gpu_max_parallel(),
         "notify_on_completion": background_jobs.get_notify_on_completion(),
         "use_gpu": get_use_gpu(),
         "gemini_free_tier": get_gemini_free_tier(),
@@ -250,7 +251,11 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
     offending value (it could be a pasted secret)."""
     cleaned = {}
     for key, value in updates.items():
-        if key in _WRITABLE_SETTINGS:
+        if key == "gpu_max_parallel":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise InvalidInputError("'gpu_max_parallel' must be a whole number.")
+            cleaned[key] = value  # clamped to 1..4 by the setter
+        elif key in _WRITABLE_SETTINGS:
             if not isinstance(value, bool):
                 raise InvalidInputError(f"Setting '{key}' must be true or false.")
             cleaned[key] = value
@@ -259,7 +264,9 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
         else:
             raise InvalidInputError("Unknown or non-writable setting.")
     for key, value in cleaned.items():
-        if key in _WRITABLE_SETTINGS:
+        if key == "gpu_max_parallel":
+            background_jobs.set_gpu_max_parallel(value)
+        elif key in _WRITABLE_SETTINGS:
             _WRITABLE_SETTINGS[key](value)
         else:
             import db

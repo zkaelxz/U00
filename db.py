@@ -737,13 +737,14 @@ def init_db():
             created_at TEXT
         );
 
-        -- Step 25w: cross-process "one GPU job at a time" guard. background_jobs.py's
-        -- own guard (Step 5c) is plain in-process module state, invisible to a
-        -- separate OS process -- this single-row table is the shared coordination
-        -- point so cli.py's GPU-touching commands and the live Streamlit UI can't
-        -- both hold the GPU at once. See try_acquire_gpu_lock/release_gpu_lock below.
+        -- Step 25w: cross-process GPU guard. background_jobs.py's own guard
+        -- (Step 5c) is plain in-process module state, invisible to a separate OS
+        -- process -- this table is the shared coordination point so cli.py's
+        -- GPU-touching commands and the live UI can't hold more GPU slots than
+        -- the "GPU jobs at once" setting allows. One row per holder; id is the
+        -- slot, and the CHECK is the hard cap. See try_acquire_gpu_lock below.
         CREATE TABLE IF NOT EXISTS gpu_lock (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
             holder TEXT NOT NULL,
             description TEXT,
             acquired_at REAL NOT NULL,
@@ -1230,6 +1231,7 @@ def init_db():
         conn.execute("UPDATE presets SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
         conn.commit()
     _init_benchmark_lab_schema()
+    _migrate_gpu_lock_slots()
     _migrate_line_refs_to_ids()
     _migrate_step26e_profiles()
 
@@ -4234,37 +4236,93 @@ def get_month_spend(now: datetime.datetime = None) -> float:
 # background_jobs.py's own progress-poll cadence, so a live job's regular
 # heartbeat_gpu_lock() calls always land well inside this window.
 GPU_LOCK_STALE_SECONDS = 600
+# Matches the gpu_lock table's CHECK: no caller can hold more slots.
+GPU_LOCK_MAX_SLOTS = 4
 
 
-def try_acquire_gpu_lock(holder: str, description: str = None) -> bool:
-    """Cross-process "one GPU job at a time" guard. background_jobs.py's
-    own guard (Step 5c) is plain in-process module state -- invisible to a
-    separate OS process, so a `cli.py` run and the live Streamlit UI could
-    each start their own GPU-touching job with neither ever seeing the
-    other. This single-row table in the shared library.db is the
-    coordination point instead (SQLite's own transaction handling makes
-    the read-then-write below atomic across processes), not a new
-    subsystem.
+def _migrate_gpu_lock_slots():
+    """gpu_lock used to allow a single row (CHECK (id = 1)); it now has one
+    row per holder. A CHECK can't be changed with ALTER TABLE, so the table
+    is rebuilt once, in one transaction, keeping any held row."""
+    conn = get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    def single_row():
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gpu_lock'").fetchone()
+        return bool(row) and "CHECK(id=1)" in "".join((row[0] or "").split())
 
-    Returns True if the lock was free, already held by `holder` itself, or
-    abandoned (its holder's last heartbeat is older than
-    GPU_LOCK_STALE_SECONDS) -- and is now held by `holder`. Returns False
-    if someone else genuinely holds it right now."""
+    try:
+        if not single_row():
+            return
+        conn.execute("BEGIN IMMEDIATE")
+        if not single_row():  # another process migrated it while this one waited
+            conn.execute("ROLLBACK")
+            return
+        conn.execute("DROP TABLE IF EXISTS gpu_lock_new")
+        conn.execute("""
+            CREATE TABLE gpu_lock_new (
+                id INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
+                holder TEXT NOT NULL,
+                description TEXT,
+                acquired_at REAL NOT NULL,
+                heartbeat_at REAL NOT NULL
+            )""")
+        conn.execute("INSERT INTO gpu_lock_new SELECT id, holder, description, acquired_at, heartbeat_at "
+                     "FROM gpu_lock")
+        conn.execute("DROP TABLE gpu_lock")
+        conn.execute("ALTER TABLE gpu_lock_new RENAME TO gpu_lock")
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def try_acquire_gpu_lock(holder: str, description: str = None, max_holders: int = 1,
+                         settle_seconds: float = 0) -> bool:
+    """Cross-process GPU guard. background_jobs.py's own guard (Step 5c)
+    is plain in-process module state -- invisible to a separate OS
+    process, so a `cli.py` run and the live UI could each start their own
+    GPU-touching job with neither ever seeing the other. The gpu_lock
+    table in the shared library.db is the coordination point instead
+    (BEGIN IMMEDIATE makes the read-then-write below atomic across
+    processes).
+
+    Returns True if `holder` already holds a slot (refreshed), or fewer
+    than `max_holders` (at most GPU_LOCK_MAX_SLOTS) other live holders
+    exist -- a holder whose last heartbeat is older than
+    GPU_LOCK_STALE_SECONDS is abandoned and doesn't count -- and is now
+    holding a slot. With `settle_seconds`, joining other holders is also
+    refused until the newest of them has held its slot that long, so a
+    free-VRAM reading taken before this call already includes that
+    holder's model; checked here so two processes reading the same free
+    VRAM can't both join on it. Returns False otherwise."""
     now = time.time()
+    max_holders = max(1, min(int(max_holders), GPU_LOCK_MAX_SLOTS))
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT holder, heartbeat_at FROM gpu_lock WHERE id = 1").fetchone()
-        if row and row["holder"] != holder and (now - row["heartbeat_at"]) < GPU_LOCK_STALE_SECONDS:
-            conn.execute("ROLLBACK")
-            return False
+        rows = conn.execute("SELECT id, holder, acquired_at, heartbeat_at FROM gpu_lock").fetchall()
+        mine = next((r for r in rows if r["holder"] == holder), None)
+        if mine is not None:
+            slot = mine["id"]
+        else:
+            live = [r for r in rows if (now - r["heartbeat_at"]) < GPU_LOCK_STALE_SECONDS]
+            if len(live) >= max_holders or (
+                    live and settle_seconds
+                    and now - max(r["acquired_at"] for r in live) < settle_seconds):
+                conn.execute("ROLLBACK")
+                return False
+            taken = {r["id"] for r in live}
+            slot = next(i for i in range(1, GPU_LOCK_MAX_SLOTS + 1) if i not in taken)
         conn.execute("""
             INSERT INTO gpu_lock (id, holder, description, acquired_at, heartbeat_at)
-            VALUES (1, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET holder = excluded.holder,
                 description = excluded.description, acquired_at = excluded.acquired_at,
                 heartbeat_at = excluded.heartbeat_at
-        """, (holder, description, now, now))
+        """, (slot, holder, description, now, now))
         conn.commit()
         return True
     finally:
@@ -4275,26 +4333,39 @@ def heartbeat_gpu_lock(holder: str):
     """Refreshes a held lock's heartbeat so a still-running job doesn't
     look abandoned to another process partway through a long run."""
     with contextlib.closing(get_conn()) as conn:
-        conn.execute("UPDATE gpu_lock SET heartbeat_at = ? WHERE id = 1 AND holder = ?",
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = ? WHERE holder = ?",
                      (time.time(), holder))
         conn.commit()
 
 
 def release_gpu_lock(holder: str):
-    """No-ops if `holder` isn't the current lock holder -- e.g. it already
-    went stale and was taken over by someone else, so releasing it now
-    would release the new holder's lock instead of this one's."""
+    """No-ops if `holder` holds no slot -- e.g. it already went stale and
+    was taken over by someone else, so releasing it now would release the
+    new holder's slot instead of this one's."""
     with contextlib.closing(get_conn()) as conn:
-        conn.execute("DELETE FROM gpu_lock WHERE id = 1 AND holder = ?", (holder,))
+        conn.execute("DELETE FROM gpu_lock WHERE holder = ?", (holder,))
         conn.commit()
 
 
-def gpu_lock_status():
-    """(holder, description) of whoever currently holds the cross-process
-    GPU lock, or (None, None) if it's free or the holder went stale."""
+def gpu_lock_holder_count(exclude_holder: str = None) -> int:
+    """How many live (not stale) holders the GPU lock has, not counting
+    `exclude_holder`."""
     with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT holder, description, heartbeat_at FROM gpu_lock WHERE id = 1").fetchone()
-    if not row or (time.time() - row["heartbeat_at"]) >= GPU_LOCK_STALE_SECONDS:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM gpu_lock WHERE heartbeat_at > ? AND holder IS NOT ?",
+            (time.time() - GPU_LOCK_STALE_SECONDS, exclude_holder)).fetchone()
+    return int(row[0])
+
+
+def gpu_lock_status():
+    """(holder, description) of a live holder of the cross-process GPU
+    lock (the lowest slot), or (None, None) if none holds it or every
+    holder went stale."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT holder, description FROM gpu_lock WHERE heartbeat_at > ? "
+                           "ORDER BY id LIMIT 1",
+                           (time.time() - GPU_LOCK_STALE_SECONDS,)).fetchone()
+    if not row:
         return None, None
     return row["holder"], row["description"]
 
