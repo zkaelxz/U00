@@ -1,6 +1,6 @@
 # Status
 
-What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 1cd9d01, cleanup #598) on 2026-10-01.
+What's done, in flight and next. Checked against `git log origin/baihe-subtitler` (at 6f6ea23, after #603) on 2026-10-01.
 Each session replaces its own entry here when it finishes. Git and the PR list win over this file.
 
 ## Where the app is
@@ -18,13 +18,10 @@ Each session replaces its own entry here when it finishes. Git and the PR list w
 - Merged since: WP2 #539, WP3 #543, WP4 #540, backup ownership #542, import cleanup #541, comic pager #538, step 142 export (#546,
   `POST /api/library/admin/backup/user`, PC only; not included: tracked series and other `sources.db` data, the voice bank, settings,
   other profiles' reading data), the WP5 boot service (#575) with its port selection (#597), Caddy and owner-run enable/disable/status (#592),
-  and the library temp folder (#595).
+  the library temp folder (#595), the service's `set-port` command, the "Baihe Studio service" Start-menu menu and the Setup lock (#599), the Diagnostics "Ports" panel (#602), the Workspace and Sources e2e checks (#601) and the translation-memory e2e fix (#603).
 
 ## In flight and queued
 Open (lead session merges once CI is green):
-- #599 (PR): boot service `set-port`, a "Baihe Studio service" Start-menu menu, and the launcher follows the service port. Fixes in progress.
-- `diagnostics-ports` (branch, no PR yet): a Diagnostics "Ports" panel.
-- `automate-manual-checks` (branch, no PR): unmerged e2e tests.
 - #589 is parked unmerged (see Live capture and SSRF below).
 - WP5 is merged except the owner's real-PC checks and network steps: forward router port 443, a domain/DDNS name, the firewall rule `enable-remote` prints, and the Google client values plus `BAIHE_PUBLIC_URL` in `.env`.
 - Step 141 build (after its spec).
@@ -44,7 +41,7 @@ Live capture and SSRF (owner decision 2026-09-30):
 
 Notes:
 - #596 removed the Streamlit-only functions `eta_text`, `autotune_subprocess_worker`, `distinct_custom_tags`, `redundant_tts_install_warning`, `manual_lines_that_would_change`, `get_epub_chapter_count`, `lookup_metadata` (and `lookup_metadata_from_text`), `can_probably_embed`, `pages_to_pdf`, `line_audio_clip`, `parse_timestamp`, `unsaved_line_count` and `stage_statuses_from_index`. Docs and specs that still mention them are historical.
-- The boot service's port is chosen with `BAIHE_API_PORT`; run Setup again so the service follows (`docs/windows-installer-design.md` §11). #597 is merged; #599 (open) adds `set-port`.
+- The boot service's port: `BAIHE_API_PORT` is used on a fresh install only (`docs/windows-installer-design.md` §11). The port is changed with Start menu > Baihe Studio service > Change port (`service.py set-port`, #599); once the service is installed its stored port wins and the launcher follows it.
 - Auto backup (`services/auto_backup_service.py`) keeps 2 daily and 2 weekly copies, per library. The library `tmp` folder (`storage.TEMP_DIRNAME`: job work folders and partial exports, swept of leftovers at startup, #595) is left out of backups and kept across restores.
 
 Parked import and export follow-ups (owner decision 2026-09-30, revisit only if they cause trouble):
