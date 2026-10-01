@@ -138,8 +138,10 @@
 .job-cards > li, .job-cards strong { min-width: 0; overflow-wrap: anywhere; }
 /* A long failure message wraps inside its own cell and is cut to a few lines. */
 .job-detail { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.job-name { min-width: 10rem; overflow-wrap: anywhere; }
+/* Table cells ignore min-width, so the name column gets a width and the time never wraps. */
+[data-testid='job-list'] td.job-name { width: 14rem; overflow-wrap: break-word; }
 [data-testid='job-list'] td:nth-child(2) { max-width: 24rem; }
+[data-testid='job-list'] td:nth-child(3) { white-space: nowrap; }
 .job-cards .job-cancel { display: flex; justify-content: flex-end; }
 
 /* Job history entries. */
@@ -204,6 +206,8 @@
 .model-note, .model-help { font-size: var(--text-sm); }
 .model-row.sev-3 .model-message { color: var(--bad); }
 .model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.model-choose { display: grid; gap: var(--space-1); }
+.model-choose select { max-width: 100%; min-width: 0; }
 .model-checks { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .model-checks > li.warn { color: var(--warn); }
 

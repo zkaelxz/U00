@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { checkModelProviders, getModelStatus, setOfferProviderModels, switchPresetModel, type ModelStatus, type ModelStatusItem } from '../../api/models'
+import { checkModelProviders, clearModelOverride, getModelStatus, setModelOverride, setOfferProviderModels, switchPresetModel, type ModelStatus, type ModelStatusItem } from '../../api/models'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -10,16 +10,17 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import {
-  compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
-  modelStatusTone, offerModelsNote, OFFER_MODELS_HELP, OFFER_MODELS_LABEL, splitModelItems, whereLabel,
+  canChooseModel, compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
+  modelStatusTone, noCandidatesLine, offerModelsNote, OFFER_MODELS_HELP, OFFER_MODELS_LABEL, overrideLine, splitModelItems, whereLabel,
 } from './modelHealth'
 
 /**
  * "Model health" (Step 40): every model this app is set up to use (built-in
  * defaults, workflow tiers, saved presets), with the ones that are retired,
  * deprecated, no longer listed or older shown first. The provider check is a
- * button, never automatic, and PC only; so is switching a preset, which asks
- * for a second press. Nothing switches by itself.
+ * button, never automatic, and PC only; so is switching a preset or choosing
+ * another model for a built-in default or tier, which ask for a second press.
+ * Nothing switches by itself.
  */
 export function ModelHealthCard({ pc }: { pc: PcMode }) {
   const [status, setStatus] = useState<ModelStatus | null>(null)
@@ -88,6 +89,44 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
         setBusy(null)
         setError(modelHealthError(e))
         // A stale row (409) or a deleted preset (404): show what is there now.
+        load()
+      },
+    )
+  }
+
+  const chooseModel = (item: ModelStatusItem, to: string) => {
+    if (!item.key || (item.kind !== 'default' && item.kind !== 'tier')) return
+    setBusy(`choose:${item.kind}|${item.key}`)
+    setError(null)
+    setNotice(null)
+    setModelOverride(item.kind, item.key, item.model, to).then(
+      () => {
+        setBusy(null)
+        setNotice(`${whereLabel(item)} now uses ${to}.`)
+        load()
+      },
+      (e: unknown) => {
+        setBusy(null)
+        setError(modelHealthError(e))
+        load()
+      },
+    )
+  }
+
+  const restoreBuiltIn = (item: ModelStatusItem) => {
+    if (!item.key || (item.kind !== 'default' && item.kind !== 'tier')) return
+    setBusy(`choose:${item.kind}|${item.key}`)
+    setError(null)
+    setNotice(null)
+    clearModelOverride(item.kind, item.key).then(
+      () => {
+        setBusy(null)
+        setNotice(`${whereLabel(item)} uses the built-in ${item.builtin_model ?? 'model'} again.`)
+        load()
+      },
+      (e: unknown) => {
+        setBusy(null)
+        setError(modelHealthError(e))
         load()
       },
     )
@@ -168,7 +207,16 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
           {attention.length > 0 ? (
             <ul className="model-list" aria-label="Models that need attention">
               {attention.map((item) => (
-                <ModelRow key={rowKey(item)} item={item} canAct={canAct} busy={busy} onSwitch={() => switchPreset(item)} />
+                <ModelRow
+                  key={rowKey(item)}
+                  item={item}
+                  canAct={canAct}
+                  busy={busy}
+                  checkedAt={status.checked_at}
+                  onSwitch={() => switchPreset(item)}
+                  onChoose={(to) => chooseModel(item, to)}
+                  onUseBuiltIn={() => restoreBuiltIn(item)}
+                />
               ))}
             </ul>
           ) : (
@@ -184,7 +232,16 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
             >
               <ul className="model-list compact" aria-label="Other configured models">
                 {others.map((item) => (
-                  <ModelRow key={rowKey(item)} item={item} canAct={false} busy={null} onSwitch={() => undefined} />
+                  <ModelRow
+                    key={rowKey(item)}
+                    item={item}
+                    canAct={canAct}
+                    busy={busy}
+                    checkedAt={status.checked_at}
+                    onSwitch={() => switchPreset(item)}
+                    onChoose={(to) => chooseModel(item, to)}
+                    onUseBuiltIn={() => restoreBuiltIn(item)}
+                  />
                 ))}
               </ul>
             </Section>
@@ -217,11 +274,14 @@ function othersSummary(items: ModelStatusItem[]): string {
 
 const rowKey = (i: ModelStatusItem) => `${i.kind}|${i.preset_id ?? i.where}|${i.engine}|${i.model}`
 
-function ModelRow({ item, canAct, busy, onSwitch }: {
+function ModelRow({ item, canAct, busy, checkedAt, onSwitch, onChoose, onUseBuiltIn }: {
   item: ModelStatusItem
   canAct: boolean
   busy: string | null
+  checkedAt: string | null
   onSwitch: () => void
+  onChoose: (to: string) => void
+  onUseBuiltIn: () => void
 }) {
   const href = item.severity >= 1 ? compareHref(item) : null
   const help = item.severity >= 1 ? kindHelp(item) : null
@@ -261,6 +321,67 @@ function ModelRow({ item, canAct, busy, onSwitch }: {
         </div>
       )}
       {switchable && !canAct && <p className="muted model-help">Switching a preset is PC only.</p>}
+      {canChooseModel(item) && (
+        <ModelChooser item={item} canAct={canAct} busy={busy} checkedAt={checkedAt} onChoose={onChoose} onUseBuiltIn={onUseBuiltIn} />
+      )}
     </li>
+  )
+}
+
+function ModelChooser({ item, canAct, busy, checkedAt, onChoose, onUseBuiltIn }: {
+  item: ModelStatusItem
+  canAct: boolean
+  busy: string | null
+  checkedAt: string | null
+  onChoose: (to: string) => void
+  onUseBuiltIn: () => void
+}) {
+  const candidates = item.candidates ?? []
+  const [picked, setPicked] = useState('')
+  const to = candidates.includes(picked) ? picked : (candidates[0] ?? '')
+  const key = `choose:${item.kind}|${item.key}`
+  const selectId = `model-choose-${item.kind}-${item.key}`
+  const override = overrideLine(item)
+  const empty = noCandidatesLine(item, checkedAt)
+  return (
+    <div className="model-choose">
+      {override && <p className="model-help" data-testid="model-override-line">{override}</p>}
+      {!canAct ? (
+        <p className="muted model-help">Choosing another model is PC only.</p>
+      ) : (
+        <div className="model-actions">
+          {candidates.length > 0 ? (
+            <>
+              <label htmlFor={selectId}>Choose another model</label>
+              <select id={selectId} value={to} disabled={busy !== null} onChange={(e) => setPicked(e.target.value)}>
+                {candidates.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <ConfirmButton
+                name={`${whereLabel(item)} to ${to}`}
+                label={`Use ${to}…`}
+                ariaLabel={`Use ${to} for ${whereLabel(item)}`}
+                confirmLabel={`Confirm use ${to}`}
+                verb="use"
+                tone="primary"
+                busy={busy === key}
+                disabled={busy !== null && busy !== key}
+                onConfirm={() => onChoose(to)}
+              />
+            </>
+          ) : (
+            empty && <p className="muted model-help">{empty}</p>
+          )}
+          {item.is_override && (
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy !== null} onClick={onUseBuiltIn}>
+              Use the built-in again
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

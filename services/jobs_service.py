@@ -527,14 +527,14 @@ def _is_finished(record: Optional[dict]) -> bool:
             and (live is None or live.get("status") in _FINISHED_STATUSES))
 
 
-def delete_job(job_id: str, confirm: bool = False) -> dict:
+def delete_job(job_id: str, confirm: bool = False, principal=None) -> dict:
     """Permanently removes a finished job's record (in-memory and
-    job_records). PC-owner action, so no per-user visibility filter.
+    job_records). PC-owner action; a job `principal` may not see is a 404.
     Unknown id -> NotFoundError; queued/running -> ConflictError (409)."""
     if confirm is not True:
         raise InvalidInputError("Deleting a job needs confirm=true.")
     record = db.get_job_record(job_id)
-    if record is None:
+    if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
     if not _is_finished(record):
         raise ConflictError(f"Job {job_id!r} is still {record.get('status')}; cancel it first.")

@@ -51,5 +51,6 @@ def clear_finished_jobs(body: DeleteConfirm):
              summary="PC only: permanently delete one finished job record (confirm=true)",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}})
-def delete_job(body: DeleteConfirm, job_id: str = Path(min_length=1)):
-    return JobDeleteResult(**jobs_service.delete_job(job_id, confirm=body.confirm))
+def delete_job(request: Request, body: DeleteConfirm, job_id: str = Path(min_length=1)):
+    return JobDeleteResult(**jobs_service.delete_job(
+        job_id, confirm=body.confirm, principal=request.state.principal))

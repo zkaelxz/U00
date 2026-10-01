@@ -71,6 +71,7 @@ OWNERSHIP_EXEMPT_PARAMS = {
 JOB_ROUTES = {
     ("GET", "/api/jobs/{job_id}"): "jobs_service.get_job -> can_see_job",
     ("POST", "/api/jobs/{job_id}/cancel"): "jobs_service.cancel_job -> can_see_job",
+    ("POST", "/api/jobs/{job_id}/delete"): "jobs_service.delete_job -> can_see_job",
     ("GET", "/api/jobs/{job_id}/stages"): "jobs_service.get_job_stages -> can_see_job",
     ("GET", "/api/sources/jobs/{job_id}/result"):
         "sources_search_service.get_job_result -> can_see_job",
@@ -941,7 +942,9 @@ class TestJobs:
         for method, path in JOB_ROUTES:
             url = path.replace("{job_id}", "sources_search").replace("{session_id}", sid)
             r = client.request(method, url, headers=world["b"])
-            assert r.status_code == 404, (method, url, r.status_code)
+            # PC-only: refused for any remote caller before the owner check.
+            expected = 403 if path.endswith("/delete") else 404
+            assert r.status_code == expected, (method, url, r.status_code)
             if method == "GET":
                 assert client.get(url, headers=world["a"]).status_code == 200, url
 

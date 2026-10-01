@@ -27,7 +27,6 @@ new drama columns, so no db.py change. The API reads lines/config from the
 DB, not unsaved browser state. D2: keys/secrets, client-supplied URLs and
 the novel text are never returned -- booleans only.
 """
-import inspect
 import json
 import os
 import re
@@ -117,7 +116,8 @@ def get_translate_config(drama_id: int) -> dict:
             {"key": k, "label": t["label"], "translation_engine": t["translation_engine"],
              "engine_model": t["engine_model"], "reflect": bool(t["reflect"]),
              "auto_qc": bool(t["auto_qc"])}
-            for k, t in translate_engines.WORKFLOW_TIERS.items()],
+            for k in translate_engines.WORKFLOW_TIERS
+            for t in [translate_engines.effective_tier(k)]],
         "defaults": get_translate_config_defaults(is_novel),
         "default_locale": settings_service.get_preference("default_locale"),
         "default_style_note": settings_service.get_preference("default_style_note"),
@@ -149,8 +149,7 @@ def ollama_reachable() -> bool:
 
 
 def _default_model(engine_name: str) -> Optional[str]:
-    param = inspect.signature(translate_engines.ENGINES[engine_name].__init__).parameters.get("model")
-    return param.default if param is not None and param.default is not inspect.Parameter.empty else None
+    return translate_engines.effective_default_model(engine_name)
 
 
 def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str = None,
@@ -284,7 +283,8 @@ def _require_offered_model(engine_name: str, model) -> None:
         raise InvalidInputError("That model isn't offered for this engine.")
     models = next((e["models"] for e in translate_service.list_engines()
                    if e["name"] == engine_name), None)
-    allowed = models if models is not None else [_default_model(engine_name)]
+    allowed = models if models is not None else [
+        translate_engines.builtin_default_model(engine_name), _default_model(engine_name)]
     if not isinstance(model, str) or model not in allowed:
         raise InvalidInputError("That model isn't offered for this engine.")
 
@@ -735,7 +735,7 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
     Reflect and Auto QC are returned for the client to put into its form,
     which Streamlit did through session_state. Starts nothing."""
     drama = _require_drama(drama_id)
-    t = translate_engines.WORKFLOW_TIERS.get(tier) if isinstance(tier, str) else None
+    t = translate_engines.effective_tier(tier)
     if t is None:
         raise InvalidInputError("Unknown workflow tier.")
     if drama.get("translation_engine") != t["translation_engine"]:
