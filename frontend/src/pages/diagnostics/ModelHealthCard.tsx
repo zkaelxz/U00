@@ -196,6 +196,12 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
               {checks.map((c) => (
                 <li key={c.engine} className={c.ok ? undefined : 'warn'}>
                   <strong>{c.label}:</strong> {c.text}
+                  {c.detail && (
+                    <details>
+                      <summary>Details</summary>
+                      <span className="muted">{c.detail}</span>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>
