@@ -5,7 +5,7 @@ import type { ModelStatusItem } from '../../api/models'
 import { parseCompareParam } from '../benchmark/benchmarkForm'
 import { parseRoute } from '../../router'
 import {
-  compareHref, engineCheckLines, formatCheckedAt, healthBadge, kindHelp, lastCheckedLine, modelHealthError,
+  canChooseModel, compareHref, noCandidatesLine, overrideLine, engineCheckLines, formatCheckedAt, healthBadge, kindHelp, lastCheckedLine, modelHealthError,
   modelStatusLabel, modelStatusTone, offerModelsNote, OFFER_MODELS_HELP, sortModelItems, splitModelItems, whereLabel,
 } from './modelHealth'
 
@@ -75,8 +75,8 @@ describe('row text', () => {
   })
 
   it('built-in defaults and tiers say to update the app; presets without a switch say where to change them', () => {
-    expect(kindHelp(item({ kind: 'default' }))).toBe('Built into the app — update the app to change it.')
-    expect(kindHelp(item({ kind: 'tier' }))).toBe('Built into the app — update the app to change it.')
+    expect(kindHelp(item({ kind: 'default' }))).toBeNull()
+    expect(kindHelp(item({ kind: 'tier' }))).toBeNull()
     expect(kindHelp(item({ kind: 'preset', can_switch: true, replacement: 'b' }))).toBeNull()
     expect(kindHelp(item({ kind: 'preset', can_switch: false, replacement: 'new-model' }))).toMatch(/^new-model isn't offered for this engine/)
     expect(kindHelp(item({ kind: 'preset', can_switch: false }))).toBe("To pick a different model, change the preset in a drama's Translate step.")
@@ -165,5 +165,26 @@ describe('offerModelsNote', () => {
   })
   it('explains the cost estimate', () => {
     expect(OFFER_MODELS_HELP).toMatch(/highest rate/)
+  })
+})
+
+describe('choosing another model for a default or tier', () => {
+  it('only defaults and tiers with a key can be replaced', () => {
+    expect(canChooseModel(item({ kind: 'default', key: 'deepseek' }))).toBe(true)
+    expect(canChooseModel(item({ kind: 'tier', key: 'standard' }))).toBe(true)
+    expect(canChooseModel(item({ kind: 'default' }))).toBe(false)
+    expect(canChooseModel(item({ kind: 'preset', key: 'x' }))).toBe(false)
+  })
+
+  it('says what was chosen instead of the built-in, in plain words', () => {
+    const o = item({ model: 'deepseek-v4-pro', builtin_model: 'deepseek-v4-flash', is_override: true })
+    expect(overrideLine(o)).toBe('You chose deepseek-v4-pro instead of the built-in deepseek-v4-flash.')
+    expect(overrideLine(item({ is_override: false, builtin_model: 'x' }))).toBeNull()
+  })
+
+  it('asks for a check first when nothing was listed yet', () => {
+    expect(noCandidatesLine(item({ candidates: [] }), null)).toMatch(/Check providers now/)
+    expect(noCandidatesLine(item({ candidates: [] }), '2026-10-01T00:00:00')).toBe('The last check listed no other model to choose.')
+    expect(noCandidatesLine(item({ candidates: ['a'] }), null)).toBeNull()
   })
 })

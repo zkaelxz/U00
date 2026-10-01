@@ -199,6 +199,8 @@
 .model-note, .model-help { font-size: var(--text-sm); }
 .model-row.sev-3 .model-message { color: var(--bad); }
 .model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.model-choose { display: grid; gap: var(--space-1); }
+.model-choose select { max-width: 100%; min-width: 0; }
 .model-checks { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .model-checks > li.warn { color: var(--warn); }
 
