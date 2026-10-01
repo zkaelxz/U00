@@ -37,6 +37,7 @@ Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -264,6 +265,42 @@ def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
         raise RuntimeError(_EXTRACT_FAILED) from None
 
 
+# yt-dlp's message pattern -> a fixed sentence. Only these sentences are ever
+# shown, so no yt-dlp text, link, id or local path can reach the screen.
+_FAILURE_REASONS = (
+    (r"sign in|confirm you.re not a bot|login required|log in",
+     "The site asked to sign in, or is treating this PC as a bot."),
+    (r"members[- ]only|join this channel|premium",
+     "The video is members-only."),
+    (r"age[- ]restrict|confirm your age|inappropriate for some users",
+     "The video is age-restricted."),
+    (r"not available in your country|geo[- ]?restrict|blocked it in your country|region",
+     "The video isn't available in this region."),
+    (r"requested format is not available|no video formats|no formats|javascript runtime|"
+     r"challenge solving|n.?sig",
+     "No downloadable format was found: yt-dlp may need an update or a JavaScript runtime."),
+    (r"http error 429|too many requests|rate[- ]?limit",
+     "The site is rate-limiting this PC. Wait a while and try again."),
+    (r"http error 40[13]|forbidden",
+     "The site refused the download."),
+    (r"unsupported url|no suitable extractor",
+     "yt-dlp doesn't support that site."),
+    (r"private video|video unavailable|removed|has been terminated|copyright|"
+     r"no longer available|does not exist",
+     "The video is private or unavailable."),
+)
+_FAILURE_RES = tuple((re.compile(pattern, re.I), text) for pattern, text in _FAILURE_REASONS)
+
+
+def _failure_reason(exc: BaseException) -> str:
+    """A fixed sentence for a recognised yt-dlp failure, else ''."""
+    haystack = " ".join(str(e) for e in (exc.__cause__, exc) if e is not None)
+    for rx, text in _FAILURE_RES:
+        if rx.search(haystack):
+            return text
+    return ""
+
+
 def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     import video_download
     caps = _Caps(job_id, media_upload_service.max_upload_bytes())
@@ -280,8 +317,11 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
         raise RuntimeError(_TOO_LARGE if reason == "size" else _TOO_SLOW) from None
     except ImportError:
         raise RuntimeError(_NO_YTDLP) from None
-    except Exception:
-        raise RuntimeError(_REJECTED if caps.rejected else _FAILED) from None
+    except Exception as e:
+        if caps.rejected:
+            raise RuntimeError(_REJECTED) from None
+        reason = _failure_reason(e)
+        raise RuntimeError(f"{reason} {_FAILED}" if reason else _FAILED) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     real = os.path.realpath(path)
