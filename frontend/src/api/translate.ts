@@ -36,8 +36,6 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   claude: 'Claude',
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
-  deepl: 'DeepL',
-  google: 'Google Translate',
   test_offline: 'Offline test',
   ollama: 'Ollama (local)',
   nllb: 'NLLB (offline)',

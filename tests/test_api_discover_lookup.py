@@ -199,7 +199,7 @@ def test_errors(client, monkeypatch):
     assert client.get("/api/discover/bulk-extract/result").status_code == 404
     assert client.get("/api/discover/navigation-help/result").status_code == 404
     for path, body in (
-            ("/api/discover/translate-query", {"q": "x", "engine": "deepl"}),
+            ("/api/discover/translate-query", {"q": "x", "engine": "nllb"}),
             ("/api/discover/translate-query", {"q": ""}),
             ("/api/discover/translate-query", {"q": "x", "api_key": KEY}),
             ("/api/discover/import-suggestion", {"url": "file:///etc/passwd"}),

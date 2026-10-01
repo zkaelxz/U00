@@ -37,11 +37,13 @@ MAX_ISSUE_CHARS = 500
 
 def _drama_tool_engine(drama: dict) -> str:
     """The drama's own translation engine when it can follow instructions;
-    otherwise (none saved, or a translation-only engine such as DeepL) the
+    otherwise (none saved, a translation-only engine such as NLLB, or one that
+    was removed) the
     engine Settings picks for line helpers (Step 36 capability
     "llm.instructions"). Configuration only: never a switch on failure."""
     own = drama.get("translation_engine")
-    if own and own not in translate_engines.TRANSLATION_ONLY_ENGINES:
+    if (own in translate_engines.ENGINES
+            and own not in translate_engines.TRANSLATION_ONLY_ENGINES):
         return own
     return engine_routing_service.resolve_capability("llm.instructions")
 
@@ -76,7 +78,7 @@ def _engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: bo
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     engine_name = engine_name or _drama_tool_engine(drama)
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't do this.")

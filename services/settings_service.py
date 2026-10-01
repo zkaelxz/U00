@@ -27,13 +27,10 @@ from services.service_errors import InvalidInputError
 ENV_NAMES = {
     "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
     "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
-    # Deliberately NOT falling back to GOOGLE_API_KEY here -- that name
-    # is already claimed by the separate Google Translate engine below,
-    # and a Cloud Translation key isn't guaranteed to also work as a
-    # Gemini API key (different products, often different projects).
+    # Deliberately NOT falling back to GOOGLE_API_KEY here -- a key under
+    # that name isn't guaranteed to also work as a Gemini API key
+    # (different products, often different projects).
     "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
-    "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
-    "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
     "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
     "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
     "ollama_url": ("BAIHE_OLLAMA_URL",),
@@ -572,7 +569,7 @@ def clear_endpoint_url(name: str, env_path: str = None) -> dict:
 
 # Slice 24: write-only secret keys. URL settings and the numeric cap are
 # not secrets and stay out; only real keys/tokens can be set here.
-KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "deepl", "google", "groq", "hf_token")
+KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "groq", "hf_token")
 _MAX_KEY_LENGTH = 512
 
 

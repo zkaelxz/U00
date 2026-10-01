@@ -80,11 +80,11 @@ export async function mockAiResegment(
           engines: [
             { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
             { name: 'gemini', label: 'Gemini', free: false, models: ['flash', 'pro'], key_configured: true },
-            { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
+            { name: 'libretranslate', label: 'LibreTranslate', free: false, models: null, key_configured: true },
           ],
           month_spend: 1.25,
           monthly_cap_usd: 20,
-          cap_applies_by_engine: { claude: true, gemini: true, deepl: true },
+          cap_applies_by_engine: { claude: true, gemini: true, libretranslate: true },
         },
       })
     }),

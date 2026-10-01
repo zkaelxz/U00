@@ -86,7 +86,7 @@ def _refuse_if_line_job_running(drama_id: int):
 
 def _build_engine(engine_name: str):
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
@@ -117,7 +117,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
         raise UnsupportedOperationError("This line has no source text to translate.")
     engine_name = engine_name or DEFAULT_ENGINE
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     _refuse_if_line_job_running(drama_id)
     engine = _build_engine(engine_name)
     used_model = getattr(engine, "model", None)

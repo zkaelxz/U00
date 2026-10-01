@@ -140,7 +140,7 @@ def _cached_check() -> dict:
 
 def _offered(engine: str) -> list:
     """Models this app offers for `engine`; an engine without a model picker
-    (DeepSeek, DeepL, ...) offers only its built-in default, as
+    (DeepSeek, ...) offers only its built-in default, as
     translate_run_service._require_offered_model treats it."""
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
     if entry is None:

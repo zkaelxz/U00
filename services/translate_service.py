@@ -28,9 +28,9 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 #     entered -- both point at a locally-run server, not a hosted API that
 #     requires an account key. There's nothing meaningful to "configure" in
 #     the same sense as an API key, so they're reported as configured too.
-# Everything else (claude/deepseek/gemini/deepl/google) maps directly onto
+# Everything else (claude/deepseek/gemini) maps directly onto
 # services.settings_service.key_status(), which is keyed by the same engine
-# name for these five.
+# name for these three.
 _NO_KEY_REQUIRED_ENGINES = {"test_offline", "nllb", "ollama", "libretranslate"}
 
 # Engine name -> the model dict (if any) tabs/translate_tab.py lets the user
@@ -110,7 +110,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     means the saved Gemini free-tier setting. Ollama always uses the
     configured Ollama URL; a caller-supplied URL is never fetched (SSRF)."""
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
 
     ok, message = translate_engines.standalone_direction_support(
         engine_name, source_language, target_language)

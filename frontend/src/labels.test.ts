@@ -22,8 +22,6 @@ describe('labels', () => {
     expect(engineLabel('deepseek')).toBe('DeepSeek')
     expect(engineLabel('gemini')).toBe('Gemini')
     expect(engineLabel('ollama')).toBe('Ollama')
-    expect(engineLabel('deepl')).toBe('DeepL')
-    expect(engineLabel('google')).toBe('Google')
     expect(engineLabel('nllb')).toBe('NLLB')
     expect(engineLabel('libretranslate')).toBe('LibreTranslate')
     expect(engineLabel('test_offline')).toBe('Offline test')
