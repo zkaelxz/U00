@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { mediaStreamUrl, type MediaKind } from '../../../../api/media'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
+import { usePopOut } from '../../../../hooks/usePopOut'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
@@ -88,12 +89,19 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     loopRef.current = loop
   }, [loop])
 
-  // Move (never detach) the panel: while the dock isn't mounted yet (null) it
-  // stays where it is, so the video never leaves the page and keeps playing.
-  useLayoutEffect(() => {
+  const place = useCallback(() => {
     const target = panelHost === undefined ? slotRef.current : panelHost
     if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
   }, [panelHost, panelBox])
+  const pop = usePopOut(panelBox, place)
+  const floating = pop.active
+
+  // Move (never detach) the panel: while the dock isn't mounted yet (null) it
+  // stays where it is, so the video never leaves the page and keeps playing.
+  // While it is in the floating window it stays there.
+  useLayoutEffect(() => {
+    if (!floating) place()
+  }, [place, floating])
   useLayoutEffect(() => () => panelBox.remove(), [panelBox])
 
   const setSeg = (s: Segment | null) => {
@@ -239,7 +247,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
-    <div className="review-player-panel" hidden={!open}>
+    <div className="review-player-panel" hidden={!open && !floating}>
       {kind === 'video' ? (
         <video
           ref={(el) => {
@@ -343,6 +351,11 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide player' : 'Show player'}
         </button>
+        {pop.supported && (
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={floating ? pop.close : () => void pop.open()} title="Keep the player in a small window that stays on top">
+            {floating ? 'Return player' : 'Pop out'}
+          </button>
+        )}
         {trailing}
       </div>
       {failed && (
