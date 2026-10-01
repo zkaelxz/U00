@@ -354,6 +354,12 @@ def test_caddy_admin_api_off():
     assert ["admin", "off"] in [c["tokens"] for c in _global()["children"]]
 
 
+def test_certificates_never_depend_on_outside_port_80():
+    """The certificate check runs over 443 only: the HTTP check is disabled."""
+    (issuer,) = [c for c in _global()["children"] if c["tokens"][:2] == ["cert_issuer", "acme"]]
+    assert ["disable_http_challenge"] in [c["tokens"] for c in issuer["children"]]
+
+
 def test_site_top_level_directives_pinned():
     """A new top-level directive (another proxy, a file server, a redirect)
     must be reviewed and added here on purpose."""
