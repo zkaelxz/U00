@@ -38,7 +38,7 @@ def test_list_engines_reports_booleans(tmp_path):
 def test_list_engines_keyless_engines_report_configured(tmp_path):
     env_path = _write_env(tmp_path, "")
     engines = {e["name"]: e for e in translate_service.list_engines(env_path)}
-    assert engines["test_offline"]["key_configured"] is True
+    assert engines["fake"]["key_configured"] is True
     assert engines["nllb"]["key_configured"] is True
     assert engines["ollama"]["key_configured"] is True
     assert engines["libretranslate"]["key_configured"] is True
@@ -67,17 +67,17 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
     assert engines["nllb"]["models"] == list(translate_engines.NLLB_MODELS.keys())
     assert engines["deepl"]["models"] is None
     assert engines["google"]["models"] is None
-    assert engines["test_offline"]["models"] is None
+    assert engines["fake"]["models"] is None
 
 
 def test_list_history_returns_what_was_saved(isolated_db):
     import db
-    db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+    db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
     history = translate_service.list_history()
     assert len(history) == 1
     assert history[0]["source_language"] == "zh"
     assert history[0]["target_language"] == "en"
-    assert history[0]["engine"] == "test_offline"
+    assert history[0]["engine"] == "fake"
     assert history[0]["source_text"] == "你好"
     assert history[0]["translated_text"] == "[TEST] Hello"
 
@@ -85,18 +85,18 @@ def test_list_history_returns_what_was_saved(isolated_db):
 def test_list_history_respects_limit(isolated_db):
     import db
     for i in range(5):
-        db.save_translate_history("zh", "en", "test_offline", f"src-{i}", f"out-{i}")
+        db.save_translate_history("zh", "en", "fake", f"src-{i}", f"out-{i}")
     history = translate_service.list_history(limit=2)
     assert len(history) == 2
 
 
 class TestTranslate:
     def test_test_offline_produces_deterministic_output_and_saves_history(self, isolated_db):
-        result = translate_service.translate("你好", "test_offline", "zh", "en")
+        result = translate_service.translate("你好", "fake", "zh", "en")
         assert result == {"translated_text": "[TEST] 你好"}
         history = translate_service.list_history()
         assert len(history) == 1
-        assert history[0]["engine"] == "test_offline"
+        assert history[0]["engine"] == "fake"
         assert history[0]["translated_text"] == "[TEST] 你好"
 
     def test_unknown_engine_is_invalid_input(self, isolated_db):
@@ -146,9 +146,6 @@ class TestTranslate:
         # own `api_key is None and engine_name != "nllb"` guard).
         assert translate_service.resolve_api_key("nllb") is None
 
-    def test_resolve_api_key_test_offline_is_literal_offline(self):
-        assert translate_service.resolve_api_key("test_offline") == "offline"
-
     def test_resolve_api_key_ollama_defaults_to_local(self, tmp_path):
         env_path = _write_env(tmp_path, "")
         assert translate_service.resolve_api_key("ollama", env_path) == "local"
@@ -157,21 +154,21 @@ class TestTranslate:
 class TestClearHistory:
     def test_without_confirm_raises_and_leaves_history_untouched(self, isolated_db):
         import db
-        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         with pytest.raises(InvalidInputError):
             translate_service.clear_history()
         assert len(db.list_translate_history()) == 1
 
     def test_confirm_false_raises_and_leaves_history_untouched(self, isolated_db):
         import db
-        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         with pytest.raises(InvalidInputError):
             translate_service.clear_history(confirm=False)
         assert len(db.list_translate_history()) == 1
 
     def test_confirm_true_clears_history(self, isolated_db):
         import db
-        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         result = translate_service.clear_history(confirm=True)
         assert result == {"cleared": True}
         assert db.list_translate_history() == []

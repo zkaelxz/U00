@@ -15,7 +15,7 @@ from api.auth import local_only, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (ClearHistoryResult, ErrorResponse, TranslateEngineListResponse,
                          TranslateHistoryResponse, TranslateRequest, TranslateResponse)
-from services import translate_service
+from services import settings_service, translate_service
 
 router = APIRouter(prefix="/api/translate", tags=["translate"])
 
@@ -23,7 +23,8 @@ router = APIRouter(prefix="/api/translate", tags=["translate"])
 @router.get("/engines", dependencies=[require_permission("library.read")], response_model=TranslateEngineListResponse,
             summary="Available translate engines and whether each has a key configured")
 def get_engines():
-    return {"items": translate_service.list_engines()}
+    return {"items": translate_service.list_engines(),
+            "default_engine": settings_service.get_default_engine()}
 
 
 @router.get("/history", dependencies=[require_permission("library.read")], response_model=TranslateHistoryResponse,

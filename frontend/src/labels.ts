@@ -50,7 +50,6 @@ export const ENGINE_LABELS: Record<string, string> = {
   google: 'Google',
   nllb: 'NLLB',
   libretranslate: 'LibreTranslate',
-  test_offline: 'Offline test',
   groq: 'Groq',
   openai: 'OpenAI',
   hf_token: 'Hugging Face token',

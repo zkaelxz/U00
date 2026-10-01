@@ -251,7 +251,7 @@ of picking, `requirements.txt` is those three files combined (it also
 pulls in `pytest`, via `requirements-optional.txt`).
 
 **First run:** start the app, open **Settings** and add the API key for
-the translation engine you'll use (or pick `test_offline`, see below).
+the translation engine you'll use, or use a free local one (Ollama, NLLB).
 Keys are read from a `.env` file next to `start.bat` (copy `.env.example`
 to `.env`; it is excluded from version control) or from environment
 variables. Models such as Whisper download on first use.
@@ -396,18 +396,6 @@ python -m api                                     # then open http://127.0.0.1:8
 
 Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only.
 
-### Trying it for free first
-
-Before spending anything, run a drama through with the `test_offline`
-engine. It needs no API key, no network, and costs nothing -- it emits
-obvious `[TEST]` placeholder text so it can never be mistaken for a real
-translation. The point is to confirm the whole pipeline works on your
-machine (align -> translate -> review -> merge -> export -> dub) before
-a single token is billed.
-
-Pick `test_offline` as the translation engine in the Workspace tab. The
-API key field disappears; everything else behaves normally.
-
 ### Resetting for testing
 
 Diagnostics -> Danger zone -> **Reset everything**. Deletes every drama,
@@ -429,7 +417,7 @@ everything, use the delete button in Library or Workspace instead.
 | `google` | Broadest coverage, cheapest at scale, pure MT. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
 | `libretranslate` | Self-hosted [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) or [LTEngine](https://github.com/LibreTranslate/LTEngine). Pure MT, no reference-novel awareness. **See the cost note below — "open source" is not the same as "free to use".** |
-| `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. A real translation (unlike `test_offline`), but pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
+| `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. Pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
 
 Only `claude`, `deepseek`, `gemini`, and `ollama` (LLM-based) can do
 speaker attribution for novel-narration mode — DeepL/Google will just tag
@@ -1644,9 +1632,8 @@ aligned but not translated: 391 timed entries, every one empty.
 
 Check the Library dashboard's "Lines translated X / Y" metric, or the
 Workspace's line count next to your drama. If translation hasn't run,
-press **Translate all lines** first -- or use the free `test_offline`
-engine to confirm the whole export pipeline works before spending
-anything on a real translation.
+press **Translate all lines** first (Ollama and NLLB are free if you
+would rather not spend anything).
 
 The export buttons now warn before this happens rather than after:
 zero translated lines disables the English/bilingual downloads outright,

@@ -68,7 +68,7 @@ describe('translate api', () => {
   it('posts and returns the translated text', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     const out = await translateApi.translate(
-      { text: 'hi', engine: 'test_offline', source_language: 'en', target_language: 'zh' },
+      { text: 'hi', engine: 'ollama', source_language: 'en', target_language: 'zh' },
       fakeFetch(200, { translated_text: 'yo' }, calls),
     )
     expect(out).toBe('yo')

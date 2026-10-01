@@ -25,7 +25,7 @@ const cap = (over: Partial<CapabilityRoute> = {}): CapabilityRoute => ({
   default_engine: 'gemini',
   is_default: true,
   engine_supported: true,
-  choices: ['claude', 'deepseek', 'gemini', 'test_offline'],
+  choices: ['claude', 'deepseek', 'gemini', 'ollama'],
   ...over,
 })
 
@@ -98,10 +98,10 @@ describe('engine routing view', () => {
   })
 
   it('replaces one entry and counts working engines', () => {
-    const r: EngineRouting = { capabilities: [cap(), cap({ id: 'other' })], engines: [eng(), eng({ engine: 'test_offline' })] }
+    const r: EngineRouting = { capabilities: [cap(), cap({ id: 'other' })], engines: [eng(), eng({ engine: 'ollama' })] }
     const r2 = replaceCapability(r, cap({ engine: 'claude', is_default: false }))
     expect(r2.capabilities.map((c) => c.engine)).toEqual(['claude', 'gemini'])
-    const r3 = replaceEngine(r2, eng({ engine: 'test_offline', status: 'working' }))
+    const r3 = replaceEngine(r2, eng({ engine: 'ollama', status: 'working' }))
     expect(r3.engines.map((e) => e.status)).toEqual(['untested', 'working'])
     expect(workingCount(r3)).toBe(1)
     expect(r.capabilities[0].engine).toBe('gemini') // not mutated

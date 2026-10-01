@@ -242,7 +242,6 @@ def get_export_readiness(drama_id: int) -> dict:
         "zh_filled": zh_filled,
         "en_filled": en_filled,
         "fully_translated": fully_translated,
-        "test_mode_output": drama.get("translation_engine") == "test_offline",
         "overlap_count": len(overlaps),
         "auto_qc_issue_count": len(qc_issues),
         "dense_line_count": len(dense),

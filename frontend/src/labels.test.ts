@@ -26,7 +26,6 @@ describe('labels', () => {
     expect(engineLabel('google')).toBe('Google')
     expect(engineLabel('nllb')).toBe('NLLB')
     expect(engineLabel('libretranslate')).toBe('LibreTranslate')
-    expect(engineLabel('test_offline')).toBe('Offline test')
   })
   it('title-cases unknown codes and leaves empty values empty', () => {
     expect(mediaTypeLabel('radio_play')).toBe('Radio Play')

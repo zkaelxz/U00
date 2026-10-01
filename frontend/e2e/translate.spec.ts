@@ -7,7 +7,7 @@ test('translates with the offline engine and lists it in history', async ({ page
   await page.goto('/#/translate')
   await expect(page.getByRole('region', { name: 'Translate' })).toBeVisible()
 
-  await page.getByLabel('Engine', { exact: true }).selectOption('test_offline')
+  await page.getByLabel('Engine', { exact: true }).selectOption('fake')
   await page.getByLabel('Text to translate').fill('你好，世界')
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   await expect(page.getByTestId('translate-result')).not.toBeEmpty()
@@ -32,8 +32,8 @@ test('shows source and result side by side on desktop, with humanized history', 
   expect(src && res && res.x > src.x + src.width - 1).toBe(true)
   expect(src && res && Math.abs(res.y - src.y) < 80).toBe(true)
   const row = page.getByTestId('translate-history').locator('li').first()
-  await expect(row).toContainText('Chinese → English · Offline test')
-  await expect(row).not.toContainText('test_offline')
+  await expect(row).toContainText('Chinese → English · Fake')
+  await expect(row).not.toContainText('fake')
 })
 
 test('swap flips the languages in one press and is remembered', async ({ page }) => {
@@ -53,7 +53,7 @@ test('an engine with no key is marked and says where to add one', async ({ page 
   await page.goto('/#/translate')
   const engine = page.getByLabel('Engine', { exact: true })
   await expect(engine.locator('option', { hasText: 'Claude (no key)' })).toHaveCount(1)
-  await expect(page.getByTestId('engine-note')).toContainText('Offline test')
+  await expect(page.getByTestId('engine-note')).toContainText('Fake')
   await engine.selectOption('claude')
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
   await expect(page.getByText('Still needed: an API key for Claude.')).toBeVisible()
@@ -92,7 +92,7 @@ test('history shows the last 5 until Show all', async ({ page }) => {
 
 test('clears history after a second press, then shows the empty list', async ({ page }) => {
   await page.goto('/#/translate')
-  await page.getByLabel('Engine', { exact: true }).selectOption('test_offline')
+  await page.getByLabel('Engine', { exact: true }).selectOption('fake')
   await page.getByLabel('Text to translate').fill('再见')
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   await expect(page.getByTestId('translate-history').locator('li').first()).toContainText('再见')
@@ -110,7 +110,7 @@ test('another device sees why it cannot clear history', async ({ page }) => {
   await page.route('**/api/translate/history**', (r) =>
     r.fulfill({ json: { items: [{
       source_text: '你好', translated_text: 'Hello', source_language: 'zh', target_language: 'en',
-      engine: 'test_offline', created_at: '2026-09-29 12:00:00',
+      engine: 'fake', created_at: '2026-09-29 12:00:00',
     }] } }))
   await page.goto('/#/translate')
   await expect(page.getByTestId('translate-history')).toContainText('你好')

@@ -43,8 +43,7 @@ _DEFAULT_ENGINE = "default_engine"  # sentinel: Settings' default engine
 # reads and writes instead of its own app setting; "default": the engine used
 # while unset (_DEFAULT_ENGINE = Settings' default engine); "choices": an
 # extra allow-list (or a function returning one) on top of "requires";
-# "exclude": engines never offered; "unset_label": the capability is OFF
-# while unset (its unset option is labelled with this, and only an explicit
+# "unset_label": the capability is OFF while unset (its unset option is labelled with this, and only an explicit
 # choice counts as set, even one equal to the default).
 CAPABILITIES = {
     "translation.cheap": {
@@ -62,7 +61,6 @@ CAPABILITIES = {
                  "you choose it."),
         "requires": translate_engines.CAP_TRANSLATE,
         "default": _DEFAULT_ENGINE,
-        "exclude": ("test_offline",),  # fake output is never "stronger"
         "unset_label": "Off (no suggestions)",  # Step 99 offers nothing while unset
     },
     "llm.instructions": {
@@ -113,7 +111,7 @@ def engine_choices(capability: str) -> list:
     if d.get("choices"):
         allowed = d["choices"]()
         names = [n for n in names if n in allowed]
-    return [n for n in names if n not in d.get("exclude", ())]
+    return names
 
 
 def _stored(capability: str):

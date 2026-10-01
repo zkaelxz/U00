@@ -830,6 +830,7 @@ baihe-subtitler/
 ├── tests/                      ← 100+ test files, 3,000+ test functions. Run: python run_tests.py
 │   ├── __init__.py
 │   ├── conftest.py                fixtures (isolated temp database, etc.)
+│   ├── fake_engine.py             key-free "fake" translation engine (tests and the e2e server; not part of the app)
 │   ├── sources_helpers.py         shared fakes for adapter tests (clock, scripted HTTP, PNGs)
 │   ├── manhuagui_fixtures.py      offline stand-ins for manhuagui pages
 │   └── test_*.py                  one or more files per module above, named to match

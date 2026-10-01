@@ -1190,12 +1190,12 @@ class TestCmdDoctor:
 
     def test_prints_ok_and_exits_cleanly_on_success(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
-                            lambda *a, **k: {"engine": "test_offline", "ok": True, "error": None})
-        args = argparse.Namespace(engine="test_offline", api_key=None, model=None)
+                            lambda *a, **k: {"engine": "fake", "ok": True, "error": None})
+        args = argparse.Namespace(engine="fake", api_key=None, model=None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             cli.cmd_doctor(args)
-        assert "OK: test_offline is reachable" in out.getvalue()
+        assert "OK: fake is reachable" in out.getvalue()
 
     def test_prints_the_error_and_exits_nonzero_on_failure(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
@@ -1608,7 +1608,7 @@ class TestCliSavedSettingsFallbacks:
         assert self._cap_run(isolated_db, monkeypatch, "claude").calls == 0
 
     def test_monthly_cap_skips_non_cap_engine(self, isolated_db, monkeypatch):
-        assert self._cap_run(isolated_db, monkeypatch, "test_offline").calls == 1
+        assert self._cap_run(isolated_db, monkeypatch, "fake").calls == 1
 
     def test_dub_falls_back_to_saved_gpt_sovits_url(self, isolated_db, monkeypatch):
         monkeypatch.setattr(cli.settings_service, "resolve_key",

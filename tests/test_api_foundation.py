@@ -384,10 +384,15 @@ class TestTranslateEndpoints:
         body = client.get("/api/translate/engines").json()
         names = {e["name"] for e in body["items"]}
         assert "claude" in names
-        assert "test_offline" in names
         for e in body["items"]:
             assert isinstance(e["free"], bool)
             assert isinstance(e["key_configured"], bool)
+
+    def test_engines_name_settings_default_engine(self, client, isolated_db):
+        from services import settings_service
+        body = client.get("/api/translate/engines").json()
+        assert body["default_engine"] == settings_service.get_default_engine()
+        assert body["default_engine"] in {e["name"] for e in body["items"]}
 
     def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
@@ -399,14 +404,14 @@ class TestTranslateEndpoints:
         assert body == {"items": []}
 
     def test_history_reflects_saved_translations(self, client, isolated_db):
-        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         body = client.get("/api/translate/history").json()
         assert len(body["items"]) == 1
         assert body["items"][0]["source_text"] == "你好"
 
     def test_translate_with_test_offline_engine(self, client, isolated_db):
         resp = client.post("/api/translate", json={
-            "text": "你好", "engine": "test_offline",
+            "text": "你好", "engine": "fake",
             "source_language": "zh", "target_language": "en",
         })
         assert resp.status_code == 200
@@ -416,7 +421,7 @@ class TestTranslateEndpoints:
 
     def test_translate_never_accepts_or_leaks_a_key_field(self, client, isolated_db):
         resp = client.post("/api/translate", json={
-            "text": "你好", "engine": "test_offline",
+            "text": "你好", "engine": "fake",
             "source_language": "zh", "target_language": "en",
             "api_key": "sk-should-be-ignored",
         })
@@ -461,7 +466,7 @@ class TestExportReadinessEndpoint:
         body = client.get(f"/api/export/dramas/{did}/readiness").json()
         assert body == {
             "drama_id": did, "total_lines": 1, "zh_filled": 1, "en_filled": 1,
-            "fully_translated": True, "test_mode_output": False,
+            "fully_translated": True,
             "overlap_count": 0, "auto_qc_issue_count": 0, "dense_line_count": 0,
         }
 
@@ -646,14 +651,14 @@ class TestTranslateHistoryClearEndpoint:
     docstring for the reasoning."""
 
     def test_clear_without_confirm_is_422(self, client, isolated_db):
-        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         resp = client.delete("/api/translate/history")
         assert resp.status_code == 422
         history = client.get("/api/translate/history").json()["items"]
         assert len(history) == 1
 
     def test_clear_with_confirm_actually_clears(self, client, isolated_db):
-        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        isolated_db.save_translate_history("zh", "en", "fake", "你好", "[TEST] Hello")
         resp = client.delete("/api/translate/history?confirm=true")
         assert resp.status_code == 200
         assert resp.json() == {"cleared": True}

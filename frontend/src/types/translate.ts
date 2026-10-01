@@ -8,6 +8,12 @@ export interface TranslateEngine {
   key_configured: boolean
 }
 
+export interface EngineList {
+  items: TranslateEngine[]
+  // Settings' default engine; the Translate page starts on it when it can run.
+  default_engine: string | null
+}
+
 export interface TranslateHistoryEntry {
   source_language: string
   target_language: string

@@ -21,7 +21,6 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 # translate_engines.ENGINES keys whose engine class needs an API key to run
 # at all (see translate_engines.py's own ENGINES / FREE_ENGINES and
 # tabs/translate_tab.py's api_key handling for the reasoning below):
-#   - test_offline: TestOfflineEngine needs no key at all (dry-run only).
 #   - nllb: a locally-downloaded model, no key at all.
 #   - ollama / libretranslate: tabs/translate_tab.py treats their key field
 #     as optional, defaulting to the literal "local" when nothing is
@@ -31,7 +30,7 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 # Everything else (claude/deepseek/gemini/deepl/google) maps directly onto
 # services.settings_service.key_status(), which is keyed by the same engine
 # name for these five.
-_NO_KEY_REQUIRED_ENGINES = {"test_offline", "nllb", "ollama", "libretranslate"}
+_NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
 
 # Engine name -> the model dict (if any) tabs/translate_tab.py lets the user
 # pick a model from for that engine.
@@ -80,18 +79,15 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
     """The literal value to pass into translate_engines.get_engine, per
     engine (see tabs/translate_tab.py's own api_key handling, lines
     79-92, for the exact behavior this mirrors):
-      - test_offline: the literal "offline" -- TestOfflineEngine ignores it.
       - nllb: None -- a locally-downloaded model, nothing to pass.
       - ollama/libretranslate: a resolved key/URL if configured, else the
         literal "local" (both point at a locally-run server).
       - everything else: whatever services.settings_service.resolve_key
         finds, or None if nothing is configured.
     """
-    if engine_name == "test_offline":
-        return "offline"
     if engine_name == "nllb":
         return None
-    if engine_name in ("ollama", "libretranslate"):
+    if engine_name in translate_engines.KEYLESS_ENGINES:
         return settings_service.resolve_key(engine_name, env_path) or "local"
     return settings_service.resolve_key(engine_name, env_path)
 

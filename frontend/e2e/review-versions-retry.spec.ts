@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 // Review parity R39 (use a saved translation version) and R10 (retry a
 // content-blocked line). Both run against the real seeded API: the version
 // switch is a real field-scoped write, and the retry uses the free
-// test_offline engine (no network, no key). Lines and versions for drama 3
+// fake engine (no network, no key). Lines and versions for drama 3
 // are written straight into the throwaway library before each test and the
 // versions are removed after, so review-stage.spec.ts sees none.
 
@@ -103,7 +103,7 @@ test('Retry a content-blocked line with another engine from the line details', a
   await expect(retry).toBeVisible()
   const picker = retry.getByLabel('Retry engine')
   await expect(picker).toHaveValue('ollama')
-  await picker.selectOption('test_offline')
+  await picker.selectOption('fake')
   await shot(page, 'review-blocked-retry-desktop')
   await retry.getByRole('button', { name: 'Retry line' }).click()
   await expect(row.getByTestId('line-en')).toContainText('[TEST]')

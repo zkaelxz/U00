@@ -254,10 +254,9 @@ export function candidateBody(f: CandidateForm): CandidateAddRequest {
   return body
 }
 
-/** Engines a candidate can use: every translation engine but the offline test one (fake output); usable ones first. */
+/** Engines a candidate can use: every translation engine, usable ones first. */
 export function candidateEngines(engines: BenchmarkEngineOption[]): BenchmarkEngineOption[] {
-  const list = engines.filter((e) => e.name !== 'test_offline')
-  return [...list.filter((e) => e.key_configured), ...list.filter((e) => !e.key_configured)]
+  return [...engines.filter((e) => e.key_configured), ...engines.filter((e) => !e.key_configured)]
 }
 
 export interface AddOutcome {

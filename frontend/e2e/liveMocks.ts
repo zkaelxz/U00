@@ -12,7 +12,7 @@ export const SID = `live_${'1'.repeat(32)}`
 export const ENGINES = [
   { name: 'deepseek', label: 'DeepSeek -- cheap', free: false, models: null, key_configured: true },
   { name: 'claude', label: 'Claude', free: false, models: null, key_configured: false },
-  { name: 'test_offline', label: 'Offline test', free: true, models: null, key_configured: true },
+  { name: 'fake', label: 'Fake', free: true, models: null, key_configured: true },
 ]
 
 export const cue = (n: number) => ({

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 // Benchmark Lab (#/benchmark) against the real API on the seeded e2e
 // library: import a golden set, add and delete a case, estimate and run the
-// free "Offline test" engine twice (it never calls out and costs nothing:
+// fake engine twice (it never calls out and costs nothing:
 // output is "[TEST] <source>"), then compare the two runs in the Arena.
 // Set BENCH_SHOTS_DIR=<dir> to also save a desktop screenshot.
 // Named lab-* on purpose: a run leaves a finished "benchmark_lab" job on the
@@ -71,7 +71,7 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await card.getByLabel('Stage', { exact: true }).selectOption('translation')
   await card.getByLabel('Tier', { exact: true }).selectOption('public')
   await card.getByLabel('Golden set', { exact: true }).selectOption(setName)
-  await card.getByLabel('Engine 1', { exact: true }).selectOption('test_offline')
+  await card.getByLabel('Engine 1', { exact: true }).selectOption('fake')
   await expect(card).toContainText('3 cases selected')
 
   // Two engines make it an Arena run; the estimate lists each one.
@@ -101,8 +101,8 @@ test('Benchmark Lab: import a set, run the offline engine twice, compare in the 
   await expect(arena.getByRole('list', { name: 'Cases' }).locator(':scope > li')).toHaveCount(3)
   const first = arena.getByRole('list', { name: 'Cases' }).locator(':scope > li', { hasText: '你好' })
   await expect(first).toContainText('Hello')
-  await expect(first.getByLabel('Output of Offline test').first()).toContainText('[TEST] 你好')
-  await expect(first.getByLabel('Output of Offline test').first()).toContainText(/Pass|Fail/)
+  await expect(first.getByLabel('Output of Fake').first()).toContainText('[TEST] 你好')
+  await expect(first.getByLabel('Output of Fake').first()).toContainText(/Pass|Fail/)
 
   // One run's own results.
   await runs.getByRole('button', { name: /^Results of run/ }).first().click()

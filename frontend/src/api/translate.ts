@@ -1,4 +1,5 @@
 import type {
+  EngineList,
   TranslateDirection,
   TranslateEngine,
   TranslateHistoryEntry,
@@ -38,7 +39,6 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   gemini: 'Gemini',
   deepl: 'DeepL',
   google: 'Google Translate',
-  test_offline: 'Offline test',
   ollama: 'Ollama (local)',
   nllb: 'NLLB (offline)',
   libretranslate: 'LibreTranslate',
@@ -74,8 +74,8 @@ export function validateTranslateInput(text: string, engine: string): string | n
 }
 
 export const translateApi = {
-  engines: (f?: Fetch) =>
-    getJson<{ items: TranslateEngine[] }>('/api/translate/engines', f).then((r) => r.items),
+  engineList: (f?: Fetch) => getJson<EngineList>('/api/translate/engines', f),
+  engines: (f?: Fetch) => translateApi.engineList(f).then((r) => r.items),
   history: (limit = 50, f?: Fetch) =>
     getJson<{ items: TranslateHistoryEntry[] }>(`/api/translate/history?limit=${limit}`, f).then(
       (r) => r.items,

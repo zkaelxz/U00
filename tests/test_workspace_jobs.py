@@ -26,6 +26,7 @@ from services.workspace_job_service import (run_transcribe_job, run_hardsub_ocr_
 from services.workflow_service import compute_workspace_stage_index as _compute_workspace_stage_index
 import core as core_module
 from core import Line
+from tests import fake_engine
 
 
 def _clear(job_id):
@@ -1202,8 +1203,8 @@ class TestFreeEngineVersionLabelling:
 
     def test_test_offline_version_is_labelled(self, isolated_db, monkeypatch):
         version = self._run(isolated_db, monkeypatch, "test_free_label_offline",
-                             translate_engines.TestOfflineEngine(), "test_offline")
-        assert version["label"].startswith("[testing: test_offline]")
+                             fake_engine.FakeEngine(), "fake")
+        assert version["label"].startswith("[testing: fake]")
         _clear("test_free_label_offline")
 
     def test_ollama_version_is_labelled(self, isolated_db, monkeypatch):

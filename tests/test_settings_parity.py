@@ -97,7 +97,7 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 
 
 @pytest.mark.parametrize("key,bad", [
-    ("default_engine", "not-an-engine"), ("default_engine", "test_offline"),
+    ("default_engine", "not-an-engine"),
     ("default_locale", "fr-FR"), ("episode_summary_engine", "deepl"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
@@ -340,18 +340,18 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
 
     def fake_get_engine(name, key, *a, **k):
         built.append((name, key))
-        return real_get_engine("test_offline", "offline")
+        return real_get_engine("fake", "offline")
     monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
 
-    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["ollama_num_ctx_override"] is None
     assert captured["summary_engine_choice"] == "ollama"
 
     settings_service.set_settings({"ollama_num_ctx_override": 32768,
                                    "episode_summary_engine": "deepseek"})
     background_jobs.clear_all_jobs()
-    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["ollama_num_ctx_override"] == 32768
     assert captured["summary_engine_choice"] == "deepseek"
     assert ("deepseek", "ds-key") in built
@@ -389,16 +389,16 @@ def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, en
     monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
     real_get_engine = translate_engines.get_engine
     monkeypatch.setattr(translate_engines, "get_engine",
-                        lambda *a, **k: real_get_engine("test_offline", "offline"))
+                        lambda *a, **k: real_get_engine("fake", "offline"))
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek", "monthly_cap_usd": 7})
 
-    translate_run_service.start_translate_run(did, engine_name="test_offline",
+    translate_run_service.start_translate_run(did, engine_name="fake",
                                               allow_paid_summary=False)
     assert captured["summary_engine"] is None and captured["summary_engine_choice"] is None
     assert captured["summary_monthly_cap_usd"] == 7.0
     background_jobs.clear_all_jobs()
-    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["summary_engine_choice"] == "deepseek"
 
 
@@ -557,7 +557,7 @@ def test_url_download_passes_saved_cookies(isolated_db, env_file, monkeypatch, t
 def test_live_saved_cookies_only_when_asked(isolated_db, env_file, monkeypatch):
     from services import live_service
     monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
-    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("test_offline", object()))
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("fake", object()))
     captured = []
 
     def fake_start_job(job_id, target, *a, **k):
@@ -626,7 +626,7 @@ def test_cli_reads_saved_settings(isolated_db, env_file, monkeypatch):
     assert seen["locale"] == "en-AU" and seen["style_note"] == "Terse."
     assert seen["ollama_num_ctx_override"] == 8192
     with contextlib.redirect_stdout(io.StringIO()):
-        cli.cmd_translate(args(engine="test_offline", locale="en-GB", style_note="",
+        cli.cmd_translate(args(engine="fake", locale="en-GB", style_note="",
                                ollama_num_ctx=0))
     assert seen["locale"] == "en-GB" and seen["style_note"] == ""
     assert seen["ollama_num_ctx_override"] == 0

@@ -263,19 +263,3 @@ def test_cloud_reviewer_without_consent_is_refused_through_the_api(engines, monk
     assert [call[0] for call in svc._chat.calls] == ["claude"]
 
 
-def test_offline_test_engine_is_not_a_review_choice(isolated_db):
-    s = svc.get_settings()
-    assert "test_offline" in s["engine_choices"]
-    assert "test_offline" not in s["review_engine_choices"] and "gemini" in s["review_engine_choices"]
-    with pytest.raises(svc.InvalidInputError):
-        svc.set_settings({"review_engine": "test_offline"})
-    c = _client()
-    assert c.post("/api/assistant/settings", json={"review_engine": "test_offline"}).status_code == 422
-
-
-def test_a_saved_offline_reviewer_is_not_used(isolated_db):
-    import db
-    db.set_app_setting(svc._SETTINGS_PREFIX + "review_engine", "test_offline")
-    assert svc.get_settings()["review_engine"] is None
-    with pytest.raises(svc.ConflictError):
-        svc.build_review_engine()
