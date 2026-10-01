@@ -26,7 +26,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
   for (const title of [...CARDS, ...SECTIONS]) {
     let s = page.getByRole('region', { name: title, exact: true })
     if (SECTIONS.includes(title)) {
-      s = page.locator('details.section', { has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
+      s = page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
       await s.locator('summary').click()
       await expect(s).toHaveAttribute('open', '')
     }
