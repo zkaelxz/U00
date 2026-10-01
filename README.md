@@ -360,9 +360,25 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   `frontend/src/report/capture.test.ts`, the two Windows workflows, this
   README and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py`
   fails if one of them drifts. Baihe also refuses its own ports as ntfy, SearXNG and
-  Jellyfin targets. The Windows boot service takes the port only at install:
-  Setup passes your `BAIHE_API_PORT`, so after `setx` run Setup again
-  (`docs/windows-installer-design.md` section 11, "Choosing the port").
+  Jellyfin targets.
+- **The Windows boot service's port.** With the service installed, its
+  stored port is the one that counts, and the installed launcher uses it
+  too. Open **"Baihe Studio service"** in the Start menu: it shows every
+  port Baihe uses and changes the service's port (and turns remote access
+  on or off). **Changing or deleting `BAIHE_API_PORT` does not change the
+  service's port**, and neither does running Setup again while it is set
+  (only a fresh install takes it; an update keeps the stored port). Without
+  the service, removing it just returns to 8600.
+- **Service commands** (what the menu runs; `service.py --help` prints this
+  list). In an administrator prompt (`status` needs none), run
+  `"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" COMMAND`
+  with COMMAND one of:
+  `status` (both services, every port, remote access, the firewall rule);
+  `set-port N` (move the service to port N, put back if it doesn't answer);
+  `enable-remote [--household-port N]` (household access through Caddy);
+  `disable-remote`; `stop`; `install [--port N]` (Setup's step);
+  `uninstall` (the uninstaller's step). Details:
+  `docs/windows-installer-design.md` section 11, "Commands".
 - The React app calls the relative path `/api`; the Vite dev server
   (5173) and `npm run preview` (4173) proxy it to
   `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.

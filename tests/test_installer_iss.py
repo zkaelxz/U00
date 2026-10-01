@@ -333,6 +333,14 @@ class TestBootService:
         assert "if not ServiceOrAdminDirPresent() then" in _func(iss, "RemoveService")
         assert "ServiceOrAdminDirPresent()" in _func(iss, "ConfigureService")
 
+    def test_service_menu_runs_the_admin_folders_copy(self, iss):
+        menus = [e for e in _entries(iss, "Icons") if "service_menu.ps1" in e]
+        assert len(menus) == 1 and menus[0].endswith("Tasks: service")
+        assert ('-File ""{commonpf64}\\Baihe Studio Services\\helper\\lib\\installer\\'
+                'service_menu.ps1"""') in menus[0]
+        assert 'Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"' in menus[0]
+        assert "{app}\\service" not in menus[0]
+
     def test_nothing_but_the_service_is_added(self, iss):
         # No firewall, router or second-listener step belongs to the installer.
         for needle in ("netsh", "firewall", "caddy", "upnp"):
