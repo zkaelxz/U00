@@ -884,7 +884,7 @@ baihe-subtitler/
 **Translation & quality**
 | File | Does |
 |---|---|
-| `translate_engines.py` | Claude / DeepSeek / Gemini / Ollama / NLLB (+ an offline test engine) |
+| `translate_engines.py` | Claude / DeepSeek / Gemini / OpenAI / Ollama / NLLB (+ an offline test engine) |
 | `translation_guide.py` | style presets, term policies, translation notes |
 | `translation_memory.py` | suggests a translation you already approved for an exact/near-identical line (never auto-applied) |
 | `auto_qc.py` | flags a translation that drops or invents a number, date, name, amount or unit |
