@@ -5,7 +5,7 @@
  * No React here (modelHealth.test.ts).
  */
 import type { EngineCheck, ModelStatus, ModelStatusItem } from '../../api/models'
-import { describeError, safeDetail } from '../../components/errorMessages'
+import { describeError, safeDetail, summarizeEngineFailure } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { routeHref } from '../../router'
 import { compareParam } from '../benchmark/benchmarkForm'
@@ -142,19 +142,28 @@ export interface EngineCheckLine {
   label: string
   ok: boolean
   text: string
+  /** The raw failure text (already filtered of keys and paths), for a "Details" fold. */
+  detail: string | null
 }
 
 /** One line per engine the last check asked: its model count, or why it failed (plain, nothing key- or path-like). */
 export function engineCheckLines(engines: Record<string, EngineCheck>): EngineCheckLine[] {
   return Object.entries(engines)
-    .map(([engine, c]) => ({
-      engine,
-      label: humanize('engine', engine),
-      ok: c.ok,
-      text: c.ok
-        ? `${c.model_count} ${c.model_count === 1 ? 'model' : 'models'} listed`
-        : `Couldn't check: ${(c.error && safeDetail(c.error)) || 'the provider did not answer.'}`,
-    }))
+    .map(([engine, c]) => {
+      const label = humanize('engine', engine)
+      const detail = c.ok ? null : (c.error && safeDetail(c.error)) || null
+      return {
+        engine,
+        label,
+        ok: c.ok,
+        text: c.ok
+          ? `${c.model_count} ${c.model_count === 1 ? 'model' : 'models'} listed`
+          : detail
+            ? summarizeEngineFailure(engine, c.error, label).summary
+            : "Couldn't check: the provider did not answer.",
+        detail,
+      }
+    })
     .sort((a, b) => Number(a.ok) - Number(b.ok) || a.label.localeCompare(b.label))
 }
 

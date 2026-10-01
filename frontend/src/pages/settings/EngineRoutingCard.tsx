@@ -14,6 +14,7 @@ import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
+import { summarizeEngineFailure } from '../../components/errorMessages'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { CapabilityRoute, EngineRouting } from '../../types/engineRouting'
@@ -166,7 +167,13 @@ export function EngineRoutingCard({ refreshToken, onPreferencesChanged }: Props)
                   </div>
                   {details && <p className="settings-note">{details}</p>}
                   {e.status === 'failed' && e.last_test?.error && (
-                    <p className="error routing-error">{e.last_test.error}</p>
+                    <div className="routing-error-block">
+                      <p className="error routing-error">{summarizeEngineFailure(e.engine, e.last_test.error, label).summary}</p>
+                      <details className="routing-error-details">
+                        <summary>Details</summary>
+                        <p className="settings-note">{e.last_test.error}</p>
+                      </details>
+                    </div>
                   )}
                 </li>
               )

@@ -58,3 +58,46 @@ export function describeError(
   const detail = e?.message && showServer ? safeDetail(e.message) : null
   return { title, detail }
 }
+
+export type EngineFailureKind = 'not_running' | 'no_model' | 'key_rejected' | 'rate_limited' | 'timed_out' | 'unreachable' | 'other'
+
+// Engines that run on this PC (or a server the user runs); a refused connection means "not started".
+const LOCAL_ENGINES = new Set(['ollama', 'libretranslate'])
+
+/** A one-sentence, plain summary of an engine test failure; the raw text stays as the "Details". */
+export function summarizeEngineFailure(
+  engine: string,
+  raw: string | null | undefined,
+  engineLabel: string = engine,
+): { kind: EngineFailureKind; summary: string } {
+  const text = raw ?? ''
+  const local = LOCAL_ENGINES.has(engine)
+  if (/\b(401|403)\b|unauthori[sz]ed|forbidden|invalid[\s_-]*(api[\s_-]*)?key|permission denied|authentication/i.test(text)) {
+    return { kind: 'key_rejected', summary: `${engineLabel} rejected the key. Check it in API keys, then test again.` }
+  }
+  if (/\b429\b|rate[\s_-]*limit|too many requests|quota/i.test(text)) {
+    return { kind: 'rate_limited', summary: `${engineLabel} is rate limited. Wait a minute, then test again.` }
+  }
+  if (/\b404\b.*model|model.*(not found|not\s+exist|pull)|try pulling/i.test(text) && engine === 'ollama') {
+    return {
+      kind: 'no_model',
+      summary: "Ollama is running but doesn't have that model. Pull one with `ollama pull <model>`, then test again.",
+    }
+  }
+  if (/no answer within|timed? ?out|timeout/i.test(text)) {
+    return { kind: 'timed_out', summary: `${engineLabel} timed out. Try again in a moment.` }
+  }
+  if (/10061|refused|econnrefused|max retries exceeded|failed to establish|connection (aborted|error)|name or service not known|getaddrinfo/i.test(text)) {
+    if (engine === 'ollama') {
+      return {
+        kind: 'not_running',
+        summary:
+          "Ollama isn't running. Install it from ollama.com (Baihe doesn't install it) and start the Ollama app, pull a model, then test again.",
+      }
+    }
+    return local
+      ? { kind: 'not_running', summary: `${engineLabel} isn't running. Start it, then test again.` }
+      : { kind: 'unreachable', summary: `Couldn't reach ${engineLabel}. Check your internet connection, then test again.` }
+  }
+  return { kind: 'other', summary: `The ${engineLabel} test failed.` }
+}
