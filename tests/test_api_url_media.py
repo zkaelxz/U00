@@ -585,3 +585,42 @@ def test_direct_link_more_than_five_redirects_refused(client, env, direct):
     assert len(direct.hops) == svc.MAX_DIRECT_REDIRECTS + 1
     assert env.writes == [] and env.ffmpeg == []
     _no_tmp(did)
+
+
+def _caused_by(text):
+    try:
+        try:
+            raise Exception(text)
+        except Exception as inner:
+            raise RuntimeError("wrapped") from inner
+    except RuntimeError as e:
+        return e
+
+
+@pytest.mark.parametrize("raw, shown", [
+    ("ERROR: [youtube] R4s4PY92bMM: Sign in to confirm you're not a bot.", "sign in"),
+    ("Requested format is not available. Use --list-formats", "No downloadable format"),
+    ("HTTP Error 429: Too Many Requests", "rate-limiting"),
+    ("Unsupported URL: https://example.test/x", "doesn't support"),
+    ("This video is not available in your country", "region"),
+])
+def test_failure_reason_is_a_fixed_sentence_for_known_causes(raw, shown):
+    reason = svc._failure_reason(_caused_by(raw))
+    assert shown.lower() in reason.lower()
+    assert reason.endswith(".") and "R4s4PY92bMM" not in reason and "example.test" not in reason
+
+
+def test_failure_reason_is_empty_for_anything_unrecognised_and_never_echoes_it():
+    assert svc._failure_reason(_caused_by("boom at C:\\Users\\kae\\x with sk-ant-api03-" + "a" * 40)) == ""
+    assert svc._failure_reason(RuntimeError("")) == ""
+
+
+def test_a_recognised_failure_shows_the_sentence_before_the_generic_text(client, env, monkeypatch):
+    def boom(self, url, download=True):
+        raise RuntimeError("ERROR: [youtube] abc: Sign in to confirm you're not a bot.")
+    monkeypatch.setattr(FakeYDL, "extract_info", boom)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
+    assert "sign in" in st["error"].lower() and "abc" not in st["error"]
+    _no_tmp(did)
