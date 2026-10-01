@@ -379,7 +379,7 @@ baihe-subtitler/
 │   │                             metadata, stored as cover.<ext>; resolves the file to serve
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
-│   │                             text; delete version, series character, bug bundle, preset, voice bank
+│   │                             text; delete version, series character, preset, voice bank
 │   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
@@ -626,7 +626,7 @@ baihe-subtitler/
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│       │                         support-report|bug-bundles|install-presets|gpu-torch (GET) and gpu-torch/check,
+│       │                         support-report|install-presets|gpu-torch (GET) and gpu-torch/check,
 │       │                         package-updates/check (POST, on click), all admin.diagnostics;
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library,
 │       │                         model-cache/hf|piper/{name}/delete (POST, local_only + confirm; API batch 1,
@@ -711,7 +711,6 @@ baihe-subtitler/
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection
 │   │                              ("Copy a report for a bug" card: copy, download .txt, preview rows
 │   │                              via supportReport.ts, pure, unit-tested),
-│   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
 │   │                              helpers, unit-tested), DenoInstall (Setup card: Install Deno job +
@@ -919,7 +918,7 @@ baihe-subtitler/
 | `story_context.py` | character lookup, recaps, relationship maps |
 | `qa.py` | ask questions about a drama |
 | `line_tools.py` | explain / alternatives / improve / pronounce |
-| `debug_view.py` | "what happened here?" per-line/per-job debugging view, bug record-and-replay |
+| `debug_view.py` | "what happened here?" per-line/per-job debugging view |
 | `adaptive_style.py` | learns your preferences from your edits |
 | `vocab_export.py` | Anki decks |
 

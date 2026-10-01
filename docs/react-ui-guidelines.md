@@ -200,7 +200,7 @@ building blocks (section 4) should land first.
 
 | Streamlit today | React today | Concrete change | Pri | Files |
 |---|---|---|---|---|
-| `Check my setup` (open) with one primary `Run diagnostics`; Running jobs and Model & engine versions open; job history, bug bundles, source access, model cache, pyannote, App Assistant, copy report, log, benchmark, danger zone collapsed. Dependencies grouped by tier with installed/total counts. | 3 open panels: Optional packages (full list), System, Jobs table. | Optional packages: one line "22/25 installed" plus only the missing ones, full list collapsed. System: collapsed unless something is wrong. Jobs: visible while running or failed, otherwise a collapsed `History`. Add `Copy report`. | P2 | `pages/Diagnostics.tsx` |
+| `Check my setup` (open) with one primary `Run diagnostics`; Running jobs and Model & engine versions open; job history, source access, model cache, pyannote, App Assistant, copy report, log, benchmark, danger zone collapsed. Dependencies grouped by tier with installed/total counts. | 3 open panels: Optional packages (full list), System, Jobs table. | Optional packages: one line "22/25 installed" plus only the missing ones, full list collapsed. System: collapsed unless something is wrong. Jobs: visible while running or failed, otherwise a collapsed `History`. Add `Copy report`. | P2 | `pages/Diagnostics.tsx` |
 
 ## 4. Shared building blocks (do first)
 

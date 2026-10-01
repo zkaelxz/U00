@@ -11,7 +11,6 @@ Streamlit button does:
   - delete_translation_version (workspace_tab "Translation versions").
   - delete_series_character (workspace_tab "People & pronouns"): the
     series row goes, drama characters keep their copied name.
-  - delete_bug_bundle (tabs/diagnostics_tab.py "Delete bundle").
   - delete_preset / delete_voice_bank_entry (tabs/library_tab.py); the
     voice-bank clip file is removed by db.delete_voice_bank_entry.
   - clear_reading_history (tabs/library_tab.py "Clear reading history";
@@ -180,19 +179,6 @@ def delete_series_character(series_id, character_id, confirm=False) -> dict:
     _require_confirm(confirm, "a series character")
     db.delete_series_character(character_id)
     return {"series_id": series_id, "character_id": character_id, "deleted": True}
-
-
-# ---------------------------------------------------------------------------
-# Diagnostics bug bundles
-# ---------------------------------------------------------------------------
-
-def delete_bug_bundle(bundle_id, confirm=False) -> dict:
-    _check_id(bundle_id, "bug bundle")
-    if db.get_bug_report(bundle_id) is None:
-        raise NotFoundError(f"No bug bundle with id {bundle_id}.")
-    _require_confirm(confirm, "a bug bundle")
-    db.delete_bug_report(bundle_id)
-    return {"bundle_id": bundle_id, "deleted": True}
 
 
 # ---------------------------------------------------------------------------

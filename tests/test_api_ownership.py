@@ -51,7 +51,6 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "package": "a Python package name (PC-only)",
     "preset_id": "presets: household-wide (decision 6)",
     "entry_id": "voice bank: household-wide (decision 6)",
-    "bundle_id": "bug bundle (PC-only)",
     "report_id": "bug report (admin.diagnostics / PC-only)",
     "channel": "notification channel (PC-only)",
     "revision": "a Hugging Face model-cache revision, not an item (PC-only delete)",

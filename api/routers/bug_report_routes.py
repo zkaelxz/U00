@@ -18,9 +18,7 @@ dialog). Thin: see services/bug_report_service.py.
   may send RATE_MAX reports per RATE_WINDOW seconds (429).
 - GET list and GET one (the markdown) are `admin.diagnostics`.
 - POST .../{id}/delete is `local_only()` with confirm=true and the folder
-  stamp from the list, like the other PC-only deletes (the existing
-  bug-bundles delete route is for the per-line replay bundles in the
-  database, a different store).
+  stamp from the list, like the other PC-only deletes.
 """
 
 import json

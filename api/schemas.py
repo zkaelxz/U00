@@ -3011,11 +3011,6 @@ class SeriesCharacterDeleteResult(BaseModel):
     deleted: bool
 
 
-class BugBundleDeleteResult(BaseModel):
-    bundle_id: int
-    deleted: bool
-
-
 class PresetDeleteResult(BaseModel):
     preset_id: int
     deleted: bool
@@ -3784,29 +3779,13 @@ class ReadingHistoryClearResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Diagnostics parity (react-misc-parity): model-cache delete (Q14) and the
-# saved bug-reproduction bundles list.
+# Diagnostics parity (react-misc-parity): model-cache delete (Q14).
 # ---------------------------------------------------------------------------
 
 class DiagnosticsCacheDeleteResult(BaseModel):
     deleted: bool
     name: str
 
-
-class DiagnosticsBugBundle(BaseModel):
-    """A saved "What happened here?" snapshot; the frozen input is not returned."""
-    id: int
-    drama_id: int
-    drama_title: Optional[str] = None
-    line_id: Optional[int] = None
-    label: str
-    engine: Optional[str] = None
-    model: Optional[str] = None
-    produced_output: str
-    replayed: bool
-    replay_output: Optional[str] = None
-    reproduced: Optional[bool] = None
-    created_at: Optional[str] = None
 
 
 

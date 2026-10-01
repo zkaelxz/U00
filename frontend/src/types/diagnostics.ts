@@ -243,27 +243,6 @@ export interface DiagnosticsCacheDeleteResult {
   name: string
 }
 
-// GET /api/diagnostics/bug-bundles: saved "What happened here?" snapshots.
-export interface DiagnosticsBugBundle {
-  id: number
-  drama_id: number
-  drama_title: string | null
-  line_id: number | null
-  label: string
-  engine: string | null
-  model: string | null
-  produced_output: string
-  replayed: boolean
-  replay_output: string | null
-  reproduced: boolean | null
-  created_at: string | null
-}
-
-export interface BugBundleDeleteResult {
-  bundle_id: number
-  deleted: boolean
-}
-
 // GET /api/diagnostics/remote-health: the last scheduled remote-access check
 // (services/remote_health_service.py). States, whole days, Unix times and
 // fixed messages only: never the public name, an address or a URL.

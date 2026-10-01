@@ -1,9 +1,7 @@
 // Diagnostics: the read-only overview plus the API batch 1 gaps
 // (api/routers/diagnostics_gaps_routes.py). Install, upgrade, reset and the
-// model-cache and bug-bundle deletes are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
+// model-cache deletes are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
 import type {
-  BugBundleDeleteResult,
-  DiagnosticsBugBundle,
   DiagnosticsCacheDeleteResult,
   DiagnosticsGpuTorchSetupResult,
   DiagnosticsGpuTorchStatus,
@@ -113,12 +111,6 @@ export const deleteModelFile = (folder: DiagnosticsModelFolder, name: string, f?
     `${BASE}/model-cache/files/${encodeURIComponent(folder)}/${encodeURIComponent(name)}/delete`,
     { confirm: true }, pcOnlyFetch(f),
   )
-
-// Saved bug-reproduction bundles (a line's "What happened here?" snapshot).
-export const getBugBundles = (f?: Fetch) => getJson<DiagnosticsBugBundle[]>(`${BASE}/bug-bundles`, f)
-
-export const deleteBugBundle = (id: number, f?: Fetch) =>
-  postJson<BugBundleDeleteResult>(`${BASE}/bug-bundles/${id}/delete`, { confirm: true }, pcOnlyFetch(f))
 
 // The last scheduled remote-access check; reading it starts no check.
 export const getRemoteHealth = (f?: Fetch) => getJson<RemoteHealth>(`${BASE}/remote-health`, f)
