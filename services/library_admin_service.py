@@ -494,38 +494,90 @@ def _backup_excluded_top_level() -> tuple:
     return wjs._restore_kept_names() + (os.path.basename(src_store.cache_dir()),)
 
 
-def write_backup_zip(dest: str, include_media: bool = True, manifest=None):
+def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
+    """(full path, archive name, size) for every media file a backup holds,
+    in the order the zip is written."""
+    found = []
+    for root, dirs, files in os.walk(library_dir, topdown=True):
+        if root == library_dir:
+            dirs[:] = [d for d in dirs if d not in excluded]
+            files = [f for f in files if f not in excluded]
+        for fname in files:
+            full = os.path.join(root, fname)
+            if full in skip or fname == ".env" or os.path.islink(full):
+                continue
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                size = 0
+            found.append((full, os.path.relpath(full, library_dir), size))
+    return found
+
+
+# Share of the progress bar the file copy uses; the rest is the database
+# snapshot and manifest, which are written last.
+_BACKUP_FILES_SHARE = 0.95
+_BACKUP_PROGRESS_INTERVAL = 0.25
+
+
+def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
+                     progress=None, should_cancel=None):
     """Writes a backup zip to `dest`: a sanitized library.db snapshot and,
     with include_media, every other library file except the excluded
     top-level entries (backups/, sign-ins, source profiles, extension
     token, source_cache/), the live database files, symlinks and any `.env`. `manifest`,
     if given, is called with the snapshot's path and returns bytes stored
-    as manifest.json (so it describes exactly the database in the zip)."""
+    as manifest.json (so it describes exactly the database in the zip).
+    `progress(fraction, message)`, if given, is called at most a few times a
+    second while files are written. `should_cancel()`, if given, is checked
+    between files; when true this raises background_jobs.JobCancelled (the
+    caller removes the partial file)."""
     library_dir = db.LIBRARY_DIR
     skip = {db.DB_PATH, db.DB_PATH + "-wal", db.DB_PATH + "-shm"}
     excluded = _backup_excluded_top_level()
+
+    def check_cancel():
+        if should_cancel is not None and should_cancel():
+            raise background_jobs.JobCancelled()
+
     with tempfile.TemporaryDirectory() as snapdir:
         snap = os.path.join(snapdir, "library.db")
+        check_cancel()
         _sanitized_snapshot(snap)
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             if include_media:
-                for root, dirs, files in os.walk(library_dir, topdown=True):
-                    if root == library_dir:
-                        dirs[:] = [d for d in dirs if d not in excluded]
-                        files = [f for f in files if f not in excluded]
-                    for fname in files:
-                        full = os.path.join(root, fname)
-                        if full in skip or fname == ".env" or os.path.islink(full):
-                            continue
-                        zf.write(full, os.path.relpath(full, library_dir))
+                if progress is not None:
+                    progress(0.0, "Counting files...")
+                files = _backup_files(library_dir, skip, excluded)
+                total_bytes = sum(size for _, _, size in files)
+                done_bytes = 0
+                last_report = 0.0
+                for n, (full, arcname, size) in enumerate(files, 1):
+                    check_cancel()
+                    zf.write(full, arcname)
+                    done_bytes += size
+                    now = time.monotonic()
+                    if progress is not None and now - last_report >= _BACKUP_PROGRESS_INTERVAL:
+                        last_report = now
+                        frac = done_bytes / total_bytes if total_bytes else n / len(files)
+                        progress(frac * _BACKUP_FILES_SHARE,
+                                 f"Backing up ({n} of {len(files)} files)")
+            check_cancel()
+            if progress is not None:
+                progress(_BACKUP_FILES_SHARE, "Writing database snapshot...")
             zf.write(snap, "library.db")
             if manifest is not None:
                 zf.writestr("manifest.json", manifest(snap))
 
 
 def _backup_job(job_id):
-    name, size = _write_artifact("backup", ".zip", "The backup could not be written.",
-                                 write_backup_zip)
+    background_jobs.update_progress(job_id, 0.0, "Copying the database...")
+    name, size = _write_artifact(
+        "backup", ".zip", "The backup could not be written.",
+        lambda dest: write_backup_zip(
+            dest,
+            progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
+            should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
     background_jobs.set_result(job_id, {"name": name, "size": size})
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 
