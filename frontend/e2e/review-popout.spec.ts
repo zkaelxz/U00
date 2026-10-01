@@ -29,7 +29,8 @@ db.save_lines(3, [Line(idx=0, start=0.0, end=1.5, zh='你好', en='Hello there')
 })
 
 const STUB = () => {
-  ;(window as unknown as Record<string, unknown>).documentPictureInPicture = {
+  // Chromium defines the real API as a read-only property, so plain assignment is ignored.
+  Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: {
     requestWindow: async () => {
       const frame = document.createElement('iframe')
       frame.id = 'pip-stub'
@@ -42,12 +43,12 @@ const STUB = () => {
       }
       return win
     },
-  }
+  } })
 }
 
 test('the control is hidden where the API is missing', async ({ page }) => {
   await page.addInitScript(() => {
-    delete (window as unknown as Record<string, unknown>).documentPictureInPicture
+    Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
   })
   await page.goto('/#/drama/3/review')
   await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
