@@ -13,10 +13,6 @@ You find drift between Baihe's surfaces. CLI/UI parity is a rule learned from re
 - `services/*.py` and `api/routers/*.py`, with `api/schemas.py`
 - the React client: `frontend/src/api/*.ts` (types in `frontend/src/api/types.ts`) and the pages/components that call it
 
-**Also use:**
-- `docs/streamlit-feature-inventory.md`, which lists the features and which ones are missing in React;
-- `docs/migration-frontend-plan.md`.
-
 **Check:**
 1. **Contract drift:** for each response and request model in `api/schemas.py`, compare the matching TypeScript type. Look for missing or extra fields, optional vs required mismatches, and enum or literal values that differ.
 2. **Dead ends:**

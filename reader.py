@@ -4,9 +4,9 @@ annotations (pinyin/furigana) above each word, English translation
 alongside, and click-to-define popups. All definition/reading data is
 precomputed in Python and baked into the HTML as JSON, so the
 in-browser interactivity (click a word -> see its definition) is pure
-client-side JS with no round-trip back to Streamlit needed.
+client-side JS with no round-trip back to the server needed.
 
-Rendered via st.iframe() from the reader tab.
+The React Reader page shows it in an iframe (services/reader_service.py).
 """
 
 import json
@@ -213,8 +213,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   }}
 
   // Follow-along: highlight the line matching the current playback position
-  // and keep it in view. Entirely client-side -- Streamlit can't observe an
-  // <audio> element's position, so this has to live in the page itself.
+  // and keep it in view. Entirely client-side: the iframe's host page can't
+  // observe the <audio> element's position, so this lives in the page itself.
   (function setupFollow() {{
     const player = document.getElementById('player');
     if (!player) return;

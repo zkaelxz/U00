@@ -45,10 +45,6 @@ export function testBlockedReason(e: EngineRouteStatus): string | null {
   return e.status === 'not_configured' ? 'Add a key in API keys first.' : null
 }
 
-// Tasks that are views of a "Defaults for new dramas" preference; saving one
-// means the page's settings snapshot is stale.
-export const PREFERENCE_TASKS: ReadonlySet<string> = new Set(['translation.cheap', 'summary.episode'])
-
 // The <select> value: '' is the "Use default" option (sent as null).
 export const selectValue = (c: CapabilityRoute): string => (c.is_default ? '' : c.engine)
 export const choiceFromSelect = (value: string): string | null => (value === '' ? null : value)

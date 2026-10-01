@@ -1,6 +1,5 @@
 import type { DramaDetail } from '../../api/types'
 import type { DramaMetadataUpdate } from '../../types/library'
-import type { SourceConfig, SourceConfigUpdate } from '../../types/workspace'
 import { humanize } from '../../components/labels'
 import { MAX_NAME_LEN, MAX_SUMMARY_LEN, MEDIA_TYPES, SOURCE_LANGUAGES } from '../libraryForm'
 
@@ -213,11 +212,3 @@ const TRANSCRIPT_MODE_LABELS: Record<string, string> = {
 
 // Media type, content mode or transcript mode -> its display label.
 export const modeLabel = (m: string) => TRANSCRIPT_MODE_LABELS[m] ?? humanize('mediaType', m)
-
-// Only the modes that differ from the loaded config.
-export function modeUpdate(config: SourceConfig, content: string, transcript: string): SourceConfigUpdate {
-  const out: SourceConfigUpdate = {}
-  if (content && content !== config.content_mode) out.content_mode = content
-  if (transcript && transcript !== config.transcript_mode) out.transcript_mode = transcript
-  return out
-}

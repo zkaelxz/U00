@@ -146,9 +146,9 @@ export default function TranslatePage() {
   const shown = visibleHistory(history, showAll)
 
   return (
-    <section className="translate-page" aria-label="Translate">
+    <section className="translate-page" aria-label="Quick translate">
       <header className="translate-head">
-        <h2>Translate</h2>
+        <h2>Quick translate</h2>
         <p className="muted">Quick text translation, outside any drama. One side is always English.</p>
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

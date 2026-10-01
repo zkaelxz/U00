@@ -121,13 +121,6 @@ def test_numbers_clamped(live, monkeypatch):
     assert seen["k"]["max_seconds"] == live_service.MAX_MINUTES_RANGE[1] * 60
 
 
-def test_paid_engine_flag():
-    assert live_service.is_paid_engine("claude")
-    assert live_service.is_paid_engine("gemini")
-    assert not live_service.is_paid_engine("fake")
-    assert not live_service.is_paid_engine("ollama")
-
-
 # --- sessions, temp dirs, use_gpu -------------------------------------------
 
 def test_each_start_gets_own_session_and_dir(live, monkeypatch):

@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { JellyfinConfig, JellyfinScanItem } from '../../types/jellyfin'
 import {
-  itemLabel, jellyfinErrorMessage, jellyfinSummary, KEY_WRITES_REFUSED, readyToSend, scanSummary, sendResultText,
+  itemLabel, jellyfinErrorMessage, jellyfinSummary, readyToSend, scanSummary, sendResultText,
 } from './jellyfin'
+import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
 
 const cfg: JellyfinConfig = { enabled: true, server_url: 'http://x:8096', library_dir: 'D:\\M', key_configured: true }
 

@@ -4,6 +4,7 @@
 import { ApiError } from '../api/client'
 import { humanize } from '../components/labels'
 import { ENDPOINTS } from './settings/preferences'
+import { KEY_WRITES_REFUSED } from '../components/errorMessages'
 
 // The engines the write endpoint accepts (services/settings_service.KEY_WRITE_ENGINES).
 // URL settings (ollama_url etc.) are not secrets and have no write endpoint.
@@ -27,9 +28,6 @@ export function keyRows(engineKeys: Record<string, boolean>): KeyRow[] {
     .map((name) => ({ engine: name, label: humanize('engine', name), writable: false }))
   return [...secrets, ...others]
 }
-
-export const KEY_WRITES_REFUSED =
-  'Keys can only be set on the Baihe PC itself. start.bat turns key writes on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'
 
 // Plain one-line messages; never the server's raw text and never the key.
 export function keyErrorMessage(err: unknown): string {

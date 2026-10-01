@@ -5,7 +5,7 @@ import { buildEpub } from '../src/pages/translateEpubFixture'
 // Reaches the page at `#/translate`, the route the lead wires to TranslatePage.
 test('translates with the offline engine and lists it in history', async ({ page }) => {
   await page.goto('/#/translate')
-  await expect(page.getByRole('region', { name: 'Translate' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Quick translate' })).toBeVisible()
 
   await page.getByLabel('Engine', { exact: true }).selectOption('fake')
   await page.getByLabel('Text to translate').fill('你好，世界')

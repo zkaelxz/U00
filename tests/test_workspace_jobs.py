@@ -1,5 +1,5 @@
 """Workspace logic tests moved out of tests/test_workspace_tab.py (Streamlit
-retirement, docs/streamlit-retirement-plan.md section 9, guardrail 4): the
+retirement): the
 background-thread job targets in services/workspace_job_service.py behind the
 Workspace's Transcribe & Align, Read Captions, Flag, Fix-flagged, Emotion,
 Consistency, Notes and Translate actions, and the stage index in

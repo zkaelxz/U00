@@ -5,6 +5,9 @@
  */
 import type { EndpointName, PreferenceKey, SettingsPreferences } from '../../types/settings'
 
+// The one note under every key, address or token: where it goes, and that it stays hidden.
+export const SAVED_ON_PC_NOTE = 'Saved on the Baihe PC and never shown again.'
+
 export const ENDPOINTS: { name: EndpointName; label: string; placeholder: string; help: string }[] = [
   {
     name: 'ollama_url',
@@ -32,12 +35,6 @@ export const OCR_LABELS: Record<string, string> = {
   paddle: 'PaddleOCR (Chinese, Korean)',
   paddle_vl_manga: 'PaddleOCR-VL for manga (Japanese)',
   tesseract: 'Tesseract',
-}
-
-export const LOCALE_LABELS: Record<string, string> = {
-  'en-US': 'English (US)',
-  'en-GB': 'English (UK)',
-  'en-AU': 'English (Australia)',
 }
 
 /** The fields of `draft` whose value differs from `saved`. */

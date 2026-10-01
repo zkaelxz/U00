@@ -2,9 +2,7 @@
 // stage's "Send to Jellyfin"). Unit-tested.
 import { ApiError } from '../../api/client'
 import type { JellyfinConfig, JellyfinScanItem, JellyfinScanReport, JellyfinSendResult } from '../../types/jellyfin'
-
-export const KEY_WRITES_REFUSED =
-  'The Jellyfin key and server address can only be set on the Baihe PC itself, with key writes turned on (start the API with BAIHE_API_ALLOW_KEY_WRITES=1).'
+import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
 
 export function jellyfinSummary(c: JellyfinConfig): string {
   if (!c.enabled) return 'Off'

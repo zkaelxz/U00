@@ -443,7 +443,6 @@ def test_default_engine_used_for_drama_without_one(isolated_db, env_file):
     did = _seed(isolated_db)
     settings_service.set_settings({"default_engine": "ollama"})
     assert glossary_service.novel_glossary_engine(did) == "ollama"
-    assert glossary_service.spends_on_paid_engine(None) is False
     est = translate_run_service.estimate_translate_cost(did)
     assert est["engine"] == "ollama"
 

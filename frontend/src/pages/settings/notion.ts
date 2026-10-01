@@ -2,9 +2,7 @@
 // stage's "Export to Notion"). Unit-tested.
 import { ApiError } from '../../api/client'
 import type { NotionConfig, NotionTargetType, NotionTestResult } from '../../types/notion'
-
-export const TOKEN_WRITES_REFUSED =
-  'The Notion token can only be set on the Baihe PC itself, with key writes turned on (start the API with BAIHE_API_ALLOW_KEY_WRITES=1).'
+import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
 
 export function notionSummary(c: NotionConfig): string {
   if (!c.token_configured && !c.target_id) return 'Not set up'
@@ -53,7 +51,7 @@ export function testResultText(r: NotionTestResult): string {
 // path), so a 404/409/422/503 message is safe to show.
 export function notionErrorMessage(err: unknown, tokenWrite = false): string {
   if (err instanceof ApiError) {
-    if (err.status === 403) return tokenWrite ? TOKEN_WRITES_REFUSED : 'Notion export is PC only. Run this on the main PC.'
+    if (err.status === 403) return tokenWrite ? KEY_WRITES_REFUSED : 'Notion export is PC only. Run this on the main PC.'
     if (err.status === 0) return 'Could not reach the Baihe API. Is it running?'
     if ([404, 409, 422, 503].includes(err.status) && err.message) return err.message
   }

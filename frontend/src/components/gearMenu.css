@@ -1,0 +1,44 @@
+/* Header cogwheel and its menu (components/GearMenu.tsx). */
+details.gear-menu { position: relative; }
+details.gear-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+details.gear-menu > summary::-webkit-details-marker { display: none; }
+details.gear-menu > summary:hover,
+details.gear-menu[open] > summary,
+details.gear-menu > summary[aria-current='page'] { color: var(--text); }
+.gear-menu-panel {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  display: grid;
+  min-width: 12rem;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+}
+.gear-menu-panel a {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text);
+  text-decoration: none;
+}
+.gear-menu-panel a:hover { background: var(--accent-soft); }
+.gear-menu-panel a[aria-current='page'] { font-weight: var(--weight-bold); color: var(--accent-text); }
+
+@media (pointer: coarse), (max-width: 640px) {
+  details.gear-menu > summary { min-width: 44px; min-height: 44px; padding-inline: 0; }
+  .gear-menu-panel a { display: flex; align-items: center; min-height: 44px; }
+}

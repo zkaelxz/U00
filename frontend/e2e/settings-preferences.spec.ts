@@ -82,7 +82,7 @@ async function mockSettings(page: Page) {
 
 // Defaults and Spending are always-open Cards; the rest are
 // Sections (folds) inside the Advanced Card.
-const CARDS = ['Defaults for new dramas', 'Spending']
+const CARDS = ['Translation style', 'Spending']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
     ? page.getByRole('region', { name: title, exact: true })
@@ -109,7 +109,7 @@ test.afterEach(async ({ page }) => {
 test('defaults for new dramas save only what changed', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  const s = await open(page, 'Defaults for new dramas')
+  const s = await open(page, 'Translation style')
   const save = s.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
   await s.getByLabel('Translation engine', { exact: true }).selectOption('deepseek')
@@ -194,7 +194,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
 test('the theme is changed from the header button, not from Settings', async ({ page }) => {
   await mockSettings(page)
   await page.goto('/#/settings')
-  await expect(block(page, 'Defaults for new dramas')).toBeVisible()
+  await expect(block(page, 'Translation style')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Theme: / })).toBeVisible()
@@ -206,7 +206,7 @@ test('away from the PC the preference blocks say PC only', async ({ page }) => {
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  for (const title of ['Defaults for new dramas', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
+  for (const title of ['Translation style', 'Spending', 'OCR', 'Offline and performance', 'Downloads', 'Server addresses']) {
     // Server addresses also says how many are set (engine_keys yes/no is sent to every viewer).
     await expect(block(page, title).locator(CARDS.includes(title) ? '.card-meta' : '.section-summary')).toHaveText(
       title === 'Server addresses' ? /^\d of 3 set · PC only$/ : 'PC only')
