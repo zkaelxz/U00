@@ -89,6 +89,8 @@ def env(isolated_db, monkeypatch):
     monkeypatch.setitem(sys.modules, "yt_dlp", fake)
     monkeypatch.setattr(url_guard.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("93.184.216.34", port))])
+    monkeypatch.setattr(svc.shutil, "disk_usage",
+                        lambda path: types.SimpleNamespace(total=10**13, used=0, free=10**13))
     ffmpeg = []
 
     def fake_run(job_id, cmd, cwd=None, timeout=None, **kw):
@@ -183,7 +185,7 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     _run(client, did)
     o = FakeYDL.last_opts
     assert o["noplaylist"] is True and o["playlistend"] == 1
-    assert o["max_filesize"] == media_upload_service.max_upload_bytes()
+    assert "max_filesize" not in o
     assert o["socket_timeout"] == 30 and o["retries"] == 3
     assert o["concurrent_fragment_downloads"] == 1
     assert o["external_downloader"] == {"default": "native"}
@@ -213,24 +215,26 @@ def test_filtered_out_links_fail_with_fixed_text(client, env, script):
     _no_tmp(did)
 
 
-@pytest.mark.parametrize("wrap", [False, True])
-def test_byte_cap_aborts(client, env, monkeypatch, wrap):
+def test_a_large_download_is_not_stopped_for_its_size(client, env, monkeypatch):
     monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 1000)
-    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 2000}],
-                      "wrap": wrap}
+    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 5 * 10**9,
+                                  "total_bytes_estimate": 9 * 10**9}]}
     did = _drama()
     st = _run(client, did)
-    assert st["status"] == "error" and "larger than the upload limit" in st["error"]
-    assert env.writes == [] and not os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
+    assert st["status"] == "done", st
     _no_tmp(did)
 
 
-def test_estimated_total_over_cap_aborts(client, env, monkeypatch):
-    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 1000)
-    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 1,
-                                  "total_bytes_estimate": 5000}]}
-    st = _run(client, _drama())
-    assert st["status"] == "error" and "larger" in st["error"]
+@pytest.mark.parametrize("wrap", [False, True])
+def test_download_stops_before_filling_the_drive(client, env, monkeypatch, wrap):
+    monkeypatch.setattr(svc.shutil, "disk_usage",
+                        lambda path: types.SimpleNamespace(total=10**12, used=0, free=svc.MIN_FREE_BYTES - 1))
+    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 10}], "wrap": wrap}
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and "drive is almost full" in st["error"]
+    assert env.writes == [] and not os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
+    _no_tmp(did)
 
 
 def test_time_cap_aborts(client, env, monkeypatch):
@@ -584,4 +588,43 @@ def test_direct_link_more_than_five_redirects_refused(client, env, direct):
     assert st["status"] == "error" and st["error"].endswith(svc._FAILED), st
     assert len(direct.hops) == svc.MAX_DIRECT_REDIRECTS + 1
     assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def _caused_by(text):
+    try:
+        try:
+            raise Exception(text)
+        except Exception as inner:
+            raise RuntimeError("wrapped") from inner
+    except RuntimeError as e:
+        return e
+
+
+@pytest.mark.parametrize("raw, shown", [
+    ("ERROR: [youtube] R4s4PY92bMM: Sign in to confirm you're not a bot.", "sign in"),
+    ("Requested format is not available. Use --list-formats", "No downloadable format"),
+    ("HTTP Error 429: Too Many Requests", "rate-limiting"),
+    ("Unsupported URL: https://example.test/x", "doesn't support"),
+    ("This video is not available in your country", "region"),
+])
+def test_failure_reason_is_a_fixed_sentence_for_known_causes(raw, shown):
+    reason = svc._failure_reason(_caused_by(raw))
+    assert shown.lower() in reason.lower()
+    assert reason.endswith(".") and "R4s4PY92bMM" not in reason and "example.test" not in reason
+
+
+def test_failure_reason_is_empty_for_anything_unrecognised_and_never_echoes_it():
+    assert svc._failure_reason(_caused_by("boom at C:\\Users\\kae\\x with sk-ant-api03-" + "a" * 40)) == ""
+    assert svc._failure_reason(RuntimeError("")) == ""
+
+
+def test_a_recognised_failure_shows_the_sentence_before_the_generic_text(client, env, monkeypatch):
+    def boom(self, url, download=True):
+        raise RuntimeError("ERROR: [youtube] abc: Sign in to confirm you're not a bot.")
+    monkeypatch.setattr(FakeYDL, "extract_info", boom)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
+    assert "sign in" in st["error"].lower() and "abc" not in st["error"]
     _no_tmp(did)

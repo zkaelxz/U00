@@ -1447,23 +1447,35 @@ def _ensure_pytest(venv_py: str, python_executable: str, timeout: float):
     """Yields {"line"} items, then {"ok"}. The throwaway environment only sees
     the real one's packages, and pytest is an optional install there, so it
     is added to the throwaway environment itself when it can't be imported."""
+    has = _can_import(venv_py, "pytest")
+    if not has:
+        yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
+        end = None
+        for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
+                                     "install", "pytest>=7.4"], timeout):
+            if "line" in item:
+                yield item
+            else:
+                end = item
+        if end["returncode"] != 0 or end["timed_out"]:
+            yield {"ok": False}
+            return
+    # pytest-xdist only makes the run faster, so a failed install is not an error.
+    if not _can_import(venv_py, "xdist"):
+        yield {"line": "Adding pytest-xdist so the tests can run on every CPU core..."}
+        for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
+                                     "install", "pytest-xdist"], timeout):
+            if "line" in item:
+                yield item
+    yield {"ok": True}
+
+
+def _can_import(venv_py: str, module: str) -> bool:
     try:
-        has = subprocess.run([venv_py, "-c", "import pytest"], capture_output=True,
-                             timeout=60).returncode == 0
+        return subprocess.run([venv_py, "-c", f"import {module}"], capture_output=True,
+                              timeout=60).returncode == 0
     except (OSError, subprocess.SubprocessError):
-        has = False
-    if has:
-        yield {"ok": True}
-        return
-    yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
-    end = None
-    for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
-                                 "install", "pytest>=7.4"], timeout):
-        if "line" in item:
-            yield item
-        else:
-            end = item
-    yield {"ok": end["returncode"] == 0 and not end["timed_out"]}
+        return False
 
 
 def _flag_conflicts(result: dict) -> dict:
@@ -1509,7 +1521,10 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
               "conflicts": []}
 
     def _pytest(venv_py, args):
-        cmd = [venv_py, "-m", "pytest", "-o", "addopts=", "-q", "-rfE", "-p", "no:cacheprovider"] + args
+        cmd = [venv_py, "-m", "pytest", "-o", "addopts=", "-q", "-rfE", "-p", "no:cacheprovider"]
+        if args == test_args and _can_import(venv_py, "xdist"):
+            cmd += ["-n", "auto"]
+        cmd += args
         return _stream_process(cmd, test_timeout, cwd=project_root, env=test_env)
 
     work = tempfile.mkdtemp(prefix="baihe_upgrade_check_")
