@@ -42,7 +42,7 @@ export function pagePath(id: number, p: ReaderPageParams): string {
   return `${root(id)}/page${query({ ...p })}`
 }
 
-export interface WikiScope {
+interface WikiScope {
   up_to_line_idx?: number
   entry_type?: string
 }

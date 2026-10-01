@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/client'
 import { clearEngineKey, setEngineKey } from '../api/settings'
 import {
-  KEY_WRITES_REFUSED,
   initialKeyForm,
   keyErrorMessage,
   keyFormReducer,
@@ -10,6 +9,7 @@ import {
   type KeyFormAction,
   type KeyFormState,
 } from './settingsKeys'
+import { KEY_WRITES_REFUSED } from '../components/errorMessages'
 
 const run = (actions: KeyFormAction[], s: KeyFormState = initialKeyForm) =>
   actions.reduce(keyFormReducer, s)

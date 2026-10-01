@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
 // Phone project (390x844, touch): the Benchmark Lab with a golden set and two
-// finished runs of the free "Offline test" engine, seeded through the real API
+// finished runs of the fake engine, seeded through the real API
 // (nothing is spent). Checks run cards, the Arena stacked one run per row,
 // 44px targets and no sideways scroll. BENCH_SHOTS_DIR=<dir> saves a screenshot.
 // Named lab-* on purpose: a run leaves a finished "benchmark_lab" job on the
@@ -33,7 +33,7 @@ async function waitForJob(request: APIRequestContext) {
 async function seedRun(request: APIRequestContext, setName: string, label: string) {
   const resp = await request.post('/api/benchmark/runs', {
     headers: LOCAL,
-    data: { stage: 'translation', configs: [{ engine: 'test_offline' }], set_name: setName, label, prompt_version: label, confirm: true },
+    data: { stage: 'translation', configs: [{ engine: 'fake' }], set_name: setName, label, prompt_version: label, confirm: true },
   })
   expect(resp.status()).toBe(200)
   await waitForJob(request)

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Phone project (390x844, touch): Diagnostics admin with the Log, the
 // support report and a failed install's Output open. Every POST is mocked;
@@ -93,6 +94,7 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: true, running: true } }))
   await page.route('**/api/extension/token', (r) => r.fulfill({ json: { token: 'tok-phone' } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('On · running')
   await ext.getByRole('button', { name: 'Show extension token' }).click()

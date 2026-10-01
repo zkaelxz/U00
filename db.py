@@ -1224,6 +1224,10 @@ def init_db():
             conn.executemany(
                 "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
                 [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
+        # The fake "test_offline" engine is gone: a drama or preset still on it
+        # goes back to the default engine instead of failing to start a run.
+        conn.execute("UPDATE dramas SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
+        conn.execute("UPDATE presets SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()

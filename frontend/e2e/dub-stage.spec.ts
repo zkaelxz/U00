@@ -91,7 +91,7 @@ test('narration chunk-and-tag needs a confirmation before replacing lines', asyn
     route.fulfill({
       json: {
         drama_id: 1, is_narration: true, has_novel_source: true,
-        engines: [{ key: 'test_offline', key_configured: true }], default_engine: 'test_offline',
+        engines: [{ key: 'fake', key_configured: true }], default_engine: 'fake',
         max_chunk_chars: 500, existing_line_count: 12, replaces_existing_lines: true, job_running: false,
       },
     }))
@@ -107,7 +107,7 @@ test('narration chunk-and-tag needs a confirmation before replacing lines', asyn
   await page.getByLabel('Replace the 12 existing lines').check()
   await start.click()
   await expect(page.getByRole('alert').filter({ hasText: 'cannot be done right now' })).toBeVisible()
-  expect(bodies[0]).toEqual({ engine: 'test_offline' })
+  expect(bodies[0]).toEqual({ engine: 'fake' })
 })
 
 test('narration Start over sends ?fresh=true only while it is on, and a resumed run says so', async ({ page }) => {
@@ -116,7 +116,7 @@ test('narration Start over sends ?fresh=true only while it is on, and a resumed 
     route.fulfill({
       json: {
         drama_id: 1, is_narration: true, has_novel_source: true,
-        engines: [{ key: 'test_offline', key_configured: true }], default_engine: 'test_offline',
+        engines: [{ key: 'fake', key_configured: true }], default_engine: 'fake',
         max_chunk_chars: 500, existing_line_count: 0, replaces_existing_lines: false, job_running: false,
       },
     }))
@@ -143,7 +143,7 @@ test('narration Start over sends ?fresh=true only while it is on, and a resumed 
   await start.click()
   await expect.poll(() => posts.length).toBe(1)
   expect(new URL(posts[0].url).search).toBe('')
-  expect(posts[0].body).toEqual({ engine: 'test_offline' })
+  expect(posts[0].body).toEqual({ engine: 'fake' })
   await expect(page.getByTestId('job-status')).toContainText('Resuming: 3 of 8')
   await expect(page.getByTestId('job-note')).toHaveText(
     'Resuming an interrupted run. Use Start over to tag everything again.',
@@ -156,7 +156,7 @@ test('narration Start over sends ?fresh=true only while it is on, and a resumed 
   await start.click()
   await expect.poll(() => posts.length).toBe(2)
   expect(new URL(posts[1].url).search).toBe('?fresh=true')
-  expect(posts[1].body).toEqual({ engine: 'test_offline' })
+  expect(posts[1].body).toEqual({ engine: 'fake' })
   await expect(page.getByTestId('job-status')).toContainText('Tagged 8 chunks')
   await expect(page.getByTestId('job-note')).toHaveCount(0)
 })

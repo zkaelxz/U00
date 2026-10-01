@@ -39,7 +39,7 @@ interface Props {
   panelHost?: HTMLElement | null
 }
 
-export const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
+const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Source.'
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
   Source: 'No original subtitles yet: nothing is transcribed.',

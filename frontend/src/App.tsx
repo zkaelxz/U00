@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { AuthUser } from './api/auth'
 import { api } from './api/client'
-import type { MetaResponse } from './api/types'
+import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
+import { GearMenu, type GearItem } from './components/GearMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
@@ -23,52 +25,34 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
+import { canViewUsers } from './pages/diagnostics/adminUsers'
 import { ReportProblemButton } from './report/ReportProblem'
 import { routeHref, useRoute } from './router'
 import type { Route } from './router'
 
+// Shown only when the server can't be reached; the version lives in
+// Diagnostics and in problem reports, where it is useful.
 function ApiStatus() {
-  const [meta, setMeta] = useState<MetaResponse | null>(null)
   const [down, setDown] = useState(false)
 
   useEffect(() => {
-    api.meta().then(setMeta, () => setDown(true))
+    api.meta().catch(() => setDown(true))
   }, [])
 
-  if (down) return <span className="badge bad">API unreachable</span>
-  if (!meta) return <span className="badge">Connecting…</span>
+  if (!down) return null
   return (
-    <span className="badge ok" data-testid="api-status">
-      API v{meta.api_version}{meta.environment ? ` · ${meta.environment}` : ''}
+    <span className="badge bad" data-testid="api-status" title="Check that Baihe Studio is still running on this PC.">
+      Can't reach Baihe
     </span>
   )
 }
 
 // Signed in with auth on: the account and "Sign out". Absent with auth off.
 function UserMenu({ user }: { user: AuthUser }) {
-  const ref = useRef<HTMLDetailsElement>(null)
+  const ref = useDetailsMenu()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const label = user.email ?? user.display_name ?? 'Signed in'
-
-  // Close on a click elsewhere or Escape, like a menu.
-  useEffect(() => {
-    const close = (e: Event) => {
-      const el = ref.current
-      if (!el?.open) return
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== 'Escape') return
-        el.open = false
-        el.querySelector('summary')?.focus()
-      } else if (!el.contains(e.target as Node)) el.open = false
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [])
 
   async function onSignOut() {
     setBusy(true)
@@ -105,15 +89,22 @@ function UserMenu({ user }: { user: AuthUser }) {
 // [label, target, route names that count as being on this page]
 const NAV: [string, Route, Route['name'][]][] = [
   ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
-  ['Translate', { name: 'translate' }, ['translate']],
+  ['Quick translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
   ['Discover', { name: 'discover' }, ['discover']],
   ['Live', { name: 'live' }, ['live']],
-  ['Settings', { name: 'settings' }, ['settings']],
-  ['Diagnostics', { name: 'diagnostics' }, ['diagnostics', 'benchmark']],
 ]
-// Shown only with Developer Mode on (Settings; PC only).
-const ASSISTANT_NAV: [string, Route, Route['name'][]] = ['Assistant', { name: 'assistant' }, ['assistant']]
+
+// Behind the cogwheel: rarely used pages. Admin is for admins, the Assistant
+// for Developer Mode (Settings; PC only).
+function gearItems(admin: boolean, developerMode: boolean): GearItem[] {
+  return [
+    { label: 'Settings', target: { name: 'settings' }, active: ['settings'] },
+    ...(admin ? [{ label: 'Admin', target: { name: 'admin' } as Route, active: ['admin'] as Route['name'][] }] : []),
+    { label: 'Diagnostics', target: { name: 'diagnostics' }, active: ['diagnostics', 'benchmark'] },
+    ...(developerMode ? [{ label: 'Assistant', target: { name: 'assistant' } as Route, active: ['assistant'] as Route['name'][] }] : []),
+  ]
+}
 
 export default function App() {
   const route = useRoute()
@@ -138,7 +129,7 @@ export default function App() {
       <header className="app-header">
         <h1>Baihe Studio</h1>
         <nav aria-label="Main">
-          {(developerMode ? [...NAV, ASSISTANT_NAV] : NAV).map(([label, target, active]) => (
+          {NAV.map(([label, target, active]) => (
             <a
               key={label}
               href={routeHref(target)}
@@ -147,6 +138,7 @@ export default function App() {
               {label}
             </a>
           ))}
+          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
         </nav>
         <div className="header-end">
           <NotificationBell />
@@ -164,6 +156,7 @@ export default function App() {
         {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
         {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
         {route.name === 'settings' && <SettingsPage />}
+        {route.name === 'admin' && <AdminPage />}
         {route.name === 'translate' && <TranslatePage />}
         {route.name === 'sources' && <SourcesPage />}
         {route.name === 'discover' && <DiscoverPage />}

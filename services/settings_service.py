@@ -289,7 +289,7 @@ SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini")
 
 def _engine_choices() -> tuple:
     import translate_engines
-    return tuple(k for k in translate_engines.ENGINES if k != "test_offline")
+    return tuple(translate_engines.ENGINES)
 
 
 def engine_preference_choices() -> tuple:

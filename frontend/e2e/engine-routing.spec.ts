@@ -31,8 +31,8 @@ test('choose an engine for a task, see it persist, and test the offline engine',
   await expect(card(page).getByRole('button', { name: 'Test Claude' })).toBeDisabled()
 
   // The offline test engine is free and needs no network.
-  const row = page.getByTestId('engine-test_offline')
-  await row.getByRole('button', { name: 'Test Offline test' }).click()
+  const row = page.getByTestId('engine-fake')
+  await row.getByRole('button', { name: 'Test Fake' }).click()
   await expect(row.getByText('Working', { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect(row.getByText(/Tested just now/)).toBeVisible()
 
@@ -47,7 +47,7 @@ test('the card fits a phone with 44px controls', async ({ page }) => {
   await page.goto('/#/settings')
   await expect(task(page)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  for (const el of [task(page), card(page).getByRole('button', { name: 'Test Offline test' })]) {
+  for (const el of [task(page), card(page).getByRole('button', { name: 'Test Fake' })]) {
     const box = await el.boundingBox()
     expect(box!.height).toBeGreaterThanOrEqual(44)
   }
@@ -70,6 +70,6 @@ test('a refused change rolls the choice back and says it is PC only', async ({ p
   // The 403 switched the tab to remote: the controls are disabled with a note.
   await expect(card(page).getByText('Choosing and testing engines is PC only.')).toBeVisible()
   await expect(task(page)).toBeDisabled()
-  await expect(card(page).getByRole('button', { name: 'Test Offline test' })).toBeDisabled()
+  await expect(card(page).getByRole('button', { name: 'Test Fake' })).toBeDisabled()
   await page.evaluate(() => sessionStorage.removeItem('baihe.pcOnly'))
 })

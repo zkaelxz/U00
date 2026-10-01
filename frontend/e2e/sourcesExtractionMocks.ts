@@ -88,7 +88,7 @@ export function comicReview(over: Record<string, unknown> = {}) {
 // A 1x1 PNG.
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 
-export interface ExtractionMockState {
+interface ExtractionMockState {
   review: Record<string, unknown> | null
   // What the next rerun answers with.
   rerunBody: Record<string, unknown> | null

@@ -98,7 +98,7 @@ def run_translation_case(case: dict, engine):
     known-good translation}.
 
     Runs the given engine's own translate_batch() -- whichever engine the
-    caller picked (Claude/DeepSeek/Gemini/etc, or NLLB, or test_offline),
+    caller picked (Claude/DeepSeek/Gemini/etc, or NLLB),
     exactly the call every real translated line in this app goes through.
     """
     started = time.monotonic()

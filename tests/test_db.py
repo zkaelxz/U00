@@ -736,11 +736,11 @@ class TestUsageByDrama:
     estimated_cost_usd > 0, which drops free engines entirely)."""
 
     def test_includes_translation_engine_and_call_count(self, isolated_db):
-        did = isolated_db.create_drama(title_en="Test", translation_engine="test_offline")
-        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 100, 50, 0.0)
-        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 200, 100, 0.0)
+        did = isolated_db.create_drama(title_en="Test", translation_engine="fake")
+        isolated_db.log_usage(did, "fake", "fake", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "fake", "fake", "translate", 200, 100, 0.0)
         row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
-        assert row["translation_engine"] == "test_offline"
+        assert row["translation_engine"] == "fake"
         assert row["call_count"] == 2
         assert row["estimated_cost_usd"] == 0.0
 
@@ -1837,3 +1837,11 @@ class TestAppSettings:
         assert db.get_app_setting("a_number") == 3.5
         assert db.get_app_setting("a_bool") is True
         assert db.get_app_setting("a_list") == [1, 2, 3]
+
+
+def test_init_db_moves_dramas_off_the_removed_test_engine(isolated_db):
+    did = isolated_db.create_drama(title_en="Old", translation_engine="test_offline")
+    other = isolated_db.create_drama(title_en="Kept", translation_engine="deepseek")
+    isolated_db.init_db()
+    assert isolated_db.get_drama(did)["translation_engine"] == "claude"
+    assert isolated_db.get_drama(other)["translation_engine"] == "deepseek"

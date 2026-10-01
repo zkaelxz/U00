@@ -13,7 +13,7 @@ type Fetch = typeof fetch
 const BASE = '/api/admin'
 
 // Server cap (services/auth_service.AUDIT_PAGE_MAX is 200).
-export const AUDIT_PAGE_SIZE = 50
+const AUDIT_PAGE_SIZE = 50
 
 export const listAdminUsers = (f?: Fetch) => getJson<AdminUserList>(`${BASE}/users`, f)
 

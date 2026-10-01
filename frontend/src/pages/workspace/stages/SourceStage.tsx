@@ -14,7 +14,7 @@ import { usePersistedState } from '../../../hooks/usePersistedState'
 import { checkUploadFile, sourceJobIds, UPLOAD_EXTENSIONS } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { CreditsCoverPanel } from './CreditsCoverPanel'
-import { DetailsPanel, SourceModePanel } from './DetailsPanel'
+import { DetailsPanel } from './DetailsPanel'
 import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
 import { ResearchPanel } from './ResearchPanel'
 import { JobPanel } from './JobPanel'
@@ -33,8 +33,6 @@ export default function SourceStage() {
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   const [reloads, setReloads] = useState(0)
-  // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
-  const [modeVersion, setModeVersion] = useState(0)
   const pc = usePcOnly()
   const [removeError, setRemoveError] = useState<unknown>(null)
   // "Upload a file" or "From a URL", remembered per viewer.
@@ -179,12 +177,11 @@ export default function SourceStage() {
 
   return (
     <div className="stage-source">
-      <TranscribeStage key={modeVersion} mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
+      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
       <section className="panel" aria-label="Glossary from novel">
         <NovelGlossary title="Glossary from novel" storageKey="source.glossary.novel" />
       </section>
-      <SourceModePanel onSaved={() => setModeVersion((n) => n + 1)} />
       <DetailsPanel />
       <CreditsCoverPanel />
       <AutofillPanel />

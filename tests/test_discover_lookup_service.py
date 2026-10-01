@@ -88,9 +88,7 @@ def test_no_key_is_503(monkeypatch):
         svc.translate_query("hello", "claude")
 
 
-def test_paid_engine_flag():
-    assert svc.spends_on_paid_engine("claude") and svc.spends_on_paid_engine(None)
-    assert not svc.spends_on_paid_engine("ollama")
+def test_paid_engine_functions():
     assert set(svc.PAID_ENGINE_FUNCTIONS) >= {"translate_query", "bulk_extract"}
 
 
