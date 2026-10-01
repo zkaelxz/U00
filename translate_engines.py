@@ -121,22 +121,6 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
     return (effective_input / 1_000_000 * rates["input"]) + (output_tokens / 1_000_000 * rates["output"])
 
 
-# DeepL and Google Cloud Translation bill per character sent, not per
-# token -- unlike every other engine here. USD per million characters,
-# checked against each provider's own pricing page in September 2026;
-# same "approximation, not a bill" caveat as PRICING_PER_MILLION_TOKENS
-# above. Google: Cloud Translation Basic (v2), $20/million characters
-# (the first 500k/month free tier isn't modeled here). DeepL: its current
-# per-character overage rate ($25-27.50/million depending on plan) --
-# priced at the higher end, same "never undercut a spending cap" direction
-# as CACHE_READ_PRICE_FACTOR above; a plan's own monthly base fee isn't
-# modeled here either.
-PRICING_PER_MILLION_CHARACTERS = {
-    "google": 20.0,
-    "deepl": 27.5,
-}
-
-
 def _empty_usage() -> dict:
     return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
 
@@ -1162,7 +1146,7 @@ class DeepSeekEngine:
 
 class GeminiEngine:
     """Uses the plain generateContent REST endpoint with an API-key query
-    param (like GoogleEngine below), rather than the google-genai SDK --
+    param, rather than the google-genai SDK --
     no extra dependency needed, and it's a simple enough API that the SDK
     doesn't buy much here."""
     name = "gemini"
@@ -1295,96 +1279,6 @@ class GeminiEngine:
 
 
 # ---------------------------------------------------------------------------
-# DeepL -- fast, cheap, pure MT (no reference-novel awareness)
-# ---------------------------------------------------------------------------
-
-# DeepL's own source-language codes -- confirmed via direct testing that
-# hardcoding "ZH" regardless of the drama's actual source language was a
-# real bug: a Japanese or Korean drama translated through DeepL was
-# silently telling DeepL its audio was Chinese the whole time.
-_DEEPL_SOURCE_LANGS = {"zh": "ZH", "ja": "JA", "ko": "KO", "en": "EN"}
-# DeepL's target codes -- separate table since English needs a regional
-# variant as a target (EN-US) but not as a source (plain EN). Step 26b:
-# added so the standalone translate tool can go English -> zh/ja/ko too,
-# defaulting to "en" everywhere else keeps every existing drama call
-# (which never sets target_language) landing on EN-US exactly as before.
-_DEEPL_TARGET_LANGS = {"zh": "ZH", "ja": "JA", "ko": "KO", "en": "EN-US"}
-
-
-class DeepLEngine:
-    name = "deepl"
-    supports_reference = False
-
-    def __init__(self, api_key: str):
-        import deepl
-        self.translator = deepl.Translator(api_key)
-        self.last_usage = _empty_usage()
-
-    def translate_batch(self, zh_lines, context: dict):
-        source_lang = _DEEPL_SOURCE_LANGS.get(context.get("source_language", "zh"), "ZH")
-        target_lang = _DEEPL_TARGET_LANGS.get(context.get("target_language", "en"), "EN-US")
-        results = self.translator.translate_text(
-            zh_lines, source_lang=source_lang, target_lang=target_lang
-        )
-        if not isinstance(results, list):
-            results = [results]
-        # Step 25w: DeepL bills per character sent, not per token -- there
-        # was previously no last_usage at all here, so the cost-cap system
-        # could never see any spend from this engine. billed_characters is
-        # the API's own real per-result count; fall back to the source
-        # text's own length for an older SDK that doesn't expose it, since
-        # that's what's billed in the common (no-glossary) case. Stored in
-        # the "input_tokens" slot -- this engine has no separate input/
-        # output token concept, so estimate_cost_for_engine prices this
-        # value per-character instead of per-token.
-        self.last_usage = _empty_usage()
-        self.last_usage["input_tokens"] = sum(
-            getattr(r, "billed_characters", None) or len(z)
-            for r, z in zip(results, zh_lines))
-        return [r.text for r in results]
-
-
-# ---------------------------------------------------------------------------
-# Google Cloud Translation -- broadest coverage, pure MT
-# ---------------------------------------------------------------------------
-
-class GoogleEngine:
-    name = "google"
-    supports_reference = False
-
-    def __init__(self, api_key: str):
-        # Uses the simple API-key REST endpoint rather than the full
-        # google-cloud-translate SDK, to avoid needing service-account setup.
-        self.api_key = api_key
-        self.last_usage = _empty_usage()
-
-    def translate_batch(self, zh_lines, context: dict):
-        import requests
-        url = "https://translation.googleapis.com/language/translate/v2"
-        # This app's own source_language values ("zh"/"ja"/"ko") already
-        # match Google's own codes directly -- no mapping table needed,
-        # unlike DeepL's differently-cased codes above. Hardcoding "zh"
-        # here regardless of the actual source was the same real bug as
-        # DeepLEngine's: a Japanese/Korean drama silently mistranslated.
-        resp = requests.post(url, headers={"X-Goog-Api-Key": self.api_key}, json={
-            "q": zh_lines, "source": context.get("source_language", "zh"),
-            "target": context.get("target_language", "en"), "format": "text",
-        }, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        # Step 25w: there was previously no last_usage at all here, so the
-        # cost-cap system could never see any spend from this engine. The
-        # v2 API doesn't report usage in its response, but it bills every
-        # character sent for processing (confirmed against Google's own
-        # billing docs) -- exactly the length of what was just sent, no
-        # estimate needed. Stored in "input_tokens" for the same reason as
-        # DeepLEngine above: priced per-character, not per-token.
-        self.last_usage = _empty_usage()
-        self.last_usage["input_tokens"] = sum(len(z) for z in zh_lines)
-        return [t["translatedText"] for t in data["data"]["translations"]]
-
-
-# ---------------------------------------------------------------------------
 # Local NLLB-200 -- genuinely free, fully offline neural MT, no API key
 # ---------------------------------------------------------------------------
 
@@ -1419,7 +1313,7 @@ class NLLBEngine:
     just with meaningfully lower quality than Claude/DeepSeek/Gemini on
     tone, idiom, and character-voice consistency, since it's pure
     sequence-to-sequence MT with no instruction-following ability at all
-    -- the same category as DeepL/Google, not an LLM. Good for a genuinely
+    -- not an LLM. Good for a genuinely
     free bulk draft, or for fully offline/no-budget use; expect to
     hand-polish idiom-heavy or emotionally nuanced lines afterward.
 
@@ -1476,8 +1370,8 @@ def tag_speakers_by_id(id_to_zh: dict, engine, known_characters=None, batch_size
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
     a character name, or 'Narrator' for descriptive prose. Works with
-    any LLM-capable engine (Claude, DeepSeek); pure-MT engines (DeepL,
-    Google) can't do this and will return 'Narrator' for everything.
+    any LLM-capable engine (Claude, DeepSeek); pure-MT engines (NLLB,
+    LibreTranslate) can't do this and will return 'Narrator' for everything.
 
     id_to_zh maps each chunk's own id (its line idx) to its text. Returns
     {id: label} with an entry for EVERY id given: a label the model
@@ -1798,8 +1692,8 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     annotates .flag/.flag_note on the Line objects it's given (mutated in
     place, same convention as translate_lines_with_engine).
 
-    Only meaningful with an LLM-capable engine; pure-MT engines (DeepL,
-    Google) can't reason about their own confidence and are left
+    Only meaningful with an LLM-capable engine; pure-MT engines (NLLB,
+    LibreTranslate) can't reason about their own confidence and are left
     untouched -- every line's .flag stays whatever it already was.
     cancel_check (B-05): called before each batch; it may raise to stop the
     run between batches (a batch already sent still finishes).
@@ -2038,7 +1932,7 @@ class LibreTranslateEngine:
       - Self-hosted LibreTranslate: no per-word cost, but you run the
         server. Loading all 30+ languages wants ~8GB RAM and ~10GB disk.
       - Self-hosted LTEngine (https://github.com/LibreTranslate/LTEngine):
-        runs LLMs locally via llama.cpp for quality reportedly near DeepL
+        runs LLMs locally via llama.cpp for quality reportedly good
         on some pairs. Its largest model (gemma3-27b) needs roughly a
         24GB-VRAM GPU; CPU-only runs but is slow.
       - The HOSTED libretranslate.com API is a paid service with pricing
@@ -2077,8 +1971,6 @@ ENGINES = {
     "claude": ClaudeEngine,
     "deepseek": DeepSeekEngine,
     "gemini": GeminiEngine,
-    "deepl": DeepLEngine,
-    "google": GoogleEngine,
     "test_offline": TestOfflineEngine,
     "ollama": OllamaEngine,
     "nllb": NLLBEngine,
@@ -2090,7 +1982,19 @@ ENGINES = {
 # feature used to silently produce nothing (each feature's own
 # `supports_reference` guard already declines quietly; call_llm_json's
 # fallback used to do the same before Step 1d made it raise instead).
-TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
+TRANSLATION_ONLY_ENGINES = {"nllb", "libretranslate"}
+
+# Engines that used to be offered. Saved presets, routing rules, fallback
+# chains and history rows may still name them; they are no longer in ENGINES,
+# so running with one is refused with unknown_engine_message().
+REMOVED_ENGINES = frozenset({"deepl", "google"})
+
+
+def unknown_engine_message(engine_name) -> str:
+    """The refusal text for an engine name that is not in ENGINES."""
+    if engine_name in REMOVED_ENGINES:
+        return f"The {engine_name} engine was removed. Pick another engine."
+    return "Unknown engine."
 
 
 # ---------------------------------------------------------------------------
@@ -2112,8 +2016,6 @@ ENGINE_CAPABILITIES = {
     "deepseek": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP}),
     "gemini": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP,
                          CAP_GROUNDED_SEARCH}),
-    "deepl": frozenset({CAP_TRANSLATE}),
-    "google": frozenset({CAP_TRANSLATE, CAP_CHEAP}),
     "test_offline": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
     "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
     "nllb": frozenset({CAP_TRANSLATE, CAP_LOCAL, CAP_CHEAP}),
@@ -2198,8 +2100,9 @@ def fallback_chain_error(names):
     if len(set(names)) != len(names):
         return "A fallback chain can't repeat an engine."
     if len(names) > 1:
-        if any(n not in ENGINES for n in names):
-            return "Unknown translate engine."
+        for n in names:
+            if n not in ENGINES:
+                return unknown_engine_message(n).replace("Unknown engine.", "Unknown translate engine.")
         if len({n in TRANSLATION_ONLY_ENGINES for n in names}) > 1:
             return ("A fallback chain can't mix instruction-following engines with "
                     "translation-only ones.")
@@ -2254,8 +2157,7 @@ class FallbackEngine:
         while True:
             engine = self.engines[self.active]
             if isinstance(getattr(engine, "last_usage", None), dict):
-                # DeepL/Google set it only on success: a failed attempt
-                # must not re-count the previous batch's usage.
+                # A failed attempt must not re-count the previous batch's usage.
                 engine.last_usage = _empty_usage()
             try:
                 result = engine.translate_batch(zh_lines, context)
@@ -2319,8 +2221,8 @@ def standalone_direction_support(engine_name: str, source_language: str, target_
     zh/ja/ko -> English is this app's existing, well-tested direction --
     every engine already does this and keeps doing it unchanged. English
     -> zh/ja/ko is new (Step 26b item 6):
-      - DeepL/Google/NLLB take an explicit source+target pair in their own
-        API/pipeline, so they're just as capable in either direction.
+      - NLLB takes an explicit source+target pair in its own
+        pipeline, so they're just as capable in either direction.
       - Claude/DeepSeek/Gemini/test_offline are prompted for the direction
         directly (build_standalone_instructions), same as any other LLM
         instruction.
@@ -2448,8 +2350,6 @@ ENGINE_NOTES = {
     "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
     "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
     "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
-    "deepl": "Fast, natural phrasing, but no reference-novel awareness -- pure MT.",
-    "google": "Broadest language coverage, cheapest at scale, no reference-novel awareness.",
     "test_offline": "🧪 Free — for testing: fake output, no AI. Checks the app works; never use for real subtitles.",
     "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
     "nllb": "🧪 Free — for testing: offline, translation only. Non-commercial licence.",
@@ -2503,17 +2403,9 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
                              cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
     """Same as estimate_cost, but $0 for a Gemini engine running under its
     free tier -- PRICING_PER_MILLION_TOKENS prices the paid tier, which
-    doesn't apply once free_tier is set on the engine instance.
-
-    DeepL and Google are pure per-character-billed MT engines with no
-    token concept of their own -- for those, `input_tokens` actually holds
-    the billed character count (see GoogleEngine/DeepLEngine.last_usage)
-    and is priced from PRICING_PER_MILLION_CHARACTERS instead."""
+    doesn't apply once free_tier is set on the engine instance."""
     if getattr(engine, "free_tier", False):
         return 0.0
-    name = getattr(engine, "name", "")
-    if name in PRICING_PER_MILLION_CHARACTERS:
-        return input_tokens / 1_000_000 * PRICING_PER_MILLION_CHARACTERS[name]
     return estimate_cost(getattr(engine, "model", ""), input_tokens, output_tokens,
                          cache_read_tokens, cache_write_tokens)
 
@@ -2522,12 +2414,8 @@ def estimate_translation_cost(engine, zh_lines: list) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
     from the lines' own character count. For token-billed engines this
     uses a tokenizer-free ~3.5 chars/token heuristic -- an
-    order-of-magnitude estimate, not a precise bill. For DeepL/Google
-    (billed per character, not per token) the character count itself is
-    passed straight through, since that's exactly what they bill."""
+    order-of-magnitude estimate, not a precise bill."""
     chars = sum(len(z) for z in zh_lines)
-    if getattr(engine, "name", "") in PRICING_PER_MILLION_CHARACTERS:
-        return estimate_cost_for_engine(engine, chars, 0)
     input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
     return estimate_cost_for_engine(engine, input_tokens, output_tokens)
@@ -2749,9 +2637,8 @@ def build_translation_context(engine, drama_meta: dict, style_note: str = "", no
         "locale": locale,
         "glossary_terms": glossary_terms,
         "style_guidelines": style_guidelines,
-        # Regression fix: DeepL/Google both used to hardcode "zh" here
-        # regardless of the drama's actual source language -- a Japanese
-        # or Korean drama translated through either silently mistranslated.
+        # Never hardcode "zh": a Japanese or Korean drama would be
+        # silently mistranslated by an engine that takes a source language.
         "source_language": (drama_meta or {}).get("source_language", "zh"),
         "ollama_num_ctx_override": ollama_num_ctx_override,
     }

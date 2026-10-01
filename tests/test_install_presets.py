@@ -16,7 +16,7 @@ FLAGS = ["--no-cache-dir", "--disable-pip-version-check"]
 # against pypi.org. Static on purpose: a new package must be added here
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
-    "faster-whisper", "opencv-python", "anthropic", "openai", "deepl", "requests",
+    "faster-whisper", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "soundfile", "edge-tts", "pydub", "f5-tts",
     "omnivoice", "chatterbox-tts", "hume-tada", "pytesseract", "pillow", "paddleocr",
     "manga-ocr", "piper-tts", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
