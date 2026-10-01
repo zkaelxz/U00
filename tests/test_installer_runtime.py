@@ -152,6 +152,21 @@ class TestServicePort:
         assert launcher.service_port(path, install_root="C:/Baihe") == 8711
         assert launcher.service_port(path, install_root="C:/Other") is None
 
+    def test_the_same_folder_spelled_differently_still_matches(self, tmp_path):
+        import json, os
+        real = tmp_path / "Baihe Studio"
+        real.mkdir()
+        alias = tmp_path / "alias"
+        try:
+            os.symlink(real, alias, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not available")
+        path = self._config(tmp_path, json.dumps({"install_root": str(alias), "api_port": 8711}))
+        assert launcher.service_port(path, install_root=str(real)) == 8711
+        other = tmp_path / "Other"
+        other.mkdir()
+        assert launcher.service_port(path, install_root=str(other)) is None
+
     def test_a_config_from_before_the_port_was_stored_means_the_default(self, tmp_path):
         assert launcher.service_port(self._ours(tmp_path)) == launcher.DEFAULT_PORT
 

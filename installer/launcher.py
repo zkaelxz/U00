@@ -134,6 +134,17 @@ def _norm(path) -> str:
     return os.path.normcase(os.path.normpath(str(path))).rstrip("\\/")
 
 
+def _same_folder(a, b) -> bool:
+    """Whether two paths name the same folder: the same text after
+    normalising, or the same folder on disk (short 8.3 names, junctions)."""
+    if _norm(a) == _norm(b):
+        return True
+    try:
+        return os.path.samefile(str(a), str(b))
+    except (OSError, ValueError):
+        return False
+
+
 def service_port(config_file=None, install_root=None):
     """The installed boot service's port, or None when there is no service
     for this install: no config.json, one that can't be read, or one whose
@@ -151,7 +162,7 @@ def service_port(config_file=None, install_root=None):
         return None
     root = APP_DIR.parent if install_root is None else install_root
     if (not isinstance(data, dict) or not isinstance(data.get("install_root"), str)
-            or _norm(data["install_root"]) != _norm(root)):
+            or not _same_folder(data["install_root"], root)):
         return None
     port = data.get("api_port", DEFAULT_PORT)
     if (not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535
