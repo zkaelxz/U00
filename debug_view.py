@@ -1,6 +1,6 @@
 """
 debug_view.py -- Step 58's "What happened here?" per-line and per-job
-debugging view, plus bug record-and-replay.
+debugging view.
 
 Per the roadmap's own instruction: this is a PRESENTATION layer over data
 the app already records, not a second data-collection effort. Step 41's
@@ -11,13 +11,7 @@ being guessed at, matched positionally, or otherwise fabricated.
 
   - explain_line():      real, currently-recorded history for one line.
   - explain_job():       a background job's real timing/status.
-  - save_bug_bundle():   freezes one line's current input as a re-runnable
-                          reproduction case.
-  - replay_bug_bundle(): re-runs a saved bundle and checks whether it
-                          still reproduces the same output.
 """
-
-import json
 
 import db
 import background_jobs
@@ -139,74 +133,4 @@ def explain_job(job_id: str) -> dict:
         "duration_seconds": duration,
         "per_stage_breakdown": runs[0]["stages"] if runs else None,
         "per_stage_breakdown_note": PER_STAGE_TIMING_NOTE,
-    }
-
-
-def save_bug_bundle(drama_id: int, line, all_lines, engine_name: str, model: str,
-                     glossary_terms=None, style_guidelines: str = "", locale: str = "en-US",
-                     label: str = None, context_window: int = 6,
-                     context_window_ahead: int = 3) -> int:
-    """Freezes exactly what a replay needs: the same recent/upcoming
-    context translate_lines_with_engine would build for this line right
-    now, plus the settings and the (bad/flagged) output -- a saved,
-    re-runnable case rather than only a description in words."""
-    drama = db.get_drama(drama_id) or {}
-    recent_context, upcoming_lines = [], []
-    pos = next((i for i, ln in enumerate(all_lines) if ln.idx == line.idx), None)
-    if pos is not None:
-        if context_window > 0:
-            preceding = all_lines[max(0, pos - context_window):pos]
-            recent_context = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
-        if context_window_ahead > 0:
-            upcoming = all_lines[pos + 1:pos + 1 + context_window_ahead]
-            upcoming_lines = [ln.zh for ln in upcoming if ln.zh.strip()]
-
-    input_snapshot = {
-        "zh": line.zh,
-        "speaker": line.speaker,
-        "recent_context": recent_context,
-        "upcoming_lines": upcoming_lines,
-        "glossary_terms": glossary_terms or [],
-        "style_guidelines": style_guidelines or "",
-        "locale": locale,
-        "drama_meta": {
-            "source_language": drama.get("source_language", "zh"),
-            "title_en": drama.get("title_en"),
-            "title_zh": drama.get("title_zh"),
-        },
-    }
-    return db.save_bug_report(
-        drama_id=drama_id, line_id=line.id, label=label or f"Line #{line.idx + 1}",
-        input_json=json.dumps(input_snapshot, ensure_ascii=False),
-        engine=engine_name, model=model or "", produced_output=line.en,
-        flag=line.flag, flag_note=line.flag_note)
-
-
-def replay_bug_bundle(report_id: int, engine) -> dict:
-    """Re-runs a saved bundle's exact recorded input through `engine` and
-    checks whether it still produces the same output. Pass a fresh
-    instance of the bundle's own recorded engine to check "does this
-    still fail", or a different engine to check whether the failure is
-    engine-specific."""
-    report = db.get_bug_report(report_id)
-    if not report:
-        return None
-    snapshot = json.loads(report["input_json"])
-    context = translate_engines.build_translation_context(
-        engine, snapshot.get("drama_meta"), locale=snapshot.get("locale", "en-US"),
-        glossary_terms=snapshot.get("glossary_terms"),
-        style_guidelines=snapshot.get("style_guidelines", ""))
-    context["recent_context"] = [tuple(p) for p in snapshot.get("recent_context", [])]
-    context["upcoming_lines"] = snapshot.get("upcoming_lines", [])
-    context["speaker_labels"] = [snapshot.get("speaker")]
-    context["line_ids"] = [report["line_id"]]
-
-    replay_output = engine.translate_batch([snapshot["zh"]], context)[0]
-    reproduced = replay_output == report["produced_output"]
-    db.update_bug_report_replay(report_id, replay_output, reproduced)
-    return {
-        "report_id": report_id,
-        "reproduced": reproduced,
-        "original_output": report["produced_output"],
-        "replay_output": replay_output,
     }

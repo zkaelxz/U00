@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import {
-  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText,
+  LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
   headerBadges, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
@@ -65,17 +65,6 @@ describe('setup rows', () => {
     expect(noLibass[1]).toMatchObject({ problem: true, text: expect.stringContaining('no libass') })
     // Unknown (an older API or a failed version check) is not a problem.
     expect(setupRows(checks({ ffmpeg: { found: true, version: '6.1', libass: null } }), gpu)[1].problem).toBe(false)
-  })
-
-  it('titles bug bundles and describes their last replay', () => {
-    const b = { id: 4, label: 'Bad pronoun', drama_title: 'Signal', replayed: false, replay_output: null, reproduced: null }
-    expect(bugBundleTitle(b)).toBe('#4 Bad pronoun · Signal')
-    expect(bugBundleTitle({ ...b, label: '', drama_title: null })).toBe('#4 Untitled · (deleted drama)')
-    expect(bugBundleReplayText(b)).toBeNull()
-    expect(bugBundleReplayText({ ...b, replayed: true, replay_output: 'x', reproduced: true }))
-      .toBe('Still reproduces the same output. Last replay: x')
-    expect(bugBundleReplayText({ ...b, replayed: true, replay_output: 'y', reproduced: false }))
-      .toBe('No longer reproduces: the output changed. Last replay: y')
   })
 
   it('skips the GPU row until the overview has loaded', () => {

@@ -19,7 +19,6 @@ import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
 import { offersCancel, type JobRecord } from '../types/jobs'
-import { BugBundlesSection } from './diagnostics/BugBundlesSection'
 import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
 import { DenoInstall } from './diagnostics/DenoInstall'
@@ -219,7 +218,6 @@ export default function DiagnosticsPage() {
         <JobHistorySection items={history} />
         <LogSection />
         <BugReportsSection pc={pc} />
-        <BugBundlesSection pc={pc} />
       </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
