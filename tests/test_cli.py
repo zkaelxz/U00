@@ -1770,7 +1770,9 @@ class TestLocaleParity:
         assert set(names) == set(settings_service.LOCALE_CHOICES)
         for loc, name in names.items():
             assert name in translate_engines.build_llm_instructions("", {}, locale=loc)
-        src = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages"
-               / "settings" / "preferences.ts").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parent.parent / "frontend" / "src"
+               / "labels.ts").read_text(encoding="utf-8")
         block = src.split("export const LOCALE_LABELS", 1)[1].split("}", 1)[0]
-        assert set(re.findall(r"'([a-z]{2}-[A-Z]{2})':", block)) == set(settings_service.LOCALE_CHOICES)
+        # humanize() looks labels up lower-cased.
+        assert set(re.findall(r"'([a-z]{2}-[a-z]{2})':", block)) == {
+            c.lower() for c in settings_service.LOCALE_CHOICES}
