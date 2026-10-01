@@ -404,7 +404,7 @@ test.describe('PC-only stage deletes', () => {
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
     await expect(page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })).toHaveAttribute('href', '#/drama/1/translate')
-    const raw = page.getByRole('region', { name: 'Raw novel (original language)' })
+    const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
     await raw.locator('.section-title').click()
     await raw.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()

@@ -30,7 +30,7 @@ async function mockRun(page: Page, dramaId: number) {
 
 // Advanced options are collapsed by default (and remembered once opened).
 async function openAdvanced(page: Page) {
-  const details = page.locator('details.section').filter({ has: page.getByText('Advanced', { exact: true }) })
+  const details = page.locator('details.section').filter({ has: page.getByText('Advanced', { exact: true }) }).last()
   await expect(details).toBeVisible()
   if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
   await expect(details).toHaveAttribute('open', '')
@@ -114,7 +114,7 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await page.locator('details.section', { hasText: 'Speakers' }).last().locator(':scope > summary').click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')

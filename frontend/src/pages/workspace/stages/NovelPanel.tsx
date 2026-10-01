@@ -22,13 +22,17 @@ interface Props {
   onOcrStarted?: (jobId: string) => void
   // Bumped by the parent when a job finishes, so the status line reloads.
   reloadKey?: number
+  // The drama's media kind: comics lead with image OCR.
+  kind?: 'audio' | 'novel' | 'comic'
+  // Open by default when this is the first workflow for the drama's media type.
+  primary?: boolean
 }
 
 // OCR backend ids ("manga_ocr") as readable names; the option value stays raw.
 const OCR_LABELS: Record<string, string> = { manga_ocr: 'Manga OCR', paddle: 'PaddleOCR', tesseract: 'Tesseract' }
 const ocrLabel = (b: string) => OCR_LABELS[b] ?? humanizeValue(b)
 
-export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props) {
+export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = 'audio', primary = false }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [status, setStatus] = useState<NovelStatus | null>(null)
   const [mode, setMode] = useState<NovelMode>('replace')
@@ -91,9 +95,62 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
     : 'none attached'
   const summary = busy || status?.ocr_running ? `${base} · OCR running` : base
 
+  const comic = kind === 'comic'
+
+  const ocrSection = (
+    <Section storageKey="source.novel.ocr" defaultOpen={comic} title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
+          <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
+            <input
+              type="file"
+              accept=".png,.jpg,.jpeg"
+              multiple
+              onChange={(e) => setImages(Array.from(e.target.files ?? []))}
+            />
+          </Field>
+          {imageProblem && <p className="error" role="alert">{imageProblem}</p>}
+          <Field label="OCR engine" help="Manga OCR suits Japanese speech-bubble crops; PaddleOCR is heavier but more accurate for Chinese.">
+            <select value={ocrBackend} onChange={(e) => setBackend(e.target.value)}>
+              {backends.map((b) => (
+                <option key={b} value={b}>{ocrLabel(b)}</option>
+              ))}
+            </select>
+          </Field>
+          {ocrBackend === 'tesseract' && (
+            <Field label="Tesseract path" help="Only needed if Tesseract is installed but not on PATH. Leave blank otherwise.">
+              <input type="text" value={tessCmd} onChange={(e) => setTessCmd(e.target.value)} />
+            </Field>
+          )}
+          <button
+            type="button"
+            disabled={!images.length || !!imageProblem || busy || !!status?.ocr_running}
+            onClick={() =>
+              startNovelOcr(dramaId, images, ocrBackend, mode, ocrBackend === 'tesseract' ? tessCmd : undefined).then(
+                (r) => {
+                  setError(null)
+                  setNotice(null)
+                  setImages([])
+                  onOcrStarted?.(r.job_id)
+                },
+                fail,
+              )
+            }
+          >
+            Extract text from images
+          </button>
+    </Section>
+  )
+
   return (
     <section className="panel" aria-label="Novel text">
-      <Section storageKey="source.novel" title="Novel text" summary={summary}>
+      <Section storageKey="source.novel" defaultOpen={primary} title="Novel text" summary={summary}>
+        <h4 className="source-subhead">Raw source novel (original language, used as reference)</h4>
+        <p className="muted" data-testid="raw-status">
+          {hasRaw
+            ? 'Saved. It only primes the Whisper prompt and glossary extraction; it is not translated.'
+            : 'None saved. Add one under Transcribe if you want the Whisper prompt to use its names.'}
+        </p>
+        <h4 className="source-subhead">Text used for translation</h4>
+        {comic && ocrSection}
         <p className="muted" data-testid="novel-status">
           {status?.has_novel_text
             ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
@@ -150,9 +207,9 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         {hasRaw && (
           <div>
             <button type="button" onClick={() => attachNovelFromSources(dramaId, mode).then(attached, fail)}>
-              Use chapters imported in Sources
+              Copy saved raw chapters into the translation text
             </button>
-            <p className="muted">The original-language chapters saved for this drama (from Sources or Transcribe), using the Mode above.</p>
+            <p className="muted">Copies the original-language chapters saved for this drama (from Sources, or the raw source novel above) into the text used for translation, using the Mode above.</p>
           </div>
         )}
         <LncrawlPanel
@@ -163,46 +220,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
             refetchDrama()
           }}
         />
-        <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
-          <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
-            <input
-              type="file"
-              accept=".png,.jpg,.jpeg"
-              multiple
-              onChange={(e) => setImages(Array.from(e.target.files ?? []))}
-            />
-          </Field>
-          {imageProblem && <p className="error" role="alert">{imageProblem}</p>}
-          <Field label="OCR engine" help="Manga OCR suits Japanese speech-bubble crops; PaddleOCR is heavier but more accurate for Chinese.">
-            <select value={ocrBackend} onChange={(e) => setBackend(e.target.value)}>
-              {backends.map((b) => (
-                <option key={b} value={b}>{ocrLabel(b)}</option>
-              ))}
-            </select>
-          </Field>
-          {ocrBackend === 'tesseract' && (
-            <Field label="Tesseract path" help="Only needed if Tesseract is installed but not on PATH. Leave blank otherwise.">
-              <input type="text" value={tessCmd} onChange={(e) => setTessCmd(e.target.value)} />
-            </Field>
-          )}
-          <button
-            type="button"
-            disabled={!images.length || !!imageProblem || busy || !!status?.ocr_running}
-            onClick={() =>
-              startNovelOcr(dramaId, images, ocrBackend, mode, ocrBackend === 'tesseract' ? tessCmd : undefined).then(
-                (r) => {
-                  setError(null)
-                  setNotice(null)
-                  setImages([])
-                  onOcrStarted?.(r.job_id)
-                },
-                fail,
-              )
-            }
-          >
-            Extract text from images
-          </button>
-        </Section>
+        {!comic && ocrSection}
         {notice && <p role="status">{notice}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
       </Section>

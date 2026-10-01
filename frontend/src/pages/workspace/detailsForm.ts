@@ -212,3 +212,14 @@ const TRANSCRIPT_MODE_LABELS: Record<string, string> = {
 
 // Media type, content mode or transcript mode -> its display label.
 export const modeLabel = (m: string) => TRANSCRIPT_MODE_LABELS[m] ?? humanize('mediaType', m)
+
+export type MediaKind = 'audio' | 'novel' | 'comic'
+
+// Which family a media type belongs to, so a form or stage can lead with the
+// fields and workflows that matter for it. Unknown values count as audio,
+// the original default.
+export function mediaKind(mediaType: string | null | undefined): MediaKind {
+  if (mediaType === 'novel') return 'novel'
+  if (mediaType === 'manga' || mediaType === 'manhua' || mediaType === 'manhwa') return 'comic'
+  return 'audio'
+}
