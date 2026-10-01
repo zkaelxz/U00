@@ -60,10 +60,6 @@ def _series_char():
     return sid, cid
 
 
-def _bug(did):
-    return db.save_bug_report(did, 1, "bug", "{}", "google", "", "out")
-
-
 def _preset():
     return db.save_preset("P1", translation_engine="google")
 
@@ -158,13 +154,6 @@ def test_delete_series_character_unlinks_drama_characters(client):
     assert ch["character_name"] == "Lan" and ch["series_character_id"] is None
 
 
-def test_delete_bug_bundle(client):
-    bid = _bug(_drama())
-    r = client.post(f"/api/diagnostics/bug-bundles/{bid}/delete", json=YES)
-    assert r.status_code == 200 and r.json() == {"bundle_id": bid, "deleted": True}
-    assert db.get_bug_report(bid) is None
-
-
 def test_delete_preset(client):
     pid = _preset()
     r = client.post(f"/api/library/presets/{pid}/delete", json=YES)
@@ -193,7 +182,6 @@ def _all_urls(tmp_path):
             f"/api/novel/dramas/{rid}/raw-novel/remove",
             f"/api/review/dramas/{did}/versions/{vid}/delete",
             f"/api/characters/series/{sid}/characters/{cid}/delete",
-            f"/api/diagnostics/bug-bundles/{_bug(did)}/delete",
             f"/api/library/presets/{_preset()}/delete",
             f"/api/library/voice-bank/{_voice(tmp_path)}/delete"]
 
@@ -203,14 +191,14 @@ def _all_urls(tmp_path):
 def test_missing_or_bad_confirm_is_422_and_nothing_changes(client, tmp_path, body):
     urls = _all_urls(tmp_path)
     before = (db.list_dramas(), db.list_translation_versions(1), db.list_presets(),
-              db.list_voice_bank_entries(), db.list_bug_reports())
+              db.list_voice_bank_entries())
     for url in urls:
         r = client.post(url, json=body) if body is not None else client.post(url)
         # A body-less POST is not JSON and has no X-Baihe-Local header, so
         # local_only's cross-site rule refuses it (403) before validation.
         assert r.status_code == (403 if body is None else 422), (url, r.text)
     assert (db.list_dramas(), db.list_translation_versions(1), db.list_presets(),
-            db.list_voice_bank_entries(), db.list_bug_reports()) == before
+            db.list_voice_bank_entries()) == before
     assert os.path.exists(os.path.join(db.DRAMAS_DIR, "1", "audio.wav"))
 
 
@@ -220,7 +208,7 @@ def test_unknown_ids_404(client):
     for url in ("/api/media/dramas/999/remove", "/api/novel/dramas/999/raw-novel/remove",
                 "/api/review/dramas/999/versions/1/delete",
                 "/api/characters/series/999/characters/1/delete",
-                "/api/diagnostics/bug-bundles/999/delete", "/api/library/presets/999/delete",
+                "/api/library/presets/999/delete",
                 "/api/library/voice-bank/999/delete"):
         r = client.post(url, json=YES)
         assert r.status_code == 404, url

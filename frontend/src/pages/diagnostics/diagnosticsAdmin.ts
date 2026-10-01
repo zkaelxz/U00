@@ -7,7 +7,7 @@ import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
-  DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
+  DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
   DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
@@ -198,19 +198,6 @@ export function historySummary(h: DiagnosticsJobHistoryItem): string {
 }
 
 export const HISTORY_PAGE = 20
-
-// ---- Saved bug bundles ----
-
-/** "#4 Bad pronoun · Signal" ("(deleted drama)" once the drama is gone). */
-export const bugBundleTitle = (b: Pick<DiagnosticsBugBundle, 'id' | 'label' | 'drama_title'>) =>
-  `#${b.id} ${b.label || 'Untitled'} · ${b.drama_title ?? '(deleted drama)'}`
-
-/** The last replay's outcome, or null if never replayed. */
-export function bugBundleReplayText(b: Pick<DiagnosticsBugBundle, 'replayed' | 'replay_output' | 'reproduced'>) {
-  if (!b.replayed) return null
-  const verdict = b.reproduced ? 'Still reproduces the same output.' : 'No longer reproduces: the output changed.'
-  return `${verdict} Last replay: ${b.replay_output || '—'}`
-}
 
 // ---- Log and report ----
 

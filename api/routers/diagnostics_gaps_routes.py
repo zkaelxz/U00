@@ -25,9 +25,8 @@ library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
 background job runs (409). Deleting a cached model, Piper voice or model
 file (torch.hub checkpoints, audio-separator models) is also
 `local_only()` + `confirm=true`, refused while a job runs, and takes only a
-name the cache scan lists. The saved bug bundles are listed here
-(`admin.diagnostics`); their delete is in delete_routes.py. Bundle replay,
-benchmark and the App Assistant are not exposed.
+name the cache scan lists. The benchmark and the App Assistant are not
+exposed.
 """
 
 from typing import List, Literal
@@ -35,7 +34,7 @@ from typing import List, Literal
 from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsBugBundle,
+from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchSetupRequest,
                          DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
                          DiagnosticsInstallPresets, DiagnosticsInstallResult,
@@ -193,10 +192,3 @@ def post_delete_model_file(body: DiagnosticsAdminConfirm,
                            name: str = Path(min_length=1, max_length=200,
                                             pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
     return svc.delete_model_file(kind, name, confirm=body.confirm)
-
-
-@router.get("/bug-bundles", dependencies=[require_permission("admin.diagnostics")],
-            response_model=List[DiagnosticsBugBundle],
-            summary="Saved bug-reproduction bundles, newest first (no frozen input; redacted)")
-def get_bug_bundles():
-    return svc.list_bug_bundles()

@@ -12,9 +12,8 @@ secret, a token, the OS username or a local path goes through
 diagnostics.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
-Not ported (Streamlit-only by decision): accuracy benchmark, bug-bundle replay
-(the saved bundles are listed, and deleted through delete_service), App
-Assistant, and the source-access tests.
+Not ported (Streamlit-only by decision): accuracy benchmark, App Assistant,
+and the source-access tests.
 """
 
 import os
@@ -890,8 +889,7 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Model cache delete (Q14) and saved bug bundles (list only; delete is
-# services/delete_service.delete_bug_bundle)
+# Model cache delete (Q14)
 # ---------------------------------------------------------------------------
 
 def _exclusive_delete(delete, failed: str):
@@ -949,24 +947,3 @@ def delete_model_file(folder: str, name: str, confirm: bool = False) -> dict:
     _exclusive_delete(lambda: diagnostics.delete_model_folder_entry(folder, name),
                       "Couldn't delete that model file; see the log for details.")
     return {"deleted": True, "name": name}
-
-
-def list_bug_bundles() -> list:
-    """Saved bug-reproduction bundles (a line's "What happened here?"
-    snapshot), newest first. The frozen input is not returned; outputs are
-    redacted."""
-    out = []
-    for b in db.list_bug_reports():
-        drama = db.get_drama(b["drama_id"])
-        title = (drama.get("title_en") or drama.get("title_zh")) if drama else None
-        out.append({
-            "id": b["id"], "drama_id": b["drama_id"], "drama_title": title,
-            "line_id": b.get("line_id"), "label": _redact(b.get("label") or ""),
-            "engine": b.get("engine"), "model": b.get("model"),
-            "produced_output": _redact(b.get("produced_output") or ""),
-            "replayed": bool(b.get("replayed")),
-            "replay_output": _redact(b["replay_output"]) if b.get("replay_output") else None,
-            "reproduced": bool(b.get("reproduced")) if b.get("replayed") else None,
-            "created_at": b.get("created_at"),
-        })
-    return out

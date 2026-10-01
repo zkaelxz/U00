@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 
-// Diagnostics parity (inventory Q01, Q14, job history, bug bundles). Every
+// Diagnostics parity (inventory Q01, Q14, job history). Every
 // POST is mocked; a catch-all fails the test on any other non-GET /api call.
 
 const overview = {
@@ -116,34 +116,6 @@ test('model cache delete is two-step, PC-only and refreshes the list', async ({ 
   await expect(page.getByRole('status').filter({ hasText: 'Deleted htdemucs.th.' })).toBeVisible()
   expect(sent[1].headers()['x-baihe-local']).toBe('1')
   await expect(page.getByRole('list', { name: 'Model files' })).toHaveCount(0)
-  expect(unmocked).toEqual([])
-})
-
-test('saved bug bundles list and delete', async ({ page }) => {
-  const unmocked = await guard(page)
-  await mockPage(page)
-  let bundles = [{
-    id: 4, drama_id: 1, drama_title: 'Signal', line_id: 3, label: 'Bad pronoun', engine: 'claude', model: 'm',
-    produced_output: 'He went home.', replayed: true, replay_output: 'She went home.', reproduced: false,
-    created_at: '2026-09-29T12:00:00',
-  }]
-  await page.route('**/api/diagnostics/bug-bundles', (r) => r.fulfill({ json: bundles }))
-  const bodies: unknown[] = []
-  await page.route('**/api/diagnostics/bug-bundles/4/delete', (r) => {
-    bodies.push(r.request().postDataJSON())
-    bundles = []
-    return r.fulfill({ json: { bundle_id: 4, deleted: true } })
-  })
-  await page.goto('/#/diagnostics')
-  await openSection(page, /^Saved bug bundles/)
-  const list = page.getByRole('list', { name: 'Saved bug bundles' })
-  await list.locator('summary', { hasText: '#4 Bad pronoun · Signal' }).click()
-  await expect(list).toContainText('Output when saved: He went home.')
-  await expect(list).toContainText('No longer reproduces')
-  await list.getByRole('button', { name: 'Delete bundle #4' }).click()
-  await list.getByRole('button', { name: 'Confirm delete bundle #4' }).click()
-  await expect(page.locator('summary', { hasText: /^Saved bug bundles/ })).toHaveCount(0)
-  expect(bodies).toEqual([{ confirm: true }])
   expect(unmocked).toEqual([])
 })
 

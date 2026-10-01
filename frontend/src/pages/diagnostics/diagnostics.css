@@ -144,11 +144,6 @@
 [data-testid='job-list'] td:nth-child(3) { white-space: nowrap; }
 .job-cards .job-cancel { display: flex; justify-content: flex-end; }
 
-/* Job history entries. */
-.diag-history { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-1); }
-.diag-history summary { cursor: pointer; }
-.diag-history p { margin: var(--space-1) 0 0; }
-
 /* Job history > "Time by stage": name and time on one line, a share bar under it. */
 .stage-times { margin-top: var(--space-2); min-width: 0; }
 .stage-times-title { margin: 0 0 var(--space-1); font-size: var(--text-sm); font-weight: 600; }

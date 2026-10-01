@@ -147,7 +147,6 @@ async function mockPage(page: Page) {
     { id: 2, stamp: '20260929T100000Z', created_at: '2026-09-29 10:00:00 UTC', summary: 'Export hangs', route: '/drama/1/export',
       mode: 'pc', has_screenshot: true, has_server_log: true },
   ] }))
-  await page.route('**/api/diagnostics/bug-bundles', (r) => r.fulfill({ json: [] }))
   await page.route('**/api/library/stats', (r) => r.fulfill({
     json: { total_dramas: 3, total_lines: 1210, by_status: {}, by_media_type: {}, translated_lines: 0, usage: {} },
   }))
