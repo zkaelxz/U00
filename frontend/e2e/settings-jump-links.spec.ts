@@ -25,6 +25,10 @@ test('an opened or closed settings group is remembered after a reload', async ({
   await page.goto('/#/settings')
   const summary = page.locator('#settings-advanced details.section > summary').first()
   await summary.click()
+  // Section saves its state in the toggle handler, after the open attribute changes.
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.settings.advanced')))
+    .toBe('1')
   await page.reload()
   await expect(page.locator('#settings-advanced details.section').first()).toHaveAttribute('open', '')
 })
