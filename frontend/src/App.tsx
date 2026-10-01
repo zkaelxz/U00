@@ -9,6 +9,7 @@ import AdminPage from './pages/Admin'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { GearMenu, type GearItem } from './components/GearMenu'
+import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
@@ -141,6 +142,7 @@ export default function App() {
           <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
         </nav>
         <div className="header-end">
+          <JobsMenu />
           <NotificationBell />
           <ReportProblemButton />
           <ThemeMenu />

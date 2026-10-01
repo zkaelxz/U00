@@ -72,6 +72,8 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/voice-bank': EMPTY,
   // The header bell (every page) polls this.
   '/api/notifications': EMPTY,
+  // The header Jobs button (every page) reads this.
+  '/api/jobs': EMPTY,
   // The remote-access banner reads this on the PC only (these specs are remote); off here.
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
   // Settings > Remote access (PC only, so not asked by these remote specs).

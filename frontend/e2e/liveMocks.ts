@@ -54,6 +54,8 @@ export async function mockLive(page: Page, opts: { remote?: boolean } = {}): Pro
   }))
   // The header bell (every page) polls this; not part of the Live flow.
   await page.route('**/api/notifications', (route) => json(route, { items: [] }))
+  // The header Jobs button (every page) reads this; not part of the Live flow.
+  await page.route((u) => u.pathname === '/api/jobs', (route) => json(route, { items: [] }))
   // The app shell's remote-access banner (PC only): remote access off.
   await page.route('**/api/diagnostics/remote-health', (route) => json(route, REMOTE_HEALTH_OFF))
   // No push stream: these specs drive the page through its polling fallback

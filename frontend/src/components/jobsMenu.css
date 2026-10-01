@@ -1,0 +1,59 @@
+/* Header Jobs button (components/JobsMenu.tsx); sized and placed like the notification bell. */
+.jobs-menu { position: relative; }
+button.jobs-menu-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 7px;
+  color: var(--muted);
+}
+button.jobs-menu-btn:hover:not(:disabled),
+button.jobs-menu-btn[aria-expanded='true'] { color: var(--text); }
+.jobs-count { position: absolute; top: calc(-1 * var(--space-2)); right: calc(-1 * var(--space-2)); pointer-events: none; }
+.jobs-count .pill {
+  min-width: 1.25rem;
+  justify-content: center;
+  padding: 0 var(--space-1);
+  line-height: 1.25rem;
+  color: var(--on-accent);
+  background: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-bold);
+}
+.jobs-panel {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  display: grid;
+  gap: var(--space-2);
+  width: min(24rem, calc(100vw - 2 * var(--space-4)));
+  max-height: min(70vh, 32rem);
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+}
+.jobs-panel.align-start { right: auto; left: 0; }
+.jobs-panel-title { margin: 0; font-weight: var(--weight-bold); }
+.jobs-empty, .jobs-note, .jobs-foot { margin: 0; }
+.jobs-note { color: var(--muted); font-size: var(--text-xs); }
+.jobs-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.jobs-item { display: grid; gap: var(--space-1); padding: var(--space-2); border-top: 1px solid var(--border); min-width: 0; }
+.jobs-item:first-child { border-top: 0; }
+.jobs-item-name { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.jobs-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--text-xs); }
+.jobs-item-meta .jobs-cancel { margin-left: auto; }
+.jobs-foot a { display: inline-flex; align-items: center; }
+
+@media (pointer: coarse), (max-width: 640px) {
+  button.jobs-menu-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
+  .jobs-foot a, .jobs-item-meta .jobs-cancel { min-height: 44px; }
+}
+@media (max-width: 640px) {
+  .jobs-menu { position: static; }
+  .jobs-panel, .jobs-panel.align-start { left: 0; right: 0; top: auto; width: auto; margin-top: var(--space-1); max-height: 70vh; }
+}
