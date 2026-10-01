@@ -11,7 +11,7 @@ import background_jobs
 import db
 from services import library_admin_service as las
 from services import workspace_job_service as wjs
-from services.service_errors import ConflictError, InvalidInputError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _new(title="T", status="aligned"):
@@ -185,6 +185,71 @@ def test_backup_job_then_valid_for_restore(isolated_db):
     las.validate_backup_zip(data)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         assert not any(n.startswith("backups/") for n in zf.namelist())
+
+
+def _media(n=5):
+    for i in range(n):
+        d = os.path.join(db.DRAMAS_DIR, str(i))
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "audio.bin"), "wb") as f:
+            f.write(os.urandom(1000 * (i + 1)))
+
+
+def _members(path):
+    with zipfile.ZipFile(path) as zf:
+        return {i.filename: zf.read(i.filename) for i in zf.infolist() if i.filename != "library.db"}
+
+
+def test_backup_zip_progress_monotonic_and_same_members(isolated_db, tmp_path, monkeypatch):
+    _new("P")
+    _media()
+    monkeypatch.setattr(las, "_BACKUP_PROGRESS_INTERVAL", 0)
+    calls = []
+    plain, with_cb = str(tmp_path / "a.zip"), str(tmp_path / "b.zip")
+    las.write_backup_zip(plain)
+    las.write_backup_zip(with_cb, progress=lambda f, m: calls.append((f, m)),
+                         should_cancel=lambda: False)
+    assert _members(plain) == _members(with_cb)
+    with zipfile.ZipFile(plain) as a, zipfile.ZipFile(with_cb) as b:
+        assert a.namelist() == b.namelist()
+    fracs = [f for f, _ in calls]
+    assert fracs == sorted(fracs) and 0 <= fracs[0] and fracs[-1] <= 1.0
+    assert all(m for _, m in calls)
+    assert calls[0][1] == "Counting files..."
+    assert any("of 5 files" in m for _, m in calls)
+
+
+def test_backup_job_reports_progress_and_ends_at_one(isolated_db):
+    _media()
+    st = _wait(las.start_backup()["job_id"])
+    assert st["status"] == "done", st.get("error")
+    assert st["progress"] == 1.0 and st["message"] == "Backup ready."
+
+
+def test_backup_job_cancel_leaves_no_partial_or_zip(isolated_db, monkeypatch):
+    _media()
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
+    with pytest.raises(background_jobs.JobCancelled):
+        las._backup_job(las.BACKUP_JOB_ID)
+    folder = las._artifact_dir("backup", create=True)
+    assert os.listdir(folder) == []
+
+
+def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
+    _media()
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
+    job_id = las.start_backup()["job_id"]
+    end = time.time() + 10
+    st = None
+    while time.time() < end:
+        st = background_jobs.get_status(job_id)
+        if st and st["status"] in ("done", "error", "cancelled"):
+            break
+        time.sleep(0.05)
+    assert st["status"] == "cancelled"
+    with pytest.raises(NotFoundError):
+        las.latest_admin_artifact("backup")
+    assert os.listdir(las._artifact_dir("backup", create=True)) == []
 
 
 # ---- restore --------------------------------------------------------------
