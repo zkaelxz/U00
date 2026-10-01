@@ -113,7 +113,7 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
     )
   }
 
-  const useBuiltIn = (item: ModelStatusItem) => {
+  const restoreBuiltIn = (item: ModelStatusItem) => {
     if (!item.key || (item.kind !== 'default' && item.kind !== 'tier')) return
     setBusy(`choose:${item.kind}|${item.key}`)
     setError(null)
@@ -215,7 +215,7 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
                   checkedAt={status.checked_at}
                   onSwitch={() => switchPreset(item)}
                   onChoose={(to) => chooseModel(item, to)}
-                  onUseBuiltIn={() => useBuiltIn(item)}
+                  onUseBuiltIn={() => restoreBuiltIn(item)}
                 />
               ))}
             </ul>
@@ -240,7 +240,7 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
                     checkedAt={status.checked_at}
                     onSwitch={() => switchPreset(item)}
                     onChoose={(to) => chooseModel(item, to)}
-                    onUseBuiltIn={() => useBuiltIn(item)}
+                    onUseBuiltIn={() => restoreBuiltIn(item)}
                   />
                 ))}
               </ul>
