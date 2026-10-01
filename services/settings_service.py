@@ -142,14 +142,16 @@ def baihe_ports(api_port: int, household_port: int = 0, public_url: str = "") ->
     https_on = remote_health_service.remote_access_enabled(public_url, household)
     ports = [
         {"key": "api", "label": "Baihe (this PC's window)", "port": int(api_port), "active": True,
-         "how_to_change": "Service install: in a Command Prompt run setx BAIHE_API_PORT <port> "
-                          "(1024-65535), then run Baihe's Setup again. Launcher install: set "
-                          "BAIHE_API_PORT and restart Baihe."},
+         "how_to_change": "Service install: Start menu > Baihe Studio service > Change port "
+                          "(asks for administrator permission); changing or deleting "
+                          "BAIHE_API_PORT does not move an installed service. Launcher "
+                          "install: set BAIHE_API_PORT and restart Baihe."},
         {"key": "household", "label": "Household listener", "port": household or None,
          "active": household > 0,
-         "how_to_change": "Set BAIHE_API_HOUSEHOLD_PORT and restart Baihe, or run the service "
-                          "script's enable-remote --household-port <port> on a service install. "
-                          "Unset it to turn the listener off."},
+         "how_to_change": "Service install: Start menu > Baihe Studio service > Turn remote access "
+                          "on (it asks for the household port) or off. Otherwise set "
+                          "BAIHE_API_HOUSEHOLD_PORT and restart Baihe; unset it to turn the "
+                          "listener off."},
         {"key": "extension", "label": "Browser extension bridge", "port": page_server.DEFAULT_PORT,
          "active": bridge_running,
          "how_to_change": "Fixed: this port cannot be changed. Turn the bridge on or off in Settings."},
