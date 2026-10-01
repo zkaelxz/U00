@@ -8,6 +8,10 @@ import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
 import type { MediaStatus } from '../../../types/workspace'
+import { Section } from '../../../components/Section'
+import { writeSectionOpen } from '../../../components/sectionStorage'
+import { wantsAutofill } from '../../libraryParity/libraryParity'
+import { mediaKind } from '../detailsForm'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
@@ -38,6 +42,37 @@ export default function SourceStage() {
   // "Upload a file" or "From a URL", remembered per viewer.
   const [from, setFrom] = usePersistedState<'file' | 'url'>('source.mediaFrom', 'file')
   const fromUrl = from === 'url'
+
+  // Arriving from Library "Create and auto-fill" must show the Auto-fill panel,
+  // which now lives inside the collapsed "Details and credits" group.
+  useState(() => {
+    if (wantsAutofill(window.location.hash)) {
+      try {
+        writeSectionOpen(window.localStorage, 'source.group.details', true)
+      } catch {
+        // storage unavailable: the group stays closed
+      }
+    }
+  })
+  // Buttons next to a "Still needed" line reveal the section that resolves it.
+  const [revealDetails, setRevealDetails] = useState(0)
+  const [revealMedia, setRevealMedia] = useState(0)
+  const addCredits = () => {
+    setRevealDetails((n) => n + 1)
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>('[aria-label="Edit details"] input[name="author"]')
+      el?.scrollIntoView({ block: 'center' })
+      el?.focus()
+    }, 50)
+  }
+  const needMedia = () => {
+    setRevealMedia((n) => n + 1)
+    setTimeout(() => {
+      const el = document.getElementById(mediaFileInputId(dramaId))
+      el?.scrollIntoView({ block: 'center' })
+      el?.focus()
+    }, 50)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -175,18 +210,45 @@ export default function SourceStage() {
     </>
   )
 
-  return (
-    <div className="stage-source">
+  // The workflow for the drama's media type comes first and opens by default.
+  const kind = mediaKind(drama.media_type)
+  const transcribe = (
+    <Section
+      key="transcribe"
+      storageKey="source.group.transcribe"
+      defaultOpen={kind === 'audio'}
+      openSignal={revealMedia}
+      title="Transcribe audio or video"
+      summary={hasMedia ? 'audio attached' : 'upload or download a file'}
+    >
       <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
+      <AnalyzePanel hasMedia={hasMedia} onNeedMedia={needMedia} />
+    </Section>
+  )
+  const novel = (
+    <div key="novel" className="source-group">
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} />
       <section className="panel" aria-label="Glossary from novel">
         <NovelGlossary title="Glossary from novel" storageKey="source.glossary.novel" />
       </section>
-      <DetailsPanel />
-      <CreditsCoverPanel />
-      <AutofillPanel />
-      <ResearchPanel />
-      <AnalyzePanel hasMedia={hasMedia} />
+    </div>
+  )
+  const groups = kind === 'audio' ? [transcribe, novel] : [novel, transcribe]
+
+  return (
+    <div className="stage-source">
+      {groups}
+      <Section
+        storageKey="source.group.details"
+        openSignal={revealDetails}
+        title="Details and credits"
+        summary={`${drama.title_en || drama.title_zh || `#${dramaId}`} · credits, cover, auto-fill, research`}
+      >
+        <DetailsPanel openSignal={revealDetails} />
+        <CreditsCoverPanel onAddCredits={addCredits} />
+        <AutofillPanel />
+        <ResearchPanel />
+      </Section>
       {jobId && <JobPanel job={job} pollError={pollError} />}
     </div>
   )

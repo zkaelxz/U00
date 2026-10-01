@@ -5,6 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { buttonClass } from '../../../components/uiClasses'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
 import { useStage } from '../StageContext'
@@ -16,7 +17,7 @@ import './preamble.css'
  * cast; the originals are kept and both are shown. The cover upload is PC
  * only; the server accepts PNG, JPEG or WebP up to 10 MB and strips metadata.
  */
-export function CreditsCoverPanel() {
+export function CreditsCoverPanel({ onAddCredits }: { onAddCredits?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const pc = usePcOnly()
   const [romanizing, setRomanizing] = useState(false)
@@ -81,7 +82,7 @@ export function CreditsCoverPanel() {
     <section className="panel" aria-label="Credits and cover">
       <Section storageKey="source.creditsCover" title="Credits & cover" summary={summary}>
         <div className="source-panel credits-cover">
-          {rows.length > 0 ? (
+          {rows.length > 0 && (
             <dl className="credit-rows" data-testid="credits">
               {rows.map((r) => (
                 <div key={r.key}>
@@ -90,19 +91,26 @@ export function CreditsCoverPanel() {
                 </div>
               ))}
             </dl>
-          ) : (
-            <p className="muted">No credits yet. Add them under Edit details.</p>
           )}
-          <div>
-            <button type="button" disabled={!canRomanize || romanizing} onClick={romanize}>
-              {romanizing ? 'Romanizing…' : 'Romanize credits'}
-            </button>
-            <p className="muted">
-              {canRomanize
-                ? `Uses this drama's translation engine (${engine}). Names are romanized; studios keep an official English name when there is one.`
-                : 'Still needed: an author, studio, director or cast.'}
+          {canRomanize ? (
+            <div>
+              <button type="button" disabled={romanizing} onClick={romanize}>
+                {romanizing ? 'Romanizing…' : 'Romanize credits'}
+              </button>
+              <p className="muted">
+                {`Uses this drama's translation engine (${engine}). Names are romanized; studios keep an official English name when there is one.`}
+              </p>
+            </div>
+          ) : (
+            <p className="muted source-needed">
+              <span>No credits yet. Still needed: an author, studio, director or cast.</span>
+              {onAddCredits && (
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={onAddCredits}>
+                  Add credits
+                </button>
+              )}
             </p>
-          </div>
+          )}
 
           <div className="cover-row">
             {drama.has_cover_art && !coverBroken ? (
