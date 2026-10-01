@@ -1,10 +1,23 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { mockAccess } from './sourcesAccessMocks'
 import { SERIES_LINKS, SETTINGS, mockSources, posted, searchResult } from './sourcesMocks'
 
 // Sources page (#/sources), desktop. Every search/series/job/settings write
 // is mocked (sourcesMocks.ts); nothing here reaches a real site.
+
+// Many rows: no ancestor of the chapter list (or the list itself) is a scroll area with hidden rows.
+async function noInnerScroll(page: Page) {
+  const bad = await page.locator('.sources-chapters').evaluate((list) => {
+    const out: string[] = []
+    for (let e: HTMLElement | null = list; e && e !== document.documentElement; e = e.parentElement) {
+      const oy = getComputedStyle(e).overflowY
+      if ((oy === 'auto' || oy === 'scroll') && e.scrollHeight > e.clientHeight) out.push(e.className || e.tagName)
+    }
+    return out
+  })
+  expect(bad, 'inner vertical scroll area').toEqual([])
+}
 
 test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   const s = await mockSources(page)
@@ -399,4 +412,19 @@ test('source settings: health text, On rollback, save only changes, 422, clear c
     expect(await panel.locator('.btn-primary:visible:not(:disabled)').count()).toBeLessThanOrEqual(1)
   }
   expect(s.unmocked).toEqual([])
+})
+
+test('open series with many rows scrolls with the page, no inner scrollbar', async ({ page }) => {
+  const s = await mockSources(page, { searchBody: { ...searchResult(12), errors: {} }, series: 'done' })
+  await page.goto('/#/sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  await expect(page.getByText(/Searching…/)).toBeVisible()
+  s.search = 'done'
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).first().click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await panel.getByRole('button', { name: 'Show all 124' }).click()
+  await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
+  await noInnerScroll(page)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(await page.evaluate(() => innerHeight))
 })
