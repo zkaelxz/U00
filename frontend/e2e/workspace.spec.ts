@@ -1,4 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+
+import { expect, test } from './fixtures'
 
 // Offline paths only: the run/job endpoints are mocked, so nothing is
 // transcribed. Reads and the upload pre-check hit the real seeded API.

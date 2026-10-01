@@ -1,4 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+
+import { expect, test } from './fixtures'
 
 // Novel reference (Translate) and raw novel (Transcribe, on the Source page):
 // the novel-files endpoints are mocked with an in-memory store, and every
