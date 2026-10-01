@@ -1276,6 +1276,15 @@ class JobCancelResult(BaseModel):
     status: str
 
 
+class JobDeleteResult(BaseModel):
+    job_id: str
+    deleted: bool
+
+
+class JobsClearFinishedResult(BaseModel):
+    deleted_count: int
+
+
 class ArtifactInfo(BaseModel):
     name: str
     size: int

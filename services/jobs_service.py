@@ -24,7 +24,7 @@ import db
 from services import ownership_service
 import diagnostics
 import background_jobs
-from services.service_errors import ConflictError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
 # A queued/running record whose owner has not heartbeated this long (see
@@ -512,3 +512,44 @@ def cancel_job(job_id: str, principal=None) -> dict:
         # still being stale, so a live owner's heartbeat or "done" wins.
         return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
     return {"job_id": job_id, "cancel_requested": True, "status": record["status"]}
+
+
+# job_records / background_jobs status names of a job that has ended.
+_FINISHED_STATUSES = ("done", "error", "cancelled")
+
+
+def _is_finished(record: Optional[dict]) -> bool:
+    """True only when neither the mirror row nor this process's live state
+    says queued/running: a row another process still marks active is never
+    deletable, and a missing live entry says nothing about that process."""
+    live = background_jobs.get_status((record or {}).get("job_id"))
+    return ((record or {}).get("status") in _FINISHED_STATUSES
+            and (live is None or live.get("status") in _FINISHED_STATUSES))
+
+
+def delete_job(job_id: str, confirm: bool = False, principal=None) -> dict:
+    """Permanently removes a finished job's record (in-memory and
+    job_records). PC-owner action; a job `principal` may not see is a 404.
+    Unknown id -> NotFoundError; queued/running -> ConflictError (409)."""
+    if confirm is not True:
+        raise InvalidInputError("Deleting a job needs confirm=true.")
+    record = db.get_job_record(job_id)
+    if record is None or not _visible(principal, record):
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    if not _is_finished(record):
+        raise ConflictError(f"Job {job_id!r} is still {record.get('status')}; cancel it first.")
+    background_jobs.clear_job(job_id)
+    return {"job_id": job_id, "deleted": True}
+
+
+def clear_finished_jobs(confirm: bool = False) -> dict:
+    """Permanently removes every finished job's record, leaving queued and
+    running jobs (including ones another process owns) untouched."""
+    if confirm is not True:
+        raise InvalidInputError("Deleting job history needs confirm=true.")
+    deleted = 0
+    for rec in db.list_job_records():
+        if _is_finished(rec):
+            background_jobs.clear_job(rec["job_id"])
+            deleted += 1
+    return {"deleted_count": deleted}
