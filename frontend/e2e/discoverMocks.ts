@@ -7,7 +7,7 @@ import { ME } from './authMocks'
 // engine, and every spec shares one seeded library); a guard aborts and
 // records anything under /api/discover that nothing mocks.
 
-export const TITLES = [
+const TITLES = [
   {
     id: 1, title_original: '女将军和长公主', title_en: 'The General and the Princess', author: 'Mo Xi',
     tags: 'baihe, historical', summary_en: 'A general and a princess.', summary_original: '', source_name: 'manual',
@@ -19,13 +19,13 @@ export const TITLES = [
   },
 ]
 
-export const ENGINES = [
+const ENGINES = [
   { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
   { name: 'deepl', label: 'DeepL', free: false, models: null, key_configured: true },
   { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: true },
 ]
 
-export const BULK_RESULT = {
+const BULK_RESULT = {
   entries: [
     { entry_id: 'r-0', title: '长公主', author: 'A', tags: 'gl', source_url: 'https://www.jjwxc.net/tag.php', has_audio_drama: true },
     { entry_id: 'r-1', title: '青梅', author: 'B', tags: '', source_url: 'https://www.jjwxc.net/tag.php', has_audio_drama: false },
@@ -38,14 +38,14 @@ export const BULK_RESULT = {
   source_label: 'jjwxc_baihe_tag',
 }
 
-export interface Call {
+interface Call {
   method: string
   path: string
   body: unknown
   headers: Record<string, string>
 }
 
-export interface DiscoverMock {
+interface DiscoverMock {
   titles: typeof TITLES
   engines: typeof ENGINES
   local: boolean

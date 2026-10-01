@@ -11,14 +11,14 @@ const base = {
   custom_tags: [], created_at: '2026-09-29T12:00:00', updated_at: '2026-09-29T12:00:00',
 }
 
-export const DRAMAS = [
+const DRAMAS = [
   { ...base, id: 1, title_en: 'Hidden Letters', series_id: null, is_private: true, owned_by_me: true },
   { ...base, id: 2, title_en: 'Neighbour Tale', series_id: null, is_private: false, owned_by_me: false },
   { ...base, id: 3, title_en: 'Saga Ep 1', series_id: 9, is_private: false, owned_by_me: true },
   { ...base, id: 4, title_en: 'Saga Ep 2', series_id: 9, is_private: false, owned_by_me: true },
 ]
 
-export const SERIES = [
+const SERIES = [
   {
     id: 9, name: 'Saga', is_private: false, owned_by_me: true, character_count: 2, glossary_term_count: 1,
     dramas: [3, 4].map((id) => ({ id, title_en: `Saga Ep ${id - 2}`, title_zh: null, status: 'translated', media_type: 'audio_drama' })),
@@ -27,7 +27,7 @@ export const SERIES = [
 
 export const CONFLICT = "Move other people's dramas out of this series first."
 
-export interface SharingMock extends AuthMockState {
+interface SharingMock extends AuthMockState {
   posts: { path: string; body: unknown }[]
 }
 

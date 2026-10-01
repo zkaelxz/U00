@@ -12,7 +12,7 @@ import { untilTestEnds } from './stageLineMocks'
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
 
-export function python(code: string) {
+function python(code: string) {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
 }
 
@@ -30,7 +30,7 @@ db.save_lines(3, [
 
 export const clearLines = () => python('db.save_lines(3, [])')
 
-export const job = (id: string, status: string) => ({
+const job = (id: string, status: string) => ({
   job_id: id, status, progress: status === 'running' ? 0.4 : null, message: '', error: null, description: null,
   gpu_touching: false, started_at: 1, finished_at: status === 'running' ? null : 2, updated_at: 1,
 })
@@ -51,7 +51,7 @@ export const PREVIEW = {
   engine: 'gemini',
 }
 
-export interface Calls {
+interface Calls {
   previewStarts: Record<string, unknown>[]
   applies: Record<string, unknown>[]
 }

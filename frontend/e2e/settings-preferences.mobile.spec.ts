@@ -36,7 +36,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
       expect(box && box.height).toBeGreaterThanOrEqual(44)
     }
   }
-  await expect(page.getByLabel('Translation engine', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('English variant', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/settings-preferences-phone.png', fullPage: true })
   expect(unmocked).toEqual([])

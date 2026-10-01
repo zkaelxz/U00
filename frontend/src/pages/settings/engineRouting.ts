@@ -3,7 +3,7 @@
 import type { BadgeTone } from '../../components/labels'
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting, EngineStatus } from '../../types/engineRouting'
 
-export const STATUS_BADGES: Record<EngineStatus, { label: string; tone: BadgeTone }> = {
+const STATUS_BADGES: Record<EngineStatus, { label: string; tone: BadgeTone }> = {
   working: { label: 'Working', tone: 'ok' },
   failed: { label: 'Failed', tone: 'bad' },
   untested: { label: 'Not tested', tone: 'neutral' },
@@ -15,7 +15,7 @@ export function statusBadge(status: string): { label: string; tone: BadgeTone } 
 }
 
 // translate_engines.CAP_* tags in plain words.
-export const TAG_LABELS: Record<string, string> = {
+const TAG_LABELS: Record<string, string> = {
   translate: 'Translates',
   instructions: 'Follows instructions',
   long_context: 'Long context',

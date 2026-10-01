@@ -8,7 +8,7 @@ import { KEY_WRITES_REFUSED } from '../components/errorMessages'
 
 // The engines the write endpoint accepts (services/settings_service.KEY_WRITE_ENGINES).
 // URL settings (ollama_url etc.) are not secrets and have no write endpoint.
-export const SECRET_ENGINES: { engine: string; label: string }[] = [
+const SECRET_ENGINES: { engine: string; label: string }[] = [
   { engine: 'claude', label: 'Claude' },
   { engine: 'deepseek', label: 'DeepSeek' },
   { engine: 'gemini', label: 'Gemini' },
@@ -18,7 +18,7 @@ export const SECRET_ENGINES: { engine: string; label: string }[] = [
   { engine: 'hf_token', label: 'Hugging Face' },
 ]
 
-export type KeyRow = { engine: string; label: string; writable: boolean }
+type KeyRow = { engine: string; label: string; writable: boolean }
 
 /** The rows to show: write-only secrets first, then any other key the API reports (not the server addresses, which have their own block). */
 export function keyRows(engineKeys: Record<string, boolean>): KeyRow[] {

@@ -61,7 +61,7 @@ export function parseCap(raw: string): Parsed<number | null> {
   return { ok: true, value: n }
 }
 
-export const MAX_NUM_CTX = 1_048_576
+const MAX_NUM_CTX = 1_048_576
 
 /** Ollama num_ctx override: blank or 0 means automatic. */
 export function parseNumCtx(raw: string): Parsed<number> {
@@ -73,7 +73,7 @@ export function parseNumCtx(raw: string): Parsed<number> {
   return { ok: true, value: n }
 }
 
-export const MAX_PATH = 1024
+const MAX_PATH = 1024
 
 /** A file or folder path on the Baihe PC: one line, not too long. */
 export function checkPath(raw: string): string | null {

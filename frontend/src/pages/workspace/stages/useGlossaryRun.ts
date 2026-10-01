@@ -72,7 +72,7 @@ export function useGlossaryRun(dramaId: number, source: GlossarySource) {
   return run
 }
 
-export interface StartOutcome {
+interface StartOutcome {
   problem: string | null
   error: unknown
   // The run that was started (or attached to); null when none.

@@ -6,9 +6,9 @@ import { MAX_NAME_LEN, MAX_SUMMARY_LEN, MEDIA_TYPES, SOURCE_LANGUAGES } from '..
 // Pure logic for the Source stage's "Edit details" form. Caps mirror
 // api/schemas.py DramaMetadataUpdate; the server re-validates everything.
 
-export const MAX_TAGS_LEN = 2000
-export const MAX_URL_LEN = 2000
-export const MAX_COUNT = 2147483647
+const MAX_TAGS_LEN = 2000
+const MAX_URL_LEN = 2000
+const MAX_COUNT = 2147483647
 // services/drama_service.py PUBLICATION_STATUSES.
 export const PUBLICATION_STATUSES = ['unknown', 'ongoing', 'completed', 'hiatus']
 
@@ -65,7 +65,7 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   new_series_name: 'New series name',
 }
 
-export const normalizeTags = (raw: string): string =>
+const normalizeTags = (raw: string): string =>
   raw
     .split(',')
     .map((t) => t.trim())
@@ -124,7 +124,7 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
   return e
 }
 
-export interface DetailsPayload {
+interface DetailsPayload {
   metadata: DramaMetadataUpdate // for POST /api/dramas/{id}/metadata
   sourceLanguage: string | null // for POST /api/source/dramas/{id}/config
 }

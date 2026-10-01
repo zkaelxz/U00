@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 
 type Item = Record<string, unknown>
 
-export const item = (o: Item): Item => ({
+const item = (o: Item): Item => ({
   engine: 'claude', model: 'claude-sonnet-5', kind: 'default', where: 'claude built-in default', preset_id: null,
   status: 'current', message: 'claude-sonnet-5 (claude) is current.', replacement: null, note: null,
   listed_by_provider: null, severity: 0, can_switch: false, ...o,
@@ -26,7 +26,7 @@ export const OLDER_PRESET = item({
   replacement: 'claude-sonnet-5', note: 'Previous generation, still offered.', severity: 1, can_switch: true,
 })
 
-export const DEPRECATED_TIER = item({
+const DEPRECATED_TIER = item({
   engine: 'gemini', model: 'gemini-old', kind: 'tier', where: 'Workflow tier: Balanced', status: 'deprecated',
   message: 'gemini-old (gemini) is deprecated and retires on 2026-12-01.', severity: 2,
 })

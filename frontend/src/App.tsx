@@ -138,12 +138,12 @@ export default function App() {
               {label}
             </a>
           ))}
+          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
         </nav>
         <div className="header-end">
           <NotificationBell />
           <ReportProblemButton />
           <ThemeMenu />
-          <GearMenu items={gearItems(canViewUsers(session), developerMode)} route={route} />
           <ApiStatus />
           {user && <UserMenu user={user} />}
         </div>

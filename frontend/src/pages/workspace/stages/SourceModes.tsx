@@ -1,7 +1,9 @@
 /*
  * The two choices that shape the Source stage, each next to what it changes
  * and saved as soon as it is picked (POST /api/source/dramas/{id}/config):
- *   TranscriptModePicker  where the lines come from (top of Transcribe)
+ *   TranscriptModePicker  where the lines come from (top of Transcribe); the
+ *                         server offers "read burned-in subtitles" only once
+ *                         the drama has a source video
  *   ContentModeField      how the audio is used (in Edit details)
  */
 import { useEffect, useState } from 'react'
@@ -60,25 +62,17 @@ export function TranscriptModePicker({ onChanged }: { onChanged: (mode: string) 
   return (
     <>
       <div className="segmented source-from" role="radiogroup" aria-label="Where the lines come from">
-        {options.map((m) => {
-          const needsVideo = m === 'hardsub_ocr' && !config.has_video_source
-          return (
-            <label
-              key={m}
-              className={m === config.transcript_mode ? 'segmented-on' : undefined}
-              title={needsVideo ? 'Needs a source video: upload one first.' : undefined}
-            >
-              <input
-                type="radio"
-                name={`transcript-mode-${dramaId}`}
-                checked={m === config.transcript_mode}
-                disabled={needsVideo}
-                onChange={() => void save({ transcript_mode: m })}
-              />
-              {TRANSCRIPT_CHOICES[m] ?? modeLabel(m)}
-            </label>
-          )
-        })}
+        {options.map((m) => (
+          <label key={m} className={m === config.transcript_mode ? 'segmented-on' : undefined}>
+            <input
+              type="radio"
+              name={`transcript-mode-${dramaId}`}
+              checked={m === config.transcript_mode}
+              onChange={() => void save({ transcript_mode: m })}
+            />
+            {TRANSCRIPT_CHOICES[m] ?? modeLabel(m)}
+          </label>
+        ))}
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>

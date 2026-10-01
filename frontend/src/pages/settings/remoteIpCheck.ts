@@ -7,7 +7,7 @@ import type { RemoteIpCheckTestResult } from '../../types/diagnostics'
 import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
 
 export const IP_CHECK_PLACEHOLDER = 'https://api.ipify.org'
-export const IP_CHECK_MAX = 512
+const IP_CHECK_MAX = 512
 
 /** A quick check before sending (the server checks again, and resolves the name). */
 export function draftProblem(draft: string): string | null {

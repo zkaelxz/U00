@@ -48,7 +48,7 @@ export interface ModelStatus {
   registry_updated: string | null
 }
 
-export interface PresetModelSwitchResult {
+interface PresetModelSwitchResult {
   preset_id: number
   engine: string | null
   from_model: string

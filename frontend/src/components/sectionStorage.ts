@@ -1,5 +1,5 @@
 // Pure open-state storage helpers for Section (kept out of the component file for fast refresh).
-export const SECTION_KEY_PREFIX = 'baihe.section.'
+const SECTION_KEY_PREFIX = 'baihe.section.'
 
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 

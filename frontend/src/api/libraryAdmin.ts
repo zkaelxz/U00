@@ -26,9 +26,9 @@ type Fetch = typeof fetch
 const BASE = '/api/library/admin'
 
 // Confirm words the server checks (library_admin_service *_CONFIRM_TEXT).
-export const DELETE_WORD = 'DELETE'
-export const RESTORE_WORD = 'RESTORE'
-export const CLEAN_WORD = 'CLEAN'
+const DELETE_WORD = 'DELETE'
+const RESTORE_WORD = 'RESTORE'
+const CLEAN_WORD = 'CLEAN'
 
 export const bulkSetStatus = (drama_ids: number[], status: LibraryStatus, f?: Fetch) =>
   postJson<LibraryBulkResult>(`${BASE}/bulk/status`, { drama_ids, status }, f)

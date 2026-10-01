@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Jellyfin connector (Step 39): the /api/jellyfin routes are mocked (no
 // Jellyfin server); everything else hits the real seeded API.
@@ -39,6 +40,7 @@ test('settings: off by default, saves the address, never shows the key, scan is 
   await page.route('**/api/jellyfin/test', (route) => route.fulfill({ json: { ok: true, server_name: 'Den', version: '10.9.0' } }))
   await page.route('**/api/jellyfin/scan', (route) => route.fulfill({ json: report }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card).toContainText('Off')
   const sw = card.getByRole('switch', { name: 'Use Jellyfin' })

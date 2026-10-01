@@ -56,7 +56,7 @@ export function previewFacts(p: UrlPreview): string[] {
   return out
 }
 
-export type PreviewAction = 'series' | 'novel' | 'video' | 'comic' | 'unknown'
+type PreviewAction = 'series' | 'novel' | 'video' | 'comic' | 'unknown'
 
 /** Which actions the preview card offers. A series or chapter link opens the series browser. */
 export function previewAction(p: UrlPreview): PreviewAction {
@@ -80,7 +80,7 @@ export const PREVIEW_NOTES: Record<'unknown', string> = {
 export const dramaLabel = (d: Pick<DramaSummary, 'id' | 'title_en' | 'title_zh'>) =>
   d.title_en?.trim() || d.title_zh?.trim() || `Drama ${d.id}`
 
-export const COMIC_MEDIA_TYPES = ['manhua', 'manga', 'manhwa']
+const COMIC_MEDIA_TYPES = ['manhua', 'manga', 'manhwa']
 
 /** Dramas a chapter import may write into: comic types for page sources, novels for text sources. */
 export function chapterImportDramas(dramas: DramaSummary[], comic: boolean): DramaSummary[] {
@@ -88,7 +88,7 @@ export function chapterImportDramas(dramas: DramaSummary[], comic: boolean): Dra
 }
 
 // Mirrors services/media_upload_service._UPLOAD_CONTENT_MODES (null = audio_drama).
-export const URL_MEDIA_CONTENT_MODES = ['audio_drama', 'streamer_vod']
+const URL_MEDIA_CONTENT_MODES = ['audio_drama', 'streamer_vod']
 
 export const canTakeMedia = (contentMode: string | null | undefined) =>
   URL_MEDIA_CONTENT_MODES.includes(contentMode || 'audio_drama')

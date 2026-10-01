@@ -101,6 +101,11 @@ export function EngineRoutingCard({ refreshToken, geminiFreeTier, onGeminiFreeTi
       aria-label={TITLE}
       className="routing-card"
     >
+      <div className="setting-list">
+        <Field label="Gemini free tier" help="Slows Gemini requests to stay inside the free tier's rate limits.">
+          <Toggle checked={geminiFreeTier} onChange={onGeminiFreeTier} />
+        </Field>
+      </div>
       <ErrorBanner error={loadError} />
       {!routing && !loadError && <p className="muted">Loading…</p>}
       {routing && (
@@ -139,11 +144,6 @@ export function EngineRoutingCard({ refreshToken, geminiFreeTier, onGeminiFreeTi
             ))}
           </ul>
           <h4 className="routing-heading">Engines</h4>
-          <div className="setting-list">
-            <Field label="Gemini free tier" help="Slows Gemini requests to stay inside the free tier's rate limits.">
-              <Toggle checked={geminiFreeTier} onChange={onGeminiFreeTier} />
-            </Field>
-          </div>
           <p className="settings-note">Test makes one short real call and may cost a fraction of a cent on a paid engine.</p>
           <ul className="status-list" aria-label="Engines">
             {routing.engines.map((e) => {

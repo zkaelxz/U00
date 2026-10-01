@@ -66,10 +66,6 @@ export function routeHref(r: Route): string {
   return `#/${r.name}`
 }
 
-export function navigate(r: Route) {
-  window.location.hash = routeHref(r)
-}
-
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(window.location.hash))
   useEffect(() => {

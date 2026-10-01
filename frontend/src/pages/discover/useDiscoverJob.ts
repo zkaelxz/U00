@@ -16,7 +16,7 @@ import type { DiscoverJobStarted } from '../../types/discover'
 import type { SourcesJobResult } from '../../types/sources'
 import { pollSourcesJob } from '../sources/useSourcesJob'
 
-export type DiscoverJobStatus = 'idle' | 'running' | 'done' | 'error'
+type DiscoverJobStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface State<R> {
   status: DiscoverJobStatus
@@ -98,5 +98,3 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
     reset: () => setState(IDLE),
   }
 }
-
-export type DiscoverJob<R> = ReturnType<typeof useDiscoverJob<R>>

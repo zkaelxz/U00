@@ -112,17 +112,15 @@ test('defaults for new dramas save only what changed', async ({ page }) => {
   const s = await open(page, 'Translation style')
   const save = s.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
-  await s.getByLabel('Translation engine', { exact: true }).selectOption('deepseek')
   await s.getByLabel('English variant', { exact: true }).selectOption('en-GB')
   await s.getByLabel('Style note', { exact: true }).fill('Keep it short.')
   await save.click()
   await expect(s.getByRole('status')).toHaveText('Saved.')
   expect(posts).toEqual([
-    { path: '/api/settings', body: { default_engine: 'deepseek', default_locale: 'en-GB', default_style_note: 'Keep it short.' } },
+    { path: '/api/settings', body: { default_locale: 'en-GB', default_style_note: 'Keep it short.' } },
   ])
   await expect(save).toBeDisabled()
-  await expect(s.locator('.card-meta')).toHaveText('DeepSeek · English (UK) · style note')
-  await expect(s.getByRole('option', { name: 'DeepSeek' })).toHaveCount(2) // engine names humanized (engine + summary engine)
+  await expect(s.locator('.card-meta')).toHaveText('English (UK) · style note')
   expect(unmocked).toEqual([])
 })
 

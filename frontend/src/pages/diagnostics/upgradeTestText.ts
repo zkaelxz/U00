@@ -10,7 +10,7 @@ export const testConfirmLabel = (name: string, target: string) =>
 export const testIsFor = (s: DiagnosticsUpgradeCheckState | null, name: string, target: string): boolean =>
   !!s && s.package === name && s.target === target
 
-export type TestLine = { text: string; tone: 'ok' | 'warn' | 'error' | 'muted' }
+type TestLine = { text: string; tone: 'ok' | 'warn' | 'error' | 'muted' }
 
 /** "Testing…" while it runs; the verdict after; null when there is nothing for this target. */
 export function testLine(s: DiagnosticsUpgradeCheckState | null, name: string, target: string): TestLine | null {

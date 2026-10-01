@@ -109,7 +109,7 @@ export function lastCheckedLine(checkedAt: string | null | undefined): string {
   return when ? `Providers last checked ${when}` : 'Providers not checked yet'
 }
 
-export interface EngineCheckLine {
+interface EngineCheckLine {
   engine: string
   label: string
   ok: boolean
