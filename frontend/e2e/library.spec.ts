@@ -5,10 +5,11 @@ import { expect, test, type Page } from '@playwright/test'
 // The Library's drama list, so the Continue shelf and Library tools never match.
 const dramas = (page: Page) => page.getByRole('region', { name: 'Dramas' })
 
-test('shows API status and the library from the real API', async ({ page }) => {
+test('shows the library from the real API', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByTestId('api-status')).toContainText('API v0.1')
   await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  // A reachable server shows no status badge.
+  await expect(page.getByTestId('api-status')).toHaveCount(0)
   await expect(dramas(page).getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
   // Humanized badges, no raw codes.
   const card = page.locator('.drama-card', { hasText: 'Signal' })

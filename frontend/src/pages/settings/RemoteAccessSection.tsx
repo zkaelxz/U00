@@ -18,6 +18,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { RemoteIpCheckTestResult } from '../../types/diagnostics'
+import { SAVED_ON_PC_NOTE } from './preferences'
 import { IP_CHECK_PLACEHOLDER, draftProblem, ipCheckErrorMessage, testBadge } from './remoteIpCheck'
 
 const TITLE = 'Remote access'
@@ -179,10 +180,7 @@ function IpCheckControls() {
             )}
             {testError}
           </p>
-          <p className="settings-note">
-            Saved to .env on the Baihe PC and never shown again. Setting it works only on that PC with
-            BAIHE_API_ALLOW_KEY_WRITES=1.
-          </p>
+          <p className="settings-note">{SAVED_ON_PC_NOTE}</p>
         </div>
       )}
     </Card>

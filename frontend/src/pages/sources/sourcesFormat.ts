@@ -174,7 +174,7 @@ export function seriesExtra(info: SeriesInfo | null): string {
   return [...(info.authors ?? []), ...(info.genres ?? [])].filter(Boolean).join(' · ')
 }
 
-export type ChapterGroup = { group: string; chapters: SeriesChapter[] }
+type ChapterGroup = { group: string; chapters: SeriesChapter[] }
 
 /** Chapters by `group`, groups in first-seen order. */
 export function groupChapters(chapters: SeriesChapter[]): ChapterGroup[] {
@@ -335,7 +335,7 @@ export function pausedFor(retryAfter: number | null | undefined): string | null 
 
 // ---------------------------------------------------------------- settings
 
-export const CACHE_LABELS: Record<string, string> = {
+const CACHE_LABELS: Record<string, string> = {
   none: 'Keep nothing',
   temporary: 'Temporary',
   keep_originals: 'Keep originals',
@@ -347,7 +347,7 @@ export const cacheLabel = (mode: string) => CACHE_LABELS[mode] ?? humanizeValue(
 
 const fmtNum = (n: number) => String(Number.isInteger(n) ? n : Number(n.toFixed(2)))
 
-export function gapText(s: Pick<SourcesSettings, 'pace_min_delay' | 'pace_max_delay'>): string {
+function gapText(s: Pick<SourcesSettings, 'pace_min_delay' | 'pace_max_delay'>): string {
   return `${fmtNum(s.pace_min_delay)}–${fmtNum(s.pace_max_delay)} s gap`
 }
 
@@ -426,7 +426,7 @@ export const CACHE_MAX_FIELD: NumField = {
   help: '0 = no limit. Oldest-used pages go first.',
 }
 
-export const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD, CACHE_MAX_FIELD]
+const NUM_FIELDS: NumField[] = [...PACING_ROWS.flat(), CHECK_FIELD, CACHE_MAX_FIELD]
 
 export const BOOL_FIELDS: { key: BoolKey; label: string; help?: string }[] = [
   { key: 'auto_queue_new_chapters', label: 'Auto-import new chapters', help: 'Off: new chapters are announced, not downloaded.' },

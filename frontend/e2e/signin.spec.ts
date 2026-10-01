@@ -11,7 +11,6 @@ test('auth off: the app renders as before, no user menu, no Login page', async (
   const s = await mockAuth(page, ME.authOff)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
-  await expect(page.getByTestId('api-status')).toBeVisible()
   await expect(page.locator('details.user-menu')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])

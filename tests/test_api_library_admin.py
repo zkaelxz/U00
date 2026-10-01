@@ -647,7 +647,7 @@ class TestMaintenanceBlocksArchiving:
 class TestBulkTranslateDoesNotAdopt:
     def test_start_refused_is_skipped_running(self, isolated_db, monkeypatch):
         from core import Line
-        did = _new("A", translation_engine="test_offline")
+        did = _new("A", translation_engine="fake")
         db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
         per_job = f"translate_{did}"
         cancels = []

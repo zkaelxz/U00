@@ -32,6 +32,12 @@ export const MEDIA_TYPE_LABELS: Record<string, string> = {
   other: 'Other',
 }
 
+export const LOCALE_LABELS: Record<string, string> = {
+  'en-us': 'English (US)',
+  'en-gb': 'English (UK)',
+  'en-au': 'English (Australia)',
+}
+
 export const LANGUAGE_LABELS: Record<string, string> = {
   zh: 'Chinese',
   'zh-hans': 'Chinese (Simplified)',
@@ -48,7 +54,6 @@ export const ENGINE_LABELS: Record<string, string> = {
   ollama: 'Ollama',
   nllb: 'NLLB',
   libretranslate: 'LibreTranslate',
-  test_offline: 'Offline test',
   groq: 'Groq',
   openai: 'OpenAI',
   hf_token: 'Hugging Face token',

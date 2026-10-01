@@ -5,7 +5,6 @@ import asr_benchmark
 import core
 import epub_io
 import line_tools
-import dictionary
 import forced_align
 import resegment
 import story_context
@@ -26,7 +25,7 @@ def test_language_constants_cover_the_three_languages():
 def test_language_copies_are_the_shared_objects():
     assert forced_align.LANGUAGE_NAMES is core.LANGUAGE_NAMES
     assert translate_engines.LANGUAGE_NAMES is core.LANGUAGE_NAMES
-    for mod in (dictionary, resegment, story_context, translation_guide):
+    for mod in (resegment, story_context, translation_guide):
         assert mod.LANGUAGE_NAMES is core.LANGUAGE_NAMES
     assert drama_service.SOURCE_LANGUAGES is core.SOURCE_LANGUAGES
     assert live_service.SOURCE_LANGUAGES is core.SOURCE_LANGUAGES

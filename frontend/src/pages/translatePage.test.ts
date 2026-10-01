@@ -25,22 +25,26 @@ const eng = (name: string, key_configured = true, models: string[] | null = null
 })
 
 describe('engine picker', () => {
-  const all = [eng('claude', false, ['a', 'b']), eng('test_offline'), eng('deepseek')]
+  const all = [eng('claude', false, ['a', 'b']), eng('ollama'), eng('deepseek')]
 
   it('labels engines by name and marks the ones with no key', () => {
-    expect(engineOptionLabel(eng('test_offline'))).toBe('Offline test')
+    expect(engineOptionLabel(eng('deepseek'))).toBe('DeepSeek')
     expect(engineOptionLabel(eng('claude', false))).toBe('Claude (no key)')
   })
 
   it('lists usable engines first, keeping API order', () => {
-    expect(orderEngines(all).map((e) => e.name)).toEqual(['test_offline', 'deepseek', 'claude'])
+    expect(orderEngines(all).map((e) => e.name)).toEqual(['ollama', 'deepseek', 'claude'])
   })
 
   it('restores a remembered engine the server still lists, else the first usable one', () => {
     expect(pickEngine(all, 'deepseek')).toBe('deepseek')
     expect(pickEngine(all, 'claude')).toBe('claude')
-    expect(pickEngine(all, 'gone')).toBe('test_offline')
-    expect(pickEngine(all, '')).toBe('test_offline')
+    expect(pickEngine(all, 'gone')).toBe('ollama')
+    expect(pickEngine(all, '')).toBe('ollama')
+    // Settings' default wins over API order, but only while it can run.
+    expect(pickEngine(all, '', 'deepseek')).toBe('deepseek')
+    expect(pickEngine(all, '', 'claude')).toBe('ollama')
+    expect(pickEngine(all, 'claude', 'deepseek')).toBe('claude')
     expect(pickEngine([eng('claude', false)], '')).toBe('')
     expect(pickEngine([], 'claude')).toBe('')
   })
@@ -71,8 +75,8 @@ describe('languages', () => {
 
 describe('history', () => {
   it('humanizes languages and engine (no raw codes)', () => {
-    const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'test_offline' })
-    expect(label).toBe('Chinese → English · Offline test')
+    const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'ollama' })
+    expect(label).toBe('Chinese → English · Ollama (local)')
     expect(historyLabel({ source_language: 'en', target_language: 'ja', engine: 'claude' })).toBe(
       'English → Japanese · Claude',
     )

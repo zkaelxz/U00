@@ -127,7 +127,7 @@ export function skippedTitle(r: ComicUrlImportResult): string | null {
 
 // ---------------------------------------------------------------- SO10 review
 
-export const REVIEW_WHY: Record<string, string> = {
+const REVIEW_WHY: Record<string, string> = {
   low_confidence: 'Baihe isn’t sure it found the right parts of the page, so nothing was saved yet.',
   asked: 'You asked to check the result before it is saved.',
   diagnostics: 'Sources diagnostics mode is on, so every result is shown here first.',
@@ -143,7 +143,7 @@ export const REVIEW_FIRST_HELP =
 export const REVIEW_NOTE =
   'Corrections change which parts of the page are used and can be saved as this site’s profile; the text and images themselves are never edited.'
 
-export const BUCKET_TONE: Record<string, 'ok' | 'info' | 'warn' | 'bad'> = { HIGH: 'ok', MEDIUM: 'info', LOW: 'warn', FAILED: 'bad' }
+const BUCKET_TONE: Record<string, 'ok' | 'info' | 'warn' | 'bad'> = { HIGH: 'ok', MEDIUM: 'info', LOW: 'warn', FAILED: 'bad' }
 export const bucketTone = (b: string | null | undefined) => BUCKET_TONE[b ?? ''] ?? 'warn'
 
 const BUCKET_WORD: Record<string, string> = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low', FAILED: 'Failed' }

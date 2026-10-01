@@ -4,7 +4,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { LineFilter } from '../../../../types/review'
 import { chipLabel } from './reviewLogic'
 
-export interface FilterCounts {
+interface FilterCounts {
   all: number | null
   flagged: number
   untranslated: number

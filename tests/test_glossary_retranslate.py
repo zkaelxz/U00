@@ -16,6 +16,7 @@ import cli
 import db
 import subtitle_formats
 import translate_engines
+from tests import fake_engine
 from api import auth as api_auth
 from api.server import create_app
 from core import Line
@@ -57,7 +58,7 @@ def _seed(lines, terms=(), machine=None, series="S"):
     marked = [r for i, r in enumerate(rows)
               if r["en"] and (machine is None or i in machine)]
     line_provenance_service.record(did, {r["id"]: (r["zh"], r["en"]) for r in marked},
-                                   "test_offline", "test-offline", "v", "")
+                                   "fake", "test-offline", "v", "")
     return did, sid, rows
 
 
@@ -78,7 +79,7 @@ class TestFindAffected:
             ("天气很好", "Nice weather"),      # unaffected
             ("林晚", ""),                      # no English yet: nothing to re-translate
         ], terms=[LIN])
-        p = svc.find_glossary_affected_lines(did, engine_name="test_offline")
+        p = svc.find_glossary_affected_lines(did, engine_name="fake")
         got = _by_zh(p)
         assert set(got) == {"林晚来了", "晚晚你好", "她走了"}
         assert got["她走了"]["matched_terms"][0]["reason"] == "banned"
@@ -119,14 +120,14 @@ class TestFindAffected:
 
     def test_real_translate_run_counts_as_machine_made(self, isolated_db):
         did, _sid, _ = _seed([("林晚", "")], terms=[LIN], machine=set())
-        _wait(translate_run_service.start_translate_run(did, engine_name="test_offline")["job_id"])
+        _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
         [line] = svc.find_glossary_affected_lines(did)["lines"]
         assert line["hand_edited"] is False and line["en"].startswith("[TEST]")
 
     def test_exact_term_substitution_keeps_machine_status(self, isolated_db):
         did, sid, _ = _seed([("林晚", "")], machine=set())
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="[TEST]", enforce_exact=True)
-        _wait(translate_run_service.start_translate_run(did, engine_name="test_offline")["job_id"])
+        _wait(translate_run_service.start_translate_run(did, engine_name="fake")["job_id"])
         [line] = svc.find_glossary_affected_lines(did)["lines"]
         assert line["en"] == "Lin Wan 林晚" and line["hand_edited"] is False
 
@@ -145,7 +146,7 @@ class TestStart:
         did, _sid, rows = _seed([("林晚一", "old one"), ("林晚二", "my edit"), ("天气", "Weather")],
                                 terms=[LIN], machine={0, 2})
         p, ids = _preview_ids(did)
-        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert out["line_ids"] == [rows[0]["id"]] and out["skipped_hand_edited_count"] == 1
         _wait(out["job_id"])
         after = {r["zh"]: r["en"] for r in db.load_lines(did)}
@@ -158,7 +159,7 @@ class TestStart:
                              machine={0})
         p, ids = _preview_ids(did)
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"], include_hand_edited=True,
-                                             engine_name="test_offline")
+                                             engine_name="fake")
         assert out["skipped_hand_edited_count"] == 0
         _wait(out["job_id"])
         assert {r["en"] for r in db.load_lines(did)} == {"[TEST] 林晚一", "[TEST] 林晚二"}
@@ -170,7 +171,7 @@ class TestStart:
         did, _sid, rows = _seed([("林晚", "my edit")], terms=[LIN], machine=set())
         p, ids = _preview_ids(did)
         with pytest.raises(UnsupportedOperationError):
-            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert db.load_lines(did)[0]["en"] == "my edit"
 
     def test_stale_preview_is_a_conflict(self, isolated_db):
@@ -178,7 +179,7 @@ class TestStart:
         p, ids = _preview_ids(did)
         db.update_line_fields_if(did, rows[0]["id"], {"en": "edited since"}, {"en": "machine"})
         with pytest.raises(ConflictError):
-            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert db.load_lines(did)[0]["en"] == "edited since"
 
     def test_glossary_change_after_preview_is_a_conflict(self, isolated_db):
@@ -187,12 +188,12 @@ class TestStart:
         db.upsert_glossary_term(sid, "苏芮", "Su Rui")
         # A new term that matches nothing still changes the glossary used.
         with pytest.raises(ConflictError):
-            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         p, ids = _preview_ids(did)
         db.upsert_glossary_term(sid, "林晚", "Lin Waner", aliases="晚晚")
         # The preview showed the old rendering.
         with pytest.raises(ConflictError):
-            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
 
     def test_ids_are_revalidated(self, isolated_db):
         did, _sid, rows = _seed([("林晚", "machine"), ("天气", "Weather")], terms=[LIN])
@@ -200,12 +201,12 @@ class TestStart:
         p, ids = _preview_ids(did)
         with pytest.raises(InvalidInputError):   # another drama's line
             svc.start_affected_retranslate(did, ids + [other_rows[0]["id"]], p["preview_hash"],
-                                           engine_name="test_offline")
+                                           engine_name="fake")
         with pytest.raises(InvalidInputError):   # this drama's, but not affected
             svc.start_affected_retranslate(did, ids + [rows[1]["id"]], p["preview_hash"],
-                                           engine_name="test_offline")
+                                           engine_name="fake")
         with pytest.raises(InvalidInputError):
-            svc.start_affected_retranslate(did, [], p["preview_hash"], engine_name="test_offline")
+            svc.start_affected_retranslate(did, [], p["preview_hash"], engine_name="fake")
         assert db.load_lines(did)[0]["en"] == "machine"
         assert db.load_lines(other)[0]["en"] == "x"
 
@@ -226,7 +227,7 @@ class TestStart:
         monkeypatch.setattr(db, "save_lines", spy)
         p, _ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, [rows[0]["id"]], p["preview_hash"],
-                                             engine_name="test_offline")["job_id"])
+                                             engine_name="fake")["job_id"])
         assert calls and None not in calls
         after = {r["id"]: r for r in db.load_lines(did)}
         first, second = after[rows[0]["id"]], after[rows[1]["id"]]
@@ -241,21 +242,21 @@ class TestStart:
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lin", enforce_exact=True)
         p, _ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, [rows[0]["id"]], p["preview_hash"],
-                                             engine_name="test_offline")["job_id"])
+                                             engine_name="fake")["job_id"])
         assert db.load_lines(did)[1]["en"] == "Lin two"
 
     def test_edit_saved_while_the_job_runs_is_kept(self, isolated_db, monkeypatch):
         did, _sid, rows = _seed([("林晚", "machine")], terms=[LIN])
         entered, release = threading.Event(), threading.Event()
 
-        class Slow(translate_engines.TestOfflineEngine):
+        class Slow(fake_engine.FakeEngine):
             def translate_batch(self, zh_lines, context):
                 entered.set()
                 release.wait(5)
                 return super().translate_batch(zh_lines, context)
-        monkeypatch.setitem(translate_engines.ENGINES, "test_offline", Slow)
+        monkeypatch.setitem(translate_engines.ENGINES, "fake", Slow)
         p, ids = _preview_ids(did)
-        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert entered.wait(5)
         db.update_line_fields_if(did, rows[0]["id"], {"en": "edited meanwhile"}, {"en": "machine"})
         release.set()
@@ -268,15 +269,15 @@ class TestStart:
         did, _sid, rows = _seed([(f"林晚{i}", f"old {i}") for i in range(4)], terms=[LIN])
         entered, release = threading.Event(), threading.Event()
 
-        class Slow(translate_engines.TestOfflineEngine):
+        class Slow(fake_engine.FakeEngine):
             def translate_batch(self, zh_lines, context):
                 entered.set()
                 release.wait(5)
                 return super().translate_batch(zh_lines, context)
-        monkeypatch.setitem(translate_engines.ENGINES, "test_offline", Slow)
+        monkeypatch.setitem(translate_engines.ENGINES, "fake", Slow)
         p, ids = _preview_ids(did)
         out = svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                             engine_name="test_offline", batch_size=1)
+                                             engine_name="fake", batch_size=1)
         assert entered.wait(5)
         background_jobs.request_cancel(out["job_id"])
         release.set()
@@ -307,12 +308,12 @@ class TestStart:
 def _slow_engine(monkeypatch):
     entered, release = threading.Event(), threading.Event()
 
-    class Slow(translate_engines.TestOfflineEngine):
+    class Slow(fake_engine.FakeEngine):
         def translate_batch(self, zh_lines, context):
             entered.set()
             release.wait(5)
             return super().translate_batch(zh_lines, context)
-    monkeypatch.setitem(translate_engines.ENGINES, "test_offline", Slow)
+    monkeypatch.setitem(translate_engines.ENGINES, "fake", Slow)
     return entered, release
 
 
@@ -324,7 +325,7 @@ class TestOwnLinesOnly:
         db.upsert_glossary_term(sid, "林晚", "Lin Wan", notes="Lynn", enforce_exact=True)
         entered, release = _slow_engine(monkeypatch)
         p, ids = _preview_ids(did)
-        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert entered.wait(5)
         # The edit uses the term's notes variant, which the substitution would rewrite.
         db.update_line_fields_if(did, rows[0]["id"], {"en": "Lynn says hi"}, {"en": "machine"})
@@ -345,7 +346,7 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                             engine_name="test_offline")["job_id"])
+                                             engine_name="fake")["job_id"])
         assert edited and edited[0]
         assert db.load_lines(did)[0]["en"] == "Lynn waves"
 
@@ -370,7 +371,7 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                             engine_name="test_offline")["job_id"])
+                                             engine_name="fake")["job_id"])
         assert edited and edited[0]
         assert db.load_lines(did)[0]["en"] == "Lynn waves"
 
@@ -384,7 +385,7 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(subtitle_formats, "flag_dense_lines", flag_all)
         entered, release = _slow_engine(monkeypatch)
         p, ids = _preview_ids(did)
-        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert entered.wait(5)
         db.update_line_fields_if(did, rows[1]["id"], {"en": "my edit"}, {"en": "two"})
         release.set()
@@ -421,7 +422,7 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                                   engine_name="test_offline")["job_id"])
+                                                   engine_name="fake")["job_id"])
         assert edited and edited[0]
         after = {r["id"]: r for r in db.load_lines(did)}
         assert (after[rows[0]["id"]]["en"], after[rows[0]["id"]]["flag"],
@@ -462,7 +463,7 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(bulk_translate, "finish_translation_run", finish)
         p, ids = _preview_ids(did)
         job = _wait(svc.start_affected_retranslate(did, ids, p["preview_hash"],
-                                                   engine_name="test_offline")["job_id"])
+                                                   engine_name="fake")["job_id"])
         assert edited and edited[0]
         after = {r["id"]: r for r in db.load_lines(did)}
         assert after[rows[0]["id"]]["flag"] == "dense"
@@ -488,7 +489,7 @@ class TestOwnLinesOnly:
         monkeypatch.setattr(db, "save_lines", spy)
         lines = db.load_line_objects(did)
         bulk_translate.finish_translation_run(
-            did, lines, None, "test_offline", "", [], [],
+            did, lines, None, "fake", "", [], [],
             enforce_ids={rows[0]["id"]}, flags_needing_recheck=set())
         guarded = [kw for kw in calls if kw.get("only_if_unchanged")
                    and kw.get("fields") == ("flag", "flag_note")]
@@ -531,7 +532,7 @@ class TestOwnLinesOnly:
             db.update_line_fields_if(did, rows[1]["id"], {"en": "my edit"}, {"en": "two"})
             return out
         monkeypatch.setattr(svc, "_affected", affected_then_edit)
-        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+        out = svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert out["target_line_count"] == 1
         # The response names only the line the run started; the edited one is skipped.
         assert out["line_ids"] == [rows[0]["id"]] and out["skipped_hand_edited_count"] == 1
@@ -549,7 +550,7 @@ class TestOwnLinesOnly:
             return out
         monkeypatch.setattr(svc, "_affected", affected_then_edit)
         with pytest.raises(ConflictError):
-            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="test_offline")
+            svc.start_affected_retranslate(did, ids, p["preview_hash"], engine_name="fake")
         assert db.load_lines(did)[0]["en"] == "my edit"
 
     def test_preview_term_deleted_since_is_a_conflict(self, isolated_db, monkeypatch):
@@ -560,7 +561,7 @@ class TestOwnLinesOnly:
         db.delete_glossary_term(su)
         with pytest.raises(ConflictError) as err:
             svc.start_affected_retranslate(did, ids, p["preview_hash"], term_ids=[su],
-                                           engine_name="test_offline")
+                                           engine_name="fake")
         assert err.value.details == {"reason": "stale_preview"}
         # Read once: the term list that decides staleness is the one the run uses.
         calls = []
@@ -569,7 +570,7 @@ class TestOwnLinesOnly:
                             lambda *a, **kw: calls.append(1) or real(*a, **kw))
         with pytest.raises(ConflictError):
             svc.start_affected_retranslate(did, ids, p["preview_hash"], term_ids=[su],
-                                           engine_name="test_offline")
+                                           engine_name="fake")
         assert len(calls) == 1
 
 
@@ -591,12 +592,12 @@ class TestApi:
         client = TestClient(create_app())
         base = f"/api/translate-run/dramas/{did}/glossary-affected"
         assert client.get("/api/translate-run/dramas/999/glossary-affected").status_code == 404
-        r = client.get(base, params={"engine": "test_offline"})
+        r = client.get(base, params={"engine": "fake"})
         assert r.status_code == 200
         p = r.json()
         assert [ln["hand_edited"] for ln in p["lines"]] == [False, True]
         ids = [ln["id"] for ln in p["lines"]]
-        body = {"line_ids": ids, "preview_hash": p["preview_hash"], "engine": "test_offline"}
+        body = {"line_ids": ids, "preview_hash": p["preview_hash"], "engine": "fake"}
         assert client.post(f"{base}/run", json={**body, "bogus": 1}).status_code == 422
         stale = client.post(f"{base}/run", json={**body, "preview_hash": "stale"})
         assert stale.status_code == 409
@@ -611,7 +612,7 @@ class TestApi:
 
 class TestCli:
     def _args(self, did, **kw):
-        base = dict(id=did, status=None, engine="test_offline", api_key=None, model=None,
+        base = dict(id=did, status=None, engine="fake", api_key=None, model=None,
                     episode_summary_engine="ollama", episode_summary_api_key=None,
                     style_note=None, style_preset=None, locale=None, female_pronouns=False,
                     no_genre_notes=False, force=False, ollama_num_ctx=None, ollama_url=None,
@@ -623,7 +624,7 @@ class TestCli:
 
     def test_glossary_affected_skips_hand_edited(self, isolated_db, monkeypatch):
         monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: translate_engines.TestOfflineEngine())
+                            lambda name, *a, **k: fake_engine.FakeEngine())
         did, _sid, _ = _seed([("林晚一", "old"), ("林晚二", "my edit"), ("天气", "Weather")],
                              terms=[LIN], machine={0, 2})
         cli.cmd_translate(self._args(did))
@@ -647,7 +648,7 @@ class TestCli:
 
     def _run(self, monkeypatch, did, **kw):
         monkeypatch.setattr(translate_engines, "get_engine",
-                            lambda name, *a, **k: translate_engines.TestOfflineEngine())
+                            lambda name, *a, **k: fake_engine.FakeEngine())
         cli.cmd_translate(self._args(did, **kw))
         return [r["en"] for r in db.load_lines(did)]
 

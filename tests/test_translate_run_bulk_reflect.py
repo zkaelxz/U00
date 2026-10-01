@@ -188,7 +188,7 @@ def test_reflect_live_run_uses_reflect_helper_and_saves_notes(isolated_db, monke
         seen.append(list(context["line_ids"]))
         return [f"R:{z}" for z in zh_lines], ["crit" for _ in zh_lines]
     monkeypatch.setattr(te, "reflect_translate_batch", fake_reflect)
-    out = svc.start_translate_run(did, engine_name="test_offline", reflect=True)
+    out = svc.start_translate_run(did, engine_name="fake", reflect=True)
     assert out["reflect"] and not out["bulk"] and out["job_id"] == f"translate_{did}"
     assert _wait(out["job_id"])["status"] == "done"
     ens = {r["zh"]: r["en"] for r in db.load_lines(did)}

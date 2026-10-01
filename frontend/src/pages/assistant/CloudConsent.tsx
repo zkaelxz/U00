@@ -17,7 +17,7 @@ type Props = {
   only?: string[]
 }
 
-export const CONSENT_HELP =
+const CONSENT_HELP =
   'The assistant reads this app’s source code and its (redacted) logs to answer. With this on, that text is sent to this provider. Ollama keeps everything on this PC.'
 
 export function CloudConsent({ settings, onSettings, only }: Props) {

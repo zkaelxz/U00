@@ -70,9 +70,9 @@ const DIGITS: Record<string, string[]> = {
 
 const HUES: RGB[] = [[214, 226, 245], [245, 222, 214], [220, 240, 222], [238, 226, 246], [246, 238, 210], [212, 236, 238]]
 
-export interface Box { x: number; y: number; w: number; h: number }
+interface Box { x: number; y: number; w: number; h: number }
 
-export function pagePng(n: number, w: number, h: number, boxes: Box[], typeset: boolean): Buffer {
+function pagePng(n: number, w: number, h: number, boxes: Box[], typeset: boolean): Buffer {
   const px = new Uint8Array(w * h * 3)
   const bg = HUES[(n - 1) % HUES.length]
   const fill = (x0: number, y0: number, x1: number, y1: number, c: RGB) => {
@@ -145,7 +145,7 @@ export interface ComicMockState {
 
 export const pageIdOf = (id: number, ordinal: number) => id * 100 + ordinal + 1
 
-export function boxesFor(w: number, h: number): Box[] {
+function boxesFor(w: number, h: number): Box[] {
   return [
     { x: Math.round(w * 0.55), y: Math.round(h * 0.06), w: Math.round(w * 0.32), h: Math.round(h * 0.1) },
     { x: Math.round(w * 0.1), y: Math.round(h * 0.4), w: Math.round(w * 0.36), h: Math.round(h * 0.09) },

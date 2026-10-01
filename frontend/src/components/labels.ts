@@ -2,15 +2,16 @@
 // truth for display labels). Unknown values fall back to a tidied form
 // ("new_thing" -> "New thing").
 
-import { ENGINE_LABELS, LANGUAGE_LABELS, MEDIA_TYPE_LABELS, STATUS_LABELS } from '../labels'
+import { ENGINE_LABELS, LANGUAGE_LABELS, LOCALE_LABELS, MEDIA_TYPE_LABELS, STATUS_LABELS } from '../labels'
 
-export type LabelKind = 'status' | 'mediaType' | 'language' | 'engine'
+export type LabelKind = 'status' | 'mediaType' | 'language' | 'engine' | 'locale'
 
 const MAPS: Record<LabelKind, Record<string, string>> = {
   status: STATUS_LABELS,
   mediaType: MEDIA_TYPE_LABELS,
   language: LANGUAGE_LABELS,
   engine: ENGINE_LABELS,
+  locale: LOCALE_LABELS,
 }
 
 // "kept_your_edit" / "STATIC-HTTP" -> "kept your edit" / "static http"

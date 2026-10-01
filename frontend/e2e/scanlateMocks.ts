@@ -6,7 +6,7 @@ import { mockComic, type ComicMockOptions, type ComicMockState } from './comicMo
 // comic viewer mocks. A run or export job goes running -> done over two polls;
 // once a run is done the page list reports every page typeset.
 
-export interface ScanlateMockState extends ComicMockState {
+interface ScanlateMockState extends ComicMockState {
   runs: unknown[]
   exports: unknown[]
   uploads: number

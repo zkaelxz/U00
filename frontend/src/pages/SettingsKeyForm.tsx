@@ -3,6 +3,7 @@ import { clearEngineKey, setEngineKey } from '../api/settings'
 import { Field } from '../components/Field'
 import { buttonClass } from '../components/uiClasses'
 import type { EngineKeyResult } from '../types/settings'
+import { SAVED_ON_PC_NOTE } from './settings/preferences'
 import { initialKeyForm, keyFormReducer } from './settingsKeys'
 
 type Props = {
@@ -48,7 +49,7 @@ export function SettingsKeyForm({ engine, label, configured, onResult }: Props) 
     <div className="status-form">
       <Field
         label={`${label} key`}
-        help="Saved to .env on the Baihe PC. The saved key is never shown again."
+        help={SAVED_ON_PC_NOTE}
         error={s.error}
       >
         <input

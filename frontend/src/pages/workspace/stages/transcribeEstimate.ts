@@ -40,7 +40,7 @@ const range = (seconds: number, [lo, hi]: [number, number]) => {
   return a === b ? a : `${a.replace(/^about /, '')} to ${b.replace(/^about /, '')}`
 }
 
-export interface TranscribeEstimateInput {
+interface TranscribeEstimateInput {
   durationSeconds: number | null // null or 0 = unknown
   whisperSize: string
   useGpu: boolean | null // null = unknown, estimated as CPU (the slower case)

@@ -23,7 +23,7 @@ Line = core.Line
 
 def _make_drama(isolated_db, **overrides):
     fields = {"title_en": "Test Drama", "source_language": "zh",
-              "translation_engine": "test_offline"}
+              "translation_engine": "fake"}
     fields.update(overrides)
     return isolated_db.create_drama(**fields)
 

@@ -34,7 +34,7 @@ const BASE = '/api/diagnostics'
 // The word the server checks for a library reset (diagnostics_gaps_service.RESET_CONFIRM_TEXT).
 export const RESET_WORD = 'RESET'
 // Server caps (diagnostics_gaps_routes.get_log).
-export const LOG_MAX_LINES = 200
+const LOG_MAX_LINES = 200
 export const LOG_KEYWORD_MAX = 100
 
 export const getDiagnostics = (f?: Fetch) => getJson<DiagnosticsOverview>(BASE, f)

@@ -846,11 +846,3 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usa
         return {}
     return {k: str(v).strip() for k, v in data.items()
             if k in METADATA_FIELDS and str(v).strip()}
-
-
-def format_bilingual_credit(original: str, romanized: str) -> str:
-    """Renders a credit as 'Romanized (原文)', or just whichever exists."""
-    original, romanized = (original or "").strip(), (romanized or "").strip()
-    if original and romanized and original != romanized:
-        return f"{romanized} ({original})"
-    return romanized or original

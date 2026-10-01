@@ -63,7 +63,7 @@ export function ReviewRolesSection({ settings, implementEngine, onSettings }: Pr
         <Field label="Review engine" help="Must be a different engine from the one that answers.">
           <select value={reviewEngine} onChange={(e) => setReviewEngine(e.target.value)}>
             <option value="">None</option>
-            {(settings.review_engine_choices ?? settings.engine_choices).map((c) => (
+            {settings.engine_choices.map((c) => (
               <option key={c} value={c}>
                 {humanize('engine', c)}
               </option>

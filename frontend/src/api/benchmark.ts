@@ -59,7 +59,7 @@ export interface BenchmarkSet {
   with_reference: number
 }
 
-export interface BenchmarkCaseCreate {
+interface BenchmarkCaseCreate {
   label: string
   source_text: string
   reference_text?: string
@@ -68,7 +68,7 @@ export interface BenchmarkCaseCreate {
   set_name?: string
 }
 
-export interface BenchmarkImportRequest {
+interface BenchmarkImportRequest {
   set_name: string
   text: string
   format: ImportFormat
@@ -76,7 +76,7 @@ export interface BenchmarkImportRequest {
   source_language: SourceLanguage
 }
 
-export interface BenchmarkImportResult {
+interface BenchmarkImportResult {
   set_name: string
   tier: string
   added: number
@@ -163,7 +163,7 @@ export interface BenchmarkResult {
   error: string | null
 }
 
-export interface BenchmarkRunDetail {
+interface BenchmarkRunDetail {
   run: BenchmarkRun
   results: BenchmarkResult[]
 }

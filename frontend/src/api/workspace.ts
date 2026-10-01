@@ -63,7 +63,7 @@ export const startTranscribe = (id: number, req: TranscribeRunRequest, f?: Fetch
 
 // Speaker-count hints for a diarization run: an exact count, or a min/max
 // range (Step 105). The server rejects a count combined with a range.
-export interface SpeakerHints {
+interface SpeakerHints {
   expectedSpeakers?: number | null
   minSpeakers?: number | null
   maxSpeakers?: number | null

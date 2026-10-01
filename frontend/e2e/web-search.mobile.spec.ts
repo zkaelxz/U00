@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { mockSources } from './sourcesMocks'
 import { emptySearch, mockWebSearch } from './webSearchMocks'
+import { openSettingsGroups } from './settingsNav'
 
 // Phone project (390x844, touch): the web-search fallback under an empty
 // Sources search, and its Settings card.
@@ -34,6 +35,7 @@ test('phone: web results fit, targets are 44px', async ({ page }) => {
 test('phone: settings card fits', async ({ page }) => {
   await page.route('**/api/web-search/config', (route) => route.fulfill({ json: { enabled: true, base_url: 'http://192.168.1.20:8888' } }))
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Web search' })
   await expect(card).toContainText('On')
   await card.scrollIntoViewIfNeeded()
