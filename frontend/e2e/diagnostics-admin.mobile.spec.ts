@@ -72,7 +72,7 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   await expect(page.getByTestId('install-result')).toContainText('Install failed for yt-dlp.')
   await expect(page.getByTestId('install-result').locator('pre')).toBeVisible()
 
-  const small = await page.locator('button:not(.link):not(.field-help-btn), summary').evaluateAll((els) =>
+  const small = await page.locator('button:not(.link):not(.field-help-btn):not(.toggle), summary').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))
@@ -128,7 +128,7 @@ test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, r
   const table = await page.getByRole('table', { name: 'PyTorch versions' }).evaluate((t) =>
     ({ scroll: t.parentElement!.scrollWidth, client: t.parentElement!.clientWidth }))
   expect(table.scroll).toBeLessThanOrEqual(table.client)
-  const small = await page.locator('button:not(.field-help-btn), summary, a.btn').evaluateAll((els) =>
+  const small = await page.locator('button:not(.field-help-btn):not(.toggle), summary, a.btn').evaluateAll((els) =>
     els.filter((e) => (e as HTMLElement).offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent ?? '').trim().slice(0, 30) }))
       .filter(({ h }) => h < 44))

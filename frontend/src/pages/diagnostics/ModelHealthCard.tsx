@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { checkModelProviders, getModelStatus, switchPresetModel, type ModelStatus, type ModelStatusItem } from '../../api/models'
+import { checkModelProviders, getModelStatus, setOfferProviderModels, switchPresetModel, type ModelStatus, type ModelStatusItem } from '../../api/models'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import {
   compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
-  modelStatusTone, splitModelItems, whereLabel,
+  modelStatusTone, offerModelsNote, OFFER_MODELS_HELP, OFFER_MODELS_LABEL, splitModelItems, whereLabel,
 } from './modelHealth'
 
 /**
@@ -47,6 +48,22 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
         setStatus(s)
         setBusy(null)
         setNotice('Checked. The list below is up to date.')
+      },
+      (e: unknown) => {
+        setBusy(null)
+        setError(modelHealthError(e))
+      },
+    )
+  }
+
+  const toggleOffer = (on: boolean) => {
+    setBusy('offer')
+    setError(null)
+    setNotice(null)
+    setOfferProviderModels(on).then(
+      () => {
+        setBusy(null)
+        load()
       },
       (e: unknown) => {
         setBusy(null)
@@ -115,6 +132,25 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
               ? 'Checking providers asks each engine with a key for its model list; it never runs by itself.'
               : 'Checking providers and switching presets are PC only.'}
           </p>
+
+          {canAct && (
+            <div className="model-offer">
+              <label htmlFor="offer-provider-models">
+                <strong>{OFFER_MODELS_LABEL}</strong>
+              </label>{' '}
+              <Toggle
+                id="offer-provider-models"
+                checked={!!status.offer_provider_models}
+                disabled={busy !== null}
+                onChange={toggleOffer}
+                aria-describedby="offer-provider-models-help"
+              />
+              <p className="muted" id="offer-provider-models-help">
+                {OFFER_MODELS_HELP}
+              </p>
+              {offerModelsNote(status) && <p data-testid="model-offer-note">{offerModelsNote(status)}</p>}
+            </div>
+          )}
 
           {checks.length > 0 && (
             <ul className="model-checks" aria-label="Last provider check">
