@@ -48,7 +48,7 @@
 
 .translate-failed p { margin: 0 0 var(--space-2); }
 .translate-failed-reasons { margin: 0 0 var(--space-2); padding-left: var(--space-4); font-size: var(--font-sm); overflow-wrap: anywhere; }
-.stage-translate .stage-blocker { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: calc(-1 * var(--space-2)) 0 var(--space-3); color: var(--muted); font-size: var(--text-sm); }
+.stage-translate .stage-blocker { flex: 1 1 14rem; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); min-width: 0; }
 .stage-translate .stage-ack { display: block; margin: 0 0 var(--space-3); }
 @media (pointer: coarse), (max-width: 640px) {
   .stage-translate .stage-ack { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
@@ -70,3 +70,6 @@
 @media (pointer: coarse), (max-width: 640px) {
   .stage-translate .glossary-retranslate-pick, .stage-translate .glossary-retranslate fieldset label { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
 }
+
+/* Advanced sits inside the run panel: a divider, not a second box. */
+.stage-translate .panel > details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; }

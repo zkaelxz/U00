@@ -27,6 +27,8 @@ interface Props {
   replaceOpen: boolean
   onToggleReplace: () => void
   onKeys: () => void
+  compact: boolean
+  onCompact: (v: boolean) => void
   player: ReactNode
 }
 
@@ -109,6 +111,9 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
     <div className="review-toolbar-row review-extras">
       <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
         Replace…
+      </button>
+      <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={p.compact} onClick={() => p.onCompact(!p.compact)}>
+        Compact rows
       </button>
       <form
         className="review-goto"
