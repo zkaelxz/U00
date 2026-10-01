@@ -45,7 +45,7 @@ test('real API: add a free candidate, estimate, reject with a reason, re-adding 
   await c.getByLabel('Candidate engine', { exact: true }).selectOption('nllb')
   await c.getByLabel('Note', { exact: true }).fill('free fallback')
   await c.getByRole('button', { name: 'Add candidate' }).click()
-  await expect(c.getByTestId('reeval-added')).toHaveText('Added NLLB as a candidate.')
+  await expect(c.getByTestId('reeval-added')).toHaveText('Added NLLB · facebook/nllb-200-distilled-600M as a candidate.')
   const list = c.getByRole('list', { name: 'Candidate models' })
   await expect(list.locator(':scope > li', { hasText: 'NLLB' })).toContainText('Open')
 
