@@ -5479,3 +5479,18 @@ def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
             (user_id, user_id))
         conn.commit()
         return cur.rowcount > 0
+
+
+def auth_revoke_admin_keeping_an_admin(user_id: int) -> bool:
+    """Sets is_admin=0 on an admin unless that would leave no active admin.
+    One statement, so two admins demoting each other at once can't both
+    succeed. False when refused, not an admin, or the user doesn't exist."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            # Flag truthiness as in auth_deactivate_user_keeping_an_admin.
+            "UPDATE users SET is_admin = 0 WHERE id = ? AND COALESCE(is_admin, 0) != 0 "
+            "AND (COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
+            (user_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0

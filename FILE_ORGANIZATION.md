@@ -462,7 +462,7 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings (plus the household
 │   │                             listener on BAIHE_API_HOUSEHOLD_PORT, same process, when set);
-│   │                             `grant-admin` / `add-user` / `deactivate` / `grant` / `list-users` (local user admin)
+│   │                             `grant-admin` / `add-user` / `deactivate` / `revoke-admin` / `grant` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS; listener="household" (D5)
 │   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND,
 │   │                             HOUSEHOLD_PORT (household_settings, check_household_bind_safety),
@@ -512,7 +512,7 @@ baihe-subtitler/
 │       │                         tests/test_api_update.py
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
-│       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
+│       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions, revoke-admin) and
 │       │                         /api/admin/audit (read-only, paged); reads admin.users.read, writes admin.users; tests/test_api_admin_users.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/

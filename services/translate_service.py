@@ -61,10 +61,13 @@ def list_engines(env_path: Optional[str] = None) -> list:
             key_configured = bool(key_status.get(name, False))
         models = list(model_dict.keys()) if model_dict is not None else None
         extras = model_registry_service.extra_models(name)
-        if extras:
-            # DeepSeek has no built-in picker: its default plus the extras.
-            models = (models if models is not None
-                      else [model_registry_service._default_model(name)]) + extras
+        chosen = translate_engines.override_models(name)
+        if extras or chosen:
+            # DeepSeek has no built-in picker: its built-in default plus the
+            # extras and the models the user chose in Diagnostics.
+            builtin = translate_engines.builtin_default_model(name)
+            base = models if models is not None else ([builtin] if builtin else [])
+            models = list(dict.fromkeys(base + extras + chosen))
         engines.append({
             "name": name,
             "label": translate_engines.engine_picker_label(name, gemini_free_tier),

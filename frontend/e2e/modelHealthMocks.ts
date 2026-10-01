@@ -29,6 +29,7 @@ export const OLDER_PRESET = item({
 const DEPRECATED_TIER = item({
   engine: 'gemini', model: 'gemini-old', kind: 'tier', where: 'Workflow tier: Balanced', status: 'deprecated',
   message: 'gemini-old (gemini) is deprecated and retires on 2026-12-01.', severity: 2,
+  key: 'balanced', builtin_model: 'gemini-old', is_override: false, candidates: [],
 })
 
 export const CURRENT_ROWS = [

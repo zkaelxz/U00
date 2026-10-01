@@ -132,9 +132,61 @@ test('Users: away from the PC, admin accounts are off with the reason; others st
   await expect(second.getByRole('button', { name: 'Deactivate second@example.com' })).toBeDisabled()
   await expect(second.getByRole('button', { name: 'Sign out everywhere second@example.com' })).toBeDisabled()
   await expect(list.locator('li').nth(2).getByRole('button', { name: 'Activate third@example.com' })).toBeDisabled()
+  await expect(list.getByRole('button', { name: /^Remove admin/ })).toHaveCount(0)
   const kid = list.locator('li').nth(3)
   await expect(kid.getByRole('button', { name: 'Deactivate kid@example.com' })).toBeEnabled()
   await expect(kid.getByRole('button', { name: 'Sign out everywhere kid@example.com' })).toBeEnabled()
+  expect(unmocked).toEqual([])
+})
+
+test('Users: on the PC, removes admin rights after a confirm and refreshes the list', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  let users = [ME_ADMIN, other, KID]
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users } }))
+  const sent: string[] = []
+  await page.route('**/api/admin/users/4/revoke-admin', (r) => {
+    sent.push(`${r.request().method()} ${new URL(r.request().url()).pathname}`)
+    const updated = { ...other, is_admin: false, active_sessions: 0 }
+    users = [ME_ADMIN, updated, KID]
+    return r.fulfill({ json: updated })
+  })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Users/)
+  const list = page.getByRole('list', { name: 'Users' })
+  const self = list.locator('li').nth(0)
+  await expect(self).toContainText("You can't remove your own admin rights.")
+  await expect(self.getByRole('button', { name: 'Remove admin owner@example.com' })).toBeDisabled()
+  await expect(list.locator('li').nth(2).getByRole('button', { name: /^Remove admin/ })).toHaveCount(0)
+
+  const second = list.locator('li').nth(1)
+  await second.getByRole('button', { name: 'Remove admin second@example.com' }).click()
+  expect(sent).toHaveLength(0) // the first press only arms
+  await second.getByRole('button', { name: 'Confirm remove admin rights from second@example.com' }).click()
+  await expect(page.getByTestId('admin-users')).toContainText('second@example.com is no longer an admin and was signed out.')
+  expect(sent).toEqual(['POST /api/admin/users/4/revoke-admin'])
+  await expect(second).not.toContainText('Admin')
+  await expect(list.getByRole('button', { name: /^Remove admin/ })).toHaveCount(1) // only the caller's, still off
+  await expect(self).toContainText("You can't remove your own admin rights.")
+  expect(unmocked).toEqual([])
+})
+
+test('Users: a last-admin refusal from the server is shown in the banner', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other] } }))
+  await page.route('**/api/admin/users/4/revoke-admin', (r) => r.fulfill({
+    status: 409,
+    json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so their admin rights can't be removed." } },
+  }))
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Users/)
+  const section = page.getByTestId('admin-users')
+  await section.getByRole('button', { name: 'Remove admin second@example.com' }).click()
+  await section.getByRole('button', { name: 'Confirm remove admin rights from second@example.com' }).click()
+  await expect(section.getByRole('alert')).toContainText("This is the last active admin. Baihe needs at least one, so their admin rights can't be removed.")
   expect(unmocked).toEqual([])
 })
 

@@ -4,7 +4,8 @@ import type { AuthMe } from '../../api/auth'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
-  auditTime, canChangeUsers, canViewUsers, deactivateBlock, revokeBlock, rowBlocks, sessionsText, userName,
+  auditTime, canChangeUsers, canViewUsers, deactivateBlock, revokeAdminBlock, revokeBlock, rowBlocks,
+  sessionsText, showRevokeAdmin, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -82,6 +83,32 @@ describe('admin accounts are PC-only', () => {
     expect(rowBlocks(self, users, 'remote').revoke).toMatch(/Sign out/)
     expect(rowBlocks(user({ id: 2, is_admin: true, active_sessions: 0 }), users, 'remote').revoke)
       .toMatch(/Not signed in/)
+  })
+})
+
+describe('remove admin', () => {
+  const self = user({ id: 1, is_admin: true, is_self: true })
+  const admin = user({ id: 2, is_admin: true })
+  const member = user({ id: 3 })
+
+  it('is shown only on admin rows, and only on the PC', () => {
+    expect(showRevokeAdmin(admin, 'local')).toBe(true)
+    expect(showRevokeAdmin(admin, 'remote')).toBe(false)
+    expect(showRevokeAdmin(admin, 'unknown')).toBe(false)
+    expect(showRevokeAdmin(member, 'local')).toBe(false)
+  })
+
+  it('refuses your own account and the last active admin', () => {
+    expect(revokeAdminBlock(self, [self, admin])).toMatch(/your own admin rights/)
+    expect(revokeAdminBlock(admin, [self, admin])).toBeNull()
+    expect(revokeAdminBlock(admin, [admin, member])).toMatch(/last active admin/)
+    const off = user({ id: 4, is_admin: true, is_active: false })
+    expect(revokeAdminBlock(admin, [admin, off])).toMatch(/last active admin/)
+    expect(revokeAdminBlock(off, [admin, off])).toBeNull()   // inactive: not counted, may go
+  })
+
+  it('labels the audit action', () => {
+    expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
   })
 })
 
