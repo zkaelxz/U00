@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { auditQuery, listAdminUsers, listAudit, revokeUserSessions, setUserActive } from './adminUsers'
+import { auditQuery, listAdminUsers, listAudit, revokeUserAdmin, revokeUserSessions, setUserActive } from './adminUsers'
 import { ApiError } from './client'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -27,10 +27,12 @@ describe('admin users api', () => {
     await setUserActive(7, false, f)
     await setUserActive(7, true, f)
     await revokeUserSessions(7, f)
+    await revokeUserAdmin(7, f)
     expect(mock.mock.calls.map(([u, init]) => `${init.method} ${u}`)).toEqual([
       'POST /api/admin/users/7/deactivate',
       'POST /api/admin/users/7/activate',
       'POST /api/admin/users/7/revoke-sessions',
+      'POST /api/admin/users/7/revoke-admin',
     ])
     for (const [, init] of mock.mock.calls) expect(init.body).toBeUndefined()
   })
@@ -50,6 +52,15 @@ describe('admin users api', () => {
     expect((err as ApiError).code).toBe('conflict')
     const denied = reply(403, { error: { code: 'forbidden', message: 'Not allowed.' } })
     await expect(revokeUserSessions(1, denied.f)).rejects.toMatchObject({ status: 403 })
+    expect(getPcMode()).not.toBe('remote')
+  })
+
+  it('a last-admin refusal keeps the server message for the banner', async () => {
+    const msg = "This is the last active admin. Baihe needs at least one, so their admin rights can't be removed."
+    const { f } = reply(409, { error: { code: 'conflict', message: msg } })
+    const err = await revokeUserAdmin(2, f).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toBe(msg)
     expect(getPcMode()).not.toBe('remote')
   })
 })
