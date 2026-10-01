@@ -41,7 +41,6 @@ def test_list_engines_keyless_engines_report_configured(tmp_path):
     assert engines["test_offline"]["key_configured"] is True
     assert engines["nllb"]["key_configured"] is True
     assert engines["ollama"]["key_configured"] is True
-    assert engines["libretranslate"]["key_configured"] is True
 
 
 def test_list_engines_reflects_configured_key(tmp_path):
@@ -69,12 +68,15 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
 
 
 def test_list_engines_does_not_offer_the_removed_engines(tmp_path):
-    env_path = _write_env(tmp_path, "BAIHE_DEEPL_KEY=stale\nBAIHE_GOOGLE_KEY=stale\n")
+    env_path = _write_env(tmp_path, "BAIHE_DEEPL_KEY=stale\nBAIHE_GOOGLE_KEY=stale\n"
+                          "BAIHE_LIBRETRANSLATE_URL=http://stale.example:5000\n")
     names = {e["name"] for e in translate_service.list_engines(env_path)}
-    assert not names & {"deepl", "google"}
+    assert not names & {"deepl", "google", "libretranslate"}
     assert not set(translate_engines.ENGINES) & translate_engines.REMOVED_ENGINES
     assert "stale" not in repr(settings_service.key_status(env_path))
-    assert not {"deepl", "google"} & set(settings_service.key_status(env_path))
+    assert not {"deepl", "google", "libretranslate", "libretranslate_url"} & set(
+        settings_service.key_status(env_path))
+    assert "stale.example" not in repr(settings_service.get_settings_overview(env_path))
 
 
 def test_list_history_returns_what_was_saved(isolated_db):
@@ -110,34 +112,15 @@ class TestTranslate:
         with pytest.raises(InvalidInputError):
             translate_service.translate("hi", "not_a_real_engine", "zh", "en")
 
-    def test_unsupported_direction_is_refused(self, isolated_db):
-        # libretranslate en->zh is explicitly refused by
-        # standalone_direction_support -- see translate_engines.py.
+    def test_unsupported_direction_is_refused(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "standalone_direction_support",
+                            lambda *a: (False, "Not supported."))
         with pytest.raises(UnsupportedOperationError):
-            translate_service.translate("hello", "libretranslate", "en", "zh")
+            translate_service.translate("hello", "nllb", "en", "zh")
 
-    def test_libretranslate_uses_saved_url_and_sends_no_placeholder_key(
-            self, isolated_db, monkeypatch):
-        monkeypatch.setenv("BAIHE_LIBRETRANSLATE_URL", "http://lt.example:5001/")
-        calls = []
-
-        class _Resp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"translatedText": "Hello"}
-
-        def fake_post(url, json=None, timeout=None):
-            calls.append((url, json))
-            return _Resp()
-
-        import requests
-        monkeypatch.setattr(requests, "post", fake_post)
-        result = translate_service.translate("你好", "libretranslate", "zh", "en")
-        assert result == {"translated_text": "Hello"}
-        assert calls[0][0] == "http://lt.example:5001/translate"
-        assert "api_key" not in calls[0][1]
+    def test_a_removed_engine_is_refused_with_a_clear_message(self, isolated_db):
+        with pytest.raises(InvalidInputError, match="was removed"):
+            translate_service.translate("hello", "libretranslate", "zh", "en")
 
     def test_missing_key_raises_dependency_unavailable(self, isolated_db, tmp_path, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

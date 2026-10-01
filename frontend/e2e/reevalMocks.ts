@@ -4,7 +4,7 @@ import type { Page, Route } from '@playwright/test'
 // lab-reeval.mobile.spec.ts. The e2e API has no keys and its production
 // model is Claude, so anything that would run or promote goes through this
 // stateful stand-in for /api/models/reeval*; the real API is used only for
-// reads and no-spend writes. Engines here (Ollama, LibreTranslate) need no
+// reads and no-spend writes. Engines here (Ollama, NLLB) need no
 // key in the real /api/benchmark/options, so "Run now" can be enabled.
 
 type Json = Record<string, unknown>
@@ -33,7 +33,7 @@ export const REJECTED_DECISION = decision(1, 3, 'rejected', 'Mangled honorifics 
 export function candidates(): Json[] {
   return [
     cand({ id: 1, engine: 'ollama', model: 'qwen2.5:14b', note: 'Bigger; check VRAM' }),
-    cand({ id: 2, engine: 'libretranslate', note: 'Free server fallback', created_at: '2026-09-21T11:00:00' }),
+    cand({ id: 2, engine: 'nllb', note: 'Free server fallback', created_at: '2026-09-21T11:00:00' }),
     cand({ id: 3, engine: 'gemini', model: 'gemini-flash-latest', status: 'rejected', created_at: '2026-08-30T09:00:00', last_decision: REJECTED_DECISION }),
   ]
 }
@@ -83,7 +83,7 @@ export const ESTIMATE = {
   configs: [
     { engine: 'ollama', model: 'qwen3:8b', estimated_cost_usd: 0, cap_applies: false },
     { engine: 'ollama', model: 'qwen2.5:14b', estimated_cost_usd: 0, cap_applies: false },
-    { engine: 'libretranslate', model: null, estimated_cost_usd: 0, cap_applies: false },
+    { engine: 'nllb', model: null, estimated_cost_usd: 0, cap_applies: false },
   ],
   estimated_cost_usd: 0, monthly_cap_usd: 5, month_spend_usd: 1.2, remaining_usd: 3.8, monthly_refusal: null, estimate_above_cap: false,
 }

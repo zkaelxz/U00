@@ -186,10 +186,10 @@ def test_endpoint_url_set_clear_and_read(env_file):
 
 
 def test_hand_edited_url_with_password_is_not_returned(isolated_db, env_file):
-    env_file.write_text("BAIHE_LIBRETRANSLATE_URL=http://me:hunter2@lt.local:5000\n")
+    env_file.write_text("BAIHE_OLLAMA_URL=http://me:hunter2@lt.local:5000\n")
     ov = settings_service.get_settings_overview()
-    assert ov["endpoints"]["libretranslate_url"] is None
-    assert ov["engine_keys"]["libretranslate_url"] is True
+    assert ov["endpoints"]["ollama_url"] is None
+    assert ov["engine_keys"]["ollama_url"] is True
     assert "hunter2" not in repr(ov)
 
 
@@ -200,7 +200,7 @@ def test_api_get_and_post_preferences(client):
     assert body["preferences"]["default_engine"] == "claude"
     assert "manga_ocr" in body["choices"]["ocr_backends"]
     assert "firefox" in body["choices"]["cookie_browsers"]
-    assert set(body["endpoints"]) == {"ollama_url", "libretranslate_url", "gpt_sovits_url"}
+    assert set(body["endpoints"]) == {"ollama_url", "gpt_sovits_url"}
     r = client.post("/api/settings", json={"default_locale": "en-AU", "monthly_cap_usd": 3,
                                            "tesseract_cmd": "/usr/bin/tesseract"})
     assert r.status_code == 200

@@ -273,7 +273,7 @@ class TestRoutes:
                         json={"engine": None})
         assert r.json()["is_default"] is True
         assert client.post("/api/settings/engine-routing/capabilities/llm.instructions",
-                           json={"engine": "libretranslate"}).status_code == 422
+                           json={"engine": "nllb"}).status_code == 422
         assert client.post("/api/settings/engine-routing/capabilities/nope",
                            json={"engine": "claude"}).status_code == 404
 

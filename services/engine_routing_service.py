@@ -68,7 +68,7 @@ CAPABILITIES = {
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
         "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
-                 "For a drama translated with NLLB or LibreTranslate (which "
+                 "For a drama translated with NLLB (which "
                  "can't follow instructions), they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,

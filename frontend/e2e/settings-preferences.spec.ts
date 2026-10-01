@@ -28,14 +28,14 @@ const PREFS = {
 
 function overview() {
   return {
-    engine_keys: { claude: false, ollama_url: false, libretranslate_url: false, gpt_sovits_url: false },
+    engine_keys: { claude: false, ollama_url: false, gpt_sovits_url: false },
     gpu_limit_enabled: true,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,
     bulk_auto_resume: false,
     preferences: { ...PREFS },
-    endpoints: { ollama_url: null as string | null, libretranslate_url: null, gpt_sovits_url: null },
+    endpoints: { ollama_url: null as string | null, gpt_sovits_url: null },
     monthly_cap_env_usd: 0,
     effective_monthly_cap_usd: 0,
     choices: {

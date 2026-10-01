@@ -1562,12 +1562,12 @@ class TestNLLBEngine:
 
 class TestFreeEngineLabelling:
     """Step 1d item 4: every free-to-use option is clearly labelled as
-    such (test_offline, ollama, nllb, libretranslate always; gemini only
+    such (test_offline, ollama, nllb always; gemini only
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
     def test_free_engines_set_matches_the_roadmap_table(self):
-        assert te.FREE_ENGINES == {"test_offline", "ollama", "nllb", "libretranslate"}
+        assert te.FREE_ENGINES == {"test_offline", "ollama", "nllb"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
@@ -1827,16 +1827,16 @@ class TestCallLlmJson:
         assert captured["timeout"] is not None
 
     def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
-        """NLLB/LibreTranslate (translation-only, no .client,
+        """NLLB (translation-only, no .client,
         not Gemini/Ollama/test_offline) used to silently return the bare
         fallback here too -- the same "looks like it worked, did
         nothing" failure mode as the Ollama bug above, just for a
         different set of engines. Now raises instead of pretending to
         have produced a real (empty) result."""
         class FakeTranslationOnlyEngine:
-            name = "libretranslate"
+            name = "nllb"
 
-        with pytest.raises(RuntimeError, match="libretranslate can't run this feature"):
+        with pytest.raises(RuntimeError, match="nllb can't run this feature"):
             te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
