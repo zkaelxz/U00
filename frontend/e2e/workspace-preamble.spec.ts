@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openGroup } from './source-groups'
 
 // Workspace preamble/Source parity (inventory P04, P13, P14, S12, S13).
 // The drama reads, the platforms list and the cover upload hit the real
@@ -18,6 +19,7 @@ test('romanize credits sends one request and shows the credits bilingually', asy
     return r.fulfill({ json: { drama_id: 1, romanized: { author: 'Mo Xiang Tong Xiu' }, updated: true } })
   })
   await page.goto('/#/drama/1/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Credits & cover' }).click()
   await expect(page.getByTestId('credits')).toContainText('Mo Xiang Tong Xiu (墨香铜臭)')
   await page.getByRole('button', { name: 'Romanize credits' }).click()
@@ -27,6 +29,7 @@ test('romanize credits sends one request and shows the credits bilingually', asy
 
 test('cover upload checks the type, then saves and shows the cover', async ({ page }) => {
   await page.goto('/#/drama/3/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Credits & cover' }).click()
   await expect(page.getByText('No cover.')).toBeVisible()
   const input = page.getByLabel('Cover image', { exact: true })
@@ -45,6 +48,7 @@ test('cover upload checks the type, then saves and shows the cover', async ({ pa
 
 test('auto-fill lists the known official platforms', async ({ page }) => {
   await page.goto('/#/drama/1/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Auto-fill metadata' }).click()
   await page.getByText('Known official platforms', { exact: true }).click()
   const list = page.getByRole('list', { name: 'Known official platforms' })
@@ -69,7 +73,7 @@ test('EPUB chapter range and chapters from Sources', async ({ page }) => {
   })
   await page.goto('/#/drama/2/source')
   const novel = page.getByRole('region', { name: 'Novel text' })
-  if (!(await novel.getByLabel('EPUB file', { exact: true }).isVisible())) await novel.locator('.section-title', { hasText: 'Novel text' }).click()
+  await openGroup(page, 'Novel text')
   await novel.getByLabel('EPUB file', { exact: true }).setInputFiles({ name: 'b.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('PK') })
   await novel.getByLabel('From chapter', { exact: true }).fill('6')
   await novel.getByLabel('To chapter', { exact: true }).fill('5')
@@ -81,7 +85,7 @@ test('EPUB chapter range and chapters from Sources', async ({ page }) => {
   expect(forms[0]).toContain('name="chapter_from"\r\n\r\n2')
   expect(forms[0]).toContain('name="chapter_to"\r\n\r\n5')
 
-  await novel.getByRole('button', { name: 'Use chapters imported in Sources' }).click()
+  await novel.getByRole('button', { name: 'Copy saved raw chapters into the translation text' }).click()
   await expect(novel.getByRole('status')).toHaveText('Attached 10 characters.')
   expect(fromSources).toEqual([{ mode: 'replace' }])
 })
@@ -103,6 +107,7 @@ test('Edit details can take a drama out of its series (series_id 0)', async ({ p
     return r.fulfill({ json: { ...drama, series_id: null } })
   })
   await page.goto('/#/drama/2/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Edit details' }).click()
   const series = page.getByLabel('Series', { exact: true })
   await expect(series).toHaveValue('7')

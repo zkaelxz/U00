@@ -184,7 +184,7 @@ export function AutofillPanel() {
   )
 }
 
-export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
+export function AnalyzePanel({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [result, setResult] = useState<MediaAnalysis | null>(null)
   const [busy, setBusy] = useState(false)
@@ -234,11 +234,22 @@ export function AnalyzePanel({ hasMedia }: { hasMedia: boolean }) {
         summary={result ? analysisSummary(result) : hasMedia ? 'not analyzed' : 'upload a file first'}
       >
         <div className="source-panel">
-          <div>
-            <button type="button" disabled={!hasMedia || busy} onClick={run}>
-              Analyze media
-            </button>
-          </div>
+          {hasMedia ? (
+            <div>
+              <button type="button" disabled={busy} onClick={run}>
+                Analyze media
+              </button>
+            </div>
+          ) : (
+            <p className="muted source-needed">
+              <span>Still needed: an audio or video file.</span>
+              {onNeedMedia && (
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={onNeedMedia}>
+                  Choose a file
+                </button>
+              )}
+            </p>
+          )}
           {result && (
             <dl className="source-analysis" data-testid="analysis">
               {analysisDetails(result).map(([k, v]) => (

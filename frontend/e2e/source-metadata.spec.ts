@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openGroup } from './source-groups'
 
 // Auto-fill and Analyze media: the Slice 37 endpoints are mocked (no LLM,
 // no ffprobe); the drama read and its refetch hit the real seeded API.
@@ -15,6 +16,7 @@ test('auto-fill suggests, never pre-ticks a field that would overwrite, applies 
     await route.continue()
   })
   await page.goto('/#/drama/1/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Auto-fill metadata' }).click()
   await page.getByRole('textbox', { name: 'Listing URL' }).fill('https://example.com/page')
   await page.getByRole('button', { name: 'Auto-fill', exact: true }).click()
@@ -35,6 +37,7 @@ test('ignore drops the suggestions without writing', async ({ page }) => {
   )
   await page.route('**/autofill/apply', (route) => { writes += 1; return route.abort() })
   await page.goto('/#/drama/1/source')
+  await openGroup(page, 'Details and credits')
   await page.locator('.section-title', { hasText: 'Auto-fill metadata' }).click()
   await page.getByRole('textbox', { name: 'Or paste page text' }).fill('some listing text')
   await page.getByRole('button', { name: 'Auto-fill', exact: true }).click()

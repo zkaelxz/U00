@@ -93,7 +93,7 @@ test('Transcribe: uploading the raw novel refreshes the automatic prompt', async
     return route.fulfill({ response: resp, json: uploaded ? { ...json, auto_initial_prompt: '云隐宗、沈清疑' } : json })
   })
   await page.goto('/#/drama/1/source')
-  const panel = page.getByRole('region', { name: 'Raw novel (original language)' })
+  const panel = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
   await panel.locator('.section-title').click()
   await panel.getByLabel('Raw novel file', { exact: true }).setInputFiles({
     name: 'raw.epub', mimeType: 'application/epub+zip', buffer: Buffer.from('PK'),
@@ -161,7 +161,7 @@ test('raw novel saved in Transcribe shows the glossary link in Novel text', asyn
   const link = page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })
   await expect(page.getByTestId('novel-status')).toBeVisible()
   await expect(link).toHaveCount(0)
-  const panel = page.getByRole('region', { name: 'Raw novel (original language)' })
+  const panel = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
   await panel.locator('.section-title').click()
   await panel.getByRole('radio', { name: 'Paste text' }).check()
   await panel.getByLabel('Raw novel text', { exact: true }).fill('云隐宗')

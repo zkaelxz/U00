@@ -5,6 +5,7 @@ import {
   buildDetailsPayload,
   formFromDrama,
   isEmptyPayload,
+  mediaKind,
   mediaTypeOptions,
   NEW_SERIES,
   reseedForm,
@@ -186,5 +187,16 @@ describe('reseedForm (the drama changed under unsaved edits)', () => {
     expect(reseedForm(pending, init, init)).toMatchObject({ series_id: NEW_SERIES, new_series_name: 'Saga' })
     const saved = reseedForm(pending, pending, { ...init, series_id: '41' })
     expect(saved).toMatchObject({ series_id: '41', new_series_name: '' })
+  })
+})
+
+describe('mediaKind', () => {
+  it('groups media types into audio, novel and comic', () => {
+    expect(mediaKind('novel')).toBe('novel')
+    expect(mediaKind('manhwa')).toBe('comic')
+    expect(mediaKind('manga')).toBe('comic')
+    expect(mediaKind('anime')).toBe('audio')
+    expect(mediaKind('')).toBe('audio')
+    expect(mediaKind(null)).toBe('audio')
   })
 })

@@ -15,6 +15,7 @@ import {
   formFromDrama,
   isEmptyPayload,
   reseedForm,
+  mediaKind,
   mediaTypeOptions,
   modeLabel,
   NEW_SERIES,
@@ -27,7 +28,7 @@ import {
 import { useStage } from '../StageContext'
 import { ContentModeField } from './SourceModes'
 
-export function DetailsPanel() {
+export function DetailsPanel({ openSignal }: { openSignal?: number }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [initial, setInitial] = useState<DetailsForm>(() => formFromDrama(drama))
   const [form, setForm] = useState<DetailsForm>(initial)
@@ -37,6 +38,7 @@ export function DetailsPanel() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [seriesReloads, setSeriesReloads] = useState(0)
+  const [moreSignal, setMoreSignal] = useState(0)
 
   // Re-seed from the drama when it changes elsewhere (Auto-fill apply, Use
   // this content type, a URL download finishing): only the fields the user
@@ -72,6 +74,8 @@ export function DetailsPanel() {
   const save = () => {
     const bad = validateDetails(form, initial)
     setErrors(bad)
+    // An error on a field inside "More details" must not stay hidden.
+    if (bad.source_url || bad.custom_tags || bad.episode_summary) setMoreSignal((n) => n + 1)
     if (Object.keys(bad).length || !dirty) return
     const sent = form
     setBusy(true)
@@ -102,12 +106,14 @@ export function DetailsPanel() {
   const seriesOptions = series.some((s) => String(s.id) === form.series_id) || form.series_id === '' || form.series_id === NEW_SERIES
     ? series
     : [{ id: Number(form.series_id), name: `Series #${form.series_id}` } as LibrarySeries, ...series]
+  // Hidden fields keep their value; only edited fields are ever sent.
+  const kind = mediaKind(form.media_type)
   const reason = !dirty ? 'Still needed: a change to save.' : null
   const title = drama.title_en || drama.title_zh || `#${dramaId}`
 
   const text = (k: keyof DetailsForm, help?: string, type = 'text') => (
     <Field label={FIELD_LABELS[k]} help={help} error={errors[k]}>
-      <input type={type} value={form[k]} onChange={set(k)} />
+      <input type={type} name={k} value={form[k]} onChange={set(k)} />
     </Field>
   )
   const count = (k: 'chapter_count' | 'episode_number', help: string) => (
@@ -119,7 +125,7 @@ export function DetailsPanel() {
 
   return (
     <section className="panel" aria-label="Edit details">
-      <Section storageKey="source.details" title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
+      <Section storageKey="source.details" openSignal={openSignal} title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
         <form
           className="source-panel"
           noValidate
@@ -153,7 +159,7 @@ export function DetailsPanel() {
                 ))}
               </select>
             </Field>
-            <ContentModeField />
+            {kind === 'audio' && <ContentModeField />}
             <Field
               label="Series"
               help="Shares characters and glossary with other dramas in the series. A drama taken out of a private series stays private."
@@ -179,9 +185,9 @@ export function DetailsPanel() {
           </div>
           <div className="source-grid">
             {text('author')}
-            {text('studio')}
-            {text('director')}
-            {text('voice_actors', 'Comma-separated.')}
+            {kind !== 'novel' && text('studio')}
+            {kind === 'audio' && text('director')}
+            {kind === 'audio' && text('voice_actors', 'Comma-separated.')}
           </div>
           <div className="source-grid">
             {text('genre', 'e.g. xianxia, romance, mystery.')}
@@ -191,21 +197,29 @@ export function DetailsPanel() {
                 {PUBLICATION_STATUSES.map((p) => <option key={p} value={p}>{humanizeValue(p)}</option>)}
               </select>
             </Field>
-            {count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
+            {kind !== 'audio' && count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
             {count('episode_number', 'Orders this drama within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
           </div>
-          {text('source_url', 'The public listing or info page this drama came from. Shown without any ?query part, which can hold a download token.', 'url')}
-          {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
           <Field label="Summary" error={errors.summary}>
             <textarea rows={3} value={form.summary} onChange={set('summary')} />
           </Field>
-          <Field
-            label={FIELD_LABELS.episode_summary}
-            help="Key events, open threads and character state. Given to the next episode's translation as context. Filled in after a translation run; edit it freely."
-            error={errors.episode_summary}
+          <Section
+            storageKey="source.details.more"
+            openSignal={moreSignal}
+            title="More details"
+            summary="link, tags, episode summary"
+            defaultOpen={!!(form.source_url || form.custom_tags || form.episode_summary)}
           >
-            <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
-          </Field>
+            {text('source_url', 'The public listing or info page this drama came from. Shown without any ?query part, which can hold a download token.', 'url')}
+            {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
+            <Field
+              label={FIELD_LABELS.episode_summary}
+              help="Key events, open threads and character state. Given to the next episode's translation as context. Filled in after a translation run; edit it freely."
+              error={errors.episode_summary}
+            >
+              <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
+            </Field>
+          </Section>
         </form>
       </Section>
     </section>

@@ -128,7 +128,7 @@ export function ResearchPanel() {
           </p>
           {budgetFailed && <p className="muted">Couldn't load the search allowance. Reload the page to try again.</p>}
           {budget && !budget.key_configured && (
-            <p className="muted">Add a Gemini key in Settings to use this.</p>
+            <p className="muted">Still needed: a Gemini key. <a href="#/settings">Add one in Settings</a>.</p>
           )}
           <Field label="Depth" help={MODE_HELP[mode]}>
             <select value={mode} onChange={(e) => setMode(e.target.value as ResearchMode)}>
