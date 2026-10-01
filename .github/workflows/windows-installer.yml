@@ -331,11 +331,11 @@ jobs:
           if ($health.StatusCode -ne 200) { Write-Error "/api/health answered $($health.StatusCode)"; exit 1 }
           Write-Host "The update kept the data folder and the running service."
 
-      # The owner's chosen port: Setup passes the user's BAIHE_API_PORT to the
-      # service, which stores it in the admin folder and answers only there.
+      # Setup passes the user's BAIHE_API_PORT to service.py on every run, but
+      # only a fresh install takes it: an update keeps the stored port, so a
+      # variable set (or left) for the launcher never moves the service.
       # 8611 is neither the household default nor one of Baihe's own ports.
-      # Moved back to the default afterwards for the steps below.
-      - name: Service -- an update with a chosen port moves it there, and back
+      - name: Service -- an update with BAIHE_API_PORT set keeps the stored port
         shell: pwsh
         run: |
           $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
@@ -343,25 +343,15 @@ jobs:
           $log5 = Join-Path $env:RUNNER_TEMP "setup5.log"
           $env:BAIHE_API_PORT = "8611"
           $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$env:APP_DIR3`"","/LOG=`"$log5`"" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Write-Error "Setup (port 8611) exited $($p.ExitCode)"; exit 1 }
-          $health = Invoke-WebRequest -Uri http://127.0.0.1:8611/api/health -UseBasicParsing -TimeoutSec 10
-          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8611 answered $($health.StatusCode)"; exit 1 }
-          if (Get-NetTCPConnection -State Listen -LocalPort 8600 -ErrorAction SilentlyContinue) { Write-Error "port 8600 is still listening after the move to 8611"; exit 1 }
-          $pids = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:APP_DIR3, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [int]$_.ProcessId })
-          $other = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { ($pids -contains [int]$_.OwningProcess) -and ($_.LocalAddress -ne '127.0.0.1' -or $_.LocalPort -ne 8611) })
-          if ($other) { $other | Format-Table LocalAddress, LocalPort, OwningProcess; Write-Error "listening beyond 127.0.0.1:8611"; exit 1 }
-          $status = (& "$admin\helper\python\python.exe" -I -S "$admin\helper\lib\installer\service.py" status) | Out-String
-          if ($status -notmatch '127\.0\.0\.1:8611') { Write-Error "status doesn't show port 8611: $status"; exit 1 }
-          # Back to the default port, named explicitly: without it an update keeps 8611.
-          $env:BAIHE_API_PORT = "8600"
-          $log6 = Join-Path $env:RUNNER_TEMP "setup6.log"
-          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$env:APP_DIR3`"","/LOG=`"$log6`"" -Wait -PassThru
           Remove-Item Env:BAIHE_API_PORT
-          if ($p.ExitCode -ne 0) { Write-Error "Setup (back to 8600) exited $($p.ExitCode)"; exit 1 }
+          if ($p.ExitCode -ne 0) { Write-Error "Setup (update, BAIHE_API_PORT=8611) exited $($p.ExitCode)"; exit 1 }
           $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
           if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode)"; exit 1 }
-          if (Get-NetTCPConnection -State Listen -LocalPort 8611 -ErrorAction SilentlyContinue) { Write-Error "port 8611 is still listening after the move back"; exit 1 }
-          Write-Host "The service moved to the chosen port 8611 (and nowhere else), then back to 8600."
+          if (Get-NetTCPConnection -State Listen -LocalPort 8611 -ErrorAction SilentlyContinue) { Write-Error "port 8611 is listening: the update moved the service"; exit 1 }
+          $status = (& "$admin\helper\python\python.exe" -I -S "$admin\helper\lib\installer\service.py" status) | Out-String
+          if ($status -notmatch '127\.0\.0\.1:8600' -or $status -match '127\.0\.0\.1:8611') { Write-Error "status doesn't show port 8600: $status"; exit 1 }
+          if ((Get-Content "$admin\service.log" -Raw) -notmatch 'Kept the stored port 8600; use set-port') { Write-Error "service.log doesn't note the ignored --port"; exit 1 }
+          Write-Host "The update with BAIHE_API_PORT=8611 kept the service on its stored port 8600."
 
       # Once the service is installed, set-port is the way to move it, and the
       # launcher follows the stored port whatever BAIHE_API_PORT says. The

@@ -11,6 +11,7 @@ Baihe's household listener stays on 127.0.0.1 behind it, and nothing here
 ever adds a firewall rule: the owner does, by hand.
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -856,12 +857,29 @@ class TestChosenPort:
         assert service.main(["install", "--port", "8611"], services=svc, admin=True) == 0
         assert svc.api_port() == 8611
 
-    @pytest.mark.parametrize("bad", ["80", "1023", "70000", "0", "-1", "abc", "86 11", "",
-                                     "8501", "8756", "8610"])
-    def test_a_bad_port_is_refused_and_changes_nothing(self, layout, source, bad, capsys):
+    def _legacy(self, layout):
+        """config.json as a service from before the port was stored left it."""
+        config = json.loads(layout.config_file.read_text(encoding="utf-8"))
+        del config["api_port"]
+        layout.config_file.write_text(json.dumps(config), encoding="utf-8")
+
+    BAD = ["80", "1023", "70000", "0", "-1", "abc", "86 11", "", "8501", "8756", "8610"]
+
+    @pytest.mark.parametrize("bad", BAD)
+    def test_a_bad_port_on_a_fresh_install_leaves_nothing(self, layout, source, bad, capsys):
+        win = FakeWindows()
+        svc = self._svc(layout, win, source)
+        assert service.main(["install", "--port", bad], services=svc, admin=True) == 2
+        assert "Nothing was changed" in capsys.readouterr().err
+        assert win.services == {} and not layout.helper.exists()
+
+    @pytest.mark.parametrize("bad", BAD)
+    def test_a_bad_port_over_a_legacy_config_is_refused_and_changes_nothing(
+            self, layout, source, bad, capsys):
         win = FakeWindows()
         svc = self._svc(layout, win, source)
         svc.install()
+        self._legacy(layout)
         for name in win.services:
             win.services[name]["state"] = "STOPPED"     # Setup stopped them
         before, calls = self._snapshot(layout), len(win.calls)
@@ -874,11 +892,32 @@ class TestChosenPort:
         assert win.services["BaiheCaddy"]["state"] == "STOPPED"     # it is disabled
         assert svc.api_port() == service.ADMIN_PORT
 
-    def test_a_bad_port_on_a_fresh_install_leaves_nothing(self, layout, source):
+    def test_a_legacy_config_takes_the_port(self, layout, source):
         win = FakeWindows()
-        with pytest.raises(service.ConfigRefused, match="Nothing was changed"):
-            self._svc(layout, win, source).install("8756")
-        assert win.services == {} and not layout.helper.exists()
+        svc = self._svc(layout, win, source)
+        svc.install()
+        self._legacy(layout)
+        svc.install("8611")
+        assert self._stored(layout) == 8611
+        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8611"
+
+    @pytest.mark.parametrize("requested", ["8622", "abc", "8756", "8611"])
+    def test_an_update_keeps_the_stored_port_and_ignores_port(self, layout, source, requested,
+                                                              capsys):
+        win = FakeWindows()
+        self._svc(layout, win, source).install("8611")
+        for name in win.services:
+            win.services[name]["state"] = "STOPPED"     # Setup stopped them
+        probed = []
+        svc = self._svc(layout, win, source, probed, in_use=(8611, 8622))
+        # Not even checked on an update, so an unusable BAIHE_API_PORT
+        # doesn't make Setup's service step fail.
+        assert service.main(["install", "--port", requested], services=svc, admin=True) == 0
+        assert "127.0.0.1:8611" in capsys.readouterr().out
+        assert self._stored(layout) == 8611 and set(probed) == {8611}
+        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8611"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+        assert any("Kept the stored port 8611; use set-port" in line for line in win.logs)
 
     def test_the_household_port_in_use_is_refused(self, layout, source):
         (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
@@ -886,6 +925,7 @@ class TestChosenPort:
         svc = self._svc(layout, win, source, is_baihe=lambda p, d: True)
         svc.install()
         svc.enable_remote(8612)
+        self._legacy(layout)
         before = self._snapshot(layout)
         with pytest.raises(service.ConfigRefused, match="8612"):
             svc.install("8612")
@@ -894,11 +934,9 @@ class TestChosenPort:
     def test_a_port_another_program_holds_is_refused(self, layout, source):
         win = FakeWindows()
         svc = self._svc(layout, win, source, in_use=(8611,))
-        svc.install()
-        before = self._snapshot(layout)
         with pytest.raises(service.ConfigRefused, match="already in use"):
             svc.install("8611")
-        assert self._snapshot(layout) == before and svc.api_port() == service.ADMIN_PORT
+        assert win.services == {} and not layout.helper.exists()
 
     def test_an_update_keeps_the_stored_port_whatever_env_says(self, layout, source, monkeypatch):
         win = FakeWindows()
@@ -914,20 +952,13 @@ class TestChosenPort:
         assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8611"
         assert "http://127.0.0.1:8611" in svc.status()
 
-    def test_rerunning_with_the_same_port_is_not_a_conflict(self, layout, source):
-        # The service itself holds its port while it runs.
-        win = FakeWindows()
-        svc = self._svc(layout, win, source)
-        svc.install("8611")
-        self._svc(layout, win, source, in_use=(8611,)).install("8611")
-        assert svc.api_port() == 8611
-
     def test_a_failed_port_change_keeps_remote_access_on(self, layout, source):
         win = FakeWindows()
         (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
         svc = self._svc(layout, win, source, is_baihe=lambda p, d: True)
         svc.install()
         svc.enable_remote(8610)
+        self._legacy(layout)
         for name in ("BaiheCaddy", "BaiheStudio"):
             win.services[name]["state"] = "STOPPED"          # Setup stopped both
         with pytest.raises(service.ServiceError, match="/api/health"):
@@ -939,13 +970,14 @@ class TestChosenPort:
 
     def test_a_new_port_that_does_not_answer_rolls_back_to_the_old_one(self, layout, source):
         win = FakeWindows()
-        self._svc(layout, win, source).install("8611")
+        self._svc(layout, win, source).install()
+        self._legacy(layout)
+        before = layout.config_file.read_bytes()
         win.services["BaiheStudio"]["state"] = "STOPPED"     # Setup stopped it
-        probed = []
         with pytest.raises(service.ServiceError, match="127.0.0.1:8612/api/health"):
-            self._svc(layout, win, source, probed, health=lambda p: p != 8612).install("8612")
-        assert self._stored(layout) == 8611
-        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8611"
+            self._svc(layout, win, source, health=lambda p: p != 8612).install("8612")
+        assert layout.config_file.read_bytes() == before
+        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8600"
         assert win.services["BaiheStudio"]["state"] == "RUNNING"
         assert not (layout.admin / "helper.old").exists()
 
@@ -1114,6 +1146,57 @@ class TestSetPort:
         # The old port is stored again whatever happened to the service.
         assert service.stored_api_port(layout.config_file) == service.ADMIN_PORT
 
+    def test_ctrl_c_during_the_health_wait_puts_everything_back(self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        before = self._snapshot(layout)
+
+        def health(port):
+            if port == 8711:
+                raise KeyboardInterrupt
+            return True
+        svc.health = health
+        with pytest.raises(KeyboardInterrupt):
+            svc.set_port("8711")
+        assert self._snapshot(layout) == before
+        assert service.stored_api_port(layout.config_file) == service.ADMIN_PORT
+        env = _xml_env(layout.wrapper_xml("BaiheStudio"))
+        assert env["BAIHE_API_PORT"] == "8600" and env["BAIHE_API_HOUSEHOLD_PORT"] == "8610"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+        assert win.services["BaiheCaddy"]["state"] == "RUNNING"
+        assert win.services["BaiheCaddy"]["start"] == "AUTO_START"
+
+    def test_a_stopped_caddy_set_to_start_with_windows_counts_as_on(self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        win.services["BaiheCaddy"]["state"] = "STOPPED"      # stopped by hand, or crashed
+        message = svc.set_port("8711")
+        assert win.services["BaiheCaddy"]["state"] == "RUNNING"
+        assert win.services["BaiheCaddy"]["start"] == "AUTO_START"
+        assert svc.remote_state() == {"household_port": 8610}
+        assert "Remote access is still on" in message
+
+    def test_remote_access_is_turned_off_if_the_household_listener_does_not_come_back(
+            self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        svc.is_baihe = lambda port, domain: False
+        message = svc.set_port("8711")
+        assert "Remote access was turned off" in message and "still on" not in message
+        assert service.stored_api_port(layout.config_file) == 8711
+        env = _xml_env(layout.wrapper_xml("BaiheStudio"))
+        assert env["BAIHE_API_PORT"] == "8711" and not env.get("BAIHE_API_HOUSEHOLD_PORT")
+        assert svc.remote_state() == {} and not layout.caddyfile.exists()
+        assert win.services["BaiheCaddy"]["state"] == "STOPPED"
+        assert win.services["BaiheCaddy"]["start"] == "DISABLED"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+
+    def test_remote_access_is_turned_off_if_its_settings_no_longer_pass(self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        (layout.data / ".env").write_text("", encoding="utf-8")
+        message = svc.set_port("8711")
+        assert "Remote access was turned off" in message and "BAIHE_GOOGLE_CLIENT_ID" in message
+        assert svc.remote_state() == {}
+        assert win.services["BaiheCaddy"]["start"] == "DISABLED"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+
     def test_refused_when_the_service_is_not_installed(self, layout, source, capsys):
         svc = _services(layout, FakeWindows(), source)
         assert service.main(["set-port", "8711"], services=svc, admin=True) == 2
@@ -1179,6 +1262,13 @@ class TestServiceMenuScript:
 
     def test_warns_that_the_variable_does_not_move_the_service(self, ps1):
         assert "BAIHE_API_PORT environment variable does NOT change" in ps1
+        assert "neither does running Setup again" in ps1
+
+    def test_starts_no_program_but_its_own_elevation(self, ps1):
+        # The elevated menu prints the log folder rather than opening
+        # explorer.exe with administrator rights.
+        assert ps1.count("Start-Process") == 1 and "-Verb RunAs" in ps1
+        assert "explorer.exe" not in ps1.lower() and "Invoke-Item" not in ps1
 
 
 class TestStatusPorts:
@@ -1190,7 +1280,8 @@ class TestStatusPorts:
         block = out.split("Ports Baihe Studio uses on this PC:\n", 1)[1]
         assert f"Baihe Studio's port: http://127.0.0.1:8611 (stored in {layout.config_file})" in block
         assert "127.0.0.1:8756" in block
-        assert "Household listener" not in block and "443" not in block
+        # "HTTPS: 443", not "443": pytest's temporary folder can be pytest-443.
+        assert "Household listener" not in block and "HTTPS: 443" not in block
         assert "set-port" in block and "BAIHE_API_PORT" in block
         (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
         svc.enable_remote(8610)

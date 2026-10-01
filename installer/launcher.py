@@ -16,10 +16,11 @@ window -- closing that window stops the app -- waits for /api/health, and
 opens the app in its own window (Edge app mode, then Chrome, then the
 default browser).
 
-The port: when Baihe Studio's boot service is installed, the one it stores
-(installer/service.py, changed only with `service.py set-port`), so the
-launcher finds the service rather than starting a second server on the same
-data folder; otherwise BAIHE_API_PORT, or 8600 when that isn't set.
+The port: when Baihe Studio's boot service is installed for this install,
+the one it stores (installer/service.py, changed only with `service.py
+set-port`), so the launcher finds the service rather than starting a second
+server on the same data folder; otherwise (no service, or a service that
+belongs to another install) BAIHE_API_PORT, or 8600 when that isn't set.
 
     launcher.py               start (if needed) and open a window
     launcher.py --no-browser  start (if needed), wait for /api/health, exit;
@@ -128,11 +129,19 @@ def service_config_file():
     return os.path.join(program_files, *SERVICE_CONFIG_PATH) if program_files else None
 
 
-def service_port(config_file=None):
+def _norm(path) -> str:
+    # The same comparison service.py makes on its config's install_root.
+    return os.path.normcase(os.path.normpath(str(path))).rstrip("\\/")
+
+
+def service_port(config_file=None, install_root=None):
     """The installed boot service's port, or None when there is no service
-    (no config.json) or its config.json can't be read or holds an unusable
-    port. Parsed as strictly as service.stored_api_port; a config.json from
-    before the port could be chosen means the default."""
+    for this install: no config.json, one that can't be read, or one whose
+    install_root is another install's (that service serves another data
+    folder). For this install's service, the stored port parsed as strictly
+    as service.stored_api_port, with the same fallback: the default when no
+    port is stored (a service from before the port could be chosen) or the
+    stored one is unusable."""
     path = service_config_file() if config_file is None else config_file
     if path is None:
         return None
@@ -140,12 +149,14 @@ def service_port(config_file=None):
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict):
+    root = APP_DIR.parent if install_root is None else install_root
+    if (not isinstance(data, dict) or not isinstance(data.get("install_root"), str)
+            or _norm(data["install_root"]) != _norm(root)):
         return None
     port = data.get("api_port", DEFAULT_PORT)
     if (not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535
             or port in SERVICE_REFUSED_PORTS):
-        return None
+        return DEFAULT_PORT
     return port
 
 

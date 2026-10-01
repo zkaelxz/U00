@@ -366,9 +366,9 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   too. Open **"Baihe Studio service"** in the Start menu: it shows every
   port Baihe uses and changes the service's port (and turns remote access
   on or off). **Changing or deleting `BAIHE_API_PORT` does not change the
-  service's port** (an update run while it is set still moves the service
-  to it, so delete one you set earlier); without the service, removing it
-  just returns to 8600.
+  service's port**, and neither does running Setup again while it is set
+  (only a fresh install takes it; an update keeps the stored port). Without
+  the service, removing it just returns to 8600.
 - **Service commands** (what the menu runs; `service.py --help` prints this
   list). In an administrator prompt (`status` needs none), run
   `"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" COMMAND`

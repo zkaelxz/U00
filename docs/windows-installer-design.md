@@ -293,7 +293,7 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
-`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it). With the boot service installed, the launcher uses the service's stored port instead and the variable is ignored; "Baihe Studio service" in the Start menu changes that port (§11, "Choosing the port"). `PYTHONNOUSERSITE=1` is set, and the
+`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it). With this install's boot service installed (the service's `config.json` names this install folder), the launcher uses the service's stored port instead and the variable is ignored (an unusable stored port means 8600, as for the service); a service another install owns is ignored; "Baihe Studio service" in the Start menu changes that port (§11, "Choosing the port"). `PYTHONNOUSERSITE=1` is set, and the
 user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 (`sys.executable -m pip install`) install into the bundled interpreter.
 
@@ -550,15 +550,20 @@ per-user.
   new port is written to `config.json` and the service definition, the
   service is restarted (Caddy stopped first and started after, if remote
   access is on), and if `/api/health` doesn't answer on the new port the old
-  configuration and services are put back (exit code 1). Setup's first
-  install takes the user's `BAIHE_API_PORT` if it is set (`install --port
-  N`); an update without the variable keeps the stored port.
-  **Warning: changing or deleting `BAIHE_API_PORT` does not change the
-  service's port.** Once the service is installed, its stored port wins and
-  only "Baihe Studio service" / `set-port` changes it (an update run while
-  the variable is set still moves the service to it, so delete a variable
-  you set earlier). Without the service, removing the variable just returns
-  the launcher to 8600.
+  configuration and services are put back (exit code 1; also on Ctrl+C).
+  If remote access was on (Caddy running or set to start with Windows) and
+  the household listener doesn't come back on the new port, remote access is
+  turned off, as an update does, and the message says so. Setup passes the
+  user's `BAIHE_API_PORT`, if set, as `install --port N` on every run, but
+  `install` uses it only when `config.json` holds no port: a fresh install,
+  or a service from before the port was stored. An update keeps the stored
+  port, ignores `--port` without checking it (so an unusable variable can't
+  make the update fail) and logs "kept the stored port N; use set-port".
+  **Warning: changing or deleting `BAIHE_API_PORT`, or running Setup again
+  with it set, does not change the service's port.** Once the service is
+  installed, its stored port wins and only "Baihe Studio service" /
+  `set-port` changes it. Without the service, removing the variable just
+  returns the launcher to 8600.
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing
@@ -568,7 +573,8 @@ per-user.
 **Commands.** The Start-menu item **"Baihe Studio service"** (with the
 service task) opens a console menu, `installer/service_menu.ps1`, that runs
 these for you: show the status, change the port, turn remote access on or
-off, open the service's log folder. It asks for administrator rights once,
+off, show where the service's logs are (it prints the folders rather than
+opening one from its elevated window). It asks for administrator rights once,
 and runs only the admin folder's copy of itself with the admin folder's
 Python; the elevated command lines hold only fixed words and checked
 numbers. By hand, in an administrator prompt (`status` needs none):
@@ -582,7 +588,7 @@ numbers. By hand, in an administrator prompt (`status` needs none):
 - `enable-remote [--household-port N]`: household access through Caddy (sign-in settings in `.env` first).
 - `disable-remote`: household access off, Caddy stopped and disabled.
 - `stop`: stop both services.
-- `install [--port N]`: Setup's step; creates or refreshes the service and starts it.
+- `install [--port N]`: Setup's step; creates or refreshes the service and starts it (`--port` only on a fresh install; an update keeps the stored port).
 - `uninstall`: the uninstaller's step; removes both services and the admin folder.
 
 `service.py --help` prints the same list. The CI checks the menu only through
@@ -604,6 +610,9 @@ prompt are not run in CI.
 - The program folder stays user-writable, so a changed file there runs as the
   low-privilege service account, not as LocalSystem.
 - No health monitoring or banner.
+- `set-port` can race the launcher: its check for a launcher-started server on the service's port runs once, so a server the launcher starts during the move isn't caught.
+- The elevated menu's PowerShell host reads the user's environment (as any elevated console does); it passes only fixed words and checked numbers to the admin folder's Python.
+- `set-port` is not serialized against Setup: running both at once can leave the service on either port (run `status`, then `set-port` again).
 
 **Caddy and remote access (owner's opt-in).** Four rules, owner decisions:
 

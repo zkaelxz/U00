@@ -56,8 +56,9 @@ function Invoke-Service([string[]]$Arguments) {
 
 function Set-ServicePort {
     Write-Host "WARNING: changing or deleting the BAIHE_API_PORT environment variable does NOT change"
-    Write-Host "the service's port. Once the service is installed its stored port wins (the Start-menu"
-    Write-Host "launcher follows it too); this is the way to change it."
+    Write-Host "the service's port, and neither does running Setup again (an update keeps the stored"
+    Write-Host "port). Once the service is installed its stored port wins (the Start-menu launcher"
+    Write-Host "follows it too); this is the way to change it."
     $answer = "$(Read-Host 'New port for Baihe Studio (1024 to 65535; just Enter to cancel)')".Trim()
     if ($answer -eq "") { Write-Host "Nothing was changed."; return }
     $n = Get-CheckedPort $answer
@@ -82,7 +83,9 @@ function Enable-Remote {
     Invoke-Service @("enable-remote", "--household-port", [string]$n)
 }
 
-function Open-LogFolder {
+# Only prints the folders: a program started from this elevated window would
+# run with administrator rights.
+function Show-LogFolder {
     $folder = $null
     try {
         $config = Get-Content -LiteralPath (Join-Path $Admin "helper\config.json") -Raw | ConvertFrom-Json
@@ -90,9 +93,8 @@ function Open-LogFolder {
     } catch { }
     Write-Host "Setup's and this menu's service steps log to $Admin\service.log."
     if ($folder -and (Test-Path -LiteralPath $folder)) {
-        Write-Host "Opening Baihe Studio's own service log folder: $folder"
-        Start-Process -FilePath (Join-Path ([Environment]::GetFolderPath("Windows")) "explorer.exe") `
-            -ArgumentList ('"' + $folder + '"')
+        Write-Host "Baihe Studio's own service log folder: $folder"
+        Write-Host "Open it from a normal (not administrator) File Explorer window."
     } else {
         Write-Host "Baihe Studio's own service log folder isn't there yet."
     }
@@ -139,7 +141,7 @@ while ($true) {
     Write-Host "  2  Change Baihe Studio's port"
     Write-Host "  3  Turn remote access on"
     Write-Host "  4  Turn remote access off"
-    Write-Host "  5  Open the service log folder"
+    Write-Host "  5  Show where the service logs are"
     Write-Host "  0  Quit"
     $choice = "$(Read-Host 'Choose')".Trim()
     Write-Host ""
@@ -148,7 +150,7 @@ while ($true) {
         "2" { Set-ServicePort }
         "3" { Enable-Remote }
         "4" { Write-Host "Turning remote access off..."; Invoke-Service @("disable-remote") }
-        "5" { Open-LogFolder }
+        "5" { Show-LogFolder }
         "0" { exit 0 }
         default { Write-Host "Type a number from 0 to 5." }
     }

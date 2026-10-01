@@ -18,10 +18,11 @@
 ; administrator permission once, after the files are copied, and
 ; {app}\service\helper\lib\installer\service.py creates the BaiheStudio
 ; service (python -m api on 127.0.0.1 and nothing else, started with
-; Windows), on the default port or the user's BAIHE_API_PORT if set (an
-; update without it keeps the service's port). Once the service exists, the
-; launcher uses the service's stored port, and the Start-menu item "Baihe
-; Studio service" changes it (service.py set-port). An update stops it first,
+; Windows), on the default port or the user's BAIHE_API_PORT if set (a
+; fresh install only: an update keeps the service's stored port). Once the
+; service exists, the launcher uses the service's stored port, and the
+; Start-menu item "Baihe Studio service" changes it (service.py set-port).
+; An update stops it first,
 ; and uninstalling removes it. Unticking the task (or /MERGETASKS="!service")
 ; keeps the Start-menu launcher only.
 ;
@@ -488,11 +489,12 @@ begin
 end;
 
 // The port the owner chose for Baihe Studio: the user's BAIHE_API_PORT. '' when
-// it isn't set, and the service keeps the port it has (the default for a new
-// one). Once the service exists the launcher follows the service's stored
-// port, which the "Baihe Studio service" menu (service.py set-port) changes.
-// Only digits are passed on the elevated command line; anything else is
-// passed as a word service.py refuses, keeping the service's port.
+// it isn't set (the default port). service.py uses it only on a fresh install:
+// an update keeps the service's stored port and ignores it. Once the service
+// exists the launcher follows that stored port, which the "Baihe Studio
+// service" menu (service.py set-port) changes. Only digits are passed on the
+// elevated command line; anything else is passed as a word service.py
+// refuses on a fresh install (and ignores on an update).
 function ApiPortArg(): String;
 var
   Port: String;
