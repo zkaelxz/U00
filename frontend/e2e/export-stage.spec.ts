@@ -11,7 +11,8 @@ const job = (status: string, extra: object = {}) => ({
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1, ...extra,
 })
 
-const openMore = (page: Page) => page.getByText('More export', { exact: true }).click()
+const openGroup = (page: Page, name: string) => page.getByText(name, { exact: true }).click()
+const openMedia = (page: Page) => openGroup(page, 'Video and audio')
 
 async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'cancelled') {
   const bodies: unknown[] = []
@@ -74,7 +75,7 @@ test('flag actions run only on click and report the result', async ({ page }) =>
   await page.goto('/#/drama/1/export')
   await expect(page.getByTestId('readiness')).toBeVisible()
   expect(posts).toBe(0)
-  await openMore(page)
+  await openGroup(page, 'Flag lines for review')
   await page.getByRole('button', { name: 'Flag overlapping lines' }).click()
   await expect(page.getByTestId('flag-result-overlaps')).toHaveText('Flagged 0 lines.')
   await page.getByRole('button', { name: 'Run auto-QC and flag' }).click()
@@ -99,7 +100,7 @@ test('a drama that is not novel narration has no EPUB section', async ({ page })
 test('audiobook job can be cancelled', async ({ page }) => {
   await mockJob(page, '/api/export/dramas/1/audiobook', 'cancelled')
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByTestId('job-status')).toContainText('running')
   await page.getByRole('button', { name: 'Cancel job' }).click()
@@ -112,8 +113,8 @@ test('burned-in video sends the style and offers the artifact on done', async ({
     route.fulfill({ json: { name: 'burned_video_1.mp4', size: 3 * 1024 * 1024, kind: 'video' } }),
   )
   await page.goto('/#/drama/1/export')
-  // With SRT chosen, the ASS style sits under More export, beside the burned-in video.
-  await openMore(page)
+  // With SRT chosen, the ASS style sits under Video and audio, beside the burned-in video.
+  await openMedia(page)
   await page.getByText('ASS style', { exact: true }).click()
   await page.getByLabel(/^Font size/).fill('48')
   await page.getByRole('button', { name: 'Start burned-in video export' }).click()
@@ -130,7 +131,7 @@ test('a 422 from a job start is shown as a banner', async ({ page }) => {
     route.fulfill({ status: 422, json: { error: { code: 'invalid_input', message: 'No narration audio yet.' } } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   await page.getByRole('button', { name: 'Start audiobook export' }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'not valid' })).toBeVisible()
 })
@@ -141,7 +142,7 @@ test('subtitle-track video sends the chosen subtitles and offers the artifact', 
     route.fulfill({ json: { name: 'softsub_video_1.mkv', size: 1024, kind: 'softsub_video' } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   const group = page.getByRole('group', { name: 'Video with a subtitle track' })
   await group.getByLabel('Subtitles').selectOption('bilingual')
   await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
@@ -159,7 +160,7 @@ test('dubbed video sends the mix choice and offers its own artifact', async ({ p
     route.fulfill({ json: { name: 'dubbed_video_1.mp4', size: 2048, kind: 'dubbed_video' } }),
   )
   await page.goto('/#/drama/1/export')
-  await openMore(page)
+  await openMedia(page)
   const group = page.getByRole('group', { name: 'Video with the dub audio' })
   await group.getByRole('switch', { name: 'Mix the original audio in quietly underneath' }).click()
   await group.getByRole('button', { name: 'Start dubbed video export' }).click()

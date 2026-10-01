@@ -145,7 +145,7 @@ export default function DubStage() {
           >
             Generate dub
           </button>
-          <p className="muted dub-reason" id="dub-settings" data-testid="dub-settings">
+          <p className={blocker ? 'dub-reason dub-blocker' : 'muted dub-reason'} id="dub-settings" data-testid="dub-settings">
             <span>{blocker ?? (busy ? busyText : dubSettingsLine(cfg, form))}</span>
             {cfg.speakable_line_count === 0 && (
               <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>

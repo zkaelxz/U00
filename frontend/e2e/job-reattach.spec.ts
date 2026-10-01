@@ -92,7 +92,7 @@ test('Export media shows the earlier export and a running export on revisit', as
 
   await page.goto('/#/drama/1/translate')
   await goToStage(page, /^Export/)
-  await page.getByText('More export', { exact: true }).click()
+  await page.getByText('Video and audio', { exact: true }).click()
 
   const link = page.getByTestId('artifact-video').getByRole('link')
   await expect(link).toHaveText('Download burned_video_1.mp4')

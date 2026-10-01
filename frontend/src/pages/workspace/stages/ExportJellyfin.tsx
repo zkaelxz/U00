@@ -91,7 +91,7 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
   const canSend = readyToSend(cfg) && !busy && (target === 'folder' || !!itemId)
 
   return (
-    <section className="panel" aria-label="Send to Jellyfin">
+    <div role="region" aria-label="Send to Jellyfin">
       <Section storageKey="export.jellyfin" title="Send to Jellyfin" summary="put the subtitles in your Jellyfin library">
         <div className="source-panel">
           {!readyToSend(cfg) && (
@@ -147,6 +147,6 @@ export function ExportJellyfin({ field }: { field: 'en' | 'zh' | 'bilingual' }) 
           {error && <p className="error" role="alert">{error}</p>}
         </div>
       </Section>
-    </section>
+    </div>
   )
 }

@@ -63,7 +63,6 @@ export function ExportFlags({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="export-block" aria-label="Flag lines">
-      <h4>Flag lines for review</h4>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {ACTIONS.map((a) => (
         <div className="export-flag-row" key={a.id}>

@@ -854,3 +854,14 @@ test('a review check left running is shown again, with the checks off', async ({
   await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeDisabled()
   await expect(page.getByText('A review job is running.')).toBeVisible()
 })
+
+test('Compact rows is remembered for the next visit', async ({ page }) => {
+  await open(page)
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  if (await more.isVisible()) await more.click()
+  await page.getByRole('button', { name: 'Compact rows' }).click()
+  await expect(page.locator('.review-lines.is-compact')).toHaveCount(1)
+  await page.reload()
+  await expect(rows(page)).toHaveCount(3)
+  await expect(page.locator('.review-lines.is-compact')).toHaveCount(1)
+})

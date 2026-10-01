@@ -77,7 +77,7 @@ export function ExportNotion({ field }: { field: NotionField }) {
   }
 
   return (
-    <section className="panel" aria-label="Export to Notion">
+    <div role="region" aria-label="Export to Notion">
       <Section storageKey="export.notion" title="Export to Notion" summary="a page per drama in your Notion">
         <div className="source-panel">
           {!readyToExport(cfg) ? (
@@ -104,6 +104,6 @@ export function ExportNotion({ field }: { field: NotionField }) {
           )}
         </div>
       </Section>
-    </section>
+    </div>
   )
 }
