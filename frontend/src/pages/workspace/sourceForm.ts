@@ -44,7 +44,7 @@ export function parseExpectedSpeakers(raw: string): number | undefined | null {
   return Number.isInteger(n) && n >= 0 && n <= 20 ? n : null
 }
 
-export interface ParsedSpeakerHints {
+interface ParsedSpeakerHints {
   expected?: number
   min?: number
   max?: number
@@ -81,7 +81,7 @@ export function whisperModelWarning(size: string, language: string): string {
 
 // Source-stage run options kept for the browser session, per drama, so a
 // stage-tab switch or navigation does not wipe them.
-export interface SourceFormState {
+interface SourceFormState {
   language: string
   script: string
   transcriptText: string
@@ -173,7 +173,7 @@ const OCR_BACKENDS: Record<string, string[]> = {
 }
 export const ocrBackendOptions = (language: string | null): string[] => OCR_BACKENDS[language ?? 'zh'] ?? ['tesseract']
 
-export const OCR_MAX_IMAGES = 200
+const OCR_MAX_IMAGES = 200
 const OCR_EXTENSIONS = ['.png', '.jpg', '.jpeg']
 
 export function checkOcrImages(names: string[]): string | null {

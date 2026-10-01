@@ -125,7 +125,7 @@ def test_free_engines(isolated_db, cap):
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])
-    for name in ("test_offline", "ollama", "nllb", "libretranslate"):
+    for name in ("fake", "ollama", "nllb", "libretranslate"):
         r = svc.estimate_translate_cost(did, name)
         assert r["free"] is True and not r["estimated_usd"] and r["cap_applies"] is False
     g = svc.estimate_translate_cost(did, "gemini", gemini_free_tier=True)

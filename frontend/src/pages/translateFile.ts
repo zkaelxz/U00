@@ -11,17 +11,17 @@
 import { MAX_TRANSLATE_TEXT_CHARS } from '../api/translate'
 import { EpubError, MAX_EPUB_BYTES, extractEpubText, type HtmlToText } from './translateEpub'
 
-export const ACCEPTED_EXTENSIONS = ['.txt', '.md', '.epub'] as const
+const ACCEPTED_EXTENSIONS = ['.txt', '.md', '.epub'] as const
 export const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.join(',')
 export const MAX_FILE_BYTES = 2048 * 1024 * 1024
 
-export interface FileLike {
+interface FileLike {
   name: string
   size: number
 }
 
 /** Reads a file's bytes; the browser default uses FileReader. */
-export type ReadBytes<F extends FileLike> = (file: F) => Promise<ArrayBuffer>
+type ReadBytes<F extends FileLike> = (file: F) => Promise<ArrayBuffer>
 
 export function fileReaderBytes(file: Blob): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
@@ -55,7 +55,7 @@ export function decodeText(buf: ArrayBuffer): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buf).replace(/\uFFFD/g, '')
 }
 
-export type ReadResult = { ok: true; text: string; name: string } | { ok: false; error: string }
+type ReadResult = { ok: true; text: string; name: string } | { ok: false; error: string }
 
 export async function readTranslateFile<F extends FileLike>(
   file: F,

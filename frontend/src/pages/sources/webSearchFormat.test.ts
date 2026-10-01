@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
-import { ADDRESS_WRITES_REFUSED, webResultsHeader, webSearchErrorMessage, webSearchSummary } from './webSearchFormat'
+import { webResultsHeader, webSearchErrorMessage, webSearchSummary } from './webSearchFormat'
+import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
 
 describe('web search format', () => {
   it('summarises the setting', () => {
@@ -20,7 +21,7 @@ describe('web search format', () => {
     expect(webSearchErrorMessage(new ApiError(503, { code: 'SERVICE_UNAVAILABLE', message: 'Couldn\'t reach the SearXNG server.' }))).toBe(
       "Couldn't reach the SearXNG server.",
     )
-    expect(webSearchErrorMessage(new ApiError(403, { code: 'FORBIDDEN', message: 'no' }), true)).toBe(ADDRESS_WRITES_REFUSED)
+    expect(webSearchErrorMessage(new ApiError(403, { code: 'FORBIDDEN', message: 'no' }), true)).toBe(KEY_WRITES_REFUSED)
     expect(webSearchErrorMessage(new ApiError(403, { code: 'FORBIDDEN', message: 'no' }))).toMatch(/PC only/)
     expect(webSearchErrorMessage(new ApiError(500, { code: 'INTERNAL', message: 'trace at /home/x' }))).toBe('That did not work. Try again.')
     expect(webSearchErrorMessage(new Error('x'))).toBe('That did not work. Try again.')

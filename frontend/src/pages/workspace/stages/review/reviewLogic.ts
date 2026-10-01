@@ -137,7 +137,7 @@ export function initialActiveId(lines: ReviewLine[]): number | null {
   return pick ? pick.id : null
 }
 
-export type Step = { id: number } | { page: 'next' | 'prev' } | null
+type Step = { id: number } | { page: 'next' | 'prev' } | null
 
 /** The line `delta` rows away from `activeId`, or a page change at an edge. */
 export function stepFrom(lines: ReviewLine[], activeId: number | null, delta: 1 | -1, canPage: { next: boolean; prev: boolean }): Step {
@@ -356,12 +356,12 @@ export function llmPreviewSummary(p: ResegmentPreview & { engine: string }): str
   return `${p.line_count_before} → ${p.line_count_after} lines · ${n} line${n === 1 ? '' : 's'} split · by ${humanize('engine', p.engine)}`
 }
 
-export const RESEGMENT_CONFIRM_MESSAGE =
+const RESEGMENT_CONFIRM_MESSAGE =
   'Lines being split now carry translations, flags or notes, which would be dropped. Type the word to apply anyway.'
 export const RESEGMENT_PREVIEW_AGAIN = 'The lines changed since this preview. Preview again.'
-export const RESEGMENT_PREVIEW_GONE = 'This preview is no longer on the server. Preview again.'
+const RESEGMENT_PREVIEW_GONE = 'This preview is no longer on the server. Preview again.'
 
-export type LlmApplyProblem = 'confirm' | 'changed' | 'gone' | 'job'
+type LlmApplyProblem = 'confirm' | 'changed' | 'gone' | 'job'
 
 /**
  * Why applying the AI preview was refused, from the start request's error or

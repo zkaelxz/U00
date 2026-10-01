@@ -86,7 +86,7 @@ export function analysisDetails(a: MediaAnalysis): [string, string][] {
 }
 
 // "2 (Chinese ASS, unknown language SubRip)" style list of embedded subtitles.
-export function subtitleTrackList(a: MediaAnalysis): string {
+function subtitleTrackList(a: MediaAnalysis): string {
   const tracks = a.subtitle_tracks ?? []
   return `${tracks.length} (${tracks.map(trackName).join(', ')})`
 }

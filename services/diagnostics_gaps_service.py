@@ -12,8 +12,7 @@ secret, a token, the OS username or a local path goes through
 diagnostics.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
-Not ported (Streamlit-only by decision, see
-docs/streamlit-retirement-plan.md): accuracy benchmark, bug-bundle replay
+Not ported (Streamlit-only by decision): accuracy benchmark, bug-bundle replay
 (the saved bundles are listed, and deleted through delete_service), App
 Assistant, and the source-access tests.
 """

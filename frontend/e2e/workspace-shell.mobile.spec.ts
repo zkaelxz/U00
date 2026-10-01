@@ -12,16 +12,14 @@ const progress = {
   ],
 }
 
-test('the main nav is two rows of four links, in order, each 44px tall', async ({ page }) => {
+test('the main nav is at most two rows, in order, each link 44px tall', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
-  await expect(links).toHaveText(['Library', 'Translate', 'Sources', 'Discover', 'Live', 'Settings', 'Diagnostics'])
+  await expect(links).toHaveText(['Library', 'Quick translate', 'Sources', 'Discover', 'Live'])
   const boxes = await links.evaluateAll((els) =>
     els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), left: r.left, right: r.right, h: r.height } }))
   const tops = [...new Set(boxes.map((b) => b.top))]
-  expect(tops, 'nav rows').toHaveLength(2)
-  expect(boxes.filter((b) => b.top === tops[0])).toHaveLength(4)
-  expect(boxes.filter((b) => b.top === tops[1])).toHaveLength(3)
+  expect(tops.length, 'nav rows').toBeLessThanOrEqual(2)
   for (const b of boxes) {
     expect(b.h).toBeGreaterThanOrEqual(44)
     expect(b.left).toBeGreaterThanOrEqual(0)

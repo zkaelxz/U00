@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openSettingsGroups } from './settingsNav'
 
 // Steps 101/103/104: Settings > Transcription experiments, the MOSS choice in
 // Transcribe > Advanced, and the "where did speaker detection run" note.
@@ -6,6 +7,7 @@ import { expect, test } from '@playwright/test'
 
 test('transcription experiments save, and MOSS appears as a backend only while on', async ({ page }) => {
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card = page.getByRole('region', { name: 'Transcription experiments' })
   const batch = card.getByLabel('Qwen3-ASR batch size', { exact: true })
   await expect(batch).toHaveValue('1')
@@ -31,6 +33,7 @@ test('transcription experiments save, and MOSS appears as a backend only while o
 
   // Restore both settings.
   await page.goto('/#/settings')
+  await openSettingsGroups(page)
   const card2 = page.getByRole('region', { name: 'Transcription experiments' })
   await card2.getByLabel('Qwen3-ASR batch size', { exact: true }).fill('1')
   await Promise.all([saved(), card2.getByRole('button', { name: 'Save batch size' }).click()])

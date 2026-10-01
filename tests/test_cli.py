@@ -1190,12 +1190,12 @@ class TestCmdDoctor:
 
     def test_prints_ok_and_exits_cleanly_on_success(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
-                            lambda *a, **k: {"engine": "test_offline", "ok": True, "error": None})
-        args = argparse.Namespace(engine="test_offline", api_key=None, model=None)
+                            lambda *a, **k: {"engine": "fake", "ok": True, "error": None})
+        args = argparse.Namespace(engine="fake", api_key=None, model=None)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             cli.cmd_doctor(args)
-        assert "OK: test_offline is reachable" in out.getvalue()
+        assert "OK: fake is reachable" in out.getvalue()
 
     def test_prints_the_error_and_exits_nonzero_on_failure(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "check_engine_reachable",
@@ -1608,7 +1608,7 @@ class TestCliSavedSettingsFallbacks:
         assert self._cap_run(isolated_db, monkeypatch, "claude").calls == 0
 
     def test_monthly_cap_skips_non_cap_engine(self, isolated_db, monkeypatch):
-        assert self._cap_run(isolated_db, monkeypatch, "test_offline").calls == 1
+        assert self._cap_run(isolated_db, monkeypatch, "fake").calls == 1
 
     def test_dub_falls_back_to_saved_gpt_sovits_url(self, isolated_db, monkeypatch):
         monkeypatch.setattr(cli.settings_service, "resolve_key",
@@ -1770,7 +1770,9 @@ class TestLocaleParity:
         assert set(names) == set(settings_service.LOCALE_CHOICES)
         for loc, name in names.items():
             assert name in translate_engines.build_llm_instructions("", {}, locale=loc)
-        src = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages"
-               / "settings" / "preferences.ts").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parent.parent / "frontend" / "src"
+               / "labels.ts").read_text(encoding="utf-8")
         block = src.split("export const LOCALE_LABELS", 1)[1].split("}", 1)[0]
-        assert set(re.findall(r"'([a-z]{2}-[A-Z]{2})':", block)) == set(settings_service.LOCALE_CHOICES)
+        # humanize() looks labels up lower-cased.
+        assert set(re.findall(r"'([a-z]{2}-[a-z]{2})':", block)) == {
+            c.lower() for c in settings_service.LOCALE_CHOICES}

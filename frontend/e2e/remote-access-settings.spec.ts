@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// Settings > Remote access: the public-address check (PC only). The
+// Admin > Remote access: the public-address check (PC only). The
 // ip-check routes are mocked; other reads go to the seeded API and any other
 // write is aborted and recorded. The saved address is never shown back.
 
@@ -54,7 +54,7 @@ async function mockIpCheck(page: Page, configured: boolean, saveStatus = 200): P
 }
 
 async function open(page: Page) {
-  await page.goto('/#/settings')
+  await page.goto('/#/admin')
   const section = page.getByRole('region', { name: 'Remote access' })
   await expect(section).toBeVisible()
   return section
@@ -106,7 +106,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save public address check' }).click()
   await section.getByRole('button', { name: 'Confirm save public address check' }).click()
-  await expect(section.getByText(/only be set on the Baihe PC itself/)).toBeVisible()
+  await expect(section.getByText(/can only be changed on the Baihe PC itself/)).toBeVisible()
   await expect(input).toHaveValue('')
   await expect(section.locator('.card-meta')).toHaveText('Address check not set')
   expect(await page.content()).not.toContain('SECRET-DDNS-TOKEN')
@@ -125,7 +125,7 @@ test('away from the PC the card says PC only and makes no calls', async ({ page 
     const body = await resp.json()
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
-  await page.goto('/#/settings')
+  await page.goto('/#/admin')
   const section = page.getByRole('region', { name: 'Remote access' })
   await expect(section.locator('.card-meta')).toHaveText('PC only')
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()

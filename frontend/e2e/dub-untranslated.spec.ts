@@ -26,7 +26,7 @@ async function mockAll(page: Page, opts: { untranslated?: number; progressStatus
     route.fulfill({
       json: {
         drama_id: 1, is_narration: true, has_novel_source: true,
-        engines: [{ key: 'test_offline', key_configured: true }], default_engine: 'test_offline',
+        engines: [{ key: 'fake', key_configured: true }], default_engine: 'fake',
         max_chunk_chars: 500, existing_line_count: 5, replaces_existing_lines: true, job_running: false,
       },
     }))

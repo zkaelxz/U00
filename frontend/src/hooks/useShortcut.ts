@@ -45,7 +45,7 @@ export function isTextEntry(target: EventTarget | null): boolean {
   return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type ?? 'text')
 }
 
-export interface ShortcutContext {
+interface ShortcutContext {
   // The key went to a text field: single letters must be left alone there.
   inText: boolean
   event: KeyboardEvent

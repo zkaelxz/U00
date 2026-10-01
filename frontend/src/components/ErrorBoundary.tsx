@@ -5,7 +5,7 @@ import { routeHref, useRoute } from '../router'
 import { copyText } from './clipboard'
 import { errorText } from './errorFallbackText'
 
-export function ErrorFallback({ error }: { error: unknown }) {
+function ErrorFallback({ error }: { error: unknown }) {
   const [copied, setCopied] = useState<'idle' | 'ok' | 'failed'>('idle')
   const text = errorText(error)
   return (

@@ -7,7 +7,7 @@ import type { DiagnosticsPackageUpdate, DiagnosticsPackageUpdates } from '../../
 /** "1.2.3" shown as "v1.2.3"; null when unknown. */
 export const versionLabel = (v: string | null | undefined): string | null => (v ? `v${v}` : null)
 
-export type UpdateLine = { text: string; tone: 'ok' | 'warn' | 'muted' }
+type UpdateLine = { text: string; tone: 'ok' | 'warn' | 'muted' }
 
 /** What the row says after a check (the Update button carries the target itself). */
 export function updateLine(u: DiagnosticsPackageUpdate): UpdateLine {

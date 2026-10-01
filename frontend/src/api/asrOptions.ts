@@ -23,7 +23,7 @@ export interface AsrOptionsUpdate {
   moss_experimental?: boolean
 }
 
-export interface DiarizationConfig {
+interface DiarizationConfig {
   drama_id: number
   hf_token_configured: boolean
   expected_speakers: number | null

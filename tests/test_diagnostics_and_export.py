@@ -650,8 +650,8 @@ class TestCheckEngineReachable:
     mocked, same as every other network-reaching diagnostics check."""
 
     def test_a_working_engine_reports_ok(self):
-        result = diagnostics.check_engine_reachable("test_offline")
-        assert result == {"engine": "test_offline", "ok": True, "error": None}
+        result = diagnostics.check_engine_reachable("fake")
+        assert result == {"engine": "fake", "ok": True, "error": None}
 
     def test_unknown_engine_name_reports_failure_not_a_crash(self):
         result = diagnostics.check_engine_reachable("not-a-real-engine")
@@ -681,10 +681,10 @@ class TestCheckEngineReachable:
         monkeypatch.setattr(translate_engines, "standalone_translate",
                             lambda text, engine, *a, **k: f"[{engine.name}] ok")
         results = diagnostics.doctor_report([
-            {"engine": "test_offline"},
+            {"engine": "fake"},
             {"engine": "claude", "api_key": "sk-x"},
         ])
-        assert [r["engine"] for r in results] == ["test_offline", "claude"]
+        assert [r["engine"] for r in results] == ["fake", "claude"]
         assert all(r["ok"] for r in results)
 
 

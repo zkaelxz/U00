@@ -82,7 +82,7 @@ export const restoreSnapshot = (id: number, historyId: number, expectedLineIds: 
 
 // Interim until a line-index endpoint exists: every line of the drama, in
 // order, read through the Review list in pages of 200 (the route's maximum).
-export const ALL_LINES_PAGE_SIZE = 200
+const ALL_LINES_PAGE_SIZE = 200
 
 export async function listAllLines(id: number, f?: Fetch): Promise<ReviewLine[]> {
   const out: ReviewLine[] = []

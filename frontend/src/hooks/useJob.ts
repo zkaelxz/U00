@@ -5,7 +5,7 @@ import { getJob } from '../api/jobs'
 import { TERMINAL_STATUSES, type JobRecord } from '../types/jobs'
 import { useEventStream } from './useEventStream'
 
-export interface PollOptions {
+interface PollOptions {
   intervalMs?: number
   fetchJob?: (id: string) => Promise<JobRecord>
   onUpdate: (job: JobRecord) => void

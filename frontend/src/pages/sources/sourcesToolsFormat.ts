@@ -19,7 +19,7 @@ export function pastedListingProblem(text: string): string | null {
   return null
 }
 
-export type Tone = 'ok' | 'warn' | 'danger'
+type Tone = 'ok' | 'warn' | 'danger'
 
 export function preflightTone(p: UrlPreflight): Tone {
   if (!p.permitted) return 'danger'

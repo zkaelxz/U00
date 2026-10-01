@@ -16,7 +16,7 @@ def _ts(rel):
 
 
 def _secret_engines():
-    block = re.search(r"export const SECRET_ENGINES[^=]*=\s*\[(.*?)\n\]", _ts("frontend/src/pages/settingsKeys.ts"), re.S)
+    block = re.search(r"(?:export )?const SECRET_ENGINES[^=]*=\s*\[(.*?)\n\]", _ts("frontend/src/pages/settingsKeys.ts"), re.S)
     assert block, "SECRET_ENGINES literal not found"
     return re.findall(r"engine:\s*'([^']+)'", block.group(1))
 
@@ -39,7 +39,8 @@ def test_every_writable_key_has_an_env_name():
 
 def test_frontend_labels_cover_every_engine_and_key():
     labels = _engine_labels()
-    needed = set(translate_engines.ENGINES) | (set(settings_service.ENV_NAMES) - {"monthly_cap_usd"})
+    # "fake" is the test suite's own engine (tests/fake_engine.py), not the app's.
+    needed = (set(translate_engines.ENGINES) - {"fake"}) | (set(settings_service.ENV_NAMES) - {"monthly_cap_usd"})
     assert needed - labels == set()
 
 

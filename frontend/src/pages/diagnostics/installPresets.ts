@@ -21,7 +21,7 @@ export function packageSizeText(p: Pick<DiagnosticsPackageInfo, 'approx_mb' | 'p
   return p.pulls_torch && !torchInstalled ? `${size} + PyTorch` : size
 }
 
-export type TaskGroup = { group: string; tasks: DiagnosticsInstallTask[] }
+type TaskGroup = { group: string; tasks: DiagnosticsInstallTask[] }
 
 /** Tasks grouped by `group`, groups and tasks in server order. */
 export function groupTasks(tasks: DiagnosticsInstallTask[]): TaskGroup[] {

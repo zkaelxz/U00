@@ -70,7 +70,7 @@ export interface ReevalRow {
   avg_latency_seconds: number | null
 }
 
-export interface ReevalProductionRun {
+interface ReevalProductionRun {
   id: number
   status: string | null
   aggregate_score: number | null
@@ -128,7 +128,7 @@ export interface CandidateAddResult {
   already_registered: boolean
 }
 
-export interface PromoteResult {
+interface PromoteResult {
   production: ProductionModel
   previous: ProductionModel
   default_engine_changed: boolean

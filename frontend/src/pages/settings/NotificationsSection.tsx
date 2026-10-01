@@ -29,6 +29,7 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
 import type { NotificationChannel, NotificationStatus } from '../../types/notifications'
+import { SAVED_ON_PC_NOTE } from './preferences'
 import {
   CATEGORIES,
   CATEGORIES_NOTE,
@@ -199,10 +200,7 @@ function NotificationControls() {
               ? 'A local ntfy server (on this PC or your home network) is allowed.'
               : 'A local ntfy server needs BAIHE_NTFY_ALLOW_LOCAL=1 in .env on the Baihe PC.'}
           </p>
-          <p className="settings-note">
-            Addresses are saved to .env on the Baihe PC and never shown again. Setting them works only
-            on that PC with BAIHE_API_ALLOW_KEY_WRITES=1.
-          </p>
+          <p className="settings-note">{SAVED_ON_PC_NOTE}</p>
         </>
       )}
     </Card>

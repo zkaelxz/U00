@@ -66,8 +66,6 @@ export interface UrlImportResult {
   follow_stop?: string
 }
 
-export type SourceImportResult = ChapterImportResult | UrlImportResult
-
 export interface ChapterImportRequest {
   series_id: string
   chapter_ids: string[]

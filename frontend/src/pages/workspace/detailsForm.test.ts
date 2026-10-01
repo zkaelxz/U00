@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DramaDetail } from '../../api/types'
-import type { SourceConfig } from '../../types/workspace'
 import {
   buildDetailsPayload,
   formFromDrama,
   isEmptyPayload,
   mediaTypeOptions,
-  modeUpdate,
   NEW_SERIES,
   reseedForm,
   newSeriesProblem,
@@ -146,15 +144,6 @@ describe('serverFieldErrors', () => {
   it('falls back to a field named in the message', () => {
     expect(serverFieldErrors(null, 'Unknown media_type.')).toEqual({ media_type: 'Unknown media_type.' })
     expect(serverFieldErrors(null, 'Something else.')).toEqual({})
-  })
-})
-
-describe('modeUpdate', () => {
-  const c = { content_mode: 'audio_drama', transcript_mode: 'whisper' } as SourceConfig
-  it('sends only changed modes', () => {
-    expect(modeUpdate(c, 'audio_drama', 'whisper')).toEqual({})
-    expect(modeUpdate(c, 'streamer_vod', 'whisper')).toEqual({ content_mode: 'streamer_vod' })
-    expect(modeUpdate(c, 'audio_drama', 'have_transcript')).toEqual({ transcript_mode: 'have_transcript' })
   })
 })
 

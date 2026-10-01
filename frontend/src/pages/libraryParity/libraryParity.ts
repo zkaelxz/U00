@@ -8,7 +8,7 @@ export function cacheHitShare(u: Pick<LibraryUsage, 'input_tokens' | 'cache_read
   return u.input_tokens ? (u.cache_read_tokens || 0) / u.input_tokens : 0
 }
 
-export const percent = (share: number) => `${Math.round(share * 100)}%`
+const percent = (share: number) => `${Math.round(share * 100)}%`
 
 // A count the API left out reads as 0 rather than crashing the page.
 const plural = (n: number | undefined, one: string) => `${(n ?? 0).toLocaleString()} ${one}${n === 1 ? '' : 's'}`

@@ -107,14 +107,11 @@ export default function ExportStage() {
               <Badge>{plural(r.total_lines, 'line')}</Badge>{' '}
               <Badge tone={r.total_lines === 0 ? 'neutral' : r.fully_translated ? 'ok' : 'warn'}>{r.en_filled} translated</Badge>
             </p>
-            {(untranslated || review.length > 0 || r.test_mode_output) && (
+            {(untranslated || review.length > 0) && (
               <ul className="export-warnings" data-testid="readiness-warnings">
                 {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have gaps.</li>}
                 {review.length > 0 && (
                   <li className="muted">{review.join(', ')}. You can flag them under More export.</li>
-                )}
-                {r.test_mode_output && (
-                  <li className="error" role="alert">The translations look like test-mode output, not real translations.</li>
                 )}
               </ul>
             )}

@@ -10,7 +10,7 @@ export const POLL_MS = 60_000
 // The newest item the user has seen: its id and time. The server's ids
 // start again at 1 when it restarts (the list is in memory only), so an
 // item also counts as new when it is newer than the last seen time.
-export type Seen = { id: number; at: number }
+type Seen = { id: number; at: number }
 
 export const NOTHING_SEEN: Seen = { id: 0, at: 0 }
 
@@ -64,7 +64,7 @@ export function bellLabel(unread: number): string {
   return unread > 0 ? `Notifications (${unread} new)` : 'Notifications'
 }
 
-export const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> = {
+const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> = {
   job_done: { tone: 'ok', label: 'Done' },
   job_failed: { tone: 'bad', label: 'Failed' },
   chapters: { tone: 'info', label: 'New chapters' },

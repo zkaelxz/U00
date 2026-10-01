@@ -177,7 +177,7 @@ export interface SourceErrorView {
   details?: Record<string, unknown> | null
 }
 
-export interface SearchEntry {
+interface SearchEntry {
   source: string
   series_id: string
   title: string

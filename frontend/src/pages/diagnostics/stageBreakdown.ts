@@ -25,7 +25,7 @@ export function formatStageCost(usd: number): string | null {
   return `$${usd.toFixed(2)}`
 }
 
-export type StageRow = { key: string; name: string; duration: string; cost: string | null; share: number }
+type StageRow = { key: string; name: string; duration: string; cost: string | null; share: number }
 
 /** The run's total length: its own total, or the stages' sum when that is missing. */
 function runSeconds(run: JobStageRun): number {

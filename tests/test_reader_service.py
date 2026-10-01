@@ -115,8 +115,7 @@ class TestGetReaderPage:
 
         def boom(*a, **k):
             raise AssertionError("get_reader_page made a live dictionary lookup call")
-        import dictionary
-        monkeypatch.setattr(dictionary, "build_word_definitions", boom)
+        monkeypatch.setattr(reader_service, "_define_words_llm", boom)
         reader_service.get_reader_page(did, page=1)  # must not raise
 
     def test_never_writes_to_the_database(self, isolated_db, monkeypatch):

@@ -58,7 +58,7 @@ export interface ModelStatus {
   extra_models?: Record<string, string[]>
 }
 
-export interface PresetModelSwitchResult {
+interface PresetModelSwitchResult {
   preset_id: number
   engine: string | null
   from_model: string

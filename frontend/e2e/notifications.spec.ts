@@ -137,7 +137,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
-  await expect(section.getByText(/only be set on the Baihe PC itself/)).toBeVisible()
+  await expect(section.getByText(/can only be changed on the Baihe PC itself/)).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('secret-topic-name')
   expect(unmocked).toEqual([])
@@ -313,8 +313,8 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
   for (const width of [1280, 1024]) {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/library')
-    await expect(page.getByTestId('api-status')).toBeVisible()
     const bell = page.getByRole('button', { name: /^Notifications/ })
+    await expect(bell).toBeVisible()
     const b = (await bell.boundingBox())!
     const nav = (await page.getByRole('navigation', { name: 'Main' }).boundingBox())!
     // 1280: the bell did not push the header onto a second row.

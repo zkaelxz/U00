@@ -1021,10 +1021,6 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     return data["translations"], data.get("context_summary", previous_context)
 
 
-# Engines translated one region per call instead of one JSON prompt per page:
-# pure-MT engines can't follow the id-keyed prompt, and test_offline has no
-# LLM client (call_llm_json declines for it).
-_PER_REGION_ENGINES = ("test_offline",)
 _MAX_CONTEXT_CHARS = 1000
 
 
@@ -1039,7 +1035,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     missing or not a string, or an id that wasn't sent. Nothing is ever
     matched by position, so a short or reordered answer applies nothing.
 
-    Engines without the JSON prompt path (pure MT, test_offline) are called
+    Engines without the JSON prompt path (pure MT, or no LLM client) are called
     once per region with a single text, so each answer belongs to exactly
     one id; they carry no rolling context."""
     import json
@@ -1052,7 +1048,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
     if not ids:
         return {}, previous_context
     if (not getattr(engine, "supports_reference", False)
-            or getattr(engine, "name", None) in _PER_REGION_ENGINES):
+            or getattr(engine, "client", True) is None):
         # The shared context carries the drama's source_language (NLLB defaults
         # to Chinese without it).
         context = build_translation_context(engine, drama_meta, glossary_terms=glossary_terms)

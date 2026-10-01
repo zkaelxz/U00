@@ -47,7 +47,7 @@ export function loginHref(returnTo: string): string {
   return apiUrl(`/api/auth/login?return_to=${encodeURIComponent(safeReturnTo(returnTo))}`)
 }
 
-export type LoginErrorCode = 'denied' | 'not_allowed' | 'expired' | 'provider_error'
+type LoginErrorCode = 'denied' | 'not_allowed' | 'expired' | 'provider_error'
 
 const LOGIN_ERRORS: Record<LoginErrorCode, string> = {
   denied: 'Sign-in was cancelled. You can try again.',

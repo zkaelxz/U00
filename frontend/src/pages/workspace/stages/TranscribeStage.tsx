@@ -38,6 +38,7 @@ import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { DiarizationDeviceNote } from './DiarizationDeviceNote'
 import { NovelFilePanel } from './NovelFilePanel'
+import { TranscriptModePicker } from './SourceModes'
 import { mediaFileInputId } from './stageBlockers'
 import { diarizeEstimate, transcribeEstimate } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
@@ -407,6 +408,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   return (
     <section className="panel source-panel" aria-label="Transcribe">
       <h3>Transcribe</h3>
+      <TranscriptModePicker onChanged={(m) => setConfig((c) => (c ? { ...c, transcript_mode: m } : c))} />
       {mediaSlot}
       <div className="actions">
         <button

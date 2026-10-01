@@ -29,10 +29,10 @@ import {
   checkPath,
   cookiesSummary,
   ENDPOINTS,
-  LOCALE_LABELS,
   OCR_LABELS,
   parseCap,
   parseNumCtx,
+  SAVED_ON_PC_NOTE,
   type Parsed,
 } from './preferences'
 
@@ -53,44 +53,26 @@ export function DefaultsCard(props: Props) {
     <PrefsSection
       {...common}
       as="card"
-      title="Defaults for new dramas"
+      title="Translation style"
       storageKey="settings.defaults"
-      summary={`${humanize('engine', p.default_engine)} · ${LOCALE_LABELS[p.default_locale] ?? p.default_locale}${p.default_style_note ? ' · style note' : ''}`}
+      summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
       fromPrefs={(x) => ({
-        default_engine: x.default_engine,
         default_locale: x.default_locale,
         default_style_note: x.default_style_note,
-        episode_summary_engine: x.episode_summary_engine,
       })}
       toPatch={(d) => ({ ok: true, value: d as Partial<SettingsPreferences> })}
     >
       {(d, set) => (
         <>
-          <div className="field-row">
-            <Field label="Translation engine" help="Saved on each new drama, and used for a drama that has no engine saved.">
-              <select value={String(d.default_engine)} onChange={(e) => set('default_engine', e.target.value)}>
-                {c.engines.map((e) => (
-                  <option key={e} value={e}>{humanize('engine', e)}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="English variant" help="The Translate form starts with this.">
-              <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
-                {c.locales.map((l) => (
-                  <option key={l} value={l}>{LOCALE_LABELS[l] ?? l}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="Style note" help="The Translate form's style note starts with this text.">
-            <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
-          </Field>
-          <Field label="Episode summary engine" help="After an episode is translated, one extra call writes a short summary that is passed to the next episode of the series. Local Ollama costs nothing; a cloud engine needs its key.">
-            <select value={String(d.episode_summary_engine)} onChange={(e) => set('episode_summary_engine', e.target.value)}>
-              {c.summary_engines.map((e) => (
-                <option key={e} value={e}>{humanize('engine', e)}</option>
+          <Field label="English variant" help="Spelling for new translations. The Translate form starts with this.">
+            <select value={String(d.default_locale)} onChange={(e) => set('default_locale', e.target.value)}>
+              {c.locales.map((l) => (
+                <option key={l} value={l}>{humanize('locale', l)}</option>
               ))}
             </select>
+          </Field>
+          <Field label="Style note" help="The Translate form's style note starts with this text.">
+            <textarea rows={2} maxLength={2000} value={String(d.default_style_note)} onChange={(e) => set('default_style_note', e.target.value)} />
           </Field>
         </>
       )}
@@ -376,9 +358,7 @@ function EndpointsSection({ settings, remote, onSettings }: { settings: Settings
     <Section title={title} summary={`${set} of ${ENDPOINTS.length} set`} storageKey="settings.endpoints">
       <div style={grid}>
         <p className="settings-note">
-          Addresses of local servers Baihe talks to. Saved to .env on the Baihe PC, like keys, so
-          changing them works only on that PC (on when started with start.bat; otherwise set
-          BAIHE_API_ALLOW_KEY_WRITES=1).
+          Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}
         </p>
         {ENDPOINTS.map((e) => (
           <EndpointForm

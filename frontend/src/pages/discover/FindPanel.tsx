@@ -138,7 +138,7 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
   )
 }
 
-export function PlatformList() {
+function PlatformList() {
   const [language, setLanguage] = useState('')
   const [type, setType] = useState('')
   const [platforms, setPlatforms] = useState<Platform[] | null>(null)

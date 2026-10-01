@@ -134,7 +134,7 @@ def test_engine_list_names_only(client):
     r = client.get("/api/sources/url/ai-engines")
     assert r.status_code == 200
     body = r.json()
-    assert "test_offline" not in body["engines"] and "claude" in body["engines"]
+    assert "claude" in body["engines"]
     assert body["default"] == "claude"
     assert SECRET not in r.text and "key" not in r.text.lower()
 
@@ -185,7 +185,7 @@ def test_ambiguous_page_asks_the_engine_once(client, env, monkeypatch):
 def test_engine_checks_before_any_job(client, env):
     url = _novel_page(env)
     did = db.create_drama(title_en="N", media_type="novel")
-    for engine in ("test_offline", "google", "nope"):
+    for engine in ("google", "nope"):
         r = client.post("/api/sources/url/import",
                         json={"url": url, "drama_id": did, "use_ai": True, "engine": engine})
         assert r.status_code == 422, engine

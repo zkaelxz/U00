@@ -15,11 +15,11 @@ browser cookies over the API (a start at the PC uses the saved Settings
 cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No Streamlit/FastAPI import.
 
-Router contract: start/get are gated like media.import_url, and a paid
-engine (is_paid_engine) additionally needs the engines.paid capability;
-stop is gated like jobs.cancel.
+Router contract: start/get are gated like media.import_url, and an engine
+outside translate_engines.FREE_ENGINES (Gemini counts as paid: whether a key
+is free-tier isn't known server-side) additionally needs the engines.paid
+capability; stop is gated like jobs.cancel.
 """
-import os
 import re
 import shutil
 import tempfile
@@ -69,12 +69,6 @@ def _cue_text(text) -> str:
     """Cue text keeps its wording; only a failure note is path-stripped."""
     text = translate_engines.redact_secrets(str(text or ""))
     return clean_message(text) if text.startswith("[translation failed") else text
-
-
-def is_paid_engine(engine_name: str) -> bool:
-    """True if a live session on this engine can spend money. Gemini is
-    treated as paid: whether a key is free-tier isn't known server-side."""
-    return engine_name not in translate_engines.FREE_ENGINES
 
 
 def _num(name, value, lo, hi, cast=float):

@@ -24,8 +24,8 @@ export type { PcMode }
 export const PC_ONLY_SUMMARY = 'PC only'
 export const PC_ONLY_BODY = 'Run this on the main PC.'
 export const PC_ONLY_DELETE_NOTE = 'Deleting is PC only.'
-export const PC_CHECKING = 'Checking whether this is the main PC…'
-export const PC_UNCONFIRMED = "Couldn't confirm this is the main PC."
+const PC_CHECKING = 'Checking whether this is the main PC…'
+const PC_UNCONFIRMED = "Couldn't confirm this is the main PC."
 
 export function usePcOnly(): PcMode {
   const mode = useSyncExternalStore(subscribePcMode, getPcMode, getPcMode)

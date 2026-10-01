@@ -7,7 +7,6 @@ export interface ExportReadiness {
   zh_filled: number
   en_filled: number
   fully_translated: boolean
-  test_mode_output: boolean
   overlap_count: number
   auto_qc_issue_count: number
   dense_line_count: number

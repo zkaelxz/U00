@@ -7,7 +7,7 @@ import type { MockState } from './sourcesMocks'
 // identify media, SO16 pasted-link imports), on top of sourcesMocks.ts and
 // sourcesImportMocks.ts. Call last (later routes take precedence).
 
-export const PREFLIGHT = {
+const PREFLIGHT = {
   kind: 'url_preflight', ok: true, verdict: 'Looks importable as a novel.', permitted: true, reachable: true,
   content_type: 'novel', tier: 'STATIC_HTTP', adapter: null, title: 'Chapter 5', text_chars: 5120, images: 0,
   confidence: 'HIGH', next_link: true, previous_link: false, warnings: [],
@@ -15,7 +15,7 @@ export const PREFLIGHT = {
   display_url: 'https://novels.example/book/5',
 }
 
-export const IDENTIFY = {
+const IDENTIFY = {
   kind: 'media_identify', run_id: 'run1', found: true, needs_review: true,
   reason: "Found media resources, but which one is the content isn't clear -- pick one yourself.",
   protection: ['DRM'],
@@ -28,7 +28,7 @@ export const IDENTIFY = {
 
 export const FULL_RESOURCE = 'https://cdn.example/a.mp4?sig=abc'
 
-export const EXTRACTIONS = [
+const EXTRACTIONS = [
   {
     url: 'https://novels.example/book/5', created_at: Date.now() / 1000 - 300, content_type: 'novel',
     headline: 'Worked: Static HTTP + Deterministic extraction', tier: 'STATIC_HTTP', extraction_tier: 'deterministic',
@@ -39,7 +39,7 @@ export const EXTRACTIONS = [
   },
 ]
 
-export interface ToolsMockState {
+interface ToolsMockState {
   preflight: 'none' | 'running' | 'done'
   identify: 'none' | 'running' | 'done'
   pastedPreview: unknown

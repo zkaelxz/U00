@@ -96,11 +96,11 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
     from services import jobs_service
     did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
                                    content_mode="audio_drama", status="aligned",
-                                   translation_engine="test_offline")
+                                   translation_engine="fake")
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
 
     class Revoked:
-        name = "test_offline"
+        name = "fake"
         supports_reference = False
         last_usage = {}
 
@@ -150,7 +150,7 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     _stub_style_sources(monkeypatch)
 
     class Engine:
-        name = "test_offline"
+        name = "fake"
         context = None
 
         def translate_batch(self, zh, context):
@@ -161,7 +161,7 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_ctx")
     wjs.run_fix_flagged_lines_job("fix_ctx", did, lines, None, "small", False, "zh",
-                                  Engine(), "test_offline", locale="en-GB")
+                                  Engine(), "fake", locale="en-GB")
     ctx = Engine.context
     assert ctx["locale"] == "en-GB" and ctx["source_language"] == "zh"
     assert "苏杉" in str(ctx["glossary_terms"])
@@ -193,7 +193,7 @@ def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, p
     calls = _spy_style_context(monkeypatch)
 
     class Engine:
-        name = "test_offline"
+        name = "fake"
 
         def translate_batch(self, zh, context):
             return ["ok"]
@@ -201,7 +201,7 @@ def test_fix_flagged_passes_translate_toggles(isolated_db, monkeypatch, genre, p
     lines = core.lines_from_rows(isolated_db.load_lines(did))
     background_jobs.clear_job("fix_toggles")
     wjs.run_fix_flagged_lines_job("fix_toggles", did, lines, None, "small", False, "zh",
-                                  Engine(), "test_offline", include_genre_notes=genre,
+                                  Engine(), "fake", include_genre_notes=genre,
                                   default_female_pronouns=pronouns)
     assert calls[0]["include_genre_notes"] is genre
     assert calls[0]["default_female_pronouns"] is pronouns

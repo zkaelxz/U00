@@ -9,10 +9,10 @@ export const SCREENS = process.env.E2E_SCREENS ?? 'test-results/screens/live'
 
 export const SID = `live_${'1'.repeat(32)}`
 
-export const ENGINES = [
+const ENGINES = [
   { name: 'deepseek', label: 'DeepSeek -- cheap', free: false, models: null, key_configured: true },
   { name: 'claude', label: 'Claude', free: false, models: null, key_configured: false },
-  { name: 'test_offline', label: 'Offline test', free: true, models: null, key_configured: true },
+  { name: 'fake', label: 'Fake', free: true, models: null, key_configured: true },
 ]
 
 export const cue = (n: number) => ({
@@ -20,7 +20,7 @@ export const cue = (n: number) => ({
   translated: `Line ${n}: a longer English translation so the phone layout has to wrap it.`,
 })
 
-export interface LiveMocks {
+interface LiveMocks {
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   polls: string[]
   unmocked: string[]

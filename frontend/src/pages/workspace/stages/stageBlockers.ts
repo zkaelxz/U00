@@ -1,7 +1,7 @@
 // Why a stage's primary button can't run yet (guideline rules 2 and 22).
 // The stage shows the reason under the disabled button, with a one-tap fix.
 
-export type TranslateBlocker =
+type TranslateBlocker =
   | { kind: 'no-lines' }
   | { kind: 'all-translated'; total: number }
   | { kind: 'confirm-force' }

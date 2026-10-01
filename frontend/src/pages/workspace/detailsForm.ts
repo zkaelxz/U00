@@ -1,15 +1,14 @@
 import type { DramaDetail } from '../../api/types'
 import type { DramaMetadataUpdate } from '../../types/library'
-import type { SourceConfig, SourceConfigUpdate } from '../../types/workspace'
 import { humanize } from '../../components/labels'
 import { MAX_NAME_LEN, MAX_SUMMARY_LEN, MEDIA_TYPES, SOURCE_LANGUAGES } from '../libraryForm'
 
 // Pure logic for the Source stage's "Edit details" form. Caps mirror
 // api/schemas.py DramaMetadataUpdate; the server re-validates everything.
 
-export const MAX_TAGS_LEN = 2000
-export const MAX_URL_LEN = 2000
-export const MAX_COUNT = 2147483647
+const MAX_TAGS_LEN = 2000
+const MAX_URL_LEN = 2000
+const MAX_COUNT = 2147483647
 // services/drama_service.py PUBLICATION_STATUSES.
 export const PUBLICATION_STATUSES = ['unknown', 'ongoing', 'completed', 'hiatus']
 
@@ -66,7 +65,7 @@ export const FIELD_LABELS: Record<keyof DetailsForm, string> = {
   new_series_name: 'New series name',
 }
 
-export const normalizeTags = (raw: string): string =>
+const normalizeTags = (raw: string): string =>
   raw
     .split(',')
     .map((t) => t.trim())
@@ -125,7 +124,7 @@ export function validateDetails(f: DetailsForm, initial: DetailsForm): DetailsEr
   return e
 }
 
-export interface DetailsPayload {
+interface DetailsPayload {
   metadata: DramaMetadataUpdate // for POST /api/dramas/{id}/metadata
   sourceLanguage: string | null // for POST /api/source/dramas/{id}/config
 }
@@ -213,11 +212,3 @@ const TRANSCRIPT_MODE_LABELS: Record<string, string> = {
 
 // Media type, content mode or transcript mode -> its display label.
 export const modeLabel = (m: string) => TRANSCRIPT_MODE_LABELS[m] ?? humanize('mediaType', m)
-
-// Only the modes that differ from the loaded config.
-export function modeUpdate(config: SourceConfig, content: string, transcript: string): SourceConfigUpdate {
-  const out: SourceConfigUpdate = {}
-  if (content && content !== config.content_mode) out.content_mode = content
-  if (transcript && transcript !== config.transcript_mode) out.transcript_mode = transcript
-  return out
-}

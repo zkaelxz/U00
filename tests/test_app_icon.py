@@ -2,8 +2,8 @@
 tests/test_app_icon.py -- the app's own icon file (assets/app_icon.ico),
 built in Step 10.4 and used by make_shortcut.bat for the desktop shortcut.
 
-Moved from tests/test_app.py (Streamlit retirement, docs/streamlit-retirement-plan.md
-section 9, guardrail 4), which imports streamlit.testing and goes with app.py.
+Moved from tests/test_app.py (Streamlit retirement), which imported
+streamlit.testing.
 """
 import os
 

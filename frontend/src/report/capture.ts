@@ -32,7 +32,7 @@ export type CaptureSnapshot = {
 
 export const BUFFER_SIZE = 30
 export const ROUTE_HISTORY_SIZE = 10
-export const MESSAGE_MAX = 500
+const MESSAGE_MAX = 500
 
 export class Ring<T> {
   private items: T[] = []
@@ -100,11 +100,11 @@ export function routeFromHash(hash: string): string {
   return sanitize(path.startsWith('/') ? path : `/${path}`, 200)
 }
 
-export function recordConsole(level: 'error' | 'warn', args: unknown[]) {
+function recordConsole(level: 'error' | 'warn', args: unknown[]) {
   consoleBuf.push({ level, message: sanitize(args.map(describeArg).join(' ')), at: now() })
 }
 
-export function recordError(kind: 'error' | 'unhandledrejection', message: string, source?: string) {
+function recordError(kind: 'error' | 'unhandledrejection', message: string, source?: string) {
   errorBuf.push({ kind, message: sanitize(message), ...(source ? { source: stripUrl(source) } : {}), at: now() })
 }
 

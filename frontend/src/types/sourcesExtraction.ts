@@ -44,7 +44,7 @@ export interface ComicUrlImportResult {
 // ---------------------------------------------------------------- SO10 review
 
 export type ReviewWhy = 'low_confidence' | 'asked' | 'diagnostics' | 'follow' | 'recovery'
-export type ConfidenceBucket = 'HIGH' | 'MEDIUM' | 'LOW' | 'FAILED'
+type ConfidenceBucket = 'HIGH' | 'MEDIUM' | 'LOW' | 'FAILED'
 
 export interface FieldConfidence {
   field: string

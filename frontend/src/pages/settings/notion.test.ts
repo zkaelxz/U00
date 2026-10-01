@@ -4,8 +4,8 @@ import { ApiError } from '../../api/client'
 import type { NotionConfig } from '../../types/notion'
 import {
   configChanges, notionErrorMessage, notionSummary, partlySetUp, readyToExport, safeNotionUrl, testResultText,
-  TOKEN_WRITES_REFUSED,
 } from './notion'
+import { KEY_WRITES_REFUSED } from '../../components/errorMessages'
 
 const ID = '0123456789abcdef0123456789abcdef'
 const cfg: NotionConfig = { target_type: 'database', target_id: ID, token_configured: true }
@@ -55,7 +55,7 @@ describe('notion helpers', () => {
       .toBe('Connected as Baihe. Exports go into the database "Dramas".')
     expect(testResultText({ ok: true, bot_name: '', target_title: '', target_type: 'page' }))
       .toBe('Connected as your integration. Exports go into the page "Untitled".')
-    expect(notionErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }), true)).toBe(TOKEN_WRITES_REFUSED)
+    expect(notionErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }), true)).toBe(KEY_WRITES_REFUSED)
     expect(notionErrorMessage(new ApiError(403, { code: 'forbidden', message: 'x' }))).toMatch(/PC only/)
     expect(notionErrorMessage(new ApiError(409, { code: 'conflict', message: 'An export is already running.' })))
       .toBe('An export is already running.')

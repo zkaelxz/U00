@@ -7,7 +7,7 @@ confirm gates, request-schema strictness, status codes, and that no key
 ever leaves the server.
 
 FastAPI TestClient against an isolated library. Runs use the free
-`test_offline` engine or a fake class patched into
+`fake` engine or a fake class patched into
 translate_engines.ENGINES; no network, no real keys, no models.
 """
 
@@ -116,7 +116,7 @@ def _case_count():
     return len(db.list_benchmark_cases())
 
 
-RUN_OK = {"stage": "translation", "configs": [{"engine": "test_offline"}], "confirm": True}
+RUN_OK = {"stage": "translation", "configs": [{"engine": "fake"}], "confirm": True}
 
 # (method, path, kwargs) for every read route.
 _READS = [
@@ -124,7 +124,7 @@ _READS = [
     ("get", "/cases", {}),
     ("get", "/sets", {}),
     ("get", "/runs", {}),
-    ("post", "/estimate", {"json": {"configs": [{"engine": "test_offline"}]}}),
+    ("post", "/estimate", {"json": {"configs": [{"engine": "fake"}]}}),
 ]
 
 
@@ -279,8 +279,8 @@ class TestWritesLocalOnly:
 
 class TestConfirm:
     @pytest.mark.parametrize("body", [
-        {"stage": "translation", "configs": [{"engine": "test_offline"}]},
-        {"stage": "translation", "configs": [{"engine": "test_offline"}], "confirm": False},
+        {"stage": "translation", "configs": [{"engine": "fake"}]},
+        {"stage": "translation", "configs": [{"engine": "fake"}], "confirm": False},
     ])
     def test_run_without_confirm_422_no_row(self, isolated_db, body):
         _case()
@@ -303,7 +303,7 @@ class TestConfirm:
 
     def test_estimate_writes_nothing(self, isolated_db):
         _case()
-        r = _local().post(f"{BASE}/estimate", json={"configs": [{"engine": "test_offline"}]})
+        r = _local().post(f"{BASE}/estimate", json={"configs": [{"engine": "fake"}]})
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["case_count"] == 1 and body["estimated_cost_usd"] == 0
@@ -330,7 +330,7 @@ class TestRuns:
         detail = r.json()
         run = detail["run"]
         assert (run["id"], run["engine"], run["status"], run["label"], run["prompt_version"]) == \
-            (sid, "test_offline", "done", "base", "v1")
+            (sid, "fake", "done", "base", "v1")
         assert run["case_count"] == 1
         (res,) = detail["results"]
         assert res["case_id"] == case_id
@@ -379,7 +379,7 @@ class TestRuns:
         _case()
         c = _local()
         r = c.post(f"{BASE}/runs", json={**RUN_OK, "configs": [{"engine": "claude"},
-                                                                {"engine": "test_offline"}]})
+                                                                {"engine": "fake"}]})
         assert r.status_code == 200, r.text
         started = r.json()
         assert started["arena_group"]
@@ -437,9 +437,9 @@ class TestExtraFields:
         ("/cases/{cid}/delete", {"confirm": True, "extra": 1}),
         ("/import", {"set_name": "s", "text": "a\tb\n", "format": "tsv", "extra": 1}),
         ("/runs", {**RUN_OK, "extra": 1}),
-        ("/runs", {**RUN_OK, "configs": [{"engine": "test_offline", "api_key": SECRET}]}),
-        ("/estimate", {"configs": [{"engine": "test_offline"}], "extra": 1}),
-        ("/estimate", {"configs": [{"engine": "test_offline", "api_key": SECRET}]}),
+        ("/runs", {**RUN_OK, "configs": [{"engine": "fake", "api_key": SECRET}]}),
+        ("/estimate", {"configs": [{"engine": "fake"}], "extra": 1}),
+        ("/estimate", {"configs": [{"engine": "fake", "api_key": SECRET}]}),
     ])
     def test_extra_body_field_422_nothing_written(self, isolated_db, path, body):
         cid = _case()
@@ -455,7 +455,7 @@ class TestExtraFields:
         ("/import", {"set_name": "s", "text": "a", "format": "csv"}),
         ("/runs", {**RUN_OK, "stage": "dubbing"}),
         ("/runs", {**RUN_OK, "configs": []}),
-        ("/runs", {**RUN_OK, "configs": [{"engine": "test_offline"}] * 5}),
+        ("/runs", {**RUN_OK, "configs": [{"engine": "fake"}] * 5}),
     ])
     def test_out_of_range_values_422(self, isolated_db, path, body):
         _case()
@@ -480,7 +480,7 @@ class TestNoKeyInResponses:
             assert isinstance(e["key_configured"], bool)
         assert engines["claude"]["key_configured"] is True
         assert engines["deepseek"]["key_configured"] is False
-        assert engines["test_offline"]["key_configured"] is True
+        assert engines["fake"]["key_configured"] is True
 
     @pytest.mark.parametrize("where", ["translate", "init"])
     def test_engine_error_with_key_is_redacted(self, isolated_db, monkeypatch, where):
@@ -503,7 +503,7 @@ class TestNoKeyInResponses:
         _case()
         c = _local()
         r = c.post(f"{BASE}/runs", json={**RUN_OK, "configs": [{"engine": "claude"},
-                                                                {"engine": "test_offline"}]})
+                                                                {"engine": "fake"}]})
         assert r.status_code == 200, r.text
         assert SECRET_CORE not in r.text
         assert _wait()["status"] == "done"

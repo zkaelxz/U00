@@ -1,0 +1,51 @@
+/* The cogwheel at the end of the main nav and its menu (components/GearMenu.tsx). */
+details.gear-menu { position: relative; }
+details.gear-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+details.gear-menu > summary::-webkit-details-marker { display: none; }
+details.gear-menu > summary:hover,
+details.gear-menu[open] > summary { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+details.gear-menu > summary[aria-current='page'] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-bottom-color: var(--accent);
+}
+.gear-menu-panel {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  display: grid;
+  min-width: 12rem;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-1);
+}
+/* Beats ".app-header nav a": these links sit inside the nav element. */
+.app-header nav .gear-menu-panel a {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  border-bottom: 0;
+  color: var(--text);
+  font-weight: 500;
+  text-align: left;
+  justify-content: flex-start;
+}
+.app-header nav .gear-menu-panel a:hover { background: var(--accent-soft); }
+.app-header nav .gear-menu-panel a[aria-current='page'] { font-weight: 600; color: var(--accent-text); background: none; }
+
+@media (pointer: coarse), (max-width: 640px) {
+  details.gear-menu > summary { min-height: 44px; }
+  .app-header nav .gear-menu-panel a { min-height: 44px; }
+}

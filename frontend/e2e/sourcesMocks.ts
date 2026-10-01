@@ -60,7 +60,7 @@ export function searchResult(n = 3) {
 }
 
 
-export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1', links?: unknown[]) {
+function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1', links?: unknown[]) {
   return {
     kind: 'series',
     source: 'alpha',
@@ -83,7 +83,7 @@ export const SERIES_LINKS = [
   { label: '蓝奏云 (Lanzou)', url: 'https://wwasa.lanzoue.com/b0188mxnyb', password: '' },
 ]
 
-export function sourceDetail(summary: (typeof SOURCES)[number]) {
+function sourceDetail(summary: (typeof SOURCES)[number]) {
   const tier = { tested: false, ok: false, reason: null, detail: '', at: null }
   return {
     ...summary,

@@ -18,7 +18,7 @@ export function bilingualCredit(original: string | null, romanized: string | nul
   return r || o
 }
 
-export type CreditRow = { key: string; label: string; text: string; romanized: boolean }
+type CreditRow = { key: string; label: string; text: string; romanized: boolean }
 
 /** One row per credit that is set, shown bilingually once romanized. */
 export function creditRows(d: Pick<DramaDetail,
@@ -40,8 +40,8 @@ export const hasCredits = (d: Pick<DramaDetail, 'author' | 'studio' | 'director'
   CREDITS.some(([k]) => (d[k] ?? '').trim() !== '')
 
 // Server caps (services/cover_art_service.py).
-export const COVER_MAX_BYTES = 10 * 1024 * 1024
-export const COVER_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const COVER_MAX_BYTES = 10 * 1024 * 1024
+const COVER_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 export const COVER_ACCEPT = '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'
 
 /** Why this file can't be a cover, or null. The server checks the bytes again. */

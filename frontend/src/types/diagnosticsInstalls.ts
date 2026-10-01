@@ -32,7 +32,7 @@ export interface DiagnosticsDenoStatus {
   last_result: DiagnosticsDenoResult | null
 }
 
-export type UpgradeVerdict = 'safe' | 'broken' | 'conflict' | 'incomplete' | string
+type UpgradeVerdict = 'safe' | 'broken' | 'conflict' | 'incomplete' | string
 
 export interface DiagnosticsUpgradeCheckResult {
   ok: boolean

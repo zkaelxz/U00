@@ -18,8 +18,7 @@ Rules (spec sections 3 and 5):
   - Nothing here writes except `bulk_commit` (known_titles only, deduped).
 
 Paid-engine spending: see PAID_ENGINE_FUNCTIONS. They spend only when the
-chosen engine is not in `translate_engines.FREE_ENGINES`; `spends_on_paid_engine`
-answers that for a given engine name.
+chosen engine is not in `translate_engines.FREE_ENGINES`.
 """
 import threading
 import uuid
@@ -76,10 +75,6 @@ def _redact(text) -> str:
 def allowed_engines() -> list:
     return [e for e, cls in translate_engines.ENGINES.items()
             if getattr(cls, "supports_reference", False)]
-
-
-def spends_on_paid_engine(engine_name: Optional[str]) -> bool:
-    return (engine_name or DEFAULT_ENGINE) not in translate_engines.FREE_ENGINES
 
 
 def _check_engine(engine_name) -> str:

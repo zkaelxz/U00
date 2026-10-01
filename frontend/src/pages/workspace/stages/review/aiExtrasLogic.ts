@@ -9,8 +9,8 @@ import type {
 } from '../../../../types/reviewExtras'
 
 // Mirrors services/review_extras_service.py MERGE_DEFAULTS / MERGE_LIMITS.
-export const MERGE_DEFAULTS: MergeShortOptions = { min_duration: 1.2, max_gap: 0.5, max_chars: 80 }
-export const MERGE_LIMITS: Record<keyof MergeShortOptions, [number, number]> = {
+const MERGE_DEFAULTS: MergeShortOptions = { min_duration: 1.2, max_gap: 0.5, max_chars: 80 }
+const MERGE_LIMITS: Record<keyof MergeShortOptions, [number, number]> = {
   min_duration: [0.1, 10],
   max_gap: [0, 5],
   max_chars: [10, 500],

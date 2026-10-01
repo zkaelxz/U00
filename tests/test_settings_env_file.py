@@ -2,8 +2,7 @@
 tests/test_settings_env_file.py -- the .env key loader and writer in
 services/settings_service.py (resolve_key, set_engine_key).
 
-Moved from tests/test_settings_tab.py (Streamlit retirement,
-docs/streamlit-retirement-plan.md section 9, guardrail 4), where the same
+Moved from tests/test_settings_tab.py (Streamlit retirement), where the same
 cases ran against the Settings tab's _load_env_defaults/save_key_to_env and
 asserted st.session_state. They now assert the service's return values.
 

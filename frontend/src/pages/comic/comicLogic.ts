@@ -5,7 +5,7 @@ import type { StorageLike } from '../../components/sectionStorage'
 import { readPref, writePref } from '../../hooks/usePersistedState'
 import type { ComicRegion, ComicRegionsResponse } from '../../types/comic'
 
-export const COMIC_MEDIA_TYPES = ['manga', 'manhua', 'manhwa'] as const
+const COMIC_MEDIA_TYPES = ['manga', 'manhua', 'manhwa'] as const
 
 export function isComicType(mediaType: string | null | undefined): boolean {
   return !!mediaType && (COMIC_MEDIA_TYPES as readonly string[]).includes(mediaType.toLowerCase())
@@ -65,7 +65,7 @@ export function sanitizePrefs(raw: unknown, defaults: ComicPrefs): ComicPrefs {
 }
 
 // Remembered per drama in localStorage ("baihe.pref.comic.view.<id>").
-export const prefsKey = (dramaId: number) => `comic.view.${dramaId}`
+const prefsKey = (dramaId: number) => `comic.view.${dramaId}`
 
 export function loadComicPrefs(storage: StorageLike | null, dramaId: number, defaults: ComicPrefs): ComicPrefs {
   return sanitizePrefs(readPref<Record<string, unknown>>(storage, prefsKey(dramaId), {}), defaults)
@@ -116,7 +116,7 @@ export function keyAction(combo: string, mode: ComicMode, rtl: boolean): ComicAc
   return null
 }
 
-export type TapAction = 'next' | 'prev' | 'chrome'
+type TapAction = 'next' | 'prev' | 'chrome'
 
 /** A tap at `fraction` (0..1) across the page: thirds; the middle shows or hides the bars. */
 export function tapAction(fraction: number, rtl: boolean): TapAction {

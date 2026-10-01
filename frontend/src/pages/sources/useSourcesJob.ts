@@ -22,13 +22,13 @@ import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
 import { isSameJobConflict } from './sourcesFormat'
 
-export type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
+type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
 
 export const LOST_CONTACT = 'Lost contact with the API.'
-export const POLL_MS = 1500
-export const MAX_RETRIES = 3
+const POLL_MS = 1500
+const MAX_RETRIES = 3
 
-export interface PollHandlers<R> {
+interface PollHandlers<R> {
   fetchResult?: (id: string) => Promise<SourcesJobResult<R>>
   intervalMs?: number
   onUpdate: (r: SourcesJobResult<R>) => void
@@ -105,7 +105,7 @@ const idle = <R>(id: string): JobState<R> => ({
 export const isStartedHere = (startedId: string | null, jobId: string | null) =>
   startedId !== null && startedId === jobId
 
-export interface SourcesJobOptions {
+interface SourcesJobOptions {
   // A start's 409 for this same job id reattaches to the running run (search).
   // Off for series: the id is per source, so the running run may be another
   // series; the 409 is then left in `startError` for the page to explain.

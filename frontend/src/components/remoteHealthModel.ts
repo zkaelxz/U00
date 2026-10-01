@@ -10,7 +10,7 @@ export const DISMISS_KEY = 'baihe.remoteHealth.dismissed'
 // The server checks every few hours; this only picks the result up.
 export const POLL_MS = 5 * 60_000
 
-export const isProblem = (h: Pick<RemoteHealth, 'state'>) => h.state === 'warn' || h.state === 'critical'
+const isProblem = (h: Pick<RemoteHealth, 'state'>) => h.state === 'warn' || h.state === 'critical'
 
 /** Identifies one state episode: a new state (or the same state starting again) gets a new key. */
 export function stateKey(h: Pick<RemoteHealth, 'state' | 'since'>): string {

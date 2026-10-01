@@ -3,7 +3,7 @@
 import type { BadgeTone } from '../../components/labels'
 import type { CapabilityRoute, EngineRouteStatus, EngineRouting, EngineStatus } from '../../types/engineRouting'
 
-export const STATUS_BADGES: Record<EngineStatus, { label: string; tone: BadgeTone }> = {
+const STATUS_BADGES: Record<EngineStatus, { label: string; tone: BadgeTone }> = {
   working: { label: 'Working', tone: 'ok' },
   failed: { label: 'Failed', tone: 'bad' },
   untested: { label: 'Not tested', tone: 'neutral' },
@@ -15,7 +15,7 @@ export function statusBadge(status: string): { label: string; tone: BadgeTone } 
 }
 
 // translate_engines.CAP_* tags in plain words.
-export const TAG_LABELS: Record<string, string> = {
+const TAG_LABELS: Record<string, string> = {
   translate: 'Translates',
   instructions: 'Follows instructions',
   long_context: 'Long context',
@@ -44,10 +44,6 @@ export function testBlockedReason(e: EngineRouteStatus): string | null {
   if (e.test_blocked) return e.test_blocked
   return e.status === 'not_configured' ? 'Add a key in API keys first.' : null
 }
-
-// Tasks that are views of a "Defaults for new dramas" preference; saving one
-// means the page's settings snapshot is stale.
-export const PREFERENCE_TASKS: ReadonlySet<string> = new Set(['translation.cheap', 'summary.episode'])
 
 // The <select> value: '' is the "Use default" option (sent as null).
 export const selectValue = (c: CapabilityRoute): string => (c.is_default ? '' : c.engine)

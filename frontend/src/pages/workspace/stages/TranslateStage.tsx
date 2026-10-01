@@ -184,7 +184,7 @@ function PresetPicker({ onApplied }: { onApplied: (p: TranslatePresetApplied) =>
   }
   return (
     <div className="check-row translate-tier">
-      <Field label="Saved preset" help="Fills in the engine, model, style, locale and the two guidance toggles from a preset saved with Save as preset. Everything stays editable, and nothing starts until you press Translate. Manage presets in the Library.">
+      <Field label="Saved preset" help="Fills in the engine, model, style, English variant and the two guidance toggles from a preset saved with Save as preset. Everything stays editable, and nothing starts until you press Translate. Manage presets in the Library.">
         <select value={picked} onChange={(e) => { setPicked(e.target.value); setApplied(null) }}>
           <option value="">Choose a preset</option>
           {presets.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -234,7 +234,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
       {!open ? (
         <div className="check-row">
           <button type="button" className={buttonClass('secondary')} onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
-          <span className="muted">Saves the engine, model, style, locale and the two guidance toggles for any drama.</span>
+          <span className="muted">Saves the engine, model, style, English variant and the two guidance toggles for any drama.</span>
           {saved && <span role="status">{saved}</span>}
         </div>
       ) : (
@@ -412,9 +412,9 @@ function RunPanel({
             {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
         </Field>
-        <Field label="Locale" help="English variant, for example en-US or en-GB spelling.">
+        <Field label="English variant" help="Spelling for the translation: US, UK or Australian English.">
           <select value={f.locale} onChange={(e) => set('locale', e.target.value)}>
-            {config.locales.map((l) => <option key={l} value={l}>{l}</option>)}
+            {config.locales.map((l) => <option key={l} value={l}>{humanize('locale', l)}</option>)}
           </select>
         </Field>
       </div>

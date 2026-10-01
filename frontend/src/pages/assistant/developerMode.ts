@@ -13,7 +13,7 @@ import { getAssistantSettings } from '../../api/assistant'
 import { getPcMode, loadPcMode, type PcMode } from '../../api/pcOnly'
 import type { AssistantSettings } from '../../types/assistant'
 
-export const DEVELOPER_MODE_EVENT = 'baihe:developer-mode'
+const DEVELOPER_MODE_EVENT = 'baihe:developer-mode'
 
 export function announceDeveloperMode(on: boolean): void {
   window.dispatchEvent(new CustomEvent(DEVELOPER_MODE_EVENT, { detail: { on } }))

@@ -6,7 +6,7 @@ import { ME } from './authMocks'
 // (both server jobs, polled) plus the voice-bank Play. Every POST is
 // mocked; guard() records and aborts any other non-GET /api call.
 
-export const overview = {
+const overview = {
   dependencies: {
     pypinyin: { installed: true, powers: 'Chinese pinyin', tier: 'feature' },
     pandas: { installed: true, powers: 'tables', tier: 'required' },
@@ -18,7 +18,7 @@ export const overview = {
   recent_log_lines: [],
 }
 
-export const setup = (jsFound: boolean) => ({
+const setup = (jsFound: boolean) => ({
   python: { version: '3.12.4', ok: true },
   ffmpeg: { found: true, version: '6.1' },
   js_runtime: jsFound ? { found: true, name: 'deno' } : { found: false, name: null },
@@ -27,7 +27,7 @@ export const setup = (jsFound: boolean) => ({
   library_writable: true,
 })
 
-export const UPDATES = {
+const UPDATES = {
   checked_at: 1_790_000_000,
   packages: {
     pypinyin: {
@@ -45,7 +45,7 @@ const denoStatus = (o: Record<string, unknown> = {}) => ({
 const running = (progress: number, message: string) => ({ status: 'running', progress, message, error: null })
 const doneJob = { status: 'done', progress: 1, message: 'Deno v2.9.7 installed.', error: null }
 
-export type Mocks = { sent: Request[]; unmocked: string[] }
+type Mocks = { sent: Request[]; unmocked: string[] }
 
 export async function guard(page: Page): Promise<Mocks> {
   const m: Mocks = { sent: [], unmocked: [] }

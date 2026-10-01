@@ -36,10 +36,10 @@ describe('engine routing api', () => {
   })
 
   it('tests an engine with an empty body and encodes the name', async () => {
-    const { mock, f } = reply(200, { engine: 'test_offline', status: 'working' })
-    expect(await testEngine('test_offline', f)).toMatchObject({ status: 'working' })
+    const { mock, f } = reply(200, { engine: 'ollama', status: 'working' })
+    expect(await testEngine('ollama', f)).toMatchObject({ status: 'working' })
     const [url, init] = mock.mock.calls[0]
-    expect(url).toBe('/api/settings/engine-routing/engines/test_offline/test')
+    expect(url).toBe('/api/settings/engine-routing/engines/ollama/test')
     expect(JSON.parse(init.body)).toEqual({})
     const { mock: m2, f: f2 } = reply(200, {})
     await testEngine('a/b', f2)

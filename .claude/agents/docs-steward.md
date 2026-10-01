@@ -19,9 +19,6 @@ You keep Baihe's docs matched to the code on the branch the lead names.
    - Compare against `git ls-files`.
 2. **Status lines:** "implementation status", "Last updated", test counts, "Merged slices" and "Queue" lines in:
    - `docs/STATUS.md` (merged vs in flight, checked against `git log --oneline origin/baihe-subtitler` and the open PRs)
-   - `docs/migration-frontend-plan.md`
-   - `docs/streamlit-retirement-plan.md`
-   - `docs/streamlit-feature-inventory.md`, where a route or UI now exists for a row marked missing.
 
    Only change a status when git or the code proves it, and cite the PR or commit.
 3. **Route table:** the table in `docs/remote-access-decision.md` matches the routes and guards in `api/routers/`.

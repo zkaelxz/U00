@@ -53,7 +53,7 @@ export function chapterImportResult(over: Record<string, unknown> = {}) {
 }
 
 // What the server stores when a chapter import is cancelled after chapter 1.
-export const CANCELLED_IMPORT = chapterImportResult({
+const CANCELLED_IMPORT = chapterImportResult({
   chapters: [{ chapter_id: 'c1', title: 'Chapter 1', outcome: 'imported', pages: 20 }],
   imported_count: 1, skipped_count: 0, failed_count: 0, retry_chapter_ids: [], partial: false, cancelled: true,
 })

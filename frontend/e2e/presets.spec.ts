@@ -41,7 +41,7 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   expect(bodies).toEqual([{ preset_id: 7 }])
   await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('claude')
   await expect(page.getByLabel('Style', { exact: true })).toHaveValue('subtitle')
-  await expect(page.getByLabel('Locale', { exact: true })).toHaveValue('en-GB')
+  await expect(page.getByLabel('English variant', { exact: true })).toHaveValue('en-GB')
   expect(runs).toBe(0)
 })
 

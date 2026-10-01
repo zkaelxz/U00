@@ -35,7 +35,7 @@ export function consentEngineOf(e: unknown): string | null {
   return typeof d.engine === 'string' ? d.engine : ''
 }
 
-export function consentNeededText(engine: string): string {
+function consentNeededText(engine: string): string {
   const name = engine ? humanize('engine', engine) : 'that engine'
   return `Sending this app's code and logs to ${name} isn't allowed yet. Allow it below (Engine), or use Ollama to keep everything on this PC.`
 }

@@ -7,14 +7,14 @@ import { ME, type MeBody } from './authMocks'
 // fixture; a catch-all aborts (and records) any other non-GET /api call, so
 // nothing is written to the seeded library.
 
-export type Device = {
+type Device = {
   id: number; device: string; created_at: number; last_seen_at: number; expires_at: number
   ip_prefix: string; current: boolean
 }
 
 const now = () => Date.now() / 1000
 
-export function devices(): Device[] {
+function devices(): Device[] {
   const t = now()
   return [
     { id: 11, device: 'Safari on iPhone', created_at: t - 3 * 86400, last_seen_at: t - 10, expires_at: t + 27 * 86400, ip_prefix: '203.0.113', current: true },
@@ -23,7 +23,7 @@ export function devices(): Device[] {
   ]
 }
 
-export interface DevicesMock {
+interface DevicesMock {
   list: Device[]
   sent: Request[]
   unmocked: string[]

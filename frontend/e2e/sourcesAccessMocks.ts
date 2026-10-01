@@ -11,7 +11,7 @@ export const TRACKED = [
   { source: 'beta', series_id: 'b0', title: 'Heaven Book 1', url: 'https://beta.example/b', drama_id: null, last_checked: null, last_check_error: null },
 ]
 
-export interface AccessMockState {
+interface AccessMockState {
   check: 'none' | 'running' | 'done'
   signin: 'none' | 'running' | 'done'
   tier: 'none' | 'running' | 'done'

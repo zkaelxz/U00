@@ -48,11 +48,11 @@ describe('benchmark api', () => {
 
   it('estimate is a plain POST with the selection and no confirm (it spends nothing)', async () => {
     const { mock, f } = reply(200, { configs: [] })
-    await estimateBenchmark({ stage: 'translation', configs: [{ engine: 'test_offline' }] }, f)
+    await estimateBenchmark({ stage: 'translation', configs: [{ engine: 'ollama' }] }, f)
     const [url, init] = mock.mock.calls[0]
     expect(url).toBe('/api/benchmark/estimate')
     expect(init.method).toBe('POST')
-    expect(bodyOf(init)).toEqual({ stage: 'translation', configs: [{ engine: 'test_offline' }] })
+    expect(bodyOf(init)).toEqual({ stage: 'translation', configs: [{ engine: 'ollama' }] })
   })
 
   it('start, import, add and delete are PC-only posts; start and delete send confirm', async () => {

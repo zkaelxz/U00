@@ -14,14 +14,14 @@ import type { MetaResponse } from '../api/types'
 import type { BugReportClient, ReportMode } from '../types/bugReports'
 import type { CaptureSnapshot } from './capture'
 
-export const ISSUE_BASE = 'https://github.com/zkaelxz/U00/issues/new'
-export const ISSUE_TEMPLATE = 'bug.yml'
+const ISSUE_BASE = 'https://github.com/zkaelxz/U00/issues/new'
+const ISSUE_TEMPLATE = 'bug.yml'
 export const ISSUE_URL_MAX = 6000
 export const CUT_NOTE = '\n\n…(cut to fit the link: paste the full report from the app here)'
 
-export type ReportNotes = { whatHappened: string; expected: string; includeServerLog: boolean }
+type ReportNotes = { whatHappened: string; expected: string; includeServerLog: boolean }
 
-export type ReportEnv = {
+type ReportEnv = {
   userAgent: string
   viewport: { width: number; height: number; dpr?: number } | null
   hostname: string

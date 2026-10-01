@@ -62,7 +62,7 @@ def _wait(cond, timeout=5.0):
 
 
 def _start(**kw):
-    args = dict(url="https://www.youtube.com/watch?v=abc", engine="test_offline")
+    args = dict(url="https://www.youtube.com/watch?v=abc", engine="fake")
     args.update(kw)
     return live_service.start_session(**args)["session_id"]
 
@@ -78,7 +78,7 @@ def _terminal(sid):
                                  "javascript:alert(1)", "", "https://user:pw@example.com/"])
 def test_bad_urls_rejected(live, url):
     with pytest.raises(InvalidInputError):
-        live_service.start_session(url, engine="test_offline")
+        live_service.start_session(url, engine="fake")
     assert live_service._sessions == {}
 
 
@@ -88,7 +88,7 @@ def test_private_hosts_rejected(live, monkeypatch, ip):
     monkeypatch.setattr(socket, "getaddrinfo",
                         lambda *a, **k: [(fam, socket.SOCK_STREAM, 6, "", (ip, 443))])
     with pytest.raises(InvalidInputError):
-        live_service.start_session("https://internal.example/", engine="test_offline")
+        live_service.start_session("https://internal.example/", engine="fake")
 
 
 def test_url_check_does_not_fetch(live, monkeypatch):
@@ -119,13 +119,6 @@ def test_numbers_clamped(live, monkeypatch):
     assert seen["a"][3] == 60
     assert seen["k"]["overlap_seconds"] == 8
     assert seen["k"]["max_seconds"] == live_service.MAX_MINUTES_RANGE[1] * 60
-
-
-def test_paid_engine_flag():
-    assert live_service.is_paid_engine("claude")
-    assert live_service.is_paid_engine("gemini")
-    assert not live_service.is_paid_engine("test_offline")
-    assert not live_service.is_paid_engine("ollama")
 
 
 # --- sessions, temp dirs, use_gpu -------------------------------------------

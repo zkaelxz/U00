@@ -39,7 +39,7 @@ export function autotuneApplyErrorText(err: unknown): string | null {
 
 // --- Glossary from novel -----------------------------------------------
 
-export interface Blocker {
+interface Blocker {
   text: string
   link: string
   href: string

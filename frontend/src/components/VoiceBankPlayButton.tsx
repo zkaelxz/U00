@@ -11,7 +11,7 @@ import { buttonClass } from './uiClasses'
 
 let playing: { audio: HTMLAudioElement; stop: () => void } | null = null
 
-export const VOICE_PLAY_FAILED = "Couldn't play this clip (it may be missing, or media access is off)."
+const VOICE_PLAY_FAILED = "Couldn't play this clip (it may be missing, or media access is off)."
 
 export function VoiceBankPlayButton({ entryId, name }: { entryId: number; name: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
