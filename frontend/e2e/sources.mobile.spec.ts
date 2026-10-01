@@ -223,5 +223,4 @@ test('open series with many rows scrolls with the page, no inner scrollbar', asy
   await expect(panel.getByRole('heading', { level: 4, name: 'Extras' })).toBeVisible()
   await noInnerScroll(page)
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(await page.evaluate(() => innerHeight))
-  await page.screenshot({ path: '/tmp/claude-0/-home-user-U00/8dfc67fa-966a-508c-a14a-419930ee2bd6/scratchpad/shots/sources-phone.png', fullPage: true })
 })
