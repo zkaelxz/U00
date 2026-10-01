@@ -1228,6 +1228,145 @@ class TestSetPort:
             assert command in out, command
 
 
+class FakeMutexes:
+    """Named mutexes: `existing` holds every name some process has open."""
+
+    def __init__(self, existing=()):
+        self.existing = set(existing)
+
+    def create(self, name):
+        if name in self.existing:
+            raise service.SetupRunning(name)
+        self.existing.add(name)
+        return name
+
+    def close(self, handle):
+        self.existing.discard(handle)
+
+
+class TestSetupLock:
+    """set-port, enable-remote and disable-remote hold Setup's own mutex
+    names while they run and are refused while anyone else holds them;
+    install, stop and uninstall (which Setup runs while holding them) are
+    not."""
+
+    LOCKED = (["set-port", "8711"], ["enable-remote"], ["disable-remote"])
+
+    def _installed(self, layout, source, remote=False):
+        win = FakeWindows()
+        if remote:
+            (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
+        svc = _services(layout, win, source, is_baihe=lambda p, d: True,
+                        port_check=lambda p: p == 443)
+        svc.install()
+        if remote:
+            svc.enable_remote(8610)
+        return svc, win
+
+    def _snapshot(self, layout):
+        return {p: p.read_bytes() for p in layout.admin.rglob("*") if p.is_file()}
+
+    def test_the_names_are_setups(self):
+        iss = (ROOT / "installer" / "baihe.iss").read_text(encoding="utf-8")
+        names = re.search(r"^SetupMutex=(.*)$", iss, re.M).group(1).strip()
+        assert tuple(n.strip() for n in names.split(",")) == service.SETUP_MUTEX_NAMES
+
+    @pytest.mark.parametrize("argv", LOCKED, ids=lambda a: a[0])
+    @pytest.mark.parametrize("name", ["BaiheStudioSetupMutex", "Global\\BaiheStudioSetupMutex"])
+    def test_refused_while_setup_runs(self, layout, source, argv, name, capsys):
+        svc, win = self._installed(layout, source, remote=True)
+        before, calls = self._snapshot(layout), len(win.calls)
+        mutexes = FakeMutexes({name})
+        assert service.main(argv, services=svc, admin=True, mutexes=mutexes) == 2
+        assert "Setup is running" in capsys.readouterr().err
+        assert self._snapshot(layout) == before
+        assert win.calls[calls:] == []
+        # Setup's name is still there; anything this command made is gone.
+        assert mutexes.existing == {name}
+
+    @pytest.mark.parametrize("argv", LOCKED, ids=lambda a: a[0])
+    def test_held_while_the_command_runs_and_released_after(self, layout, source, argv,
+                                                             monkeypatch):
+        svc, win = self._installed(layout, source, remote=True)
+        mutexes, seen = FakeMutexes(), []
+        method = argv[0].replace("-", "_")
+        real = getattr(svc, method)
+
+        def recording(*a):
+            seen.append(set(mutexes.existing))
+            return real(*a)
+        monkeypatch.setattr(svc, method, recording)
+        assert service.main(argv, services=svc, admin=True, mutexes=mutexes) == 0
+        assert seen == [set(service.SETUP_MUTEX_NAMES)]
+        assert mutexes.existing == set()
+
+    def test_released_after_a_failure(self, layout, source):
+        svc, win = self._installed(layout, source)
+        svc.health = lambda p: p != 8711
+        mutexes = FakeMutexes()
+        assert service.main(["set-port", "8711"], services=svc, admin=True, mutexes=mutexes) == 1
+        assert mutexes.existing == set()
+
+    def test_released_after_ctrl_c(self, layout, source):
+        svc, win = self._installed(layout, source)
+        held = []
+
+        def health(port):
+            if port == 8711:
+                held.append(set(mutexes.existing))
+                raise KeyboardInterrupt
+            return True
+        svc.health = health
+        mutexes = FakeMutexes()
+        with pytest.raises(KeyboardInterrupt):
+            service.main(["set-port", "8711"], services=svc, admin=True, mutexes=mutexes)
+        assert held == [set(service.SETUP_MUTEX_NAMES)]
+        assert mutexes.existing == set()
+        assert service.stored_api_port(layout.config_file) == service.ADMIN_PORT
+
+    def test_a_second_command_is_refused_while_one_runs(self, layout, source, capsys):
+        svc, win = self._installed(layout, source)
+        mutexes = FakeMutexes()
+        with service.setup_lock(mutexes):
+            before = self._snapshot(layout)
+            assert service.main(["set-port", "8711"], services=svc, admin=True,
+                                mutexes=mutexes) == 2
+            assert "try again when it has finished" in capsys.readouterr().err
+            assert self._snapshot(layout) == before
+        assert mutexes.existing == set()
+        assert service.main(["set-port", "8711"], services=svc, admin=True, mutexes=mutexes) == 0
+        assert svc.api_port() == 8711
+
+    @pytest.mark.parametrize("argv", [["install"], ["stop"], ["uninstall"], ["status"]],
+                             ids=lambda a: a[0])
+    def test_setups_own_steps_and_status_do_not_wait_for_it(self, layout, source, argv):
+        svc, win = self._installed(layout, source)
+        if argv == ["install"]:
+            for name in win.services:
+                win.services[name]["state"] = "STOPPED"     # Setup stopped them
+        mutexes = FakeMutexes(service.SETUP_MUTEX_NAMES)
+        assert service.main(argv, services=svc, admin=True, mutexes=mutexes) == 0
+        assert mutexes.existing == set(service.SETUP_MUTEX_NAMES)
+
+    def test_a_mutex_error_changes_nothing(self, layout, source, capsys):
+        svc, win = self._installed(layout, source)
+        before, calls = self._snapshot(layout), len(win.calls)
+
+        class Broken(FakeMutexes):
+            def create(self, name):
+                raise OSError("no mutex")
+        assert service.main(["set-port", "8711"], services=svc, admin=True, mutexes=Broken()) == 1
+        assert "no mutex" in capsys.readouterr().err
+        assert self._snapshot(layout) == before and win.calls[calls:] == []
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="the non-Windows stand-in")
+    def test_a_no_op_off_windows(self, layout, source):
+        assert isinstance(service.default_mutexes(), service.NoMutexes)
+        svc, win = self._installed(layout, source)
+        assert service.main(["set-port", "8711"], services=svc, admin=True) == 0
+        assert svc.api_port() == 8711
+
+
 class TestServiceMenuScript:
     """installer/service_menu.ps1 can't run here; these pin what its
     elevated runs may contain."""

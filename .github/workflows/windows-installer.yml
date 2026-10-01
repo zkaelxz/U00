@@ -357,13 +357,27 @@ jobs:
       # launcher follows the stored port whatever BAIHE_API_PORT says. The
       # Start-menu service menu is checked through its non-interactive -Status
       # (the menu itself and its elevation prompt can't run here). Moved back
-      # to the default afterwards for the steps below.
+      # to the default afterwards for the steps below. First, while Setup's
+      # mutex exists (held here, never waited on), set-port is refused and
+      # changes nothing; once it is released set-port works.
       - name: Service -- set-port moves it, the launcher follows, and back
         shell: pwsh
         run: |
           $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
           $py = "$admin\helper\python\python.exe"
           $svcpy = "$admin\helper\lib\installer\service.py"
+          $mutex = [System.Threading.Mutex]::new($false, 'Global\BaiheStudioSetupMutex')
+          try {
+            $p = Start-Process -FilePath $py -ArgumentList '-I','-S',"`"$svcpy`"",'set-port','8712' -NoNewWindow -PassThru
+            $null = $p.Handle
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "set-port with Setup's mutex held didn't finish in 120 s"; exit 1 }
+            if ($p.ExitCode -ne 2) { Write-Error "set-port with Setup's mutex held exited $($p.ExitCode), expected 2 (refused)"; exit 1 }
+          } finally {
+            $mutex.Dispose()
+          }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8712 -ErrorAction SilentlyContinue) { Write-Error "a refused set-port moved the service to 8712"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode) after a refused set-port"; exit 1 }
           & $py -I -S $svcpy set-port 8711
           if ($LASTEXITCODE -ne 0) { Write-Error "set-port 8711 exited $LASTEXITCODE"; exit 1 }
           $health = Invoke-WebRequest -Uri http://127.0.0.1:8711/api/health -UseBasicParsing -TimeoutSec 10

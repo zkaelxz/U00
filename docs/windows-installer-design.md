@@ -591,6 +591,17 @@ numbers. By hand, in an administrator prompt (`status` needs none):
 - `install [--port N]`: Setup's step; creates or refreshes the service and starts it (`--port` only on a fresh install; an update keeps the stored port).
 - `uninstall`: the uninstaller's step; removes both services and the admin folder.
 
+**One at a time with Setup.** `set-port`, `enable-remote` and
+`disable-remote` take Setup's own mutex (`SetupMutex` in `baihe.iss`, both
+`BaiheStudioSetupMutex` and `Global\BaiheStudioSetupMutex`) for as long as
+they run: Setup started meanwhile says it is already running, and while
+Setup (or another of those three) holds it they are refused with exit code 2,
+changing nothing ("Setup is running ...; try again when it has finished").
+The mutex they create lets everyone open it for `SYNCHRONIZE`, because Setup
+runs unelevated and checks with `OpenMutex`. `install`, `stop` and
+`uninstall` don't take it (Setup runs them while it holds it), and neither
+does the read-only `status`.
+
 `service.py --help` prints the same list. The CI checks the menu only through
 its non-interactive `-Status`; the menu, its prompts and the elevation
 prompt are not run in CI.
@@ -612,7 +623,6 @@ prompt are not run in CI.
 - No health monitoring or banner.
 - `set-port` can race the launcher: its check for a launcher-started server on the service's port runs once, so a server the launcher starts during the move isn't caught.
 - The elevated menu's PowerShell host reads the user's environment (as any elevated console does); it passes only fixed words and checked numbers to the admin folder's Python.
-- `set-port` is not serialized against Setup: running both at once can leave the service on either port (run `status`, then `set-port` again).
 
 **Caddy and remote access (owner's opt-in).** Four rules, owner decisions:
 

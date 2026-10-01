@@ -54,7 +54,14 @@ runs from the admin copy:
                           closed
     status                both services' state and every port Baihe uses
 
-Everything but `status` needs an administrator prompt. Nothing here adds a
+Everything but `status` needs an administrator prompt. set-port,
+enable-remote and disable-remote hold Setup's own mutex (SetupMutex in
+installer/baihe.iss) while they run, so Setup won't start until they finish,
+and each is refused (exit code 2, nothing changed) while Setup or another of
+them holds it. install, stop and uninstall don't take it: Setup runs them
+while it holds it.
+
+Nothing here adds a
 Windows Firewall rule or does anything on the router or with DNS: Windows
 blocks inbound connections to Caddy until the owner adds the rule printed by
 `enable-remote` and `status` (firewall_rule_command), forwarding port 443 on
@@ -65,6 +72,7 @@ Standard library only.
 """
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -172,6 +180,23 @@ EXIT_FAILED = 1
 EXIT_REFUSED = 2
 EXIT_NOT_ADMIN = 3
 
+# Setup's SetupMutex names, exactly as in installer/baihe.iss. Setup refuses
+# to start if it can open either one, and creates both (the plain name in its
+# session's namespace, the Global\ one machine-wide) for as long as it runs.
+SETUP_MUTEX_NAMES = ("BaiheStudioSetupMutex", "Global\\BaiheStudioSetupMutex")
+# The owner's commands that change the service and that Setup doesn't run.
+# Setup runs install, stop and uninstall itself while it holds its mutex, so
+# those must not wait for it.
+SETUP_LOCKED_COMMANDS = ("set-port", "enable-remote", "disable-remote")
+SETUP_RUNNING_MESSAGE = ("Setup is running, or another set-port, enable-remote or disable-remote; "
+                         "try again when it has finished. Nothing was changed.")
+ERROR_ACCESS_DENIED = 5
+ERROR_ALREADY_EXISTS = 183
+# Setup runs unelevated (PrivilegesRequired=lowest) and checks with
+# OpenMutex(SYNCHRONIZE), so everyone gets SYNCHRONIZE; only SYSTEM and
+# Administrators get full access.
+SETUP_MUTEX_SDDL = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x00100000;;;WD)"
+
 
 class ServiceError(Exception):
     """A plain-words reason a step failed (exit code 1)."""
@@ -180,6 +205,11 @@ class ServiceError(Exception):
 class ConfigRefused(ServiceError):
     """Remote access isn't set up (or can't be) and nothing was changed
     (exit code 2)."""
+
+
+class SetupRunning(Exception):
+    """One of Setup's mutex names already exists: Setup, or another locked
+    command, is running."""
 
 
 def service_sid(name: str) -> str:
@@ -856,6 +886,89 @@ def is_admin() -> bool:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
+
+class WindowsMutexes:
+    """Named mutexes through kernel32. A mutex exists while any process has
+    a handle to it; nobody waits on or owns these, existing is the lock."""
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+
+        class SecurityAttributes(ctypes.Structure):
+            _fields_ = [("nLength", wintypes.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
+                        ("bInheritHandle", wintypes.BOOL)]
+
+        self._ctypes = ctypes
+        self._attributes_type = SecurityAttributes
+        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        self._kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+        self._kernel32.CreateMutexW.restype = wintypes.HANDLE
+        self._kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        self._kernel32.CloseHandle.restype = wintypes.BOOL
+        self._kernel32.LocalFree.argtypes = (ctypes.c_void_p,)
+        self._kernel32.LocalFree.restype = ctypes.c_void_p
+        convert = self._advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW
+        convert.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p),
+                            ctypes.c_void_p)
+        convert.restype = wintypes.BOOL
+
+    def create(self, name: str):
+        """A handle to a new mutex called `name`; SetupRunning if it already
+        exists (or exists and may not be opened from here)."""
+        ctypes = self._ctypes
+        descriptor = ctypes.c_void_p()
+        if not self._advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                SETUP_MUTEX_SDDL, 1, ctypes.byref(descriptor), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            attributes = self._attributes_type(ctypes.sizeof(self._attributes_type),
+                                               descriptor.value, False)
+            handle = self._kernel32.CreateMutexW(ctypes.byref(attributes), False, name)
+            error = ctypes.get_last_error()
+        finally:
+            self._kernel32.LocalFree(descriptor)
+        if not handle:
+            if error == ERROR_ACCESS_DENIED:
+                raise SetupRunning(name)
+            raise ctypes.WinError(error)
+        if error == ERROR_ALREADY_EXISTS:
+            self._kernel32.CloseHandle(handle)
+            raise SetupRunning(name)
+        return handle
+
+    def close(self, handle) -> None:
+        self._kernel32.CloseHandle(handle)
+
+
+class NoMutexes:
+    """Elsewhere than Windows there is no Setup to keep out."""
+
+    def create(self, name: str):
+        return None
+
+    def close(self, handle) -> None:
+        pass
+
+
+def default_mutexes():
+    return WindowsMutexes() if os.name == "nt" else NoMutexes()
+
+
+@contextlib.contextmanager
+def setup_lock(mutexes):
+    """Holds every one of Setup's mutex names until the block ends (also on
+    an error or Ctrl+C); SetupRunning, holding none, if any already exists."""
+    handles = []
+    try:
+        for name in SETUP_MUTEX_NAMES:
+            handles.append(mutexes.create(name))
+        yield
+    finally:
+        for handle in reversed(handles):
+            mutexes.close(handle)
 
 
 def _delete_on_reboot(path) -> None:
@@ -1558,7 +1671,7 @@ commands:
 """
 
 
-def main(argv=None, services=None, admin=None) -> int:
+def main(argv=None, services=None, admin=None, mutexes=None) -> int:
     parser = argparse.ArgumentParser(description="Baihe Studio's Windows service.",
                                      epilog=COMMANDS_HELP,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1597,6 +1710,25 @@ def main(argv=None, services=None, admin=None) -> int:
     run = services.run
     if hasattr(run, "log"):
         run.log(f"service.py {args.command}")
+    if args.command not in SETUP_LOCKED_COMMANDS:
+        return _run_command(args, services)
+    try:
+        with setup_lock(default_mutexes() if mutexes is None else mutexes):
+            return _run_command(args, services)
+    except SetupRunning:
+        if hasattr(run, "log"):
+            run.log(f"refused: {SETUP_RUNNING_MESSAGE}")
+        print(SETUP_RUNNING_MESSAGE, file=sys.stderr)
+        return EXIT_REFUSED
+    except OSError as e:
+        if hasattr(run, "log"):
+            run.log(f"failed: Setup's mutex: {e}")
+        print(f"ERROR: Setup's mutex: {e}", file=sys.stderr)
+        return EXIT_FAILED
+
+
+def _run_command(args, services) -> int:
+    run = services.run
     try:
         if args.command == "enable-remote":
             message = services.enable_remote(args.household_port)
