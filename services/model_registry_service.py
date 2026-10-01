@@ -19,14 +19,19 @@ automatically (a settled decision: no automatic model switching).
   (Step 36's capability routing, when it lands, can add its own.)
 - The guided switch changes one saved preset's model to the replacement,
   only when the user confirms, and only if the preset still has the model
-  the user saw (409 otherwise). Built-in defaults and workflow tiers are
-  code: the answer for those is "update the app", never a silent change.
+  the user saw (409 otherwise).
+- A built-in default or a workflow tier's model is code, so the user can
+  instead choose a replacement for it (set_model_override), stored as app
+  settings that translate_engines reads everywhere the built-in is used,
+  and clear it to go back to the built-in (clear_model_override). Same
+  rules as the switch: explicit, confirmed, 409 if the model changed since
+  the user looked, and only a model the engine could offer. Saved presets
+  are never touched by it, and nothing changes by itself.
 
 Keys never leave this module: not returned, not logged, not stored. Error
 text from a provider is passed through translate_engines.redact_secrets.
 """
 import datetime
-import inspect
 import json
 import os
 import re
@@ -45,6 +50,7 @@ CHECK_CACHE_KEY = "model_registry_provider_check"
 CHECK_MIN_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 15
 MAX_MODELS_PER_ENGINE = 2000
+MAX_CANDIDATES = 200
 
 # Fixed model-list endpoints. The key always goes in a header.
 _PROVIDER_LISTS = {
@@ -89,11 +95,7 @@ def load_registry(path: str = None) -> dict:
 
 
 def _default_model(engine: str):
-    cls = translate_engines.ENGINES.get(engine)
-    if cls is None:
-        return None
-    param = inspect.signature(cls.__init__).parameters.get("model")
-    return param.default if param is not None and param.default is not inspect.Parameter.empty else None
+    return translate_engines.effective_default_model(engine)
 
 
 def configured_models() -> list:
@@ -105,12 +107,17 @@ def configured_models() -> list:
             continue
         model = _default_model(e["name"])
         if model:
+            builtin = translate_engines.builtin_default_model(e["name"])
             out.append({"engine": e["name"], "model": model, "kind": "default",
-                        "where": f"{e['name']} built-in default"})
+                        "where": f"{e['name']} built-in default", "key": e["name"],
+                        "builtin_model": builtin, "is_override": model != builtin})
     for key, tier in translate_engines.WORKFLOW_TIERS.items():
         if tier.get("engine_model"):
-            out.append({"engine": tier["translation_engine"], "model": tier["engine_model"],
-                        "kind": "tier", "where": f"Workflow tier: {tier.get('label') or key}"})
+            model = translate_engines.effective_tier_model(key)
+            out.append({"engine": tier["translation_engine"], "model": model,
+                        "kind": "tier", "where": f"Workflow tier: {tier.get('label') or key}",
+                        "key": key, "builtin_model": tier["engine_model"],
+                        "is_override": model != tier["engine_model"]})
     try:
         from services import extension_service
         ext = db.get_app_setting(extension_service.ENGINE_SETTING)
@@ -152,14 +159,21 @@ def extra_models(engine: str) -> list:
     """Models the provider listed in the last manual check that this app
     doesn't know yet; [] when the setting is off, no check has run or it
     failed for `engine`. Reads the cache only, never the network."""
+    if not settings_service.get_offer_provider_models():
+        return []
+    return _listed_extras(engine)
+
+
+def _listed_extras(engine: str) -> list:
+    """extra_models without the opt-in: what a replacement may be chosen from."""
     prefix = _EXTRA_PREFIX.get(engine)
-    if prefix is None or not settings_service.get_offer_provider_models():
+    if prefix is None:
         return []
     provider = (_cached_check().get("engines") or {}).get(engine) or {}
     if not provider.get("ok"):
         return []
     cls_models = getattr(translate_engines, f"{engine.upper()}_MODELS", {})
-    known = set(cls_models) | {_default_model(engine)}
+    known = set(cls_models) | {translate_engines.builtin_default_model(engine)}
     out = []
     for m in provider.get("models") or []:
         if (isinstance(m, str) and m.startswith(prefix) and _EXTRA_ID.match(m) and m not in known
@@ -286,7 +300,9 @@ def get_status() -> dict:
     for c in configured_models():
         a = _assess(c["engine"], c["model"], registry, check)
         replacement_offered = bool(a["replacement"]) and a["replacement"] in _offered(c["engine"])
-        items.append({**c, **a, "severity": _SEVERITY[a["status"]],
+        candidates = (_candidates(c["engine"], c["model"], a["replacement"])
+                      if c["kind"] in ("default", "tier") else [])
+        items.append({**c, **a, "candidates": candidates, "severity": _SEVERITY[a["status"]],
                       "can_switch": c["kind"] == "preset" and replacement_offered
                       and a["status"] in ("retired", "not_listed", "not_offered", "deprecated",
                                           "legacy")})
@@ -301,6 +317,20 @@ def get_status() -> dict:
             "offer_provider_models": settings_service.get_offer_provider_models(),
             "extra_models": {e: x for e in _EXTRA_PREFIX if (x := extra_models(e))},
             "registry_updated": _registry_updated()}
+
+
+def _candidates(engine: str, current: str, replacement) -> list:
+    """Models a default or tier could be switched to: the registry's suggested
+    replacement, then what the provider listed in the last check. Only ones
+    set_model_override would accept."""
+    listed = (_cached_check().get("engines") or {}).get(engine) or {}
+    pool = [replacement] + sorted(m for m in (listed.get("models") or []) if isinstance(m, str)) \
+        if listed.get("ok") else [replacement]
+    out = []
+    for m in pool:
+        if m and m != current and m not in out and _override_error(engine, m) is None:
+            out.append(m)
+    return out[:MAX_CANDIDATES]
 
 
 def _registry_updated():
@@ -388,3 +418,82 @@ def switch_preset_model(preset_id: int, from_model: str, to_model: str) -> dict:
         raise ConflictError("The preset's model changed since you looked; refresh and try again.")
     return {"preset_id": preset_id, "engine": engine, "from_model": from_model,
             "to_model": to_model}
+
+
+# ---------------------------------------------------------------------------
+# Replacing a built-in default or a tier's model (user-confirmed)
+# ---------------------------------------------------------------------------
+
+_override_lock = threading.Lock()
+_OVERRIDE_SETTING_KEYS = {"default": translate_engines.MODEL_OVERRIDE_DEFAULTS_KEY,
+                          "tier": translate_engines.MODEL_OVERRIDE_TIERS_KEY}
+
+
+def _override_error(engine: str, model) -> "str | None":
+    """Why `model` can't replace one of `engine`'s models, or None. An engine
+    with a picker takes its picker models or ones its provider listed in the
+    last check; one without (DeepSeek) takes a same-provider id of a safe shape."""
+    if not isinstance(model, str) or not translate_engines._MODEL_ID_RE.fullmatch(model) \
+            or ".." in model:
+        return "That isn't a valid model name."
+    picker = translate_service._ENGINE_MODEL_DICTS.get(engine)
+    if picker is not None:
+        ok = model in picker or model in _listed_extras(engine)
+    else:
+        prefix = _EXTRA_PREFIX.get(engine)
+        ok = (prefix is not None and model.startswith(prefix) and bool(_EXTRA_ID.match(model))
+              and not any(w in model for w in _NON_CHAT_WORDS))
+    return None if ok else "That model isn't offered for this engine."
+
+
+def _override_target(kind: str, key: str) -> tuple:
+    """(engine, built-in model, current effective model, setting key)."""
+    if kind == "default":
+        builtin = translate_engines.builtin_default_model(key) if key in translate_engines.ENGINES else None
+        if not builtin:
+            raise InvalidInputError("That engine has no built-in model to replace.")
+        return key, builtin, translate_engines.effective_default_model(key), _OVERRIDE_SETTING_KEYS[kind]
+    tier = translate_engines.WORKFLOW_TIERS.get(key) if kind == "tier" else None
+    if tier is None or not tier.get("engine_model"):
+        raise InvalidInputError("There is no model to replace there.")
+    return (tier["translation_engine"], tier["engine_model"],
+            translate_engines.effective_tier_model(key), _OVERRIDE_SETTING_KEYS[kind])
+
+
+def _stored_overrides(setting_key: str) -> dict:
+    raw = db.get_app_setting(setting_key)
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def set_model_override(kind: str, key: str, from_model: str, to_model: str) -> dict:
+    """Uses `to_model` instead of the built-in model of an engine default
+    (kind "default", key = engine) or a workflow tier (kind "tier"). Only
+    from the model the user saw (ConflictError otherwise), and only to one
+    the engine could offer (InvalidInputError). Saved presets don't change."""
+    engine, builtin, current, setting_key = _override_target(kind, key)
+    error = _override_error(engine, to_model)
+    if error:
+        raise InvalidInputError(error)
+    with _override_lock:
+        if current != from_model:
+            raise ConflictError("That model changed since you looked; refresh and try again.")
+        if to_model == current:
+            raise InvalidInputError("It already uses that model.")
+        if to_model == builtin:
+            raise InvalidInputError("That is the built-in model; use the built-in again instead.")
+        stored = _stored_overrides(setting_key)
+        stored[key] = to_model
+        db.set_app_setting(setting_key, stored)
+    return {"kind": kind, "key": key, "engine": engine, "from_model": from_model,
+            "to_model": to_model, "builtin_model": builtin}
+
+
+def clear_model_override(kind: str, key: str) -> dict:
+    """Goes back to the built-in model (nothing happens if none was chosen)."""
+    engine, builtin, _current, setting_key = _override_target(kind, key)
+    with _override_lock:
+        stored = _stored_overrides(setting_key)
+        if key in stored:
+            del stored[key]
+            db.set_app_setting(setting_key, stored)
+    return {"kind": kind, "key": key, "engine": engine, "model": builtin}

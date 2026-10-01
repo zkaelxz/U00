@@ -11,13 +11,18 @@ migration assistant. Thin: see services/model_registry_service.py.
   `confirm=true`): the user-confirmed switch of one preset's model to one
   its engine offers; 409 if the preset's model changed since the user
   looked. Nothing is ever switched automatically.
+- `POST /api/models/overrides` and `POST /api/models/overrides/clear`
+  (`local_only()`, `confirm=true`): choose a replacement for a built-in
+  default or workflow-tier model, or go back to the built-in; 409 if the
+  model changed since the user looked. Saved presets are not touched.
 """
 
 from fastapi import APIRouter, Path
 
 from api.auth import local_only, require_permission
-from api.model_registry_schemas import (ModelStatus, PresetModelSwitchRequest,
-                                        PresetModelSwitchResult)
+from api.model_registry_schemas import (ModelOverrideClearRequest, ModelOverrideRequest,
+                                        ModelOverrideResult, ModelStatus,
+                                        PresetModelSwitchRequest, PresetModelSwitchResult)
 from api.routers.settings_routes import _require_confirm
 from api.schemas import ErrorResponse
 from services import model_registry_service as svc
@@ -47,3 +52,19 @@ def post_check():
 def post_switch(body: PresetModelSwitchRequest, preset_id: int = Path(ge=1)):
     _require_confirm(body.confirm)
     return svc.switch_preset_model(preset_id, body.from_model, body.to_model)
+
+
+@router.post("/overrides", dependencies=[local_only()], response_model=ModelOverrideResult,
+             responses=_ERRS,
+             summary="PC only: use another model instead of a built-in default or tier model (confirm=true)")
+def post_override(body: ModelOverrideRequest):
+    _require_confirm(body.confirm)
+    return svc.set_model_override(body.kind, body.key, body.from_model, body.to_model)
+
+
+@router.post("/overrides/clear", dependencies=[local_only()], response_model=ModelOverrideResult,
+             responses=_ERRS,
+             summary="PC only: go back to the built-in model (confirm=true)")
+def post_override_clear(body: ModelOverrideClearRequest):
+    _require_confirm(body.confirm)
+    return svc.clear_model_override(body.kind, body.key)

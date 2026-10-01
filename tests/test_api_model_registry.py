@@ -142,3 +142,35 @@ def test_translate_engines_route_labels_extra_models(isolated_db):
     claude = next(e for e in items if e["name"] == "claude")
     assert "claude-sonnet-6" in claude["models"]
     assert "newly listed" in claude["model_labels"]["claude-sonnet-6"]
+
+
+def test_override_set_and_clear_are_pc_only(isolated_db):
+    remote = _remote()
+    adm = {**_session(True), **LOCAL_HDR}
+    body = {"kind": "default", "key": "deepseek", "from_model": "deepseek-v4-flash",
+            "to_model": "deepseek-v4-pro", "confirm": True}
+    assert remote.post("/api/models/overrides", headers=adm, json=body).status_code == 403
+    assert remote.post("/api/models/overrides/clear", headers=adm,
+                       json={"kind": "default", "key": "deepseek", "confirm": True}).status_code == 403
+    assert db.get_app_setting("model_overrides.defaults") is None
+
+
+def test_override_set_status_stale_and_clear(isolated_db):
+    c = _local()
+    body = {"kind": "default", "key": "deepseek", "from_model": "deepseek-v4-flash",
+            "to_model": "deepseek-v4-pro"}
+    assert c.post("/api/models/overrides", json=body).status_code == 422   # no confirm
+    assert db.get_app_setting("model_overrides.defaults") is None
+    assert c.post("/api/models/overrides", json={**body, "confirm": True}).status_code == 200
+    assert c.post("/api/models/overrides", json={**body, "confirm": True}).status_code == 409
+    assert c.post("/api/models/overrides", json={**body, "to_model": "gpt-4", "confirm": True,
+                                                 "from_model": "deepseek-v4-pro"}).status_code == 422
+    item = next(i for i in c.get("/api/models/status").json()["items"]
+                if i["kind"] == "default" and i["engine"] == "deepseek")
+    assert item["model"] == "deepseek-v4-pro" and item["is_override"] is True
+    assert item["builtin_model"] == "deepseek-v4-flash" and item["key"] == "deepseek"
+    clear = {"kind": "default", "key": "deepseek"}
+    assert c.post("/api/models/overrides/clear", json=clear).status_code == 422
+    r = c.post("/api/models/overrides/clear", json={**clear, "confirm": True})
+    assert r.status_code == 200 and r.json()["model"] == "deepseek-v4-flash"
+    assert db.get_app_setting("model_overrides.defaults") == {}

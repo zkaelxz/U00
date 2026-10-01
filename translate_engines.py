@@ -2383,10 +2383,93 @@ def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str
     return ENGINE_NOTES[engine_name]
 
 
+# The user's own replacements for a built-in default model and for a workflow
+# tier's model, kept as app settings ({engine: model} and {tier_key: model}).
+# Only an explicit action in Diagnostics writes them (services/
+# model_registry_service); this module only reads, and falls back to the
+# built-in value for anything missing or odd-shaped.
+MODEL_OVERRIDE_DEFAULTS_KEY = "model_overrides.defaults"
+MODEL_OVERRIDE_TIERS_KEY = "model_overrides.tiers"
+_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
+
+
+def _read_overrides(setting_key: str, valid_keys) -> dict:
+    try:
+        import db
+        raw = db.get_app_setting(setting_key)
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items()
+            if k in valid_keys and isinstance(v, str) and _MODEL_ID_RE.fullmatch(v) and ".." not in v}
+
+
+def model_override_for_default(engine_name: str):
+    """The user's chosen model for `engine_name`'s built-in default, or None.
+    An override for an engine this build no longer has is ignored."""
+    return _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
+
+
+def model_override_for_tier(tier_key: str):
+    return _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
+
+
+def builtin_default_model(engine_name: str):
+    """The model an engine's constructor defaults to (None if it has none)."""
+    cls = ENGINES.get(engine_name)
+    if cls is None:
+        return None
+    param = inspect.signature(cls.__init__).parameters.get("model")
+    return param.default if param is not None and param.default is not inspect.Parameter.empty else None
+
+
+def effective_default_model(engine_name: str):
+    """The model an engine uses when none is given: the user's override, else
+    the built-in default. The one place that decision is made."""
+    return model_override_for_default(engine_name) or builtin_default_model(engine_name)
+
+
+def override_models(engine_name: str) -> list:
+    """Models the user chose for `engine_name`'s default or for a workflow
+    tier that runs on it; the offered lists include them so a run started
+    with the effective model is not refused."""
+    out = []
+    default = model_override_for_default(engine_name)
+    if default:
+        out.append(default)
+    for key, tier in WORKFLOW_TIERS.items():
+        model = model_override_for_tier(key)
+        if model and tier["translation_engine"] == engine_name and model not in out:
+            out.append(model)
+    return out
+
+
+def effective_tier_model(tier_key: str):
+    """A workflow tier's model: the user's override, else the tier's own, else
+    (a tier that names none) its engine's effective default."""
+    tier = WORKFLOW_TIERS[tier_key]
+    return (model_override_for_tier(tier_key) or tier["engine_model"]
+            or effective_default_model(tier["translation_engine"]))
+
+
+def effective_tier(tier_key: str):
+    """A copy of WORKFLOW_TIERS[tier_key] with engine_model as the tier really
+    runs it, or None for an unknown tier. A tier with no model of its own
+    stays None unless the user overrode it or its engine's default."""
+    tier = WORKFLOW_TIERS.get(tier_key) if isinstance(tier_key, str) else None
+    if tier is None:
+        return None
+    model = (model_override_for_tier(tier_key) or tier["engine_model"]
+             or model_override_for_default(tier["translation_engine"]))
+    return {**tier, "engine_model": model}
+
+
 def get_engine(engine_name: str, api_key: str = None, model: str = None,
                free_tier: bool = False, base_url: str = None,
                libretranslate_url: str = None):
     cls = ENGINES[engine_name]
+    model = model or model_override_for_default(engine_name)
     kwargs = {}
     if engine_name == "gemini":
         kwargs["free_tier"] = free_tier

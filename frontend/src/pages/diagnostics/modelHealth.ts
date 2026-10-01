@@ -71,9 +71,25 @@ export function whereLabel(item: Pick<ModelStatusItem, 'kind' | 'engine' | 'wher
   return item.where
 }
 
+/** Defaults and workflow tiers can be replaced from the card (a preset is switched, not replaced). */
+export const canChooseModel = (item: Pick<ModelStatusItem, 'kind' | 'key'>): boolean =>
+  (item.kind === 'default' || item.kind === 'tier') && !!item.key
+
+/** "You chose X instead of the built-in Y." for a replaced default or tier, else null. */
+export function overrideLine(item: Pick<ModelStatusItem, 'model' | 'builtin_model' | 'is_override'>): string | null {
+  return item.is_override && item.builtin_model ? `You chose ${item.model} instead of the built-in ${item.builtin_model}.` : null
+}
+
+/** Why there is nothing to pick from yet: no provider check, or a check that listed nothing else. */
+export function noCandidatesLine(item: Pick<ModelStatusItem, 'candidates'>, checkedAt: string | null | undefined): string | null {
+  if ((item.candidates ?? []).length > 0) return null
+  return checkedAt
+    ? 'The last check listed no other model to choose.'
+    : 'Press "Check providers now" first to load the models your provider lists.'
+}
+
 /** What the user can do about a row that isn't switched from here. */
 export function kindHelp(item: Pick<ModelStatusItem, 'kind' | 'can_switch' | 'replacement'>): string | null {
-  if (item.kind === 'default' || item.kind === 'tier') return 'Built into the app — update the app to change it.'
   if (item.kind === 'extension') return 'Change it in Settings, under the browser extension.'
   if (item.kind === 'preset' && !item.can_switch) {
     return item.replacement

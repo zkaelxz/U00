@@ -472,9 +472,7 @@ def _estimate_config(cfg: dict, cases: list):
 
 
 def _default_model(engine: str):
-    import inspect
-    param = inspect.signature(translate_engines.ENGINES[engine].__init__).parameters.get("model")
-    return param.default if param is not None and param.default is not inspect.Parameter.empty else None
+    return translate_engines.effective_default_model(engine)
 
 
 def estimate(stage: str, configs: list, tier: str = None, set_name: str = None,

@@ -26,7 +26,6 @@ the answer is taken only when exactly one comes back (never by position).
 Keys are resolved server-side, never accepted or returned; an engine failure
 is a fixed message with the redacted detail in the app log.
 """
-import inspect
 import re
 
 import core
@@ -113,12 +112,7 @@ class _Probe:
 
 
 def _default_model(engine_name: str):
-    cls = translate_engines.ENGINES.get(engine_name)
-    try:
-        default = inspect.signature(cls.__init__).parameters.get("model")
-        return default.default if default and default.default is not inspect._empty else None
-    except (TypeError, ValueError):
-        return None
+    return translate_engines.effective_default_model(engine_name)
 
 
 def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
