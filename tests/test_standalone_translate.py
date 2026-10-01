@@ -80,7 +80,7 @@ class TestStandaloneDirectionSupport:
             assert message is None
 
     def test_llm_engines_support_english_to_cjk(self):
-        for name in ("claude", "deepseek", "gemini", "test_offline"):
+        for name in ("claude", "deepseek", "gemini", "fake"):
             ok, message = te.standalone_direction_support(name, "en", "ja")
             assert ok is True
             assert message is None

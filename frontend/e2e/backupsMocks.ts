@@ -4,7 +4,7 @@ import type { Page, Route } from '@playwright/test'
 // and the backup job's /api/jobs poll. Every write is recorded in `posts`;
 // settings changes are kept, so a reload shows what was saved.
 
-export interface CopyBody {
+interface CopyBody {
   name: string
   created_at: string | null
   size: number
@@ -16,7 +16,7 @@ export interface CopyBody {
   sequence?: number | null
 }
 
-export interface SnapshotBody {
+interface SnapshotBody {
   exists: boolean
   readable?: boolean
   choose_copy?: boolean
@@ -29,13 +29,13 @@ export interface SnapshotBody {
   copies?: CopyBody[]
 }
 
-export const COPIES: CopyBody[] = [
+const COPIES: CopyBody[] = [
   { name: 'baihe_snapshot-20260928-093000.zip', created_at: '2026-09-28T09:30:00+00:00', size: 12_345_678, kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily', managed: true, sequence: 7 },
   { name: 'baihe_snapshot-20260927-093000.zip', created_at: '2026-09-27T09:30:00+00:00', size: 12_000_000, kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily', managed: true, sequence: 6 },
   { name: 'baihe_snapshot-20260921-093000.zip', created_at: '2026-09-21T09:30:00+00:00', size: 11_000_000, kind: 'full', drama_count: 2, readable: true, kept_as: 'weekly', managed: true, sequence: 3 },
 ]
 
-export const SNAPSHOT: SnapshotBody = {
+const SNAPSHOT: SnapshotBody = {
   exists: true, readable: true, choose_copy: false, default_copy: COPIES[0].name, created_at: '2026-09-28T09:30:00+00:00',
   kind: 'db-only', size: 12_345_678, app_version: '1.0', drama_count: 3, copies: COPIES,
 }
@@ -51,13 +51,13 @@ export const CHOOSE_SNAPSHOT: SnapshotBody = {
   exists: true, readable: true, choose_copy: true, default_copy: null, copies: [OTHER_COPY, ...COPIES],
 }
 
-export const SNAPSHOT_DRAMAS = [
+const SNAPSHOT_DRAMAS = [
   { id: 1, title: 'Grandmaster of Demonic Cultivation', media_type: 'audio_drama', line_count: 812, exists_now: true },
   { id: 2, title: "Heaven Official's Blessing", media_type: 'novel', line_count: 0, exists_now: false },
   { id: 3, title: 'Signal', media_type: 'video_drama', line_count: 1204, exists_now: false },
 ]
 
-export const FILE_DRAMAS = [
+const FILE_DRAMAS = [
   { id: 7, title: 'Manual backup drama', media_type: 'audio_drama', line_count: 12, has_media: true },
   { id: 9, title: 'Second drama', media_type: 'novel', line_count: 8, has_media: false },
 ]

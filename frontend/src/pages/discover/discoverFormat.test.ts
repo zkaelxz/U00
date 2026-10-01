@@ -24,8 +24,8 @@ const eng = (name: string, key_configured = true) => ({ name, label: name, free:
 
 describe('discoverEngines', () => {
   it('keeps configured engines the Discover routes accept', () => {
-    const all = [eng('claude'), eng('gemini', false), eng('ollama'), eng('nllb'), eng('test_offline')]
-    expect(discoverEngines(all).map((e) => e.name)).toEqual(['claude', 'ollama', 'test_offline'])
+    const all = [eng('claude'), eng('gemini', false), eng('ollama'), eng('nllb')]
+    expect(discoverEngines(all).map((e) => e.name)).toEqual(['claude', 'ollama'])
   })
 })
 

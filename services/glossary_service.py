@@ -70,7 +70,7 @@ import db
 import translate_engines
 import translation_guide as tguide
 from services import job_checkpoint_service
-from translate_engines import WORKFLOW_TIERS
+from translate_engines import WORKFLOW_TIERS, effective_tier
 from services.service_errors import (
     ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError,
     UnsupportedOperationError,
@@ -391,7 +391,8 @@ def get_catalogues() -> dict:
                             "translation_engine": v["translation_engine"],
                             "engine_model": v["engine_model"],
                             "reflect": bool(v["reflect"]), "auto_qc": bool(v["auto_qc"])}
-                           for k, v in WORKFLOW_TIERS.items()],
+                           for k in WORKFLOW_TIERS
+                           for v in [effective_tier(k)]],
     }
 
 
@@ -426,10 +427,6 @@ def novel_glossary_engine(drama_id: int) -> str:
     """The engine a run would use (the drama's translation_engine, else
     the Settings default engine) -- for the router's engines.paid gate."""
     return _drama(drama_id).get("translation_engine") or _default_engine()
-
-
-def spends_on_paid_engine(engine_name: Optional[str]) -> bool:
-    return (engine_name or _default_engine()) not in translate_engines.FREE_ENGINES
 
 
 def _normalize_proposals(proposals, known_terms) -> list:

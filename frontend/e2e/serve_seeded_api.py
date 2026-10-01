@@ -159,6 +159,10 @@ def main():
     from api.server import create_app
 
     install_e2e_stubs()
+    # The key-free fake engine (tests/fake_engine.py): lets specs run a real
+    # translation through the real API with no key or network.
+    from tests import fake_engine
+    fake_engine.install()
     # The push stream answers 429 here, so the client falls back to polling:
     # most specs mock GET /api/jobs/{id} and friends and expect them polled.
     # event-stream.spec.ts mocks /api/events itself. E2E_SSE=1 turns the real

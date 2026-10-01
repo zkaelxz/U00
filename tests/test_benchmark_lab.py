@@ -4,7 +4,7 @@ Step 38: Benchmark Lab service (services/benchmark_lab_service.py).
 Exit conditions covered here: a run persists a real row with engine/model/
 prompt version/scores; "add as regression test", once accepted, is in the
 next run; plus golden-set import, CER/WER scoring, the Model Arena view and
-the spending-cap refusals. Mocked engines only (test_offline, or a fake
+the spending-cap refusals. Mocked engines only (fake, or a fake
 engine class patched into translate_engines.ENGINES).
 """
 import builtins
@@ -56,7 +56,7 @@ def paid_engine(monkeypatch):
 
 
 def _run(stage="translation", configs=None, **kw):
-    started = svc.start_run(stage, configs or [{"engine": "test_offline"}], **kw)
+    started = svc.start_run(stage, configs or [{"engine": "fake"}], **kw)
     st = _wait()
     assert st["status"] == "done", st
     return started
@@ -309,11 +309,11 @@ class TestArena:
     def test_two_engines_side_by_side(self, isolated_db, paid_engine):
         paid_engine.answers = {"你好": "Hello"}
         svc.create_case("c", "你好", "Hello")
-        started = _run(configs=[{"engine": "claude"}, {"engine": "test_offline"}])
+        started = _run(configs=[{"engine": "claude"}, {"engine": "fake"}])
         assert started["arena_group"]
         a, b = started["session_ids"]
         view = svc.arena([a, b])
-        assert [r["engine"] for r in view["runs"]] == ["claude", "test_offline"]
+        assert [r["engine"] for r in view["runs"]] == ["claude", "fake"]
         (row,) = view["rows"]
         assert row["results"][0]["output_text"] == "Hello"
         assert row["results"][1]["output_text"].startswith("[TEST]")
@@ -327,13 +327,13 @@ class TestArena:
     def test_same_config_twice_rejected(self, isolated_db):
         svc.create_case("c", "你好", "Hello")
         with pytest.raises(InvalidInputError):
-            svc.estimate("translation", [{"engine": "test_offline"}, {"engine": "test_offline"}])
+            svc.estimate("translation", [{"engine": "fake"}, {"engine": "fake"}])
 
 
 class TestEstimateAndCap:
     def test_estimate_before_run(self, isolated_db, paid_engine):
         svc.create_case("c", "你好" * 50, "Hello")
-        est = svc.estimate("translation", [{"engine": "claude"}, {"engine": "test_offline"}])
+        est = svc.estimate("translation", [{"engine": "claude"}, {"engine": "fake"}])
         assert est["case_count"] == 1
         claude, offline = est["configs"]
         assert claude["cap_applies"] and claude["estimated_cost_usd"] > 0
@@ -366,7 +366,7 @@ class TestEstimateAndCap:
 
     def test_no_cases(self, isolated_db):
         with pytest.raises(UnsupportedOperationError):
-            svc.estimate("translation", [{"engine": "test_offline"}])
+            svc.estimate("translation", [{"engine": "fake"}])
 
 
 class TestFileStages:
@@ -451,7 +451,7 @@ class TestReviewFixes:
     def test_cancel_marks_current_and_later_runs(self, isolated_db, monkeypatch):
         svc.import_golden_set("g", "你好\tHello\n谢谢\tThanks\n", "tsv")
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda job_id: True)
-        started = _run(configs=[{"engine": "test_offline"}, {"engine": "nllb"}])
+        started = _run(configs=[{"engine": "fake"}, {"engine": "nllb"}])
         statuses = [svc.get_run(s)["run"]["status"] for s in started["session_ids"]]
         assert statuses == ["cancelled", "cancelled"]
 
@@ -479,7 +479,7 @@ class TestReviewFixes:
     def test_empty_case_ids_rejected(self, isolated_db):
         svc.create_case("c", "你好", "Hello")
         with pytest.raises(InvalidInputError):
-            svc.estimate("translation", [{"engine": "test_offline"}], case_ids=[])
+            svc.estimate("translation", [{"engine": "fake"}], case_ids=[])
 
     def test_stale_running_run_closed(self, isolated_db):
         sid = db.create_benchmark_session({"stage": "translation", "engine": "claude",
@@ -516,14 +516,14 @@ class TestLeadReviewFixes:
         svc.create_case("c", "你好", "Hello")
         monkeypatch.setattr(background_jobs, "exclusive_active", lambda: True)
         with pytest.raises(ConflictError, match="restore or cleanup"):
-            svc.start_run("translation", [{"engine": "test_offline"}])
+            svc.start_run("translation", [{"engine": "fake"}])
         assert db.list_benchmark_sessions() == []
 
     def test_start_job_refusal_leaves_no_rows(self, isolated_db, monkeypatch):
         svc.create_case("c", "你好", "Hello")
         monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
-            svc.start_run("translation", [{"engine": "test_offline"}])
+            svc.start_run("translation", [{"engine": "fake"}])
         assert db.list_benchmark_sessions() == []
 
     def test_transient_error_is_retried(self, isolated_db, monkeypatch):
@@ -568,7 +568,7 @@ class TestJobCostCap:
         run = svc.get_run(sid)["run"]
         assert run["status"] == "stopped_cap" and not run["total_cost_usd"]
         # A free engine still runs under a cap of 0.
-        (free,) = _run(configs=[{"engine": "test_offline"}], max_cost_usd=0)["session_ids"]
+        (free,) = _run(configs=[{"engine": "fake"}], max_cost_usd=0)["session_ids"]
         assert svc.get_run(free)["run"]["status"] == "done"
 
     def test_spend_is_cumulative_across_configs(self, isolated_db, paid_engine, monkeypatch):

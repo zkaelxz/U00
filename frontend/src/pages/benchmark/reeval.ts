@@ -12,8 +12,8 @@ import type {
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
 import { configLabel, formatCost, formatScore, formatWhen, isRunActive } from './benchmarkForm'
 
-export const DEFAULT_INTERVAL_DAYS = 30
-export const MAX_INTERVAL_DAYS = 365
+const DEFAULT_INTERVAL_DAYS = 30
+const MAX_INTERVAL_DAYS = 365
 export const MAX_REASON_CHARS = 300
 export const MAX_NOTE_CHARS = 200
 
@@ -121,7 +121,7 @@ export function reportActive(overview: Pick<ReevalOverview, 'report'>): boolean 
   return (!!report.production_run && isRunActive(report.production_run)) || report.rows.some(isRunActive)
 }
 
-export interface RunNowState {
+interface RunNowState {
   ok: boolean
   // Plain-English reasons "Run now" is disabled; the first is the most useful.
   reasons: string[]
@@ -176,7 +176,7 @@ export function intervalProblem(text: string): string | null {
   return null
 }
 
-export const MAX_LIMIT_USD = 10000
+const MAX_LIMIT_USD = 10000
 
 /** Why the per-run limit can't be saved, or null (blank is fine: no limit). */
 export function limitProblem(text: string): string | null {
@@ -239,7 +239,7 @@ export function nextDueText(overview: Pick<ReevalOverview, 'settings' | 'next_du
 
 // ---- candidates ----
 
-export interface CandidateForm {
+interface CandidateForm {
   engine: string
   model: string
   note: string
@@ -254,10 +254,9 @@ export function candidateBody(f: CandidateForm): CandidateAddRequest {
   return body
 }
 
-/** Engines a candidate can use: every translation engine but the offline test one (fake output); usable ones first. */
+/** Engines a candidate can use: every translation engine, usable ones first. */
 export function candidateEngines(engines: BenchmarkEngineOption[]): BenchmarkEngineOption[] {
-  const list = engines.filter((e) => e.name !== 'test_offline')
-  return [...list.filter((e) => e.key_configured), ...list.filter((e) => !e.key_configured)]
+  return [...engines.filter((e) => e.key_configured), ...engines.filter((e) => !e.key_configured)]
 }
 
 export interface AddOutcome {

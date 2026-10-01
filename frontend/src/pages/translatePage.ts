@@ -24,11 +24,13 @@ export function orderEngines(engines: TranslateEngine[]): TranslateEngine[] {
 
 /**
  * The engine to show: the remembered one while the server still lists it
- * (a missing key then shows as a warning), else the first usable one, else ''.
+ * (a missing key then shows as a warning), else Settings' default engine when
+ * it can run, else the first usable one, else ''.
  */
-export function pickEngine(engines: TranslateEngine[], remembered: string): string {
+export function pickEngine(engines: TranslateEngine[], remembered: string, defaultEngine: string | null = null): string {
   if (remembered && engines.some((e) => e.name === remembered)) return remembered
-  return usableEngines(engines)[0]?.name ?? ''
+  const usable = usableEngines(engines)
+  return (usable.find((e) => e.name === defaultEngine) ?? usable[0])?.name ?? ''
 }
 
 /** The remembered model if the engine still offers it, else '' (the engine default). */

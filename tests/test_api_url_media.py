@@ -89,6 +89,8 @@ def env(isolated_db, monkeypatch):
     monkeypatch.setitem(sys.modules, "yt_dlp", fake)
     monkeypatch.setattr(url_guard.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("93.184.216.34", port))])
+    monkeypatch.setattr(svc.shutil, "disk_usage",
+                        lambda path: types.SimpleNamespace(total=10**13, used=0, free=10**13))
     ffmpeg = []
 
     def fake_run(job_id, cmd, cwd=None, timeout=None, **kw):
@@ -183,7 +185,7 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     _run(client, did)
     o = FakeYDL.last_opts
     assert o["noplaylist"] is True and o["playlistend"] == 1
-    assert o["max_filesize"] == media_upload_service.max_upload_bytes()
+    assert "max_filesize" not in o
     assert o["socket_timeout"] == 30 and o["retries"] == 3
     assert o["concurrent_fragment_downloads"] == 1
     assert o["external_downloader"] == {"default": "native"}
@@ -213,24 +215,26 @@ def test_filtered_out_links_fail_with_fixed_text(client, env, script):
     _no_tmp(did)
 
 
-@pytest.mark.parametrize("wrap", [False, True])
-def test_byte_cap_aborts(client, env, monkeypatch, wrap):
+def test_a_large_download_is_not_stopped_for_its_size(client, env, monkeypatch):
     monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 1000)
-    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 2000}],
-                      "wrap": wrap}
+    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 5 * 10**9,
+                                  "total_bytes_estimate": 9 * 10**9}]}
     did = _drama()
     st = _run(client, did)
-    assert st["status"] == "error" and "larger than the upload limit" in st["error"]
-    assert env.writes == [] and not os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
+    assert st["status"] == "done", st
     _no_tmp(did)
 
 
-def test_estimated_total_over_cap_aborts(client, env, monkeypatch):
-    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 1000)
-    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 1,
-                                  "total_bytes_estimate": 5000}]}
-    st = _run(client, _drama())
-    assert st["status"] == "error" and "larger" in st["error"]
+@pytest.mark.parametrize("wrap", [False, True])
+def test_download_stops_before_filling_the_drive(client, env, monkeypatch, wrap):
+    monkeypatch.setattr(svc.shutil, "disk_usage",
+                        lambda path: types.SimpleNamespace(total=10**12, used=0, free=svc.MIN_FREE_BYTES - 1))
+    FakeYDL.script = {"events": [{"status": "downloading", "downloaded_bytes": 10}], "wrap": wrap}
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and "drive is almost full" in st["error"]
+    assert env.writes == [] and not os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
+    _no_tmp(did)
 
 
 def test_time_cap_aborts(client, env, monkeypatch):

@@ -64,6 +64,9 @@ _FAILED = ("Couldn't download from that link. It may be private, region-locked o
            "supported, or yt-dlp may need an update.")
 _REJECTED = "That link is a live stream, a playlist or longer than 6 hours, so it was not downloaded."
 _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
+_DISK_NEARLY_FULL = "The drive is almost full, so the download was stopped."
+MIN_FREE_BYTES = 2 * 1024 ** 3
+SPACE_CHECK_SECONDS = 2.0
 _TOO_SLOW = "The download took longer than 2 hours, so it was stopped."
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
 _start_lock = threading.Lock()
@@ -103,14 +106,27 @@ def _has_audio(drama: dict, drama_id: int) -> bool:
 
 
 class _Caps:
-    """The progress hook and match filter for one download: byte cap, wall
-    clock cap and cancel (raise video_download.DownloadAborted), and the
-    live/playlist/duration filter (remembers that it rejected)."""
+    """The progress hook and match filter for one download: wall clock cap,
+    a free-disk-space floor and cancel (raise video_download.DownloadAborted),
+    and the live/playlist/duration filter (remembers that it rejected). There
+    is no size cap: a long video is allowed, but never to the point of filling
+    the drive."""
 
-    def __init__(self, job_id: str, limit_bytes: int, clock=time.monotonic):
-        self.job_id, self.limit, self.clock = job_id, limit_bytes, clock
+    def __init__(self, job_id: str, tmp_dir: str, clock=time.monotonic):
+        self.job_id, self.tmp_dir, self.clock = job_id, tmp_dir, clock
         self.started = clock()
         self.rejected = False
+        self._space_checked = float("-inf")
+
+    def _drive_nearly_full(self) -> bool:
+        now = self.clock()
+        if now - self._space_checked < SPACE_CHECK_SECONDS:
+            return False
+        self._space_checked = now
+        try:
+            return shutil.disk_usage(self.tmp_dir).free < MIN_FREE_BYTES
+        except OSError:
+            return False
 
     def hook(self, d):
         import video_download
@@ -118,10 +134,10 @@ class _Caps:
             raise video_download.DownloadAborted("cancelled")
         if self.clock() - self.started > MAX_WALL_SECONDS:
             raise video_download.DownloadAborted("time")
+        if self._drive_nearly_full():
+            raise video_download.DownloadAborted("space")
         got = d.get("downloaded_bytes") or 0
         total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-        if got > self.limit or total > self.limit:
-            raise video_download.DownloadAborted("size")
         if d.get("status") == "downloading":
             frac = min(got / total, 1.0) if total else 0.0
             background_jobs.update_progress(self.job_id, 0.05 + 0.8 * frac, "Downloading...")
@@ -145,7 +161,6 @@ def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
         "noplaylist": True,
         "playlistend": 1,
         "match_filter": caps.match_filter,
-        "max_filesize": caps.limit,
         "progress_hooks": [caps.hook],
         "socket_timeout": SOCKET_TIMEOUT,
         "retries": 3,
@@ -303,7 +318,7 @@ def _failure_reason(exc: BaseException) -> str:
 
 def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     import video_download
-    caps = _Caps(job_id, media_upload_service.max_upload_bytes())
+    caps = _Caps(job_id, tmp)
     fetched = {}
     try:
         path = video_download.download(
@@ -314,7 +329,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
         reason = str(e)
         if reason == "cancelled":
             raise background_jobs.JobCancelled(job_id) from None
-        raise RuntimeError(_TOO_LARGE if reason == "size" else _TOO_SLOW) from None
+        raise RuntimeError(_DISK_NEARLY_FULL if reason == "space" else _TOO_SLOW) from None
     except ImportError:
         raise RuntimeError(_NO_YTDLP) from None
     except Exception as e:
@@ -327,8 +342,6 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
     real = os.path.realpath(path)
     if not real.startswith(os.path.realpath(tmp) + os.sep) or not os.path.isfile(real):
         raise RuntimeError(_FAILED)
-    if os.path.getsize(real) > caps.limit:
-        raise RuntimeError(_TOO_LARGE)
     return real, fetched.get("title")
 
 

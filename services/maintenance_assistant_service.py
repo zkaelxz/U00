@@ -162,24 +162,13 @@ def _get(key: str, default=None):
         return default
 
 
-# Engines that run on this PC: code and logs never leave it. Ollama only
-# counts while its endpoint is loopback (_ollama_is_local).
-LOCAL_ENGINES = frozenset({"ollama", "test_offline"})
 DEFAULT_ENGINE = "ollama"
-# Never offered or accepted as the review role's engine: it can't read
-# code, so its "verdict" would be noise shown as an independent review.
-_NOT_REVIEWERS = frozenset({"test_offline"})
 
 
 def _is_local_engine(name: str) -> bool:
-    if name == "ollama":
-        return _ollama_is_local()
-    return name in LOCAL_ENGINES
-
-
-def _review_engine_choices(choices=None) -> list:
-    return [c for c in (choices if choices is not None else _llm_engine_choices())
-            if c not in _NOT_REVIEWERS]
+    """Only Ollama runs on this PC, and only while its endpoint is loopback
+    (_ollama_is_local): code and logs never leave it."""
+    return name == "ollama" and _ollama_is_local()
 
 
 def _cloud_consent() -> dict:
@@ -296,7 +285,6 @@ def get_settings() -> dict:
     review_engine = _get("review_engine")
     review_model = _get("review_model")
     choices = _llm_engine_choices()
-    review_choices = _review_engine_choices(choices)
     local = {c for c in choices if _is_local_engine(c)}
     return {
         # The escalation ladder: the saved order (None = the default) and
@@ -310,8 +298,7 @@ def get_settings() -> dict:
         "engine_choices": choices,
         # Step 60: implement -> independent review, off by default.
         "roles_enabled": _get("roles_enabled", False) is True,
-        "review_engine": review_engine if review_engine in review_choices else None,
-        "review_engine_choices": review_choices,
+        "review_engine": review_engine if review_engine in choices else None,
         "review_model": review_model if isinstance(review_model, str) and review_model else None,
         "default_engine": DEFAULT_ENGINE,
         "local_engines": sorted(local),
@@ -324,7 +311,7 @@ def get_settings() -> dict:
 def _check_engine_name(name, field="engine"):
     if name is None:
         return None
-    choices = _review_engine_choices() if field == "review_engine" else _llm_engine_choices()
+    choices = _llm_engine_choices()
     if not isinstance(name, str) or name not in choices:
         raise InvalidInputError(f"{field} must be one of the chat-capable engines.")
     return name
@@ -361,7 +348,7 @@ def set_settings(updates: dict) -> dict:
             for eng, allowed in value.items():
                 _check_engine_name(eng, "cloud_consent engine")
                 # Ollama can be on another machine, so it may need consent too.
-                if (eng in LOCAL_ENGINES and eng != "ollama") or not isinstance(allowed, bool):
+                if not isinstance(allowed, bool):
                     raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
                 merged[eng] = allowed
             cleaned[key] = {k: v for k, v in merged.items() if v is True}

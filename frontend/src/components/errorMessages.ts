@@ -22,6 +22,10 @@ const GENERIC: Record<string, string> = {
 // A PC-only call refused with 403 (the viewer is not at the main PC).
 export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 
+// The one message for a refused key, token or address save (403).
+export const KEY_WRITES_REFUSED =
+  'This can only be changed on the Baihe PC itself, with key writes turned on. start.bat turns them on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'
+
 export interface DescribeOptions {
   // PC-only callers: a 403 reads PC_ONLY_FORBIDDEN instead of the generic text.
   pcOnly?: boolean

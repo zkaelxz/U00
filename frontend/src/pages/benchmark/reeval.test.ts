@@ -195,8 +195,7 @@ describe('candidates', () => {
     })
   })
 
-  it('the offline test engine is never offered as a candidate', () => {
-    expect(candidateEngines([engine('test_offline'), engine('gemini')]).map((e) => e.name)).toEqual(['gemini'])
+  it('lists usable engines first', () => {
     expect(candidateEngines([engine('claude', false), engine('ollama')]).map((e) => e.name)).toEqual(['ollama', 'claude'])
   })
 

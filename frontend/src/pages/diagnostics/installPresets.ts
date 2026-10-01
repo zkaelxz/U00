@@ -21,7 +21,7 @@ export function packageSizeText(p: Pick<DiagnosticsPackageInfo, 'approx_mb' | 'p
   return p.pulls_torch && !torchInstalled ? `${size} + PyTorch` : size
 }
 
-export type TaskGroup = { group: string; tasks: DiagnosticsInstallTask[] }
+type TaskGroup = { group: string; tasks: DiagnosticsInstallTask[] }
 
 /** Tasks grouped by `group`, groups and tasks in server order. */
 export function groupTasks(tasks: DiagnosticsInstallTask[]): TaskGroup[] {
@@ -59,6 +59,12 @@ export function taskTone(t: DiagnosticsInstallTask): 'ok' | 'warn' | 'neutral' {
 /** Ready tasks move last, so the ones that still need something come first. */
 export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): DiagnosticsInstallTask[] {
   return [...tasks.filter((t) => !taskReady(t)), ...tasks.filter(taskReady)]
+}
+
+/** The closed group's one-liner: how many of its tasks still need something installed. */
+export function taskGroupSummary(tasks: DiagnosticsInstallTask[]): string {
+  const need = tasks.filter((t) => !taskReady(t)).length
+  return need ? `${need} still to set up` : 'All set up'
 }
 
 const ROLE_LABELS: Record<TaskRole, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }

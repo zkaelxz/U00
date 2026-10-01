@@ -17,7 +17,7 @@ import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { describeGpu, formatSeconds, statusLabel } from '../diagnosticsFormat'
 
 // Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Update.
-export const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
+const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
 export const isInstallable = (tier: string) => INSTALLABLE_TIERS.includes(tier)
 
 // Big downloads get their size in the confirm step.
@@ -81,7 +81,7 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 // ---- Setup ----
 
 // `value` is the text without the label ("3.11.9", "ffmpeg not found"); `text` is the one-line form.
-export type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
+type SetupRow = { key: string; label: string; value: string; text: string; problem: boolean }
 
 /** The ffmpeg row's problem text: missing, or built without libass. */
 function ffmpegProblem(c: DiagnosticsSetupChecks): string {
@@ -126,7 +126,7 @@ export function installableEngines(engines: ModelEngineVersion[], packageNames: 
   return engines.filter((m) => !m.installed && m.package && !seen.has(m.package))
 }
 
-export type HeaderBadge = { key: string; text: string; tone: BadgeTone }
+type HeaderBadge = { key: string; text: string; tone: BadgeTone }
 
 /**
  * The badge strip under the page title: setup ("Setup OK" / "2 setup problems"),

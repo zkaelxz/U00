@@ -78,7 +78,7 @@ export function bulkReflectAvailable(engine: string, supported: string[]): boole
 // A drama's preset values (POST /api/dramas preset_defaults) that the
 // Translate form starts from. engine_model belongs to the drama's saved
 // engine (the preset's), so it only applies while that engine is used.
-export interface PresetStart {
+interface PresetStart {
   style_preset?: string
   locale?: string
   default_female_pronouns?: boolean
@@ -363,7 +363,7 @@ export function buildPresetBody(
 // X01: Streamlit's notice for the last run's failed batches. Line numbers
 // are 1-based and de-duplicated; tolerant of a malformed stored record
 // (the API passes the stored JSON through as-is).
-export interface FailedBatches {
+interface FailedBatches {
   batches: number
   lineNumbers: number[]
   reasons: string[]

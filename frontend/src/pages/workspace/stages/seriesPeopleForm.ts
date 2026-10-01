@@ -97,7 +97,7 @@ export function bulkPronounsProblem(selected: number, f: BulkPronounsForm): stri
 }
 
 /** The pronoun text to set ('' clears). */
-export const bulkPronouns = (f: BulkPronounsForm) =>
+const bulkPronouns = (f: BulkPronounsForm) =>
   f.choice === CUSTOM ? f.custom.trim() : f.choice === CLEAR_PRONOUNS ? '' : f.choice
 
 /** Who gets a request: people whose pronouns already match are skipped,

@@ -1224,6 +1224,10 @@ def init_db():
             conn.executemany(
                 "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
                 [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
+        # The fake "test_offline" engine is gone: a drama or preset still on it
+        # goes back to the default engine instead of failing to start a run.
+        conn.execute("UPDATE dramas SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
+        conn.execute("UPDATE presets SET translation_engine = 'claude' WHERE translation_engine = 'test_offline'")
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
@@ -5471,6 +5475,21 @@ def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
             # non-zero value is on.
             "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
             "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
+            (user_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def auth_revoke_admin_keeping_an_admin(user_id: int) -> bool:
+    """Sets is_admin=0 on an admin unless that would leave no active admin.
+    One statement, so two admins demoting each other at once can't both
+    succeed. False when refused, not an admin, or the user doesn't exist."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            # Flag truthiness as in auth_deactivate_user_keeping_an_admin.
+            "UPDATE users SET is_admin = 0 WHERE id = ? AND COALESCE(is_admin, 0) != 0 "
+            "AND (COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
             "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
             (user_id, user_id))
         conn.commit()

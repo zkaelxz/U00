@@ -9,7 +9,7 @@ import type { Page, Route } from '@playwright/test'
 
 type Json = Record<string, unknown>
 
-export interface Call {
+interface Call {
   method: string
   path: string
   body: Json | null
@@ -24,13 +24,13 @@ const cand = (o: Json): Json => ({
   capability: 'translation', model: null, note: '', status: 'candidate', created_at: '2026-09-20T10:00:00', last_decision: null, ...o,
 })
 
-export const PRODUCTION = { engine: 'ollama', model: 'qwen3:8b', source: 'promoted', promoted_at: '2026-08-14T09:30:00' }
+const PRODUCTION = { engine: 'ollama', model: 'qwen3:8b', source: 'promoted', promoted_at: '2026-08-14T09:30:00' }
 
-export const REJECTED_DECISION = decision(1, 3, 'rejected', 'Mangled honorifics in the regression set', '2026-09-02T08:15:00', {
+const REJECTED_DECISION = decision(1, 3, 'rejected', 'Mangled honorifics in the regression set', '2026-09-02T08:15:00', {
   aggregate_score: 0.74, production_score: 0.81,
 })
 
-export function candidates(): Json[] {
+function candidates(): Json[] {
   return [
     cand({ id: 1, engine: 'ollama', model: 'qwen2.5:14b', note: 'Bigger; check VRAM' }),
     cand({ id: 2, engine: 'nllb', note: 'Free server fallback', created_at: '2026-09-21T11:00:00' }),
@@ -38,12 +38,12 @@ export function candidates(): Json[] {
   ]
 }
 
-export const PRODUCTION_RUN = {
+const PRODUCTION_RUN = {
   id: 100, status: 'done', aggregate_score: 0.812, total_cost_usd: 0, avg_latency_seconds: 1.42, peak_vram_mb: 5400,
   engine: 'ollama', model: 'qwen3:8b',
 }
 
-export function reportRows(cands: Json[]): Json[] {
+function reportRows(cands: Json[]): Json[] {
   const byId = (id: number) => cands.find((c) => c.id === id) as Json
   return [
     {
@@ -78,7 +78,7 @@ export function overview(o: { withReport?: boolean; error?: string | null } = {}
   }
 }
 
-export const ESTIMATE = {
+const ESTIMATE = {
   stage: 'translation', case_count: 12,
   configs: [
     { engine: 'ollama', model: 'qwen3:8b', estimated_cost_usd: 0, cap_applies: false },

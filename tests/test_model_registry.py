@@ -360,3 +360,170 @@ class TestUnpricedModelCost:
                 pytest.approx(expected)
         assert translate_engines.estimate_cost("claude-brand-new", 1_000_000, 0) == 15.0
         assert translate_engines.estimate_cost("unrelated-model", 1000, 1000) == 0.0
+
+
+class _StubDeepSeek:
+    name = "deepseek"
+
+    def __init__(self, api_key, model="deepseek-v4-flash"):
+        self.model = model
+
+
+class TestModelOverrides:
+    """A user-chosen replacement for a built-in default or a tier's model."""
+
+    @pytest.fixture(autouse=True)
+    def _stub(self, monkeypatch):
+        monkeypatch.setitem(translate_engines.ENGINES, "deepseek", _StubDeepSeek)
+
+    def _cache(self, **engines):
+        db.set_app_setting(svc.CHECK_CACHE_KEY, json.dumps({
+            "checked_at": "2026-10-01T00:00:00",
+            "engines": {n: {"ok": True, "models": ids} for n, ids in engines.items()}}))
+
+    def _default_item(self, engine):
+        return next(i for i in svc.get_status()["items"]
+                    if i["kind"] == "default" and i["engine"] == engine)
+
+    def test_no_override_means_built_in(self, isolated_db):
+        assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-flash"
+        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-v4-flash"
+        item = self._default_item("deepseek")
+        assert item["is_override"] is False and item["builtin_model"] == "deepseek-v4-flash"
+
+    def test_override_applies_in_get_engine_and_offered_and_runs(self, isolated_db):
+        from services import translate_run_service as run
+        out = svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        assert out["to_model"] == "deepseek-v4-pro"
+        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-v4-pro"
+        # an explicit model still wins
+        assert translate_engines.get_engine("deepseek", "k", "deepseek-x1").model == "deepseek-x1"
+        deepseek = next(e for e in translate_service.list_engines() if e["name"] == "deepseek")
+        assert deepseek["models"] == ["deepseek-v4-flash", "deepseek-v4-pro"]
+        run._require_offered_model("deepseek", "deepseek-v4-pro")
+        run._require_offered_model("deepseek", "deepseek-v4-flash")
+        with pytest.raises(InvalidInputError):
+            run._require_offered_model("deepseek", "deepseek-other")
+        assert run._default_model("deepseek") == "deepseek-v4-pro"
+        item = self._default_item("deepseek")
+        assert item["model"] == "deepseek-v4-pro" and item["is_override"] is True
+        assert item["builtin_model"] == "deepseek-v4-flash"
+
+    def test_cost_of_an_unpriced_override_uses_the_highest_provider_rate(self, isolated_db):
+        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v9-new")
+        assert "deepseek-v9-new" not in translate_engines.PRICING_PER_MILLION_TOKENS
+        engine = translate_engines.get_engine("deepseek", "k")
+        assert translate_engines.estimate_cost_for_engine(engine, 1_000_000, 1_000_000) > 0
+
+    def test_tier_override_applies_to_tiers_and_offered(self, isolated_db):
+        from services import translate_run_service as run
+        tier = translate_engines.WORKFLOW_TIERS["standard"]
+        svc.set_model_override("tier", "standard", tier["engine_model"], "claude-opus-4-8")
+        assert translate_engines.effective_tier_model("standard") == "claude-opus-4-8"
+        assert translate_engines.effective_tier("standard")["engine_model"] == "claude-opus-4-8"
+        assert translate_engines.WORKFLOW_TIERS["standard"]["engine_model"] == tier["engine_model"]
+        assert translate_engines.effective_tier("release")["engine_model"] == "claude-opus-4-8"
+        # the tier model the form receives is the effective one
+        db_id = db.create_drama(title_en="T", status="aligned")
+        assert run.apply_workflow_tier(db_id, "standard")["engine_model"] == "claude-opus-4-8"
+        item = next(i for i in svc.get_status()["items"] if i["kind"] == "tier" and i["key"] == "standard")
+        assert item["is_override"] and item["model"] == "claude-opus-4-8"
+        assert item["builtin_model"] == tier["engine_model"]
+
+    def test_draft_tier_follows_the_engine_default_override(self, isolated_db):
+        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        assert translate_engines.effective_tier("draft")["engine_model"] == "deepseek-v4-pro"
+        assert translate_engines.effective_tier_model("draft") == "deepseek-v4-pro"
+        with pytest.raises(InvalidInputError):
+            svc.set_model_override("tier", "draft", "deepseek-v4-pro", "deepseek-v4-x")
+
+    @pytest.mark.parametrize("engine,to_model", [
+        ("deepseek", "gpt-4"), ("deepseek", "deepseek-embed-1"), ("deepseek", "deepseek-v4 pro"),
+        ("deepseek", "deepseek-../x"), ("deepseek", ""), ("deepseek", None),
+        ("claude", "claude-not-in-picker-9"), ("claude", "gpt-4"), ("ollama", "anything:7b"),
+        ("libretranslate", "x-1"),
+    ])
+    def test_invalid_override_is_rejected_and_stores_nothing(self, isolated_db, engine, to_model):
+        cur = translate_engines.effective_default_model(engine)
+        with pytest.raises(InvalidInputError):
+            svc.set_model_override("default", engine, cur, to_model)
+        assert db.get_app_setting(translate_engines.MODEL_OVERRIDE_DEFAULTS_KEY) is None
+
+    def test_picker_engine_takes_picker_or_provider_listed_models(self, isolated_db):
+        self._cache(claude=["claude-sonnet-6", "claude-embed-1"])
+        cur = translate_engines.effective_default_model("claude")
+        picker_model = next(m for m in translate_engines.CLAUDE_MODELS if m != cur)
+        svc.set_model_override("default", "claude", cur, picker_model)
+        svc.set_model_override("default", "claude", picker_model, "claude-sonnet-6")
+        assert "claude-sonnet-6" in next(
+            e for e in translate_service.list_engines() if e["name"] == "claude")["models"]
+
+    def test_unknown_kind_key_and_same_or_builtin_model(self, isolated_db):
+        with pytest.raises(InvalidInputError):
+            svc.set_model_override("tier", "nope", "a", "claude-sonnet-5")
+        with pytest.raises(InvalidInputError):
+            svc.set_model_override("default", "nope", "a", "claude-sonnet-5")
+        with pytest.raises(InvalidInputError):
+            svc.set_model_override("preset", "1", "a", "b")
+        with pytest.raises(InvalidInputError):
+            svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-flash")
+
+    def test_stale_from_model_is_a_conflict(self, isolated_db):
+        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        with pytest.raises(ConflictError):
+            svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-max")
+        assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-pro"
+
+    def test_clear_restores_the_built_in(self, isolated_db):
+        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        out = svc.clear_model_override("default", "deepseek")
+        assert out["model"] == "deepseek-v4-flash"
+        assert translate_engines.get_engine("deepseek", "k").model == "deepseek-v4-flash"
+        assert svc.clear_model_override("default", "deepseek")["model"] == "deepseek-v4-flash"
+        assert next(e for e in translate_service.list_engines()
+                    if e["name"] == "deepseek")["models"] is None
+
+    def test_overrides_for_removed_engines_and_odd_values_are_ignored(self, isolated_db):
+        db.set_app_setting(translate_engines.MODEL_OVERRIDE_DEFAULTS_KEY,
+                           {"gone-engine": "x-1", "deepseek": "bad value ../", "claude": 5})
+        db.set_app_setting(translate_engines.MODEL_OVERRIDE_TIERS_KEY, ["not", "a", "dict"])
+        assert translate_engines.effective_default_model("deepseek") == "deepseek-v4-flash"
+        assert translate_engines.override_models("deepseek") == []
+        assert translate_engines.effective_tier_model("standard") == \
+            translate_engines.WORKFLOW_TIERS["standard"]["engine_model"]
+        svc.get_status()
+
+    def test_saved_presets_are_never_touched(self, isolated_db):
+        db.save_preset("P", translation_engine="deepseek", engine_model="deepseek-v4-flash")
+        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        assert db.list_presets()[0]["engine_model"] == "deepseek-v4-flash"
+
+    def test_candidates_are_the_listed_models_and_replacement(self, isolated_db):
+        item = self._default_item("deepseek")
+        assert item["candidates"] == []
+        self._cache(deepseek=["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-embed-1", "other-2"])
+        item = self._default_item("deepseek")
+        assert item["candidates"] == ["deepseek-v4-pro"]
+
+    def test_cli_get_engine_uses_the_override(self, isolated_db):
+        svc.set_model_override("default", "deepseek", "deepseek-v4-flash", "deepseek-v4-pro")
+        import cli
+        seen = {}
+        import argparse
+        import contextlib
+        import io
+        from core import Line
+        did = db.create_drama(title_en="T", status="aligned")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+
+        def fake_translate(lines, engine, **kwargs):
+            seen["model"] = engine.model
+            return lines, []
+        import unittest.mock as mock
+        with mock.patch.object(translate_engines, "translate_lines_with_engine", fake_translate):
+            args = argparse.Namespace(id=did, status=None, engine="deepseek", api_key="k", model=None,
+                                      style_note=None, style_preset="audio_drama", locale="en-US",
+                                      force=False, ollama_num_ctx=None)
+            with contextlib.redirect_stdout(io.StringIO()):
+                cli.cmd_translate(args)
+        assert seen["model"] == "deepseek-v4-pro"

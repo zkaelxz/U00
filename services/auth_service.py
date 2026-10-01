@@ -229,7 +229,7 @@ def _admin_view(user: dict, actor_id, now: float) -> dict:
 
 
 ADMIN_AT_PC_ONLY = ("Admin accounts can only be changed at the PC. "
-                    "Use: python -m api deactivate/grant-admin <email>")
+                    "Use: python -m api revoke-admin/deactivate/grant-admin <email>")
 
 
 def _require_pc_for_admin(row, at_pc: bool):
@@ -266,6 +266,38 @@ def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> d
         raise ConflictError("To end your own sessions, use Sign out.")
     _require_pc_for_admin(row, at_pc)
     return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id)}
+
+
+_LAST_ADMIN_REVOKE = ("This is the last active admin. Baihe needs at least one, so their admin "
+                      "rights can't be removed.")
+
+
+def revoke_admin(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """Makes an admin a normal member; returns the admin_list_users row.
+    The account stays active; with no member permissions stored it gets the
+    household defaults, so it isn't left empty. Their sessions end, so the
+    next request (and any open event stream) re-checks as a member.
+    Checks: 404, own account (409), away from the PC (403: admin accounts
+    are PC-only), not an admin (409), last active admin (409, one guarded
+    UPDATE, as for deactivate). The CLI passes at_pc=True."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't remove your own admin rights.")
+    _require_pc_for_admin(row, at_pc)
+    if not row["is_admin"]:
+        raise ConflictError("That user isn't an admin.")
+    if not db.auth_revoke_admin_keeping_an_admin(user_id):
+        if not (db.auth_get_user(user_id) or {}).get("is_admin"):   # demoted meanwhile
+            raise ConflictError("That user isn't an admin.")
+        raise ConflictError(_LAST_ADMIN_REVOKE)
+    if not [p for p in db.auth_get_permissions(user_id)
+            if p in PERMISSIONS and p not in ADMIN_PERMISSIONS]:
+        for p in HOUSEHOLD_DEFAULT_PERMISSIONS:
+            db.auth_grant_permission(user_id, p)
+    db.auth_delete_user_sessions(user_id)
+    _recheck_streams(user_id)
+    write_audit(actor_id, "user.revoke_admin", f"user {user_id}")
+    return _admin_view(get_user(user_id), actor_id, time.time())
 
 
 def grant_admin_local(email: str) -> dict:

@@ -1129,13 +1129,13 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         if expected_engines is not None and expected_engines.get(did) != engine_choice:
             results["skipped_engine_changed"].append(did)
             continue
-        needs_key = engine_choice not in ("ollama", "test_offline", "nllb")
+        needs_key = engine_choice not in translate_engines.KEYLESS_ENGINES
         api_key = api_keys.get(engine_choice)
         if needs_key and not api_key:
             results["skipped_no_key"].append(did)
             continue
         if not api_key:
-            api_key = "offline" if engine_choice == "test_offline" else "local"
+            api_key = "local"
 
         # Same cap logic as Workspace's Translate button and `cli.py
         # translate` -- only the engines that bill per token and report

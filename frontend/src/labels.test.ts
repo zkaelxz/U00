@@ -23,7 +23,6 @@ describe('labels', () => {
     expect(engineLabel('gemini')).toBe('Gemini')
     expect(engineLabel('ollama')).toBe('Ollama')
     expect(engineLabel('nllb')).toBe('NLLB')
-    expect(engineLabel('test_offline')).toBe('Offline test')
   })
   it('title-cases unknown codes and leaves empty values empty', () => {
     expect(mediaTypeLabel('radio_play')).toBe('Radio Play')

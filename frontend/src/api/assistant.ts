@@ -30,7 +30,7 @@ const BASE = '/api/assistant'
 export const MAX_QUESTION = 4000
 export const MAX_HISTORY_TURNS = 20
 export const MAX_BACKLOG_TEXT = 1000
-export const MAX_EVIDENCE = 16000
+const MAX_EVIDENCE = 16000
 
 export const getAssistantSettings = (f?: Fetch) => getJson<AssistantSettings>(`${BASE}/settings`, f)
 

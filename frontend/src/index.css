@@ -122,7 +122,7 @@
 
 body {
   margin: 0 auto;
-  max-width: 1200px;
+  max-width: 1800px;
   padding: var(--space-4);
   background: var(--bg);
   line-height: 1.5;
@@ -366,8 +366,8 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .app-header button.report-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
   .app-header button.report-btn > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .app-header { row-gap: var(--space-2); padding-bottom: var(--space-2); }
-  /* Phones: every page in view, 4 per row in two rows (no sideways-scrolling nav). */
-  .app-header nav { flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* Phones: every page and the cogwheel in view, 3 per row in two rows (no sideways-scrolling nav). */
+  .app-header nav { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .app-header nav a { min-width: 0; padding-inline: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-sm); }
 }
 @media (pointer: coarse), (max-width: 640px) { .history-read { display: inline-flex; align-items: center; min-height: 44px; } }
