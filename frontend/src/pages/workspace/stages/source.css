@@ -30,7 +30,8 @@
 }
 
 /* Transcribe's blocker line: the reason plus a one-tap fix (rule 22). */
-.source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-md); background: var(--warn-soft); color: var(--text); overflow-wrap: anywhere; }
+.source-needed span { flex: 1 1 12rem; min-width: 0; }
 .source-panel .setting-list { margin: 0; }
 
 /* D06: keep or replace hand-corrected speakers (TranscribeStage Speakers section). */

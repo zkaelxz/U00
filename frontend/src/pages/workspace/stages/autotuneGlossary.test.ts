@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../../api/client'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import {
+  autotuneEta,
+  formatElapsed,
   AUTOTUNE_EXPIRED,
   ENGINE_CHANGED_TEXT,
   PAID_ENGINE_TEXT,
@@ -106,5 +108,23 @@ describe('glossary-from-novel helpers', () => {
     expect(applySummary({ added: [], overwritten: [], skipped_existing: ['d'], unknown: ['z'] })).toBe(
       'Added 0. Skipped 1 already in the glossary. 1 no longer proposed.',
     )
+  })
+})
+
+describe('auto-tune elapsed time and ETA', () => {
+  it('formats elapsed time as a clock', () => {
+    expect(formatElapsed(5)).toBe('0:05')
+    expect(formatElapsed(125)).toBe('2:05')
+    expect(formatElapsed(3725)).toBe('1:02:05')
+    expect(formatElapsed(-3)).toBe('0:00')
+  })
+  it('has no estimate until a candidate has finished', () => {
+    expect(autotuneEta(30, 'Testing candidate 1 of 3 (500ms)...')).toBeNull()
+    expect(autotuneEta(30, 'Starting')).toBeNull()
+  })
+  it('extrapolates from the finished candidates', () => {
+    // 2 of 3 started after 60 s: one finished (60 s each), two remain incl. the current one.
+    expect(autotuneEta(60, 'Testing candidate 2 of 3 (800ms)...')).toBe('about 2:00 left')
+    expect(autotuneEta(180, 'Testing candidate 3 of 3 (800ms)...')).toBe('about 1:30 left')
   })
 })

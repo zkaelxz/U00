@@ -40,7 +40,7 @@ async function mockSpeakers(page: Page, config: Record<string, unknown>) {
 async function openSpeakers(page: Page) {
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
-  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
+  await page.locator('.section-title', { hasText: /^Speakers$/ }).click()
 }
 
 test('Expected speakers starts at the last run\'s count; corrections are kept by default (D03, D06)', async ({ page }) => {

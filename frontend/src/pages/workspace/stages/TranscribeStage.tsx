@@ -6,6 +6,7 @@ import { getSettings } from '../../../api/settings'
 import {
   getDiarizationConfig,
   getTranscribeConfig,
+  getWorkflowProgress,
   startDiarization,
   startTranscribe,
   updateTranscribeConfig,
@@ -30,8 +31,12 @@ import {
   loadSourceForm,
   parseExpectedSpeakers,
   parseSpeakerHints,
+  runOptionProblem,
+  runProblemFromError,
   saveSourceForm,
   validateConfig,
+  type RunField,
+  type RunFieldProblem,
   whisperModelWarning,
 } from '../sourceForm'
 import { useStage } from '../StageContext'
@@ -146,6 +151,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
+  // A refused option, shown on its own field instead of a generic banner.
+  const [fieldProblem, setFieldProblem] = useState<RunFieldProblem | null>(null)
+  // Lines already in the drama: null until known. Once it has some, the settings start folded.
+  const [lineCount, setLineCount] = useState<number | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
   // D03/D06: the last run's speaker count and the hand-corrected speakers.
   const [diar, setDiar] = useState<DiarizationConfig | null>(null)
@@ -221,8 +231,43 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     )
   }
 
+  useEffect(() => {
+    let cancelled = false
+    getWorkflowProgress(dramaId).then(
+      (p) => !cancelled && setLineCount(p.line_count),
+      () => !cancelled && setLineCount(0), // advisory: unknown reads as "no lines", settings stay open
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
+
+  // Open the folded sections around the flagged field and bring it into view.
+  useEffect(() => {
+    if (!fieldProblem) return
+    const el = panelRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    if (!el) return
+    for (let d = el.closest('details'); d; d = d.parentElement?.closest('details') ?? null) d.open = true
+    el.scrollIntoView({ block: 'center' })
+    el.focus()
+  }, [fieldProblem])
+
+  const flag = (p: RunFieldProblem | null) => {
+    setFieldProblem(p)
+  }
+  // A refused run or save: name the option when the server's sentence does, else show the banner.
+  const fail = (e: unknown) => {
+    const p = runProblemFromError(e)
+    if (p) {
+      setError(null)
+      flag(p)
+    } else setError(e)
+  }
+  const fieldError = (f: RunField) => (fieldProblem?.field === f ? fieldProblem.message : null)
+
   const setC = <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => {
     setSaved(false)
+    setFieldProblem(null)
     setCf((s) => (s ? { ...s, [k]: v } : s))
   }
 
@@ -269,7 +314,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         setSaved(true)
         setConfig(c)
       },
-      setError,
+      fail,
     )
   }
 
@@ -291,6 +336,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       return null
     }
     setProblem(null)
+    setFieldProblem(null)
     return {
       source_language: language,
       ...(language === 'zh' && script ? { chinese_script: script } : {}),
@@ -308,6 +354,11 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     if (!req || !config || !cf) return
     const update = checkConfig()
     if (!update) return
+    const refused = runOptionProblem(config.transcript_mode, cf.alignment_method, cf.asr_backend_choice, mossEnabled)
+    if (refused) {
+      flag(refused)
+      return
+    }
     const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
@@ -321,7 +372,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     saveFirst.then(start).then((r) => {
       setError(null)
       onJobStarted(r.job_id)
-    }, setError)
+    }, fail)
   }
 
   const diarize = () => {
@@ -355,7 +406,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     help?: string,
   ) =>
     cf && (
-      <Field label={label} help={help}>
+      <Field label={label} help={help} error={key === 'alignment_method' || key === 'asr_backend_choice' ? fieldError(key) : null}>
         <select value={cf[key]} onChange={(e) => setC(key, e.target.value)}>
           {(options.includes(cf[key]) ? options : [cf[key], ...options]).map((o) => (
             <option key={o} value={o}>{optionLabel(o)}</option>
@@ -406,7 +457,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
     : null
 
   return (
-    <section className="panel source-panel" aria-label="Transcribe">
+    <section className="panel source-panel" aria-label="Transcribe" ref={panelRef}>
       <h3>Transcribe</h3>
       <TranscriptModePicker onChanged={(m) => setConfig((c) => (c ? { ...c, transcript_mode: m } : c))} />
       {mediaSlot}
@@ -423,20 +474,22 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         {estimate && !busy && <span className="muted" data-testid="transcribe-estimate">{estimate}</span>}
       </div>
       {needed && !busy && (
-        <p className="muted source-needed" id="transcribe-needed">
+        <div className="source-needed" id="transcribe-needed" role="note">
           <span>Still needed: {needed}.</span>
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={fixNeeded}>
             {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
           </button>
-        </p>
+        </div>
       )}
       {busy && (
         <p className="muted" role="status">
           A job for this drama is already running. Wait for it to finish or cancel it before starting another.
         </p>
       )}
-      {problem && <p className="error" role="alert">{problem}</p>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {(fieldProblem || problem) && (
+        <p className="error" role="alert">{fieldProblem ? 'Fix the highlighted option, then transcribe again.' : problem}</p>
+      )}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
 
       {cf && (
         <p className="muted source-summary" data-testid="settings-summary">
@@ -445,6 +498,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         </p>
       )}
 
+      {lineCount !== null && (
+      <Section storageKey="source.transcribe" title="Transcribe settings" defaultOpen={lineCount === 0}>
       <div className="source-grid">
         <Field label="Source language">
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
@@ -485,14 +540,14 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       </div>
       <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
         <div className="source-grid">
-          <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
-            <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
+          <Field label="Expected speakers" help="0-20. Blank lets the app decide." error={fieldError('speakers')}>
+            <input type="number" value={speakers} onChange={(e) => { setFieldProblem(null); setSpeakers(e.target.value) }} />
           </Field>
           <Field label="Min speakers" help="1-20. When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.">
-            <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} />
+            <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => { setFieldProblem(null); setMinSpeakers(e.target.value) }} />
           </Field>
           <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
-            <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} />
+            <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => { setFieldProblem(null); setMaxSpeakers(e.target.value) }} />
           </Field>
         </div>
         {manualCount > 0 && (
@@ -602,6 +657,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             }}
           />
         </Section>
+      )}
+      </Section>
       )}
       <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
