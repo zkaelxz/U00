@@ -90,11 +90,29 @@ CACHE_READ_PRICE_FACTOR = 0.1
 CACHE_WRITE_PRICE_FACTOR = 1.25
 
 
+# Provider families whose unpriced models fall back to that family's highest
+# known rates (see estimate_cost).
+_PRICED_FAMILY_PREFIXES = ("claude-", "gemini-", "deepseek-")
+
+
+def _highest_family_rates(model: str):
+    prefix = next((p for p in _PRICED_FAMILY_PREFIXES if model.startswith(p)), None)
+    family = [r for m, r in PRICING_PER_MILLION_TOKENS.items() if prefix and m.startswith(prefix)]
+    if not family:
+        return None
+    return {"input": max(r["input"] for r in family), "output": max(r["output"] for r in family)}
+
+
 def estimate_cost(model: str, input_tokens: int, output_tokens: int,
                   cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
     """input_tokens is the whole prompt; cache_read_tokens/cache_write_tokens
     are the parts of it that were served from / written to a prompt cache."""
     rates = PRICING_PER_MILLION_TOKENS.get(model)
+    if not rates and isinstance(model, str):
+        # A Claude/Gemini/DeepSeek model the app has no price for (one offered
+        # from the provider's list): price it at that provider's highest known
+        # rates so the cost cap still protects, rather than reporting $0.
+        rates = _highest_family_rates(model)
     if not rates:
         return 0.0
     uncached = max(0, input_tokens - cache_read_tokens - cache_write_tokens)

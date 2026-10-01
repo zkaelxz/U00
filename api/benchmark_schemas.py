@@ -6,7 +6,7 @@ that file; the shared ErrorResponse still lives there. No key, path or
 file name field exists on any model.
 """
 
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -202,6 +202,8 @@ class BenchmarkEngineOption(BaseModel):
     label: str
     free: bool
     models: Optional[List[str]] = None
+    # Label for an offered model that has no built-in entry (id -> text).
+    model_labels: Dict[str, str] = Field(default_factory=dict)
     key_configured: bool
 
 

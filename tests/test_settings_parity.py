@@ -285,7 +285,8 @@ def test_remote_read_gets_path_flags_not_paths(isolated_db, env_file):
                    raise_server_exceptions=False)
     r = c.get("/api/settings", headers=_h(_session(True)))
     prefs = r.json()["preferences"]
-    assert r.status_code == 200 and "models" not in r.text and "Tesseract" not in r.text
+    body = r.text.replace("offer_provider_models", "")
+    assert r.status_code == 200 and "models" not in body and "Tesseract" not in body
     assert prefs["whisper_model_path"] == prefs["tesseract_cmd"] == prefs["cookies_file"] == ""
     assert prefs["whisper_model_path_configured"] is True
     assert prefs["tesseract_cmd_configured"] is True
