@@ -1444,6 +1444,29 @@ def _dist_version_in(venv_py: str, pip_name: str):
     return out.stdout.strip() if out.returncode == 0 else None
 
 
+def _ensure_pytest(venv_py: str, python_executable: str, timeout: float):
+    """Yields {"line"} items, then {"ok"}. The throwaway environment only sees
+    the real one's packages, and pytest is an optional install there, so it
+    is added to the throwaway environment itself when it can't be imported."""
+    try:
+        has = subprocess.run([venv_py, "-c", "import pytest"], capture_output=True,
+                             timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        has = False
+    if has:
+        yield {"ok": True}
+        return
+    yield {"line": "pytest isn't installed in your environment; adding it to the throwaway one..."}
+    end = None
+    for item in _stream_process([python_executable, "-m", "pip", "--python", venv_py,
+                                 "install", "pytest>=7.4"], timeout):
+        if "line" in item:
+            yield item
+        else:
+            end = item
+    yield {"ok": end["returncode"] == 0 and not end["timed_out"]}
+
+
 def _flag_conflicts(result: dict) -> dict:
     """A "safe" test result that pip itself reports conflicts for becomes
     "conflict" -- tests passing doesn't outweigh an installed package
@@ -1528,6 +1551,17 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
         result["version"] = installed
         result["conflicts"] = _parse_pip_conflicts(pip_lines)
 
+        pytest_ok = True
+        for item in _ensure_pytest(trial_py, python_executable, pip_timeout):
+            if "line" in item:
+                yield item
+            else:
+                pytest_ok = item["ok"]
+        if not pytest_ok:
+            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
+            yield result
+            return
+
         yield {"line": f"Running this app's test suite against {pip_name} {installed}..."}
         test_lines, end = [], None
         for item in _pytest(trial_py, test_args):
@@ -1561,6 +1595,18 @@ def check_upgrade_candidate(pip_name: str, version: str = None, project_root: st
             result["new_failures"] = failures
             yield result
             return
+        pytest_ok = True
+        for item in _ensure_pytest(base_py, python_executable, pip_timeout):
+            if "line" in item:
+                yield item
+            else:
+                pytest_ok = item["ok"]
+        if not pytest_ok:
+            result["reason"] = "pytest couldn't be added to the throwaway environment (no network?)"
+            result["new_failures"] = failures
+            yield result
+            return
+
         base_lines, end = [], None
         for item in _pytest(base_py, failures):
             if "line" in item:
