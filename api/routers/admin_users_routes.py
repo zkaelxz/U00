@@ -6,6 +6,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     POST /api/admin/users/{user_id}/deactivate       block + end their sessions
     POST /api/admin/users/{user_id}/activate         unblock
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
+    POST /api/admin/users/{user_id}/revoke-admin     make an admin a normal member
     GET  /api/admin/audit                            newest first, paged
 
 The two reads are `admin.users.read`, the writes `admin.users` (both held
@@ -13,12 +14,14 @@ only by admins, and by the local owner with auth off), so with auth on the
 writes also need the session's CSRF token. On the household listener an
 admin session holds `admin.users.read` only, so every write is refused
 there (403) and admin changes happen at the PC. Guards (409): not your own
-account, not the last active admin, not your own sessions. A write whose
-target is an admin account is PC-only (403 from a remote session): on the
-single-port sign-in setup remote admins manage non-admin accounts only.
+account, not the last active admin, not your own sessions, revoke-admin
+only on an admin. A write whose target is an admin account (revoke-admin
+always is) is PC-only (403 from a remote session): on the single-port
+sign-in setup remote admins manage non-admin accounts only.
 Unknown user: 404. The service audits every write.
-Nothing here creates users, changes permissions, or edits or deletes
-audit rows.
+Nothing here creates users, edits single permissions (revoke-admin only
+gives a demoted admin with none the household defaults), or edits or
+deletes audit rows.
 """
 
 from typing import Optional
@@ -75,6 +78,14 @@ def revoke_sessions(request: Request, response: Response, user_id: int = _UserId
     _no_store(response)
     return auth_service.admin_revoke_sessions(user_id, actor_id=_actor(request),
                                             at_pc=is_local_request(request))
+
+
+@router.post("/users/{user_id}/revoke-admin", dependencies=_ADMIN, response_model=AdminUser,
+             summary="Remove a user's admin rights (PC only)")
+def revoke_admin(request: Request, response: Response, user_id: int = _UserId):
+    _no_store(response)
+    return auth_service.revoke_admin(user_id, actor_id=_actor(request),
+                                     at_pc=is_local_request(request))
 
 
 @router.get("/audit", dependencies=_READ, response_model=AuditPage,
