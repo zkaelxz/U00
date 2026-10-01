@@ -1,7 +1,7 @@
-import { sourceImportJobId, startChapterImport } from '../../api/sourcesImport'
+import { sourceImportJobId, startAiRecover, startChapterImport } from '../../api/sourcesImport'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { SeriesChapter } from '../../types/sources'
-import type { ChapterImportResult } from '../../types/sourcesImport'
+import type { ChapterImportResult, UrlImportResult } from '../../types/sourcesImport'
 import { MAX_CHAPTERS, chapterImportDramas, importIds, importReason, retryIds } from './urlImportFormat'
 import { useDramaList } from './useDramaList'
 import { useImportState } from './useImportState'
@@ -22,7 +22,7 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
   // No reattach on 409: the server answers 409 while any job for the drama
   // runs, so the running one may not be an import (or not this one); the
   // server's text shows in startError instead.
-  const job = useSourcesJob<ChapterImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
+  const job = useSourcesJob<ChapterImportResult | UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
   const running = job.status === 'running'
   const shownResult =
     job.startedHere && job.status === 'done' && job.result?.kind === 'chapter_import' ? job.result : null
@@ -41,7 +41,16 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
     const ids = retry.slice(0, MAX_CHAPTERS)
     job.start(() => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId }))
   }
+  // One AI call on a chapter whose layout changed; its job ends in a Review extraction.
+  const recover = (chapterId: string, engine: string) => {
+    if (!dramaId || running) return
+    job.start(() =>
+      startAiRecover(source, chapterId, { series_id: seriesId, drama_id: dramaId, engine, confirm: true }),
+    )
+  }
+  const recoveryReview = job.startedHere && job.status === 'done' && job.result?.kind === 'url_import' && job.result.review_open
   return {
+    recover, recoveryReview,
     dramas, choices, dramaId, setDramaId: (id: number | null) => setStored(id ?? 0), job, running, shownResult, start,
     importState, retry, startRetry,
   }

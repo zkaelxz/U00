@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { mockAccess } from './sourcesAccessMocks'
 import { SERIES_LINKS, SETTINGS, mockSources, posted, searchResult } from './sourcesMocks'
 
 // Sources page (#/sources), desktop. Every search/series/job/settings write
@@ -302,6 +303,20 @@ test('on load, a running job for the remembered series shows its loading line', 
   const panel = page.getByRole('region', { name: 'Series' })
   await expect(panel.getByText(/Loading the series/)).toBeVisible()
   await expect(panel.getByText(/Another series/)).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
+test('source detail: last failure reads in plain words, raw type only in the tooltip', async ({ page }) => {
+  const s = await mockSources(page)
+  await mockAccess(page, s)
+  await page.goto('/#/sources')
+  const settings = page.getByRole('region', { name: 'Source settings' })
+  await settings.getByText('Source settings').click()
+  await settings.locator('tbody tr', { hasText: 'Beta Novels' }).getByRole('button', { name: 'Details' }).click()
+  const line = settings.getByText(/Last failure .* \(site down\)/)
+  await expect(line).toBeVisible()
+  await expect(line).toHaveAttribute('title', 'Error type: SERVER_ERROR')
+  await expect(settings.locator('.source-detail-row')).not.toContainText('SERVER_ERROR')
   expect(s.unmocked).toEqual([])
 })
 

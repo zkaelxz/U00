@@ -126,12 +126,20 @@ same as `start.bat`.
      (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
 3. Downloads the embeddable Python zip, checks its pinned SHA-256, extracts it,
    and rewrites the `._pth` (research notes §2).
-4. Runs `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12`
-   for `requirements-core.txt`, constrained by `constraints.lock.txt` if present,
-   else `constraints.txt` (the same rule as `start.bat`), plus pip's own wheel.
-   This must run on Windows under Python 3.12, because pip evaluates environment
-   markers for the build machine (a Linux download silently drops `colorama` and
-   `tzdata`). The script warns otherwise.
+4. Checks that `installer/wheels.lock.txt` pins every package named in
+   `requirements-core.txt` and pip, then runs
+   `pip download --only-binary=:all: --platform win_amd64 --python-version 3.12 --require-hashes --no-deps -r installer/wheels.lock.txt`.
+   pip itself refuses a file whose hash isn't pinned. The build then re-checks
+   every downloaded wheel on its own (see "Pinned wheels" below): a wheel whose
+   SHA-256 differs, a wheel that isn't in the lock, and a locked package with no
+   wheel each fail the build, naming the file. There is no unhashed fallback.
+   Because the lock is complete and `--no-deps` is used, nothing is resolved at
+   build time. `--update-lock` must run on Windows under Python 3.12, because
+   pip evaluates environment markers for the machine it runs on (a Linux resolve
+   drops Windows-only dependencies such as `tzdata`). The first lock was made on
+   Linux instead: `uv pip compile --python-platform windows --python-version 3.12`
+   for the versions, then `pip download --platform win_amd64 --no-deps` of those
+   pins, each hash cross-checked against uv's. The Windows job is what confirms it.
 5. Writes `manifest.json`, including the unpacked size of the wheels. That size
    is passed to Inno's `ExtraDiskSpaceRequired`, so the free-space check counts
    what pip will unpack (the disk-space preflight, research notes decision 2).
@@ -141,6 +149,40 @@ same as `start.bat`.
    installed).
 
 `build/` is git-ignored.
+
+### Pinned wheels
+
+`installer/wheels.lock.txt` lists `name==version` and `--hash=sha256:...` for
+every distribution the installer bundles: `requirements-core.txt`, pip, and all
+transitive dependencies, one win_amd64 / CPython 3.12 wheel each. The
+verifier (`postinstall.parse_lock` / `verify_wheels`, shared by the build and the
+install step) rejects an unpinned line, a package without a hash, a duplicate,
+markers or other options, a hash that isn't 64 hex digits, and any wheel that
+is extra or missing compared with the lock.
+
+Regenerating on an intentional dependency change (a change to
+`requirements-core.txt`, `constraints.txt`, or a version bump):
+
+1. A maintainer, on Windows with Python 3.12 and network access to PyPI, runs
+   `python installer/build_installer.py --update-lock`. It does an ordinary
+   `pip download` of `requirements-core.txt` + pip (constrained by
+   `constraints.lock.txt` if present, else `constraints.txt`) and writes the
+   SHA-256 of each wheel it got.
+2. The maintainer reads `git diff installer/wheels.lock.txt`, checking that only
+   the intended packages and versions moved, and commits the file with the
+   dependency change.
+3. CI does not regenerate it. The Windows Installer workflow builds from the
+   committed lock; it fails if the lock doesn't cover `requirements-core.txt`,
+   if pip rejects a hash, or if the build's own check finds any mismatch.
+   `tests/test_installer_payload.py` also checks on every PR (Linux) that the
+   committed lock parses and covers `requirements-core.txt`.
+
+What this proves, honestly: the wheels in the installer are the same files, byte
+for byte, as the ones whose hashes were committed. It does not show that those
+packages, or the versions the maintainer accepted in step 1, are safe; step 1
+trusts whatever PyPI served at that moment, and the review of the diff is a
+human's. Its value is that a later change on PyPI, a mirror or the build
+machine's network path can't swap in different bytes unnoticed.
 
 ## 4. Install flow
 
@@ -165,7 +207,10 @@ same as `start.bat`.
       the equivalent of `python -m pip`; running `pip.whl\pip` directly fails
       on Windows, where pip refuses to modify itself unless run as `-m pip`).
       No network is needed, and nothing is fetched from bootstrap.pypa.io.
-   3. `pip install --no-index --find-links <wheels> -r requirements-core.txt -c <constraints>`.
+   3. Re-checks every bundled wheel against the shipped copy of the lock
+      (`<wheels>\wheels.lock.txt`; exit code 6 on a mismatch, an extra wheel or
+      a missing one), then
+      `pip install --no-index --find-links <wheels> --require-hashes --no-deps -r <wheels>\wheels.lock.txt`.
       `PIP_USER`, `PIP_REQUIRE_VIRTUALENV`, `PIP_INDEX_URL` and similar variables
       from the user's environment are dropped first, and `-s` keeps the user's
       own site-packages out (research notes §1, the ComfyUI `-s` lesson).
@@ -248,7 +293,7 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
-`BAIHE_API_PORT=8600` unless already set. `PYTHONNOUSERSITE=1` is set, and the
+`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it; with the boot service, run Setup again so the service moves too, §11). `PYTHONNOUSERSITE=1` is set, and the
 user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 (`sys.executable -m pip install`) install into the bundled interpreter.
 
@@ -355,7 +400,9 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 ## 9. Testing
 
 - Linux (the test suite): `tests/test_installer_payload.py` covers staging,
-  exclusions, `._pth`, the wheel command, the manifest and ISCC arguments.
+  exclusions, `._pth`, the wheel commands, the hash-lock parser and verifier
+  (match, mismatch, extra, missing, malformed lines), the manifest and ISCC
+  arguments.
   `tests/test_installer_iss.py` statically checks the `.iss` (per-user install,
   no secrets, sources only from the payload, the data folder, opt-in deletion,
   two Pascal pitfalls that broke the compile) and the workflow (on-demand only,
@@ -376,11 +423,20 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
     long-running stand-in child (`ping`) into the server's Job Object. The
     smoke test asserts that `--stop` reports a clean shutdown, the child is
     gone, and no process from the install folder is left.
+  - **Breakaway check.** `installer/smoke_child.py --breakaway-check` runs a
+    stand-in server with the real `process_guard.contain_children()`. Its
+    job must refuse `CREATE_BREAKAWAY_FROM_JOB` except inside
+    `breakaway_allowed()` (the update installer's Setup launch). Ending the
+    job must end an ordinary child and a child in a nested job, and leave the
+    Setup-style child running.
   - **Clean-uninstall check.** A second install into new folders is
     clean-uninstalled with `/CLEAN`. The smoke test asserts that the install
     folder, the data folder and a `%TEMP%\baihe_*` folder are gone. It also
     asserts that a non-Baihe `%TEMP%` folder, a file next to the folders, and
     the first install's data folder are untouched.
+- Only the Windows job proves that pip accepts `installer/wheels.lock.txt` for
+  the real win_amd64 downloads and installs, and that the pinned wheels are the
+  ones the Windows pip picks.
 - Still owed, from a person: a real install on the user's PC (steps in the PR),
   the interactive wizard and uninstall dialog, SmartScreen, Edge app window, and
   the research notes' clean-Windows GPU matrix once a GPU tier is added through
@@ -390,7 +446,31 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 
 - An offline installer-side tier picker and GPU/torch opt-in (§6). Today these
   are online, through Diagnostics.
-- An updater that reads `manifest.json`, and delta updates (§7).
+- Delta updates, and an updater that reads the per-component `manifest.json` (§7).
+  What exists: Settings → App updates checks the public GitHub Releases
+  (`BAIHE_UPDATE_REPO`, default `zkaelxz/U00`; no token) for a newer `v*`
+  release, and on the user's clicks downloads the whole installer into
+  `<data>\library\updates\`, checks it against the release's `.sha256` and
+  opens its normal Setup from a private temp copy (hashed again; the server's
+  environment minus the shutdown token, job name and secret-named variables;
+  let out of the server's Job Object only for that launch). It picks the
+  newest `v*` release that has the installer and its `.sha256`, so other
+  releases (`frontend-v*`) don't hide it. The app keeps running
+  until the user clicks Install in Setup, which stops the server as in §7; a
+  cancelled Setup changes nothing. That SHA-256 comes
+  from the same release as the installer, so it detects a broken or truncated
+  download, not a tampered release: it is not a signature. The version shown
+  is `manifest.json`'s `app_version`. A daily check is a setting, off by
+  default; nothing is ever downloaded or installed without a click.
+  Private releases: the app sends no credentials (no token, `~/.netrc`
+  ignored), so it can only read public releases. If the releases repository
+  goes private, GitHub answers the check with a 404 and the card says no
+  release was found. Keep in-app updates on public releases (a separate
+  public, installers-only repository set in `BAIHE_UPDATE_REPO` works), and
+  use the manual route for private ones: download the installer and its
+  `.sha256` from the releases page, check it with `Get-FileHash`, run Setup
+  (docs/runbook.md §1). Shipping a token in the app is not an option: every
+  installed copy would hold the same secret.
 - Code signing (§1).
 - Moving an existing source-checkout library into the installed app. For now,
   point the data folder at the checkout folder (it holds `library\` and `.env`),
@@ -400,3 +480,146 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   users get the screens inside the installer (2026-09-30), whether that zip
   keeps being published for source checkouts is a planning decision (the
   alternative is `start.bat --build-frontend`).
+
+## 11. Boot service
+
+Owner decision (2026-09-30): the app runs as a **Windows service started at
+boot**, installed and removed by this installer, tested by the Windows
+Installer workflow. Code: [`installer/service.py`](../installer/service.py)
+(standard library only), the `service` task in `baihe.iss`, and the WinSW
+staging in `build_installer.py`. **Not run on Windows yet:**
+`tests/test_installer_service.py` drives it against a fake `sc`/`icacls`;
+only the workflow's "Service --" steps prove it on Windows.
+
+**What it does.** A `BaiheStudio` service runs `python -s -m api` on
+`127.0.0.1:8600` (or the port chosen at install, below) and nothing else, starting at boot (no sign-in needed),
+restarted after 10 s, 30 s, then every 60 s if it fails. It stops with
+Ctrl+C, so the server's clean stop (§5) runs and its Job Object ends every
+child. The wrapper is WinSW 2.12.0 (MIT, pinned by SHA-256). The task is on by
+default and is the only step that needs administrator permission (one prompt
+on install, two on an update, one on uninstall); declined or failed, Setup
+exits with code 101 and the Start-menu launcher still works. Setup stays
+per-user.
+
+- **Account.** `NT SERVICE\BaiheStudio`, not LocalSystem, with its privileges
+  cut to `SeChangeNotifyPrivilege`, `SeCreateGlobalPrivilege` and
+  `SeIncreaseWorkingSetPrivilege` (no `SeImpersonatePrivilege`).
+- **Permissions (`icacls`, by SID).** Read and run the install folder; change
+  the data folder (refused unless it holds only Baihe Studio's own items).
+  Everything run with administrator rights after the install (the script,
+  its interpreter, the wrapper) is copied to `%ProgramFiles%\Baihe Studio
+  Services`, which only administrators can change, and the later commands
+  (`stop`, `uninstall`) run only from there, at the location Windows reports
+  for Program Files. **Known gap:** the first `install` (and an update's) is
+  run elevated by Setup from its own extraction, `{app}\service`, in the
+  user-writable program folder, before it is copied; a process running as the
+  user could replace those files in that window and have them run as
+  administrator. Fixing it needs Setup to be elevated or to extract
+  somewhere only administrators can write. **Owner decision (2026-09-30):
+  accepted for now; revisit if the PC gets other users.**
+  Uninstall takes the account off both folders again and removes the admin
+  folder (files still loaded are moved aside, inside Program Files, and
+  deleted at the next restart).
+- **Environment and who can use it.** Every `BAIHE_API_*` setting is written
+  into the service, so a machine-wide variable can't add a listener or change
+  the port. **Any account on the PC can open `http://127.0.0.1:8600` while
+  the service runs:** sign-in is off there (the app treats every direct
+  loopback request as its owner), as it is when the launcher runs it, and the
+  service keeps running when nobody is signed in. So on a PC with other
+  Windows accounts, they can use the library and its actions. The engine-key
+  form is **off** unless the data folder's `.env` sets
+  `BAIHE_API_ALLOW_KEY_WRITES=1`, for that reason (the launcher turns it on
+  by default). Per-account sign-in for this listener is not done. **Owner
+  decision (2026-09-30): accepted on the condition that only the owner uses
+  this PC. If it has other Windows accounts, untick the service task (it is
+  ticked by default for now).**
+- **Caddy and a crashed Baihe.** If Baihe's process exits on its own, Caddy keeps forwarding to the household port until the service restarts (about 10 s). Another program on this PC could bind that port in the gap and receive household requests. Accepted on the same condition: only the owner uses this PC.
+- **Choosing the port.** The service's port is chosen at install, never at
+  run time. Setup passes the user's `BAIHE_API_PORT` (the variable the
+  Start-menu launcher uses, so both find the same server) as
+  `service.py install --port N`; the port is stored in the admin-only
+  `helper\config.json` and written into the service definition, and
+  `status`, `enable-remote` and the health check read it from there. The
+  data folder's `.env` and the machine or user environment can't change it
+  while the service runs. To change it, in a Command Prompt run
+  `setx BAIHE_API_PORT 8611` (any port from 1024 to 65535 except 8501,
+  8756, 8610 and the household port while remote access is on), then run
+  Setup again and allow the administrator prompt. An update without the
+  variable keeps the port the service has; to go back, set it to 8600 and
+  run Setup again (don't just remove it: the launcher would then look on
+  8600 while the service stays on the old port). A port that is refused or
+  already in use changes nothing (Setup exits with code 101, the service
+  keeps its port and is started again); a new port where `/api/health`
+  doesn't answer is undone like any failed update, back to the old port.
+- **Update and uninstall.** An update stops the service through the old admin
+  copy, replaces the files, and starts it again; if any step fails, the old
+  admin files come back, a service the run created is removed, and an existing
+  one is restarted. Uninstall stops and removes the service first; if it can't,
+  nothing is uninstalled.
+
+**What it does not do.**
+
+- No other listener, no firewall rule, no certificate, no DNS or router
+  change, and no household or remote access until the owner runs
+  `enable-remote` (next subsection). `docs/remote-access-decision.md` and the
+  API permissions are unchanged.
+- The server runs as its own account, so it sees the machine's `PATH`, not the
+  user's, and Diagnostics' Install buttons can't add packages to the
+  read-only program folder while the service runs; per-user caches outside the
+  data folder (Playwright, Deno) are the service account's.
+- The "Stop Baihe Studio" shortcut stops only a server the launcher started;
+  stop the "Baihe Studio" service in Services instead.
+- The program folder stays user-writable, so a changed file there runs as the
+  low-privilege service account, not as LocalSystem.
+- No health monitoring or banner.
+
+**Caddy and remote access (owner's opt-in).** Four rules, owner decisions:
+
+1. Baihe never exposes its own API to the network. The household listener is
+   opt-in and binds `127.0.0.1` only (`api_config.check_household_bind_safety`);
+   remote requests reach it only through Caddy.
+2. Caddy is the only internet-facing component: it gets and renews the HTTPS
+   certificate and rate-limits sign-in (`rate_limit`, from
+   `deploy/caddy/Caddyfile.template`). The template still refuses every
+   `local_only()` route (`@pc_only`, checked by `tests/test_caddyfile_template.py`).
+   `render_caddyfile` refuses a template that lost `admin off`, that refusal,
+   or the loopback `reverse_proxy`.
+3. **Nothing here creates a firewall rule or opens a port.** `enable-remote`
+   and `status` print the exact command for the owner to run by hand in an
+   administrator prompt (`firewall_rule_command`): inbound TCP 443, for
+   `caddy.exe` only, private and domain profiles. Forwarding 443 on the router
+   and the domain name (and any dynamic DNS) are the owner's steps
+   (`docs/household-access.md`). The script only ever runs `netsh ... show rule`.
+4. The service stays local-only until `enable-remote` is run.
+
+A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
+cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
+`caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every
+module pinned by `go.sum`, Go `go1.26.8` pinned by SHA-256 in the workflow, and
+the binary pinned by `CADDY_SHA256` in `build_installer.py`. Its certificates
+and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
+(Caddy, SYSTEM and Administrators only).
+
+`enable-remote [--household-port 8610]` (administrator prompt) refuses, exit
+code 2 and nothing changed, unless the data folder's `.env` has the Google
+sign-in settings and a `BAIHE_PUBLIC_URL` that is just `https://` and an ASCII
+DNS name on the default port, and the port is free and not one of Baihe's own
+(`settings_service.baihe_own_ports()`, 8601 and the service's own port). The server no longer refuses
+to start over a bad household setting (it skips the household listener and
+keeps the PC one), so these checks run first. Then it sets the household
+port in the `BaiheStudio` service definition (the only place it can come
+from: every other `BAIHE_API_*` value is blanked), restarts the service,
+waits for the household listener to answer `/api/meta` for the public name,
+writes the Caddyfile from the template with the domain and port filled in (no
+secret goes in it), and starts Caddy; any failure turns it all off again.
+`disable-remote` undoes it. An update keeps remote access on if its settings
+still pass and the household listener comes back, else turns it off and says
+so. Uninstall removes both services and Caddy's folders (with `rmtree` before
+the rest of the admin folder, so a link Caddy made in them is never followed)
+and tells the owner the command to delete a rule they added.
+
+*Reproducible Caddy build.* The same `go build -trimpath -buildvcs=false`
+gives `e09cc7eb...` on Linux and on Windows only from the same source bytes:
+CRLF line endings in `installer/caddy/main.go` (what a Windows checkout gives
+without `.gitattributes`) produce `03e740b8...`. `.gitattributes` pins
+`installer/caddy/*` to LF, and a test checks it.

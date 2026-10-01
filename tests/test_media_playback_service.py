@@ -1,18 +1,16 @@
 """
 tests/test_media_playback_service.py -- Review & edit's playback helpers in
 services/media_playback_service.py (moved out of tabs/workspace_tab.py): the
-jump box's timestamp parser, the burned-subtitle preview's ASS text and ffmpeg
-call, and the per-line audio clip. No Streamlit or tabs import.
+burned-subtitle preview's ASS text and ffmpeg call. No Streamlit or tabs import.
 """
 import os
 
 import pytest
 
-import core as core_module
 import subtitle_formats
 import video_export as ve
 from core import Line
-from services.media_playback_service import burn_preview_ass, line_audio_clip, parse_timestamp
+from services.media_playback_service import burn_preview_ass
 
 LINES = [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello"),
          Line(idx=1, start=12.5, end=15.25, zh="再见", en="Goodbye"),
@@ -20,23 +18,6 @@ LINES = [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello"),
 
 SFX_LINES = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A"),
              Line(idx=1, start=1.0, end=2.0, zh="砰", en="door slams", sfx=True, speaker="A")]
-
-
-# ------------------------------------------------------------ jump box parsing
-
-class TestParseTimestamp:
-    @pytest.mark.parametrize("text,seconds", [
-        ("83", 83.0), ("83.5", 83.5), ("0", 0.0), (" 12 ", 12.0),
-        ("1:23", 83.0), ("01:23", 83.0), ("1:23.5", 83.5), ("0:05", 5.0),
-        ("1:02:03", 3723.0), ("90:00", 5400.0),
-    ])
-    def test_accepts_mm_ss_and_raw_seconds(self, text, seconds):
-        assert parse_timestamp(text) == seconds
-
-    @pytest.mark.parametrize("text", ["", "   ", "abc", "1:75", "1:60", "-5", "1:-5",
-                                      "1:2:3:4", ":30", "1:", "1:02:75"])
-    def test_rejects_anything_else(self, text):
-        assert parse_timestamp(text) is None
 
 
 # ------------------------------------------------------- burned preview clip
@@ -97,30 +78,3 @@ class TestSfxBurnPreview:
 
 
 # ------------------------------------------------------- per-line audio clip
-
-def _fake_slicer(calls):
-    def fake(audio_path, start, end, out_path):
-        calls.append((audio_path, start, end))
-        with open(out_path, "wb") as f:
-            f.write(f"RIFF{start}-{end}".encode())
-        return out_path
-    return fake
-
-
-class TestLineAudioClip:
-    def test_cuts_the_given_range_and_cleans_up(self, monkeypatch, tmp_path):
-        calls = []
-        monkeypatch.setattr(core_module, "extract_audio_slice", _fake_slicer(calls))
-        audio = line_audio_clip("/fake/audio.wav", 12.5, 14.25, str(tmp_path))
-        assert calls == [("/fake/audio.wav", 12.5, 14.25)]
-        assert audio == b"RIFF12.5-14.25"
-        assert not os.path.exists(tmp_path / "_play_slice.wav")
-
-    def test_temp_slice_is_removed_even_when_reading_fails(self, monkeypatch, tmp_path):
-        def failing(audio_path, start, end, out_path):
-            open(out_path, "wb").close()
-            raise RuntimeError("ffmpeg failed")
-        monkeypatch.setattr(core_module, "extract_audio_slice", failing)
-        with pytest.raises(RuntimeError):
-            line_audio_clip("/fake/audio.wav", 0, 1, str(tmp_path))
-        assert not os.path.exists(tmp_path / "_play_slice.wav")

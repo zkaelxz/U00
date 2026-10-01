@@ -46,10 +46,12 @@ shown to one viewer, lost on a restart), whether or not a channel is configured,
 to someone who can see that job (`ownership_service.can_see_job`); new-
 chapter events are household-wide, like the Sources notifications list.
 
-Categories: "jobs" (a job finished or failed) and "chapters" (a tracked-
-series check found new chapters) can each be switched off for Discord and
-ntfy (`db.app_settings["notify_categories"]`, both on by default); the
-in-app list always gets both. The chapter check itself is a background job
+Categories: "jobs" (a job finished or failed), "chapters" (a tracked-
+series check found new chapters) and "remote" (remote access broke or
+recovered, `services/remote_health_service.py`) can each be switched off for
+Discord and ntfy (`db.app_settings["notify_categories"]`, all on by default);
+the in-app list always gets every one. A remote-access entry is shown only to
+the PC owner and admins, like `record_event`. The chapter check itself is a background job
 that runs on a schedule, so it never sends "Finished: ..."; it sends one
 "N new chapters found" when a check finds any (a failed check is still a
 failed job).
@@ -70,7 +72,7 @@ from services import url_guard
 from services.service_errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
-CATEGORIES = ("jobs", "chapters")
+CATEGORIES = ("jobs", "chapters", "remote")
 CATEGORY_SETTING = "notify_categories"
 CHAPTER_CHECK_JOB_ID = "sources_chapter_check"   # sources.chapter_check.CHECK_JOB_ID
 RECENT_MAX = 50          # events returned to one viewer
@@ -81,8 +83,6 @@ DISABLED_ENV = "BAIHE_NOTIFY_DISABLED"
 
 HTTP_TIMEOUT = (3.05, 5)
 SEND_DEADLINE = 10.0          # wall clock for one POST, however slowly the server replies
-BAIHE_OWN_PORTS = (8501, 8600, 8756)   # Streamlit, API default, extension bridge
-API_PORT_ENV = "BAIHE_API_PORT"
 BURST_WINDOW = 5.0
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
@@ -137,7 +137,8 @@ def configured_channels():
 
 
 def get_categories() -> dict:
-    """{"jobs": bool, "chapters": bool}; both on unless switched off."""
+    """{"jobs": bool, "chapters": bool, "remote": bool}; each on unless
+    switched off."""
     try:
         import db
         stored = db.get_app_setting(CATEGORY_SETTING, None)
@@ -147,11 +148,11 @@ def get_categories() -> dict:
     return {c: stored.get(c) is not False for c in CATEGORIES}
 
 
-def set_categories(jobs=None, chapters=None) -> dict:
+def set_categories(jobs=None, chapters=None, remote=None) -> dict:
     """Switches the external-push categories. None leaves one unchanged."""
     import db
     current = get_categories()
-    for name, value in (("jobs", jobs), ("chapters", chapters)):
+    for name, value in (("jobs", jobs), ("chapters", chapters), ("remote", remote)):
         if value is not None:
             current[name] = bool(value)
     db.set_app_setting(CATEGORY_SETTING, current)
@@ -165,7 +166,8 @@ def get_status() -> dict:
             "ntfy_configured": bool(_channel_url("ntfy")),
             "ntfy_allow_local": allow_local_ntfy(),
             "send_jobs": categories["jobs"],
-            "send_chapters": categories["chapters"]}
+            "send_chapters": categories["chapters"],
+            "send_remote": categories["remote"]}
 
 
 def _unmap(ip):
@@ -175,18 +177,6 @@ def _unmap(ip):
 def _is_local_ip(ip) -> bool:
     ip = _unmap(ip)
     return any(ip.version == n.version and ip in n for n in _LOCAL_NETS)
-
-
-def _baihe_ports() -> set:
-    """Ports a loopback ntfy target may never use: Baihe's own servers,
-    plus BAIHE_API_PORT when it is set (environment or .env)."""
-    ports = set(BAIHE_OWN_PORTS)
-    for raw in (os.environ.get(API_PORT_ENV), _settings().resolve_env_names((API_PORT_ENV,))):
-        try:
-            ports.add(int(str(raw).strip()))
-        except (TypeError, ValueError):
-            pass
-    return ports
 
 
 def _effective_port(parts) -> int:
@@ -248,7 +238,7 @@ def validate_url(channel, value, allow_local=None) -> str:
             or not literal.is_global):
         raise InvalidInputError(bad)   # link-local, reserved, multicast ...
     if ((loopback_name or (literal is not None and _unmap(literal).is_loopback))
-            and _effective_port(parts) in _baihe_ports()):
+            and _effective_port(parts) in _settings().baihe_own_ports()):
         raise InvalidInputError(_NTFY_OWN_PORT)
     return value
 
@@ -378,7 +368,7 @@ def _resolve_local(parts) -> str:
         if not _is_local_ip(ip):
             raise _Refused()   # a mix of local and other addresses is refused too
         if _unmap(ip).is_loopback:
-            own_ports = _baihe_ports() if own_ports is None else own_ports
+            own_ports = _settings().baihe_own_ports() if own_ports is None else own_ports
             if port in own_ports:
                 raise _Refused()   # never one of Baihe's own servers on this PC
         first = first or raw
@@ -583,6 +573,15 @@ def _record(kind, text, job_id, owner_user_id):
             pass
 
 
+def record_event(kind, text) -> None:
+    """An in-app entry not tied to a job, seen only by the PC owner and
+    admins. Never raises."""
+    try:
+        _record(kind, text, None, None)
+    except Exception:
+        pass
+
+
 def list_recent(principal=None, limit=RECENT_MAX) -> list:
     """Newest first: {id, at, kind, text}. Job events only for a caller who
     can see that job; new-chapter events for everyone (household-wide)."""
@@ -640,6 +639,30 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None):
             return
         with _lock:
             _pending.append((status, message, category))
+            if _timer is None:
+                _timer = _schedule_flush()
+    except Exception as exc:
+        try:
+            _log().warning(f"notification: could not queue ({type(exc).__name__})")
+        except Exception:
+            pass
+
+
+def notify_remote_access(text) -> None:
+    """A remote-access health change (remote_health_service, once per
+    change): the in-app list, and Discord/ntfy when the "remote" category is
+    on. Never raises, never blocks on the network."""
+    global _timer
+    try:
+        from translate_engines import redact_secrets
+        message = redact_secrets(_tidy(text, 200))
+        _record("remote", message, None, None)
+        if os.environ.get(DISABLED_ENV) == "1" or not get_categories()["remote"]:
+            return
+        if not configured_channels():
+            return
+        with _lock:
+            _pending.append(("remote", message, "remote"))
             if _timer is None:
                 _timer = _schedule_flush()
     except Exception as exc:

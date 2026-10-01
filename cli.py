@@ -58,8 +58,9 @@ import bulk_translate
 import raw_transcript
 import dub as dub_module
 import background_jobs
-from services import (engine_routing_service, line_provenance_service, narration_service,
-                      settings_service, transcribe_service, translate_service, workspace_job_service)
+from services import (engine_routing_service, glossary_retranslate_service,
+                      line_provenance_service, narration_service, settings_service,
+                      transcribe_service, translate_service, workspace_job_service)
 from services.narration_service import TAG_ENGINES
 from services.service_errors import DependencyUnavailableError
 from services.translate_run_service import _cap_applies, get_translate_config_defaults
@@ -188,7 +189,7 @@ def cmd_narrate_prep(args):
         chunks = chunk_novel_text(text)
         lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
         known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
-        # Step 41: same resume as the API job (narration_service).
+        # Same resume as the API job (narration_service).
         done, on_batch = narration_service.tagging_checkpoint(
             d["id"], text, engine_name, getattr(engine, "model", args.model), known,
             fresh=getattr(args, "fresh", False))
@@ -280,21 +281,30 @@ def cmd_export_video(args):
         out_ext = os.path.splitext(video_path)[1]
         out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
         print(f"#{d['id']} rendering {mode} video...")
-        if use_ass:
-            ass_text = export_service.generate_ass_text(
-                d["id"], field={"english": "en", "bilingual": "bilingual", "chinese": "zh"}[args.subs],
-                preset=preset or "Clean",
-                per_speaker_colors=not getattr(args, "no_speaker_colors", False))
-            video_export.burn_ass(video_path, ass_text, out_path)
-        else:
-            srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
-                        "chinese": lines_to_srt(lines, "zh")}[args.subs]
-            if mode == "hardsub":
-                video_export.burn_subtitles(video_path, srt_text, out_path)
+        soft = not use_ass and mode != "hardsub"
+        if soft and out_ext.lower() not in (".mp4", ".mkv"):
+            out_path = os.path.splitext(out_path)[0] + ".mp4"
+        # Render beside the final file and replace it only on success, so a
+        # failed or interrupted run never leaves a partial file under the real name.
+        tmp_path = os.path.splitext(out_path)[0] + ".partial" + os.path.splitext(out_path)[1]
+        try:
+            if use_ass:
+                ass_text = export_service.generate_ass_text(
+                    d["id"], field={"english": "en", "bilingual": "bilingual", "chinese": "zh"}[args.subs],
+                    preset=preset or "Clean",
+                    per_speaker_colors=not getattr(args, "no_speaker_colors", False))
+                video_export.burn_ass(video_path, ass_text, tmp_path)
             else:
-                if out_ext.lower() not in (".mp4", ".mkv"):
-                    out_path = os.path.splitext(out_path)[0] + ".mp4"
-                video_export.mux_soft_subtitles(video_path, srt_text, out_path)
+                srt_text = {"english": lines_to_srt(lines, "en"), "bilingual": lines_to_bilingual_srt(lines),
+                            "chinese": lines_to_srt(lines, "zh")}[args.subs]
+                if mode == "hardsub":
+                    video_export.burn_subtitles(video_path, srt_text, tmp_path)
+                else:
+                    video_export.mux_soft_subtitles(video_path, srt_text, tmp_path)
+            os.replace(tmp_path, out_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
         print(f"#{d['id']} exported: {out_path}")
 
     _run_batch(dramas, step, "export-video")
@@ -536,9 +546,36 @@ def _parse_fallback_arg(value, reflect=False) -> list:
     return names
 
 
+def _resolve_glossary_terms(drama: dict, refs) -> list:
+    """--term values (a term id or the exact source text) -> term ids of the
+    drama's series glossary. SystemExit if a value matches no term or several."""
+    series_id = drama.get("series_id")
+    terms = db.list_glossary_terms(series_id) if series_id else []
+    ids = []
+    for ref in refs:
+        ref = str(ref).strip()
+        hits = [t for t in terms
+                if (ref.isdigit() and t["id"] == int(ref)) or (t.get("term_original") or "") == ref]
+        if not hits:
+            raise SystemExit(f"--term {ref!r} matches no term in this drama's glossary.")
+        if len(hits) > 1:
+            raise SystemExit(f"--term {ref!r} matches {len(hits)} glossary terms "
+                             f"(ids {', '.join(str(t['id']) for t in hits)}); use the id.")
+        if hits[0]["id"] not in ids:
+            ids.append(hits[0]["id"])
+    return ids
+
+
 def cmd_translate(args):
     fallback_names = _parse_fallback_arg(getattr(args, "fallback", None),
                                          reflect=getattr(args, "reflect", False))
+    glossary_affected = getattr(args, "glossary_affected", False)
+    if glossary_affected and not args.id:
+        raise SystemExit("--glossary-affected needs --id (one drama at a time, as in the app).")
+    if getattr(args, "include_hand_edited", False) and not glossary_affected:
+        raise SystemExit("--include-hand-edited only applies with --glossary-affected.")
+    if getattr(args, "term", None) and not glossary_affected:
+        raise SystemExit("--term only applies with --glossary-affected.")
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
@@ -631,7 +668,27 @@ def cmd_translate(args):
                 d["id"], d, lines, style_preset,
                 include_genre_notes=not getattr(args, "no_genre_notes", False),
                 default_female_pronouns=getattr(args, "female_pronouns", False))
-        print(f"#{d['id']} translating {len(lines)} lines with {engine_name}"
+        target_ids = None
+        if glossary_affected:
+            # Same selection as the app's "Re-translate lines affected by the
+            # glossary": lines whose English isn't known to be machine-made
+            # are left alone unless --include-hand-edited.
+            term_ids = (_resolve_glossary_terms(d, args.term)
+                        if getattr(args, "term", None) else None)
+            target_ids = set(glossary_retranslate_service.affected_line_ids(
+                d["id"], include_hand_edited=getattr(args, "include_hand_edited", False),
+                term_ids=term_ids))
+            print(f"#{d['id']} glossary terms: "
+                  + (", ".join(str(i) for i in sorted(term_ids)) if term_ids is not None
+                     else "all")
+                  + f"; {len(target_ids)} lines selected.")
+            if not target_ids:
+                print(f"#{d['id']} skipped: no machine-translated lines are affected by the "
+                      f"glossary (hand-edited lines need --include-hand-edited).")
+                return
+        force = args.force or target_ids is not None
+        print(f"#{d['id']} translating "
+              f"{len(target_ids) if target_ids is not None else len(lines)} lines with {engine_name}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
         # Same caps as the Workspace Translate job: per job (--cost-cap)
@@ -677,7 +734,7 @@ def cmd_translate(args):
 
         style_note = (args.style_note if args.style_note is not None
                       else settings_service.get_preference("default_style_note"))
-        # Same settings the Workspace job records with each line (Step 41).
+        # Same settings the Workspace job records with each line.
         provenance = line_provenance_service.translate_run_tracker(
             d["id"], lines, engine, engine_name, glossary_terms,
             locale=args.locale or settings_service.get_preference("default_locale"),
@@ -686,14 +743,25 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             style_note=style_note or "", style_guidelines=style_guidelines or "")
-        if args.force and any(ln.en for ln in lines):
+        if force and any(ln.en for ln in lines):
             # Same data-loss guard as translate_run_service: keep the old
             # translation restorable from history before it's overwritten.
             db.save_line_history_snapshot(d["id"], lines, "before force re-translate")
+        # Same as the Workspace Translate job: writes `en` only, and
+        # records each translated line's provenance.
+        if target_ids is not None:
+            save_cb, notes_cb = bulk_translate.own_lines_callbacks(d["id"], lines, provenance)
+        else:
+            def save_cb(ls, did=d["id"]):
+                db.save_lines(did, ls, fields=("en",))
+                provenance(ls)
+
+            def notes_cb(notes, did=d["id"]):
+                db.save_translation_notes(did, notes, id_by_idx=_id_by_idx)
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d,
             style_note=style_note,
-            novel_reference=novel_reference, force_retranslate=args.force,
+            novel_reference=novel_reference, force_retranslate=force, target_ids=target_ids,
             locale=args.locale or settings_service.get_preference("default_locale"),
             glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
@@ -703,13 +771,9 @@ def cmd_translate(args):
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
             reflect=getattr(args, "reflect", False),
-            notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
-                did, notes, id_by_idx=_id_by_idx),
+            notes_cb=notes_cb,
             progress_cb=_progress,
-            # Same as the Workspace Translate job: writes `en` only, and
-            # records each translated line's provenance (Step 41).
-            save_cb=lambda lines, did=d["id"]: (db.save_lines(did, lines, fields=("en",)),
-                                               provenance(lines)),
+            save_cb=save_cb,
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
                 did, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
                       else engine_name),
@@ -724,10 +788,17 @@ def cmd_translate(args):
         # persisted batch errors -- and "translated" only once no line is
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
+        recheck = set()
         bulk_translate.finish_translation_run(
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
-            summary_monthly_cap_usd=summary_monthly_cap)
+            summary_monthly_cap_usd=summary_monthly_cap,
+            line_scoped=target_ids is not None, enforce_ids=target_ids,
+            flags_needing_recheck=recheck)
+        if recheck:
+            print(f"\n#{d['id']} {len(recheck)} line(s) changed while the job ran, so their "
+                  f"review flags weren't saved; recheck line id(s) "
+                  f"{', '.join(map(str, sorted(recheck)))}.")
         for ev in getattr(engine, "events", None) or []:
             print(f"\n#{d['id']} switched from {ev['from']} to {ev['to']} ({ev['reason']}).")
         if "spent" in cap_reached:
@@ -973,7 +1044,7 @@ def main():
                                    "Defaults to the same per-content-mode preset Workspace picks "
                                    "(\"novel\" for a novel-narration drama, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
-    p_translate.add_argument("--locale", default=None, choices=["en-US", "en-GB", "en-AU"],
+    p_translate.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                              help="Default: the Settings English variant (en-US until changed).")
     p_translate.add_argument("--female-pronouns", action="store_true",
                            help="Default ambiguous pronouns to she/her (the Workspace "
@@ -983,6 +1054,17 @@ def main():
                                 "as in the Workspace).")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
+    p_translate.add_argument("--glossary-affected", action="store_true",
+                             help="Re-translate only the lines the glossary affects (a term or "
+                                  "alias in the source, or a banned translation in the English). "
+                                  "Needs --id. Hand-edited lines are left alone.")
+    p_translate.add_argument("--include-hand-edited", action="store_true",
+                             help="With --glossary-affected: also replace hand-edited lines "
+                                  "(a snapshot is saved first).")
+    p_translate.add_argument("--term", action="append", default=None, metavar="ID_OR_TEXT",
+                             help="With --glossary-affected: only the lines these glossary terms "
+                                  "affect (a term id, or its exact source text; repeat for "
+                                  "several). Default: every term.")
     p_translate.add_argument("--ollama-num-ctx", type=int, default=None,
                               help="Override Ollama's context window size. Only ever raises it "
                                    "above the automatic per-prompt estimate, never below -- "
@@ -1066,7 +1148,7 @@ def main():
     # reached cmd_translate, since these were never defined here.
     p_run.add_argument("--status", default=None)
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
-    p_run.add_argument("--locale", default=None, choices=["en-US", "en-GB", "en-AU"],
+    p_run.add_argument("--locale", default=None, choices=list(settings_service.LOCALE_CHOICES),
                         help="Default: the Settings English variant (en-US until changed).")
     p_run.add_argument("--female-pronouns", action="store_true",
                            help="Default ambiguous pronouns to she/her (the Workspace "

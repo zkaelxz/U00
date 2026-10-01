@@ -18,6 +18,9 @@ export interface UrlPreflight {
   text_chars: number
   images: number
   confidence: string
+  // Whether the page has a next-/previous-chapter link (a next link can be followed).
+  next_link?: boolean
+  previous_link?: boolean
   warnings: string[]
   lines: string[]
   display_url: string

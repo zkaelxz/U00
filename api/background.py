@@ -18,9 +18,15 @@ turned automatic backups on) and the B-14 sweep of stale `.deleting-*`
 drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
-folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`).
+folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`), and
+update installers no longer needed (`update_service.cleanup_leftovers`).
+Also, only when the owner turned "Resume interrupted translation batches"
+on (`translate_run_service.resume_interrupted_at_startup`, off by default),
+pending bulk batches are resumed through the manual resume's code path.
 The due-check then repeats hourly from the GPU-queue poller thread below
-(`auto_backup_service.periodic_tick`), so no extra thread is added.
+(`auto_backup_service.periodic_tick`), so no extra thread is added; so does
+the once-a-day update check, only when the owner turned it on
+(`update_service.periodic_tick`; it never downloads).
 
 Both `ensure_*` functions are once-per-process and safe to call again, so
 this is idempotent. Off when `ApiSettings.background_services` is False:
@@ -75,6 +81,11 @@ def start_gpu_queue_poller(interval: float = None) -> bool:
                     auto_backup_service.periodic_tick()
                 except Exception as exc:
                     _log("automatic backup check failed: %s", exc)
+                try:
+                    from services import update_service
+                    update_service.periodic_tick()
+                except Exception as exc:
+                    _log("update check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
         _gpu_poller = (thread, stop)
@@ -137,6 +148,56 @@ def stop_reeval_scheduler(timeout: float = 5.0) -> None:
         poller[0].join(timeout)
 
 
+# Remote-access health (services/remote_health_service.py): started only when
+# remote access is on (an https BAIHE_PUBLIC_URL and a household listener), so
+# with it off there is no thread and no call out. A first check shortly after
+# startup, then every CHECK_INTERVAL_SECONDS; alerts go out only on a change.
+_remote_health_poller = None   # (thread, stop_event) while running
+
+
+def start_remote_health_monitor(settings, interval: float = None,
+                                first: float = None) -> bool:
+    global _remote_health_poller
+    from services import remote_health_service as rhs
+    # Without sign-in settings `python -m api` does not start the household
+    # listener, so there is nothing to probe or alert about.
+    if not (settings.sign_in_configured
+            and rhs.remote_access_enabled(settings.public_url, settings.household_port)):
+        return False
+    interval = rhs.CHECK_INTERVAL_SECONDS if interval is None else float(interval)
+    first = rhs.FIRST_CHECK_SECONDS if first is None else float(first)
+    with _gpu_lock:
+        if _remote_health_poller is not None and _remote_health_poller[0].is_alive():
+            return False
+        stop = threading.Event()
+
+        def loop():
+            wait = min(interval, first)
+            while not stop.wait(wait):
+                wait = interval
+                try:
+                    # `stop` makes a running cycle give up at once, writing
+                    # and sending nothing, so it can't outlive the join below.
+                    rhs.run_check(settings.public_url, settings.household_port, settings.host,
+                                  stop=stop)
+                except Exception as exc:
+                    _log("remote access health check failed: %s", type(exc).__name__)
+
+        thread = threading.Thread(target=loop, daemon=True, name="api-remote-health")
+        _remote_health_poller = (thread, stop)
+        thread.start()
+        return True
+
+
+def stop_remote_health_monitor(timeout: float = 5.0) -> None:
+    global _remote_health_poller
+    with _gpu_lock:
+        poller, _remote_health_poller = _remote_health_poller, None
+    if poller is not None:
+        poller[1].set()
+        poller[0].join(timeout)
+
+
 def start_background_services() -> dict:
     """Starts what is due (and runs the startup sweeps above); returns
     {"chapter_scheduler": bool, "page_server": bool} (True = running after this call). Never raises: a
@@ -151,6 +212,12 @@ def start_background_services() -> dict:
     except Exception as exc:
         _log("leftover deleted-drama folders were not swept: %s", exc)
     try:
+        import storage
+        storage.sweep_stale_temp()
+    except Exception as exc:
+        from translate_engines import redact_secrets
+        _log("leftover temp files were not swept: %s", redact_secrets(str(exc)))
+    try:
         from services import lncrawl_service
         lncrawl_service.cleanup_stale_workdirs()
     except Exception as exc:
@@ -161,6 +228,16 @@ def start_background_services() -> dict:
         auto_backup_service.periodic_tick()   # the startup due-check
     except Exception as exc:
         _log("automatic backup check failed: %s", exc)
+    try:
+        from services import update_service
+        update_service.cleanup_leftovers()
+    except Exception as exc:
+        _log("leftover update installers were not swept: %s", exc)
+    try:
+        from services import translate_run_service
+        translate_run_service.resume_interrupted_at_startup()
+    except Exception as exc:
+        _log("bulk batches were not resumed: %s", exc)
     try:
         from sources import chapter_check
         chapter_check.ensure_scheduler_started()

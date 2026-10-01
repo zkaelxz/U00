@@ -71,7 +71,7 @@ import background_jobs
 import core as core_module
 import db
 import raw_transcript
-from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
+from core import SOURCE_LANGUAGES, Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
@@ -96,6 +96,11 @@ _DEFAULT_TUNING = {
     "whisper_fast_mode": False,
     "use_groq": False,
 }
+
+
+def _raise_if_job_cancelled(job_id):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
 
 
 def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
@@ -310,7 +315,6 @@ def _require_qwen3_packages(feature: str) -> None:
             "Install it with: pip install qwen-asr torch")
 
 
-_SOURCE_LANGUAGES = ("zh", "ja", "ko")
 _CHINESE_SCRIPTS = ("simplified", "traditional")
 
 
@@ -370,7 +374,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     source_language = source_language or drama.get("source_language") or "zh"
     chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
-    if source_language not in _SOURCE_LANGUAGES:
+    if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"Unknown source_language {source_language!r}.")
     if chinese_script not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
@@ -464,7 +468,7 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
         raise UnsupportedOperationError(
             f"Drama {drama_id} has no audio pipeline (content mode "
             f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
-    if (source_language or drama.get("source_language") or "zh") not in _SOURCE_LANGUAGES:
+    if (source_language or drama.get("source_language") or "zh") not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"Unknown source_language {source_language!r}.")
     if (chinese_script or drama.get("chinese_script") or "simplified") not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
@@ -590,7 +594,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         segments = hardsub_ocr.extract_hardsub_subtitles(
             video_path, language=source_language, sample_interval=hardsub_interval,
             ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
-            tesseract_cmd=tesseract_cmd,
+            tesseract_cmd=tesseract_cmd, job_id=job_id,
+            cancel_check=lambda: _raise_if_job_cancelled(job_id),
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
         if not segments:

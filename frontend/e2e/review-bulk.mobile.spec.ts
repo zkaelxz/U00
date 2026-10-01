@@ -22,8 +22,13 @@ test('Bulk switches: 44px targets, no sideways scroll, the warning shows', async
   })
   await page.goto('/#/drama/3/review')
   const ai = section(page, 'AI review')
-  if ((await ai.getAttribute('open')) === null) await ai.locator(':scope > summary').tap()
-  await expect(ai).toHaveAttribute('open', '')
+  // The lines list loads after the page paints and pushes this section down
+  // (or the stage re-renders it), so a tap can land on the old position and
+  // miss. Tap again until the section is open rather than once.
+  await expect(async () => {
+    if ((await ai.getAttribute('open', { timeout: 1000 })) === null) await ai.locator(':scope > summary').tap({ timeout: 2000 })
+    await expect(ai).toHaveAttribute('open', '', { timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
 
   const list = ai.getByRole('list', { name: 'AI checks to run' })
   const switches = list.getByRole('switch')

@@ -47,6 +47,11 @@ const DRAMA = {
   created_at: '2026-09-29T12:00:00', updated_at: '2026-09-29T12:00:00',
 }
 const EMPTY = { items: [] }
+const OFF_CHECK = { state: 'off', message: 'Remote access is off.' }
+export const REMOTE_HEALTH_OFF = {
+  state: 'off', message: 'Remote access is off.', checked_at: null, since: null,
+  certificate: { ...OFF_CHECK, days_left: null }, ddns: { ...OFF_CHECK, configured: false }, listener: OFF_CHECK,
+}
 
 /** What the app shell and the Library page GET, keyed by pathname. */
 const GET_FIXTURES: Record<string, unknown> = {
@@ -67,11 +72,30 @@ const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/voice-bank': EMPTY,
   // The header bell (every page) polls this.
   '/api/notifications': EMPTY,
+  // The remote-access banner reads this on the PC only (these specs are remote); off here.
+  '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
+  // Settings > Remote access (PC only, so not asked by these remote specs).
+  '/api/diagnostics/remote-health/ip-check': { configured: false },
+  // The Library admin panel's per-person backup picker.
+  '/api/admin/users': { users: [] },
+  // Settings > App updates (PC only): a source checkout, never checked.
+  '/api/system/update': {
+    current: null, installed: false, latest: null, update_available: false, notes: '', installer_name: null,
+    size: null, checked_at: null, check_error: null, release_lookup: 'unchecked', download: 'idle', downloaded_bytes: 0, download_error: null,
+    verified: false, verified_version: null, verified_name: null, can_install: false, auto_check: false,
+    custom_source: false,
+  },
+  // Settings > Signed-in devices, for a signed-in person: just this device.
+  '/api/auth/sessions': {
+    sessions: [{ id: 1, device: 'Chrome on Windows', created_at: 1759000000, last_seen_at: 1759000000, expires_at: 1761592000, ip_prefix: '203.0.113', current: true }],
+    idle_timeout_days: 14,
+    absolute_timeout_days: 30,
+  },
 }
 
 // The Library admin panel polls its last backup/export job and artifact;
 // with none made yet the real API answers 404 not_found, as here.
-const GET_NOT_FOUND = /^\/api\/(jobs\/library_(backup|db_backup|export_zip)|library\/admin\/artifacts\/(backup|database|export)\/info)$/
+const GET_NOT_FOUND = /^\/api\/(jobs\/library_(backup|db_backup|user_backup|export_zip)|library\/admin\/artifacts\/(backup|database|user_backup|export)\/info)$/
 
 export interface AuthMockState {
   me: MeBody

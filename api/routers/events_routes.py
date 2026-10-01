@@ -22,8 +22,9 @@ permission of all three GET routes it replaces). Events:
 Every payload is re-read per event through the GET route's own service
 call with this stream's principal (services/event_stream_service.py), and
 with auth on the session is re-checked at most every AUTH_RECHECK_SECONDS
-(before a batch or heartbeat), so a sign-out or a revoked permission ends
-the stream within seconds. A batch that fails goes out as a `resync`.
+(before a batch or heartbeat), so a revoked permission ends the stream
+within seconds; a sign-out, a revoked session or a deactivation wakes the
+user's streams to re-check at once (event_stream_service.request_recheck). A batch that fails goes out as a `resync`.
 EventSource sends
 the session cookie and no custom headers; GET needs no CSRF token. A cap
 (per user and in total) answers 429, and the client falls back to polling.
@@ -37,7 +38,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from api.auth import require_permission, session_token
+from api.auth import listener_principal, require_permission, session_token
 from api.notification_schemas import NotificationList
 from api.schemas import ErrorResponse, JobRecord, LiveSessionStatus
 from services import auth_service
@@ -79,7 +80,7 @@ def _revalidator(request: Request, principal):
     def check():
         # Not counted as activity: an open (even hidden) tab must not keep an
         # idle session alive.
-        fresh = auth_service.resolve_session(token, touch=False)
+        fresh = listener_principal(request.app, auth_service.resolve_session(token, touch=False))
         if fresh is None or PERMISSION not in fresh.get("permissions", ()):
             return None
         return fresh
@@ -96,8 +97,9 @@ class _Auth:
         self._revalidate = revalidate
         self._checked = now
 
-    async def current(self, now):
-        if now - self._checked >= events.AUTH_RECHECK_SECONDS:
+    async def current(self, now, force=False):
+        """force: a session was just revoked (event_stream_service.request_recheck)."""
+        if force or now - self._checked >= events.AUTH_RECHECK_SECONDS:
             self.principal = await run_in_threadpool(self._revalidate)
             self._checked = now
         return self.principal
@@ -127,7 +129,7 @@ async def _stream(request, sub, principal, revalidate):
             got = await sub.wait(max(0.0, deadline - loop.time()))
             if got:
                 batch = sub.drain()
-                current = await auth.current(loop.time())
+                current = await auth.current(loop.time(), force=batch.get("recheck", False))
                 if current is None:
                     return
                 try:

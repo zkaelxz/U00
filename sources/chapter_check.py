@@ -14,6 +14,8 @@ import threading
 import time
 
 import background_jobs
+import db
+from translate_engines import redact_for_storage
 
 from . import http, ladder, registry, store
 from .models import SourceError
@@ -105,6 +107,27 @@ def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = 
         store.release_check_cycle(token)
 
 
+# One generic text for every skipped auto-import: tracked series are listed
+# household-wide, so it must not say whether the drama was deleted, went
+# private or its linker lost access.
+LINK_UNAVAILABLE = "Auto-import skipped: the linked drama is not available."
+
+
+def _link_owner_can_edit(row) -> bool:
+    """The cycle has no request principal, so a link made by a user imports
+    only while that user could still make it: a drama shared at link time
+    may since have gone private, the user been removed or lost the
+    sources.import permission the link needed. A NULL owner
+    (auth off / the PC owner made the link) imports as before."""
+    uid = row.get("linked_by_user_id")
+    if uid is None:
+        return True
+    from services import auth_service, ownership_service
+    principal = auth_service.member_principal(uid)
+    return (principal is not None and "sources.import" in principal["permissions"]
+            and ownership_service.can_edit_drama(principal, row["drama_id"]))
+
+
 def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
@@ -124,16 +147,20 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             new = check_series(adapter, row)
         except SourceError as e:
             summary["errors"][row["title"]] = f"{e.reason.value}: {e}"
-            store.mark_checked(row["source"], row["series_id"], error=str(e)[:300])
+            store.mark_checked(row["source"], row["series_id"], error=redact_for_storage(str(e))[:300])
             continue
         except Exception as e:
             summary["errors"][row["title"]] = f"{type(e).__name__}: {e}"
-            store.mark_checked(row["source"], row["series_id"], error=str(e)[:300])
+            store.mark_checked(row["source"], row["series_id"], error=redact_for_storage(str(e))[:300])
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
         if new and auto_queue and row.get("drama_id"):
             from .pipeline import start_import
+            if db.get_drama(row["drama_id"]) is None or not _link_owner_can_edit(row):
+                summary["errors"][row["title"]] = LINK_UNAVAILABLE
+                store.mark_checked(row["source"], row["series_id"], error=LINK_UNAVAILABLE)
+                continue
             if start_import(row["source"], row["series_id"], new, row["drama_id"]):
                 summary["queued"].append(row["title"])
     store.set_setting("last_check_cycle", time.time())

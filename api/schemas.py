@@ -36,7 +36,8 @@ class HealthResponse(BaseModel):
 class MetaResponse(BaseModel):
     app: str
     api_version: str
-    environment: str = Field(description="`development` or `production`.")
+    environment: str = Field(description="`development` or `production`; empty on the "
+                                         "household listener.")
     local: bool = Field(description="True when this request would pass a PC-only (local_only) "
                                     "route: the viewer is at the PC. A UI hint only; those "
                                     "routes still enforce it.")
@@ -62,6 +63,11 @@ class DramaSummary(BaseModel):
     custom_tags: List[str] = Field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    is_private: Optional[bool] = Field(
+        default=None, description="Hidden from the household (a drama in a series follows its "
+                                  "series). Only set in the Library list.")
+    owned_by_me: Optional[bool] = Field(
+        default=None, description="The signed-in viewer created it. Only set in the Library list.")
 
 
 class DramaDetail(DramaSummary):
@@ -160,6 +166,60 @@ class DiagnosticsOverview(BaseModel):
     recent_log_lines: List[str]
 
 
+RemoteHealthState = Literal["off", "unknown", "not_configured", "ok", "warn", "critical"]
+
+
+class RemoteHealthCheck(BaseModel):
+    state: RemoteHealthState
+    message: str
+
+
+class RemoteCertificateCheck(RemoteHealthCheck):
+    days_left: Optional[int] = None
+
+
+class RemoteDdnsCheck(RemoteHealthCheck):
+    configured: bool
+
+
+class RemoteHealth(BaseModel):
+    """GET /api/diagnostics/remote-health: the last scheduled check of remote
+    access. States, whole days, Unix times and fixed messages only: never the
+    public name, an address, a URL or a path."""
+    state: Literal["off", "unknown", "ok", "warn", "critical"]
+    message: str
+    checked_at: Optional[float] = None
+    since: Optional[float] = None
+    certificate: RemoteCertificateCheck
+    ddns: RemoteDdnsCheck
+    listener: RemoteHealthCheck
+
+
+class RemoteIpCheckStatus(BaseModel):
+    """Whether the public-address check is set; never the address."""
+    configured: bool
+
+
+class RemoteIpCheckSetRequest(BaseModel):
+    """Write-only: `value` may carry a token, so it is never echoed back and
+    validation errors never include it."""
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(..., repr=False)
+    confirm: StrictBool = False
+
+
+class RemoteIpCheckClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class RemoteIpCheckTestResult(BaseModel):
+    """One check run now: a state and a fixed message, no address."""
+    configured: bool
+    state: RemoteHealthState
+    message: str
+
+
 class JobRecord(BaseModel):
     """One job's cross-process record (Migration Slice 8, reading
     Migration Slice 7's job_records mirror) -- the last status this app
@@ -185,6 +245,10 @@ class JobRecord(BaseModel):
     # Still queued/running on record, but no owner has heartbeated it for
     # 15 minutes (server clock): left behind by a process that died.
     stale: bool = False
+    # The caller started this job or owns its drama (auth off and the local
+    # owner: every job). Server-computed from the caller's session; true
+    # only where the caller may also cancel it.
+    owned_by_me: bool = False
 
 
 class JobListResponse(BaseModel):
@@ -235,6 +299,7 @@ class SettingsOverview(BaseModel):
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
+    bulk_auto_resume: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     monthly_cap_env_usd: float = 0.0
@@ -272,7 +337,8 @@ class TranslateHistoryResponse(BaseModel):
 class TranslateRequest(BaseModel):
     """Never carries an API key (D2) -- the server resolves one per engine
     itself; see services/translate_service.py's own resolve logic."""
-    text: str
+    # Mirrored by MAX_TRANSLATE_TEXT_CHARS in frontend/src/api/translate.ts.
+    text: str = Field(max_length=2_000_000)
     engine: str
     source_language: str
     target_language: str
@@ -780,10 +846,6 @@ class GlossaryTermUpsert(BaseModel):
     banned_translations: Optional[List[str]] = None
 
 
-class GlossaryDeleteResult(BaseModel):
-    deleted: bool
-
-
 class GlossaryImportRequest(BaseModel):
     """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
     by the browser; filename only hints the format. overwrite_existing
@@ -1118,6 +1180,7 @@ class SettingsUpdateRequest(BaseModel):
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
+    bulk_auto_resume: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
@@ -1304,6 +1367,77 @@ class TranslateFallbackEngine(BaseModel):
     model: Optional[str] = Field(None, max_length=200)
 
 
+class GlossaryAffectedTerm(BaseModel):
+    id: int
+    term_original: str
+    term_translation: str
+
+
+class GlossaryAffectedMatch(BaseModel):
+    term_id: int
+    term_original: str
+    term_translation: str
+    # "source": the term or an alias is in the source text; "banned": the
+    # English uses one of the term's banned translations.
+    reason: Literal["source", "banned"]
+
+
+class GlossaryAffectedLine(BaseModel):
+    id: int
+    idx: int
+    start: Optional[float] = None
+    end: Optional[float] = None
+    zh: str
+    en: str
+    # True unless the English is exactly what the last recorded translate
+    # run produced (unknown provenance counts as hand-edited).
+    hand_edited: bool
+    matched_terms: List[GlossaryAffectedMatch]
+
+
+class GlossaryAffectedPreview(BaseModel):
+    """Lines the glossary affects, for re-translating just those. No engine
+    call is made; the estimates are the Translate stage's own."""
+    drama_id: int
+    has_glossary: bool
+    terms: List[GlossaryAffectedTerm]
+    selected_term_ids: List[int]
+    lines: List[GlossaryAffectedLine]
+    hand_edited_count: int
+    preview_hash: str
+    estimate: TranslateRunEstimate
+    estimate_with_hand_edited: TranslateRunEstimate
+
+
+class GlossaryAffectedRunStart(BaseModel):
+    """Re-translate the chosen affected lines. line_ids and preview_hash come
+    from the preview; the server recomputes the set and refuses a stale one."""
+    model_config = ConfigDict(extra="forbid")
+    line_ids: List[int] = Field(min_length=1, max_length=100000)
+    preview_hash: str = Field(min_length=1, max_length=64)
+    include_hand_edited: bool = False
+    term_ids: Optional[List[int]] = Field(None, max_length=10000)
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    style_note: str = Field("", max_length=4000)
+    locale: str = Field("en-US", max_length=10)
+    context_window: Optional[int] = Field(None, ge=0, le=100)
+    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
+    batch_size: Optional[int] = Field(None, ge=1, le=200)
+    gemini_free_tier: Optional[bool] = None
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
+    reflect: bool = False
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
+
+
+class GlossaryAffectedRunStarted(TranslateRunStarted):
+    line_ids: List[int]
+    skipped_hand_edited_count: int
+
+
 TranslateRunStart.model_rebuild()
 
 
@@ -1368,6 +1502,8 @@ class LibraryCostResponse(BaseModel):
 class LibrarySeries(BaseModel):
     id: int
     name: str
+    is_private: bool
+    owned_by_me: bool = Field(description="The signed-in viewer created it.")
     character_count: int
     glossary_term_count: int
     dramas: List[LibraryDramaRef]
@@ -1911,6 +2047,9 @@ class SourceHealth(BaseModel):
     last_success: Optional[float] = None
     last_failure: Optional[float] = None
     last_error_type: Optional[str] = None
+    last_error_category: Optional[str] = Field(
+        default=None, description="blocked, site_down, page_missing, layout_changed, slow, "
+                                  "needs_sign_in or other; null when there is no error.")
     last_error: Optional[str] = None
     last_latency: Optional[float] = None
     unavailable_until: Optional[float] = None
@@ -2674,20 +2813,6 @@ class ReaderMediaAvailability(BaseModel):
     captions_overlay: bool
 
 
-class ReaderReadoutLine(BaseModel):
-    line_id: Optional[int] = None
-    idx: int
-    start: float
-    timestamp: str
-    text: str
-
-
-class ReaderReadout(BaseModel):
-    drama_id: int
-    track: str
-    lines: List[ReaderReadoutLine]
-
-
 class ReaderEngineFields(BaseModel):
     """Shared by every LLM request. An omitted engine means Claude (the
     Reader tab's default) and counts as paid for the engine check."""
@@ -3005,6 +3130,7 @@ class LibraryArtifactKind(str, Enum):
     backup = "backup"
     export = "export"
     database = "database"
+    user_backup = "user_backup"
 
 
 class LibraryBulkStatusRequest(BaseModel):
@@ -3048,6 +3174,13 @@ class LibraryBackupRequest(BaseModel):
     """database_only=true: the database snapshot alone (fast, small)."""
     model_config = ConfigDict(extra="forbid")
     database_only: StrictBool = False
+
+
+class LibraryUserBackupRequest(BaseModel):
+    """Backup of one person's dramas and series. user_id omitted or null:
+    the items owned at the PC (no owner)."""
+    model_config = ConfigDict(extra="forbid")
+    user_id: Optional[StrictInt] = Field(None, ge=1)
 
 
 class LibraryStorageCleanRequest(BaseModel):
@@ -3882,6 +4015,11 @@ class BurnPreviewStart(BaseModel):
     line_id: int = Field(ge=1)
     pad_seconds: Optional[float] = Field(None, ge=0, le=5)
     preset: Optional[str] = Field(None, max_length=40)
+    style: Optional[AssStyleOverrides] = None
+    speaker_colors: Optional[Dict[str, str]] = None
+    per_speaker_colors: bool = False
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class BurnPreviewStarted(BaseModel):
@@ -3955,10 +4093,87 @@ class SourcesProxyRequest(BaseModel):
     url: StrictStr = Field("", max_length=500)
 
 
+# Domain lists of sources that move between domains (PC-only routes). host or
+# host:port only: never a scheme, path or query.
+class SourceDomainList(BaseModel):
+    source: str
+    display_name: str
+    domains: List[str] = Field(description="host or host:port (443 implicit), tried in this order (https).")
+    default_domains: List[str] = Field(description="The adapter's own list.")
+    customized: bool = Field(description="True when the owner's saved list is in use.")
+    last_good: Optional[str] = Field(
+        default=None, description="The host that last answered (tried first); null if none.")
+    pending_proposals: int
+
+
+class SourceDomainsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domains: List[StrictStr] = Field(min_length=1, max_length=10,
+                                     description="host or host:port, e.g. example.com, in order.")
+
+
+class SourceDomainProposal(BaseModel):
+    source: str
+    display_name: str
+    host: str
+    found_at: float
+
+
+class SourceDomainProposalAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: StrictStr = Field(min_length=1, max_length=60)
+    host: StrictStr = Field(min_length=1, max_length=260)
+
+
+class SourceDomainProposalDismissed(BaseModel):
+    dismissed: bool
+
+
 # Step 80b: clean stop for the installed app (POST /api/system/shutdown).
 class ShutdownResponse(BaseModel):
     status: str = Field(description="`stopping`: jobs were asked to stop and the server exits shortly.")
     cancelled_jobs: int = Field(description="How many running or queued jobs were asked to stop.")
+
+
+# App updates from the public GitHub Releases (api/routers/update_routes.py).
+# Names, numbers and booleans only: never a URL or a filesystem path.
+class UpdateStatus(BaseModel):
+    current: Optional[str] = Field(None, description="Installed version; null for a source checkout.")
+    installed: bool
+    latest: Optional[str] = None
+    update_available: bool
+    notes: str = Field("", description="Release notes as plain text, links removed, truncated.")
+    installer_name: Optional[str] = None
+    size: Optional[int] = None
+    checked_at: Optional[float] = None
+    check_error: Optional[str] = None
+    release_lookup: Literal["unchecked", "found", "no_installer_release", "not_found"] = Field(
+        description="`not_found`: GitHub answered 404 (repository missing, renamed or private).")
+    download: Literal["idle", "downloading", "verified", "failed"]
+    downloaded_bytes: int
+    download_error: Optional[str] = None
+    verified: bool = Field(description="The downloaded installer matched the release's SHA-256.")
+    verified_version: Optional[str] = Field(None, description="The version Install would start.")
+    verified_name: Optional[str] = None
+    can_install: bool
+    auto_check: bool
+    custom_source: bool = Field(description="BAIHE_UPDATE_REPO names another repository than the default.")
+
+
+class UpdateSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    auto_check: StrictBool
+
+
+class UpdateInstallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool
+
+
+class UpdateInstallResponse(BaseModel):
+    launched: bool
+    installer_name: str
+    version: str
 
 
 # --- Step 115b: import with lightnovel-crawler (external program) -----------

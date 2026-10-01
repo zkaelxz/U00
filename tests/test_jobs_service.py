@@ -98,6 +98,9 @@ class TestJobResults:
             outcome, message = jobs_service.derive_outcome("done", None, result)
             assert outcome == "partial" and "boom" in message
         assert "CPU" in jobs_service.derive_outcome("done", None, {"gpu_fallback": "x"})[1]
+        outcome, message = jobs_service.derive_outcome(
+            "done", None, {"flags_needing_recheck": [7]})
+        assert outcome == "partial" and "recheck" in message
         assert jobs_service.derive_outcome("done", None, {"line_count": 5, "gpu_fallback": None})[0] == "ok"
 
     def test_cancelled_bulk_run_is_cancelled(self):

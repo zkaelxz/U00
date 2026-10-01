@@ -63,8 +63,16 @@ export interface AssistantMock {
   rolesEnabled: boolean
   reviewEngine: string | null
   review: unknown
+  /** GitHub delivery state (the token is only ever a boolean here). */
+  github: { enabled: boolean; repo: string | null; base_branch: string; token_configured: boolean; branch_prefix: string }
+  /** Status for POST /github/token (403 = key writes off). */
+  tokenStatus: number
   /** Lead review: per cloud engine consent. When set, /ask refuses a cloud engine without it (409). */
   cloudConsent: Record<string, boolean> | null
+  /** The escalation ladder. When set, /ask labels answers with their tier and refuses an unconfirmed cloud escalation. */
+  tiers: string[] | null
+  /** Engines whose next /ask fails as unreachable (e.g. Ollama not running). */
+  failing: string[]
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -77,7 +85,16 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     developerMode: false, local: true, engine: null, model: null,
     backlog: [{ id: 1, kind: 'note', text: 'Tidy the Export stage copy.', created_at: '2026-09-28T09:30:00' }],
     askStatus: 200, askGate: null, calls: [], unmocked: [], cloudConsent: null,
-    rolesEnabled: false, reviewEngine: null, review: null, ...over,
+    rolesEnabled: false, reviewEngine: null, review: null,
+    github: { enabled: false, repo: null, base_branch: 'baihe-subtitler', token_configured: false, branch_prefix: 'baihe-assistant/' },
+    tokenStatus: 200, tiers: null, failing: [], ...over,
+  }
+  const isLocal = (e: string) => e === 'ollama'
+  const ladder = () =>
+    (s.tiers ?? []).map((engine, i) => ({ tier: i + 1, engine, local: isLocal(engine), consent: isLocal(engine) || s.cloudConsent?.[engine] === true }))
+  const tierOf = (engine: string) => {
+    const i = (s.tiers ?? []).indexOf(engine)
+    return { tier: i >= 0 ? i + 1 : null, next_engine: i >= 0 ? (s.tiers ?? [])[i + 1] ?? null : null }
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -95,6 +112,7 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     ...(s.cloudConsent ? { default_engine: 'ollama', local_engines: ['ollama'], cloud_consent: s.cloudConsent } : {}),
     developer_mode: s.developerMode, engine: s.engine, model: s.model, engine_choices: ['claude', 'gemini', 'ollama'],
     roles_enabled: s.rolesEnabled, review_engine: s.reviewEngine, review_model: null,
+    ...(s.tiers ? { tier_order: null, tiers: ladder(), engine_keys: { claude: false, gemini: true, ollama: true } } : {}),
   })
 
   // Guard first: later routes take precedence.
@@ -131,14 +149,38 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     record(route)
     if (s.askGate) await s.askGate
     if (!s.developerMode) return json(route, { error: { code: 'conflict', message: 'Developer Mode is off.' } }, 409)
-    const picked = (route.request().postDataJSON() as { engine?: string }).engine || s.engine || 'ollama'
+    const body = route.request().postDataJSON() as { engine?: string; escalate?: boolean; consent?: boolean }
+    const picked = body.engine || s.engine || 'ollama'
+    if (s.tiers && body.escalate && !isLocal(picked) && body.consent !== true) {
+      return json(route, { error: { code: 'conflict', message: 'Confirm first.', details: { reason: 'escalation_consent_required', engine: picked } } }, 409)
+    }
     if (s.cloudConsent && picked !== 'ollama' && !s.cloudConsent[picked]) {
       return json(route, { error: { code: 'conflict', message: 'Not allowed yet.', details: { reason: 'cloud_consent_required', engine: picked } } }, 409)
+    }
+    if (s.failing.includes(picked)) {
+      s.failing = s.failing.filter((e) => e !== picked)
+      const details = { reason: 'unreachable', engine: picked, ...tierOf(picked) }
+      return json(route, { error: { code: 'application_error', message: 'The engine call failed.', details } }, 500)
     }
     if (s.askStatus !== 200) {
       return json(route, { error: { code: 'dependency_unavailable', message: 'No API key for this engine.' } }, s.askStatus)
     }
+    if (s.tiers) {
+      const evidence = picked === 'ollama' ? 'RESULT t1 (inspect_logs, ok):\nERROR dub stage: no speaker' : ''
+      // An escalation never sends the fix to a cloud reviewer the dialog didn't mention.
+      const skip = body.escalate && s.rolesEnabled && s.reviewEngine && !isLocal(s.reviewEngine)
+      const review = skip
+        ? { review: null, review_skipped: 'The reviewer is a cloud engine, so it wasn’t asked as part of this escalation. Ask for a review separately.' }
+        : { review: s.review }
+      return json(route, { ...ANSWER, ...review, engine: picked, local: isLocal(picked), evidence, ...tierOf(picked) })
+    }
     return json(route, { ...ANSWER, review: s.review })
+  })
+  await page.route(/\/api\/assistant\/report$/, (route) => {
+    record(route)
+    const b = route.request().postDataJSON() as { chat_history: { role: string; content: string }[] }
+    const chat = b.chat_history.map((t) => `${t.role === 'user' ? 'You' : 'Assistant'}: ${t.content}`).join('\n')
+    return json(route, { report: `Baihe problem report\nPrepared on this PC and not sent anywhere.\n\n== Conversation ==\n${chat}\n\n== Support report ==\nPython 3.12` })
   })
   await page.route(/\/api\/assistant\/changelog$/, (route) => {
     record(route)
@@ -167,6 +209,47 @@ export async function mockAssistant(page: Page, over: Partial<AssistantMock> = {
     const n = s.backlog.length
     s.backlog = []
     return json(route, { deleted: n })
+  })
+  // GitHub delivery.
+  await page.route(/\/api\/assistant\/github$/, (route) => {
+    record(route)
+    return json(route, s.github)
+  })
+  await page.route(/\/api\/assistant\/github\/settings$/, (route) => {
+    record(route)
+    const b = route.request().postDataJSON() as Partial<AssistantMock['github']>
+    s.github = { ...s.github, ...b, base_branch: b.base_branch === null ? 'baihe-subtitler' : (b.base_branch ?? s.github.base_branch) }
+    return json(route, s.github)
+  })
+  await page.route(/\/api\/assistant\/github\/token$/, (route) => {
+    record(route)
+    if (s.tokenStatus !== 200) return json(route, FORBIDDEN, s.tokenStatus)
+    s.github = { ...s.github, token_configured: true }
+    return json(route, { token_configured: true })
+  })
+  await page.route(/\/api\/assistant\/github\/token\/clear$/, (route) => {
+    record(route)
+    s.github = { ...s.github, token_configured: false }
+    return json(route, { token_configured: false })
+  })
+  await page.route(/\/api\/assistant\/github\/test$/, (route) => {
+    record(route)
+    return json(route, { ok: true, repo: s.github.repo, default_branch: 'main', can_push: true, base_branch: s.github.base_branch, base_exists: true })
+  })
+  await page.route(/\/api\/assistant\/github\/preview$/, (route) => {
+    record(route)
+    const b = route.request().postDataJSON() as { patch: string; title: string }
+    return json(route, {
+      repo: s.github.repo, base_branch: s.github.base_branch, branch_prefix: 'baihe-assistant/', title: b.title,
+      files: [{ path: 'services/dub_service.py', change: 'modify' }], patch: b.patch, sha256: 'f'.repeat(64),
+    })
+  })
+  await page.route(/\/api\/assistant\/github\/deliver$/, (route) => {
+    record(route)
+    return json(route, {
+      pr_url: 'https://github.com/me/app/pull/7', pr_number: 7, branch: 'baihe-assistant/fix-20260930-101010',
+      base_branch: s.github.base_branch, repo: s.github.repo, files: [{ path: 'services/dub_service.py', change: 'modify' }],
+    })
   })
   return s
 }

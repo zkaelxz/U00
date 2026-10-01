@@ -59,8 +59,6 @@ MAX_QUERY_LEN = 200
 MAX_TITLE_LEN = 300
 MAX_SNIPPET_LEN = 500
 MAX_RESULT_URL_LEN = 2000
-BAIHE_OWN_PORTS = (8501, 8600, 8756)
-API_PORT_ENV = "BAIHE_API_PORT"
 RATE_MAX = 10
 PER_CALLER_MAX = 4
 TEST_RATE_MAX = 5
@@ -120,14 +118,6 @@ def set_config(enabled: Optional[bool] = None, base_url: Optional[str] = None) -
 
 # --- HTTP ----------------------------------------------------------------------
 
-def _baihe_ports() -> set:
-    ports = set(BAIHE_OWN_PORTS)
-    raw = (settings_service.resolve_env_names((API_PORT_ENV,)) or "").strip()
-    if raw.isdigit():
-        ports.add(int(raw))
-    return ports
-
-
 def _check_target(url: str):
     """Refuses a base URL that resolves anywhere a SearXNG server cannot
     sensibly be (see the module docstring)."""
@@ -146,7 +136,7 @@ def _check_target(url: str):
         if (ip.is_link_local or ip.is_multicast or ip.is_unspecified
                 or (ip.is_reserved and not ip.is_private)):
             raise InvalidInputError("That server address is not allowed.")
-        if ip.is_loopback and port in _baihe_ports():
+        if ip.is_loopback and port in settings_service.baihe_own_ports():
             raise InvalidInputError("That address is this app's own port, not SearXNG.")
 
 

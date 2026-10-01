@@ -8,12 +8,17 @@ API calls.
 """
 
 import contextlib
+import logging
 import os
+import re
+import shutil
 import sqlite3
 import datetime
 import json
+import stat
 import threading
 import time
+import uuid
 from typing import List
 
 import portable
@@ -954,6 +959,8 @@ def init_db():
             action TEXT NOT NULL,
             detail_redacted TEXT DEFAULT ''
         );
+        CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, id);
+        CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id, id);
         """)
         # Lightweight migrations for DBs created before these columns existed
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
@@ -1184,13 +1191,39 @@ def init_db():
             ("dramas", "is_private", "INTEGER DEFAULT 0"),
             ("series", "owner_user_id", "INTEGER"),
             ("series", "is_private", "INTEGER DEFAULT 0"),
-            ("users", "share_by_default", "INTEGER DEFAULT 1"),
+            ("users", "share_by_default", "INTEGER DEFAULT 0"),
             ("translate_history", "user_id", "INTEGER"),
             ("job_records", "owner_user_id", "INTEGER"),
         ):
             cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
             if col not in cols:
                 _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        # New items became private by default (user decision 2026-09-30).
+        # A users.share_by_default added before that defaulted to 1, which
+        # nobody chose (nothing could set it): switch every account off once.
+        # The marker keeps later choices across restarts.
+        user_cols = {r[1]: r[4] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        marker = "migrations.share_by_default_off"
+        if str(user_cols.get("share_by_default")) == "1" and conn.execute(
+                "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+            conn.execute("UPDATE users SET share_by_default = 0")
+            conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+        session_cols = {r[1] for r in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
+        if "device_label" not in session_cols:
+            # A coarse "Chrome on Android" label (auth_service.device_label),
+            # the only device detail the signed-in-devices list shows.
+            _safe_alter(conn, "ALTER TABLE auth_sessions ADD COLUMN device_label TEXT DEFAULT ''")
+        # Sessions from before the label kept the first 60 characters of the
+        # user agent: label them from it, then drop it, so no raw user agent
+        # stays stored. Rows already blanked don't match, so this runs once.
+        old_agents = conn.execute(
+            "SELECT id, user_agent_short, device_label FROM auth_sessions "
+            "WHERE user_agent_short IS NOT NULL AND user_agent_short != ''").fetchall()
+        if old_agents:
+            from services.auth_service import device_label
+            conn.executemany(
+                "UPDATE auth_sessions SET device_label = ?, user_agent_short = '' WHERE id = ?",
+                [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_line_refs_to_ids()
@@ -1518,6 +1551,444 @@ def drama_dir(drama_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Media journal: drama folders moved in by a backup import or restore
+# ---------------------------------------------------------------------------
+# An import stages drama folders in DRAMAS_DIR/.import-<token>/ and holds an
+# OS lock on <staging>/lock while it runs, so recovery in another process
+# leaves it alone. Inside its database transaction (new rows inserted, not
+# committed) it writes a marker file with a fresh random token into each
+# staged folder, then <staging>/journal.json -- each new drama id with that
+# token and the folder's identity (st_dev, st_ino) -- and only then renames
+# the folders into place and commits. The commit is the commit point: when
+# the journal's drama rows don't exist the transaction never committed, and
+# a dramas/<id> folder is removed only when the journal lists that id and
+# the folder provably is the one it recorded (its marker token matches, or
+# its identity does; FAT, exFAT and some network shares change or omit the
+# inode on a rename, the marker moves with the folder). Anything else --
+# a folder that can't be proven, a damaged journal, a library database that
+# can't be read -- is left alone and reported.
+MEDIA_STAGING_PREFIX = ".import-"
+_MEDIA_STAGING_RE = re.compile(r"\.import-[0-9a-f]{32}", re.ASCII)
+_MEDIA_JOURNAL = "journal.json"
+_MEDIA_LOCK_FILE = "lock"
+MEDIA_MARKER = ".baihe-import-marker"
+_TOKEN_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
+_MAX_JOURNAL_BYTES = 1024 * 1024
+_MAX_JOURNAL_IDS = 10000
+_MAX_DRAMA_ID = 2 ** 63 - 1
+# A staging folder with no journal moved nothing yet; one this young may
+# belong to an import in another process that hasn't taken its lock yet.
+STALE_MEDIA_STAGING_SECONDS = 24 * 3600
+_DAMAGED_JOURNAL = object()
+_media_lock = threading.RLock()
+# Imports running in this process: staging name -> {"lock": [fd or None],
+# "moved": {drama id: staged folder it was renamed from}}.
+_active_media_stagings = {}
+
+log = logging.getLogger(__name__)
+
+
+class DramaFolderConflict(RuntimeError):
+    """dramas/<id> already exists for a drama id being created and could not
+    be renamed aside."""
+
+
+def _is_link(st) -> bool:
+    """A symlink, or on Windows any reparse point (a junction too)."""
+    return stat.S_ISLNK(st.st_mode) or bool(
+        getattr(st, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _real_dir(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and not _is_link(st)
+
+
+def _folder_identity(path: str):
+    """[st_dev, st_ino] of a real directory (not a link), else None; also
+    None when the file system reports no inode number (it can't prove which
+    folder is which)."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    if not stat.S_ISDIR(st.st_mode) or _is_link(st) or not st.st_ino:
+        return None
+    return [int(st.st_dev), int(st.st_ino)]
+
+
+def _marker_matches(folder: str, token) -> bool:
+    if not (isinstance(token, str) and _TOKEN_RE.fullmatch(token)):
+        return False
+    path = os.path.join(folder, MEDIA_MARKER)
+    try:
+        st = os.lstat(path)
+        if _is_link(st) or not stat.S_ISREG(st.st_mode) or st.st_size > 64:
+            return False
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+        with os.fdopen(fd, "rb") as fh:
+            return fh.read(65).strip() == token.encode("ascii")
+    except OSError:
+        return False
+
+
+def _is_journalled_folder(final: str, entry: dict) -> bool:
+    """True only when dramas/<id> is provably the folder the journal entry
+    recorded: a real directory whose marker token or identity matches."""
+    if not _real_dir(final):
+        return False
+    marker = entry.get("marker")
+    if marker:
+        # A marker was written into the staged folder, so it is the proof.
+        # Inode numbers are reused: a folder someone else put in its place
+        # can carry the same identity, so identity alone must not count.
+        return _marker_matches(final, marker)
+    ident = entry.get("ident")
+    return ident is not None and _folder_identity(final) == ident
+
+
+def _fsync_dir(path: str):
+    if os.name != "posix":
+        return      # Windows can't open a directory; it commits the rename with the file
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _lock_file(path: str, create: bool):
+    """Opens `path` and takes an exclusive OS lock on it without waiting;
+    the fd, or None when another process (or another open of it) holds the
+    lock or it can't be opened."""
+    try:
+        fd = os.open(path, os.O_RDWR | (os.O_CREAT if create else 0), 0o600)
+    except OSError:
+        return None
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def _release_lock(holder: list):
+    """Unlocks and closes holder[0] (once). Windows can't delete an open
+    file, so this runs before the staging folder is removed."""
+    fd, holder[0] = holder[0], None
+    if fd is None:
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+            with contextlib.suppress(OSError):
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    finally:
+        os.close(fd)
+
+
+def new_media_staging() -> str:
+    """Creates an empty staging folder DRAMAS_DIR/.import-<token>/ for one
+    import, locked and registered as running (recovery leaves it alone)
+    until finish_media_staging; returns its path."""
+    os.makedirs(DRAMAS_DIR, exist_ok=True)
+    name = MEDIA_STAGING_PREFIX + uuid.uuid4().hex
+    path = os.path.join(DRAMAS_DIR, name)
+    with _media_lock:
+        os.mkdir(path)
+        # A file system without locks still imports; recovery elsewhere
+        # then can't lock the folder either and leaves it alone.
+        _active_media_stagings[name] = {
+            "lock": [_lock_file(os.path.join(path, _MEDIA_LOCK_FILE), True)], "moved": {}}
+    return path
+
+
+def write_media_journal(staging: str, folders: dict):
+    """Marks each staged folder and records {new drama id: its marker token
+    and identity} in the staging folder's journal, flushed to disk; call
+    inside the import's transaction, before any folder is moved into place."""
+    ids = {}
+    for did, path in folders.items():
+        token = uuid.uuid4().hex
+        with open(os.path.join(path, MEDIA_MARKER), "w", encoding="ascii") as fh:
+            fh.write(token)
+            fh.flush()
+            os.fsync(fh.fileno())
+        ids[str(int(did))] = {"marker": token, "ident": _folder_identity(path)}
+    tmp = os.path.join(staging, _MEDIA_JOURNAL + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"format": 2, "staging": os.path.basename(staging), "ids": ids}, fh)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, os.path.join(staging, _MEDIA_JOURNAL))
+    _fsync_dir(staging)
+
+
+def move_staged_folder(staging: str, drama_id: int, staged: str) -> bool:
+    """Renames a staged folder to dramas/<drama_id> (after
+    write_media_journal) and remembers the move, so a failure before the
+    commit can rename it straight back. False, moving nothing, when that
+    path already exists."""
+    final = os.path.join(DRAMAS_DIR, str(int(drama_id)))
+    with _media_lock:
+        if os.path.lexists(final):
+            return False
+        os.rename(staged, final)
+        entry = _active_media_stagings.get(os.path.basename(staging))
+        if entry is not None:
+            entry["moved"][int(drama_id)] = staged
+    return True
+
+
+def _journal_id(key) -> int:
+    if not (isinstance(key, str) and 0 < len(key) <= 19 and key.isascii() and key.isdigit()
+            and str(int(key)) == key and 0 < int(key) <= _MAX_DRAMA_ID):
+        raise ValueError
+    return int(key)
+
+
+def _journal_entry(value) -> dict:
+    if not (isinstance(value, dict) and isinstance(value.get("marker"), str)
+            and _TOKEN_RE.fullmatch(value["marker"])):
+        raise ValueError
+    ident = value.get("ident")
+    if ident is not None and not (isinstance(ident, list) and len(ident) == 2 and all(
+            isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 2 ** 64 for v in ident)):
+        raise ValueError
+    return {"marker": value["marker"], "ident": ident}
+
+
+def _read_media_journal(staging: str):
+    """{drama id: {"marker", "ident"}}; None when there is no journal (the
+    import stopped before moving anything); _DAMAGED_JOURNAL when it can't
+    be read or doesn't belong to this staging folder. Never raises."""
+    path = os.path.join(staging, _MEDIA_JOURNAL)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return _DAMAGED_JOURNAL
+    try:
+        if _is_link(st) or not stat.S_ISREG(st.st_mode) or st.st_size > _MAX_JOURNAL_BYTES:
+            return _DAMAGED_JOURNAL
+        with open(path, "rb") as fh:
+            data = json.loads(fh.read(_MAX_JOURNAL_BYTES + 1).decode("utf-8"))
+        if not (isinstance(data, dict) and data.get("format") == 2
+                and data.get("staging") == os.path.basename(staging)
+                and isinstance(data.get("ids"), dict) and len(data["ids"]) <= _MAX_JOURNAL_IDS):
+            return _DAMAGED_JOURNAL
+        return {_journal_id(k): _journal_entry(v) for k, v in data["ids"].items()}
+    except Exception:   # OSError, ValueError, RecursionError, OverflowError, ...
+        return _DAMAGED_JOURNAL
+
+
+def _drama_rows_exist(ids):
+    """True when any of these drama rows exists, False when none does, None
+    when the library database or its dramas table can't be read (then
+    nothing can be proven either way)."""
+    ids = list(ids)
+    if not ids:
+        return False
+    if not os.path.isfile(DB_PATH):
+        return None
+    try:
+        # Its own untracked connection: callers hold a get_conn() connection
+        # (mid-transaction), which a nested get_conn() in this thread would close.
+        with contextlib.closing(sqlite3.connect(DB_PATH, timeout=10)) as conn:
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                marks = ",".join("?" for _ in chunk)
+                if conn.execute(f"SELECT 1 FROM dramas WHERE id IN ({marks}) LIMIT 1",
+                                chunk).fetchone() is not None:
+                    return True
+    except Exception:
+        return None
+    return False
+
+
+def _settle_media_staging(name: str, holder: list, moved: dict = None):
+    """Resolves one staging folder whose lock `holder` has (released here
+    before the folder is removed). Returns (ended, ids left in place): ended
+    is False when the staging folder and its journal were kept -- a damaged
+    journal, an unreadable library database, or dramas/<id> folders that
+    could not be proven to be this import's or could not be removed (the
+    next start tries again)."""
+    staging = os.path.join(DRAMAS_DIR, name)
+    journal = _read_media_journal(staging)
+    if journal is _DAMAGED_JOURNAL:
+        log.warning("An import journal could not be read; its folders were left alone")
+        return False, []
+    committed = _drama_rows_exist(journal or {})
+    if committed is None:
+        log.warning("The library database could not be read; an interrupted import's "
+                    "folders were left alone")
+        return False, []
+    if committed:
+        # Every folder is in place: only the markers, the journal and the
+        # staging folder go (anything else still in it is left alone).
+        for did, entry in journal.items():
+            final = os.path.join(DRAMAS_DIR, str(did))
+            if _real_dir(final) and _marker_matches(final, entry["marker"]):
+                try:
+                    os.remove(os.path.join(final, MEDIA_MARKER))
+                except OSError:
+                    log.warning("Could not remove the import marker of drama %d", did)
+        os.remove(os.path.join(staging, _MEDIA_JOURNAL))
+        _release_lock(holder)
+        for leftover in (_MEDIA_JOURNAL + ".tmp", _MEDIA_LOCK_FILE):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(os.path.join(staging, leftover))
+        try:
+            os.rmdir(staging)
+        except OSError:
+            log.warning("A finished import's staging folder was not empty; it was left alone")
+        return True, []
+    moved = moved or {}
+    left = []
+    for did, entry in sorted((journal or {}).items()):
+        final = os.path.join(DRAMAS_DIR, str(did))
+        if not os.path.lexists(final):
+            continue
+        if not _is_journalled_folder(final, entry):
+            left.append(did)    # can't prove it's the folder this import moved there
+            continue
+        staged = moved.get(did)
+        if staged is not None and not os.path.lexists(staged):
+            try:
+                os.rename(final, staged)    # straight back; removed with the staging folder
+                continue
+            except OSError:
+                pass
+        try:
+            shutil.rmtree(final)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            left.append(did)
+    if left:
+        log.warning("The folders of uncommitted imported dramas %s were left in place",
+                    ",".join(str(i) for i in left))
+        return False, left
+    _release_lock(holder)
+    shutil.rmtree(staging)
+    return True, []
+
+
+def finish_media_staging(staging: str) -> bool:
+    """Ends this process's import staging: after a commit only the markers,
+    the journal and the staging folder go; otherwise the folders it moved
+    into place are renamed back and removed with the staging folder. False
+    when something was left in place (logged by id; the journal stays for
+    the next start). Raises OSError when the staging folder itself can't be
+    removed. Calling it again is harmless."""
+    name = os.path.basename(staging)
+    with _media_lock:
+        entry = _active_media_stagings.pop(name, None)
+        if entry is None:
+            return not os.path.lexists(staging)     # already ended
+        try:
+            if not os.path.isdir(staging):
+                return True
+            return _settle_media_staging(name, entry["lock"], entry["moved"])[0]
+        finally:
+            _release_lock(entry["lock"])
+
+
+def _leftover_stagings() -> list:
+    try:
+        names = os.listdir(DRAMAS_DIR)
+    except OSError:
+        return []
+    return sorted(n for n in names if _MEDIA_STAGING_RE.fullmatch(n)
+                  and n not in _active_media_stagings
+                  and _real_dir(os.path.join(DRAMAS_DIR, n)))
+
+
+def _recover_staging(name: str, now: float, max_age: float):
+    """(ended, ids left in place) for a staging folder no import in this
+    process owns; (False, []) when its import may still be running in
+    another process (its lock is held, or it has no lock or journal yet and
+    is younger than max_age)."""
+    staging = os.path.join(DRAMAS_DIR, name)
+    holder = [_lock_file(os.path.join(staging, _MEDIA_LOCK_FILE), False)]
+    try:
+        if holder[0] is None:
+            if os.path.lexists(os.path.join(staging, _MEDIA_LOCK_FILE)):
+                return False, []    # held by a running import
+        if holder[0] is None or _read_media_journal(staging) is None:
+            if now - os.lstat(staging).st_mtime < max_age:
+                return False, []
+        return _settle_media_staging(name, holder)
+    finally:
+        _release_lock(holder)
+
+
+def recover_media_imports(max_age: float = STALE_MEDIA_STAGING_SECONDS, now: float = None) -> dict:
+    """Crash recovery for imports that are not running (run at startup and
+    before an import or restore; a staging folder whose lock another process
+    holds is skipped): a journal whose drama rows exist is deleted; one whose
+    rows don't removes the dramas/<id> folders it provably recorded, then
+    its staging folder; a staging folder with no journal (the import stopped
+    before moving anything) is removed once older than max_age. Nothing a
+    journal doesn't list is touched. Returns {"settled": n, "failed_ids":
+    [ids left in place]}. Never raises."""
+    now = time.time() if now is None else now
+    settled, failed = 0, []
+    with _media_lock:
+        for name in _leftover_stagings():
+            try:
+                ended, left = _recover_staging(name, now, max_age)
+            except Exception:
+                log.warning("An interrupted import's leftovers could not be removed")
+                continue
+            failed += left
+            settled += bool(ended)
+    return {"settled": settled, "failed_ids": failed}
+
+
+def claim_new_drama_folder(drama_id: int):
+    """Call with a new drama's row inserted but not committed (so no other
+    import is mid-transaction). A dramas/<id> folder is never inherited: one
+    that an uncommitted import's journal provably recorded is removed with
+    that import's other leftovers; anything else there is renamed aside to
+    <id>.orphan-<hex> (kept, never deleted). Raises DramaFolderConflict when
+    it can't be renamed aside."""
+    final = os.path.join(DRAMAS_DIR, str(drama_id))
+    if not os.path.lexists(final):
+        return
+    with _media_lock:
+        for name in _leftover_stagings():
+            journal = _read_media_journal(os.path.join(DRAMAS_DIR, name))
+            if isinstance(journal, dict) and drama_id in journal:
+                try:
+                    _recover_staging(name, time.time(), STALE_MEDIA_STAGING_SECONDS)
+                except Exception:
+                    log.warning("An interrupted import's leftovers could not be removed")
+                break
+        if not os.path.lexists(final):
+            return
+        try:
+            os.rename(final, f"{final}.orphan-{uuid.uuid4().hex[:8]}")
+        except OSError:
+            raise DramaFolderConflict(
+                f"A folder for new drama {int(drama_id)} is already in the library's dramas "
+                "folder and could not be moved aside; move it out and try again.") from None
+        log.warning("A folder for new drama %d was already in the dramas folder; it was "
+                    "renamed aside and kept", int(drama_id))
+
+
+# ---------------------------------------------------------------------------
 # Dramas CRUD
 # ---------------------------------------------------------------------------
 
@@ -1535,8 +2006,9 @@ def create_drama(**fields) -> int:
         placeholders = ", ".join("?" for _ in fields)
         cur = conn.execute(f"INSERT INTO dramas ({cols}) VALUES ({placeholders})",
                             list(fields.values()))
-        conn.commit()
         new_id = cur.lastrowid
+        claim_new_drama_folder(new_id)   # raising here rolls the insert back
+        conn.commit()
     return new_id
 
 
@@ -1570,7 +2042,6 @@ def delete_drama(drama_id: int):
         conn.execute("DELETE FROM line_provenance WHERE drama_id = ?", (drama_id,))
         conn.execute("DELETE FROM job_checkpoints WHERE scope LIKE ?", (f"%:{int(drama_id)}:%",))
         conn.commit()
-    import shutil
     d = os.path.join(DRAMAS_DIR, str(drama_id))
     if os.path.isdir(d):
         shutil.rmtree(d)
@@ -1689,25 +2160,6 @@ def list_dramas_by_series(series_id: int):
     return dramas
 
 
-def distinct_values(column: str) -> List[str]:
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(f"SELECT DISTINCT {column} FROM dramas WHERE {column} IS NOT NULL AND {column} != ''").fetchall()
-    return sorted({r[0] for r in rows})
-
-
-def distinct_voice_actors() -> List[str]:
-    """voice_actors is comma-separated per row -- split and dedupe."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT voice_actors FROM dramas WHERE voice_actors IS NOT NULL AND voice_actors != ''").fetchall()
-    names = set()
-    for r in rows:
-        for name in r[0].split(","):
-            name = name.strip()
-            if name:
-                names.add(name)
-    return sorted(names)
-
-
 # ---------------------------------------------------------------------------
 # Lines CRUD
 # ---------------------------------------------------------------------------
@@ -1790,7 +2242,7 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     return f"UPDATE lines SET {', '.join(sets)} WHERE {' AND '.join(conds)}", args + cargs
 
 
-def save_lines(drama_id: int, lines, fields=None):
+def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard_fields=()):
     """Saves a drama's lines by their permanent id (Line.id).
 
     Full sync (fields=None) -- the list IS the drama's lines now:
@@ -1812,7 +2264,24 @@ def save_lines(drama_id: int, lines, fields=None):
     changed by this caller, so whatever is in the database now (another
     writer's newer value) is kept. After saving, `orig` is updated.
 
+    only_if_unchanged (field-scoped only): a field is written only while
+    the database still holds this caller's `orig` value, so an edit saved
+    by someone else since the lines were loaded is kept, not overwritten.
+    A line without `orig` is then not written at all.
+
+    guard_fields (with only_if_unchanged): columns not written but whose
+    database value must still equal this Line's own value -- the text the
+    written fields were computed from (a flag from `en` and its timing).
+
+    Returns the ids only_if_unchanged left unwritten (an edit was kept);
+    empty otherwise.
+
     One transaction: on any error nothing is written."""
+    if only_if_unchanged and fields is None:
+        raise ValueError("only_if_unchanged needs field-scoped saving")
+    if guard_fields and not only_if_unchanged:
+        raise ValueError("guard_fields needs only_if_unchanged")
+    guard_cols = tuple(f for f in _LINE_COLUMNS if f in guard_fields)
     cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
@@ -1822,14 +2291,33 @@ def save_lines(drama_id: int, lines, fields=None):
         conn.execute("BEGIN IMMEDIATE")
         existing = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
-        kept = set()
+        kept, unwritten = set(), set()
         for ln in lines:
             lid = getattr(ln, "id", None)
             orig = getattr(ln, "orig", None)
             if lid in existing and lid not in kept:
                 changed = [f for f in cols
                            if orig is None or _line_value(ln, f) != orig.get(f)]
-                if changed:
+                if changed and only_if_unchanged:
+                    if orig is None:
+                        unwritten.add(lid)
+                    else:
+                        # Compare-and-set: NULL and "" are the same empty text
+                        # to a Line, so a text field compares through COALESCE.
+                        expected = [(f, orig.get(f)) for f in changed]
+                        # A guard with no value is empty text, as NULL is to a Line.
+                        expected += [(f, "" if _line_value(ln, f) is None else _line_value(ln, f))
+                                     for f in guard_cols]
+                        guards = [f"COALESCE({f}, '') = ?" if isinstance(v, str)
+                                  else f"{f} IS ?" for f, v in expected]
+                        cur = conn.execute(
+                            f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
+                            f"WHERE id = ? AND drama_id = ? AND {' AND '.join(guards)}",
+                            [_line_value(ln, f) for f in changed] + [lid, drama_id]
+                            + [v for _f, v in expected])
+                        if cur.rowcount == 0:
+                            unwritten.add(lid)
+                elif changed:
                     conn.execute(
                         f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
                         f"WHERE id = ? AND drama_id = ?",
@@ -1867,6 +2355,7 @@ def save_lines(drama_id: int, lines, fields=None):
         ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
         if fields is None:
             ln.merged_ids = []
+    return unwritten
 
 
 def _repoint_line_refs(conn, drama_id, from_id, to_id):
@@ -3046,19 +3535,6 @@ def clear_reading_history(drama_id: int = None, profile_id: int = None):
 # ---------------------------------------------------------------------------
 # Custom tags
 # ---------------------------------------------------------------------------
-
-def distinct_custom_tags():
-    """custom_tags is comma-separated per drama -- split and dedupe."""
-    with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT custom_tags FROM dramas WHERE custom_tags IS NOT NULL AND custom_tags != ''").fetchall()
-    tags = set()
-    for r in rows:
-        for t in r[0].split(","):
-            if t.strip():
-                tags.add(t.strip())
-    return sorted(tags)
-
 
 # Step 24: personal organizational tags, kept in custom_tags alongside any
 # user-defined ones -- deliberately separate from dramas.status, which
@@ -4675,8 +5151,10 @@ _USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active"
 def auth_create_user(email: str, display_name: str = "", is_admin: bool = False) -> int:
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
-            "INSERT INTO users (email, display_name, is_admin, is_active, created_at) "
-            "VALUES (?, ?, ?, 1, ?)",
+            # share_by_default is explicit: a database from before new items
+            # became private by default has the column with DEFAULT 1.
+            "INSERT INTO users (email, display_name, is_admin, is_active, share_by_default, "
+            "created_at) VALUES (?, ?, ?, 1, 0, ?)",
             (email, display_name or "", int(bool(is_admin)),
              time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
         conn.commit()
@@ -4774,6 +5252,39 @@ def set_item_private(kind: str, item_id: int, private: bool) -> bool:
         return cur.rowcount > 0
 
 
+def series_has_unowned_drama(series_id: int) -> bool:
+    """Whether a series holds a drama with no owner (made at the PC)."""
+    with contextlib.closing(get_conn()) as conn:
+        return conn.execute("SELECT 1 FROM dramas WHERE series_id = ? AND owner_user_id IS NULL "
+                            "LIMIT 1", (series_id,)).fetchone() is not None
+
+
+def list_item_sharing(limit: int, offset: int):
+    """Every series and drama with its sharing fields, for the admin
+    Sharing screen: (total, rows). A series comes just before its dramas;
+    groups are sorted by series name or solo drama title. Owner names come
+    from users.display_name only (never the email)."""
+    items = (
+        "SELECT 'series' AS kind, 0 AS kind_order, s.id, s.name AS title, s.owner_user_id, "
+        "COALESCE(s.is_private, 0) AS is_private, NULL AS series_id, NULL AS series_name, "
+        "NULL AS series_is_private, s.name AS sort_key, s.id AS group_id FROM series s "
+        "UNION ALL "
+        "SELECT 'drama', 1, d.id, COALESCE(NULLIF(d.title_en, ''), NULLIF(d.title_zh, ''), ''), "
+        "d.owner_user_id, COALESCE(d.is_private, 0), d.series_id, s.name, "
+        "CASE WHEN s.id IS NULL THEN NULL ELSE COALESCE(s.is_private, 0) END, "
+        "COALESCE(s.name, NULLIF(d.title_en, ''), d.title_zh, ''), d.series_id "
+        "FROM dramas d LEFT JOIN series s ON s.id = d.series_id")
+    with contextlib.closing(get_conn()) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM ({items})").fetchone()[0]
+        rows = conn.execute(
+            f"SELECT i.*, u.id AS owner_found, u.display_name AS owner_display_name "
+            f"FROM ({items}) i LEFT JOIN users u ON u.id = i.owner_user_id "
+            "ORDER BY i.sort_key COLLATE NOCASE, i.sort_key, i.group_id IS NULL, i.group_id, "
+            "i.kind_order, i.title COLLATE NOCASE, i.id LIMIT ? OFFSET ?",
+            (limit, offset)).fetchall()
+    return total, [dict(r) for r in rows]
+
+
 def auth_get_user(user_id: int):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -4818,15 +5329,40 @@ def auth_revoke_permission(user_id: int, permission: str):
 
 
 def auth_insert_session(id_hash: str, user_id: int, created_at: float, expires_at: float,
-                        user_agent_short: str, ip_prefix: str, csrf_hash: str) -> int:
+                        device_label: str, ip_prefix: str, csrf_hash: str) -> int:
+    """The raw user agent is not stored: only the coarse `device_label`."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
             "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, last_seen_at, "
-            "user_agent_short, ip_prefix, csrf_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (id_hash, user_id, created_at, expires_at, created_at, user_agent_short,
+            "user_agent_short, device_label, ip_prefix, csrf_hash) "
+            "VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)",
+            (id_hash, user_id, created_at, expires_at, created_at, device_label,
              ip_prefix, csrf_hash))
         conn.commit()
         return cur.lastrowid
+
+
+def auth_rotate_session(session_id: int, user_id: int, id_hash: str, csrf_hash: str,
+                        now: float, ip_prefix: str):
+    """Replaces the user's session `session_id` with a new row under new
+    hashes, in one transaction. The new row keeps the old one's sign-in time,
+    expiry and device label, so rotating never extends a session. Returns the
+    new id, or None if that session is already gone."""
+    with contextlib.closing(get_conn()) as conn:
+        with conn:
+            old = conn.execute(
+                "SELECT created_at, expires_at, device_label FROM auth_sessions "
+                "WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
+            if old is None:
+                return None
+            conn.execute("DELETE FROM auth_sessions WHERE id = ?", (session_id,))
+            cur = conn.execute(
+                "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, "
+                "last_seen_at, user_agent_short, device_label, ip_prefix, csrf_hash) "
+                "VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)",
+                (id_hash, user_id, old["created_at"], old["expires_at"], now,
+                 old["device_label"] or "", ip_prefix, csrf_hash))
+            return cur.lastrowid
 
 
 def auth_get_session_by_hash(id_hash: str):
@@ -4853,9 +5389,27 @@ def auth_delete_session(session_id: int, user_id: int = None) -> bool:
         return cur.rowcount > 0
 
 
-def auth_delete_user_sessions(user_id: int) -> int:
+def auth_delete_user_sessions(user_id: int, except_id: int = None) -> int:
+    """Every session of the user, or every one but `except_id` (the caller's own)."""
+    sql, args = "DELETE FROM auth_sessions WHERE user_id = ?", [user_id]
+    if except_id is not None:
+        sql += " AND id != ?"
+        args.append(except_id)
     with contextlib.closing(get_conn()) as conn:
-        cur = conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        cur = conn.execute(sql, args)
+        conn.commit()
+        return cur.rowcount
+
+
+def auth_delete_stale_sessions(now: float, idle_cutoff: float) -> int:
+    """Deletes every session a lookup would refuse anyway: past its absolute
+    expiry, idle since `idle_cutoff` or earlier, or held by a deactivated or
+    missing user. Returns how many rows went."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "DELETE FROM auth_sessions WHERE expires_at <= ? OR last_seen_at <= ? "
+            "OR user_id NOT IN (SELECT id FROM users WHERE is_active = 1)",
+            (now, idle_cutoff))
         conn.commit()
         return cur.rowcount
 
@@ -4865,7 +5419,8 @@ def auth_list_sessions(user_id: int):
     with contextlib.closing(get_conn()) as conn:
         return [dict(r) for r in conn.execute(
             "SELECT id, user_id, created_at, expires_at, last_seen_at, user_agent_short, "
-            "ip_prefix FROM auth_sessions WHERE user_id = ? ORDER BY id", (user_id,)).fetchall()]
+            "device_label, ip_prefix FROM auth_sessions WHERE user_id = ? ORDER BY id",
+            (user_id,)).fetchall()]
 
 
 def auth_insert_audit(user_id, action: str, detail_redacted: str):
@@ -4877,7 +5432,46 @@ def auth_insert_audit(user_id, action: str, detail_redacted: str):
         conn.commit()
 
 
-def auth_list_audit(limit: int = 100):
+def auth_list_audit(limit: int = 100, before_id: int = None, action: str = None,
+                    user_id: int = None):
+    """Newest first. `before_id` pages back (rows with a smaller id);
+    `action` and `user_id` are exact-match filters."""
+    where, args = [], []
+    if before_id is not None:
+        where.append("id < ?")
+        args.append(int(before_id))
+    if action is not None:
+        where.append("action = ?")
+        args.append(action)
+    if user_id is not None:
+        where.append("user_id = ?")
+        args.append(int(user_id))
+    sql = "SELECT id, ts, user_id, action, detail_redacted FROM audit_log"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     with contextlib.closing(get_conn()) as conn:
-        return [dict(r) for r in conn.execute(
-            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()]
+        return [dict(r) for r in conn.execute(sql + " ORDER BY id DESC LIMIT ?",
+                                              (*args, int(limit))).fetchall()]
+
+
+def auth_list_audit_actions(limit: int = 200):
+    with contextlib.closing(get_conn()) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT DISTINCT action FROM audit_log ORDER BY action LIMIT ?",
+            (int(limit),)).fetchall()]
+
+
+def auth_deactivate_user_keeping_an_admin(user_id: int) -> bool:
+    """Sets is_active=0 unless that would leave no active admin. One
+    statement, so two admins deactivating each other at once can't both
+    succeed. False when refused or the user doesn't exist."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            # Truthiness as auth_service reads the flags: NULL is off, any
+            # non-zero value is on.
+            "UPDATE users SET is_active = 0 WHERE id = ? AND (COALESCE(is_admin, 0) = 0 "
+            "OR COALESCE(is_active, 0) = 0 OR EXISTS (SELECT 1 FROM users o WHERE o.id != ? "
+            "AND COALESCE(o.is_admin, 0) != 0 AND COALESCE(o.is_active, 0) != 0))",
+            (user_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0

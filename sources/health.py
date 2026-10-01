@@ -6,6 +6,8 @@ failing source from being hit again too soon.
 
 import time
 
+from translate_engines import redact_for_storage
+
 from . import store
 
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
@@ -14,18 +16,49 @@ GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
 # which already had its own retries), and is then left alone for
 # `unavailable_backoff` seconds, doubling on each further failure.
 RED_AFTER = 3
+# NOT_FOUND (a dead chapter URL) is never recorded here: the site answered, so
+# it must not count toward RED_AFTER. LAYOUT_CHANGED is recorded like any
+# failure (it means the adapter needs attention).
 MAX_BACKOFF = 6 * 3600.0
+
+
+# Plain-language category for a stored error type (FailureReason value).
+# The UI and the App Assistant show this instead of the raw string.
+_CATEGORIES = {
+    "blocked": ("CLOUDFLARE_CHALLENGE", "BOT_CHALLENGE", "ACCESS_DENIED", "IP_REPUTATION_BLOCK",
+                "CDN_RESTRICTION", "GEO_RESTRICTION", "TOS_PROHIBITED"),
+    "site_down": ("HTTP_ERROR", "SERVER_ERROR"),
+    "page_missing": ("NOT_FOUND",),
+    "layout_changed": ("LAYOUT_CHANGED",),
+    "slow": ("TIMEOUT", "RATE_LIMIT"),
+    "needs_sign_in": ("AUTHENTICATION_REQUIRED", "COOKIE_REQUIRED", "PURCHASE_REQUIRED"),
+    "domains_unreachable": ("ALL_DOMAINS_UNREACHABLE",),
+}
+_CATEGORY_OF = {t: c for c, types in _CATEGORIES.items() for t in types}
+
+
+def category(error_type) -> str:
+    """blocked / site_down / page_missing / layout_changed / slow /
+    needs_sign_in / domains_unreachable, "other" for any other error type,
+    None for no error."""
+    if not error_type:
+        return None
+    return _CATEGORY_OF.get(str(error_type), "other")
 
 
 def record_success(source: str, latency: float, now: float = None):
     now = time.time() if now is None else now
-    with store.connect() as conn:
-        conn.execute(
-            "INSERT INTO source_health(source, consecutive_failures, last_success, last_latency, "
-            "unavailable_until) VALUES(?, 0, ?, ?, NULL) ON CONFLICT(source) DO UPDATE SET "
-            "consecutive_failures=0, last_success=excluded.last_success, "
-            "last_latency=excluded.last_latency, unavailable_until=NULL",
-            (source, now, latency))
+    try:
+        with store.connect() as conn:
+            conn.execute(
+                "INSERT INTO source_health(source, consecutive_failures, last_success, last_latency, "
+                "unavailable_until) VALUES(?, 0, ?, ?, NULL) ON CONFLICT(source) DO UPDATE SET "
+                "consecutive_failures=0, last_success=excluded.last_success, "
+                "last_latency=excluded.last_latency, unavailable_until=NULL",
+                (source, now, latency))
+    except store.SourcesDatabaseBusy:
+        # Health is a record of the fetch, not part of it.
+        store.log_dropped("a source health record")
 
 
 def record_failure(source: str, error_type: str, error: str, now: float = None,
@@ -38,14 +71,19 @@ def record_failure(source: str, error_type: str, error: str, now: float = None,
     until = None
     if failures >= RED_AFTER:
         until = now + min(base_backoff * (2 ** (failures - RED_AFTER)), MAX_BACKOFF)
-    with store.connect() as conn:
-        conn.execute(
-            "INSERT INTO source_health(source, consecutive_failures, last_failure, last_error_type, "
-            "last_error, unavailable_until) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO UPDATE "
-            "SET consecutive_failures=excluded.consecutive_failures, "
-            "last_failure=excluded.last_failure, last_error_type=excluded.last_error_type, "
-            "last_error=excluded.last_error, unavailable_until=excluded.unavailable_until",
-            (source, failures, now, error_type, error[:500], until))
+    try:
+        with store.connect() as conn:
+            conn.execute(
+                "INSERT INTO source_health(source, consecutive_failures, last_failure, last_error_type, "
+                "last_error, unavailable_until) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(source) DO UPDATE "
+                "SET consecutive_failures=excluded.consecutive_failures, "
+                "last_failure=excluded.last_failure, last_error_type=excluded.last_error_type, "
+                "last_error=excluded.last_error, unavailable_until=excluded.unavailable_until",
+                (source, failures, now, error_type, redact_for_storage(error)[:500], until))
+    except store.SourcesDatabaseBusy:
+        store.log_dropped("a source health record")
+        current["consecutive_failures"] = failures
+        return current
     return get(source)
 
 
@@ -57,6 +95,19 @@ def get(source: str) -> dict:
                 "last_failure": None, "last_error_type": None, "last_error": None,
                 "last_latency": None, "unavailable_until": None}
     return dict(row)
+
+
+def recent_failures(limit: int = 20) -> list:
+    """Sources whose current failure streak is open, newest first, as
+    {source, category, count, last_failure}. No error text or URLs."""
+    with store.connect() as conn:
+        rows = conn.execute(
+            "SELECT source, last_error_type, consecutive_failures, last_failure FROM source_health "
+            "WHERE consecutive_failures > 0 AND last_failure IS NOT NULL "
+            "ORDER BY last_failure DESC LIMIT ?", (int(limit),)).fetchall()
+    return [{"source": r["source"], "category": category(r["last_error_type"]),
+             "count": r["consecutive_failures"], "last_failure": r["last_failure"]}
+            for r in rows]
 
 
 def light(source: str, now: float = None) -> str:

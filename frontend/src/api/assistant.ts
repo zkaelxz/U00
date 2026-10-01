@@ -16,6 +16,8 @@ import type {
   ChangelogRequest,
   ChangelogResponse,
   ChatTurn,
+  ReportRequest,
+  ReportResponse,
 } from '../types/assistant'
 import { getJson, postJson } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -28,6 +30,7 @@ const BASE = '/api/assistant'
 export const MAX_QUESTION = 4000
 export const MAX_HISTORY_TURNS = 20
 export const MAX_BACKLOG_TEXT = 1000
+export const MAX_EVIDENCE = 16000
 
 export const getAssistantSettings = (f?: Fetch) => getJson<AssistantSettings>(`${BASE}/settings`, f)
 
@@ -49,15 +52,35 @@ export function trimHistory(history: ChatTurn[]): ChatTurn[] {
   return history.slice(-MAX_HISTORY_TURNS)
 }
 
+/** An escalation to a higher tier: sent only after the user confirmed it. */
+export interface Escalation {
+  consent: boolean
+  evidence: string
+}
+
 export function askAssistant(
   question: string,
   history: ChatTurn[],
   engine?: string | null,
   model?: string | null,
   f?: Fetch,
+  escalation?: Escalation,
 ): Promise<AskResponse> {
   const body: AskRequest = { question, chat_history: trimHistory(history), ...engineFields(engine, model) }
+  if (escalation) {
+    body.escalate = true
+    body.consent = escalation.consent
+    if (escalation.evidence) body.evidence = escalation.evidence.slice(0, MAX_EVIDENCE)
+  }
   return postJson<AskResponse>(`${BASE}/ask`, body, pcOnlyFetch(f))
+}
+
+/** The redacted problem report for a developer; built on the PC, never uploaded. */
+export function prepareDeveloperReport(req: ReportRequest, f?: Fetch): Promise<ReportResponse> {
+  const body: ReportRequest = { chat_history: trimHistory(req.chat_history) }
+  if (req.question) body.question = req.question
+  if (req.evidence) body.evidence = req.evidence.slice(0, MAX_EVIDENCE)
+  return postJson<ReportResponse>(`${BASE}/report`, body, pcOnlyFetch(f))
 }
 
 export function generateChangelog(

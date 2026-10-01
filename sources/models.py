@@ -39,7 +39,10 @@ LADDER_ORDER = [AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER,
 class FailureReason(str, Enum):
     """Why one tier's attempt failed (Step 23 item 2b). Never collapsed
     into a bare "blocked"."""
-    HTTP_ERROR = "HTTP_ERROR"
+    HTTP_ERROR = "HTTP_ERROR"            # a network failure or a 4xx that isn't more specific
+    NOT_FOUND = "NOT_FOUND"              # 404/410: this page is gone; the site itself is fine
+    SERVER_ERROR = "SERVER_ERROR"        # 5xx: the site is down or erroring
+    LAYOUT_CHANGED = "LAYOUT_CHANGED"    # a required selector is missing: the adapter is stale
     TIMEOUT = "TIMEOUT"
     RATE_LIMIT = "RATE_LIMIT"
     JAVASCRIPT_REQUIRED = "JAVASCRIPT_REQUIRED"
@@ -58,6 +61,9 @@ class FailureReason(str, Enum):
     SIGNED_RESOURCE = "SIGNED_RESOURCE"
     NOT_INSTALLED = "NOT_INSTALLED"      # the tier's own tooling isn't set up here
     TOS_PROHIBITED = "TOS_PROHIBITED"    # refused before any request: the source's terms forbid it
+    # Every domain on the source's domain list failed to connect or kept erroring
+    # (sources/domains.py); a challenge on any of them is never this.
+    ALL_DOMAINS_UNREACHABLE = "ALL_DOMAINS_UNREACHABLE"
     UNKNOWN = "UNKNOWN"
 
 

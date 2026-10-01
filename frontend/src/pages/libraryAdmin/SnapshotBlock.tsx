@@ -1,13 +1,20 @@
 /*
- * Library tools > Backup & storage > "Automatic backup snapshot" (roadmap
- * Step 43): the one snapshot automatic backups keep (date, size, kind, drama
- * count), restoring ONE drama from it, and deleting it. PC only (the parent
- * AdminSection shows the PC-only note away from the PC); nothing is fetched
- * until /api/meta has answered. The schedule itself lives in Settings.
+ * Library tools > Backup & storage > "Automatic backup copies":
+ * the rotating copies automatic backups keep (the newest one's
+ * date, size, kind and drama count), restoring ONE drama from a chosen copy,
+ * and deleting one copy or all of them. PC only (the parent AdminSection
+ * shows the PC-only note away from the PC); nothing is fetched until
+ * /api/meta has answered. The schedule itself lives in Settings.
  *
- * Restore: pick a drama from the snapshot's list (search when there are
- * many), read what will happen (a copy when the drama is still in the
- * library; no files from a database-only snapshot), then type RESTORE.
+ * Restore: choose the copy ("Restore from": the server's default copy, or
+ * none when the newest can't be told for sure -- then the owner must pick),
+ * pick a drama from its list (search when there are many), read what will
+ * happen (a copy when the drama is still in the library; no files from a
+ * database-only copy; a warning for a copy this library doesn't manage),
+ * then type RESTORE. Copies this library doesn't manage are listed apart
+ * and are deleted only when chosen by name or with "including not managed".
+ * "From a backup file…" imports chosen dramas from an uploaded backup file
+ * instead (BackupFileImport).
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -21,17 +28,23 @@ import { buttonClass } from '../../components/uiClasses'
 import { mediaTypeLabel } from '../../labels'
 import { routeHref } from '../../router'
 import {
-  DELETE_SNAPSHOT_WORD, RESTORE_SNAPSHOT_WORD, type RestoreDramaDone, type SnapshotDrama, type SnapshotDramaList,
-  type SnapshotInfo,
+  DELETE_SNAPSHOT_WORD, RESTORE_SNAPSHOT_WORD, type ImportDramasDone, type RestoreDramaDone, type SnapshotCopy, type SnapshotDrama,
+  type SnapshotDramaList, type SnapshotInfo,
 } from '../../types/backups'
-import { describeRestore, describeSnapshot, filterSnapshotDramas, restoreNotes } from '../backupsFormat'
+import {
+  CHOOSE_COPY_TEXT, ROTATION_NOTE, UNMANAGED_DELETE_WARNING, UNMANAGED_LABEL, UNMANAGED_RESTORE_WARNING,
+  chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot, filterSnapshotDramas, formatWhen,
+  initialRestoreCopy, isManaged, restoreNotes, splitCopies,
+} from '../backupsFormat'
+import { describeImport } from '../backupFileImportModel'
 import '../backups.css'
+import { BackupFileImport } from './BackupFileImport'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 // Show the search box once the list is longer than this.
 const SEARCH_FROM = 8
 
-type Mode = 'idle' | 'restore' | 'delete'
+type Mode = 'idle' | 'restore' | 'import' | 'delete'
 
 export function SnapshotBlock() {
   const [snapshot, setSnapshot] = useState<SnapshotInfo | null>(null)
@@ -39,6 +52,7 @@ export function SnapshotBlock() {
   const [mode, setMode] = useState<Mode>('idle')
   const [notice, setNotice] = useState<string | null>(null)
   const [restored, setRestored] = useState<RestoreDramaDone | null>(null)
+  const [imported, setImported] = useState<ImportDramasDone | null>(null)
 
   const load = useCallback(() => {
     setLoadError(null)
@@ -56,19 +70,20 @@ export function SnapshotBlock() {
   }, [load])
 
   const usable = !!snapshot?.exists && snapshot.readable !== false
+  const copies = snapshot?.copies ?? []
   const open = (next: Mode) => {
     setNotice(null)
     setRestored(null)
+    setImported(null)
     setMode(next)
   }
 
   return (
     <div className="admin-block" data-testid="snapshot-block">
-      <h3>Automatic backup snapshot</h3>
+      <h3>Automatic backup copies</h3>
       <p data-testid="snapshot-info">{describeSnapshot(snapshot)}</p>
       <p className="muted">
-        One snapshot is kept; each new backup replaces it. Schedule it in{' '}
-        <a href={routeHref({ name: 'settings' })}>Settings</a>.
+        {ROTATION_NOTE} Schedule them in <a href={routeHref({ name: 'settings' })}>Settings</a>.
       </p>
       <ErrorBanner error={loadError} describe={SERVER} />
       {mode === 'idle' && (
@@ -76,13 +91,18 @@ export function SnapshotBlock() {
           <button type="button" disabled={!usable} onClick={() => open('restore')}>
             Restore one drama…
           </button>
+          <button type="button" onClick={() => open('import')}>
+            From a backup file…
+          </button>
           <button type="button" className="danger" disabled={!snapshot?.exists} onClick={() => open('delete')}>
-            Delete snapshot…
+            Delete a copy…
           </button>
         </div>
       )}
       {mode === 'restore' && (
         <RestorePicker
+          copies={copies.filter((c) => c.readable)}
+          initial={initialRestoreCopy(snapshot, copies.filter((c) => c.readable))}
           onDone={(r) => {
             setRestored(r)
             setMode('idle')
@@ -90,12 +110,27 @@ export function SnapshotBlock() {
           onCancel={() => setMode('idle')}
         />
       )}
+      {mode === 'import' && (
+        <BackupFileImport
+          onDone={(r) => {
+            setImported(r)
+            setMode('idle')
+          }}
+          onCancel={() => setMode('idle')}
+        />
+      )}
       {mode === 'delete' && (
         <DeleteSnapshot
-          snapshot={snapshot}
-          onDone={() => {
+          copies={copies}
+          onDone={(all, kept) => {
             setMode('idle')
-            setNotice('Snapshot deleted.')
+            setNotice(
+              !all
+                ? 'Copy deleted.'
+                : kept
+                  ? `This library's copies deleted; ${kept} other or older ${kept === 1 ? 'copy was' : 'copies were'} left.`
+                  : 'All copies deleted.',
+            )
             load()
           }}
           onCancel={() => setMode('idle')}
@@ -109,12 +144,31 @@ export function SnapshotBlock() {
           </ButtonLink>
         </div>
       )}
+      {imported && (
+        <div className="actions" role="status" data-testid="import-result">
+          <span>{describeImport(imported)}</span>
+          {imported.imported.length === 1 && (
+            <ButtonLink href={routeHref({ name: 'drama', id: imported.imported[0].drama_id, stage: null })} size="sm">
+              Open drama
+            </ButtonLink>
+          )}
+        </div>
+      )}
       {notice && <p role="status">{notice}</p>}
     </div>
   )
 }
 
-function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => void; onCancel: () => void }) {
+function RestorePicker({ copies, initial, onDone, onCancel }: {
+  // The readable copies, newest first.
+  copies: SnapshotCopy[]
+  // The server's default copy, or "" when the owner must choose one.
+  initial: string
+  onDone: (r: RestoreDramaDone) => void
+  onCancel: () => void
+}) {
+  // "" = nothing chosen yet: nothing is loaded until the owner picks a copy.
+  const [from, setFrom] = useState(initial)
   const [list, setList] = useState<SnapshotDramaList | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [query, setQuery] = useState('')
@@ -123,21 +177,23 @@ function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => 
   const [restoreError, setRestoreError] = useState<unknown>(null)
 
   useEffect(() => {
+    if (!from) return
     let live = true
-    getSnapshotDramas().then(
+    getSnapshotDramas(from).then(
       (l) => live && setList(l),
       (e: unknown) => live && setError(e),
     )
     return () => {
       live = false
     }
-  }, [])
+  }, [from])
 
   const restore = () => {
-    if (!picked) return
+    if (!picked || !list) return
     setBusy(true)
     setRestoreError(null)
-    restoreSnapshotDrama(picked.id).then(
+    // The copy the list came from, so the restore reads the same one.
+    restoreSnapshotDrama(picked.id, list.name).then(
       (r) => {
         setBusy(false)
         onDone(r)
@@ -149,9 +205,65 @@ function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => 
     )
   }
 
+  const { managed, unmanaged } = splitCopies(copies)
+  const chosen = copies.find((c) => c.name === from)
+  const chooser = copies.length > 0 && (
+    <>
+      <Field label="Restore from">
+        <select
+          value={from}
+          disabled={busy}
+          onChange={(e) => {
+            setFrom(e.target.value)
+            setList(null)
+            setError(null)
+            setPicked(null)
+            setQuery('')
+          }}
+        >
+          {!from && (
+            <option value="" disabled>
+              Choose a copy…
+            </option>
+          )}
+          {managed.map((c) => (
+            <option key={c.name} value={c.name}>
+              {describeCopy(c)}
+            </option>
+          ))}
+          {unmanaged.length > 0 && (
+            <optgroup label={UNMANAGED_LABEL}>
+              {unmanaged.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {describeCopy(c)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </Field>
+      {chosen && !isManaged(chosen) && (
+        <p className="error" data-testid="unmanaged-restore-warning">{UNMANAGED_RESTORE_WARNING}</p>
+      )}
+    </>
+  )
+  if (!from || chooseCopyCandidates(error)) {
+    return (
+      <div className="admin-block">
+        {chooser}
+        <p className="muted" role="status" data-testid="choose-copy">{CHOOSE_COPY_TEXT}</p>
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost')} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (error) {
     return (
       <>
+        {chooser}
         <ErrorBanner error={error} describe={SERVER} />
         <div className="actions">
           <button type="button" className="link" onClick={onCancel}>Close</button>
@@ -159,13 +271,22 @@ function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => 
       </>
     )
   }
-  if (!list) return <p className="muted">Loading the snapshot's dramas…</p>
+  if (!list) {
+    return (
+      <div className="admin-block">
+        {chooser}
+        <p className="muted">Loading the copy's dramas…</p>
+      </div>
+    )
+  }
 
+  const fromWhen = formatWhen(copies.find((c) => c.name === list.name)?.created_at)
   if (picked) {
     return (
       <div className="admin-block">
         <p>
-          Restore <strong>{picked.title}</strong>{' '}
+          Restore <strong>{picked.title}</strong>
+          {fromWhen ? ` from the copy of ${fromWhen}` : ''}{' '}
           <button type="button" className="link" disabled={busy} onClick={() => setPicked(null)}>
             Choose another
           </button>
@@ -191,8 +312,9 @@ function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => 
   const shown = filterSnapshotDramas(list.dramas, query)
   return (
     <div className="admin-block">
+      {chooser}
       {!list.dramas.length ? (
-        <p className="muted">This snapshot has no dramas.</p>
+        <p className="muted">This copy has no dramas.</p>
       ) : (
         <>
           {list.dramas.length > SEARCH_FROM && (
@@ -201,7 +323,7 @@ function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => 
             </Field>
           )}
           <p className="muted">Pick the drama to restore. Nothing changes until you confirm.</p>
-          <ul className="snapshot-dramas" aria-label="Dramas in the snapshot">
+          <ul className="snapshot-dramas" aria-label="Dramas in the copy">
             {shown.map((d) => (
               <li key={d.id}>
                 <button type="button" onClick={() => setPicked(d)}>
@@ -227,20 +349,35 @@ function RestorePicker({ onDone, onCancel }: { onDone: (r: RestoreDramaDone) => 
   )
 }
 
-function DeleteSnapshot({ snapshot, onDone, onCancel }: {
-  snapshot: SnapshotInfo | null
-  onDone: () => void
+// The delete choices for every copy at once: this library's, or every copy
+// including the ones it doesn't manage.
+const ALL = ''
+const ALL_INCLUDING = '*all-including-unmanaged'
+
+function DeleteSnapshot({ copies, onDone, onCancel }: {
+  // Every copy, newest first.
+  copies: SnapshotCopy[]
+  onDone: (all: boolean, keptUnmanaged: number) => void
   onCancel: () => void
 }) {
+  const { managed, unmanaged } = splitCopies(copies)
+  // The oldest managed copy by default: the one least likely to be missed.
+  const [which, setWhich] = useState(
+    managed.length ? managed[managed.length - 1].name : unmanaged.length ? unmanaged[unmanaged.length - 1].name : ALL,
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const chosen = copies.find((c) => c.name === which)
+  const risky = which === ALL_INCLUDING || (!!chosen && !isManaged(chosen))
   const run = () => {
     setBusy(true)
     setError(null)
-    deleteSnapshot().then(
-      () => {
+    const all = !chosen
+    const extra = risky ? { include_unmanaged: true as const } : {}
+    deleteSnapshot(all ? { all: true, ...extra } : { snapshot: which, ...extra }).then(
+      (r) => {
         setBusy(false)
-        onDone()
+        onDone(all, r.kept_unmanaged ?? 0)
       },
       (e: unknown) => {
         setBusy(false)
@@ -250,10 +387,54 @@ function DeleteSnapshot({ snapshot, onDone, onCancel }: {
   }
   return (
     <>
-      <TypedConfirm word={DELETE_SNAPSHOT_WORD} exact autoFocus action="Delete snapshot" busy={busy} onConfirm={run} onCancel={onCancel}>
+      <Field label="Copy to delete">
+        <select value={which} disabled={busy} onChange={(e) => setWhich(e.target.value)}>
+          {managed.map((c) => (
+            <option key={c.name} value={c.name}>
+              {describeCopy(c)}
+            </option>
+          ))}
+          {unmanaged.length > 0 && (
+            <optgroup label={UNMANAGED_LABEL}>
+              {unmanaged.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {describeCopy(c)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {managed.length > 0 && (
+            <option value={ALL}>
+              {unmanaged.length ? `All this library's copies (${managed.length})` : `All copies (${managed.length})`}
+            </option>
+          )}
+          {unmanaged.length > 0 && (
+            <option value={ALL_INCLUDING}>
+              All copies, including {unmanaged.length} not managed ({copies.length})
+            </option>
+          )}
+        </select>
+      </Field>
+      <TypedConfirm
+        word={DELETE_SNAPSHOT_WORD}
+        exact
+        action={chosen ? 'Delete copy' : 'Delete all copies'}
+        busy={busy}
+        onConfirm={run}
+        onCancel={onCancel}
+      >
+        {risky && (
+          <p className="error" data-testid="unmanaged-delete-warning">
+            {chosen ? UNMANAGED_DELETE_WARNING : `${unmanaged.length} of these are not managed by this library. ${UNMANAGED_DELETE_WARNING}`}
+          </p>
+        )}
         <p>
-          Deletes the snapshot ({describeSnapshot(snapshot)}). No undo. If automatic backups are on, the next run
-          makes a new one.
+          {chosen
+            ? `Deletes the copy from ${describeCopy(chosen)}. No undo.`
+            : which === ALL_INCLUDING
+              ? `Deletes all ${copies.length} copies. No undo.`
+              : `Deletes this library's ${managed.length} ${managed.length === 1 ? 'copy' : 'copies'}. No undo.`}{' '}
+          If automatic backups are on, the next run makes a new one.
         </p>
       </TypedConfirm>
       <ErrorBanner error={error} describe={SERVER} />

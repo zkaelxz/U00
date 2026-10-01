@@ -45,7 +45,7 @@ import resegment
 import translate_engines
 from services import drama_service, settings_service, translate_service
 from services.review_lines_service import _line_dict
-from services.review_records_service import get_line_history_snapshot, list_line_history
+from services.review_records_service import get_line_history_snapshot
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
@@ -581,11 +581,6 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
 # ---------------------------------------------------------------------------
 # Version history
 # ---------------------------------------------------------------------------
-
-def list_versions(drama_id: int) -> list:
-    """Snapshot metadata, newest first (Slice 48's read)."""
-    return list_line_history(drama_id)
-
 
 def restore_version(drama_id: int, history_id: int, expected_line_ids) -> dict:
     """Restores a history snapshot over the current lines, after taking a

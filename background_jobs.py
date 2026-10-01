@@ -68,6 +68,14 @@ def _emit_change(job_id) -> None:
             pass
 
 
+def _storage_text(text):
+    """job_records lands in backups: secrets and URL query strings out."""
+    if not text:
+        return text
+    from translate_engines import redact_for_storage
+    return redact_for_storage(text)
+
+
 def _mirror_locked(job_id):
     """Caller must already hold _lock. Writes this job's current
     status-transition fields (Migration Slice 7) to the cross-process
@@ -90,7 +98,7 @@ def _mirror_locked(job_id):
         import db
         db.save_job_record(
             job_id, status=job.get("status"), progress=job.get("progress"),
-            message=job.get("message"), error=job.get("error"),
+            message=_storage_text(job.get("message")), error=_storage_text(job.get("error")),
             description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
             started_at=job.get("started_at"), finished_at=job.get("finished_at"),
             result_json=result_json, owner_user_id=job.get("owner_user_id"))
@@ -181,14 +189,26 @@ _gpu_queue = []  # [{"job_id", "target", "args", "kwargs", "description"}, ...],
 # itself started, so there's nothing cross-process to reconcile here.
 
 
+def _warn(what, exc):
+    """Logs a swallowed failure at warning, secret-redacted. Never raises."""
+    try:
+        import applog
+        from translate_engines import redact_secrets
+        applog.get_logger().warning(
+            f"{what}: " + redact_secrets(f"{type(exc).__name__}: {exc}")[:300])
+    except Exception:
+        pass
+
+
 def get_gpu_limit_enabled() -> bool:
     import db
     try:
         return bool(db.get_app_setting("gpu_limit_enabled", True))
-    except Exception:
+    except Exception as exc:
         # Never let a DB hiccup block a job from starting -- the GPU
         # guard is a soft, best-effort convenience, not a correctness
         # requirement. Fails open (limit stays on, the safer default).
+        _warn("could not read the GPU-limit setting; keeping the limit on", exc)
         return True
 
 
@@ -321,24 +341,28 @@ def _gpu_slot_available_locked(job_id, description):
     "running" -- so a caller must be about to actually start the job right
     after this returns True, not just probe.
 
-    Best-effort throughout: this module is deliberately usable with no
-    library DB and no nvidia-smi at all (plain in-process job tracking, per
-    its own docstring, and several tests exercise it standalone) -- if
-    either check isn't reachable/available, this falls back to whatever
-    checks still are, rather than blocking a job from starting."""
+    No nvidia-smi (or a failing external check) is ignored. A failing
+    cross-process lock is not: the job queues (False) until the lock can
+    be taken, since starting anyway could share the GPU with a CLI run."""
     if _other_gpu_job_running_locked(job_id):
         return False
     try:
         import diagnostics
         if diagnostics.external_gpu_is_busy():
             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        # Fails open on purpose: this check is optional (no nvidia-smi is
+        # normal and returns False without raising), the two locks remain.
+        _warn("external GPU load check failed; ignoring it", exc)
     try:
         import db
         return db.try_acquire_gpu_lock(f"ui:{job_id}", description)
-    except Exception:
-        return True
+    except Exception as exc:
+        # Fails closed: without the cross-process lock a CLI GPU run could
+        # share the card. The job queues and the API's GPU-queue poller
+        # (api/background.py) retries it.
+        _warn(f"job {job_id}: could not take the GPU lock; queuing", exc)
+        return False
 
 
 def _release_gpu_slot(job_id, gpu_touching):
@@ -418,7 +442,11 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _jobs[job_id]["finished_at"] = time.time()
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} cancelled")
-        except Exception as exc:
+        except BaseException as exc:
+            # BaseException too: a SystemExit from job code would otherwise
+            # leave the job "running" forever. Not re-raised: it would only
+            # end this thread, which ends here anyway, and KeyboardInterrupt
+            # is only ever delivered to the main thread.
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
             _description = _owner = None
@@ -438,7 +466,93 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
             _release_gpu_slot(job_id, gpu_touching)
             _promote_next_queued_gpu_job()
 
-    threading.Thread(target=runner, daemon=True, name=f"job:{job_id}").start()
+    _start_job_thread(runner, f"job:{job_id}")
+
+
+def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None):
+    """The job was marked "running" but its thread or process could not be
+    started (thread limit, fork or pickling failure). Without this the
+    record stays "running" forever: the id can't be restarted, a restore
+    or reset is refused and the GPU lock is never released. The process
+    and its result queue are closed so their pipe fds aren't leaked."""
+    import applog
+    from translate_engines import redact_secrets
+    error_msg = redact_secrets(f"Could not start the job: {type(exc).__name__}: {exc}")
+    if proc is not None:
+        try:
+            if proc.is_alive():
+                _stop_process(proc)
+        except Exception:
+            pass
+        try:
+            proc.close()
+        except Exception:
+            pass
+    if result_queue is not None:
+        try:
+            result_queue.close()
+        except Exception:
+            pass
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is not None and job.get("status") == "running":
+            job["status"] = "error"
+            job["error"] = error_msg
+            job["finished_at"] = time.time()
+            _mirror_locked(job_id)
+    applog.get_logger().error(f"job {job_id} failed to start: {error_msg}")
+    _release_gpu_slot(job_id, gpu_touching)
+    _promote_next_queued_gpu_job()
+
+
+def _stop_process(proc):
+    """terminate, then kill if the child ignores SIGTERM (e.g. stuck in a
+    CUDA call): the GPU slot is released right after, so a surviving
+    child would hold VRAM with nothing tracking it."""
+    proc.terminate()
+    proc.join(timeout=5)
+    if proc.is_alive():
+        proc.kill()
+        proc.join(timeout=5)
+
+
+# Job runner and watcher threads that have not exited yet. A job's status
+# turns final before its thread is done: the thread still writes the
+# notification, the timing row and the GPU-lock release to the database
+# afterwards. So "no job running" does not mean "no job thread using the
+# database", and a library reset that deletes the database file then raced
+# that tail (sqlite3 "database is locked" converting the new file to WAL).
+_job_threads = set()
+
+
+def _start_job_thread(target, name, *args, **kwargs):
+    def run():
+        try:
+            target(*args, **kwargs)
+        finally:
+            with _lock:
+                _job_threads.discard(thread)
+
+    thread = threading.Thread(target=run, daemon=True, name=name)
+    # Started under the lock so wait_for_job_threads never sees (and tries
+    # to join) a thread that is registered but not yet started.
+    with _lock:
+        thread.start()
+        _job_threads.add(thread)
+
+
+def wait_for_job_threads(timeout: float) -> bool:
+    """Joins every job thread that has not exited, including one whose job
+    already reads as finished or was cleared. True once none is left,
+    False if some thread outlived `timeout` seconds. Call it with no job
+    running or queued (under acquire_exclusive), before replacing the
+    database, or it waits on real work."""
+    deadline = time.monotonic() + timeout
+    with _lock:
+        threads = [t for t in _job_threads if t is not threading.current_thread()]
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+    return not any(t.is_alive() for t in threads)
 
 
 def _promote_next_queued_gpu_job():
@@ -484,13 +598,19 @@ def _promote_next_queued_gpu_job():
             _mirror_locked(job_id)
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]
             break
-    if entry.get("kind") == "process":
-        proc.start()
-        threading.Thread(target=_process_watcher,
-                         args=(job_id, proc, result_queue, True), kwargs={"on_done": on_done},
-                         daemon=True, name=f"job-watcher:{job_id}").start()
-    else:
-        _spawn(job_id, target, args, kwargs, gpu_touching=True)
+    try:
+        if entry.get("kind") == "process":
+            proc.start()
+            _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
+                              job_id, proc, result_queue, True, on_done=on_done)
+        else:
+            _spawn(job_id, target, args, kwargs, gpu_touching=True)
+    except Exception as exc:
+        # Runs in another job's finishing thread: record it, don't raise.
+        if entry.get("kind") == "process":
+            _fail_start(job_id, True, exc, proc, result_queue)
+        else:
+            _fail_start(job_id, True, exc)
 
 
 # Set while a library restore swaps the library folder: no job may start
@@ -551,6 +671,29 @@ def exclusive_active() -> bool:
         return _exclusive_label is not None
 
 
+_stopping = False
+STOPPING_MESSAGE = "Baihe is stopping, so no new job can start. Start Baihe again to run it."
+
+
+def refuse_new_jobs() -> None:
+    """The server's clean stop has begun (services/shutdown_service.py):
+    from here on start_job/start_process_job raise instead of starting, so
+    nothing started during the grace wait is killed mid-write when the
+    process ends. Set under _lock, so a start either finished before this
+    (and the stop's active_job_ids() sees it) or is refused. Never undone
+    for the life of the process."""
+    global _stopping
+    with _lock:
+        _stopping = True
+
+
+def _refuse_if_stopping_locked():
+    """Caller holds _lock."""
+    if _stopping:
+        from services.service_errors import ConflictError
+        raise ConflictError(STOPPING_MESSAGE)
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str = None, **kwargs) -> bool:
     """
@@ -570,9 +713,13 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     The job records who started it (auth B2): the user id of the API
     request this runs in (ownership_service.acting_user_id), or None for
     the PC owner, auth off, Streamlit, the CLI and jobs started by jobs.
+
+    Raises ConflictError once the server's clean stop has begun
+    (refuse_new_jobs).
     """
     owner_user_id = _acting_user_id()
     with _lock:
+        _refuse_if_stopping_locked()
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -601,7 +748,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         }
         _mirror_locked(job_id)
 
-    _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
+    try:
+        _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
+    except Exception as exc:
+        _fail_start(job_id, gpu_touching, exc)
+        raise
     return True
 
 
@@ -640,10 +791,11 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     passes on_done so it can apply its own result. If on_done raises, the
     job ends "error" with a redacted message. Not called on error/cancel.
     Carried through the GPU queue like target/args. Records its starter
-    like start_job().
+    and refuses during a clean stop like start_job().
     """
     owner_user_id = _acting_user_id()
     with _lock:
+        _refuse_if_stopping_locked()
         if _exclusive_label is not None:
             return False
         existing = _jobs.get(job_id)
@@ -666,9 +818,13 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id)
-    proc.start()
-    threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, gpu_touching),
-                     kwargs={"on_done": on_done}, daemon=True, name=f"job-watcher:{job_id}").start()
+    try:
+        proc.start()
+        _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
+                          job_id, proc, result_queue, gpu_touching, on_done=on_done)
+    except Exception as exc:
+        _fail_start(job_id, gpu_touching, exc, proc, result_queue)
+        raise
     return True
 
 
@@ -746,8 +902,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 # for real seconds, and nothing else here should have to wait
                 # on that (another job's update_progress, a UI's get_status).
                 was_cleared = job is None
-                proc.terminate()
-                proc.join(timeout=5)
+                _stop_process(proc)
                 with _lock:
                     if job_id in _jobs:
                         _jobs[job_id]["status"] = "cancelled"
@@ -843,45 +998,39 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             _description = _jobs[job_id].get("description")
             _owner = _jobs[job_id].get("owner_user_id")
         _notify_job_finished(_description, _final_status, job_id=job_id, owner_user_id=_owner)
+    except Exception as exc:
+        # A complete message that fails to unpickle, a broken queue or any
+        # other watcher failure: without this the job stays "running"
+        # forever. Known limit, not handled: a child killed partway through
+        # writing a large result can leave Queue.get blocked on the rest of
+        # that message, so the watcher never gets here.
+        from translate_engines import redact_secrets
+        error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+        logger.error(f"job {job_id} watcher failed: {error_msg}")
+        try:
+            _stop_process(proc)
+        except Exception:
+            pass
+        with _lock:
+            job = _jobs.get(job_id)
+            if job is not None and job.get("status") == "running":
+                job["status"] = "error"
+                job["error"] = f"Lost contact with the job's process: {error_msg}"
+                job["finished_at"] = time.time()
+                _mirror_locked(job_id)
     finally:
+        # Reap the child (no zombie) and close the queue's pipe fds.
+        try:
+            proc.join(timeout=5)
+        except Exception:
+            pass
+        try:
+            result_queue.close()
+        except Exception:
+            pass
         _timing_finish(job_id, _timing, thread_job=False)
         _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()
-
-
-def eta_seconds(started_at: float, frac: float, now: float = None) -> float:
-    """Estimated remaining seconds, extrapolated linearly from elapsed
-    time and progress so far -- or None when there isn't enough signal
-    to extrapolate from yet (right at the start, before the job's even
-    reported any progress, or once it's already done): a small `frac`
-    makes `(1 - frac) / frac` blow up into a wildly noisy estimate that's
-    worse than showing nothing."""
-    if not started_at or frac is None or frac <= 0.02 or frac >= 1.0:
-        return None
-    elapsed = (now if now is not None else time.time()) - started_at
-    if elapsed <= 0:
-        return None
-    return elapsed * (1 - frac) / frac
-
-
-def format_eta(seconds) -> str:
-    """' (~N min remaining)' / ' (~N sec remaining)', or '' for None --
-    already includes the leading space and parens so a caller can just
-    concatenate it onto an existing progress message."""
-    if seconds is None:
-        return ""
-    seconds = max(0, seconds)
-    if seconds < 60:
-        return f" (~{max(1, int(seconds))} sec remaining)"
-    return f" (~{max(1, round(seconds / 60))} min remaining)"
-
-
-def eta_text(job: dict, now: float = None) -> str:
-    """format_eta(eta_seconds(...)) straight from a get_status() dict --
-    the form every progress-bar call site actually has on hand."""
-    if not job:
-        return ""
-    return format_eta(eta_seconds(job.get("started_at"), job.get("progress"), now))
 
 
 def update_progress(job_id: str, frac: float, message: str = ""):
@@ -1016,6 +1165,7 @@ def request_cancel(job_id: str):
 
 _DB_CANCEL_CHECK_INTERVAL = 2.0
 _last_db_cancel_check = {}
+_db_cancel_check_failed = set()   # job ids whose check failure was already logged
 
 
 def _db_cancel_requested(job_id: str) -> bool:
@@ -1038,7 +1188,16 @@ def _db_cancel_requested(job_id: str) -> bool:
     try:
         import db
         requested = db.is_job_record_cancel_requested(job_id)
-    except Exception:
+    except Exception as exc:
+        # Retried on the next call rather than after the interval, and
+        # logged once per job: an unseen failure hides a cross-process Cancel.
+        with _lock:
+            if _last_db_cancel_check.get(job_id) == now:
+                _last_db_cancel_check.pop(job_id, None)
+            first = job_id not in _db_cancel_check_failed
+            _db_cancel_check_failed.add(job_id)
+        if first:
+            _warn(f"job {job_id}: could not read a cancel request from job_records", exc)
         return False
     if requested:
         request_cancel(job_id)
@@ -1065,12 +1224,14 @@ def _kill_tree(proc):
         else:
             import signal
             os.killpg(proc.pid, signal.SIGKILL)
-    except Exception:
-        pass
+    except ProcessLookupError:
+        pass   # the group already exited
+    except Exception as exc:
+        _warn(f"could not kill process tree {proc.pid}", exc)
     try:
         proc.kill()
-    except Exception:
-        pass
+    except Exception as exc:
+        _warn(f"could not kill process {proc.pid}", exc)
 
 
 def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,

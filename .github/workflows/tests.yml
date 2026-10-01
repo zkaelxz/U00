@@ -16,9 +16,9 @@ permissions:
   contents: read
 
 # Cancel a still-running CI run for the same branch/PR once a newer push
-# supersedes it -- checked safe: this repo has no deployment/release
-# workflow whose in-flight run a cancellation could interrupt, just these
-# two validation workflows, so there's nothing here a mid-run cancel loses.
+# supersedes it. The group is per workflow and ref, so this never touches
+# windows-installer.yml, the one workflow that publishes a release (it runs
+# only for a tag or on demand); windows-bootstrap.yml is validation only.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -29,11 +29,13 @@ jobs:
   # ~5m45s-6m13s. By 2026-09-29 the suite had grown to 9-15 min serially
   # and runs were hitting the timeout, so it now runs in parallel with
   # pytest-xdist across the runner's CPUs (the suite is xdist-safe; the
-  # isolated_db fixture gives each worker its own library). 15 minutes
-  # still gives headroom without letting a hung job run indefinitely.
+  # isolated_db fixture gives each worker its own library). By 2026-09-30
+  # the parallel run took 10-15 min and one was cancelled at 94% at the old
+  # 15 minute limit; 25 minutes gives headroom without letting a hung job
+  # run indefinitely.
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
@@ -41,7 +43,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
@@ -53,13 +55,13 @@ jobs:
   # the end-to-end check (a real browser -> built React -> real FastAPI on a
   # seeded throwaway library, see frontend/e2e/).
   #
-  # Real observed duration: job total ~65s-108s across 3 runs, dominated by
-  # the Python install (~20-23s) and the Playwright e2e step (~29-67s,
-  # variable -- chromium install/launch time). 10 minutes gives real
-  # headroom without leaving a hung browser/e2e step to run indefinitely.
+  # Duration: the Playwright e2e step grew with the suite and now takes about
+  # 8-9 minutes on a runner, so the job sat at the old 10 minute limit and
+  # was cancelled on slow runs. 20 minutes leaves headroom while still
+  # ending a hung browser/e2e step.
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -70,7 +72,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
         with:

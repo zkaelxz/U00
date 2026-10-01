@@ -563,13 +563,3 @@ def _record_access_facts(caps: SourceCapabilities, facts: dict):
     elif facts["technical_protection"] == TechnicalProtection.NONE.value and \
             caps.technical_protection == TechnicalProtection.UNKNOWN.value:
         caps.technical_protection = TechnicalProtection.NONE.value
-
-
-def describe_capability_fields(caps: SourceCapabilities) -> str:
-    """One line with Step 23k's six separate fields, for the Sources tab."""
-    return (f"Access method: {caps.access_method or 'not established yet'} · "
-            f"Authentication: {caps.authentication_required} · "
-            f"Purchase: {caps.purchase_required} · "
-            f"Technical protection: {caps.technical_protection} · "
-            f"Automation permission: {caps.automation_permission} · "
-            f"AI/ML use: {caps.ai_ml_use}")

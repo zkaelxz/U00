@@ -12,24 +12,28 @@ copied:
    folder.
 2. Bootstraps pip from the vendored pip wheel. The embeddable Python ships
    without pip; running pip as a module from its own wheel needs no network.
-3. Installs requirements-core.txt from the bundled wheels only
-   (`--no-index`), with the same constraints file start.bat uses. On an
-   upgrade this only changes what changed; packages added later through
-   Diagnostics stay.
+3. Checks every bundled wheel against wheels.lock.txt (its SHA-256 must be
+   listed, and no wheel may be missing from or extra to the lock), then
+   installs that lock from the bundled wheels only (`--no-index
+   --require-hashes --no-deps`), so pip itself refuses a wheel whose hash
+   isn't pinned. On an upgrade this only changes what changed; packages
+   added later through Diagnostics stay.
 4. Checks the core packages import, then runs check_setup.py (ffmpeg,
    JS runtime, CUDA) for the log only -- a missing optional tool is not
    an install failure.
 
 Everything is logged to <data>\\launcher\\install.log. Exit codes: 0 ok,
 2 bad arguments, 3 pip bootstrap failed, 4 core install failed, 5 the
-installed packages don't import.
+installed packages don't import, 6 a bundled wheel failed the hash check.
 
 Standard library only (nothing else is installed yet).
 """
 
 import argparse
 import datetime
+import hashlib
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -39,14 +43,120 @@ MARKER_NAME = "INSTALLED"
 LOG_NAME = "install.log"
 # The imports that prove requirements-core.txt landed (start.bat checks
 # the same list; this adds the sign-in packages core also carries).
-CORE_IMPORTS = ("streamlit", "pandas", "requests", "urllib3", "bs4", "anthropic",
+CORE_IMPORTS = ("requests", "urllib3", "bs4", "anthropic",
                 "fastapi", "starlette", "multipart", "uvicorn", "authlib", "httpx")
+
+
+# Pinned wheel hashes, next to the wheels. installer/build_installer.py
+# copies the committed installer/wheels.lock.txt here.
+LOCK_NAME = "wheels.lock.txt"
 
 
 class PostInstallError(Exception):
     def __init__(self, message, code):
         super().__init__(message)
         self.code = code
+
+
+class LockError(Exception):
+    """The wheel lock is malformed, or the wheels don't match it."""
+
+
+def canonical_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+_LOCK_REQUIREMENT = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9._+!-]+)")
+_LOCK_HASH = re.compile(r"--hash=sha256:([0-9a-f]{64})")
+
+
+def parse_lock(text: str) -> dict:
+    """{canonical name: (version, {sha256, ...})} from a pip-compile style
+    lock: `name==version \\` then `--hash=sha256:<64 hex>` lines. Anything
+    else (an unpinned line, a marker, another option, a package without a
+    hash, a repeated package) raises LockError naming the line."""
+    entries = {}
+    current = None
+    logical = []
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        continued = line.endswith("\\")
+        logical.append((number, line[:-1].strip() if continued else line))
+        if continued:
+            continue
+        joined = " ".join(part for _, part in logical)
+        start = logical[0][0]
+        logical = []
+        tokens = joined.split()
+        match = _LOCK_REQUIREMENT.fullmatch(tokens[0])
+        if not match:
+            raise LockError(f"wheels.lock.txt line {start}: {tokens[0]!r} isn't a pinned "
+                            "`name==version` requirement.")
+        name = canonical_name(match.group(1))
+        hashes = set()
+        for token in tokens[1:]:
+            hash_match = _LOCK_HASH.fullmatch(token)
+            if not hash_match:
+                raise LockError(f"wheels.lock.txt line {start}: {name}: unexpected {token!r} "
+                                "(only --hash=sha256:<64 hex digits> may follow the version).")
+            hashes.add(hash_match.group(1))
+        if not hashes:
+            raise LockError(f"wheels.lock.txt line {start}: {name} has no --hash entry.")
+        if name in entries:
+            raise LockError(f"wheels.lock.txt line {start}: {name} is listed twice.")
+        entries[name] = (match.group(2).lower(), hashes)
+    if logical:
+        raise LockError(f"wheels.lock.txt line {logical[0][0]}: a trailing backslash with nothing after it.")
+    if not entries:
+        raise LockError("wheels.lock.txt has no packages.")
+    return entries
+
+
+def wheel_identity(filename: str):
+    """(canonical name, version) from a wheel's file name."""
+    parts = filename[:-4].split("-") if filename.endswith(".whl") else []
+    if len(parts) < 5:
+        raise LockError(f"{filename} isn't a wheel file name.")
+    return canonical_name(parts[0]), parts[1].lower()
+
+
+def _sha256_file(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def verify_wheels(wheels_dir, lock_text: str) -> int:
+    """Every *.whl in wheels_dir must be pinned in the lock (same name and
+    version, SHA-256 listed) and every lock entry must have a wheel. Raises
+    LockError naming every offender; returns the number of wheels checked.
+    This checks the files against the hashes the build trusts, nothing more."""
+    lock = parse_lock(lock_text)
+    wheels = sorted(Path(wheels_dir).glob("*.whl"))
+    problems = []
+    seen = set()
+    for whl in wheels:
+        try:
+            name, version = wheel_identity(whl.name)
+        except LockError as e:
+            problems.append(str(e))
+            continue
+        seen.add(name)
+        if name not in lock:
+            problems.append(f"{whl.name}: not in wheels.lock.txt (an unpinned wheel)")
+        elif lock[name][0] != version:
+            problems.append(f"{whl.name}: the lock pins {name}=={lock[name][0]}")
+        elif _sha256_file(whl) not in lock[name][1]:
+            problems.append(f"{whl.name}: SHA-256 {_sha256_file(whl)} isn't in wheels.lock.txt")
+    for name in sorted(set(lock) - seen):
+        problems.append(f"{name}: pinned in wheels.lock.txt but no wheel for it is bundled")
+    if problems:
+        raise LockError("Bundled wheels don't match wheels.lock.txt:\n  " + "\n  ".join(problems))
+    return len(wheels)
 
 
 def validate_data_dir(data_dir: str, app_root: Path) -> Path:
@@ -171,11 +281,6 @@ def find_pip_wheel(wheels_dir: Path) -> Path:
     return found[-1]
 
 
-def constraints_file(app_dir: Path) -> Path:
-    lock = app_dir / "constraints.lock.txt"
-    return lock if lock.is_file() else app_dir / "constraints.txt"
-
-
 # Runs pip as a module from its own wheel (argv[1]), the equivalent of
 # `python -m pip` before pip is installed. Not `python <wheel>\\pip`: on
 # Windows pip refuses to modify itself when argv[0] is named "pip"
@@ -191,11 +296,13 @@ def bootstrap_pip_command(python_exe: str, wheels_dir: Path) -> list:
             "--find-links", str(wheels_dir), "--no-warn-script-location", "--upgrade", "pip"]
 
 
-def core_install_command(python_exe: str, wheels_dir: Path, app_dir: Path) -> list:
+def core_install_command(python_exe: str, wheels_dir: Path) -> list:
+    """Installs exactly the pinned set: --require-hashes makes pip refuse
+    any wheel whose hash isn't in the lock, --no-deps stops it resolving
+    anything the lock doesn't name."""
     return [python_exe, "-s", "-m", "pip", "install", "--no-index",
             "--find-links", str(wheels_dir), "--no-warn-script-location",
-            "-r", str(app_dir / "requirements-core.txt"),
-            "-c", str(constraints_file(app_dir))]
+            "--require-hashes", "--no-deps", "-r", str(wheels_dir / LOCK_NAME)]
 
 
 def verify_command(python_exe: str) -> list:
@@ -225,13 +332,22 @@ def run(wheels_dir, data_dir, python_exe=None, app_dir=APP_DIR, runner=_run,
     except OSError as e:
         raise PostInstallError(f"Couldn't create the data folder {data}: {e}", 2)
     env = pip_env()
+    lock_path = wheels_dir / LOCK_NAME
     with open(log_dir / LOG_NAME, "a", encoding="utf-8", errors="replace") as log:
         log.write(f"\n=== Baihe Studio install step, {datetime.datetime.now().isoformat(timespec='seconds')} ===\n")
         log.write(f"app: {app_dir}\ndata: {data}\npython: {python_exe}\n")
         restrict(data, new, log)
+        try:
+            if not lock_path.is_file():
+                raise LockError(f"{LOCK_NAME} isn't in {wheels_dir}; the installer payload is incomplete.")
+            count = verify_wheels(wheels_dir, lock_path.read_text(encoding="utf-8"))
+        except (LockError, OSError, UnicodeDecodeError) as e:
+            log.write(f"FAILED: {e}\n")
+            raise PostInstallError(f"{e} Details: {log_dir / LOG_NAME}", 6)
+        log.write(f"Checked {count} bundled wheels against {LOCK_NAME}.\n")
         steps = (
             (bootstrap_pip_command(python_exe, wheels_dir), 3, "Setting up pip failed."),
-            (core_install_command(python_exe, wheels_dir, app_dir), 4,
+            (core_install_command(python_exe, wheels_dir), 4,
              "Installing the app's Python packages failed."),
             (verify_command(python_exe), 5, "The installed Python packages don't import."),
         )

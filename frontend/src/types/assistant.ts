@@ -19,11 +19,26 @@ export interface AssistantSettings {
   local_engines?: string[]
   // Per cloud engine: has the owner allowed sending code and logs to it?
   cloud_consent?: Record<string, boolean>
+  // The escalation ladder: the saved order (null = the default) and the tiers it gives now.
+  tier_order?: string[] | null
+  tiers?: AssistantTier[]
+  // Per engine: is a key set? Never the key itself.
+  engine_keys?: Record<string, boolean>
+}
+
+// One rung of the escalation ladder (1 = asked first).
+export interface AssistantTier {
+  tier: number
+  engine: string
+  // Runs on this PC: code and logs never leave it.
+  local: boolean
+  // The provider's saved "send code and logs" consent (always true for a local tier).
+  consent: boolean
 }
 
 export type AssistantSettingsPatch = Partial<
   Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
->
+> & { tiers?: string[] | null }
 
 export interface AssistantTool {
   name: string
@@ -47,6 +62,21 @@ export interface AskRequest {
   chat_history: ChatTurn[]
   engine?: string
   model?: string
+  // Re-asking on a higher tier: consent must be true for a tier that leaves this PC.
+  escalate?: boolean
+  consent?: boolean
+  // The previous tier's redacted tool output.
+  evidence?: string
+}
+
+export interface ReportRequest {
+  chat_history: ChatTurn[]
+  question?: string
+  evidence?: string
+}
+
+export interface ReportResponse {
+  report: string
 }
 
 export interface ProposedPatch {
@@ -89,6 +119,15 @@ export interface AskResponse {
   engine: string
   model: string | null
   review?: AssistantReview | null
+  // Why a proposed fix got no review (an escalation never sends it to an unconfirmed cloud reviewer).
+  review_skipped?: string
+  // Which tier answered (null: an engine outside the ladder) and whether it ran on this PC.
+  tier?: number | null
+  local?: boolean
+  // The tier the user may ask next, if any.
+  next_engine?: string | null
+  // Redacted tool output an escalation or a developer report would carry.
+  evidence?: string
 }
 
 export interface ChangelogRequest {
@@ -116,4 +155,50 @@ export interface BacklogItem {
 
 export interface BacklogList {
   items: BacklogItem[]
+}
+
+// --- Deliver a proposed fix as a GitHub pull request ------------------
+
+export interface GithubStatus {
+  enabled: boolean
+  repo: string | null
+  base_branch: string
+  // Never the token itself.
+  token_configured: boolean
+  branch_prefix: string
+}
+
+export type GithubSettingsPatch = { enabled?: boolean; repo?: string | null; base_branch?: string | null }
+
+export interface GithubConnection {
+  ok: boolean
+  repo: string
+  default_branch: string | null
+  can_push: boolean
+  base_branch: string
+  base_exists: boolean
+}
+
+export interface GithubFile {
+  path: string
+  change: 'add' | 'modify' | 'delete'
+}
+
+export interface GithubPreview {
+  repo: string
+  base_branch: string
+  branch_prefix: string
+  title: string
+  files: GithubFile[]
+  patch: string
+  sha256: string
+}
+
+export interface GithubDelivered {
+  pr_url: string
+  pr_number: number | null
+  branch: string
+  base_branch: string
+  repo: string
+  files: GithubFile[]
 }

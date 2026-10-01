@@ -2,8 +2,7 @@
 
 Almost every filename in this project is unique, even across folders —
 if you're downloading files individually, a file's name tells you
-unambiguously where it belongs: anything ending `_tab.py` goes in
-`tabs/`, anything starting `test_` goes in `tests/`, everything else
+unambiguously where it belongs: anything starting `test_` goes in `tests/`, everything else
 sits at the top level or in one of the subsystem packages below. The
 one expected exception is `__init__.py` (a marker in every package --
 empty, or a docstring mapping the package's modules; `sources/adapters/`'s
@@ -17,9 +16,7 @@ TypeScript/React app built with npm that talks to `api/` over HTTP
 ```
 baihe-subtitler/
 │
-├── app.py                        old Streamlit entry point (frozen, being deleted)
 ├── __init__.py                   (empty)
-├── common.py                     shared imports every tab pulls in
 ├── cli.py                        headless batch runner
 │                                 START HERE: `python -m api` (api/server.py) runs the app, see api/ below
 ├── run_tests.py                  test runner wrapper
@@ -42,9 +39,6 @@ baihe-subtitler/
 ├── FILE_ORGANIZATION.md          this file
 ├── CLAUDE.md                     rules for AI sessions working in this repo
 │
-├── .streamlit/
-│   └── config.toml               visual theme
-│
 ├── .github/
 │   ├── pull_request_template.md
 │   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check),
@@ -60,13 +54,31 @@ baihe-subtitler/
 │   ├── baihe.iss                 Inno Setup 6 script: per-user install, data-folder page,
 │   │                             shortcuts, uninstaller (user data kept unless a box is ticked)
 │   ├── build_installer.py        build-time: stages the app + frontend/dist (no .env/library/
-│   │                             tests), pinned embeddable Python, core wheels, manifest; runs ISCC
+│   │                             tests), pinned embeddable Python, core wheels, WinSW, manifest; runs ISCC
+│   ├── caddy/                    go.mod, go.sum, main.go: the bundled Caddy (stock + rate_limit),
+│   │                             built by build_installer.py and pinned by SHA-256 (LF line endings)
 │   ├── launcher.py               runtime (ships as app\installer\): the Start-menu shortcut --
 │   │                             starts `python -m api` on loopback, opens the window; --stop
 │   ├── postinstall.py            runtime: writes app\INSTALLED (the data folder), bootstraps
 │   │                             pip from its wheel, installs requirements-core offline
+│   ├── service.py                runtime (elevated; ships in the payload's service\helper\, not app\): the
+│   │                             BaiheStudio boot service (WinSW, virtual account, 127.0.0.1:8600 only); BaiheCaddy (off
+│   │                             until the owner runs enable-remote; never adds a firewall rule)
+│   ├── licenses/WinSW-LICENSE.txt   MIT licence shipped with the WinSW wrapper
 │   └── smoke_child.py            CI only (not shipped): a stand-in child process for the
 │                                 workflow's "Stop ends every child" check
+├── deploy/caddy/Caddyfile.template   Caddy config template for household access: TLS, proxy to the
+│                                 household listener only, PC-only routes refused (docs/household-access.md;
+│                                 checked by tests/test_caddyfile_template.py)
+├── scripts/
+│   ├── build_release.py          packages the built React app as a release zip (baihe-frontend-<version>.zip)
+│   ├── dependency_canary.py      tests one package upgrade in a throwaway venv against the offline suite;
+│   │                             --write-pin caps constraints.txt on FAIL (docs/testing-and-ci.md)
+│   ├── source_status.py          regenerates the board in docs/known-working-sources.md from the adapter registry +
+│   │                             docs/source-status.json; --check exits 1 if the doc is stale
+│   ├── source_probe.py           manual reachability probe (one GET per source host, 2 s apart); prints a table or
+│   │                             --json, never edits files, off in CI (docs/runbook.md)
+│   └── migration/                keepboth.py, resolve_slice.py -- merge-conflict helpers for migration slices
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
 │   ├── README.md                 short navigational index + the roadmap fetch pointer; this
@@ -85,8 +97,9 @@ baihe-subtitler/
 │   │                             adapter, per adding-source.md's own instruction]
 │   ├── known-working-sources.md  quick "can I point the app at this site" status board, a
 │   │                             short companion to content-sources.md's full technical detail
-│   │                             [maintained status tracking — update a row's status on
-│   │                             re-verification rather than trusting an old date]
+│   │                             [generated by scripts/source_status.py from source-status.json —
+│   │                             edit the data file, not the tables]
+│   ├── source-status.json        per-source status, last_verified, reason, notes (the board's data)
 │   ├── migration-frontend-plan.md   React frontend slice plan [planning/reference]
 │   ├── STATUS.md                 current state, in-flight PRs, what's next [live status; each
 │   │                             session replaces its own entry]
@@ -97,6 +110,9 @@ baihe-subtitler/
 │   ├── engineering-standards.md  shared principles: precedence, scope, review policy,
 │   │                             verification, git/safety [authoritative; role files link here]
 │   ├── testing-and-ci.md         test commands, gotchas, current merge gate, CI-minutes notes
+│   ├── runbook.md                one-page maintainer steps: installer lock, tests, restore, certificate, benchmark [reference]
+│   ├── household-access.md       step-by-step guide to expose Baihe to the household through Caddy:
+│   │                             user-only vs Claude steps, checks, rollback [reference]
 │   ├── media-server-metadata-design.md   Step 116: sharing title metadata with Jellyfin/Plex
 │   │                             (NFO sidecars, pulling Jellyfin's metadata, provider endpoint)
 │   │                             [design proposal, nothing built]
@@ -122,19 +138,6 @@ baihe-subtitler/
 │   file. If a `docs/README.md` or `docs/baihe-roadmap.md` copy turns up again on another
 │   branch, re-verify it the same way before trusting or merging any of it.
 │
-├── tabs/                      ← UI ONLY. One file per tab, 10 tabs total.
-│   ├── __init__.py               (empty, marks the package)
-│   ├── library_tab.py            dashboard, filters, backup, storage, quick-filter tags
-│   ├── workspace_tab.py           the main pipeline: align → translate → dub → export
-│   ├── reader_tab.py             reading, wiki, story tools, line tools
-│   ├── scanlate_tab.py           manhua/webtoon typesetting
-│   ├── discover_tab.py           title discovery, bulk import, site navigation help
-│   ├── sources_tab.py            paste any URL, run it through the sources/ adapter pipeline
-│   ├── translate_tab.py          standalone translate tool: paste or upload text, translate it
-│   ├── live_tab.py               near-live translation of an ongoing stream
-│   ├── settings_tab.py           sidebar: API keys, appearance, defaults
-│   └── diagnostics_tab.py        "check my setup"
-│
 ├── sources/                   ← the site-adapter system (roadmap Step 23 and its sub-steps).
 │   ├── __init__.py               (package docstring: a map of the modules below)
 │   ├── base.py                    the adapter interface every site implements
@@ -142,6 +145,8 @@ baihe-subtitler/
 │   ├── registry.py                which adapters exist and which are switched on
 │   ├── pipeline.py                hands fetched content to the rest of the app
 │   ├── detect.py                  names what happened when a fetch didn't go as expected
+│   ├── domains.py                 domain lists for sites that move: ordered failover, last good domain,
+│   │                              a redirected-to host that passes verify_site becomes a pending proposal
 │   ├── ladder.py                  the access-method ladder (try the cheap method, then the next)
 │   ├── adaptive.py                the order methods are tried in for a pasted URL, learned over time
 │   ├── ai_extract.py              LLM-based extraction, used only as a fallback
@@ -159,40 +164,37 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (17 sites)
+│   └── adapters/                  one file per supported site (19 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, fanjiao.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
-│           lightnovel_fun.py, ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
-│
-├── ui/                         ← small shared UI building blocks used across tabs (Step 13).
-│   ├── __init__.py               (package docstring: a map of the modules below)
-│   ├── project_header.py         the compact, always-visible project header
-│   ├── project_state.py          the unified project-state model
-│   ├── status.py                 the shared background-job status block
-│   └── workflow.py               the pipeline-stage stepper
+│           lightnovel_fun.py, piaotian.py, ranobes.py, syosetu.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
 ├── services/                   ← UI-INDEPENDENT application services (React/FastAPI migration).
-│   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
-│   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
+│   ├── __init__.py               (empty, marks the package)   Called by api/ and cli.py alike;
+│   ├── service_errors.py         error types every service raises   never imports fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
 │   ├── library_admin_service.py  E0 destructive/admin Library actions (router: library_admin_routes.py): bulk status/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
-│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup keeping ONE
-│   │                             snapshot (temp file, validated, atomic replace), due-check (startup +
-│   │                             hourly via api/background.py), restore one drama from the snapshot
-│   │                             (same id, or a new "(restored <date>)" copy); router: backup_routes.py
+│   ├── auto_backup_service.py    Step 43 (redefined 2026-09-29): opt-in automatic backup writing a
+│   │                             new dated copy each run (temp file, validated, fsynced, renamed in)
+│   │                             and rotating old ones (one per day for the last 2 days + the first of
+│   │                             each of the last 2 weeks), due-check (startup + hourly via
+│   │                             api/background.py), restore one drama from a chosen copy (same id,
+│   │                             or a new "(restored <date>)" copy); router: backup_routes.py
+│   ├── backup_import_service.py  Step 143: import chosen dramas from an uploaded backup file (snapshot
+│   │                             copy, manual backup zip or library.db) as new dramas owned by the acting
+│   │                             user; reuses auto_backup_service._copy_drama; router: backup_routes.py
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
-│   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
-│   │                             unchanged; those tabs import them back and call them as before)
-│   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
-│   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
-│   │                             + stage_statuses_from_index (from ui/workflow.py); get_drama_progress
+│   │                             Slice 2)
+│   ├── workflow_service.py       compute_workspace_stage_index (the
+│   │                             pipeline-stage index, Step 19 invariant)
+│   │                             + get_drama_progress
 │   │                             (per-stage state + counts for the API)
 │   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
-│   │                             Scanlate pages (moved from tabs/scanlate_tab.py; Streamlit upload; API callers must pass
+│   │                             Scanlate pages (API callers must pass
 │   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
 │   │                             route must enforce a png/jpg/jpeg/pdf allowlist and a size cap)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
@@ -204,6 +206,10 @@ baihe-subtitler/
 │   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
 │   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
 │   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
+│   ├── remote_health_service.py  remote-access health: Caddy's certificate expiry (local TLS read), optional
+│   │                             public-name vs public-IP check, household listener up; scheduled by
+│   │                             api/background.py only while remote access is on; alerts once per change;
+│   │                             the check address is set from Settings (PC only, .env, never returned)
 │   ├── jellyfin_service.py       Step 39 -- optional Jellyfin connector (off by default): settings (key in .env),
 │   │                             test connection, read-only scan for items missing a subtitle language, send
 │   │                             subtitles (+ optional video) into the library folder in Jellyfin's naming, refresh
@@ -218,7 +224,7 @@ baihe-subtitler/
 │   ├── asr_options_service.py    Steps 103/104 -- experimental transcription settings: Qwen3-ASR batch size, MOSS backend toggle
 │   ├── web_search_service.py     item 114 -- optional web-search fallback (off by default): the user's own SearXNG
 │   │                             (base URL in app_settings), links only (never fetches a result), capped, no redirects
-│   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
+│   ├── diagnostics_gaps_service.py  M1 -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
 │   ├── job_checkpoint_service.py Step 41 -- per-unit checkpoints so a re-run resumes an interrupted
@@ -254,6 +260,9 @@ baihe-subtitler/
 │   │                             a TOOL-line chat loop over qa._dispatch_chat, proposed fixes returned as
 │   │                             patch text only, Developer Mode, backlog, changelog (router: assistant_routes.py)
 │   ├── assistant_pytest_guard.py  pytest plugin for the assistant's run_tests: throwaway library, empty .env
+│   ├── assistant_github_service.py  Step 72 -- deliver an assistant proposed fix as a draft GitHub PR: off by
+│   │                             default, token in .env (never returned), strict pure-Python patch apply,
+│   │                             new baihe-assistant/ branch only (router: assistant_github_routes.py)
 │   ├── assistant_roles_service.py  Step 60 -- the assistant's implement -> independent review roles: reviewer
 │   │                             prompt, verdict parsing, cross-provider check (off by default; same read-only tools)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
@@ -261,13 +270,16 @@ baihe-subtitler/
 │   ├── shutdown_service.py       Step 80b -- the API's clean stop: stops schedulers and new browsers,
 │   │                             cancels this process's jobs, stops page_server; the launcher's token-gated
 │   │                             POST /api/system/shutdown, a closed console window and Ctrl+C run it
+│   ├── update_service.py         app updates from the public GitHub Releases (BAIHE_UPDATE_REPO): check (no token),
+│   │                             download + SHA-256 check into library/updates, start the verified Setup on a click
+│   │                             (Windows, installed copy); optional daily check, off by default (router: update_routes.py)
 │   ├── event_stream_service.py   SSE push broker behind GET /api/events: background_jobs/notification_service
 │   │                             hooks name what changed, each stream re-reads it through the GET routes'
 │   │                             service calls with its own principal; stream caps, bounded pending set -> resync,
 │   │                             job_records sweep for other processes' jobs
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
-│   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
-│   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
+│   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution;
+│   │                             never returns a key value over an API (D2)
 │   ├── engine_routing_service.py Step 36 -- capability-based task routing: resolve_capability("translation.cheap"|
 │   │                             "translation.high_quality"|"llm.instructions"|"summary.episode"|"research.grounded_search")
 │   │                             -> the engine chosen in Settings (else a default; never switches on its own);
@@ -299,7 +311,7 @@ baihe-subtitler/
 │   │                             (Whisper tuning knobs, newly persisted per drama) plus
 │   │                             start_transcribe_run: a background job that does the WHOLE
 │   │                             pipeline (ASR, alignment, DB write, optional diarization chain-
-│   │                             start), unlike Streamlit's render-loop apply step. Slice 21 adds
+│   │                             start), Slice 21 adds
 │   │                             hardsub_ocr transcript_mode (burned-in video captions, via
 │   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
 │   │                             step, same as Whisper's own text). chunk_and_tag lives in narration_service
@@ -327,6 +339,10 @@ baihe-subtitler/
 │   │                             read-only option catalogues; glossary proposals from the novel
 │   │                             or (parity X10) the source lines, as jobs; apply by term text
 │   │                             with optional per-term edits
+│   ├── glossary_retranslate_service.py Lines a glossary change affects (term/alias in the
+│   │                             source, or a banned translation in the English), with a
+│   │                             hand-edited flag from line provenance; re-translates only the
+│   │                             chosen ones through the normal translate job (stale preview 409)
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
@@ -430,6 +446,8 @@ baihe-subtitler/
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── source_domains_service.py  source domain lists (read/edit/reset), confirm or dismiss proposed
+│   │                             hosts (host names only), one assistant backlog item per unreachable source
 │   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
 │   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
 │   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
@@ -442,12 +460,14 @@ baihe-subtitler/
 │                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
 │                                 (raw novel) any Sources import runs (router: novel_files_routes.py)
 │
-├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
+├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Serves the React app, same library/.
 │   ├── __init__.py               (empty, marks the package)
-│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings (plus the household
+│   │                             listener on BAIHE_API_HOUSEHOLD_PORT, same process, when set);
 │   │                             `grant-admin` / `add-user` / `deactivate` / `grant` / `list-users` (local user admin)
-│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
+│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS; listener="household" (D5)
 │   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND,
+│   │                             HOUSEHOLD_PORT (household_settings, check_household_bind_safety),
 │   │                             BAIHE_GOOGLE_CLIENT_ID/SECRET + BAIHE_PUBLIC_URL (sign-in; also read from .env)
 │   ├── background.py             startup hook (lifespan): chapter-check scheduler + extension endpoint (if enabled);
 │   │                             off in tests (BAIHE_API_BACKGROUND=0); tests/test_api_background.py
@@ -474,6 +494,7 @@ baihe-subtitler/
 │   ├── notion_schemas.py         Notion export models (roadmap 112; kept apart from schemas.py)
 
 │   ├── web_search_schemas.py     web-search fallback models (item 114; kept apart from schemas.py)
+│   ├── sharing_schemas.py        Sharing models: item list, private flag, share-by-default
 │   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   ├── benchmark_schemas.py      Benchmark Lab request/response models (Step 38; kept apart from schemas.py)
 │   ├── model_registry_schemas.py Step 40 model status / preset switch models (kept apart from schemas.py)
@@ -482,20 +503,25 @@ baihe-subtitler/
 │   ├── diagnostics_install_schemas.py Deno install / Test first models (kept apart from schemas.py)
 │   ├── sources_tools_schemas.py  Sources tools + Discover pasted listing models (kept apart from schemas.py)
 │   ├── assistant_schemas.py      maintenance assistant request/response models (kept apart from schemas.py)
+│   ├── admin_users_schemas.py    user administration + audit log view models (kept apart from schemas.py)
 
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
+│       ├── update_routes.py      /api/system/update[/check|/settings|/download|/install]: all local_only;
+│       │                         tests/test_api_update.py
 │       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
 │       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
+│       ├── admin_users_routes.py /api/admin/users (list, deactivate, activate, revoke-sessions) and
+│       │                         /api/admin/audit (read-only, paged); reads admin.users.read, writes admin.users; tests/test_api_admin_users.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── backup_routes.py      /api/backups/* (Step 43): auto-backup settings, back up now, snapshot
-│       │                         info/dramas, restore one drama, delete snapshot; all local_only;
+│       │                         info/dramas, restore one drama, import from a backup file, delete snapshot; all local_only;
 │       │                         tests/test_api_backups.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
@@ -595,6 +621,10 @@ baihe-subtitler/
 │       │                         extraction under /dramas/{drama_id}/extraction (profile writes local_only; SO09/SO06/SO10)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
+│       ├── source_domains_routes.py /api/source-domains (GET), /proposals (GET), /proposals/confirm|dismiss,
+│       │                         /{name}, /{name}/reset (POST; all local_only); tests/test_source_domains.py
+│       ├── assistant_github_routes.py /api/assistant/github (GET), /settings|token|token/clear|test|preview|
+│       │                         deliver (POST; all local_only; Step 72); tests/test_assistant_github.py
 │       ├── assistant_routes.py   /api/assistant/settings|tools|ask|changelog|backlog(/clear|/{backlog_id}/delete)
 │       │                         (all local_only; Step 42); tests/test_maintenance_assistant.py
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
@@ -631,6 +661,8 @@ baihe-subtitler/
 
 │       ├── web_search_routes.py  /api/web-search/status, /search (library.read); /config (GET/POST), /test
 │       │                         (local_only; address change also key-write gate) -- item 114
+│       ├── sharing_routes.py     /api/sharing/items (admin.library), /{dramas|series}/{id}/private (lines.edit;
+│       │                         owner or admin), /share-by-default (GET library.read, POST lines.edit)
 │       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
 │                                 job-ended and new-chapter events (Step 44 item 5)
 │
@@ -693,11 +725,14 @@ baihe-subtitler/
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
-│   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
-│   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
+│   │                              src/api/notifications.ts. RemoteAccessSection + remoteIpCheck.ts (Settings >
+│   │                              Remote access: the public-address check, set/clear/test, PC only,
+│   │                              configured yes/no only); API in src/api/diagnostics.ts. PreferencesSections + preferences.ts (Settings >
+│   │                              Defaults for new dramas, Spending, OCR, Offline and performance,
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
-│   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
-│   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
+│   │                              src/api/settings.ts. src/theme.ts: system/light/dark/sepia theme (localStorage,
+│   │                              <html data-theme>, applied in index.html and main.tsx; the header button is
+│   │                              components/ThemeMenu.tsx). ApiKeysCard (Settings > API
 │   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
 │   │                              settings.css (the page's Card stack and status rows).
 │   │                              NotionSection + notion.ts (Settings > Notion, roadmap 112: token set/clear,
@@ -819,9 +854,7 @@ baihe-subtitler/
 **App entry & shared infrastructure**
 | File | Does |
 |---|---|
-| `app.py` | Streamlit entry point |
-| `common.py` | shared imports every tab pulls in |
-| `cli.py` | headless batch runner (kept in parity with the Workspace tab) |
+| `cli.py` | headless batch runner (kept in parity with the app) |
 | `run_tests.py` | test runner wrapper |
 | `core.py` | timing, alignment, SRT formatting, line merging |
 | `db.py` | all database access (plain `sqlite3`, no ORM) |
@@ -831,8 +864,6 @@ baihe-subtitler/
 | `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
 | `process_guard.py` | Windows Job Object that ends every child process (ffmpeg, Playwright's Node and Chromium, pip...) with the API server, however it was started, plus the console-close handler that runs the clean stop first; `launcher.py --stop` can end an install's whole group (Step 80b) |
 | `portable.py` | lets the whole app folder be copied/moved and still work; `data_dir()` is where library/, .env and (installed copies) model caches live -- the app folder for a source checkout, the per-user data folder for an installed copy (Step 80b) |
-| `ui_theme.py` | design system (CSS, layout primitives) |
-| `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
 | `storage.py` | disk usage, cache cleanup |
 | `benchmark.py` | the case runners the Benchmark Lab (services/benchmark_lab_service.py) builds on: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
 | `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
@@ -902,7 +933,6 @@ baihe-subtitler/
 | `known_sites.py` | directory of official platforms |
 | `navigator.py` | translate a foreign site's labels + navigation steps |
 | `epub_io.py` | EPUB import/export |
-| `export_package.py` | per-drama archive bundle |
 
 The `services/` and `api/` packages and `frontend/` (the React + FastAPI
 migration; history in `docs/archive/migration-react-fastapi.md`)
@@ -912,21 +942,12 @@ site under `sources/adapters/`) and the browser extension bridge
 tree above rather than repeated here, since each is really its own
 subsystem rather than a handful of top-level modules.
 
-**Shared UI components (`ui/`)**
-| File | Does |
-|---|---|
-| `ui/project_header.py` | the compact, always-visible project header |
-| `ui/project_state.py` | the unified project-state model |
-| `ui/status.py` | the shared background-job status block |
-| `ui/workflow.py` | the pipeline-stage stepper |
-
 ## Rules of thumb
 
-- **UI code goes in `tabs/`**, named `*_tab.py`. Logic lives at the top
-  level (or in `sources/`/`ui/`) so it stays testable without Streamlit.
-- **Logic a second UI will need goes in `services/`** (React/FastAPI
-  migration): a plain function the Streamlit tab and an `api/routers/*_routes.py`
-  file both call. Streamlit never calls the API over HTTP.
+- **UI code goes in `frontend/`** (React). Logic lives at the top level (or in
+  `sources/`) so it stays testable without a UI.
+- **Logic the API and the CLI both need goes in `services/`**: a plain function
+  an `api/routers/*_routes.py` file and `cli.py` both call.
 - **Nothing writes outside `library/`** except exports you explicitly download.
 - **Optional dependencies are imported inside functions**, never at module
   top level — a missing package disables its own feature instead of

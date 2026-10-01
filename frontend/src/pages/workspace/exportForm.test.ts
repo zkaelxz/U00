@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { AssStyleOptions } from '../../types/export'
-import { buildAssRequest, emptyAssForm, formatBytes, parseSpeakerColors, parseWrap } from './exportForm'
+import { buildAssRequest, emptyAssForm, formatBytes, loadAssForm, parseSpeakerColors, parseWrap, saveAssForm } from './exportForm'
 
 const opts: AssStyleOptions = {
   presets: { Clean: {} },
@@ -61,5 +61,19 @@ describe('formatBytes', () => {
     expect(formatBytes(512)).toBe('512 B')
     expect(formatBytes(2048)).toBe('2.0 KB')
     expect(formatBytes(3 * 1024 * 1024)).toBe('3.0 MB')
+  })
+})
+
+describe('saved Export style', () => {
+  it('round-trips per drama and ignores bad data', () => {
+    const store: Record<string, string> = {}
+    vi.stubGlobal('window', { localStorage: { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v } } })
+    expect(loadAssForm(3)).toBeNull()
+    saveAssForm(3, { ...emptyAssForm('Bold'), size: '40' })
+    expect(loadAssForm(3)).toMatchObject({ preset: 'Bold', size: '40' })
+    expect(loadAssForm(4)).toBeNull()
+    store['baihe.export.style.5'] = '{"size": 7, "preset": "X"}'
+    expect(loadAssForm(5)).toMatchObject({ preset: 'X', size: '' })
+    vi.unstubAllGlobals()
   })
 })

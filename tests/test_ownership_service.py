@@ -13,8 +13,11 @@ from services.service_errors import (ConflictError, ForbiddenError, InvalidInput
 LOCAL = {"user_id": None, "is_admin": True, "is_local_owner": True}
 
 
-def _p(uid, admin=False):
-    return {"user_id": uid, "is_admin": admin, "is_local_owner": False}
+def _p(uid, admin=False, override=None):
+    """Like auth_service.resolve_session: an admin holds the override unless
+    `override=False` (api.auth.listener_principal on the household listener)."""
+    return {"user_id": uid, "is_admin": admin, "is_local_owner": False,
+            "admin_override": admin if override is None else override}
 
 
 @pytest.fixture
@@ -110,6 +113,47 @@ def test_set_private_permissions(people):
         own.set_private(a, "bogus", did, True)
 
 
+def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
+    """An admin on the household listener: views stay, overrides don't."""
+    remote = _p(db.auth_get_user_by_email("admin@example.com")["id"], admin=True,
+                override=False)
+    theirs = db.create_drama(title_zh="p", owner_user_id=people["a_id"])
+    own.set_private(people["a"], "drama", theirs, True)
+    mine = db.create_drama(title_zh="m", owner_user_id=remote["user_id"])
+    shared = db.create_drama(title_zh="s", owner_user_id=people["a_id"])
+    pc_private = db.create_drama(title_zh="pc")
+    own.set_private(LOCAL, "drama", pc_private, True)
+    for did in (theirs, mine, shared, pc_private):
+        assert own.can_see_drama(remote, did)
+    assert own.visible_to_filter(remote) is None
+    assert own.can_edit_drama(remote, mine) and own.can_edit_drama(remote, shared)
+    assert not own.can_edit_drama(remote, theirs) and not own.can_edit_drama(remote, pc_private)
+    with pytest.raises(ForbiddenError):
+        own.require_editable(remote, "drama", theirs)
+    own.require_editable(remote, "drama", shared)
+    with pytest.raises(ForbiddenError):
+        own.set_private(remote, "drama", theirs, False)
+    with pytest.raises(ForbiddenError):
+        own.set_private(remote, "drama", shared, True)
+    assert db.get_item_ownership("drama", theirs)["is_private"] == 1
+    own.set_private(remote, "drama", mine, True)
+    # A series holding a PC drama: the admin-only flip is refused too.
+    sid = db.get_or_create_series("Mixed", owner_user_id=remote["user_id"])
+    db.create_drama(title_zh="pc2", series_id=sid)
+    with pytest.raises(ConflictError):
+        own.set_private(remote, "series", sid, True)
+    # Jobs: every job is visible; only a member's jobs can be stopped.
+    assert own.can_see_job(remote, "other-pc-job", None)
+    assert not own.can_see_job(remote, "other-pc-job", None, writing=True)
+    assert own.can_see_job(remote, "other-mine", remote["user_id"], writing=True)
+    # With the override (the PC, or the single-port setup) nothing changes.
+    assert own.can_edit_drama(people["admin"], theirs)
+    assert own.can_see_job(people["admin"], "other-pc-job", None, writing=True)
+    # Default-deny: an admin principal without the flag acts as a member.
+    bare = {"user_id": remote["user_id"], "is_admin": True, "is_local_owner": False}
+    assert own.can_see_drama(bare, theirs) and not own.can_edit_drama(bare, theirs)
+
+
 def test_set_private_refused_for_drama_in_series(people):
     a = people["a"]
     sid = db.get_or_create_series("S", owner_user_id=people["a_id"])
@@ -117,23 +161,105 @@ def test_set_private_refused_for_drama_in_series(people):
     with pytest.raises(ConflictError, match="Make the whole series private instead"):
         own.set_private(a, "drama", did, True)
     assert db.get_item_ownership("drama", did)["is_private"] == 0
-    own.set_private(a, "drama", did, False)      # clearing it is always allowed
+    with pytest.raises(ConflictError, match="Make the whole series private instead"):
+        own.set_private(a, "drama", did, False)  # it follows the series either way
     own.set_private(a, "series", sid, True)
     assert not own.can_see_drama(people["b"], did)
 
 
 def test_share_by_default_and_new_item_defaults(people):
+    # New items are private unless the creator chooses to share by default.
     a = people["a"]
-    assert own.get_share_by_default(a) is True
-    assert own.new_item_defaults(a) == {"owner_user_id": people["a_id"], "is_private": 0}
-    own.set_share_by_default(a, False)
     assert own.get_share_by_default(a) is False
-    assert own.new_item_defaults(a)["is_private"] == 1
-    assert own.get_share_by_default(people["b"]) is True
-    assert own.get_share_by_default(LOCAL) is True
+    assert own.new_item_defaults(a) == {"owner_user_id": people["a_id"], "is_private": 1}
+    own.set_share_by_default(a, True)
+    assert own.get_share_by_default(a) is True
+    assert own.new_item_defaults(a)["is_private"] == 0
+    assert own.get_share_by_default(people["b"]) is False
+    assert own.get_share_by_default(LOCAL) is False
+    assert own.new_item_defaults(None) == {"owner_user_id": None, "is_private": 1}
+    own.set_share_by_default(LOCAL, True)
+    assert db.get_app_setting(own.HOUSEHOLD_SHARE_KEY) is True
+    assert own.new_item_defaults(None) == {"owner_user_id": None, "is_private": 0}
     own.set_share_by_default(LOCAL, False)
     assert db.get_app_setting(own.HOUSEHOLD_SHARE_KEY) is False
-    assert own.new_item_defaults(None) == {"owner_user_id": None, "is_private": 1}
+
+
+def _old_share_column():
+    """A database from before the private default: the column has DEFAULT 1,
+    so every existing user reads 1 without having chosen it."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("ALTER TABLE users DROP COLUMN share_by_default")
+        conn.execute("ALTER TABLE users ADD COLUMN share_by_default INTEGER DEFAULT 1")
+        conn.commit()
+
+
+def test_share_by_default_off_for_everyone_on_an_older_database(people):
+    """Existing accounts are switched off once, a new user starts off, and
+    existing items are untouched."""
+    shared = db.create_drama(title_zh="s", owner_user_id=people["a_id"], is_private=0)
+    _old_share_column()
+    assert db.auth_get_user(people["a_id"])["share_by_default"] == 1
+    db.init_db()
+    assert own.get_share_by_default(people["a"]) is False
+    assert own.get_share_by_default(people["b"]) is False
+    c = db.auth_create_user("c@example.com")
+    assert db.auth_get_user(c)["share_by_default"] == 0
+    assert own.get_share_by_default(_p(c)) is False
+    assert db.get_item_ownership("drama", shared)["is_private"] == 0
+
+
+def test_share_off_migration_runs_once(people):
+    _old_share_column()
+    db.init_db()
+    own.set_share_by_default(people["a"], True)     # a choice made afterwards
+    db.init_db()
+    db.init_db()
+    assert own.get_share_by_default(people["a"]) is True
+    assert own.get_share_by_default(people["b"]) is False
+    assert db.get_app_setting("migrations.share_by_default_off") is True
+
+
+def test_share_off_migration_skips_a_new_database(people):
+    own.set_share_by_default(people["a"], True)
+    db.init_db()
+    assert own.get_share_by_default(people["a"]) is True
+    assert db.get_app_setting("migrations.share_by_default_off") is None
+
+
+def test_series_with_a_pc_drama_only_admins_flip(people):
+    a = people["a"]
+    sid = db.get_or_create_series("Mixed", owner_user_id=people["a_id"])
+    db.create_drama(title_zh="pc", series_id=sid)
+    for private in (True, False):
+        with pytest.raises(ConflictError, match="owned at the PC; ask an admin"):
+            own.set_private(a, "series", sid, private)
+    assert db.get_item_ownership("series", sid)["is_private"] == 0
+    own.set_private(people["admin"], "series", sid, True)
+    own.set_private(LOCAL, "series", sid, False)
+
+
+def test_every_flip_is_audited_by_id(people):
+    a, b = people["a"], people["b"]
+    did = db.create_drama(title_zh="Secret title", owner_user_id=people["a_id"])
+    sid = db.get_or_create_series("S", owner_user_id=people["a_id"])
+    ep = db.create_drama(title_zh="ep", series_id=sid, owner_user_id=people["a_id"])
+    own.set_private(a, "drama", did, True)
+    own.set_private(LOCAL, "series", sid, True)
+    for who, kind, item in ((b, "drama", did), (b, "drama", 10**6), (a, "drama", ep)):
+        with pytest.raises((ForbiddenError, NotFoundError, ConflictError)):
+            own.set_private(who, kind, item, False)
+    rows = [r for r in db.auth_list_audit(50) if r["action"] == "sharing.set_private"]
+    assert [(r["user_id"], r["detail_redacted"]) for r in rows] == [
+        (None, f"series {sid}: private=True"), (people["a_id"], f"drama {did}: private=True")]
+    assert "Secret" not in str(rows)
+
+
+def test_new_series_refusal_says_what_to_do(people):
+    b_drama = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    with pytest.raises(ConflictError, match="share it in Settings > Sharing"):
+        own.check_new_series_assignment(people["admin"], "Fresh", people["b_id"])
+    assert db.get_drama(b_drama)["series_id"] is None
 
 
 def test_series_name_collision_refused(people):
@@ -207,10 +333,13 @@ def test_mixed_owner_series_python_and_sql_agree(people):
     with pytest.raises(ConflictError):
         own.set_private(people["admin"], "series", sid, True)
     assert db.get_item_ownership("series", sid)["is_private"] == 0
-    # Legacy-owned (NULL) dramas don't block it.
+    # Legacy-owned (NULL) dramas don't block an admin; the series owner
+    # must ask one, since the flip would hide the PC's drama too.
     db.create_drama(title_zh="legacy", series_id=sid)
     db.update_drama(b_ep, series_id=None)
-    own.set_private(a, "series", sid, True)
+    with pytest.raises(ConflictError, match="owned at the PC"):
+        own.set_private(a, "series", sid, True)
+    own.set_private(people["admin"], "series", sid, True)
     ids = [d["id"] for d in db.list_dramas()]
     assert _visible_py(a, ids) == _visible_sql(people["a_id"])
     assert _visible_py(b, ids) == _visible_sql(people["b_id"]) == {b_ep, b_solo}

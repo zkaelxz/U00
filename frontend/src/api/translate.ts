@@ -61,8 +61,14 @@ export function engineSummary(label: string): string {
   return sentence.length > 140 ? `${sentence.slice(0, 137)}…` : sentence
 }
 
+// TranslateRequest.text max_length in api/schemas.py (the API answers 422 past it).
+export const MAX_TRANSLATE_TEXT_CHARS = 2_000_000
+
 export function validateTranslateInput(text: string, engine: string): string | null {
   if (!text.trim()) return 'Enter some text to translate.'
+  if (text.length > MAX_TRANSLATE_TEXT_CHARS) {
+    return `The text is too long: the limit is ${MAX_TRANSLATE_TEXT_CHARS.toLocaleString('en-US')} characters.`
+  }
   if (!engine) return 'Pick an engine.'
   return null
 }

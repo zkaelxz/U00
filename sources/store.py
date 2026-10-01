@@ -13,9 +13,11 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import time
 
 import db
+from translate_engines import redact_for_storage, safe_url
 
 # Step 23 item 3's concrete starting defaults, plus item 4's cache mode
 # and item 5's chapter-check schedule. All user-editable in Settings.
@@ -130,6 +132,7 @@ CREATE TABLE IF NOT EXISTS tracked_series (
     drama_id INTEGER,
     last_checked REAL,
     last_check_error TEXT,
+    linked_by_user_id INTEGER,
     PRIMARY KEY (source, series_id)
 );
 CREATE TABLE IF NOT EXISTS known_chapters (
@@ -188,7 +191,15 @@ CREATE TABLE IF NOT EXISTS import_retry (
     status TEXT NOT NULL,
     error TEXT NOT NULL DEFAULT '',
     updated_at REAL NOT NULL,
+    text_offset INTEGER,
     PRIMARY KEY (source, series_id, drama_id, chapter_id)
+);
+CREATE TABLE IF NOT EXISTS domain_proposals (
+    source TEXT NOT NULL,
+    host TEXT NOT NULL,
+    found_at REAL NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, host)
 );
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
@@ -201,16 +212,128 @@ CREATE TABLE IF NOT EXISTS extraction_cache (
 """
 
 
-def connect() -> sqlite3.Connection:
-    path = db_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+BUSY_TIMEOUT_SECONDS = 10
+
+BUSY_MESSAGE = "The sources database is busy, try again."
+
+
+class SourcesDatabaseBusy(sqlite3.OperationalError):
+    """sources.db stayed locked past the busy timeout. The message is fixed
+    text, safe to show as is (the raw sqlite error is not)."""
+
+    def __init__(self):
+        super().__init__(BUSY_MESSAGE)
+
+
+def _is_busy(exc) -> bool:
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
+
+class _Connection(sqlite3.Connection):
+    """Turns a lock timeout from any statement into SourcesDatabaseBusy, so
+    the dozens of `with connect() as conn:` callers need no handling."""
+
+    def _guard(self, name, *args):
+        try:
+            return getattr(super(), name)(*args)
+        except SourcesDatabaseBusy:
+            raise
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+    def execute(self, *args):
+        return self._guard("execute", *args)
+
+    def executemany(self, *args):
+        return self._guard("executemany", *args)
+
+    def executescript(self, *args):
+        return self._guard("executescript", *args)
+
+    def commit(self):
+        return self._guard("commit")
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            return super().__exit__(exc_type, exc, tb)
+        except sqlite3.OperationalError as e:
+            if _is_busy(e):
+                raise SourcesDatabaseBusy() from None
+            raise
+
+
+def log_dropped(what: str) -> None:
+    """Notes a best-effort write that was dropped because sources.db stayed
+    locked. Never raises."""
+    try:
+        import applog
+        applog.get_logger().warning("Dropped %s: %s", what, BUSY_MESSAGE)
+    except Exception:
+        pass
+
+
+# Database files whose schema and migrations have already run in this
+# process. A file deleted since (a moved library, a test's temp dir) is
+# initialised again.
+_initialised = set()
+_init_lock = threading.Lock()
+
+
+def _open(path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_SECONDS, factory=_Connection)
     conn.row_factory = sqlite3.Row
-    # Every statement is CREATE ... IF NOT EXISTS, so this is cheap and
-    # needs no "already initialized?" bookkeeping that could go stale when
-    # the library folder moves.
-    conn.executescript(_SCHEMA)
     return conn
+
+
+def _initialise(path: str) -> None:
+    with _init_lock:
+        if path in _initialised and os.path.exists(path):
+            return
+        conn = _open(path)
+        try:
+            # WAL is stored in the file, so it is set here once rather than
+            # per connection: readers then never wait on the writer.
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.executescript(_SCHEMA)
+            _add_missing_columns(conn)
+        finally:
+            conn.close()
+        _initialised.add(path)
+
+
+def connect() -> sqlite3.Connection:
+    path = os.path.abspath(db_path())
+    if path not in _initialised or not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _initialise(path)
+    conn = _open(path)
+    # synchronous is per connection (journal_mode is not).
+    conn.execute("PRAGMA synchronous = NORMAL")
+    return conn
+
+
+# Columns added after a table first shipped: CREATE TABLE IF NOT EXISTS
+# leaves an older sources.db without them.
+_ADDED_COLUMNS = (("tracked_series", "linked_by_user_id", "INTEGER"),
+                  ("import_retry", "text_offset", "INTEGER"))
+
+
+def _add_missing_columns(conn) -> None:
+    for table, column, decl in _ADDED_COLUMNS:
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in have:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+                conn.commit()
+            except sqlite3.OperationalError as e:
+                # Only "another connection added it first" is fine.
+                if "duplicate column name" not in str(e).lower() and column not in {
+                        r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                    raise
 
 
 # ---------------------------------------------------------------------------
@@ -272,10 +395,24 @@ def load_capabilities(source: str):
     return json.loads(row["data"]) if row else None
 
 
+def _redact_any(value):
+    if isinstance(value, str):
+        return redact_for_storage(value)
+    if isinstance(value, dict):
+        return {k: _redact_any(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_any(v) for v in value]
+    return value
+
+
 def log_attempt(source: str, url: str, data: dict):
+    """The URL is stored as scheme+host+path and the data with secrets and URL
+    queries removed: this table is part of whole-library backups. Readers
+    only ever show the query-less form, so nothing needs the full URL."""
     with connect() as conn:
         conn.execute("INSERT INTO access_attempts(source, url, data, created_at) VALUES(?, ?, ?, ?)",
-                     (source, url, json.dumps(data, ensure_ascii=False), time.time()))
+                     (source, safe_url(url), json.dumps(_redact_any(data), ensure_ascii=False),
+                      time.time()))
 
 
 def recent_attempts(source: str = None, limit: int = 50) -> list:
@@ -295,17 +432,26 @@ def recent_attempts(source: str = None, limit: int = 50) -> list:
 # Tracked series, known chapters, notifications (Step 23 item 5)
 # ---------------------------------------------------------------------------
 
+# The link owner follows the drama link: it changes only when drama_id does,
+# so re-tracking the same link (by anyone) keeps whoever made it.
+_KEEP_LINK_OWNER = ("linked_by_user_id=CASE WHEN tracked_series.drama_id IS excluded.drama_id "
+                    "THEN tracked_series.linked_by_user_id ELSE excluded.linked_by_user_id END")
+
+
 def track_series(source: str, series_id: str, title: str, url: str = "",
-                 drama_id: int = None, known_chapters=()):
+                 drama_id: int = None, known_chapters=(), linked_by_user_id: int = None):
     """Starts tracking a series. The chapters it already has are recorded
     as known, so the first check doesn't announce the whole back catalog
-    as "new"."""
+    as "new". `linked_by_user_id`: the user who set the drama link (None =
+    auth off / the PC owner); the scheduled check imports only while that
+    user can still edit the drama."""
     now = time.time()
     with connect() as conn:
-        conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, last_checked) "
-                     "VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(source, series_id) DO UPDATE SET "
-                     "title=excluded.title, url=excluded.url, drama_id=excluded.drama_id",
-                     (source, series_id, title, url, drama_id, now))
+        conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, "
+                     "last_checked, linked_by_user_id) VALUES(?, ?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT(source, series_id) DO UPDATE SET title=excluded.title, "
+                     "url=excluded.url, " + _KEEP_LINK_OWNER + ", drama_id=excluded.drama_id",
+                     (source, series_id, title, url, drama_id, now, linked_by_user_id))
         conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, title, "
                          "first_seen) VALUES(?, ?, ?, ?, ?)",
                          [(source, series_id, c.chapter_id, c.title, now) for c in known_chapters])
@@ -332,7 +478,9 @@ RETRY_STATUSES = ("failed", "not_attempted")
 # "partial": the chapter an unexpected error interrupted mid-write -- some of
 # its pages or text may be in the drama already, so it is shown (check it
 # first) but never part of the automatic retry.
-MANIFEST_STATUSES = RETRY_STATUSES + ("partial",)
+# "needs_ai": the page loaded but the adapter's layout no longer matches; it
+# waits for the person to confirm an AI recovery, so it is not retried either.
+MANIFEST_STATUSES = RETRY_STATUSES + ("partial", "needs_ai")
 
 
 def record_import_retry(source: str, series_id: str, drama_id: int, pending, done_ids=()):
@@ -355,6 +503,34 @@ def record_import_retry(source: str, series_id: str, drama_id: int, pending, don
               now) for cid, title, status, error in pending if status in MANIFEST_STATUSES])
 
 
+def mark_text_in_flight(source: str, series_id: str, drama_id: int, chapter_id: str,
+                        title: str, error: str, text_offset: int):
+    """Marks a text chapter "failed" (retryable) before its text is appended,
+    with the raw-novel file's length before the append (-1: no file), so a
+    retry can find what an interrupted attempt wrote. Title and error
+    already redacted by the caller."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO import_retry(source, series_id, drama_id, chapter_id, title, status, "
+            "error, updated_at, text_offset) VALUES(?, ?, ?, ?, ?, 'failed', ?, ?, ?) "
+            "ON CONFLICT(source, series_id, drama_id, chapter_id) DO UPDATE SET "
+            "title=excluded.title, status=excluded.status, error=excluded.error, "
+            "updated_at=excluded.updated_at, text_offset=excluded.text_offset",
+            (source, str(series_id), int(drama_id), str(chapter_id), title or "", error or "",
+             time.time(), int(text_offset)))
+
+
+def import_text_offset(source: str, series_id: str, drama_id: int, chapter_id: str):
+    """The offset mark_text_in_flight recorded for a chapter still in the
+    manifest, or None (no row, or a row from a failure before any write)."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT text_offset FROM import_retry WHERE source=? AND series_id=? AND "
+            "drama_id=? AND chapter_id=?",
+            (source, str(series_id), int(drama_id), str(chapter_id))).fetchone()
+    return None if row is None else row["text_offset"]
+
+
 def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
     """The manifest's chapters still waiting for a retry, oldest first. A
     chapter imported since (by any path, e.g. the auto-import) is left out."""
@@ -367,12 +543,16 @@ def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
             (source, str(series_id), int(drama_id)))]
 
 
-def set_tracked_drama(source: str, series_id: str, drama_id) -> bool:
+def set_tracked_drama(source: str, series_id: str, drama_id,
+                      linked_by_user_id: int = None) -> bool:
     """Points a tracked series' auto-import at another drama (None = no
-    auto-import target). Touches nothing else; False if not tracked."""
+    auto-import target) and, if the drama changes, records who linked it.
+    Touches nothing else; False if not tracked."""
     with connect() as conn:
-        cur = conn.execute("UPDATE tracked_series SET drama_id=? WHERE source=? AND series_id=?",
-                           (drama_id, source, series_id))
+        cur = conn.execute("UPDATE tracked_series SET linked_by_user_id=CASE WHEN drama_id IS ? "
+                           "THEN linked_by_user_id ELSE ? END, drama_id=? "
+                           "WHERE source=? AND series_id=?",
+                           (drama_id, linked_by_user_id, drama_id, source, series_id))
         return cur.rowcount > 0
 
 
@@ -500,7 +680,7 @@ def release_check_cycle(token) -> None:
 def mark_checked(source: str, series_id: str, error: str = None):
     with connect() as conn:
         conn.execute("UPDATE tracked_series SET last_checked=?, last_check_error=? "
-                     "WHERE source=? AND series_id=?", (time.time(), error, source, series_id))
+                     "WHERE source=? AND series_id=?", (time.time(), redact_for_storage(error), source, series_id))
 
 
 def list_notifications(include_dismissed: bool = False) -> list:
@@ -566,3 +746,79 @@ def delete_extraction(kind: str, content_hash: str):
     with connect() as conn:
         conn.execute("DELETE FROM extraction_cache WHERE kind=? AND content_hash=?",
                      (kind, content_hash))
+
+
+# ---------------------------------------------------------------------------
+# Domain lists (sources/domains.py). The list and the last domain that
+# worked are settings, one pair of keys per source; a host found by
+# a redirect is only a proposal until the owner confirms it.
+# ---------------------------------------------------------------------------
+
+def _domains_key(source: str) -> str:
+    return f"source_domains.{source}"
+
+
+def _last_good_key(source: str) -> str:
+    return f"source_domain_last_good.{source}"
+
+
+def domain_list(source: str):
+    """The owner's saved domain list (https origins), or None when the
+    adapter's own `base_urls` apply."""
+    value = get_setting(_domains_key(source))
+    return [str(v) for v in value] if isinstance(value, list) and value else None
+
+
+def set_domain_list(source: str, origins):
+    set_setting(_domains_key(source), list(origins) if origins else None)
+
+
+def last_good_domain(source: str):
+    value = get_setting(_last_good_key(source))
+    return str(value) if value else None
+
+
+def set_last_good_domain(source: str, origin):
+    set_setting(_last_good_key(source), origin or None)
+
+
+MAX_PENDING_PROPOSALS = 5
+
+
+def propose_domain(source: str, host: str, now: float = None) -> bool:
+    """Records a pending proposal (`host` is host[:port]). False when the
+    host was already proposed, was dismissed before (a dismissed host is not
+    proposed again), or the source already has MAX_PENDING_PROPOSALS
+    waiting."""
+    # One statement: the count and the insert run under the same write lock.
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO domain_proposals(source, host, found_at) SELECT ?, ?, ? "
+            "WHERE (SELECT COUNT(*) FROM domain_proposals WHERE source=? AND dismissed=0) < ?",
+            (source, host, time.time() if now is None else now, source, MAX_PENDING_PROPOSALS))
+    return cur.rowcount > 0
+
+
+def domain_proposals(source: str = None) -> list:
+    """Pending (not dismissed) proposals, newest first."""
+    sql = "SELECT source, host, found_at FROM domain_proposals WHERE dismissed=0"
+    args = ()
+    if source is not None:
+        sql += " AND source=?"
+        args = (source,)
+    with connect() as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY found_at DESC", args)]
+
+
+def dismiss_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("UPDATE domain_proposals SET dismissed=1 "
+                           "WHERE source=? AND host=? AND dismissed=0", (source, host))
+    return cur.rowcount > 0
+
+
+def delete_domain_proposal(source: str, host: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM domain_proposals WHERE source=? AND host=? AND dismissed=0",
+                           (source, host))
+    return cur.rowcount > 0

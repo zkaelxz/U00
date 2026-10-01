@@ -12,13 +12,13 @@ from services import sources_search_service as svc
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from sources import registry
+from sources import generic_import, registry
 from sources.base import SourceAdapter
 from sources.http import (PacingPolicy, ResponseRefused, ResponseTooLarge, ResponseTooSlow,
                           UnsupportedEncoding)
 from sources.models import (ChallengeDetected, ChapterInfo, ContentHidden, FailureReason,
-                            NotSupportedError, SearchResult, SeriesInfo, SourceUnavailable,
-                            TermsProhibited)
+                            FetchFailed, NotSupportedError, SearchResult, SeriesInfo,
+                            SourceError, SourceUnavailable, TermsProhibited)
 from tests.sources_helpers import ScriptedTransport, html
 
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
@@ -62,9 +62,9 @@ def _make(name, routes=None, search_exc=None, series_exc=None, on_request=None):
                           description=f"see C:\\Users\\kae\\lib and key {SECRET}")
 
     def get_chapters(self, series_id):
-        return [ChapterInfo(name, series_id, "c10", "第10话", f"{HOST}/c/10?x=1"),
+        return [ChapterInfo(name, series_id, "c1", "第1话", f"{HOST}/c/1?x=1"),
                 ChapterInfo(name, series_id, "c2", "第2话", f"{HOST}/c/2?x=1"),
-                ChapterInfo(name, series_id, "c1", "第1话", f"{HOST}/c/1?x=1")]
+                ChapterInfo(name, series_id, "c10", "第10话", f"{HOST}/c/10?x=1")]
 
     Fake.__init__ = __init__
     Fake.search = search
@@ -213,6 +213,37 @@ def test_series_exception_mapping(fakes, exc, cls, status, check):
     assert SECRET not in json.dumps(ei.value.details) + ei.value.message
 
 
+class _Layout(SourceError):
+    def __init__(self):
+        super().__init__("alpha's page layout has changed", FailureReason.LAYOUT_CHANGED)
+
+
+@pytest.mark.parametrize("exc,cls,status,reason", [
+    (_Layout(), DependencyUnavailableError, 503, "LAYOUT_CHANGED"),
+    (generic_import.NoContentFound("nothing"), InvalidInputError, 422, "NO_CONTENT"),
+    (FetchFailed("gone", FailureReason.NOT_FOUND), NotFoundError, 404, "NOT_FOUND"),
+    (FetchFailed("boom", FailureReason.SERVER_ERROR), DependencyUnavailableError, 503,
+     "SERVER_ERROR"),
+])
+def test_failure_kinds_map_to_reason_codes(fakes, exc, cls, status, reason):
+    fakes["alpha"] = _make("alpha", series_exc=exc)
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    with pytest.raises(cls) as ei:
+        svc.get_job_result("sources_series_alpha")
+    assert ei.value.details["reason"] == reason
+    assert svc._error_view(exc, None)["status"] == status
+
+
+def test_layout_change_is_recorded_in_health_but_not_a_missing_page(fakes):
+    from sources import health
+    svc._error_view(_Layout(), "alpha")
+    assert health.get("alpha")["last_error_type"] == "LAYOUT_CHANGED"
+    assert health.get("alpha")["consecutive_failures"] == 1
+    svc._error_view(FetchFailed("gone", FailureReason.NOT_FOUND), "beta")
+    assert health.get("beta")["consecutive_failures"] == 0
+
+
 def test_search_exception_mapping_per_source(fakes):
     fakes["alpha"] = _make("alpha", search_exc=TermsProhibited("terms"))
     fakes["beta"] = _make("beta", search_exc=ChallengeDetected(
@@ -224,7 +255,7 @@ def test_search_exception_mapping_per_source(fakes):
     assert errs["beta"]["status"] == 409 and errs["beta"]["details"]["open_url"] == f"{HOST}/x"
 
 
-def test_series_result_sorted_and_redacted(fakes):
+def test_series_result_in_site_order_and_redacted(fakes):
     fakes["alpha"] = _make("alpha")
     svc.start_series("alpha", "s1")
     _wait("sources_series_alpha")
@@ -346,3 +377,16 @@ def test_purchase_hidden_is_not_the_adult_toggle():
     assert view["status"] == 400
     assert view["details"] == {"reason": "PURCHASE_REQUIRED"}
     assert "open it in the app" in view["message"]
+
+
+def test_series_chapters_keep_the_adapters_order(fakes):
+    Fake = _make("alpha")
+    titles = [("p", "序章"), ("c1", "第1话"), ("sp", "特别篇 温泉"), ("c2", "第2话"), ("af", "后记")]
+    Fake.get_chapters = lambda self, series_id: [
+        ChapterInfo("alpha", series_id, cid, t, f"{HOST}/c/{cid}", group="第1卷")
+        for cid, t in titles]
+    fakes["alpha"] = Fake
+    svc.start_series("alpha", "s1")
+    _wait("sources_series_alpha")
+    r = svc.get_job_result("sources_series_alpha")["result"]
+    assert [c["chapter_id"] for c in r["chapters"]] == ["p", "c1", "sp", "c2", "af"]

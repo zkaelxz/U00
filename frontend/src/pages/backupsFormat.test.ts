@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
-import type { AutoBackupSettings, RestoreDramaDone, SnapshotDrama, SnapshotInfo } from '../types/backups'
+import type { AutoBackupSettings, RestoreDramaDone, SnapshotCopy, SnapshotDrama, SnapshotInfo } from '../types/backups'
 import {
-  FOLDER_RULES, backupNowStep, changedSettings, describeRestore, describeSnapshot, filterSnapshotDramas, folderChange, formatWhen,
-  isoDay, needsReplaceConfirm, nextRunText, replaceWarning, serverSentence, settingsSummary, snapshotFacts,
-  snapshotKindLabel, restoreNotes,
+  CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
+  filterSnapshotDramas, folderChange, formatWhen, initialRestoreCopy, isManaged, isoDay, nextRunText, serverSentence,
+  settingsSummary, snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
 } from './backupsFormat'
 
 const UTC = { locale: 'en-GB', timeZone: 'UTC' }
@@ -59,32 +59,70 @@ describe('dates and snapshot lines', () => {
   })
 })
 
-describe('Back up now: replace confirmation', () => {
-  it('no snapshot: starts without replace', () => {
-    expect(backupNowStep({ exists: false }, false)).toEqual({ kind: 'start', replace: false })
+describe('the copies list', () => {
+  const COPY: SnapshotCopy = {
+    name: 'baihe_snapshot-20260930-080000.zip', created_at: '2026-09-30T08:00:00+00:00', size: 12_345_678,
+    kind: 'db-only', drama_count: 3, readable: true, kept_as: 'daily',
+  }
+
+  it('one line per copy: date, kind, size and its rotation slot', () => {
+    expect(describeCopy(COPY, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB · daily')
+    expect(describeCopy({ ...COPY, kind: 'full', size: 900, kept_as: 'weekly' }, UTC))
+      .toBe('30 Sept 2026, 08:00 · Database + media · 900 B · weekly')
+    expect(describeCopy({ ...COPY, kept_as: null }, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB')
   })
 
-  it('a snapshot: asks first, then starts with replace', () => {
-    expect(backupNowStep(SNAP, false)).toEqual({ kind: 'confirm' })
-    expect(backupNowStep(SNAP, true)).toEqual({ kind: 'start', replace: true })
+  it('an unreadable copy says so; a bad date falls back to the name', () => {
+    expect(describeCopy({ ...COPY, readable: false, kind: null, drama_count: null, kept_as: null }, UTC))
+      .toBe("30 Sept 2026, 08:00 · can't be read")
+    expect(describeCopy({ ...COPY, created_at: null }, UTC)).toMatch(/^baihe_snapshot-20260930-080000\.zip · /)
   })
 
-  it('snapshot unknown: starts without replace and lets the server refuse', () => {
-    expect(backupNowStep(null, false)).toEqual({ kind: 'start', replace: false })
-    const refused = new ApiError(422, {
-      code: 'invalid_input',
-      message: 'A backup snapshot already exists; backing up now replaces it. Send replace=true to confirm.',
+  it('a copy this library does not manage says so, and is listed apart', () => {
+    const other = { ...COPY, name: 'baihe_snapshot-20260929-080000.zip', managed: false, kept_as: null }
+    expect(describeCopy(other, UTC)).toBe('30 Sept 2026, 08:00 · Database only · 12.3 MB · not managed')
+    expect(describeCopy({ ...other, readable: false }, UTC)).toBe("30 Sept 2026, 08:00 · can't be read · not managed")
+    // no managed field (an older server) counts as managed
+    expect(isManaged(COPY)).toBe(true)
+    expect(splitCopies([COPY, other, { ...COPY, name: 'x', managed: true }])).toEqual({
+      managed: [COPY, { ...COPY, name: 'x', managed: true }], unmanaged: [other],
     })
-    expect(needsReplaceConfirm(refused)).toBe(true)
-    expect(needsReplaceConfirm(new ApiError(409, { code: 'conflict', message: 'A backup is already running.' }))).toBe(false)
-    expect(needsReplaceConfirm(new Error('x'))).toBe(false)
+  })
+})
+
+describe('choosing the copy to restore from', () => {
+  const readable: SnapshotCopy[] = [
+    { name: 'a.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily' },
+    { name: 'b.zip', created_at: null, size: 1, kind: 'db-only', drama_count: 1, readable: true, kept_as: 'daily' },
+  ]
+
+  it("starts on the server's default copy, never the list's first entry", () => {
+    expect(initialRestoreCopy({ ...SNAP, default_copy: 'b.zip', choose_copy: false }, readable)).toBe('b.zip')
+    expect(initialRestoreCopy({ ...SNAP, default_copy: null, choose_copy: true }, readable)).toBe('')
+    expect(initialRestoreCopy({ ...SNAP, default_copy: 'b.zip', choose_copy: true }, readable)).toBe('')
+    expect(initialRestoreCopy({ ...SNAP, default_copy: 'gone.zip' }, readable)).toBe('')
+    expect(initialRestoreCopy(SNAP, readable)).toBe('')
+    expect(initialRestoreCopy(null, readable)).toBe('')
   })
 
-  it('the warning names the date, kind and size of the snapshot being replaced', () => {
-    expect(replaceWarning(SNAP, UTC)).toBe(
-      'This replaces the snapshot from 28 Sept 2026, 09:30 (Database only · 12.3 MB · 3 dramas). Only one snapshot is kept.',
-    )
-    expect(replaceWarning(null)).toBe('This replaces the current snapshot.')
+  it('says a choice is needed instead of naming a newest copy', () => {
+    expect(describeSnapshot({ ...SNAP, choose_copy: true, default_copy: null })).toMatch(/choose a copy/)
+    expect(CHOOSE_COPY_TEXT).toMatch(/Choose the copy/)
+  })
+
+  it('reads the candidates from a 409 choose_copy answer only', () => {
+    const cand = { name: 'a.zip', created_at: '2026-09-30T08:00:00+00:00', sequence: 3, size: 10, managed: true }
+    const choose = new ApiError(409, {
+      code: 'conflict', message: 'Choose which backup copy to use.',
+      details: { reason: 'choose_copy', candidates: [cand, null, { size: 1 }] },
+    })
+    expect(chooseCopyCandidates(choose)).toEqual([cand])
+    expect(chooseCopyCandidates(new ApiError(409, { code: 'conflict', message: 'A backup is running.' }))).toBeNull()
+    expect(chooseCopyCandidates(new ApiError(409, { code: 'conflict', message: 'x', details: { reason: 'unmanaged' } })))
+      .toBeNull()
+    expect(chooseCopyCandidates(new ApiError(422, { code: 'validation_error', message: 'x', details: { reason: 'choose_copy', candidates: [] } })))
+      .toBeNull()
+    expect(chooseCopyCandidates(new Error('x'))).toBeNull()
   })
 })
 
@@ -143,7 +181,7 @@ describe('restore one drama', () => {
   it('describes the result in plain words', () => {
     const r: RestoreDramaDone = {
       drama_id: 9, restored_as_new: true, title: 'Signal (restored 2026-09-30)', media_restored: false,
-      snapshot_kind: 'db-only', series: 'none', counts: { lines: 120, pages: 0 },
+      snapshot: 'baihe_snapshot-20260929-080000.zip', snapshot_kind: 'db-only', series: 'none', counts: { lines: 120, pages: 0 },
       skipped_tables: ['bulk_jobs', 'usage_log', 'other'],
     }
     expect(describeRestore(r)).toBe(

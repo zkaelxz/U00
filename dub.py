@@ -688,6 +688,12 @@ def stretch_for_window(clip_ms: float, window_ms: float, max_speedup: float = DU
     return round(factor, 3), status
 
 
+# A dub clip is seconds long, so this only stops a hung ffmpeg.
+CLIP_FFMPEG_TIMEOUT_SECONDS = 300.0
+# Encoding a whole narration track; same ceiling the export jobs use.
+M4B_ENCODE_TIMEOUT_SECONDS = 4 * 3600
+
+
 def time_stretch(in_path: str, out_path: str, factor: float):
     """Changes a clip's speed by factor without changing its pitch, via
     ffmpeg's atempo filter (one filter covers 0.5-2.0, wider than any
@@ -697,7 +703,7 @@ def time_stretch(in_path: str, out_path: str, factor: float):
     partial = out_path[:-len(".wav")] + ".partial.wav"
     try:
         subprocess.run(["ffmpeg", "-y", "-i", in_path, "-filter:a", f"atempo={factor:.3f}", partial],
-                       check=True, capture_output=True)
+                       check=True, capture_output=True, timeout=CLIP_FFMPEG_TIMEOUT_SECONDS)
         os.replace(partial, out_path)
     finally:
         if os.path.exists(partial):
@@ -1201,7 +1207,8 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
         import background_jobs
         background_jobs.run_cancellable(cancel_job_id, cmd)
     else:
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True,
+                       timeout=M4B_ENCODE_TIMEOUT_SECONDS)
     return out_path
 
 

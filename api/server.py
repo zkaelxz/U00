@@ -14,6 +14,12 @@ non-loopback request is refused (`api.auth.LoopbackOnlyGate`), whatever
 address uvicorn was told to bind. Interactive API docs are served at
 `/api/docs` and the OpenAPI schema at `/api/openapi.json` with auth off
 only.
+
+`create_app(listener="household")` builds the second, household app that
+`python -m api` serves on `BAIHE_API_HOUSEHOLD_PORT` in the same process
+(see `api/api_config.py`): sign-in on, no background services, no docs,
+never "the PC", only the `BAIHE_PUBLIC_URL` host, security headers on
+every reply (`api.auth.HouseholdGate`).
 """
 
 # Must run before any other app import -- same rule, and same reason, as
@@ -27,12 +33,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.api_config import ApiSettings, check_bind_safety, load_settings
-from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, LocalOnlyCrossSiteGate,
-                      LoopbackOnlyGate, local_only_matchers, public_api_paths)
+from api.api_config import ApiSettings, check_bind_safety, household_settings, load_settings
+from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
+                      LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
+                      public_api_paths)
 from api.error_handlers import install_error_handlers
 from api.routers import (
+    admin_users_routes,
     artifact_routes,
+    assistant_github_routes,
     assistant_routes,
     asr_options_routes,
     auth_routes,
@@ -85,6 +94,8 @@ from api.routers import (
     review_records_routes,
     series_people_routes,
     settings_routes,
+    sharing_routes,
+    source_domains_routes,
     source_routes,
     sources_catalog_routes,
     sources_extraction_routes,
@@ -97,6 +108,7 @@ from api.routers import (
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    update_routes,
     voice_bank_audio_routes,
     voice_clone_routes,
     web_search_routes,
@@ -104,6 +116,7 @@ from api.routers import (
 )
 from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
+from services import auth_service
 
 
 @asynccontextmanager
@@ -113,7 +126,13 @@ async def _lifespan(app: FastAPI):
     only when `settings.background_services` is on -- never in tests.
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
-    and job records left running by a dead process are closed (B-04)."""
+    and job records left running by a dead process are closed, as
+    are stale sign-in sessions (expired, idle or of a deactivated user).
+    The household listener's app does none of this, at start or stop: it
+    shares the process with the admin listener, whose lifespan owns it."""
+    if getattr(app.state.settings, "is_household", False):
+        yield
+        return
     from services import lncrawl_service
     if not getattr(app.state.settings, "background_services", False):
         try:
@@ -126,12 +145,19 @@ async def _lifespan(app: FastAPI):
         jobs_service.sweep_stale_job_records()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
+    from services import auth_service
+    try:
+        auth_service.sweep_stale_sessions()
+    except Exception:
+        logging.getLogger(__name__).warning("Stale session sweep failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
-                                start_reeval_scheduler, stop_gpu_queue_poller,
-                                stop_reeval_scheduler)
+                                start_reeval_scheduler, start_remote_health_monitor,
+                                stop_gpu_queue_poller, stop_reeval_scheduler,
+                                stop_remote_health_monitor)
     start_background_services()
     start_gpu_queue_poller()
     start_reeval_scheduler()
+    start_remote_health_monitor(app.state.settings)
     try:
         yield
     finally:
@@ -139,13 +165,22 @@ async def _lifespan(app: FastAPI):
         lncrawl_service.shutdown()
 
         stop_reeval_scheduler()
+        stop_remote_health_monitor()
 
 
-def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
+def create_app(settings: ApiSettings = None, frontend_dist=None,
+               listener: str = "admin") -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
     safe to call at import time and in tests; the library is opened
-    lazily by the first request that needs it (`db._ensure_ready`)."""
+    lazily by the first request that needs it (`db._ensure_ready`).
+    `listener="household"` builds the household app from the admin
+    listener's settings (`api_config.household_settings`, which refuses an
+    unsafe household port or host)."""
     settings = settings or load_settings()
+    if listener == "household":
+        settings = household_settings(settings)
+    elif listener != "admin" or settings.is_household:
+        raise ValueError("listener must be 'admin' or 'household'.")
     app = FastAPI(
         title="Baihe Studio API",
         version=API_VERSION,
@@ -164,13 +199,17 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     # `python -m api`); a bind given straight to uvicorn (--host) isn't
     # visible here, which is why LoopbackOnlyGate refuses remote requests too.
     check_bind_safety(settings)
+    # Process-wide: both listeners are built from the same settings.
+    auth_service.configure_timeouts(settings.session_idle_days * 86400,
+                                    settings.session_max_days * 86400)
     if settings.auth_enabled:
         # Innermost: gives each request a holder for "who started this job"
         # (auth B2, api.auth.ActingPrincipalMiddleware).
         app.add_middleware(ActingPrincipalMiddleware)
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
-                           local_only_fn=lambda: local_only_matchers(app))
+                           local_only_fn=lambda: local_only_matchers(app),
+                           never_local=settings.is_household)
     else:
         app.add_middleware(LoopbackOnlyGate)
     # Refuse a simple (no-preflight) POST before its body is read (see
@@ -186,8 +225,13 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
             allow_headers=["Content-Type"],
             allow_credentials=False,
         )
+    if settings.is_household:
+        # Outermost: checks the Host before anything else runs and adds the
+        # security headers to every reply, the other gates' refusals included.
+        app.add_middleware(HouseholdGate, public_url=settings.public_url)
     install_error_handlers(app)
     app.include_router(system_routes.router)
+    app.include_router(update_routes.router)
     app.include_router(library_routes.router)
     app.include_router(reader_routes.router)
     app.include_router(diagnostics_routes.router)
@@ -223,6 +267,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(discover_routes.router)
     app.include_router(web_search_routes.router)
     app.include_router(sources_catalog_routes.router)
+    app.include_router(source_domains_routes.router)
     app.include_router(workflow_routes.router)
     app.include_router(live_routes.router)
     app.include_router(discover_lookup_routes.router)
@@ -246,6 +291,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(stronger_engine_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(auth_routes.router)
+    app.include_router(admin_users_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
     app.include_router(novel_files_routes.router)
@@ -257,6 +303,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(voice_bank_audio_routes.router)
     app.include_router(sources_tools_routes.router)
     app.include_router(assistant_routes.router)
+    app.include_router(sharing_routes.router)
+    app.include_router(assistant_github_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

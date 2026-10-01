@@ -878,6 +878,11 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
         if library_admin_service._any_job_running():     # re-check under the hold
             raise AdminActionJobsRunning(
                 "A background job is running or queued; wait for it to finish.")
+        # A finished job's thread can still be writing to the database it
+        # is about to delete and recreate.
+        if not background_jobs.wait_for_job_threads(10.0):
+            raise AdminActionJobsRunning(
+                "A background job is still finishing; try again in a moment.")
         db.reset_library()
         background_jobs.clear_all_jobs()
     finally:

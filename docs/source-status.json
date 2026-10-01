@@ -1,0 +1,225 @@
+{
+  "_comment": "Status board data for docs/known-working-sources.md. Edit here, then run: python scripts/source_status.py",
+  "registered": {
+    "manhuagui": {
+      "status": "confirmed_live",
+      "last_verified": "2026-09-26",
+      "reason": "",
+      "notes": "Full chain confirmed live 2026-09-26."
+    },
+    "bilibili": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Backed by yt-dlp's maintained extractor."
+    },
+    "52shuku": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "URL-shape + container-selector bugs found and fixed.",
+      "hosts": [
+        "52shuku.net"
+      ]
+    },
+    "xbanxia": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Domain + 3 routing bugs found and fixed; `www.xbanxia.cc` is the real target.",
+      "hosts": [
+        "www.xbanxia.cc"
+      ]
+    },
+    "bilibili_manga": {
+      "status": "caveat",
+      "last_verified": "",
+      "reason": "Untested, not disqualified — needs a real signed-in account nobody has supplied.",
+      "notes": ""
+    },
+    "toonkor": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "`toonkor0.org` confirmed correct/live domain.",
+      "hosts": [
+        "toonkor0.org"
+      ]
+    },
+    "guazimanhua": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": ""
+    },
+    "miaoqumh": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "`search()` unsupported — real endpoint, empty for every query tried."
+    },
+    "baozimh": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Mirrors: `baozimh.org`, `godamh.com`, `baozimh.one`, `bzmh.org`, `g-mh.org`. **`www.twbzmg.com` is the same brand (Taiwan-region deployment) but not yet added/verified as a mirror — don't assume it shares selectors.**",
+      "hosts": [
+        "baozimh.org",
+        "godamh.com",
+        "baozimh.one",
+        "bzmh.org",
+        "g-mh.org"
+      ]
+    },
+    "kuaikan": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Was completely broken (shared `requests` cookie bug); fixed in `sources/http.py`, benefits every source."
+    },
+    "manhuaku": {
+      "status": "caveat",
+      "last_verified": "2026-09-26",
+      "reason": "**2026-09-27: two consecutive live end-to-end runs hung — one past 120s, a retry past 240s. The second produced no output at all, not even the first progress marker printed before any network call, suggesting the stall (or a background-capture buffering issue) may sit earlier than the actual site request. Not re-confirmed working today; cause still unknown (site slowdown, a regression, or an artifact of this environment). Stopped at two attempts deliberately, not retried further.**",
+      "notes": "Both content paths (baozimh-aggregated + native `blob:`) confirmed working 2026-09-26 with real page bytes. `search()` unsupported (real endpoint, empty for every query tried). `robots.txt` inaccessible (403), not reviewed for ToS."
+    },
+    "zerosumonline": {
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Own protobuf reader for the real API."
+    },
+    "mangaz": {
+      "status": "caveat",
+      "last_verified": "",
+      "reason": "Page capture proven (real descrambled page, real `blob:` capture) but a full uninterrupted book (43/43 pages) is unproven — throttling-limited, not a code gap.",
+      "notes": "search/series/chapters ✅."
+    },
+    "lightnovel_fun": {
+      "status": "confirmed_live",
+      "last_verified": "2026-09-30",
+      "reason": "",
+      "notes": "Search, series, chapters (across volumes) and chapter text confirmed live 2026-09-30. Public `/book` and `/reader` pages only; locked 轻币 chapters are reported, never unlocked; EPUB/file-locker links never followed. `lightnovel.us` returned 503.",
+      "hosts": [
+        "www.lightnovel.fun"
+      ]
+    },
+    "syosetu": {
+      "status": "caveat",
+      "last_verified": "2026-09-30",
+      "reason": "Page structure read live 2026-09-30 and the adapter run offline against saved pages; no import run through the app. **Terms: the ToS (第14条 23) forbid automated access except via the official API** (recorded, not enforced; shipped by owner decision 2026-09-30). 18+ works (`novel18.syosetu.com`) unsupported; 18+/login/removed-work handling unverified live.",
+      "notes": ""
+    },
+    "piaotian": {
+      "status": "caveat",
+      "last_verified": "2026-09-30",
+      "reason": "Page structure read live 2026-09-30 (book page, whole-book list, chapter, 404 and 200 error pages, search) and the adapter run offline against those saved pages; no chapter imported through the app. Search page 2, login/age interstitials and the site's own search throttle unverified live. No terms page found (UNKNOWN, not permitted); the site hosts reposted copyrighted fiction.",
+      "notes": "",
+      "hosts": [
+        "www.piaotia.com",
+        "ptwxz.com"
+      ]
+    }
+  },
+  "generic": {
+    "m.zgzl.net": {
+      "label": "`m.zgzl.net` (\"文海小说\")",
+      "language": "zh",
+      "type": "novel",
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Real chapter, HIGH confidence via trafilatura. Multi-page chapters: \"next page\" ≠ \"next chapter\" link, correctly not auto-followed."
+    },
+    "www.51manga.com": {
+      "label": "`www.51manga.com`",
+      "language": "zh",
+      "type": "manhua",
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Real chapter page, 13 real page images, `STATIC_HTTP`."
+    },
+    "www.mh160mh.com": {
+      "label": "`www.mh160mh.com`",
+      "language": "zh",
+      "type": "manhua",
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "Real chapter needs `RENDERED_BROWSER` (JS-loaded); homepage alone gives a false-positive image count (thumbnail grid) — always test an actual chapter URL, not the homepage."
+    },
+    "www.goodtoon005.com": {
+      "label": "`www.goodtoon005.com`",
+      "language": "ko",
+      "type": "manhwa",
+      "status": "confirmed_live",
+      "last_verified": "",
+      "reason": "",
+      "notes": "A real chapter URL (`/manga/gt-<id>/<chapter#>/`) needs `RENDERED_BROWSER`, 56 real page images. **The series-landing URL (`/manga/gt-<id>/`, no chapter number) is NOT a real chapter — it returned a much smaller, misleading image count (cover + episode-list thumbnails) via `STATIC_HTTP`. Always test a URL with an explicit chapter segment.** Homepage links to a cluster of low-reputation ad/redirect domains — real exposure risk when rendering its pages in a browser."
+    }
+  },
+  "set_aside": {
+    "dl-raw.si": {
+      "label": "`dl-raw.si`",
+      "hosts": [
+        "dl-raw.si"
+      ],
+      "status": "declined",
+      "last_verified": "",
+      "reason": "Not a reading aggregator — its own framing is bulk ZIP/RAR volume downloads sourced from third-party file lockers (Rapidgator). Declined to build automated fetch+translate for this: it's volume-scale distribution of commercially published work via a piracy channel, not a page someone is already reading. robots.txt itself is permissive; the refusal is about what the site *is*, not a technical/ToS block."
+    },
+    "fucknovelpia.com": {
+      "label": "`fucknovelpia.com`",
+      "hosts": [
+        "fucknovelpia.com"
+      ],
+      "status": "declined",
+      "last_verified": "",
+      "reason": "A mirror redistributing translated content from Novelpia, a real paid Korean platform, without anything establishing that's authorized. Not vetted further."
+    },
+    "mh03.com": {
+      "label": "`mh03.com`",
+      "hosts": [
+        "mh03.com"
+      ],
+      "status": "refused",
+      "last_verified": "",
+      "reason": "`robots.txt` names `ClaudeBot` and `Claude-SearchBot` with `Disallow: /` (alongside GPTBot, Bytespider, etc.) — refused outright, not investigated past reading that one file."
+    },
+    "novgo": {
+      "label": "Novgo",
+      "hosts": [],
+      "status": "declined",
+      "last_verified": "2026-09-30",
+      "reason": "Mirrors Wuxiaworld's licensed *Against the Gods* word for word, including a chapter Wuxiaworld itself serves only as a teaser. Not an independent source. (Vetted 2026-09-30.)"
+    },
+    "novelfull": {
+      "label": "NovelFull",
+      "hosts": [
+        "novelfull.com"
+      ],
+      "status": "unvetted",
+      "last_verified": "2026-09-30",
+      "reason": "English sites, unreachable from the vetting network (403 / DNS failure) on 2026-09-30. Not vetted further."
+    },
+    "novelbin": {
+      "label": "NovelBin",
+      "hosts": [
+        "novelbin.com"
+      ],
+      "status": "unvetted",
+      "last_verified": "2026-09-30",
+      "reason": "English sites, unreachable from the vetting network (403 / DNS failure) on 2026-09-30. Not vetted further."
+    },
+    "wenku8": {
+      "label": "wenku8",
+      "hosts": [
+        "wenku8.net"
+      ],
+      "status": "unvetted",
+      "last_verified": "2026-09-30",
+      "reason": "403 on every page tried on 2026-09-30. Unvetted."
+    }
+  }
+}

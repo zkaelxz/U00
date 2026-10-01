@@ -10,7 +10,9 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
     dependencies=[local_only()]                          # PC-only (loopback), see below
     dependencies=[authenticated()]                       # any signed-in user; only for
                                                          # routes on the caller's own
-                                                         # session (/api/auth/logout)
+                                                         # sessions (/api/auth/logout
+                                                         # and the three
+                                                         # /api/auth/sessions routes)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -35,10 +37,20 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   direct loopback connection (peer, Host, no proxy headers, loopback
   Origin): the owner at the PC. That is a safeguard, not authentication
   (see the key-write note in docs/archive/migration-handoff.md); the real admin
-  isolation is the separate admin listener (D5), not built yet.
+  isolation is the separate admin listener (D5, below).
+- Household listener (D5, `BAIHE_API_HOUSEHOLD_PORT`, see
+  `api/api_config.py`): the app other devices reach through the reverse
+  proxy. Auth on, and nothing on it is ever "the PC": `is_local_request` is
+  False and `local_only()` refuses every request, however direct and
+  loopback it looks, so a proxy that strips forwarding headers still can't
+  reach a PC-only route or a handler's own PC check. A signed-in admin
+  there holds the household permissions and the admin view ones (user
+  list, audit log), never an admin write permission (`listener_principal`).
+  The PC's own listener (`BAIHE_API_PORT`, auth off, `LoopbackOnlyGate`) is the admin listener.
   `EarlyAuthGate` repeats the cheap part of that check before the request
   body is read, so an anonymous client can't make the server parse a large
-  multipart upload before being refused.
+  multipart upload before being refused. `HouseholdGate`, outermost there,
+  answers only the `BAIHE_PUBLIC_URL` Host and adds the security headers.
 
 Paid engines: a route that starts LLM work declares `jobs.start` (household)
 and its handler calls `require_engines_allowed` with the engines the request
@@ -46,6 +58,7 @@ names, so a user without `engines.paid` can only use `FREE_ENGINES`.
 """
 
 import ipaddress
+import re
 from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
@@ -78,8 +91,35 @@ def _auth_enabled(app) -> bool:
     return bool(getattr(settings, "auth_enabled", True))
 
 
+def _never_local(app) -> bool:
+    """True on the household listener: no request to it counts as the PC.
+    Fail closed: an app built without settings is never local either."""
+    settings = getattr(app.state, "settings", None)
+    return getattr(settings, "listener", None) != "admin"
+
+
+_SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
+def listener_principal(app, principal):
+    """The principal as this listener lets it act. On the household listener
+    an admin account keeps its household permissions and the admin view
+    permissions (user list, audit log) but no admin write permission, and
+    loses the admin override: it still sees every item and job, but changes
+    only what a member could (`ownership_service`). Admin changes are
+    PC-only (D5), and a remote admin session has no second factor.
+    Default-deny: any `admin.*` permission not listed as view is dropped.
+    None stays None."""
+    if principal is None or not _never_local(app):
+        return principal
+    return dict(principal, admin_override=False, permissions=[
+        p for p in principal["permissions"]
+        if not p.startswith("admin.") or p in auth_service.ADMIN_VIEW_PERMISSIONS])
+
+
 def local_owner_principal() -> dict:
     return {"user_id": None, "email": None, "is_admin": True, "is_local_owner": True,
+            "admin_override": True,
             "permissions": list(auth_service.PERMISSIONS)}
 
 
@@ -93,10 +133,10 @@ def _authenticate(request: Request) -> dict:
     or raises 401/403. Nothing is cached: permissions are re-read from the
     DB on every request so a grant/revoke applies to the next one."""
     token = session_token(request)
-    principal = auth_service.resolve_session(token)
+    principal = listener_principal(request.app, auth_service.resolve_session(token))
     if principal is None:
         raise UnauthenticatedError(_GENERIC_401)
-    if request.method.upper() not in ("GET", "HEAD", "OPTIONS") and not auth_service.verify_csrf(
+    if request.method.upper() not in _SAFE_METHODS and not auth_service.verify_csrf(
             token, request.headers.get(CSRF_HEADER)):
         raise CsrfFailedError(_GENERIC_403)
     return principal
@@ -140,17 +180,24 @@ def require_path_visible(request: Request, principal) -> None:
     """404 (never 403, so a private item's existence isn't revealed) when a
     `{drama_id}`/`{series_id}` path parameter names an item the principal
     can't see. Runs after the permission check, so a caller without the
-    permission still gets a plain 403. Editing is visibility-based
-    (ownership_service.can_edit_drama), so reads and writes share it."""
+    permission still gets a plain 403. Any other method also needs the item
+    to be editable (ownership_service.require_editable): the same for
+    everyone except an admin on the household listener, who sees every
+    item but may change only what a member could (403)."""
+    check = (ownership_service.require_visible if request.method.upper() in _SAFE_METHODS
+             else ownership_service.require_editable)
     for name, kind in OWNED_PATH_PARAMS.items():
         if name in request.path_params:
-            ownership_service.require_visible(principal, kind, request.path_params[name])
+            check(principal, kind, request.path_params[name])
 
 
 def authenticated():
     """Any signed-in user, no permission needed; unsafe methods still need
-    the CSRF token. Only for routes that act on the caller's own session
-    (`POST /api/auth/logout`); the static test keeps it under /api/auth/.
+    the CSRF token. Only for routes that act on the caller's own sessions
+    (`POST /api/auth/logout`, `GET /api/auth/sessions`,
+    `POST /api/auth/sessions/revoke-others` and
+    `POST /api/auth/sessions/{auth_session_id}/revoke`); the static test
+    keeps it under /api/auth/.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):
         if not _auth_enabled(request.app):
@@ -196,8 +243,11 @@ def local_only():
     """PC-only route. Both modes: a POST/PUT/PATCH must be JSON or carry
     X-Baihe-Local: 1 (see _cross_site_safe). Off mode: otherwise a
     no-op (today's behaviour; routes that had their own loopback guard
-    keep it). On mode: the connection must be a direct loopback one."""
+    keep it). On mode: the connection must be a direct loopback one.
+    Household listener: always refused."""
     def dependency(request: Request):
+        if _never_local(request.app):
+            raise ForbiddenError(_GENERIC_403)
         if _auth_enabled(request.app) and not is_local_request(request):
             raise ForbiddenError(_GENERIC_403)
         if not _cross_site_safe(request):
@@ -235,6 +285,10 @@ def _is_local_scope(client_host, headers) -> bool:
 
 
 def is_local_request(request: Request) -> bool:
+    """Whether this request comes from the owner at the PC. Always False on
+    the household listener."""
+    if _never_local(request.app):
+        return False
     return _is_local_scope(request.client.host if request.client else None, request.headers)
 
 
@@ -445,12 +499,16 @@ class EarlyAuthGate:
     moves the cheap refusals ahead of body parsing (multipart uploads are
     spooled to disk with no size limit) and ahead of FastAPI's own
     422/404/405 replies, so an anonymous client learns nothing beyond
-    "log in"."""
+    "log in".
 
-    def __init__(self, app, public_paths_fn, local_only_fn=lambda: []):
+    never_local (the household listener): no request is treated as a
+    direct loopback one, so local_only() routes are always refused here."""
+
+    def __init__(self, app, public_paths_fn, local_only_fn=lambda: [], never_local=False):
         self.app = app
         self._public_paths_fn = public_paths_fn
         self._local_only_fn = local_only_fn
+        self._never_local = never_local
         self._public = None
         self._local_only = None
 
@@ -459,7 +517,8 @@ class EarlyAuthGate:
             return await self.app(scope, receive, send)
         request = Request(scope)
         client = scope.get("client")
-        if _is_local_scope(client[0] if client else None, request.headers):
+        if not self._never_local and _is_local_scope(client[0] if client else None,
+                                                     request.headers):
             return await self.app(scope, receive, send)
         if self._is_local_only(scope):
             return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
@@ -509,6 +568,155 @@ class LoopbackOnlyGate:
                     return await send({"type": "websocket.close", "code": 1008})
                 return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         return await self.app(scope, receive, send)
+
+
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+_HOST_PORT_RE = re.compile(r":([0-9]{1,5})")
+_HOST_NAME_RE = re.compile(r"[a-z0-9._-]+")
+
+# The Reader shows each page in a sandboxed srcdoc iframe, which inherits
+# this policy and runs inline scripts and handlers, and plays audio and shows
+# images from data: URIs; index.html has one inline theme script. So scripts
+# can't be limited to 'self' until the Reader page is served from a URL.
+HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                 "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+                 "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+                 "object-src 'none'; base-uri 'self'; form-action 'self'; "
+                 "frame-ancestors 'none'")
+HOUSEHOLD_SECURITY_HEADERS = (
+    ("Content-Security-Policy", HOUSEHOLD_CSP),
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "same-origin"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
+)
+HSTS_VALUE = "max-age=31536000"
+
+
+def _normal_host(name: str, port):
+    """(name, port) with the name lowercased, one trailing dot dropped, an
+    IPv6 literal bracketed in its compressed form; None if the name is
+    unusable. A non-ASCII name is unusable: browsers send the punycode (xn--)
+    form, and startup asks for BAIHE_PUBLIC_URL in that form."""
+    name = (name or "").strip().lower()
+    if name.startswith("[") and name.endswith("]"):
+        name = name[1:-1]
+    if ":" in name:
+        try:
+            return f"[{ipaddress.IPv6Address(name).compressed}]", port
+        except ValueError:
+            return None
+    if name.endswith("."):
+        name = name[:-1]
+    if not name or not _HOST_NAME_RE.fullmatch(name):
+        return None
+    return name, port
+
+
+def parse_host_header(value: str):
+    """(name, port or None) from a Host header, normalised like
+    `_normal_host`; None when it is malformed (userinfo, path, spaces, a bad
+    port...)."""
+    value = (value or "").strip()
+    if value.startswith("["):
+        end = value.find("]")
+        if end < 0:
+            return None
+        name, rest = value[:end + 1], value[end + 1:]
+    else:
+        name, sep, port_text = value.partition(":")
+        rest = sep + port_text
+    port = None
+    if rest:
+        match = _HOST_PORT_RE.fullmatch(rest)
+        if not match or not 1 <= int(match.group(1)) <= 65535:
+            return None
+        port = int(match.group(1))
+    if name.startswith("[") and ":" not in name:
+        return None
+    return _normal_host(name, port)
+
+
+def public_host(public_url: str):
+    """((name, port), port_is_default) for the Host the household listener
+    answers to, from BAIHE_PUBLIC_URL (port: the URL's own, else its
+    scheme's default), or None when there is no usable public URL."""
+    try:
+        parts = urlsplit(public_url or "")
+        port = parts.port or _DEFAULT_PORTS.get(parts.scheme)
+    except ValueError:
+        return None
+    if not parts.hostname or port is None:
+        return None
+    return _normal_host(parts.hostname, port), port == _DEFAULT_PORTS[parts.scheme]
+
+
+def _host_allowed(allowed, headers: list) -> bool:
+    hosts = [v for k, v in headers if k.lower() == b"host"]
+    if allowed is None or allowed[0] is None or len(hosts) != 1:
+        return False
+    (name, port), port_is_default = allowed
+    got = parse_host_header(hosts[0].decode("latin-1"))
+    if got is None or got[0] != name:
+        return False
+    # A browser leaves the scheme's default port out of the Host.
+    return got[1] == port or (got[1] is None and port_is_default)
+
+
+def _arrived_over_https(scope) -> bool:
+    """The reverse proxy on this PC says the browser used https: the scope's
+    scheme is https and there is exactly one `X-Forwarded-Proto: https`.
+    The peer can't be checked here: uvicorn's proxy headers handling has
+    already replaced it with the browser's address from X-Forwarded-For. It
+    sets the scheme from X-Forwarded-Proto only for a trusted (loopback)
+    peer, and the household listener binds loopback only."""
+    if scope.get("scheme") != "https":
+        return False
+    protos = [v for k, v in scope.get("headers", ()) if k.lower() == b"x-forwarded-proto"]
+    return len(protos) == 1 and protos[0].decode("latin-1").strip().lower() == "https"
+
+
+class HouseholdGate:
+    """Pure-ASGI middleware, outermost, on the household listener only.
+    - Host allowlist: the one Host that app answers to is BAIHE_PUBLIC_URL's
+      (case, a trailing dot and the default port don't matter). Anything
+      else, a missing or repeated Host included, is a 400 before routing:
+      a DNS-rebinding page or a stray name pointed at the proxy reaches
+      nothing. X-Forwarded-Host is ignored; the proxy must pass the Host on.
+    - Security headers on every reply (a header a route set itself, such as
+      a stricter CSP, is kept), and HSTS only when the proxy on this PC says
+      the browser used https (`_arrived_over_https`).
+    Unexpected-error (500) replies are written outside every middleware and
+    don't get the headers; they carry no page content."""
+
+    def __init__(self, app, public_url: str):
+        self.app = app
+        self._allowed = public_host(public_url)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        ok = _host_allowed(self._allowed, scope.get("headers", ()))
+        if scope["type"] == "websocket":
+            if not ok:
+                return await send({"type": "websocket.close", "code": 1008})
+            return await self.app(scope, receive, send)
+        extra = HOUSEHOLD_SECURITY_HEADERS
+        if _arrived_over_https(scope):
+            extra = extra + (("Strict-Transport-Security", HSTS_VALUE),)
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                from starlette.datastructures import MutableHeaders
+                headers = MutableHeaders(scope=message)
+                for name, value in extra:
+                    headers.setdefault(name, value)
+            await send(message)
+
+        if not ok:
+            return await _json_refusal(400, "invalid_host", "Unknown host.")(
+                scope, receive, send_with_headers)
+        return await self.app(scope, receive, send_with_headers)
 
 
 class ActingPrincipalMiddleware:

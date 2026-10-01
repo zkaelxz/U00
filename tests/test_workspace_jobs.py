@@ -640,7 +640,7 @@ def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
 
     def fake_extract(video_path, language, sample_interval, ocr_backend,
                       chinese_script="simplified", progress_cb=None, tmp_dir=None,
-                      tesseract_cmd=None):
+                      tesseract_cmd=None, job_id=None, cancel_check=None):
         progress_cb(0.4)
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 
@@ -1321,9 +1321,7 @@ class TestWorkspaceStageIndex:
     """Regression coverage for Step 14 (Workspace shell rebuild): the
     project header's pipeline-progress stepper needs a real stage index
     computed from the drama's actual state, not a guess -- this is the
-    function that computes it, and ui.workflow.stage_statuses_from_index
-    turns that single index into a done/current/not-started list for
-    each of the 7 stage tabs."""
+    function that computes it."""
 
     STAGES = ["Source", "Transcript", "Diarize", "Translate", "Review", "Dub", "Export"]
 

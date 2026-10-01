@@ -8,6 +8,8 @@ import { RouteErrorBoundary } from './components/ErrorBoundary'
 import AssistantPage from './pages/Assistant'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { NotificationBell } from './components/NotificationBell'
+import { RemoteHealthBanner } from './components/RemoteHealthBanner'
+import { ThemeMenu } from './components/ThemeMenu'
 import ComicPage from './pages/Comic'
 import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
@@ -37,7 +39,7 @@ function ApiStatus() {
   if (!meta) return <span className="badge">Connecting…</span>
   return (
     <span className="badge ok" data-testid="api-status">
-      API v{meta.api_version} · {meta.environment}
+      API v{meta.api_version}{meta.environment ? ` · ${meta.environment}` : ''}
     </span>
   )
 }
@@ -149,10 +151,12 @@ export default function App() {
         <div className="header-end">
           <NotificationBell />
           <ReportProblemButton />
+          <ThemeMenu />
           <ApiStatus />
           {user && <UserMenu user={user} />}
         </div>
       </header>
+      <RemoteHealthBanner />
       {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
       <RouteErrorBoundary>
         {route.name === 'library' && <LibraryPage />}

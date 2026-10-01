@@ -32,8 +32,11 @@ def meta(request: Request):
     # let this request through. It only drives which controls the UI shows;
     # the PC-only routes still enforce it themselves.
     local = not _auth_enabled(request.app) or is_local_request(request)
+    settings = request.app.state.settings
+    # Public, so the household listener doesn't tell other devices its mode.
+    environment = "" if getattr(settings, "is_household", True) else settings.environment
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
-                        environment=request.app.state.settings.environment, local=local)
+                        environment=environment, local=local)
 
 
 @router.post("/system/shutdown", dependencies=[local_only()], response_model=ShutdownResponse,

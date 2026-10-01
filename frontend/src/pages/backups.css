@@ -7,8 +7,7 @@
 .auto-backup .card-body { display: grid; gap: var(--space-3); }
 .backup-status { display: grid; gap: var(--space-1); margin: 0; }
 .backup-status p { margin: 0; }
-.backup-confirm { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
-.backup-confirm p { margin: 0; }
+.backup-copies { margin: 0; padding-left: var(--space-4); display: grid; gap: 2px; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .folder-form { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .folder-form .field-item { flex: 1 1 16rem; min-width: 0; }
 
@@ -32,3 +31,9 @@
 .snapshot-drama-title { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
 .snapshot-drama-meta { color: var(--muted); font-size: var(--text-sm); }
 .restore-notes { margin: 0; padding-left: var(--space-4); display: grid; gap: var(--space-1); }
+
+/* Import from a backup file: a checkbox row per drama, the whole row is the tap target. */
+.import-dramas label { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: var(--space-2) var(--space-3); cursor: pointer; }
+.import-dramas label > span { display: grid; gap: 2px; min-width: 0; }
+.import-dramas input[type='checkbox'] { flex: none; width: 24px; height: 24px; }
+.import-dramas label:hover { background: var(--accent-soft); }

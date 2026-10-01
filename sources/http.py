@@ -4,9 +4,10 @@ generic importer go through (Step 23 items 2, 3, 3b, 4).
 
 What it guarantees, structurally rather than by convention:
   * Human-paced: a random 1-3s gap (configurable) between requests to
-    the same source, one request in flight per source by default, and an
-    adapter can declare a stricter per-host minimum (e.g. a robots.txt
-    Crawl-delay).
+    the same host, whichever source name or client sends them, one
+    request in flight per source by default, and an adapter can declare a
+    stricter per-host minimum (e.g. a robots.txt Crawl-delay) that every
+    client fetching that host then honours.
   * Session-shaped: every so often (a randomized request count, default
     8-20) the source takes one longer pause (default 30-90s) before
     continuing -- like a person setting the app down and coming back --
@@ -34,6 +35,8 @@ import zlib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
+
+from translate_engines import safe_url
 
 from . import detect, health, store
 from .cache import RawCache
@@ -208,24 +211,104 @@ class Response:
 _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?([\w-]+)""", re.I)
 
 
+# Encodings tried, in order, for a page that declares no charset and is not
+# valid UTF-8. Order is the tie-break when two score the same.
+_SNIFF_CANDIDATES = ("gb18030", "big5", "cp932", "euc_jp", "euc_kr")
+_SNIFF_SAMPLE = 64 * 1024
+# Declared names that are strict subsets of GB18030: decode with the superset
+# so a character outside the declared table still comes out right.
+_GB_SUBSETS = {"gb2312", "gb_2312", "gb_2312-80", "gbk", "x-gbk", "cp936", "gb-2312", "euc-cn", "euccn"}
+
+
+# Very common ideographs (simplified, traditional and shared kanji forms). A
+# wrong legacy decode yields ideographs too, but rarely these ones.
+_COMMON_HANZI = frozenset(
+    "的一是不了人我在有他这中大来上国个到说们为子和你地出道也时年得就那要下以生会自着去之过家学对可她里后小么心多天而能好都然没日于起还发成事只作当想看文无开手十用主行方又如前所本见经头面公同三已老从动两长知民样现分将外但身些与高意进把法此实回二理美点月明其种声全工话儿者向情部正名定女问力机给等几很业最间新什写活加相"
+    "的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過家學對可她裡後小麼心多天而能好都然沒日於起還發成事只作當想看文無開手十用主行方又如前所本見經頭面公同三已老從動兩長知民樣現分將外但身些與高意進把法此實回二理美點月明其種聲全工話兒者向情部正名定女問力機給等幾很業最間新什寫活加相"
+    "第章節話卷後彼私俺僕君達的様事時間何者人日本語今見行来出会思言生学校手気分中女男子大小上下前後年月"
+)
+
+
+def _sniff_score(text: str, kana_counts: bool = True, hanja_weight: float = 0.2) -> float:
+    """How much `text` looks like real CJK prose. Kana and hangul are strong
+    evidence, common ideographs are good evidence, other ideographs weak;
+    replacement, control, private-use, rare (extension / compatibility)
+    ideographs (in Korean, any non-common one) and half-width katakana (what EUC-JP looks like when misread
+    as Shift-JIS) count heavily against."""
+    score = 0.0
+    for ch in text:
+        o = ord(ch)
+        if 0x3040 <= o <= 0x30FF:
+            # GB2312 has kana in the same cells as EUC-JP, so they say nothing
+            # when the candidate is GB18030.
+            score += 1.5 if kana_counts else 0
+        elif 0xAC00 <= o <= 0xD7A3:
+            score += 1
+        elif ch in _COMMON_HANZI:
+            score += 2
+        elif 0x4E00 <= o <= 0x9FFF:
+            score += hanja_weight
+        elif o == 0xFFFD or o < 0x20 and ch not in "\t\n\r" or 0x7F <= o < 0xA0 \
+                or 0xE000 <= o <= 0xF8FF or 0x3400 <= o <= 0x4DBF or 0xF900 <= o <= 0xFAFF \
+                or 0xFF61 <= o <= 0xFF9F:
+            score -= 10
+    return score
+
+
+def _sniff_decode(content: bytes) -> str:
+    """Decodes bytes with no declared charset: BOM, then strict UTF-8, then
+    the best-scoring legacy CJK encoding on a bounded sample. Never raises."""
+    for bom, enc in ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe", "utf-16"), (b"\xfe\xff", "utf-16")):
+        if content.startswith(bom):
+            return content.decode(enc, errors="replace")
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    sample = content[:_SNIFF_SAMPLE]
+    best, best_score = None, 0.0
+    for enc in _SNIFF_CANDIDATES:
+        text = None
+        # The sample may cut a multi-byte character in half.
+        for trim in range(4):
+            try:
+                text = (sample[:len(sample) - trim] if trim else sample).decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            continue
+        score = _sniff_score(text, kana_counts=enc != "gb18030",
+                             hanja_weight=-1.0 if enc == "euc_kr" else 0.2)
+        if score > best_score:
+            best, best_score = enc, score
+    return content.decode(best or "utf-8", errors="replace")
+
+
 def decode_html(content: bytes, headers: dict = None) -> str:
     """Decodes a page the way a browser would: the header's charset, else
-    the page's own <meta charset>, else UTF-8. (requests' own fallback for
-    text/html without a charset is ISO-8859-1, which garbles every CJK page
-    that only declares its encoding in a meta tag.)"""
+    the page's own <meta charset>, else a sniff (UTF-8, then legacy CJK
+    encodings). A declared charset is authoritative. (requests' own fallback
+    for text/html without a charset is ISO-8859-1, which garbles every CJK
+    page that only declares its encoding in a meta tag.)"""
+    content = content or b""
     ctype = ""
     for k, v in (headers or {}).items():
         if k.lower() == "content-type":
-            ctype = v
-    m = re.search(r"charset=([\w-]+)", ctype, re.I)
+            ctype = str(v)
+    m = re.search(r"charset=[\"']?([\w-]+)", ctype, re.I)
     enc = m.group(1) if m else None
     if not enc:
-        mm = _META_CHARSET.search(content[:4096] or b"")
-        enc = mm.group(1).decode("ascii", "ignore") if mm else "utf-8"
+        mm = _META_CHARSET.search(content[:4096])
+        enc = mm.group(1).decode("ascii", "ignore") if mm else None
+    if not enc:
+        return _sniff_decode(content)
+    if enc.lower() in _GB_SUBSETS:
+        enc = "gb18030"
     try:
-        return content.decode(enc, errors="replace")
+        return content.decode(enc, errors="replace").lstrip("\ufeff")
     except LookupError:
-        return content.decode("utf-8", errors="replace")
+        return _sniff_decode(content)
 
 
 MAX_REDIRECTS = 5
@@ -644,6 +727,16 @@ def _is_timeout(exc) -> bool:
     return "timeout" in name
 
 
+def mirror_unreachable(exc) -> bool:
+    """True when a FetchFailed means "this mirror/domain can't be reached
+    right now" (network error, timeout, 5xx or 429 after retries), so the
+    next one may be tried. A 404, a refusal or a challenge is never this."""
+    return exc.reason in (FailureReason.HTTP_ERROR, FailureReason.SERVER_ERROR,
+                          FailureReason.TIMEOUT, FailureReason.RATE_LIMIT) and \
+        (exc.attempt is None or not exc.attempt.http_status
+         or exc.attempt.http_status >= 500 or exc.attempt.http_status == 429)
+
+
 def _is_connection_error(exc) -> bool:
     try:
         import requests
@@ -652,29 +745,70 @@ def _is_connection_error(exc) -> bool:
         return isinstance(exc, ConnectionError)
 
 
-# Shared per-source state, so two clients for the same source (a search
-# and an import running at once) still share one pace and one concurrency
-# limit rather than each getting their own.
+# Shared state, so two clients (a search and an import running at once, or
+# an adapter and the generic client fetching a pasted URL) can't together
+# hit a site faster than either would alone. The pace clock is per host,
+# across every source name; the concurrency limit, session-break counter
+# and preferred mirror stay per source name.
 _state_lock = threading.Lock()
 _source_state = {}
+_host_state = {}
 
 
 def _state(source: str, max_concurrent: int) -> dict:
     with _state_lock:
         st = _source_state.get(source)
-        if st is None or st["limit"] != max_concurrent:
+        if st is None:
             st = {"sem": threading.BoundedSemaphore(max_concurrent), "limit": max_concurrent,
-                  "pace_lock": threading.Lock(), "last": {}, "good_mirror": None}
+                  "break_lock": threading.Lock(), "good_mirror": None}
             _source_state[source] = st
+        elif st["limit"] != max_concurrent:
+            # Holders of the old semaphore release it as they finish; only
+            # the limit is replaced, never the break counter or mirror.
+            st["sem"] = threading.BoundedSemaphore(max_concurrent)
+            st["limit"] = max_concurrent
         return st
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _host_key(url: str) -> str:
+    """The pace key for a URL: the lowercased host name, plus the port
+    only when it isn't the scheme's default, so `WWW.Example.com`,
+    `www.example.com:443` and `www.example.com` share one clock."""
+    parts = urlsplit(url)
+    try:
+        host, port = (parts.hostname or "").lower(), parts.port
+    except ValueError:            # a malformed port; the request itself will fail
+        return parts.netloc.lower()
+    if not host:
+        return parts.netloc.lower()
+    if port is not None and port != _DEFAULT_PORTS.get(parts.scheme.lower()):
+        host += f":{port}"
+    return host
+
+
+def _host(host: str, min_interval: float) -> dict:
+    """The host's shared pace state. Its minimum interval is the largest
+    any client has declared for it, so a client that declares none (the
+    generic one) still waits as long as the adapter asks for."""
+    with _state_lock:
+        hs = _host_state.get(host)
+        if hs is None:
+            hs = {"lock": threading.Lock(), "last": None, "min_interval": 0.0}
+            _host_state[host] = hs
+        hs["min_interval"] = max(hs["min_interval"], min_interval)
+        return hs
+
+
 def reset_pacing_state():
-    """Test helper / settings-change hook: forget every source's last
-    request time, rebuild the concurrency limits, and forget which mirror
-    last worked for each source."""
+    """Test helper / settings-change hook: forget every host's last
+    request time and declared minimum interval, rebuild the concurrency
+    limits, and forget which mirror last worked for each source."""
     with _state_lock:
         _source_state.clear()
+        _host_state.clear()
 
 
 class SourceClient:
@@ -709,6 +843,7 @@ class SourceClient:
                       "current_action": "Idle", "current_delay": 0.0,
                       "access_method": "Normal HTTP"}
         self.attempts = []   # AttemptRecord per failed/succeeded request, for diagnostics
+        self.last_page = None   # (final url, text) of the last successful HTML GET
 
     def _limited_transport(self, method, url, headers, data, timeout):
         """The real transport under this client's body limits; cancel is
@@ -749,18 +884,40 @@ class SourceClient:
             self.sleep(min(left, 0.5))
 
     # -- pacing ------------------------------------------------------------
+    def _acquire_cancellable(self, lock):
+        # Real-time polling (not self.sleep) so a cancel still interrupts a
+        # thread queued behind another one's wait on the same lock.
+        while not lock.acquire(timeout=0.2):
+            self._check_cancel()
+        try:
+            self._check_cancel()
+        except Cancelled:
+            lock.release()
+            raise
+
     def _wait_turn(self, host: str, st: dict):
-        """Called holding the source's pace lock."""
-        self._maybe_take_a_break(st)
-        last = st["last"].get(host)
-        gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
-        gap = max(gap, float(self.policy.host_min_interval.get(host, 0.0)))
-        if last is not None:
-            wait = last + gap - self.clock()
-            if wait > 0:
-                self._status(f"Waiting {wait:.1f}s before next request...", wait)
-                self._sleep_cancellable(wait)
-        st["last"][host] = self.clock()
+        """Takes the source's session break, then waits for the host's
+        turn. The two locks are never held together, and the host lock
+        only blocks other requests to that host."""
+        self._acquire_cancellable(st["break_lock"])
+        try:
+            self._maybe_take_a_break(st)
+        finally:
+            st["break_lock"].release()
+        declared = {str(k).lower(): v for k, v in self.policy.host_min_interval.items()}
+        hs = _host(host, float(declared.get(host, 0.0)))
+        self._acquire_cancellable(hs["lock"])
+        try:
+            gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
+            gap = max(gap, hs["min_interval"])
+            if hs["last"] is not None:
+                wait = hs["last"] + gap - self.clock()
+                if wait > 0:
+                    self._status(f"Waiting {wait:.1f}s before next request...", wait)
+                    self._sleep_cancellable(wait)
+            hs["last"] = self.clock()
+        finally:
+            hs["lock"].release()
 
     def _pick_break_at(self) -> int:
         lo = self.policy.session_break_min_requests
@@ -813,7 +970,7 @@ class SourceClient:
                 if poll is not None:
                     poll.other_requests += 1
                 self.stats["cache_hits"] += 1
-                self._status(f"Cache hit: {url}")
+                self._status(f"Cache hit: {safe_url(url) or 'page'}")
                 return Response(200, {}, cached, url, from_cache=True)
 
         hdrs = dict(self.default_headers)
@@ -821,15 +978,14 @@ class SourceClient:
         given = {k.lower() for k in hdrs}
         conditional = {k: v for k, v in conditional.items() if k.lower() not in given}
         hdrs.update(conditional)
-        host = urlsplit(url).netloc
+        host = _host_key(url)
         st = _state(self.source, self.policy.max_concurrent)
 
         attempt_no = 0
         while True:
             with st["sem"]:
-                with st["pace_lock"]:
-                    self._wait_turn(host, st)
-                self._status(action or f"Fetching {url}", 0.0)
+                self._wait_turn(host, st)
+                self._status(action or f"Fetching {safe_url(url) or 'page'}", 0.0)
                 self.stats["requests"] += 1
                 started = self.clock()
                 try:
@@ -881,8 +1037,14 @@ class SourceClient:
                                                        at=time.time(), **ev))
                     if record_health:
                         health.record_success(self.source, latency)
-                    if cacheable:
+                    # Content a redirect fetched from another host, or over a
+                    # downgraded scheme, is never stored under the URL that
+                    # was asked for.
+                    if cacheable and _host_key(resp.url or url) == _host_key(url) \
+                            and urlsplit(resp.url or url).scheme == urlsplit(url).scheme:
                         self.cache.put(url, resp.content)
+                    if is_page and method.upper() == "GET":
+                        self.last_page = (resp.url or url, body)
                     if poll is not None and method.upper() == "GET":
                         low = {k.lower(): v for k, v in resp.headers.items()}
                         poll.gets.append((url, resp.url, resp.status_code,
@@ -918,7 +1080,7 @@ class SourceClient:
                 self._sleep_cancellable(backoff)
                 continue
 
-            if record_health:
+            if record_health and attempt.reason != FailureReason.NOT_FOUND.value:
                 health.record_failure(self.source, attempt.reason or "UNKNOWN",
                                       attempt.describe())
             self._status("Idle", 0.0)
@@ -926,16 +1088,16 @@ class SourceClient:
 
     def paced(self, fn, url: str, access_method: str, action: str = None):
         """Runs a non-HTTP fetch (e.g. a headless-browser render) under the
-        same per-source pace and concurrency limit as ordinary requests, so
-        a higher ladder tier can't be used to hit a source faster."""
+        same per-host pace and per-source concurrency limit as ordinary
+        requests, so a higher ladder tier can't be used to hit a source
+        faster."""
         self._check_cancel()
         poll = _active_poll()
         if poll is not None:
             poll.other_requests += 1
         st = _state(self.source, self.policy.max_concurrent)
         with st["sem"]:
-            with st["pace_lock"]:
-                self._wait_turn(urlsplit(url).netloc, st)
+            self._wait_turn(_host_key(url), st)
             self.stats["access_method"] = access_method
             self.stats["requests"] += 1
             self._status(action or f"{access_method}: {url}", 0.0)
@@ -985,13 +1147,11 @@ class SourceClient:
                 st["good_mirror"] = base
                 raise
             except FetchFailed as e:
-                if e.reason in (FailureReason.HTTP_ERROR, FailureReason.TIMEOUT,
-                                FailureReason.RATE_LIMIT) and \
-                        (e.attempt is None or not e.attempt.http_status
-                         or e.attempt.http_status >= 500 or e.attempt.http_status == 429):
+                if mirror_unreachable(e):
                     errors.append(f"{base}: {e}")
                     continue
-                health.record_failure(self.source, e.reason.value, str(e))
+                if e.reason != FailureReason.NOT_FOUND:
+                    health.record_failure(self.source, e.reason.value, str(e))
                 raise
             except ChallengeDetected as e:
                 health.record_failure(self.source, e.reason.value, str(e))

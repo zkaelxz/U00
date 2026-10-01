@@ -74,7 +74,6 @@ ROUTES = [
     ("POST", "/notes", {"notes": "x"}),
     ("GET", "/media", None),
     ("GET", "/captions/Source", None),
-    ("GET", "/captions/English/readout", None),
     ("POST", "/lookup", {"page": 1}),
     ("GET", "/vocab", None),
     ("POST", "/vocab/rich", {"words": ["猫"]}),
@@ -153,14 +152,6 @@ def test_caption_track_is_vtt_and_absent_track_404(client, isolated_db):
     assert client.get(f"{BASE}/{did}/captions/English").status_code == 404
     assert client.get(f"{BASE}/{did}/captions/Bilingual").status_code == 404
     assert client.get(f"{BASE}/{did}/captions/French").status_code == 422
-
-
-def test_readout(client, drama):
-    r = client.get(f"{BASE}/{drama}/captions/English/readout")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["track"] == "English" and len(body["lines"]) == 10
-    assert body["lines"][0]["text"] == "Hello 0" and body["lines"][0]["timestamp"] == "00:00"
 
 
 def test_media_availability_no_paths(client, drama):
@@ -525,8 +516,8 @@ def test_permissions_per_route(on_client, drama):
     # library.read reads
     for path in ("/overview", "/notes", "/media", "/vocab", "/wiki"):
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(reader_only)).status_code == 200
-    # lines.read: captions, readout, exports
-    for path in ("/captions/Source", "/captions/Source/readout", "/wiki/export.md"):
+    # lines.read: captions, exports
+    for path in ("/captions/Source", "/wiki/export.md"):
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(reader_only)).status_code == 403
         assert on_client.get(f"{BASE}/{drama}{path}", headers=_h(lines_read)).status_code == 200
     for path in ("/vocab/export.csv", "/vocab/export.apkg"):
@@ -815,6 +806,8 @@ def test_extract_audio_slice_passes_timeout(monkeypatch, tmp_path):
     core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=15)
     assert seen["timeout"] == 15
     core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"))
+    assert seen["timeout"] == core.SLICE_TIMEOUT_SECONDS
+    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=None)
     assert seen["timeout"] is None
 
 

@@ -24,21 +24,20 @@ import threading
 import diarize
 import storage
 
-# Every top-level .py file and tabs/*.py file expected to exist for the
+# Every top-level .py file expected to exist for the
 # app to run. Kept as an explicit list (not auto-discovered) so a
 # missing file shows up as "missing" rather than just not being checked.
 EXPECTED_TOP_LEVEL_FILES = [
-    "app.py", "common.py", "core.py", "db.py", "translate_engines.py",
+    "core.py", "db.py", "translate_engines.py",
     "diarize.py", "dub.py", "video_export.py", "ocr.py", "segment.py",
     "dictionary.py", "reader.py", "scanlate.py", "metadata_lookup.py",
     "known_sites.py", "title_library.py", "vocab_export.py",
     "qa.py", "bulk_import.py", "epub_io.py", "cli.py", "diagnostics.py",
-    "export_package.py", "run_tests.py", "translation_guide.py",
+    "run_tests.py", "translation_guide.py",
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
-    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "ui_theme.py", "page_fetch.py",
+    "adaptive_style.py", "line_tools.py", "debug_view.py", "emotion.py", "page_fetch.py",
     "page_server.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
-    "app_help.py",
     # Step 25d item 9: this list had drifted -- these were all real,
     # hard-imported modules missing from it, which meant the missing-file
     # health check below could no longer actually catch one of them going
@@ -50,18 +49,9 @@ EXPECTED_TOP_LEVEL_FILES = [
     "translation_memory.py", "action_tiers.py", "media_inspect.py",
     "process_guard.py",   # Step 80b: the installed server's Job Object (python -m api imports it)
 ]
-EXPECTED_TABS_FILES = [
-    "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
-    "reader_tab.py", "scanlate_tab.py", "discover_tab.py",
-    "diagnostics_tab.py",
-    # Step 25d item 9: same drift as EXPECTED_TOP_LEVEL_FILES above.
-    "live_tab.py", "sources_tab.py", "translate_tab.py",
-]
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
-    "streamlit": ("streamlit", "the GUI itself", "required"),
-    "pandas": ("pandas", "Library tab tables", "required"),
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
@@ -113,10 +103,6 @@ OPTIONAL_DEPENDENCIES = {
     "huggingface_hub": ("huggingface_hub", "ML bubble detection/inpainting, voice cloning model downloads",
                         "feature"),
     "pypdf": ("pypdf", "Scanlate PDF import (splitting a PDF into pages)", "feature"),
-    "streamlit_drawable_canvas": ("streamlit_drawable_canvas",
-                                  "Scanlate manual erase/heal brush -- confirmed incompatible "
-                                  "with this app's pinned streamlit>=1.56 as of this check "
-                                  "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
     "plyer": ("plyer", "desktop notification when a background job finishes (Settings toggle, "
@@ -218,7 +204,7 @@ APPROX_DOWNLOAD_MB = {
     "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
-    "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
+    "genanki": 1, "ebooklib": 1, "plyer": 1,
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
@@ -269,9 +255,6 @@ NOT_OFFERED_FOR_INSTALL = {
                                "repository (OpenMOSS/MOSS-Transcribe-Diarize) into this app's "
                                "environment, and it upgrades Transformers to 5.x, which stops "
                                "Qwen3-ASR and Qwen3 forced alignment working.",
-    "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
-                                 "Streamlit, and the Scanlate brush that uses it is deferred "
-                                 "until Scanlate moves to the new interface.",
     "lightnovel-crawler": "not offered: it's a separate program under the GPL-3.0 licence that "
                           "you install yourself, e.g. `pipx install lightnovel-crawler` (or "
                           "`pip install lightnovel-crawler` in its own environment). Baihe only "
@@ -379,10 +362,10 @@ INSTALL_TASKS = [
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
-                  "safetensors", "huggingface_hub", "streamlit_drawable_canvas"],
+                  "safetensors", "huggingface_hub"],
      "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
                      "huggingface_hub"],
-     "optional": ["streamlit_drawable_canvas"]},
+     "optional": []},
     {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
      "help": "Translate offline on this PC.",
      "packages": ["transformers", "sentencepiece", "torch"]},
@@ -405,7 +388,7 @@ INSTALL_TASKS = [
 def check_python_version():
     import sys
     v = sys.version_info
-    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 9}
+    return {"version": f"{v.major}.{v.minor}.{v.micro}", "ok": v.major == 3 and v.minor >= 10}
 
 
 def check_ffmpeg():
@@ -500,16 +483,11 @@ def check_all_dependencies():
 def check_file_completeness(project_root: str):
     missing_top_level = [f for f in EXPECTED_TOP_LEVEL_FILES
                           if not os.path.exists(os.path.join(project_root, f))]
-    tabs_dir = os.path.join(project_root, "tabs")
-    if not os.path.isdir(tabs_dir):
-        missing_tabs = list(EXPECTED_TABS_FILES)
-    else:
-        missing_tabs = [f for f in EXPECTED_TABS_FILES
-                         if not os.path.exists(os.path.join(tabs_dir, f))]
     return {
         "missing_top_level": missing_top_level,
-        "missing_tabs": missing_tabs,
-        "all_present": not missing_top_level and not missing_tabs,
+        # Kept (always empty) so the API/React response shape is unchanged.
+        "missing_tabs": [],
+        "all_present": not missing_top_level,
     }
 
 
@@ -967,8 +945,7 @@ def format_diagnostics_report(results: dict, hf_cache: list = None,
 
 def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict):
     """api_keys_set: dict like {"claude": bool, "deepseek": bool, ...}
-    -- pass whatever's currently in session state, since diagnostics.py
-    itself has no access to Streamlit session state."""
+    -- pass whatever keys are currently set."""
     return {
         "python": check_python_version(),
         "ffmpeg": check_ffmpeg(),
@@ -1071,27 +1048,6 @@ def parse_requirements_file(path: str) -> list:
     return specs
 
 
-def stream_bulk_install(requirements_path: str, python_executable: str = None):
-    """Installs every package in `requirements_path` one at a time --
-    never a single `pip install -r`, which aborts the entire batch on the
-    first failure (exactly the problem Step 61's audio-separator/
-    diffq-fixed case would cause for everyone else in the same file).
-    Yields {"package", "line"} per output line, {"package", "done", "ok"}
-    per package, then a final {"bulk_done": True, "results": {package:
-    ok}} once every package has been attempted, failures included."""
-    specs = parse_requirements_file(requirements_path)
-    results = {}
-    for spec in specs:
-        yield {"package": spec, "start": True}
-        for item in stream_pip_install([spec], python_executable):
-            if item.get("done"):
-                results[spec] = item["ok"]
-                yield {"package": spec, "done": True, "ok": item["ok"]}
-            else:
-                yield {"package": spec, "line": item["line"]}
-    yield {"bulk_done": True, "results": results}
-
-
 def _deno_default_install_path() -> str:
     """Where Deno's own official installer puts the binary, regardless of
     whether the CURRENT process's PATH has picked it up yet -- used to
@@ -1102,45 +1058,12 @@ def _deno_default_install_path() -> str:
     return os.path.join(home, ".deno", "bin", name)
 
 
-def stream_deno_install():
-    """Installs Deno, a system tool rather than a pip package, so it needs
-    its own mechanism distinct from stream_pip_install: winget on Windows
-    when it's on PATH (the officially documented package-manager route),
-    otherwise Deno's own official install script -- PowerShell's on
-    Windows, the shell one everywhere else. Yields {"line"} per output
-    line, then {"done", "ok", "on_path", "needs_restart"} -- installing a
-    binary doesn't guarantee this same process's PATH picks it up without
-    a restart, so "ok but needs_restart" is a real, distinct outcome from
-    a plain "ok"."""
-    if shutil.which("deno"):
-        yield {"line": "deno is already on PATH -- nothing to do."}
-        yield {"done": True, "ok": True, "on_path": True, "needs_restart": False}
-        return
-    system = platform.system()
-    if system == "Windows" and shutil.which("winget"):
-        cmd = ["winget", "install", "-e", "--id", "DenoLand.Deno"]
-    elif system == "Windows":
-        cmd = ["powershell", "-NoProfile", "-Command", "irm https://deno.land/install.ps1 | iex"]
-    else:
-        cmd = ["sh", "-c", "curl -fsSL https://deno.land/install.sh | sh"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
-    for line in proc.stdout:
-        yield {"line": line.rstrip("\n")}
-    returncode = proc.wait()
-    on_path = bool(shutil.which("deno"))
-    installed = on_path or os.path.exists(_deno_default_install_path())
-    ok = returncode == 0 and installed
-    yield {"done": True, "ok": ok, "on_path": on_path, "needs_restart": ok and not on_path}
-
-
 # ---------------------------------------------------------------------------
 # Step 27: "is this dependency outdated?" + an Upgrade action. Like
 # check_pyannote_gated_access above, this reaches the network (PyPI's own
 # public JSON API, a plain unauthenticated GET) -- so it must only ever run
 # from an explicit button click, never automatically on page load, and the
-# caller (tabs/diagnostics_tab.py) caches the result in session state
-# rather than re-querying on every rerun.
+# caller must cache the result rather than re-querying on every request.
 # ---------------------------------------------------------------------------
 
 def get_installed_version(pip_name: str):
@@ -1221,7 +1144,7 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
 def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     """pip args for `python -m pip install --upgrade <pip_name>`, adding
     constraints.txt's existing version caps (pyannote.audio<5,
-    transformers<6, torch<3, streamlit<2, faster-whisper<2, ...) via pip's
+    transformers<6, torch<3, faster-whisper<2, ...) via pip's
     own `-c` flag whenever the file exists -- the same mechanism
     stream_gpu_torch_reinstall already uses for torch/torchaudio,
     generalized here since an Upgrade click can just as easily target any
@@ -1241,52 +1164,6 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     if os.path.exists(constraints_path):
         args += ["-c", constraints_path]
     return args
-
-
-# ---------------------------------------------------------------------------
-# Step 47 item 4: warn (never block) before installing a heavy local
-# voice-cloning/TTS backend when a functionally-equivalent one is already
-# installed -- e.g. Chatterbox is already there and someone clicks Install
-# on OmniVoice. Both an Install button covering the same four packages
-# exist today (Dependencies' own per-tier buttons, and the Model & engine
-# versions panel's own row buttons above), so this is shared by both
-# rather than checked twice. "Hume" the user separately asked about isn't
-# a distinct engine this app wires into anything -- "hume-tada" (TADA) is
-# already the one Hume Labs engine here, so it's the only Hume-related
-# entry in this group; nothing else to add without a real, separate
-# candidate to evaluate.
-# ---------------------------------------------------------------------------
-
-REDUNDANT_LOCAL_TTS_PACKAGES = {"f5-tts", "omnivoice", "chatterbox-tts", "hume-tada"}
-_REDUNDANT_LOCAL_TTS_LABELS = {
-    "f5-tts": "F5-TTS", "omnivoice": "OmniVoice",
-    "chatterbox-tts": "Chatterbox", "hume-tada": "TADA",
-}
-
-
-def redundant_tts_install_warning(package: str, installed_packages) -> str:
-    """None unless `package` is one of the heavy local voice-cloning/TTS
-    backends above AND at least one of the other three is already
-    installed (per `installed_packages`, an iterable of pip/distribution
-    names -- accepts either OPTIONAL_DEPENDENCIES's own keys, like
-    "f5_tts", or MODEL_ENGINE_REGISTRY's, like "f5-tts"; both spellings
-    normalize the same way pip itself treats "_"/"-" as equivalent).
-    Otherwise a plain-English confirmation message naming what's already
-    installed, for an Install button's own confirm-before-a-large-
-    redundant-download step. Never a reason to block outright -- Step 38's
-    Model Arena wants more than one installed to compare."""
-    key = package.replace("_", "-").lower()
-    if key not in REDUNDANT_LOCAL_TTS_PACKAGES:
-        return None
-    installed_norm = {p.replace("_", "-").lower() for p in installed_packages}
-    already = [_REDUNDANT_LOCAL_TTS_LABELS[p] for p in sorted(REDUNDANT_LOCAL_TTS_PACKAGES)
-               if p != key and p in installed_norm]
-    if not already:
-        return None
-    names = " and ".join(already)
-    return (f"{names} already installed and covers this -- also install "
-            f"{_REDUNDANT_LOCAL_TTS_LABELS[key]}? It's a large download and won't replace "
-            f"{names}; both stay available.")
 
 
 # ---------------------------------------------------------------------------

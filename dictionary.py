@@ -20,6 +20,7 @@ import json
 import urllib.request
 
 import portable
+from core import LANGUAGE_NAMES, atomic_write
 
 CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 CEDICT_PATH = os.path.join(portable.data_dir(), "library", "cedict.txt")
@@ -37,8 +38,7 @@ def _ensure_cedict():
     os.makedirs(os.path.dirname(CEDICT_PATH), exist_ok=True)
     with urllib.request.urlopen(CEDICT_URL, timeout=30) as resp:
         raw = gzip.decompress(resp.read())
-    with open(CEDICT_PATH, "wb") as f:
-        f.write(raw)
+    atomic_write(CEDICT_PATH, raw, binary=True)
 
 
 def load_cedict():
@@ -82,7 +82,7 @@ def define_words_llm(words, context_lines, engine, source_language: str = "zh", 
     Returns {word: {"reading": str|None, "definitions": [str]}}."""
     if not getattr(engine, "supports_reference", False) or not words:
         return {}
-    lang_name = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
+    lang_name = LANGUAGE_NAMES.get(source_language, "Chinese")
     context = "\n".join(context_lines[:50])  # cap context size
     out = {}
     unique_words = list(dict.fromkeys(words))

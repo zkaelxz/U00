@@ -42,6 +42,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "title_id": "discover known_titles: household-wide (plan B, decision 6)",
     "name": "a source adapter name or a model file name, not an item",
     "notification_id": "source notifications: household-wide (decision 6)",
+    "chapter_id": "a source chapter id, not an item; the AI-recover route takes the drama in "
+                  "its body and sources_import_service._require_drama checks ownership",
     "domain": "source profile domain (admin.settings)",
     "kind": "an artifact/profile kind, not an item",
     "engine": "an engine name (PC-only key routes, engine Test)",
@@ -58,6 +60,9 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "case_id": "benchmark case: household-wide admin tool (admin.diagnostics / PC-only)",
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
     "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
+    "user_id": "a user account, not an owned item (admin.users only)",
+    "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
+                       "caller's user id from their session (404 otherwise)",
 }
 # Routes naming a job or Live session. The path guard can't see these, so
 # each one is listed with the owner check its service runs (review L-4): a
@@ -141,6 +146,71 @@ def _owned_routes(app):
             yield path, methods, decls
 
 
+def _service_names(tree, module_name):
+    """{local name: services module or function} for a module's imports."""
+    import ast
+    import importlib
+    names = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            mod = node.module
+            if node.level:
+                mod = module_name.rsplit(".", node.level)[0] + "." + mod
+            if mod.split(".")[0] != "services":
+                continue
+            for a in node.names:
+                names[a.asname or a.name] = (
+                    importlib.import_module(f"services.{a.name}") if mod == "services"
+                    else getattr(importlib.import_module(mod), a.name, None))
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.startswith("services.") and a.asname:
+                    names[a.asname] = importlib.import_module(a.name)
+    return names
+
+
+def _principal_calls(func, names, module):
+    """(call node, service function, the expression passed as `principal` or
+    None) for every call in `func` to a function whose `principal` defaults
+    to None (auth off, sees everything) -- called directly, or handed to a
+    runner such as run_in_threadpool(fn, ..., principal=...). A positional
+    principal counts. Names resolve through the module's service imports,
+    then the module's own globals (a same-module helper)."""
+    import ast
+    import inspect
+
+    def resolve(node):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+                and inspect.ismodule(names.get(node.value.id)):
+            return getattr(names[node.value.id], node.attr, None)
+        if isinstance(node, ast.Name):
+            return names.get(node.id) or getattr(module, node.id, None)
+        return None
+
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        candidates = [(resolve(node.func), node.args)]
+        candidates += [(resolve(a), node.args[i + 1:]) for i, a in enumerate(node.args)]
+        for fn, args in candidates:
+            if not inspect.isfunction(fn):
+                continue
+            params = inspect.signature(fn).parameters
+            param = params.get("principal")
+            if param is None or param.default is inspect.Parameter.empty:
+                continue
+            passed = {k.arg: k.value for k in node.keywords}.get("principal")
+            positional = [p for p in params.values()
+                          if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+            index = positional.index(param) if param in positional else None
+            if passed is None and index is not None and index < len(args) \
+                    and not any(isinstance(a, ast.Starred) for a in args[:index + 1]):
+                passed = args[index]
+            if passed is None and any(k.arg is None for k in node.keywords):
+                passed = node          # **kwargs: can't tell, treated as passed
+            yield node, fn, passed
+
+
 class TestEveryOwnedRouteIsGuarded:
     def test_owned_routes_use_a_guarded_declaration(self):
         app = _app()
@@ -213,6 +283,172 @@ class TestEveryOwnedRouteIsGuarded:
                 if passed is None or (isinstance(passed, ast.Constant) and passed.value is None):
                     bad.append(f"{path.name}:{node.lineno} {fn.__qualname__}")
         assert checked > 20
+        assert not bad, bad
+
+    def test_route_handlers_pass_the_request_principal(self):
+        # The test above checks every call from api/ by name. This one walks
+        # the dispatchable routes and also catches a principal-taking service
+        # handed to a runner (run_in_threadpool(fn, ..., principal=...)), and
+        # requires the value to be the request's own principal: an
+        # expression over request.state.principal, or a local name assigned
+        # from one in the same handler.
+        import ast
+        import inspect
+        import sys
+        import textwrap
+
+        def from_request(expr):
+            return any(isinstance(n, ast.Attribute) and n.attr == "state"
+                       for n in ast.walk(expr)) and "principal" in ast.unparse(expr)
+
+        checked, bad, seen = 0, [], set()
+        for route, path, _m, _d in api_auth.iter_route_declarations(_app()):
+            endpoint = getattr(route, "endpoint", None)
+            if endpoint is None or not (endpoint.__module__ or "").startswith("api.") \
+                    or endpoint in seen:
+                continue
+            seen.add(endpoint)
+            module = sys.modules[endpoint.__module__]
+            func = ast.parse(textwrap.dedent(inspect.getsource(endpoint))).body[0]
+            names = _service_names(ast.parse(inspect.getsource(module)), module.__name__)
+            from_req = {t.id for n in ast.walk(func) if isinstance(n, ast.Assign)
+                        and from_request(n.value) for t in n.targets if isinstance(t, ast.Name)}
+            for call, fn, passed in _principal_calls(func, names, module):
+                checked += 1
+                ok = passed is not None and (
+                    passed is call or from_request(passed)
+                    or (isinstance(passed, ast.Name) and passed.id in from_req))
+                if not ok:
+                    bad.append(f"{path} {endpoint.__name__} -> {fn.__qualname__}")
+        assert checked > 20
+        assert not bad, ("A route calls a service whose principal=None means 'auth off, "
+                         "sees everything' without passing request.state.principal: %r" % bad)
+
+    def test_services_forward_the_principal(self):
+        # A service that was handed a principal must pass it on to every
+        # principal-taking function it calls; a dropped one silently means
+        # "auth off" for the rest of the call.
+        import ast
+        import importlib
+        import inspect
+        import pathlib
+        import services
+
+        checked, bad = 0, []
+        for path in sorted(pathlib.Path(services.__file__).parent.glob("*.py")):
+            name = f"services.{path.stem}"
+            try:
+                module = importlib.import_module(name)
+            except Exception:
+                continue            # e.g. a test-only guard that refuses to import
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = _service_names(tree, name)
+            for func in ast.walk(tree):
+                if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                args = func.args
+                if "principal" not in {a.arg for a in args.posonlyargs + args.args
+                                       + args.kwonlyargs}:
+                    continue
+                for call, fn, passed in _principal_calls(func, names, module):
+                    checked += 1
+                    if passed is None or (isinstance(passed, ast.Constant)
+                                          and passed.value is None):
+                        bad.append(f"{path.name}:{call.lineno} {func.name} -> {fn.__qualname__}")
+        assert checked > 10
+        assert not bad, bad
+
+    def test_principal_call_finder_sees_every_form(self):
+        import ast
+        import types
+
+        def svc(drama_id, principal=None):
+            return drama_id
+
+        module = types.SimpleNamespace(svc=svc, run=lambda fn, *a, **k: fn(*a, **k))
+        src = ("def h(request, p):\n"
+               "    svc(1)\n"                                   # missing
+               "    svc(1, principal=None)\n"
+               "    svc(1, request.state.principal)\n"          # positional
+               "    run(svc, 1)\n"                              # handed off, missing
+               "    run(svc, 1, principal=p)\n"
+               "    svc(1, **k)\n")
+        found = [(c.lineno, ast.unparse(p) if isinstance(p, ast.expr) and p is not c
+                  else p is c) for c, _fn, p in _principal_calls(
+                      ast.parse(src).body[0], {}, module)]
+        assert found == [(2, False), (3, "None"), (4, "request.state.principal"),
+                         (5, False), (6, "p"), (7, True)]
+
+    def test_body_drama_ids_reach_a_service_that_takes_the_principal(self):
+        # The path guard only sees `{drama_id}` in the URL. A drama id from
+        # the request body is checked by the service, so the service must
+        # take a principal (the test above then makes sure it's passed).
+        # Admin-only and PC-only routes are exempt: they see everything.
+        # `series_id` isn't covered: in a body it's usually a web source's
+        # series id, not a library series.
+        import ast
+        import importlib
+        import inspect
+        import pathlib
+
+        def exempt(route):
+            for dec in route.decorator_list:
+                for kw in getattr(dec, "keywords", ()):
+                    if kw.arg != "dependencies" or not isinstance(kw.value, ast.List):
+                        continue
+                    for d in kw.value.elts:
+                        name = getattr(d.func, "id", None) if isinstance(d, ast.Call) else None
+                        if name == "local_only":
+                            return True
+                        if name == "require_permission" and d.args \
+                                and isinstance(d.args[0], ast.Constant) \
+                                and str(d.args[0].value).startswith("admin."):
+                            return True
+            return False
+
+        def body_drama_arg(args):
+            return any(isinstance(a, ast.Attribute) and a.attr in ("drama_id", "drama_ids")
+                       for a in args)
+
+        checked, bad = 0, []
+        for path in sorted((pathlib.Path(api_auth.__file__).parent / "routers").glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module \
+                        and node.module.split(".")[0] == "services":
+                    for a in node.names:
+                        names[a.asname or a.name] = (
+                            importlib.import_module(f"services.{a.name}")
+                            if node.module == "services"
+                            else getattr(importlib.import_module(node.module), a.name, None))
+
+            def resolve(f):
+                if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) \
+                        and inspect.ismodule(names.get(f.value.id)):
+                    return getattr(names[f.value.id], f.attr, None)
+                if isinstance(f, ast.Name):
+                    return names.get(f.id)
+                return None
+
+            for route in ast.walk(tree):
+                if not isinstance(route, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                        or not route.decorator_list or exempt(route):
+                    continue
+                for node in ast.walk(route):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    fn, args = resolve(node.func), list(node.args)
+                    if fn is None and getattr(node.func, "id", None) == "run_in_threadpool" \
+                            and args:
+                        fn, args = resolve(args[0]), args[1:]
+                    if not inspect.isfunction(fn) or not body_drama_arg(
+                            args + [k.value for k in node.keywords]):
+                        continue
+                    checked += 1
+                    if "principal" not in inspect.signature(fn).parameters:
+                        bad.append(f"{path.name}:{node.lineno} {fn.__qualname__}")
+        assert checked >= 5
         assert not bad, bad
 
 
@@ -383,6 +619,63 @@ class TestDramaIdsInBodies:
         assert linked("a") == expected
         assert linked("admin") == expected
 
+    def test_tracked_drama_link_follows_editability(self, world):
+        # The chapter check auto-imports into the linked drama, so linking
+        # one is editing it: a drama B can't edit is a 404 like a missing one.
+        from sources import store
+        for key in ("private", "shared"):
+            db.update_drama(world[key], media_type="manhua")
+        store.track_series("manhuagui", "1", "One")
+        client = _client(_app())
+
+        def link(who, drama_id, series="1"):
+            return client.post("/api/sources/tracked/drama", headers=world[who],
+                               json={"source": "manhuagui", "series_id": series,
+                                     "drama_id": drama_id})
+
+        def stored():
+            return {r["series_id"]: r["drama_id"] for r in store.list_tracked_series()}
+
+        hidden, missing = link("b", world["private"]), link("b", 999999)
+        assert hidden.status_code == missing.status_code == 404, hidden.text
+        assert hidden.json()["error"]["message"].replace(str(world["private"]), "N") \
+            == missing.json()["error"]["message"].replace("999999", "N")
+        assert stored() == {"1": None}
+
+        r = link("b", world["shared"])
+        assert r.status_code == 200, r.text
+        assert [t["drama_id"] for t in r.json()] == [world["shared"]]
+
+        # A links their private drama; B's list hides it, and B can't
+        # relink, clear or untrack it (all 404, nothing changed).
+        r = link("a", world["private"])
+        assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
+        assert link("b", None).status_code == 404
+        assert link("b", world["shared"]).status_code == 404
+        r = client.post("/api/sources/tracked", headers=world["b"],
+                        json={"source": "manhuagui", "series_id": "1", "tracked": False})
+        assert r.status_code == 404, r.text
+        assert stored() == {"1": world["private"]}
+        r = client.get("/api/sources/tracked", headers=world["b"])
+        assert [t["drama_id"] for t in r.json()] == [None]
+
+        # Admin (sees everything) and the PC owner / auth off are unchanged.
+        r = link("admin", world["shared"])
+        assert r.status_code == 200 and r.json()[0]["drama_id"] == world["shared"], r.text
+        r = _local(_app("off")).post("/api/sources/tracked/drama",
+                                     json={"source": "manhuagui", "series_id": "1",
+                                           "drama_id": world["private"]})
+        assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
+
+    def test_link_to_a_deleted_drama_blocks_nobody(self, world):
+        from services import sources_tracking_service as tracking
+        from sources import store
+        store.track_series("manhuagui", "1", "One", drama_id=world["private"])
+        db.delete_drama(world["private"])
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        assert tracking.set_tracked_drama("manhuagui", "1", None, principal=b)[0]["drama_id"] \
+            is None
+
 class TestTranslateHistory:
     def test_users_see_only_their_own_rows(self, world):
         db.save_translate_history("zh", "en", "ollama", "a-text", "A", user_id=world["a_id"])
@@ -412,17 +705,20 @@ class TestNewItemsAreStamped:
         assert r.status_code == 201, r.text
         row = self._row(r.json()["id"])
         assert row["owner_user_id"] == world["admin_id"]
-        assert row["is_private"] == 0                   # shares by default
+        assert row["is_private"] == 1                   # private unless shared by default
 
     def test_service_create_uses_share_by_default(self, world):
         from services import drama_service, ownership_service
         a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
-        ownership_service.set_share_by_default(a, False)
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         d = drama_service.create_drama(source_language="zh", title_en="Hidden", principal=a)
         row = self._row(d["id"])
         assert (row["owner_user_id"], row["is_private"]) == (world["a_id"], 1)
-        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         assert not ownership_service.can_see_drama(b, d["id"])
+        ownership_service.set_share_by_default(a, True)
+        d = drama_service.create_drama(source_language="zh", title_en="Open", principal=a)
+        assert self._row(d["id"])["is_private"] == 0
+        assert ownership_service.can_see_drama(b, d["id"])
 
     def test_new_series_and_drama_in_it_owned_by_creator(self, world):
         from services import drama_service
@@ -445,7 +741,7 @@ class TestNewItemsAreStamped:
         from services import drama_service
         d = drama_service.create_drama(source_language="zh", title_en="PC")
         row = self._row(d["id"])
-        assert (row["owner_user_id"], row["is_private"]) == (None, 0)
+        assert (row["owner_user_id"], row["is_private"]) == (None, 1)   # private by default
 
     def test_discover_import_stamps_owner(self, world):
         from services import discover_catalog_service as svc
@@ -542,6 +838,50 @@ class TestJobs:
         off = _local(_app("off")).get("/api/jobs").json()["items"]
         assert {j["job_id"] for j in off} >= set(jobs.values())
 
+    def test_owned_by_me_agrees_with_cancel(self, world, jobs):
+        # owned_by_me: the caller started the job or owns its drama. Where it
+        # is true, cancel is allowed; where false, it is someone else's job
+        # (a member may still cancel one on a shared drama).
+        adm_drama = db.create_drama(title_en="Admin's", source_language="zh",
+                                    owner_user_id=world["admin_id"], is_private=1)
+        jobs = dict(jobs, adm_fixed="discover_navigation_help",
+                    adm_drama=f"translate_{adm_drama}")
+        db.save_job_record(jobs["adm_fixed"], "running", started_at=1.0,
+                           owner_user_id=world["admin_id"])
+        db.save_job_record(jobs["adm_drama"], "running", started_at=1.0, owner_user_id=None)
+        household = TestClient(
+            create_app(ApiSettings(household_port=8610, serve_frontend=False,
+                                   google_client_id="cid", google_client_secret="s3cr3t-value",
+                                   public_url=REMOTE), listener="household"),
+            base_url=REMOTE.replace("https", "http"), client=("127.0.0.1", 5000),
+            raise_server_exceptions=False)
+        remote = _client(_app())
+        # who -> (client, headers, {job key: (owned_by_me, cancel status)})
+        cases = {
+            "owner": (remote, world["a"], {"priv": (True, 200), "shared": (True, 200),
+                                           "a_fixed": (True, 200)}),
+            "member": (remote, world["b"], {"shared": (False, 200), "b_fixed": (True, 200)}),
+            "remote_admin": (household, world["admin"], {
+                "priv": (False, 403), "shared": (False, 200), "a_fixed": (False, 403),
+                "pc_fixed": (False, 403), "b_fixed": (False, 403),
+                "adm_fixed": (True, 200), "adm_drama": (True, 200)}),
+            "local_owner": (_local(_app("off")), {"X-Baihe-Local": "1"},
+                            {k: (True, 200) for k in jobs}),
+        }
+        for who, (client, headers, want) in cases.items():
+            items = client.get("/api/jobs", headers=headers).json()["items"]
+            assert all("owner_user_id" not in j for j in items)
+            owned = {j["job_id"]: j["owned_by_me"] for j in items}
+            assert owned == {jobs[k]: flag for k, (flag, _code) in want.items()}, who
+            for key, job_id in jobs.items():
+                one = client.get(f"/api/jobs/{job_id}", headers=headers)
+                code = client.post(f"/api/jobs/{job_id}/cancel", headers=headers).status_code
+                flag, expected = want.get(key, (None, 404))
+                assert code == expected, (who, key, code)
+                if flag is not None:
+                    assert one.json()["owned_by_me"] is flag, (who, key)
+                    assert not flag or code == 200, (who, key)
+
     def test_starter_loses_a_drama_job_when_the_drama_goes_private(self, world):
         # Review L-1: B started a run on A's shared drama; A then made it private.
         from services import ownership_service
@@ -626,3 +966,33 @@ def test_new_run_over_a_stale_running_record_takes_the_new_owner(isolated_db):
     # Progress updates of the same run keep it.
     db.save_job_record("sources_search", "done", started_at=2.0, owner_user_id=None)
     assert db.get_job_record("sources_search")["owner_user_id"] == 2
+
+
+class TestLibrarySharingFlags:
+    """The Library list tells the client each item's private flag and whether
+    the viewer created it, so the sharing control needs no extra call."""
+
+    def test_drama_flags(self, world):
+        w = world
+        client = _client(_app())
+        items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["a"]).json()["items"]}
+        assert items[w["private"]]["is_private"] is True
+        assert items[w["private"]]["owned_by_me"] is True
+        assert items[w["shared"]]["is_private"] is False
+        assert items[w["in_pseries"]]["is_private"] is True      # follows its series
+        b_items = {d["id"]: d for d in client.get("/api/library/dramas", headers=w["b"]).json()["items"]}
+        assert b_items[w["shared"]]["owned_by_me"] is False
+        off = _local(_app("off")).get("/api/library/dramas").json()["items"]
+        assert all(d["owned_by_me"] is False for d in off)
+        detail = client.get(f"/api/library/dramas/{w['shared']}", headers=w["a"]).json()
+        assert detail["is_private"] is None
+
+    def test_series_flags(self, world):
+        w = world
+        db.create_drama(title_en="Second", source_language="zh", series_id=w["pseries"],
+                        owner_user_id=w["a_id"])
+        client = _client(_app())
+        mine = client.get("/api/library/series", headers=w["a"]).json()["items"]
+        assert mine[0]["is_private"] is True and mine[0]["owned_by_me"] is True
+        admin = client.get("/api/library/series", headers=w["admin"]).json()["items"]
+        assert admin[0]["owned_by_me"] is False

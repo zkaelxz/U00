@@ -166,7 +166,7 @@ class LayoutChanged(SourceError):
 
     def __init__(self, what: str):
         super().__init__(f"mangaz's page/response has changed -- couldn't find {what}. "
-                         "The adapter needs updating.", FailureReason.UNKNOWN)
+                         "The adapter needs updating.", FailureReason.LAYOUT_CHANGED)
 
 
 class CryptoUnavailable(SourceError):
@@ -242,12 +242,6 @@ def _generate_rsa_keypair(key_size: int = 512, public_exponent: int = 65537):
         private_numbers = rsa.RSAPrivateNumbers(
             p, q, d, rsa_crt_dmp1(d, p), rsa_crt_dmq1(d, q), rsa_crt_iqmp(p, q), public_numbers)
         return private_numbers.private_key()
-
-
-def _public_key_pem(public_key) -> str:
-    from cryptography.hazmat.primitives import serialization
-    return public_key.public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode("ascii")
 
 
 def _rsa_decrypt_pkcs1(private_key, ciphertext: bytes) -> bytes:

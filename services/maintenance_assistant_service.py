@@ -51,7 +51,8 @@ import db
 import diagnostics
 from services import diagnostics_gaps_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
-                                     InvalidInputError, NotFoundError, ServiceError)
+                                     InvalidInputError, NotFoundError, ServiceError,
+                                     UnsupportedOperationError)
 
 # ---------------------------------------------------------------------------
 # Limits
@@ -61,6 +62,8 @@ MAX_QUESTION_CHARS = 4000
 MAX_CHAT_TURNS = 20
 MAX_CHAT_TURN_CHARS = 8000
 MAX_CHAT_TOTAL_CHARS = 60000
+# Redacted tool output one tier hands to the next when the user escalates.
+MAX_EVIDENCE_CHARS = 16000
 MAX_ROUNDS = 6              # model turns per question (tool rounds + the final answer)
 MAX_TOOL_CALLS_PER_ROUND = 4
 MAX_TOOL_OUTPUT_CHARS = 12000
@@ -223,6 +226,70 @@ def developer_mode_enabled() -> bool:
     return _get("developer_mode", False) is True
 
 
+# ---------------------------------------------------------------------------
+# Escalation ladder: which engine to ask next when an answer isn't enough.
+# The user moves up one tier at a time; nothing escalates on its own.
+# ---------------------------------------------------------------------------
+
+MAX_TIERS = 3
+# Paid hosted engines, in the order the default ladder picks its last tier.
+_HOSTED_ENGINES = ("claude", "deepseek")
+
+
+def _key_set(name: str) -> bool:
+    """True when the engine can be built: a local server needs no key.
+    Only ever a boolean; the key itself stays in the key store."""
+    from services import translate_service
+    try:
+        return translate_service.resolve_api_key(name) is not None
+    except Exception:
+        return False
+
+
+def _default_tier_order() -> list:
+    """Ollama on this PC, then Gemini if a key is set, then one paid
+    hosted engine: the saved default engine if it is one, else the first
+    with a key."""
+    order = ["ollama"]
+    if _key_set("gemini"):
+        order.append("gemini")
+    saved = _get("engine")
+    hosted = [saved] if saved in _HOSTED_ENGINES else []
+    hosted += [e for e in _HOSTED_ENGINES if e not in hosted]
+    order += [e for e in hosted if _key_set(e)][:1]
+    return order
+
+
+def _saved_tier_order():
+    raw = _get("tiers")
+    if isinstance(raw, list) and raw and all(isinstance(e, str) for e in raw):
+        return raw[:MAX_TIERS]
+    return None
+
+
+def tier_ladder(choices=None) -> list:
+    """The tiers actually offered, in order: the saved order (or the
+    default), skipping engines that aren't chat-capable here or have no
+    key. Each entry says whether it stays on this PC and whether its
+    provider's send-code-and-logs consent is saved; no key values."""
+    choices = choices if choices is not None else _llm_engine_choices()
+    out = []
+    for name in _saved_tier_order() or _default_tier_order():
+        if name not in choices or any(t["engine"] == name for t in out) or not _key_set(name):
+            continue
+        out.append({"tier": len(out) + 1, "engine": name, "local": _is_local_engine(name),
+                    "consent": cloud_consent_given(name)})
+    return out
+
+
+def _tier_of(engine_name: str, ladder: list):
+    """(tier number or None, next engine or None) for an engine."""
+    for i, t in enumerate(ladder):
+        if t["engine"] == engine_name:
+            return t["tier"], (ladder[i + 1]["engine"] if i + 1 < len(ladder) else None)
+    return None, None
+
+
 def get_settings() -> dict:
     engine = _get("engine")
     model = _get("model")
@@ -232,6 +299,11 @@ def get_settings() -> dict:
     review_choices = _review_engine_choices(choices)
     local = {c for c in choices if _is_local_engine(c)}
     return {
+        # The escalation ladder: the saved order (None = the default) and
+        # the tiers it gives right now. Keys only as booleans.
+        "tier_order": _saved_tier_order(),
+        "tiers": tier_ladder(choices),
+        "engine_keys": {c: _key_set(c) for c in choices},
         "developer_mode": developer_mode_enabled(),
         "engine": engine if engine in choices else None,
         "model": model if isinstance(model, str) and model else None,
@@ -293,6 +365,18 @@ def set_settings(updates: dict) -> dict:
                     raise InvalidInputError("cloud_consent is for cloud engines, as true/false.")
                 merged[eng] = allowed
             cleaned[key] = {k: v for k, v in merged.items() if v is True}
+        elif key == "tiers":
+            # None or [] goes back to the default ladder.
+            if value is None or value == []:
+                cleaned[key] = None
+                continue
+            if (not isinstance(value, list) or len(value) > MAX_TIERS
+                    or not all(isinstance(e, str) for e in value)):
+                raise InvalidInputError(f"tiers must be a list of at most {MAX_TIERS} engines.")
+            names = [_check_engine_name(e, "tiers engine") for e in value]
+            if len(set(names)) != len(names):
+                raise InvalidInputError("Each engine can be one tier only.")
+            cleaned[key] = names
         else:
             raise InvalidInputError("Unknown assistant setting.")
     current = get_settings()
@@ -606,6 +690,20 @@ def tool_job_history(args: dict) -> str:
     return json.dumps(jobs, ensure_ascii=False, default=str)
 
 
+def tool_source_failures(args: dict) -> str:
+    """Category, source name, streak count and last-seen time only: no URLs,
+    page content or stored error text. Only registered source names, so a
+    pasted-URL host never appears."""
+    from sources import health, registry
+    known = set(registry.adapter_classes())
+    rows = [r for r in health.recent_failures(50) if r["source"] in known][:20]
+    if not rows:
+        return "No recent source failures."
+    return "\n".join(
+        f"{r['source']}: {r['category']} x{r['count']}, last seen "
+        f"{time.strftime('%Y-%m-%d %H:%M', time.gmtime(r['last_failure']))} UTC" for r in rows)
+
+
 def tool_support_report(args: dict) -> str:
     return diagnostics_gaps_service.build_support_report()
 
@@ -683,6 +781,8 @@ READ_ONLY_TOOLS = {
     "inspect_logs": (tool_inspect_logs, "The app log's last lines (redacted), keyword-filtered.",
                      '{"n": 100, "keyword": "error"}'),
     "job_history": (tool_job_history, "Finished background jobs in this session (redacted).", "{}"),
+    "source_failures": (tool_source_failures,
+                        "Recent content-source failures by category (no URLs or page text).", "{}"),
     "support_report": (tool_support_report, "The redacted Diagnostics support report.", "{}"),
     "check_dependencies": (tool_check_dependencies, "Optional packages: installed or missing.", "{}"),
     "check_models": (tool_check_models, "Installed model/engine versions.", "{}"),
@@ -696,6 +796,7 @@ TOOL_ACTIONS = {
     "search_code": "inspect_git_history", "git_status": "inspect_git_history",
     "git_log": "inspect_git_history", "git_diff": "inspect_git_history",
     "inspect_logs": "inspect_logs", "job_history": "inspect_logs",
+    "source_failures": "inspect_logs",
     "support_report": "generate_report", "check_dependencies": "check_dependencies",
     "check_models": "check_model_availability", "run_tests": "run_tests",
 }
@@ -840,8 +941,11 @@ def _check_history(chat_history) -> list:
     if sum(len(m["content"]) for m in history) > MAX_CHAT_TOTAL_CHARS:
         raise InvalidInputError(f"chat_history is longer than {MAX_CHAT_TOTAL_CHARS} characters in total.")
     # An empty turn (an answer that was only BACKLOG lines) is dropped:
-    # some providers reject empty message content.
-    return [{"role": m["role"], "content": m["content"]} for m in history if m["content"].strip()]
+    # some providers reject empty message content. The thread is redacted
+    # too: it can be escalated to a cloud engine, and a pasted log line
+    # may carry a key or this PC's folder names.
+    return [{"role": m["role"], "content": _redact(m["content"])} for m in history
+            if m["content"].strip()]
 
 
 def _check_question(question) -> str:
@@ -849,7 +953,15 @@ def _check_question(question) -> str:
         raise InvalidInputError("question is required.")
     if len(question) > MAX_QUESTION_CHARS:
         raise InvalidInputError(f"question must be at most {MAX_QUESTION_CHARS} characters.")
-    return question.strip()
+    return _redact(question.strip())
+
+
+def _check_evidence(evidence) -> str:
+    if evidence is None or evidence == "":
+        return ""
+    if not isinstance(evidence, str) or len(evidence) > MAX_EVIDENCE_CHARS:
+        raise InvalidInputError(f"evidence must be text of at most {MAX_EVIDENCE_CHARS} characters.")
+    return _redact(evidence).strip()
 
 
 def build_engine(engine_name=None, model=None):
@@ -875,7 +987,51 @@ def _chat(system_prompt: str, messages: list, engine) -> str:
     except ServiceError:
         raise
     except Exception as e:  # engine/network failure: never leak a key or path
-        raise ServiceError("The engine call failed: " + _redact(str(e))[:300]) from None
+        raise ServiceError("The engine call failed: " + _redact(str(e))[:300],
+                           details={"reason": _failure_reason(e)}) from None
+
+
+def _failure_reason(exc) -> str:
+    """rate_limited / unreachable / failed, so the page can say which in
+    plain words and offer the next tier."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    text = str(exc).lower()
+    if status == 429 or "429" in text or "rate limit" in text or "resource_exhausted" in text:
+        return "rate_limited"
+    if any(s in text for s in ("connection refused", "failed to establish", "max retries exceeded",
+                               "connecterror", "connection error", "timed out")):
+        return "unreachable"
+    return "failed"
+
+
+_FAILURE_TEXT = {
+    "rate_limited": "{name} is busy or over its rate limit (429). Wait a minute, or ask the next tier.",
+    "unreachable": "{name} didn't answer. If it's Ollama, check it's running on this PC.",
+    "unavailable": "{name} isn't set up here (no key, or its package isn't installed).",
+    "spend_cap": "This month's spending cap is used up, so {name} wasn't called.",
+}
+
+
+def _tier_failure(error: ServiceError, engine_name: str, ladder: list) -> ServiceError:
+    """Adds which tier failed and which one is next to an engine failure.
+    Nothing is sent to the next tier: the user decides."""
+    details = error.details if isinstance(error.details, dict) else {}
+    reason = details.get("reason")
+    if reason is None:
+        if isinstance(error, UnsupportedOperationError):
+            # The monthly cap refusal, or an engine that can't chat.
+            reason = "spend_cap" if "spending cap" in error.message else "unavailable"
+        else:
+            reason = "unavailable" if isinstance(error, DependencyUnavailableError) else "failed"
+    tier, next_engine = _tier_of(engine_name, ladder)
+    template = _FAILURE_TEXT.get(reason)
+    if template:
+        error.message = template.format(name=engine_name.capitalize()) + " (" + _redact(error.message)[:200] + ")"
+    error.details = {**details, "reason": reason, "engine": engine_name, "tier": tier,
+                     "next_engine": next_engine}
+    return error
 
 
 def _shown_args(args: dict) -> dict:
@@ -901,6 +1057,7 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
     system_prompt = system_prompt or _system_prompt()
     messages = list(history) + [{"role": "user", "content": question}]
     calls_made = []
+    evidence = []
     used_ids = set()
     tests_run = tests_already_run
     reply = ""
@@ -930,39 +1087,95 @@ def run_diagnosis(question: str, history: list, engine, chat=None, system_prompt
             })
             results.append(f"RESULT {call['id']} ({call['name']}, "
                            f"{'ok' if outcome['ok'] else 'failed'}):\n{outcome['output']}")
+        evidence.extend(results)
         if len(calls) > MAX_TOOL_CALLS_PER_ROUND:
             results.append(f"Only the first {MAX_TOOL_CALLS_PER_ROUND} calls ran.")
         messages.append({"role": "assistant", "content": reply})
         messages.append({"role": "user", "content": "\n\n".join(results)})
-    return {"answer": reply, "tool_calls": calls_made, "tests_run": tests_run}
+    return {"answer": reply, "tool_calls": calls_made, "tests_run": tests_run,
+            "evidence": evidence}
 
 
 _ASK_LOCK = threading.Lock()
 
 
+def _check_escalation(engine_name, consent, ladder):
+    """An escalation names a tier of the ladder, and a tier that leaves
+    this PC needs consent=True on this very request (on top of the saved
+    per-provider consent build_engine checks): the page asks before each
+    send, it never escalates on its own."""
+    if not engine_name:
+        raise InvalidInputError("An escalation names the engine to ask.")
+    if _tier_of(engine_name, ladder)[0] is None:
+        raise InvalidInputError("That engine isn't one of the assistant's tiers. Add it in the "
+                                "assistant's settings first.")
+    if not _is_local_engine(engine_name) and consent is not True:
+        raise ConflictError(
+            f"Asking {engine_name} sends your question, the recent chat and the redacted tool "
+            "output to that provider. Confirm it first.",
+            details={"reason": "escalation_consent_required", "engine": engine_name})
+
+
+def _with_evidence(question: str, evidence: str) -> str:
+    if not evidence:
+        return question
+    return (question + "\n\nA smaller model already looked into this. What its read-only tools "
+            "returned (redacted; check it rather than trusting it):\n" + evidence)
+
+
 def ask(question: str, chat_history=None, engine_name: str = None, model: str = None,
-        chat=None) -> dict:
-    """One assistant turn. Stateless: the client keeps the history."""
+        chat=None, escalate: bool = False, consent: bool = False, evidence: str = "") -> dict:
+    """One assistant turn. Stateless: the client keeps the history (and
+    the evidence it may hand to the next tier). `escalate` re-asks on a
+    higher tier with the previous tier's redacted tool output."""
     _require_developer_mode()
     question = _check_question(question)
     history = _check_history(chat_history)
-    engine, engine_name, model = build_engine(engine_name, model)
+    evidence = _check_evidence(evidence)
+    if evidence and not escalate:
+        raise InvalidInputError("evidence is only sent when escalating to another tier.")
+    ladder = tier_ladder()
+    engine_name = _check_engine_name(engine_name)
+    if escalate:
+        _check_escalation(engine_name, consent, ladder)
+    target = engine_name or get_settings()["engine"] or DEFAULT_ENGINE
+    try:
+        engine, engine_name, model = build_engine(target, model)
+    except (ConflictError, InvalidInputError):
+        raise
+    except ServiceError as e:
+        raise _tier_failure(e, target, ladder) from None
     if not _ASK_LOCK.acquire(blocking=False):
         raise ConflictError("The assistant is already answering a question. Try again when it's done.")
     try:
-        result = run_diagnosis(question, history, engine, chat=chat)
+        try:
+            result = run_diagnosis(_with_evidence(question, evidence), history, engine, chat=chat)
+        except (ConflictError, InvalidInputError):
+            raise
+        except ServiceError as e:
+            raise _tier_failure(e, engine_name, ladder) from None
         raw = _redact(result["answer"])
         answer = _clean_answer(raw)
         if raw.count("```") % 2:
             answer += ("\n\n[The answer looks cut off (an unclosed code block); any fix in it "
                        "is incomplete. Ask for just the patch.]")
         patches = extract_patches(raw)
-        review = None
-        if patches and get_settings()["roles_enabled"]:
-            review = independent_review(question, answer, patches, engine_name, chat=chat,
-                                        tests_already_run=result["tests_run"])
+        review, review_skipped = None, ""
+        settings = get_settings()
+        if patches and settings["roles_enabled"]:
+            # The escalation dialog lists only the tier being asked; a cloud
+            # reviewer would send the question, answer and patches to a
+            # provider the user didn't confirm.
+            if escalate and settings["review_engine"] and not _is_local_engine(settings["review_engine"]):
+                review_skipped = ("The reviewer is a cloud engine, so it wasn't asked as part of "
+                                  "this escalation. Ask for a review separately.")
+            else:
+                review = independent_review(question, answer, patches, engine_name, chat=chat,
+                                            tests_already_run=result["tests_run"])
     finally:
         _ASK_LOCK.release()
+    tier, next_engine = _tier_of(engine_name, ladder)
+    gathered = "\n\n".join(x for x in [evidence] + result["evidence"] if x)
     return {
         "answer": answer,
         "proposed_patches": patches,
@@ -971,7 +1184,44 @@ def ask(question: str, chat_history=None, engine_name: str = None, model: str = 
         "engine": engine_name,
         "model": model,
         "review": review,
+        "review_skipped": review_skipped,
+        "tier": tier,
+        "local": _is_local_engine(engine_name),
+        "next_engine": next_engine,
+        # What the next tier (or a developer report) gets if the user asks
+        # for it: redacted, and cut to the size the request accepts.
+        "evidence": _clip(_redact(gathered), MAX_EVIDENCE_CHARS - 100),
     }
+
+
+# ---------------------------------------------------------------------------
+# Last tier: a problem report for a developer, copied by hand (no upload)
+# ---------------------------------------------------------------------------
+
+def developer_report(chat_history=None, question: str = "", evidence: str = "") -> dict:
+    """The chat, what the tools found and the Diagnostics support report
+    as one redacted text for the user to copy. Nothing is sent anywhere."""
+    _require_developer_mode()
+    history = _check_history(chat_history)
+    question = _check_question(question) if question else ""
+    evidence = _check_evidence(evidence)
+    parts = ["Baihe problem report",
+             "Prepared on this PC and not sent anywhere. Keys, tokens and this PC's folder "
+             "names were removed; read it before you share it.", "", "== Conversation =="]
+    for m in history:
+        parts.append(("You: " if m["role"] == "user" else "Assistant: ") + m["content"])
+    if question:
+        parts.append("You (not answered yet): " + question)
+    if not history and not question:
+        parts.append("(no messages)")
+    if evidence:
+        parts += ["", "== What the assistant's read-only tools returned ==", evidence]
+    try:
+        support = diagnostics_gaps_service.build_support_report()
+    except Exception as e:  # the report is still useful without it
+        support = "The support report couldn't be built: " + _redact(str(e))[:200]
+    parts += ["", "== Support report ==", support]
+    return {"report": _redact("\n".join(parts))}
 
 
 # ---------------------------------------------------------------------------

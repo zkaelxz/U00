@@ -6,17 +6,20 @@ import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { RemoteHealthLine } from '../components/RemoteHealthBanner'
 import { statusTone } from '../components/labels'
 import { Section } from '../components/Section'
 import { buttonClass } from '../components/uiClasses'
 import { useEventStream } from '../hooks/useEventStream'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { REMOTE_ADMIN_NOTE, isRemoteAdmin, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
-import type { JobRecord } from '../types/jobs'
+import { offersCancel, type JobRecord } from '../types/jobs'
+import { AuditLogSection } from './diagnostics/AuditLogSection'
 import { BugBundlesSection } from './diagnostics/BugBundlesSection'
 import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
@@ -29,6 +32,7 @@ import { PackagesSection } from './diagnostics/PackagesSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
+import { UsersSection } from './diagnostics/UsersSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
 import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel, upsertJob } from './diagnosticsFormat'
@@ -37,6 +41,7 @@ const POLL_MS = 3000
 
 export default function DiagnosticsPage() {
   const pc = usePcOnly()
+  const remoteAdmin = isRemoteAdmin(useSession())
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
   const [setup, setSetup] = useState<DiagnosticsSetupChecks | null>(null)
   const [checking, setChecking] = useState(false)
@@ -155,10 +160,11 @@ export default function DiagnosticsPage() {
           </ButtonLink>{' '}
           Test engines and prompts against golden sets.
         </p>
+        <RemoteHealthLine />
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+      {jobs && jobsUrgent && <JobsBlock jobs={jobs} now={now} remoteAdmin={remoteAdmin} onCancel={(id) => void cancel(id)} />}
 
       {setup ? (
         <SetupSection
@@ -183,7 +189,7 @@ export default function DiagnosticsPage() {
       <SupportReportSection />
 
       <div className="diag-folds">
-        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+        {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} remoteAdmin={remoteAdmin} onCancel={(id) => void cancel(id)} />}
         {overview && (
           <PackagesSection
             overview={overview}
@@ -202,6 +208,8 @@ export default function DiagnosticsPage() {
         <LogSection />
         <BugReportsSection pc={pc} />
         <BugBundlesSection pc={pc} />
+        <UsersSection pc={pc} />
+        <AuditLogSection />
       </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
@@ -210,10 +218,19 @@ export default function DiagnosticsPage() {
 }
 
 /** Jobs: a card while one is running or failed; otherwise a collapsed Section. */
-function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
+function JobsBlock({ jobs, now, remoteAdmin, onCancel }: { jobs: JobRecord[]; now: number; remoteAdmin: boolean; onCancel: (id: string) => void }) {
   const phone = useMediaQuery('(max-width: 640px)')
-  const list = phone ? <JobCards jobs={jobs} now={now} onCancel={onCancel} /> : <JobTable jobs={jobs} now={now} onCancel={onCancel} />
+  const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, remoteAdmin)
+  const body = phone
+    ? <JobCards jobs={jobs} now={now} cancellable={cancellable} onCancel={onCancel} />
+    : <JobTable jobs={jobs} now={now} cancellable={cancellable} onCancel={onCancel} />
   const urgent = jobs.some((j) => isActive(j.status) || j.status === 'error')
+  const list = (
+    <>
+      {body}
+      {jobs.some((j) => isActive(j.status) && !cancellable(j)) && <p className="muted" data-testid="remote-admin-jobs-note">{REMOTE_ADMIN_NOTE} That includes cancelling their jobs.</p>}
+    </>
+  )
   if (urgent) {
     return (
       <Card title="Jobs" className="diag-jobs" aria-label="Jobs">
@@ -228,7 +245,9 @@ function JobsBlock({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; on
   )
 }
 
-function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
+type JobListProps = { jobs: JobRecord[]; now: number; cancellable: (j: JobRecord) => boolean; onCancel: (id: string) => void }
+
+function JobTable({ jobs, now, cancellable, onCancel }: JobListProps) {
   return (
     <div className="table-scroll">
       <table data-testid="job-list">
@@ -251,7 +270,7 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
               </td>
               <td>{formatDuration(j, now)}</td>
               <td>
-                {isActive(j.status) && (
+                {cancellable(j) && (
                   <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                     Cancel
                   </button>
@@ -265,7 +284,7 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
   )
 }
 
-function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onCancel: (id: string) => void }) {
+function JobCards({ jobs, now, cancellable, onCancel }: JobListProps) {
   return (
     <ul className="job-cards" data-testid="job-list" aria-label="Jobs">
       {jobs.map((j) => (
@@ -273,7 +292,7 @@ function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
           <strong>{j.description || j.job_id}</strong>
           <p>{jobStatusLine(j, now)}</p>
           {jobDetail(j) && <p className="muted">{jobDetail(j)}</p>}
-          {isActive(j.status) && (
+          {cancellable(j) && (
             <div className="job-cancel">
               <button type="button" className={buttonClass('secondary', 'sm')} aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>
                 Cancel

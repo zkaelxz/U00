@@ -198,6 +198,220 @@ class TestPacing:
         assert seen and seen[0] > 0
 
 
+class TestPerHostPacing:
+    """The pace clock is shared per host across every source name, so a
+    search, an import and the generic client can't together hit a site
+    faster than the adapter's minimum interval allows."""
+
+    @staticmethod
+    def _client(source, transport, clock, sleep=None, cancel_check=None, **policy_kw):
+        # No reset here: these tests need state shared across clients.
+        policy = PacingPolicy(**{"min_delay": 0.0, "max_delay": 0.0,
+                                 "session_break_min_requests": 0, **policy_kw})
+        return SourceClient(source, policy=policy, transport=transport,
+                            sleep=sleep or clock.sleep, clock=clock.clock, rng=FixedRng(0.0),
+                            cancel_check=cancel_check)
+
+    def test_two_source_names_on_one_host_respect_the_larger_interval(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = [f"https://shared.invalid/{i}" for i in range(4)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        adapter = self._client("syosetu", t, clock, min_delay=1.0, max_delay=1.0,
+                               host_min_interval={"shared.invalid": 10.0})
+        generic = self._client("generic", t, clock, min_delay=1.0, max_delay=1.0)
+        adapter.get(urls[0])
+        generic.get(urls[1])     # declares no interval, still waits the adapter's
+        generic.get(urls[2])
+        adapter.get(urls[3])
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([10.0, 10.0, 10.0])
+
+    def test_user_delay_above_the_host_interval_still_applies(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://h.invalid/1": html("x"),
+                               "https://h.invalid/2": html("y")}, clock)
+        a = self._client("a", t, clock, host_min_interval={"h.invalid": 2.0})
+        b = self._client("b", t, clock, min_delay=5.0, max_delay=5.0)
+        a.get("https://h.invalid/1")
+        b.get("https://h.invalid/2")
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(5.0)
+
+    def test_a_max_concurrent_change_keeps_the_last_request_times(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://mc.invalid/1": html("x"),
+                               "https://mc.invalid/2": html("y")}, clock)
+        interval = {"mc.invalid": 10.0}
+        self._client("mc", t, clock, max_concurrent=1,
+                     host_min_interval=interval).get("https://mc.invalid/1")
+        self._client("mc", t, clock, max_concurrent=2,
+                     host_min_interval=interval).get("https://mc.invalid/2")
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(10.0)
+
+    def test_different_hosts_do_not_block_each_other(self, isolated_db):
+        import threading
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://x.invalid/1": html("x"), "https://x.invalid/2": html("x"),
+                               "https://y.invalid/1": html("y")}, clock)
+        waiting, release = threading.Event(), threading.Event()
+
+        def blocking_sleep(s):
+            waiting.set()
+            assert release.wait(10)
+            clock.sleep(s)
+        slow = self._client("slow", t, clock, sleep=blocking_sleep, max_concurrent=2,
+                            host_min_interval={"x.invalid": 30.0})
+        slow.get("https://x.invalid/1")
+        worker = threading.Thread(target=slow.get, args=("https://x.invalid/2",))
+        worker.start()
+        other = None
+        try:
+            assert waiting.wait(10)      # holding x.invalid's turn, mid-wait
+            done = threading.Event()
+            other = threading.Thread(target=lambda: (
+                self._client("slow", t, clock, max_concurrent=2).get("https://y.invalid/1"),
+                done.set()))
+            other.start()
+            # Same source, so this also shows the source's other hosts
+            # aren't held up by one host's wait.
+            assert done.wait(10), "a wait on one host blocked a different host"
+        finally:
+            release.set()
+            worker.join(10)
+            if other is not None:
+                other.join(10)
+        assert t.urls() == ["https://x.invalid/1", "https://y.invalid/1",
+                            "https://x.invalid/2"]
+
+    def test_concurrent_threads_on_one_host_are_spaced(self, isolated_db):
+        import threading
+        from sources import http
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = [f"https://busyhost.invalid/{i}" for i in range(12)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        # The claim time is recorded while the host lock is still held, so
+        # a thread switch between claiming and sending can't reorder it.
+        hs = http._host("busyhost.invalid", 0.0)
+        claims = []
+        hs["lock"] = _SpyLock(on_release=lambda: claims.append(hs["last"]))
+        clients = [self._client(f"src{i}", t, clock, min_delay=2.0, max_delay=2.0,
+                                max_concurrent=3) for i in range(4)]
+        threads = [threading.Thread(target=lambda c=c, i=i: [c.get(u) for u in urls[i::4]])
+                   for i, c in enumerate(clients)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(10)
+        assert len(t.calls) == 12 and len(claims) == 12
+        assert all(b - a >= 2.0 - 1e-9 for a, b in zip(claims, claims[1:]))
+
+    def test_cancel_interrupts_a_thread_queued_behind_another_hosts_wait(self, isolated_db):
+        import threading
+        from sources import http
+        from sources.http import Cancelled
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://q.invalid/1": html("x"), "https://q.invalid/2": html("x"),
+                               "https://q.invalid/3": html("x")}, clock)
+        waiting, release, queued_up = threading.Event(), threading.Event(), threading.Event()
+
+        def blocking_sleep(s):
+            waiting.set()
+            assert release.wait(10)
+            clock.sleep(s)
+        first = self._client("first", t, clock, sleep=blocking_sleep,
+                             host_min_interval={"q.invalid": 30.0})
+        first.get("https://q.invalid/1")
+        hs = http._host("q.invalid", 0.0)
+        queued_got = []
+
+        def on_try(got):
+            if threading.current_thread().name == "queued":
+                queued_got.append(got)
+                if not got:
+                    queued_up.set()      # timed out: really blocked behind the holder
+        hs["lock"] = _SpyLock(on_try=on_try)
+        worker = threading.Thread(target=first.get, args=("https://q.invalid/2",))
+        worker.start()
+        try:
+            assert waiting.wait(10)      # the worker holds q.invalid's turn, mid-wait
+            cancel = threading.Event()
+            queued = self._client("queued", t, clock, cancel_check=cancel.is_set)
+            errors = []
+            th = threading.Thread(name="queued", target=lambda: _capture(
+                errors, queued.get, "https://q.invalid/3"))
+            th.start()
+            assert queued_up.wait(10)
+            cancel.set()
+            th.join(10)
+            assert not th.is_alive()
+            assert errors and isinstance(errors[0], Cancelled)
+            assert queued_got and not any(queued_got)   # cancelled while still waiting
+        finally:
+            release.set()
+            worker.join(10)
+        assert "https://q.invalid/3" not in t.urls()
+
+    def test_host_spellings_share_one_clock(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = ["https://WWW.Spelled.invalid/1", "https://www.spelled.invalid:443/2",
+                "https://www.spelled.invalid/3"]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        c = self._client("spelled", t, clock, host_min_interval={"www.spelled.invalid": 10.0})
+        for u in urls:
+            c.get(u)
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([10.0, 10.0])
+
+    def test_generic_importer_client_declares_the_owning_adapters_interval(self, isolated_db):
+        from sources import generic_import
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = ["https://www.mangaz.com/book/detail/1", "https://www.mangaz.com/book/detail/2"]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        # No adapter client has run since the reset: the interval must come
+        # from the importer's own client.
+        c = generic_import._client(url=urls[0])
+        assert c.source == "mangaz"
+        c.transport, c.sleep, c.clock, c.rng = t, clock.sleep, clock.clock, FixedRng(0.0)
+        for u in urls:
+            c.get(u)
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(120.0)
+
+
+class _SpyLock:
+    """A Lock that reports each acquire attempt's result and runs a hook
+    just before each release (still holding it)."""
+
+    def __init__(self, on_try=None, on_release=None):
+        import threading
+        self._lock = threading.Lock()
+        self.on_try, self.on_release = on_try, on_release
+
+    def acquire(self, blocking=True, timeout=-1):
+        got = self._lock.acquire(blocking, timeout)
+        if self.on_try:
+            self.on_try(got)
+        return got
+
+    def release(self):
+        if self.on_release:
+            self.on_release()
+        self._lock.release()
+
+
+def _capture(errors, fn, *args):
+    try:
+        fn(*args)
+    except Exception as e:
+        errors.append(e)
+
+
 # ---------------------------------------------------------------------------
 # get_with_mirrors: the mirror that actually worked is preferred next time
 # ---------------------------------------------------------------------------
@@ -289,6 +503,69 @@ class TestHealth:
         assert health.light("s") == health.YELLOW
         health.record_success("s", 0.2)
         assert health.light("s") == health.GREEN
+
+
+class TestFailureKinds:
+    @pytest.mark.parametrize("status,reason", [
+        (404, FailureReason.NOT_FOUND), (410, FailureReason.NOT_FOUND),
+        (500, FailureReason.SERVER_ERROR), (502, FailureReason.SERVER_ERROR),
+        (400, FailureReason.HTTP_ERROR), (418, FailureReason.HTTP_ERROR),
+        (401, FailureReason.AUTHENTICATION_REQUIRED), (403, FailureReason.ACCESS_DENIED),
+        (429, FailureReason.RATE_LIMIT), (451, FailureReason.GEO_RESTRICTION),
+    ])
+    def test_classify_separates_status_codes(self, status, reason):
+        from sources import detect
+        assert detect.classify(status, {}, "<p>x</p>", "https://a.invalid/", "") == [reason]
+
+    def test_challenge_on_a_503_is_still_a_challenge_not_a_server_error(self):
+        from sources import detect
+        got = detect.classify(503, {"cf-mitigated": "challenge"}, "", "https://a.invalid/", "")
+        assert got == [FailureReason.CLOUDFLARE_CHALLENGE]
+
+    def test_404_is_not_retried_and_does_not_count_against_health(self, isolated_db):
+        u = "https://gone.invalid/ch/1"
+        t = ScriptedTransport({u: html("nope", 404)})
+        c = make_client("gone", t, max_retries=3)
+        for _ in range(health.RED_AFTER + 1):
+            with pytest.raises(FetchFailed) as e:
+                c.get(u)
+            assert e.value.reason == FailureReason.NOT_FOUND
+        assert len(t.calls) == health.RED_AFTER + 1          # one request each, no retries
+        assert health.light("gone") == health.GREEN
+        assert health.get("gone")["consecutive_failures"] == 0
+
+    def test_500_is_labelled_server_error_retried_and_counts(self, isolated_db):
+        u = "https://err.invalid/"
+        t = ScriptedTransport({u: html("boom", 500)})
+        c = make_client("err", t, max_retries=2)
+        with pytest.raises(FetchFailed) as e:
+            c.get(u)
+        assert e.value.reason == FailureReason.SERVER_ERROR
+        assert len(t.calls) == 3
+        assert health.get("err")["last_error_type"] == "SERVER_ERROR"
+        assert health.get("err")["consecutive_failures"] == 1
+
+    def test_layout_changed_counts_toward_red(self, isolated_db):
+        for _ in range(health.RED_AFTER):
+            health.record_failure("stale", "LAYOUT_CHANGED", "x", base_backoff=10)
+        assert health.light("stale") == health.RED
+
+    def test_categories(self):
+        for error_type, cat in [("CLOUDFLARE_CHALLENGE", "blocked"), ("ACCESS_DENIED", "blocked"),
+                                ("HTTP_ERROR", "site_down"), ("SERVER_ERROR", "site_down"),
+                                ("NOT_FOUND", "page_missing"), ("LAYOUT_CHANGED", "layout_changed"),
+                                ("TIMEOUT", "slow"), ("RATE_LIMIT", "slow"),
+                                ("AUTHENTICATION_REQUIRED", "needs_sign_in"),
+                                ("ConnectError", "other"), (None, None), ("", None)]:
+            assert health.category(error_type) == cat
+
+    def test_recent_failures_lists_open_streaks_without_error_text(self, isolated_db):
+        health.record_failure("a", "SERVER_ERROR", "https://a.invalid/x?k=secret", now=100.0,
+                              base_backoff=10)
+        health.record_success("b", 0.1)
+        rows = health.recent_failures()
+        assert rows == [{"source": "a", "category": "site_down", "count": 1,
+                         "last_failure": 100.0}]
 
 
 # ---------------------------------------------------------------------------
@@ -1015,3 +1292,19 @@ class TestRequestsTransport:
         _requests_transport("GET", "https://x.invalid/", {}, None, 20)
         assert fake.last_proxies == {"http": "http://127.0.0.1:8080",
                                      "https": "http://127.0.0.1:8080"}
+
+
+def test_client_keeps_the_last_successful_html_get(isolated_db):
+    reset_pacing_state()
+    clock = FakeClock()
+    t = ScriptedTransport({"https://lp.invalid/a": html("<p>page a</p>"),
+                           "https://lp.invalid/gone": html("nope", status=404)}, clock)
+    c = SourceClient("lp", policy=PacingPolicy(min_delay=0.0, max_delay=0.0,
+                                               session_break_min_requests=0, max_retries=0),
+                     transport=t, sleep=clock.sleep, clock=clock.clock, rng=FixedRng(0.0))
+    assert c.last_page is None
+    c.get("https://lp.invalid/a")
+    assert c.last_page == ("https://lp.invalid/a", "<p>page a</p>")
+    with pytest.raises(Exception):
+        c.get("https://lp.invalid/gone")
+    assert c.last_page[0] == "https://lp.invalid/a"

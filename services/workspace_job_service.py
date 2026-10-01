@@ -83,7 +83,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
-                       summary_monthly_cap_usd=None):
+                       summary_monthly_cap_usd=None, own_lines_only=False):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -111,6 +111,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     target_ids: optional set of permanent line ids (Migration Slice 40's API
     start) -- only those lines are translated; None = every eligible line.
+
+    own_lines_only (with target_ids): English is written only on the target
+    lines and only where it still is what the job loaded -- a line edited
+    meanwhile keeps the edit, with no Reflect note, substitution or flag
+    from this run -- and the glossary's exact-term substitution touches
+    only the target lines.
     """
     cap_reached = {}
     if isinstance(engine, translate_engines.FallbackEngine):
@@ -136,9 +142,15 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         style_note=style_note or "", style_guidelines=style_guidelines or "")
 
-    def _save(ls):
-        db.save_lines(drama_id, ls, fields=("en",))
-        provenance(ls)
+    if own_lines_only:
+        _save, _notes = bulk_translate.own_lines_callbacks(drama_id, lines, provenance)
+    else:
+        def _save(ls):
+            db.save_lines(drama_id, ls, fields=("en",))
+            provenance(ls)
+
+        def _notes(notes):
+            db.save_translation_notes(drama_id, notes, id_by_idx=_id_by_idx(lines))
 
     job_timing_service.mark_stage(job_id, "Translate")
     _, errors = translate_engines.translate_lines_with_engine(
@@ -151,8 +163,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
-        notes_cb=lambda notes: db.save_translation_notes(
-            drama_id, notes, id_by_idx=_id_by_idx(lines)),
+        notes_cb=_notes,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
@@ -168,6 +179,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     )
 
     job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
+    recheck = set()
     # Shared with `cli.py translate` (Step 25c): glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
@@ -176,13 +188,17 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cancelled=background_jobs.is_cancel_requested(job_id),
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
             summary_monthly_cap_usd=summary_monthly_cap_usd,
-            line_scoped=target_ids is not None):
+            line_scoped=target_ids is not None,
+            enforce_ids=set(target_ids) if own_lines_only and target_ids is not None else None,
+            flags_needing_recheck=recheck):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
         return
 
     background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent"),
+                                        **({"flags_needing_recheck": sorted(recheck)}
+                                           if recheck else {}),
                                         **_fallback_result(engine)})
 
 
@@ -346,6 +362,7 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     cues = hardsub_ocr.extract_hardsub_subtitles(
         video_path, language=language, sample_interval=sample_interval,
         ocr_backend=ocr_backend, chinese_script=chinese_script, tesseract_cmd=tesseract_cmd,
+        job_id=job_id, cancel_check=lambda: _raise_if_cancelled(job_id),
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
     if not cues:
@@ -389,6 +406,7 @@ def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
     try:
         tags = sensevoice_tags.tag_lines(
             audio_path, lines, use_gpu=use_gpu,
+            cancel_check=lambda: _raise_if_cancelled(job_id),
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Listening for emotion and sounds... {frac * 100:.0f}%"))
     finally:
@@ -488,7 +506,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
                                source_language, engine, engine_choice, cost_cap_usd=None,
                                locale="en-US", include_genre_notes=True,
-                               default_female_pronouns=False):
+                               default_female_pronouns=False, style_note=""):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -518,8 +536,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns)
     base_context = translate_engines.build_translation_context(
-        engine, drama, locale=locale, glossary_terms=glossary_terms,
-        style_guidelines=style_guidelines)
+        engine, drama, style_note=style_note or "", locale=locale,
+        glossary_terms=glossary_terms, style_guidelines=style_guidelines)
     base_context["source_language"] = source_language
     fixed_count = 0
     spent = 0.0
@@ -603,19 +621,27 @@ _MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
 # Top-level library entries a restore never takes from an upload and
 # instead carries across from the current library: saved backups/exports,
 # saved site sign-ins, approved source profiles and the browser-extension
-# token. (Upload members under these names are skipped, so a planted
+# token, plus the temp folder of in-flight work. (Upload members under these names are skipped, so a planted
 # backups/exports/x.zip can never become the "latest export".)
 def _restore_kept_names():
     import page_server
+    import storage
     from sources import store as src_store
     return ("backups", src_store.BROWSER_PROFILES_DIRNAME, "source_profiles",
-            page_server.TOKEN_FILENAME)
+            page_server.TOKEN_FILENAME, storage.TEMP_DIRNAME)
 
 
 # library.db tables that hold who may sign in and what they may do; a
 # restore keeps the current rows (auth_sessions is then emptied: every
 # session is revoked). See _build_staged_databases.
 _RESTORE_KEPT_AUTH_TABLES = ("users", "user_permissions", "auth_sessions", "audit_log")
+
+# app_settings keys a restore takes from the current library, never from the
+# upload: the automatic-backup identity (auto_backup_service.IDENTITY_KEY).
+# A backup from another library must not bring that library's id (its
+# copies in a shared folder would then look like this one's and be rotated
+# out), and an older backup must not roll the copy sequence back.
+_RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity",)
 
 
 # SQLite side files a restore never extracts: the validated library.db /
@@ -801,6 +827,25 @@ def _checkpoint(path: str):
         conn.close()
 
 
+def _carry_app_settings(conn, live_path: str):
+    """Replaces the staged library's _RESTORE_KEPT_APP_SETTINGS rows with the
+    live library's (none there = none in the restored one, so a new
+    identity is made on first use)."""
+    marks = ", ".join("?" for _ in _RESTORE_KEPT_APP_SETTINGS)
+    conn.execute(f"DELETE FROM main.app_settings WHERE key IN ({marks})",
+                 _RESTORE_KEPT_APP_SETTINGS)
+    if not os.path.isfile(live_path):
+        return
+    conn.execute("ATTACH DATABASE ? AS cur", (_ro_uri(live_path),))
+    try:
+        if "app_settings" in _table_names(conn, "cur"):
+            conn.execute(f"INSERT INTO main.app_settings (key, value) SELECT key, value "
+                         f"FROM cur.app_settings WHERE key IN ({marks})",
+                         _RESTORE_KEPT_APP_SETTINGS)
+    finally:
+        conn.execute("DETACH DATABASE cur")
+
+
 def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
     """Replaces the uploaded library.db / sources.db in staging with fresh
     files built from the app's own schema (db.migrate_database_file /
@@ -844,6 +889,7 @@ def _build_staged_databases(staging_dir: str, library_dir: str) -> None:
                              "cancel_requested = 0 WHERE status IN ('queued', 'running')",
                              (time.time(),))
                 conn.execute("DELETE FROM gpu_lock")
+                _carry_app_settings(conn, os.path.join(library_dir, "library.db"))
                 conn.execute("PRAGMA journal_mode = DELETE")
             finally:
                 conn.close()

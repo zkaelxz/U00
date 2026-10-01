@@ -98,6 +98,29 @@ def test_revoke_and_deactivate_stop_sessions(adb):
         auth.create_session(u["id"])
 
 
+def test_sweep_removes_only_stale_sessions(adb):
+    now = 10_000_000.0
+    u, gone = auth.add_user("a@example.com"), auth.add_user("b@example.com")
+    live = auth.create_session(u["id"], now=now - 60)
+    idle = auth.create_session(u["id"], now=now - auth.IDLE_TIMEOUT_SECONDS - 1)
+    old = auth.create_session(u["id"], now=now - auth.ABSOLUTE_TIMEOUT_SECONDS)
+    of_inactive = auth.create_session(gone["id"], now=now - 60)
+    with contextlib.closing(db.get_conn()) as conn:   # deactivated behind the service's back
+        conn.execute("UPDATE users SET is_active = 0 WHERE id = ?", (gone["id"],))
+        # Kept busy up to now, but past its absolute expiry.
+        conn.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?",
+                     (now - 1, old["session_id"]))
+        conn.commit()
+    assert auth.sweep_stale_sessions(now=now) == 3
+    with contextlib.closing(db.get_conn()) as conn:
+        ids = [r[0] for r in conn.execute("SELECT id FROM auth_sessions")]
+    assert ids == [live["session_id"]]
+    assert idle["session_id"] not in ids and of_inactive["session_id"] not in ids
+    assert auth.resolve_session(live["session_token"], now=now)
+    assert any(a["action"] == "session.sweep" for a in auth.list_audit())
+    assert auth.sweep_stale_sessions(now=now) == 0
+
+
 def test_revoke_all(adb):
     u = auth.add_user("a@example.com")
     tokens = [auth.create_session(u["id"])["session_token"] for _ in range(3)]

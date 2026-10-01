@@ -39,13 +39,13 @@ import uuid
 
 import background_jobs
 import db
+from core import SOURCE_LANGUAGES
 from services import library_service, ownership_service, settings_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 log = logging.getLogger(__name__)
 
-_SOURCE_LANGUAGES = ("zh", "ja", "ko")
 # Copied from tabs/workspace_tab.py's MEDIA_TYPE_OPTIONS (a tab constant, so
 # a service can't import it without pulling in Streamlit) -- drift risk: keep
 # in sync by hand.
@@ -118,9 +118,9 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     the caller can't see is a 404, as is a name taken by one (409). The
     new drama is stamped with `new_item_defaults(principal)` (auth B2): its
     creator (None = the PC owner) and private unless they share by default."""
-    if source_language not in _SOURCE_LANGUAGES:
+    if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
-                                details={"allowed": list(_SOURCE_LANGUAGES)})
+                                details={"allowed": list(SOURCE_LANGUAGES)})
     texts = {"title_en": title_en, "title_zh": title_zh, "author": author, "studio": studio,
              "director": director, "voice_actors": voice_actors, "summary": summary}
     for name, value in texts.items():
@@ -138,7 +138,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         if not new_series_name:
             raise InvalidInputError("new_series_name must not be blank.")
         taken = db.get_series_id_by_name(new_series_name)
-        if taken is not None and not ownership_service.can_see_series(principal, taken):
+        if taken is not None and not ownership_service.can_edit(principal, "series", taken):
             raise ConflictError("That series name is taken")
 
     preset = None
@@ -157,7 +157,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Settings > Defaults for new dramas (the column's own default is
         # claude, so an unstamped drama would never see the setting).
         fields["translation_engine"] = settings_service.get_default_engine()
-    new_id = db.create_drama(**fields)
+    try:
+        new_id = db.create_drama(**fields)
+    except db.DramaFolderConflict as exc:
+        raise ConflictError(str(exc)) from None
     # Hardening H1: a NEW series is created only after the drama row exists
     # (as the Streamlit form does), so a failed create can't leave a stray
     # series behind (db has no delete_series to clean one up).

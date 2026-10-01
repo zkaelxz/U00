@@ -1,9 +1,9 @@
 """
 check_setup.py -- start.bat's own "print anything missing in plain
-words" step (Step 10), run once on every launch before Streamlit starts.
+words" step (Step 10), run once on every launch before the app starts.
 
-Deliberately a separate, tiny script rather than importing app.py's own
-tab modules: those pull in heavy, sometimes-optional dependencies
+Deliberately a separate, tiny script rather than importing the app's own
+modules: those pull in heavy, sometimes-optional dependencies
 (torch, faster-whisper, ...) just to check whether they're present,
 which is exactly backwards for a check meant to run BEFORE any of that
 is trusted to work. Only imports diagnostics.py itself, which is
@@ -47,7 +47,7 @@ def _print_report(file=sys.stdout):
 
     py = diagnostics.check_python_version()
     if not py["ok"]:
-        lines.append(f"{sym['warn']} Python {py['version']} found -- this app needs Python 3.9 or newer.")
+        lines.append(f"{sym['warn']} Python {py['version']} found -- this app needs Python 3.10 or newer.")
 
     ffmpeg = diagnostics.check_ffmpeg()
     if not ffmpeg["found"]:

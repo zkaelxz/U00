@@ -660,6 +660,303 @@ class TestChapterImport:
         assert registry.is_enabled("demo")
 
 
+class _Crash(BaseException):
+    """Stands in for the process dying: nothing in the pipeline catches it."""
+
+
+class FakeTextSource(SourceAdapter):
+    name = "fake_text"
+    display_name = "Fake Text"
+    content_types = ["novel"]
+
+    def get_chapter_text(self, chapter):
+        return f"{chapter.chapter_id} 的正文，只有一次。"
+
+
+class TestChapterCommit:
+    """A chapter is either written and recorded in imported_chapters, or
+    left in the retry manifest in a state a retry can't duplicate."""
+
+    @pytest.fixture
+    def job(self):
+        import background_jobs
+        job = "source_import_commit"
+        background_jobs.clear_job(job)
+        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                      "cancel_requested": False, "result": None}
+        yield job
+        background_jobs.clear_job(job)
+
+    def _run(self, job, adapter, drama_id, *cids, title="第1章"):
+        import background_jobs
+        chapters = [ChapterInfo(adapter.name, "s1", c, title) for c in (cids or ("c1",))]
+        pipeline.run_import_job(job, adapter.name, chapters, drama_id, adapter=adapter)
+        return background_jobs.get_status(job)["result"]["chapters"]
+
+    def _path(self, isolated_db, drama_id):
+        return os.path.join(isolated_db.drama_dir(drama_id), pipeline.RAW_NOVEL_FILENAME)
+
+    def _text(self, isolated_db, drama_id):
+        with open(self._path(isolated_db, drama_id), encoding="utf-8") as f:
+            return f.read()
+
+    def _novel(self, isolated_db):
+        return (isolated_db.create_drama(title_zh="x", media_type="novel"),
+                FakeTextSource(make_client("fake_text", ScriptedTransport({}))))
+
+    def _retry(self, source, drama_id):
+        return [(r["chapter_id"], r["status"])
+                for r in store.import_retry_rows(source, "s1", drama_id)]
+
+    def _comic(self):
+        clock = FakeClock()
+        routes = {f"https://img.fake.invalid/c1/{i}.png": image(600, 900, i) for i in range(2)}
+        return FakeComicSource(make_client("fake_comic", ScriptedTransport(routes, clock), clock),
+                               chapters=[("c1", "第1话")])
+
+    def _pages_on_disk(self, isolated_db, drama_id):
+        pages_dir = os.path.join(isolated_db.drama_dir(drama_id), "pages")
+        return sorted(os.listdir(pages_dir)) if os.path.isdir(pages_dir) else []
+
+    def _crash_on(self, monkeypatch, obj, name):
+        def crash(*a, **kw):
+            raise _Crash()
+        monkeypatch.setattr(obj, name, crash)
+
+    def test_text_record_failure_is_retryable_and_reimport_does_not_duplicate(
+            self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+        real = store.record_imported
+
+        def broken(*a, **kw):
+            raise RuntimeError("sources.db is locked")
+        monkeypatch.setattr(store, "record_imported", broken)
+        rows = self._run(job, adapter, drama_id)
+        assert rows == [{"chapter_id": "c1", "title": "第1章", "ok": False,
+                         "error": pipeline._NOT_RECORDED}]
+        assert store.imported_chapter_ids("fake_text", "s1", drama_id) == set()
+        assert self._retry("fake_text", drama_id) == [("c1", "failed")]
+
+        monkeypatch.setattr(store, "record_imported", real)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        assert self._text(isolated_db, drama_id).count("c1 的正文") == 1
+        assert store.imported_chapter_ids("fake_text", "s1", drama_id) == {"c1"}
+        assert self._retry("fake_text", drama_id) == []
+
+    def test_text_crash_before_the_record_leaves_a_clean_retry(self, isolated_db, monkeypatch,
+                                                               job):
+        drama_id, adapter = self._novel(isolated_db)
+        pipeline.save_novel_text(drama_id, "前文", heading="序")
+        real = store.record_imported
+        self._crash_on(monkeypatch, store, "record_imported")
+        with pytest.raises(_Crash):
+            self._run(job, adapter, drama_id)
+        assert self._retry("fake_text", drama_id) == [("c1", "failed")]
+
+        monkeypatch.setattr(store, "record_imported", real)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        text = self._text(isolated_db, drama_id)
+        assert text.count("c1 的正文") == 1 and text.index("前文") < text.index("c1 的正文")
+
+    def test_a_torn_append_is_cut_off_and_written_once(self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+        path = pipeline.save_novel_text(drama_id, "前文", heading="序")
+        real = pipeline._fsync
+        self._crash_on(monkeypatch, pipeline, "_fsync")
+        with pytest.raises(_Crash):
+            self._run(job, adapter, drama_id)
+        whole = open(path, "rb").read()
+        with open(path, "r+b") as f:   # the crash cut the write short
+            f.truncate(len(whole) - 7)
+
+        monkeypatch.setattr(pipeline, "_fsync", real)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        assert open(path, "rb").read() == whole
+
+    def test_a_failed_append_leaves_the_file_unchanged_and_is_retryable(
+            self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+        path = pipeline.save_novel_text(drama_id, "前文", heading="序")
+        before = open(path, "rb").read()
+        real = pipeline._fsync
+
+        def disk_full(fd):
+            raise OSError("disk full")
+        monkeypatch.setattr(pipeline, "_fsync", disk_full)
+        assert self._run(job, adapter, drama_id) == [
+            {"chapter_id": "c1", "title": "第1章", "ok": False, "error": pipeline._NOT_SAVED}]
+        assert open(path, "rb").read() == before
+        assert self._retry("fake_text", drama_id) == [("c1", "failed")]
+
+        monkeypatch.setattr(pipeline, "_fsync", real)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        assert self._text(isolated_db, drama_id).count("c1 的正文") == 1
+
+    def test_a_torn_first_write_to_a_new_file_is_rewritten_without_a_separator(
+            self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+        path = self._path(isolated_db, drama_id)
+        real = pipeline._fsync
+        self._crash_on(monkeypatch, pipeline, "_fsync")
+        with pytest.raises(_Crash):
+            self._run(job, adapter, drama_id)
+        whole = open(path, "rb").read()
+        assert not whole.startswith(os.linesep.encode())
+        with open(path, "r+b") as f:
+            f.truncate(5)
+
+        monkeypatch.setattr(pipeline, "_fsync", real)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        assert open(path, "rb").read() == whole
+
+    def test_a_failed_first_write_removes_the_new_file(self, isolated_db, monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+
+        def disk_full(fd):
+            raise OSError("disk full")
+        monkeypatch.setattr(pipeline, "_fsync", disk_full)
+        assert self._run(job, adapter, drama_id)[0]["error"] == pipeline._NOT_SAVED
+        assert not os.path.exists(self._path(isolated_db, drama_id))
+        rows = store.import_retry_rows("fake_text", "s1", drama_id)
+        assert [(r["status"], r["error"]) for r in rows] == [("failed", pipeline._NOT_SAVED)]
+
+    def test_an_old_sources_db_gains_text_offset(self, isolated_db):
+        import sqlite3
+        store.connect().close()
+        with sqlite3.connect(store.db_path()) as conn:
+            conn.execute("DROP TABLE import_retry")
+            conn.execute("CREATE TABLE import_retry (source TEXT NOT NULL, series_id TEXT NOT NULL, "
+                         "drama_id INTEGER NOT NULL, chapter_id TEXT NOT NULL, title TEXT NOT NULL "
+                         "DEFAULT '', status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', "
+                         "updated_at REAL NOT NULL, PRIMARY KEY (source, series_id, drama_id, "
+                         "chapter_id))")
+            conn.execute("INSERT INTO import_retry VALUES ('a', 's1', 1, 'c1', '', 'failed', '', 0)")
+        store._initialised.clear()   # the next process start: migrations run again
+        for _ in range(2):   # the second connect finds the column already there
+            with store.connect() as conn:
+                cols = [r["name"] for r in conn.execute("PRAGMA table_info(import_retry)")]
+            assert cols.count("text_offset") == 1
+        assert store.import_text_offset("a", "s1", 1, "c1") is None
+
+    def test_append_writes_only_the_new_block(self, isolated_db, monkeypatch, job):
+        import builtins
+        drama_id, adapter = self._novel(isolated_db)
+        path = pipeline.save_novel_text(drama_id, "前文", heading="序")
+        before = open(path, "rb").read()
+        real_open, modes = builtins.open, []
+
+        def spy(file, mode="r", *a, **kw):
+            if file == path:
+                modes.append(mode)
+            return real_open(file, mode, *a, **kw)
+        monkeypatch.setattr(builtins, "open", spy)
+        assert self._run(job, adapter, drama_id)[0]["ok"] is True
+        monkeypatch.setattr(builtins, "open", real_open)
+        assert modes == ["ab"]
+        assert open(path, "rb").read().startswith(before)
+
+    def test_distinct_chapters_with_identical_text_are_all_appended(self, isolated_db,
+                                                                    monkeypatch, job):
+        drama_id, adapter = self._novel(isolated_db)
+        adapter.get_chapter_text = lambda chapter: "今日请假，明天补更。"
+        rows = self._run(job, adapter, drama_id, "c1", "c2", title="请假条")
+        assert [r["ok"] for r in rows] == [True, True]
+        assert self._text(isolated_db, drama_id).count("今日请假") == 2
+
+        real = store.record_imported
+        self._crash_on(monkeypatch, store, "record_imported")
+        with pytest.raises(_Crash):
+            self._run(job, adapter, drama_id, "c3", title="请假条")
+        monkeypatch.setattr(store, "record_imported", real)
+        assert self._run(job, adapter, drama_id, "c3", title="请假条")[0]["ok"] is True
+        assert self._text(isolated_db, drama_id).count("今日请假") == 3
+
+    def test_comic_record_failure_removes_the_pages_so_a_retry_adds_them_once(
+            self, isolated_db, monkeypatch, job):
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        real = store.record_imported
+
+        def broken(*a, **kw):
+            raise RuntimeError("sources.db is locked")
+        monkeypatch.setattr(store, "record_imported", broken)
+        rows = self._run(job, self._comic(), drama_id)
+        assert rows[0]["ok"] is False and rows[0]["error"] == pipeline._NOT_RECORDED
+        assert isolated_db.list_pages(drama_id) == []
+        assert self._pages_on_disk(isolated_db, drama_id) == []
+        assert self._retry("fake_comic", drama_id) == [("c1", "failed")]
+
+        monkeypatch.setattr(store, "record_imported", real)
+        assert self._run(job, self._comic(), drama_id)[0] == {
+            "chapter_id": "c1", "title": "第1章", "ok": True, "pages": 2}
+        assert len(isolated_db.list_pages(drama_id)) == 2
+        assert store.imported_chapter_ids("fake_comic", "s1", drama_id) == {"c1"}
+        assert self._retry("fake_comic", drama_id) == []
+
+    def test_comic_crash_before_the_record_is_marked_partial(self, isolated_db, monkeypatch,
+                                                            job):
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        self._crash_on(monkeypatch, store, "record_imported")
+        with pytest.raises(_Crash):
+            self._run(job, self._comic(), drama_id)
+        # Pages a dead process wrote can't be taken back: never auto-retried.
+        assert self._retry("fake_comic", drama_id) == [("c1", "partial")]
+
+    def test_a_page_error_mid_chapter_leaves_no_pages_and_is_retryable(
+            self, isolated_db, monkeypatch, job):
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        real = isolated_db.create_page
+        calls = []
+
+        def second_fails(*a, **kw):
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("disk full")
+            return real(*a, **kw)
+        monkeypatch.setattr(isolated_db, "create_page", second_fails)
+        assert self._run(job, self._comic(), drama_id) == [
+            {"chapter_id": "c1", "title": "第1章", "ok": False, "error": pipeline._ROLLED_BACK}]
+        assert isolated_db.list_pages(drama_id) == []
+        assert self._pages_on_disk(isolated_db, drama_id) == []
+        assert self._retry("fake_comic", drama_id) == [("c1", "failed")]
+
+    def test_a_failed_rollback_leaves_the_chapter_partial(self, isolated_db, monkeypatch, job):
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        real = isolated_db.create_page
+        calls = []
+
+        def second_fails(*a, **kw):
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("disk full")
+            return real(*a, **kw)
+        monkeypatch.setattr(isolated_db, "create_page", second_fails)
+
+        def cannot_remove(*a, **kw):
+            raise RuntimeError("library.db is locked")
+        monkeypatch.setattr(pipeline, "_discard_pages", cannot_remove)
+        with pytest.raises(RuntimeError):
+            self._run(job, self._comic(), drama_id)
+        assert len(isolated_db.list_pages(drama_id)) == 1
+        assert self._retry("fake_comic", drama_id) == [("c1", "partial")]
+
+    @pytest.mark.parametrize("comic", [False, True])
+    def test_no_content_is_written_when_the_marker_cannot_be(self, isolated_db, monkeypatch,
+                                                            job, comic):
+        def broken(*a, **kw):
+            raise RuntimeError("sources.db is read-only")
+        monkeypatch.setattr(store, "mark_text_in_flight", broken)
+        monkeypatch.setattr(store, "record_import_retry", broken)
+        if comic:
+            drama_id, adapter = isolated_db.create_drama(title_zh="x", media_type="manhua"), \
+                self._comic()
+        else:
+            drama_id, adapter = self._novel(isolated_db)
+        rows = self._run(job, adapter, drama_id)
+        assert rows[0]["ok"] is False and rows[0]["error"] == pipeline._NO_BOOKKEEPING
+        assert not os.path.exists(self._path(isolated_db, drama_id))
+        assert isolated_db.list_pages(drama_id) == []
+
+
 class TestTermsOfServiceBlocking:
     """Step 25g item 1: a real import folds its ladder run into the
     source's capability record, and a record whose terms block says the

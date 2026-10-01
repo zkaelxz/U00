@@ -215,6 +215,35 @@ class TestCleanShutdown:
         shutdown_service.clean_shutdown()
         assert "browsers" in order and ("cancel", "a") in order
 
+    def test_no_job_starts_once_the_stop_has_begun(self, monkeypatch):
+        from services.service_errors import ConflictError
+        self._record(monkeypatch, active=())
+        ran = threading.Event()
+        assert background_jobs.start_job("before", ran.set) is True
+        assert ran.wait(5)
+        # Refused before the cancel takes its snapshot of active jobs, so a
+        # start racing the stop is either cancelled or refused, never missed.
+        seen = []
+        monkeypatch.setattr(background_jobs, "active_job_ids",
+                            lambda: seen.append(background_jobs._stopping) or [])
+        shutdown_service.clean_shutdown(timeout=0)
+        assert seen == [True]
+        with pytest.raises(ConflictError, match="Baihe is stopping"):
+            background_jobs.start_job("after", lambda: None)
+        with pytest.raises(ConflictError, match="Baihe is stopping"):
+            background_jobs.start_process_job("after_proc", print)
+        assert background_jobs.get_status("after") is None
+        assert background_jobs.get_status("after_proc") is None
+
+    def test_route_stop_refuses_new_jobs_too(self, monkeypatch):
+        from services.service_errors import ConflictError
+        self._record(monkeypatch, active=())
+        monkeypatch.setattr(shutdown_service.threading, "Thread",
+                            lambda **kw: type("T", (), {"start": lambda self: None})())
+        shutdown_service.request_shutdown()
+        with pytest.raises(ConflictError):
+            background_jobs.start_job("after", lambda: None)
+
 
 class TestStoppableServices:
     def test_page_server_stops(self, monkeypatch):
@@ -399,6 +428,37 @@ class TestProcessGuard:
         assert process_guard.create_kill_on_close_job(555) == 101
         assert win32.calls == [("create", None), ("limits", 101, 9, 0x2000), ("assign", 101, 555)]
         assert process_guard._job_handle is None
+
+    def test_breakaway_is_allowed_only_inside_the_window(self, win32):
+        # The server's job refuses breakaway (0x2000 only); the window adds
+        # BREAKAWAY_OK (0x800, never the silent 0x1000) for one launch and
+        # puts kill-on-close alone back, even when the launch fails.
+        assert process_guard.contain_children() is True
+        assert win32.calls[1] == ("limits", 101, 9, 0x2000)
+        win32.calls.clear()
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is True
+            assert win32.calls == [("limits", 101, 9, 0x2000 | 0x0800)]
+        assert win32.calls == [("limits", 101, 9, 0x2800), ("limits", 101, 9, 0x2000)]
+        win32.calls.clear()
+        with pytest.raises(OSError):
+            with process_guard.breakaway_allowed():
+                raise OSError("CreateProcess failed")
+        assert win32.calls[-1] == ("limits", 101, 9, 0x2000)
+
+    def test_breakaway_window_changes_nothing_without_a_job(self, win32):
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is False
+        assert win32.calls == []
+
+    def test_breakaway_window_when_windows_refuses(self, win32):
+        assert process_guard.contain_children() is True
+        win32.calls.clear()
+        win32._set_info = 0
+        with process_guard.breakaway_allowed() as opened:
+            assert opened is False
+        # Nothing was set, so nothing is cleared.
+        assert win32.calls == [("limits", 101, 9, 0x2800)]
 
     def test_console_close_runs_the_clean_stop(self, win32):
         stops = []

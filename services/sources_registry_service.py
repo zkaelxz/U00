@@ -28,7 +28,7 @@ from services.service_errors import (InvalidInputError, NotFoundError,
 from sources import auth_browser, cache as src_cache, health, ladder, registry, store
 from sources import http as src_http
 from sources import profiles as src_profiles
-from translate_engines import redact_secrets
+from translate_engines import redact_secrets, safe_url, strip_url_queries
 
 _LIGHTS = {health.GREEN: "green", health.YELLOW: "yellow", health.RED: "red"}
 
@@ -47,7 +47,6 @@ SETTING_KEYS = (
 # Scrubbing
 # ---------------------------------------------------------------------------
 
-_URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*")
 _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
 # A query after a relative request path (requests' "url: /book/7?sig=..."),
@@ -55,20 +54,6 @@ _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
 _REL_QUERY = re.compile(r"(?<=[\w/\]])\?[^\s)'\"<>]+")
 _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-~@+]*|"
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
-
-
-def safe_url(url) -> str:
-    """scheme + host + path only: no query, fragment or userinfo (a source
-    URL can carry a signed token). Anything unparsable gives ""."""
-    try:
-        parts = urlsplit(str(url or "").strip())
-        host = parts.hostname or ""
-        port = f":{parts.port}" if parts.port else ""
-    except ValueError:
-        return ""
-    if not parts.scheme or not host:
-        return ""
-    return f"{parts.scheme}://{host}{port}{parts.path}"
 
 
 def _scrub(text):
@@ -81,7 +66,7 @@ def _scrub(text):
     if lib:
         text = text.replace(lib, "[path]")
     text = redact_secrets(text)
-    text = _URL_IN_TEXT.sub(lambda m: safe_url(m.group(0)) or "[url]", text)
+    text = strip_url_queries(text)
     text = _UNC_PATH.sub("[path]", text)
     text = _WIN_PATH.sub("[path]", text)
     text = _POSIX_PATH.sub("[path]", text)
@@ -133,6 +118,7 @@ def _health_view(name: str) -> dict:
         "last_success": h["last_success"],
         "last_failure": h["last_failure"],
         "last_error_type": _scrub(h["last_error_type"]),
+        "last_error_category": health.category(h["last_error_type"]),
         "last_error": _scrub(h["last_error"]),
         "last_latency": h["last_latency"],
         "unavailable_until": h["unavailable_until"],
@@ -426,6 +412,21 @@ def dismiss_notification(notification_id: int) -> dict:
     return next(n for n in list_notifications(include_dismissed=True) if n["id"] == notification_id)
 
 
+def _require_link_editable(source: str, series_id: str, principal) -> None:
+    """A tracked series auto-imports into its linked drama, so untracking,
+    re-tracking or relinking it changes that drama. One linked to a drama
+    the principal can't edit is refused like an untracked series (its row
+    shows `drama_id: None` to them). A link to a deleted drama doesn't
+    block anyone."""
+    for r in store.list_tracked_series():
+        if r["source"] == source and r["series_id"] == series_id:
+            did = r.get("drama_id")
+            if did is not None and db.get_drama(did) is not None \
+                    and not ownership_service.can_edit_drama(principal, did):
+                raise NotFoundError("That series isn't tracked.")
+            return
+
+
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
                 drama_id: int = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
@@ -446,6 +447,8 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
         raise InvalidInputError("series_id is required.")
     exists = any(r["source"] == source and r["series_id"] == series_id
                  for r in store.list_tracked_series())
+    if exists:
+        _require_link_editable(source, series_id, principal)
     if not tracked:
         if not exists:
             raise NotFoundError("That series isn't tracked.")
@@ -467,5 +470,6 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
                        (title or "").strip() or info.get("title") or series_id,
                        safe_url(info.get("url")), drama_id,
                        known_chapters=[SimpleNamespace(chapter_id=i, title=titles.get(i, ""))
-                                       for i in ids])
+                                       for i in ids],
+                       linked_by_user_id=(principal or {}).get("user_id"))
     return list_tracked(principal)

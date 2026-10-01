@@ -279,7 +279,7 @@ def test_upgrade_check_refusals(client, env, monkeypatch):
     monkeypatch.setattr(diagnostics, "check_upgrade_candidate",
                         lambda *a, **k: iter(()))
     _cache_update()
-    assert client.post("/api/diagnostics/dependencies/streamlit/test-upgrade",
+    assert client.post("/api/diagnostics/dependencies/fastapi/test-upgrade",
                        json={"confirm": True, "target": "2.0.0"}).status_code == 404
     assert client.post("/api/diagnostics/dependencies/torch/test-upgrade",
                        json={"confirm": True, "target": "2.0.0"}).status_code == 422

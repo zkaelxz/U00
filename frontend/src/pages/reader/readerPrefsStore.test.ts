@@ -67,10 +67,11 @@ describe('reader prefs', () => {
     expect(roundChapterSize(Number.NaN)).toBe(40)
   })
 
-  it('builds page params: Match app follows the system, phones omit max_width', () => {
-    const desk = pageParams(DEFAULT_PREFS, 3, { phone: false, prefersDark: true })
+  it('builds page params: Match app follows the app theme, phones omit max_width', () => {
+    const desk = pageParams(DEFAULT_PREFS, 3, { phone: false, appLook: 'dark' })
     expect(desk).toEqual({ page: 3, chapter_size: 40, theme: 'dark', font_size: 22, line_height: 2.4, max_width: 1200, font: 'system' })
-    const phone = pageParams({ ...DEFAULT_PREFS, theme: 'light' }, 1, { phone: true, prefersDark: true })
+    expect(pageParams(DEFAULT_PREFS, 1, { phone: false, appLook: 'sepia' }).theme).toBe('sepia')
+    const phone = pageParams({ ...DEFAULT_PREFS, theme: 'light' }, 1, { phone: true, appLook: 'dark' })
     expect(phone.theme).toBe('light')
     expect('max_width' in phone).toBe(false)
   })

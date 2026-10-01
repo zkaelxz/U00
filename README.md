@@ -9,8 +9,7 @@ persistent filterable library for managing dozens of titles.
 
 It is a Python app with a FastAPI server and React frontend, started with
 `start.bat` (or `python -m api`), plus a headless CLI (`cli.py`). The
-older Streamlit UI (`app.py`) is being retired and is no longer what the
-launcher opens; see
+older Streamlit UI has been removed; see
 [Project status and architecture](#project-status-and-architecture).
 
 **Important:** this tool works on files you already have legal access
@@ -43,32 +42,29 @@ URL you have the right to download from, only.
 - **Launcher.** `start.bat` starts `python -m api` on
   `http://127.0.0.1:8600/` (loopback only), which serves the prebuilt
   React app from `frontend/dist` (a release zip, see
-  [`docs/RELEASE.md`](docs/RELEASE.md)). It no longer starts Streamlit.
-- **Streamlit app (being retired).** `app.py` plus `tabs/*.py`. It is no
-  longer launched by `start.bat`, but much of this README still describes
-  its screens.
+  [`docs/RELEASE.md`](docs/RELEASE.md)).
+- **Streamlit app (removed).** The old UI (`app.py`, `tabs/`) was deleted;
+  `legacy/streamlit` and the `pre-streamlit-removal` tag hold the last version
+  (`docs/streamlit-retirement-plan.md`). Some of this README's older
+  sections may still use its wording; the React app is the only UI.
 - **FastAPI + React app (the app going forward).** An HTTP API (`api/`)
   and a React frontend (`frontend/`) over the *same* library, database and
-  background jobs. The Streamlit UI is frozen and is being removed
-  (`docs/streamlit-retirement-plan.md`). What works in React today: Library, Diagnostics,
-  Settings, the standalone Translate page, and the per-drama Workspace
-  stages Source, Translate, Review, Export and Dub. Everything else
-  (for example Reader, Discover, Live, Scanlate and Sources) is
-  Streamlit-only for now.
+  background jobs. Pages: Library, the per-drama Workspace
+  stages, the standalone Translate page, Reader, Discover, Live, Sources,
+  Comic (Scanlate), Benchmark Lab, Assistant, Diagnostics and Settings
+  (`frontend/src/pages/`; status in `docs/STATUS.md`).
 - **Layers.** `db.py` (plain `sqlite3`) and the domain modules at the
   repo root hold the logic; `services/` wraps them in UI-independent
   functions; `api/` exposes those as HTTP routes; `frontend/` is the
-  React client and calls `/api`. `cli.py` and the Streamlit tabs use the
-  same underlying modules.
+  React client and calls `/api`. `cli.py` uses the same underlying
+  modules.
 - **Not a production deployment story yet.** `python -m api` serves the
   built `frontend/dist` at `/` (`api/static_frontend.py`). It is
   loopback-only with no login, so other devices on your network can't
   reach it until authentication exists (`docs/remote-access-decision.md`).
-- **Known limitations.** The browser-extension bridge (`page_server.py`)
-  and the scheduled chapter check are still only started by the
-  Streamlit app. Launching through `start.bat` / `python -m api` does
-  not start them yet; starting them with the API is a follow-up after
-  step 133.
+- **Background services.** `python -m api` also starts the browser-extension
+  bridge (`page_server.py`) and the scheduled chapter check
+  (`api/background.py`).
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
@@ -208,8 +204,8 @@ just prefer the command line on Windows too.
 
 ### Prerequisites
 
-Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
-diarization; CI and the cloud test setup use 3.11) and `ffmpeg` **with
+Python 3.10+ (CI and the cloud test setup use 3.11; the Windows installer
+ships 3.12) and `ffmpeg` **with
 libass support** (needed for burning subtitles into video). Most
 standard `ffmpeg` builds already include it. Node.js is only needed to
 build the React frontend yourself (22 is what CI uses); the release zip
@@ -256,7 +252,7 @@ pulls in `pytest`, via `requirements-optional.txt`).
 
 **First run:** start the app, open **Settings** and add the API key for
 the translation engine you'll use (or pick `test_offline`, see below).
-Keys are read from a `.env` file next to `app.py` (copy `.env.example`
+Keys are read from a `.env` file next to `start.bat` (copy `.env.example`
 to `.env`; it is excluded from version control) or from environment
 variables. Models such as Whisper download on first use.
 
@@ -283,7 +279,7 @@ together — can be copied to a USB stick or a different PC and just work
 there. Turn it on either way:
 
 - Run `start.bat --portable` (or `.\start.ps1 -Portable`), or
-- Create an empty file named `PORTABLE` next to `app.py` — the simplest
+- Create an empty file named `PORTABLE` next to `start.bat` — the simplest
   way to make it "part of the folder" so a copy keeps the setting.
 
 **The real limit, stated plainly**: this moves *the app and its data*,
@@ -352,6 +348,21 @@ cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
   (default `8600`), `BAIHE_API_ENV` (`development` or `production`,
   default `production`; development enables auto-reload and CORS for the
   Vite ports) and `BAIHE_API_CORS_ORIGINS` (see `api/api_config.py`).
+- **Changing the port.** `BAIHE_API_PORT` is read from the environment
+  (not `.env`), so `setx BAIHE_API_PORT 8601` and restart Baihe. The host is
+  always `127.0.0.1`. `start.bat`, `start.ps1` and the installed launcher
+  honour it (window, health check, `--stop`); the Vite dev proxy needs
+  `BAIHE_API_URL=http://127.0.0.1:8601` to match. The household listener's
+  port is separate (`BAIHE_API_HOUSEHOLD_PORT`); never forward either port
+  through the router. The default (8600) is defined once, as
+  `DEFAULT_PORT` in `api/api_config.py`; change it there. The files that
+  can't import it (`start.bat`, `start.ps1`, `frontend/vite.config.ts`,
+  `frontend/src/report/capture.test.ts`, the two Windows workflows, this
+  README and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py`
+  fails if one of them drifts. Baihe also refuses its own ports as ntfy, SearXNG and
+  Jellyfin targets. The Windows boot service takes the port only at install:
+  Setup passes your `BAIHE_API_PORT`, so after `setx` run Setup again
+  (`docs/windows-installer-design.md` section 11, "Choosing the port").
 - The React app calls the relative path `/api`; the Vite dev server
   (5173) and `npm run preview` (4173) proxy it to
   `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.
@@ -1033,8 +1044,8 @@ Install what you need: `pip install jieba pypinyin` for Chinese,
 **Follow-along playback**: with click-to-seek enabled, the line
 currently being spoken is highlighted and scrolled into view as the
 audio plays, with a toggle to stop auto-scrolling. This only works with
-the reader's own embedded clip (Streamlit can't observe a separate
-`<audio>` element's playback position from Python), and the embedded
+the reader's own embedded clip (a separate
+`<audio>` element's playback position can't be observed from Python), and the embedded
 clip covers only the current page, so its `t=0` is that page's first
 line — absolute line timestamps have that offset added back before
 matching.
@@ -1052,15 +1063,15 @@ font (system/serif/sans/mono), and three themes (light, sepia, dark).
 
 ### Interface
 
-**Dark mode** is a toggle at the top of the ⚙️ Settings sidebar and
+**Theme** is a menu in the app header (including a Sepia theme) and
 applies to the whole app. The Reader keeps its own separate theme
 (light/sepia/dark) for the reading surface, since reading preferences
 and UI preferences aren't always the same. Tables (glossary, bulk
 import review, library filtering) may still show light cell backgrounds
-in dark mode — a genuine Streamlit/glide-data-grid rendering constraint,
-not a missed style; see `docs/technical-notes.md` for why.
+in dark mode — a data-grid rendering constraint of the old UI;
+see `docs/technical-notes.md` for why.
 
-A restrained design system in `ui_theme.py` and `.streamlit/config.toml`:
+A restrained design system:
 one accent colour carrying emphasis (when five things are highlighted,
 nothing is), a fixed spacing scale for vertical rhythm, status shown as
 colour-coded pills rather than prose, deliberate empty states that say
@@ -1117,7 +1128,7 @@ The app is meant to feel like a proper library, not a folder of files.
 **Progress & resume**
 - Reading percentage and last page tracked per drama, saved automatically as you page through the Reader
 - Audio position stored separately from reading position, so listening and reading don't overwrite each other
-- **Continue** shelf on the Library tab: cover art, progress bar, one-click resume to where you left off. The Resume button sets your target drama/page then tells you to open the Read & Watch tab yourself — `st.tabs()` has no API to switch tabs from Python, so rather than pretend otherwise, it says plainly what to click next
+- **Continue** shelf on the Library tab: cover art, progress bar, one-click resume to where you left off. Resume opens the Reader or Workspace at your saved place
 - Reading history log, clearable
 
 **Metadata**
@@ -1319,9 +1330,8 @@ before final render.
 **Also available:**
 - **Custom fonts** — upload `.ttf`/`.otf` files per style category for
   rendering.
-- **Manual erase/heal brush** — paint over art the auto-clean missed
-  (needs `pip install streamlit-drawable-canvas`; degrades to a
-  warning if that package or your Streamlit version doesn't support it).
+- **Manual erase/heal brush** — not available since the Streamlit UI was
+  removed; it returns when Scanlate moves to React.
 - **Bulk find & replace** — across every saved bubble in a drama, with
   a preview before applying.
 - **Export detected font styles** — as JSON, for reuse.
@@ -1427,10 +1437,9 @@ tab.
 
 A design goal: one thing breaking should break only that thing.
 
-**Tab isolation.** Each tab renders inside a guard that shows the error
-(with a traceback, so it stays diagnosable) inside that tab while the
-rest of the app keeps working. Tab modules are also imported
-individually, so one failing to import doesn't stop the others loading.
+**Page isolation.** Each React page renders inside an error boundary,
+so one page failing shows its error there while the rest of the app
+keeps working.
 
 **Database connections.** Connections are tracked and reclaimed even
 when a statement raises between opening and closing one, so a single
@@ -1480,16 +1489,13 @@ scanlate job.
 - **Isolated diarization failures**: if diarization fails (bad HF
   token, missing install), the alignment work already done is still
   saved -- you just don't get speaker labels until you fix and re-run it.
-- **Shared Settings panel** (sidebar): enter each API key/endpoint
-  once per session, reused as the default everywhere else, still
-  overridable per-tab. Nothing here is written to disk.
+- **Settings page**: enter each API key/endpoint once, reused as the
+  default everywhere else. Keys are never shown back by the API.
 - **Backup & restore** (Library tab): zips the whole library --
   database plus every drama's audio/video/dub files and reference
   clips -- for download, with a matching restore flow. Worth doing
-  before any big batch run. Note: at very large libraries (100+ GB,
-  e.g. many video dramas), the in-app zip buffers in memory -- for
-  libraries that large, back up the `library/` folder directly with
-  normal file tools (rsync, cloud sync) instead.
+  before any big batch run. The zip is streamed to disk, so it scales
+  to a large library.
 
 ### Performance & dashboard
 
@@ -1508,7 +1514,7 @@ scanlate job.
   responses, logged per drama, with a cost breakdown table in the
   dashboard. Estimates only -- pricing changes over time.
 - **Default settings**: save your usual translation engine, English
-  locale, and style notes in the Settings sidebar so new dramas start
+  locale, and style notes in Settings so new dramas start
   pre-filled instead of resetting every time.
 - **GPU acceleration**: optional, for Whisper transcription,
   diarization, and local voice cloning. Falls back to CPU automatically
@@ -1739,11 +1745,7 @@ around long-term as your reference set.
 
 ## Code organization
 
-`app.py` is a thin orchestrator; each tab's actual UI logic lives in
-`tabs/*.py` (`library_tab.py`, `workspace_tab.py`, `translate_tab.py`,
-`reader_tab.py`, `scanlate_tab.py`, `discover_tab.py`, `sources_tab.py`,
-`live_tab.py`, `settings_tab.py`, `diagnostics_tab.py`), with shared
-imports centralized in `common.py`. `services/`, `api/` and `frontend/`
+`services/`, `api/` and `frontend/`
 hold the API/React layers described under
 [Project status and architecture](#project-status-and-architecture);
 `FILE_ORGANIZATION.md` has the full file map. If you're extending this yourself, that's

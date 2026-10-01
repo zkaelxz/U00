@@ -22,7 +22,7 @@ KNOWN_PYPI_DISTS = {
     "manga-ocr", "piper-tts", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
     "transformers", "torch", "torchaudio", "uroman", "sentencepiece", "yt-dlp",
     "opencc-python-reimplemented", "sudachidict-core", "safetensors", "huggingface-hub",
-    "pypdf", "streamlit-drawable-canvas", "genanki", "ebooklib", "plyer", "playwright",
+    "pypdf", "genanki", "ebooklib", "plyer", "playwright",
     "lightnovel-crawler",
     "trafilatura", "audio-separator", "funasr", "demucs", "cryptography", "authlib",
     "numpy", "httpx", "qwen-asr", "jiwer",
@@ -56,17 +56,6 @@ def test_stream_pip_install_disables_cache_and_version_check(monkeypatch):
     monkeypatch.setattr(diagnostics.sys, "executable", "/py")
     list(diagnostics.stream_pip_install(["jieba"]))
     assert seen == [["/py", "-m", "pip", "install", *FLAGS, "jieba"]]
-
-
-def test_bulk_install_uses_the_same_flags(monkeypatch, tmp_path):
-    reqs = tmp_path / "r.txt"
-    reqs.write_text("sox\njieba>=0.42\n")
-    seen = []
-    monkeypatch.setattr(diagnostics.subprocess, "Popen",
-                        lambda cmd, **kw: seen.append(cmd) or _FakePopen([]))
-    list(diagnostics.stream_bulk_install(str(reqs), python_executable="/py"))
-    assert [c[3:] for c in seen] == [["install", *FLAGS, "sox"],
-                                     ["install", *FLAGS, "jieba>=0.42"]]
 
 
 def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
@@ -136,7 +125,7 @@ def test_service_installs_opencv_python_for_cv2(monkeypatch):
     assert cmd[-1] == "opencv-python"
 
 
-def test_streamlit_dependency_install_uses_the_dist_name(monkeypatch):
+def test_dependency_install_uses_the_dist_name(monkeypatch):
     seen = []
     monkeypatch.setattr(diagnostics, "stream_pip_install",
                         lambda args, py=None: seen.append(args) or iter(()))
@@ -174,8 +163,8 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     assert t["installed_count"] == 2 and t["to_install"] == ["faster_whisper"]
     assert t["approx_mb"] == diagnostics.APPROX_DOWNLOAD_MB["faster-whisper"]
     scan = next(t for t in out["tasks"] if t["id"] == "scanlate")
-    assert "streamlit_drawable_canvas" in scan["packages"]
-    assert "streamlit_drawable_canvas" not in scan["to_install"]
+    assert "pypdf" in scan["packages"]
+    assert "pypdf" in scan["to_install"]
     cv2 = out["packages"]["cv2"]
     assert cv2["dist"] == "opencv-python" and cv2["installable"] is True
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
@@ -199,17 +188,17 @@ def test_pypi_url_is_built_only_from_a_valid_name(monkeypatch):
 
 # ---- F: not offered, downgrade warning ----
 
-def test_canvas_is_not_offered_and_refused():
-    reason = diagnostics.known_install_limitation_reason("streamlit_drawable_canvas")
+def test_moss_is_not_offered_and_refused():
+    reason = diagnostics.known_install_limitation_reason("moss_transcribe_diarize")
     assert reason and "not offered" in reason
-    assert "streamlit_drawable_canvas" not in svc.installable_packages()
+    assert "moss_transcribe_diarize" not in svc.installable_packages()
     assert diagnostics.known_install_limitation_reason("jieba") is None
 
 
-def test_canvas_install_is_refused_by_the_service(monkeypatch):
+def test_moss_install_is_refused_by_the_service(monkeypatch):
     monkeypatch.setattr(svc, "_guard", lambda confirm: None)
     with pytest.raises(svc.AdminActionUnknownPackage):
-        svc.install_dependency("streamlit_drawable_canvas", confirm=True)
+        svc.install_dependency("moss_transcribe_diarize", confirm=True)
 
 
 @pytest.mark.parametrize("have,warned", [("5.2.0", True), ("4.57.6", False), (None, False)])
@@ -223,10 +212,10 @@ def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warne
     assert diagnostics.install_downgrade_warning("jieba") is None
 
 
-def test_streamlit_dependency_install_refuses_a_not_offered_package(monkeypatch):
+def test_dependency_install_refuses_a_not_offered_package(monkeypatch):
     monkeypatch.setattr(diagnostics, "stream_pip_install",
                         lambda *a, **k: pytest.fail("must not run pip"))
-    items = list(diagnostics.stream_dependency_install("streamlit_drawable_canvas"))
+    items = list(diagnostics.stream_dependency_install("moss_transcribe_diarize"))
     assert items[-1]["done"] is True and items[-1]["ok"] is False
     assert "not offered" in items[0]["line"]
 

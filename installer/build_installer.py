@@ -8,6 +8,10 @@ and, where Inno Setup is available, compiles BaiheStudio-Setup-<version>.exe
         [--python-zip PATH]       # a local copy of the embeddable zip
         [--no-compile]            # stop after the payload (no ISCC)
         [--iscc PATH]             # ISCC.exe if it isn't in the usual place
+        [--go PATH]               # the Go that builds the bundled Caddy
+    python installer/build_installer.py --update-lock
+                                      # regenerate installer/wheels.lock.txt
+                                      # (Windows, Python 3.12; see the design doc)
 
 Payload (build/installer/payload/):
     python/         the official embeddable Python, pinned by version and
@@ -15,7 +19,17 @@ Payload (build/installer/payload/):
     app/            the app's code (an allow-by-default copy with the
                     exclusions below), frontend/dist, and the two runtime
                     installer scripts (app/installer/launcher.py, postinstall.py)
-    wheels/         requirements-core.txt's wheels plus pip's own, so the
+    service/        the boot service's files: helper/ (a second copy of the
+                    interpreter with no site-packages, and installer/service.py)
+                    and wrapper/ (WinSW, pinned by SHA-256, as BaiheStudio.exe
+                    with its licence), and caddy/ (WinSW as BaiheCaddy.exe and
+                    caddy.exe built from installer/caddy, with the licence files
+                    of everything compiled into it). service.py copies them into
+                    an admin-only folder; nothing elevated runs from app/ or
+                    python/. Caddy stays off until the owner enables remote access.
+    wheels/         the wheels pinned in installer/wheels.lock.txt (SHA-256
+                    hashes; requirements-core.txt plus pip and every
+                    transitive dependency) and a copy of that lock, so the
                     install step never needs the network
     manifest.json   versions, the wheel list with hashes, and the size estimate
 
@@ -28,7 +42,8 @@ check_payload() re-checks the staged tree before anything is compiled.
 Wheels must be downloaded on Windows: `pip download --platform` still
 evaluates environment markers for the machine it runs on, so a Linux
 download silently drops Windows-only dependencies (colorama, tzdata, ...).
-The GitHub Actions workflow runs this on windows-latest.
+The GitHub Actions workflow runs this on windows-latest. Building Caddy
+needs Go (CADDY_GO_VERSION; the workflow installs it, pinned by hash).
 
 Standard library only.
 """
@@ -42,12 +57,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER_DIR = REPO_ROOT / "installer"
+WHEEL_LOCK = INSTALLER_DIR / "wheels.lock.txt"
 DEFAULT_OUT = REPO_ROOT / "build" / "installer"
 
 # The bundled interpreter. 3.12.10 is the last 3.12 release with Windows
@@ -63,6 +80,30 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 # The runtime half of installer/ that ships; the rest (this script, the
 # .iss) is build-only.
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py")
+
+# The Windows service wrapper (docs/windows-installer-design.md, "Boot
+# service"): WinSW, MIT licence, the .NET Framework 4.6.1 build, which runs
+# on the .NET Framework 4.8 that Windows 10 and 11 include. The hash was
+# taken from the GitHub release download (2026-09-30).
+WINSW_VERSION = "2.12.0"
+WINSW_URL = f"https://github.com/winsw/winsw/releases/download/v{WINSW_VERSION}/WinSW.NET461.exe"
+WINSW_SHA256 = "b5066b7bbdfba1293e5d15cda3caaea88fbeab35bd5b38c41c913d492aadfc4f"
+WINSW_LICENSE = INSTALLER_DIR / "licenses" / "WinSW-LICENSE.txt"
+
+# Caddy, the only internet-facing part: stock Caddy plus the rate_limit module
+# deploy/caddy/Caddyfile.template needs, built from installer/caddy, where
+# go.mod and go.sum pin every module by hash. The build is reproducible only
+# from the same bytes: installer/caddy/main.go with CRLF line endings builds a
+# different binary, which is why .gitattributes forces LF there (a Windows
+# checkout otherwise converts it). Changing go.mod, go.sum, main.go or the Go
+# version changes CADDY_SHA256.
+CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
+CADDY_MODULE = "baihe.local/caddy"
+CADDY_VERSION = "2.11.4"
+CADDY_GO_VERSION = "go1.26.8"
+CADDY_SHA256 = "e09cc7eb846934a7fd870b90c53a5b51527cda2fcaabced1490ea7f9478aa150"
+CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
+_LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
 
 # Excluded wherever they appear.
 EXCLUDED_DIR_NAMES = frozenset({
@@ -89,6 +130,11 @@ EXCLUDED_SUFFIXES = frozenset({
     ".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3", ".db-journal", ".db-wal",
     ".key", ".pem", ".pfx", ".p12", ".crt", ".zip", ".whl", ".swp", ".bak", ".tmp",
 })
+
+
+if str(INSTALLER_DIR) not in sys.path:
+    sys.path.insert(0, str(INSTALLER_DIR))
+import postinstall  # noqa: E402  (the lock parser/verifier the installed app runs too)
 
 
 class BuildError(Exception):
@@ -295,7 +341,57 @@ def wheel_download_command(repo_root, wheels_dest, python_version=PYTHON_VERSION
             "pip"]
 
 
-def download_wheels(repo_root, wheels_dest, python_version=PYTHON_VERSION) -> list:
+def locked_download_command(lock_path, wheels_dest, python_version=PYTHON_VERSION,
+                            python_exe=None) -> list:
+    """`pip download` of exactly the pinned set. --require-hashes makes pip
+    itself refuse a file whose hash isn't in the lock (or a requirement
+    without one); --no-deps means nothing outside the lock is resolved."""
+    major_minor = ".".join(python_version.split(".")[:2])
+    return [python_exe or sys.executable, "-m", "pip", "download",
+            "--only-binary=:all:", "--platform", "win_amd64",
+            "--python-version", major_minor, "--implementation", "cp",
+            "--require-hashes", "--no-deps",
+            "-d", str(wheels_dest), "-r", str(lock_path)]
+
+
+def _requirement_names(text) -> set:
+    names = set()
+    for line in text.splitlines():
+        match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", line)
+        if match and not line.lstrip().startswith("#"):
+            names.add(postinstall.canonical_name(match.group(1)))
+    return names
+
+
+def check_lock_covers_requirements(repo_root, lock_path=None) -> None:
+    """Fails if requirements-core.txt (or pip) names a package the lock
+    doesn't pin, i.e. the lock is stale for a dependency change."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    if not lock_path.is_file():
+        raise BuildError(f"{lock_path} doesn't exist. Generate it with "
+                         "`python installer/build_installer.py --update-lock` (docs/windows-installer-design.md).")
+    try:
+        lock = postinstall.parse_lock(lock_path.read_text(encoding="utf-8"))
+    except postinstall.LockError as e:
+        raise BuildError(str(e))
+    wanted = _requirement_names((Path(repo_root) / "requirements-core.txt").read_text(encoding="utf-8"))
+    missing = sorted((wanted | {"pip"}) - set(lock))
+    if missing:
+        raise BuildError("wheels.lock.txt doesn't pin: " + ", ".join(missing)
+                         + ". Regenerate it (--update-lock) and review the diff.")
+
+
+def verify_wheel_hashes(wheels_dir, lock_path=None) -> int:
+    """The build's own check, independent of pip: every wheel in wheels_dir
+    is pinned with a matching SHA-256, and none is extra or missing."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    try:
+        return postinstall.verify_wheels(wheels_dir, lock_path.read_text(encoding="utf-8"))
+    except postinstall.LockError as e:
+        raise BuildError(str(e))
+
+
+def _pip_platform_warnings(python_version):
     if os.name != "nt":
         print("WARNING: downloading wheels on a non-Windows machine drops Windows-only "
               "dependencies (pip evaluates markers for this machine). Use this payload "
@@ -304,18 +400,70 @@ def download_wheels(repo_root, wheels_dest, python_version=PYTHON_VERSION) -> li
         print(f"WARNING: this is Python {sys.version_info[0]}.{sys.version_info[1]} but the bundled "
               f"one is {python_version}; pip evaluates python_version markers for this "
               "interpreter, so build with the same minor version.", file=sys.stderr)
+
+
+def download_wheels(repo_root, wheels_dest, python_version=PYTHON_VERSION, lock_path=None) -> list:
+    """Downloads the locked wheels, then re-verifies every file against the
+    lock ourselves. No unhashed fallback: any failure stops the build."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    check_lock_covers_requirements(repo_root, lock_path)
     wheels_dest = Path(wheels_dest)
     if wheels_dest.exists():
         shutil.rmtree(wheels_dest)
     wheels_dest.mkdir(parents=True)
-    result = subprocess.run(wheel_download_command(repo_root, wheels_dest, python_version),
+    result = subprocess.run(locked_download_command(lock_path, wheels_dest, python_version),
                             timeout=1800)
     if result.returncode != 0:
-        raise BuildError(f"`pip download` failed (exit code {result.returncode}).")
+        raise BuildError(f"`pip download --require-hashes` failed (exit code {result.returncode}); "
+                         "see pip's message above for the package.")
     wheels = sorted(p.name for p in wheels_dest.glob("*.whl"))
     if not any(w.startswith("pip-") for w in wheels):
         raise BuildError("pip's own wheel wasn't downloaded; the install step needs it.")
+    verify_wheel_hashes(wheels_dest, lock_path)
+    shutil.copy2(lock_path, wheels_dest / postinstall.LOCK_NAME)
     return wheels
+
+
+def format_lock(wheels_dir) -> str:
+    """wheels.lock.txt text for the wheels in wheels_dir, one entry per
+    package, in `pip install --require-hashes` format."""
+    entries = {}
+    for whl in sorted(Path(wheels_dir).glob("*.whl")):
+        try:
+            name, version = postinstall.wheel_identity(whl.name)
+        except postinstall.LockError as e:
+            raise BuildError(str(e))
+        if name in entries and entries[name][0] != version:
+            raise BuildError(f"{name} was downloaded in two versions ({entries[name][0]}, {version}).")
+        entries.setdefault(name, (version, set()))[1].add(sha256_of(whl))
+    lines = ["# installer/wheels.lock.txt -- SHA-256 pins for every wheel the Windows installer bundles",
+             "# (requirements-core.txt, pip and all transitive dependencies; win_amd64, CPython 3.12).",
+             "# Generated by `python installer/build_installer.py --update-lock`; do not edit by hand.",
+             "# See docs/windows-installer-design.md, \"Pinned wheels\"."]
+    for name in sorted(entries):
+        version, hashes = entries[name]
+        lines.append(f"{name}=={version} \\")
+        ordered = sorted(hashes)
+        lines.extend(f"    --hash=sha256:{h}" + (" \\" if i < len(ordered) - 1 else "")
+                     for i, h in enumerate(ordered))
+    return "\n".join(lines) + "\n"
+
+
+def update_lock(repo_root=REPO_ROOT, lock_path=None, python_version=PYTHON_VERSION) -> int:
+    """Resolves requirements-core.txt + pip (with the constraints file) from
+    PyPI, the one step that trusts what PyPI serves right now, and writes
+    the SHA-256 of each downloaded wheel to the lock. Review the diff."""
+    lock_path = Path(lock_path or WHEEL_LOCK)
+    _pip_platform_warnings(python_version)
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(wheel_download_command(repo_root, tmp, python_version), timeout=1800)
+        if result.returncode != 0:
+            raise BuildError(f"`pip download` failed (exit code {result.returncode}).")
+        text = format_lock(tmp)
+    postinstall.parse_lock(text)
+    lock_path.write_text(text, encoding="utf-8", newline="\n")
+    print(f"Wrote {lock_path} ({text.count('==')} packages). Review the diff before committing.")
+    return 0
 
 
 def installed_size_estimate(wheels_dir) -> int:
@@ -338,6 +486,112 @@ def numeric_version(version: str) -> str:
     return ".".join((nums + ["0", "0", "0", "0"])[:4])
 
 
+def caddy_build_env(base=None) -> dict:
+    """Windows x64, no cgo, only the pinned modules (-mod=readonly: go.sum
+    must already hold every hash), and exactly CADDY_GO_VERSION (Go fetches
+    that toolchain, checksum-verified, if the installed one differs)."""
+    env = dict(os.environ if base is None else base)
+    env.update({"GOOS": "windows", "GOARCH": "amd64", "GOAMD64": "v1", "CGO_ENABLED": "0",
+                "GOFLAGS": "-mod=readonly", "GOTOOLCHAIN": CADDY_GO_VERSION})
+    return env
+
+
+def caddy_build_command(go, output) -> list:
+    # -trimpath and -buildvcs=false keep the build folder and this repo's
+    # version-control state out of the binary.
+    return [go, "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w", "-o", str(output), "."]
+
+
+def caddy_modules_command(go) -> list:
+    return [go, "list", "-deps", "-f", "{{with .Module}}{{.Path}}\t{{.Dir}}{{end}}", "."]
+
+
+def collect_licenses(listing: str, goroot, dest) -> int:
+    """Copies the licence and notice files of every module compiled into
+    Caddy (`go list -deps` output: module path, tab, its folder in the
+    checksum-verified module cache), and Go's own, into `dest`. Returns how
+    many."""
+    dest = Path(dest)
+    if dest.exists():
+        shutil.rmtree(dest)
+    sources = [("go", Path(goroot))] if goroot else []
+    seen = set()
+    for line in listing.splitlines():
+        path, _, folder = line.strip().partition("\t")
+        if path and folder and path != CADDY_MODULE and path not in seen:
+            seen.add(path)
+            sources.append((path, Path(folder)))
+    count = 0
+    for name, folder in sources:
+        if not folder.is_dir():
+            continue
+        for f in sorted(folder.iterdir()):
+            if f.is_file() and _LICENSE_FILE_RE.fullmatch(f.name):
+                _copy(f, dest / name.replace("/", "_") / f.name)
+                count += 1
+    return count
+
+
+def build_caddy(out_dir, go="go", run=subprocess.run) -> tuple:
+    """Builds caddy.exe into `out_dir` and checks it against CADDY_SHA256;
+    returns (caddy.exe, the licences folder)."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    exe = (out_dir / "caddy.exe").resolve()
+    env = caddy_build_env()
+    result = run(caddy_build_command(go, exe), cwd=str(CADDY_SOURCE_DIR), env=env, timeout=1800)
+    if result.returncode != 0:
+        raise BuildError(f"Building Caddy failed (exit code {result.returncode}). It needs Go "
+                         f"({CADDY_GO_VERSION}) and network access to the Go module proxy.")
+    actual = sha256_of(exe)
+    if actual != CADDY_SHA256:
+        raise BuildError(f"The Caddy build's SHA-256 is {actual}, not the pinned {CADDY_SHA256}. "
+                         "If installer/caddy or CADDY_GO_VERSION changed on purpose, update "
+                         "CADDY_SHA256; otherwise check that installer/caddy has LF line endings "
+                         "and that the Go version matches.")
+    listing = run(caddy_modules_command(go), cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
+                  capture_output=True, text=True)
+    goroot = run([go, "env", "GOROOT"], cwd=str(CADDY_SOURCE_DIR), env=env, timeout=600,
+                 capture_output=True, text=True)
+    if listing.returncode != 0 or goroot.returncode != 0:
+        raise BuildError("Listing the modules compiled into Caddy failed.")
+    licenses = out_dir / "licenses"
+    count = collect_licenses(listing.stdout, goroot.stdout.strip(), licenses)
+    print(f"Built caddy.exe (SHA-256 matches); collected {count} licence files.")
+    return exe, licenses
+
+
+def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses) -> None:
+    """payload/service/: the files service.py copies into its admin-only
+    folder. helper/python is the embeddable interpreter again with a ._pth
+    that has no site-packages, no `import site` and no ../app, so the
+    elevated script imports nothing a user-writable folder could supply;
+    wrapper/ is WinSW under the service's name and caddy/ is WinSW under
+    Caddy's name beside caddy.exe, each checked against its pin. The Caddy
+    template is copied into helper/ because service.py reads it while
+    elevated, and app/ is writable by the user."""
+    for path, expected in ((winsw_exe, WINSW_SHA256), (caddy_exe, CADDY_SHA256)):
+        actual = sha256_of(path)
+        if actual != expected:
+            raise BuildError(f"{Path(path).name}: SHA-256 {actual}, expected {expected}.")
+    service = Path(payload_dir) / "service"
+    if service.exists():
+        shutil.rmtree(service)
+    helper_python = prepare_python(python_zip, service / "helper" / "python")
+    tag = "".join(PYTHON_VERSION.split(".")[:2])
+    (helper_python / f"python{tag}._pth").write_text(f"python{tag}.zip\n.\n", encoding="ascii",
+                                                   newline="\r\n")
+    shutil.rmtree(helper_python / "Lib")
+    _copy(INSTALLER_DIR / "service.py", service / "helper" / "lib" / "installer" / "service.py")
+    _copy(winsw_exe, service / "wrapper" / "BaiheStudio.exe")
+    _copy(CADDY_TEMPLATE, service / "helper" / "lib" / "deploy" / "caddy" / "Caddyfile.template")
+    _copy(WINSW_LICENSE, service / "wrapper" / "licenses" / "WinSW-LICENSE.txt")
+    _copy(winsw_exe, service / "caddy" / "BaiheCaddy.exe")
+    _copy(caddy_exe, service / "caddy" / "caddy.exe")
+    _copy(WINSW_LICENSE, service / "caddy" / "licenses" / "WinSW-LICENSE.txt")
+    shutil.copytree(caddy_licenses, service / "caddy" / "licenses", dirs_exist_ok=True)
+
+
 def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
                    python_sha256=PYTHON_EMBED_SHA256) -> Path:
     """What this payload contains, for the upgrade logic the design keeps
@@ -357,6 +611,10 @@ def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
         "requirements": "requirements-core.txt",
         "wheels": wheels,
         "installed_size_estimate_bytes": installed_size_estimate(wheels_dir),
+        "services": {
+            "winsw": {"version": WINSW_VERSION, "sha256": WINSW_SHA256},
+            "caddy": {"version": CADDY_VERSION, "go": CADDY_GO_VERSION, "sha256": CADDY_SHA256},
+        },
     }
     path = payload_dir / "manifest.json"
     path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -394,7 +652,7 @@ def iscc_command(iscc, payload_dir, output_dir, version, extra_disk_bytes) -> li
 
 
 def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=None,
-          compile_exe=True, iscc=None) -> Path:
+          compile_exe=True, iscc=None, go="go") -> Path:
     out_dir = Path(out_dir)
     payload = out_dir / "payload"
     payload.mkdir(parents=True, exist_ok=True)
@@ -409,8 +667,15 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
             print(f"Downloading {PYTHON_EMBED_URL} ...")
             download(PYTHON_EMBED_URL, python_zip)
     prepare_python(python_zip, payload / "python")
+    _pip_platform_warnings(PYTHON_VERSION)
     wheels = download_wheels(REPO_ROOT, payload / "wheels")
-    print(f"Downloaded {len(wheels)} wheels.")
+    print(f"Downloaded {len(wheels)} wheels; all match installer/wheels.lock.txt.")
+    winsw = out_dir / f"WinSW-{WINSW_VERSION}.NET461.exe"
+    if not winsw.is_file() or sha256_of(winsw) != WINSW_SHA256:
+        print(f"Downloading {WINSW_URL} ...")
+        download(WINSW_URL, winsw)
+    caddy_exe, caddy_licenses = build_caddy(out_dir / "caddy-build", go=go)
+    stage_service(payload, python_zip, winsw, caddy_exe, caddy_licenses)
     manifest = write_manifest(payload, version)
     extra = json.loads(manifest.read_text(encoding="utf-8"))["installed_size_estimate_bytes"]
     if not compile_exe:
@@ -434,20 +699,32 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Build the Baihe Studio Windows installer.")
-    parser.add_argument("--version", required=True, help="the app version, e.g. 0.1.0")
+    parser.add_argument("--version", help="the app version, e.g. 0.1.0")
+    parser.add_argument("--update-lock", action="store_true",
+                        help="regenerate installer/wheels.lock.txt from PyPI and exit")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="build folder")
     parser.add_argument("--skip-frontend-build", action="store_true",
                         help="use the existing frontend/dist instead of running npm")
     parser.add_argument("--python-zip", help="a local copy of the embeddable Python zip")
     parser.add_argument("--no-compile", action="store_true", help="assemble the payload only")
     parser.add_argument("--iscc", help="path to Inno Setup's ISCC.exe")
+    parser.add_argument("--go", default="go", help="the Go that builds the bundled Caddy")
     args = parser.parse_args(argv)
+    if args.update_lock:
+        try:
+            return update_lock()
+        except (BuildError, postinstall.LockError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+    if not args.version:
+        parser.error("--version is required (unless --update-lock)")
     if not re.fullmatch(r"[0-9A-Za-z.+-]{1,40}", args.version):
         print("ERROR: --version may only use letters, digits, '.', '+' and '-'.", file=sys.stderr)
         return 2
     try:
         build(args.version, out_dir=args.out, skip_frontend_build=args.skip_frontend_build,
-              python_zip=args.python_zip, compile_exe=not args.no_compile, iscc=args.iscc)
+              python_zip=args.python_zip, compile_exe=not args.no_compile, iscc=args.iscc,
+              go=args.go)
     except BuildError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1

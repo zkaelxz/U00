@@ -89,6 +89,15 @@ def test_platforms_and_links():
         svc.list_platforms(language="xx")
     links = svc.search_links("女将军", "novel")["links"]
     assert links and all(l["url"].startswith("https://") for l in links)
+    any_links = svc.search_links("女将军", "", "any", "言情")["links"]
+    assert any("bq=%E8%A8%80%E6%83%85" in l["url"] for l in any_links)
+    assert not any("bq=%E7%99%BE" in l["url"] for l in any_links)
+    baihe_links = svc.search_links("女将军", "", "baihe", "言情")["links"]
+    assert any("bq=%E7%99%BE%E5%90%88" in l["url"] for l in baihe_links)
+    with pytest.raises(InvalidInputError):
+        svc.search_links("x", "", "other")
+    with pytest.raises(InvalidInputError):
+        svc.search_links("x", "", "any", "t" * 41)
     with pytest.raises(InvalidInputError):
         svc.search_links("  ")
     with pytest.raises(InvalidInputError):

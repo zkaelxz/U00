@@ -30,11 +30,11 @@ from typing import Optional
 import background_jobs
 import live_translate
 import translate_engines
+from core import SOURCE_LANGUAGES
 from services import ownership_service, settings_service, translate_service, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
-SOURCE_LANGUAGES = ("zh", "ja", "ko")
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
 SEGMENT_RANGE = (10, 60)
 OVERLAP_RANGE = (0, 8)
@@ -282,6 +282,9 @@ def stop_session(session_id, principal=None) -> dict:
     discarded), then cancels: cancel_queued if still queued, else
     request_cancel. Idempotent on a finished session."""
     job = _require(session_id, principal)
+    with _lock:
+        entry = _sessions.get(session_id) or {}
+    ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
     live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
         _remove_dir(session_id)

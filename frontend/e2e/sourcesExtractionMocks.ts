@@ -48,6 +48,22 @@ export function novelReview(over: Record<string, unknown> = {}) {
   }
 }
 
+// A novel import that followed next-chapter links: three pages read.
+export function followReview(over: Record<string, unknown> = {}) {
+  return novelReview({
+    why: 'follow',
+    follow: {
+      stop: 'no_next',
+      pages: [
+        { id: 0, title: 'Chapter 5', char_count: 5120, host: 'novels.example' },
+        { id: 1, title: 'Chapter 6', char_count: 4800, host: 'novels.example' },
+        { id: 2, title: 'Chapter 7', char_count: 5000, host: 'novels.example' },
+      ],
+    },
+    ...over,
+  })
+}
+
 const img = (id: number, name: string, role: string, page: number, reason = '') => ({
   id, display_url: `https://img.comics.example/5/${name}`, attr: 'src', width: role === 'icon' ? 48 : 800,
   height: role === 'icon' ? 48 : 1200, role, page, reason, has_image: true,
@@ -99,7 +115,7 @@ export async function mockExtraction(page: Page, s: MockState, m: ImportMockStat
   }
   await page.route(/\/api\/sources\/url\/ai-engines$/, (route) => {
     record(route)
-    return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude' })
+    return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude', free: ['ollama'] })
   })
   const start = (route: Route) => {
     record(route)
@@ -133,10 +149,17 @@ export async function mockExtraction(page: Page, s: MockState, m: ImportMockStat
     return json(route, { domain: 'novels.example', kind: 'novel', version: 2, replaces: 1 })
   })
   await page.route(/\/api\/sources\/dramas\/\d+\/extraction\/import$/, (route) => {
-    const r = x.review as { content_type: string; novel?: { char_count: number }; comic?: { page_count: number } } | null
+    const r = x.review as {
+      content_type: string; novel?: { char_count: number }; comic?: { page_count: number }
+      follow?: { pages: { id: number; char_count: number }[] } | null
+    } | null
+    const chosen = (route.request().postDataJSON() as { pages?: number[] }).pages
+    const pages = r?.follow ? r.follow.pages.filter((p) => !chosen || chosen.includes(p.id)) : null
     m.urlImportBody = r?.content_type === 'comic'
       ? { kind: 'review_import', content_type: 'comic', pages_added: r.comic?.page_count ?? 0 }
-      : { kind: 'review_import', content_type: 'novel', char_count: r?.novel?.char_count ?? 0 }
+      : pages
+        ? { kind: 'review_import', content_type: 'novel', char_count: pages.reduce((n, p) => n + p.char_count, 0), pages_imported: pages.length }
+        : { kind: 'review_import', content_type: 'novel', char_count: r?.novel?.char_count ?? 0 }
     return start(route)
   })
   await page.route(/\/api\/sources\/dramas\/\d+\/extraction\/images\/\d+$/, (route) => {

@@ -48,6 +48,9 @@ RESULT_ALLOWED_KEYS = (
     "imported_count", "skipped_count", "failed_count",
     # lightnovel-crawler import (Step 115b): the EPUB's reading-order count.
     "epub_chapters",
+    # Own-lines re-translate: line ids whose review flag wasn't saved because
+    # the line's text, timing or flag changed while the job ran.
+    "flags_needing_recheck",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -344,6 +347,10 @@ def derive_outcome(status, error, result):
         parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
                      f"({result['forced_align_error']}).")
         warned = True
+    if result.get("flags_needing_recheck"):
+        parts.append("Some lines changed while the job ran, so their review flags "
+                     "weren't saved; recheck them.")
+        warned = True
     fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
@@ -416,6 +423,15 @@ def _visible(principal, record) -> bool:
                                          record.get("owner_user_id"))
 
 
+def _for_caller(principal, record) -> dict:
+    """_redact plus `owned_by_me` (ownership_service.owns_job), the only
+    word on who owns the job a response carries: never an owner id."""
+    out = _redact(record)
+    out["owned_by_me"] = ownership_service.owns_job(principal, record.get("job_id"),
+                                                    record.get("owner_user_id"))
+    return out
+
+
 def sweep_stale_job_records() -> int:
     """Closes (as cancelled) every queued/running job_records row whose
     owner has not heartbeated for STALE_JOB_SECONDS and that is not live in
@@ -440,7 +456,7 @@ def list_jobs(principal=None) -> list:
     first, redacted for HTTP. Stale rows of dead owners are closed first
     (sweep_stale_job_records), so they don't list as running forever."""
     sweep_stale_job_records()
-    return [_redact(r) for r in db.list_job_records() if _visible(principal, r)]
+    return [_for_caller(principal, r) for r in db.list_job_records() if _visible(principal, r)]
 
 
 def get_job(job_id: str, principal=None) -> dict:
@@ -451,7 +467,7 @@ def get_job(job_id: str, principal=None) -> dict:
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
-    return _redact(record)
+    return _for_caller(principal, record)
 
 
 def get_job_stages(job_id: str, principal=None) -> dict:
@@ -478,10 +494,13 @@ def cancel_job(job_id: str, principal=None) -> dict:
     already finished -> ConflictError (409). Cancellation is
     asynchronous: the returned status is the record's current one. A job
     `principal` may not see is a 404 (visibility, not starter-only: anyone
-    who can see a drama may cancel its jobs, as before)."""
+    who can see a drama may cancel its jobs, as before); one an admin sees
+    only through the admin view (away from the PC) is a 403."""
     record = db.get_job_record(job_id)
     if record is None or not _visible(principal, record):
         raise NotFoundError(f"No job with id {job_id!r}.")
+    ownership_service.require_job_changeable(principal, record.get("job_id"),
+                                             record.get("owner_user_id"))
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)

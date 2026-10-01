@@ -14,6 +14,13 @@ BacklogKind = Literal["bug", "feature", "note"]
 Scalar = Union[str, int, float, bool, None]
 
 
+class AssistantTier(BaseModel):
+    tier: int
+    engine: str
+    local: bool
+    consent: bool
+
+
 class AssistantSettings(BaseModel):
     developer_mode: bool
     engine: Optional[str] = None
@@ -26,6 +33,11 @@ class AssistantSettings(BaseModel):
     default_engine: str = "ollama"
     local_engines: List[str] = Field(default_factory=list)
     cloud_consent: Dict[str, bool] = Field(default_factory=dict)
+    # The escalation ladder: the saved order (None = the default) and the
+    # tiers it gives now. engine_keys says only whether a key is set.
+    tier_order: Optional[List[str]] = None
+    tiers: List[AssistantTier] = Field(default_factory=list)
+    engine_keys: Dict[str, bool] = Field(default_factory=dict)
 
 
 class AssistantSettingsUpdate(BaseModel):
@@ -37,6 +49,7 @@ class AssistantSettingsUpdate(BaseModel):
     review_engine: Optional[str] = Field(None, max_length=40)
     review_model: Optional[str] = Field(None, max_length=100)
     cloud_consent: Optional[Dict[str, StrictBool]] = None
+    tiers: Optional[List[str]] = Field(None, max_length=3)
 
 
 class AssistantTool(BaseModel):
@@ -62,6 +75,22 @@ class AssistantAskRequest(BaseModel):
     chat_history: List[AssistantChatTurn] = Field(default_factory=list, max_length=20)
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=100)
+    # Escalation to a higher tier: consent must be true for a tier that
+    # leaves this PC; evidence is the previous tier's redacted tool output.
+    escalate: StrictBool = False
+    consent: StrictBool = False
+    evidence: str = Field("", max_length=16000)
+
+
+class AssistantReportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chat_history: List[AssistantChatTurn] = Field(default_factory=list, max_length=20)
+    question: str = Field("", max_length=4000)
+    evidence: str = Field("", max_length=16000)
+
+
+class AssistantReport(BaseModel):
+    report: str
 
 
 class AssistantPatch(BaseModel):
@@ -100,6 +129,16 @@ class AssistantAnswer(BaseModel):
     engine: str
     model: Optional[str] = None
     review: Optional[AssistantReview] = None
+    # Why a proposed fix got no review (an escalation never sends it to a
+    # cloud reviewer the user didn't confirm); empty when not skipped.
+    review_skipped: str = ""
+    # Which tier answered (None: an engine outside the ladder), whether it
+    # ran on this PC, the tier the user may escalate to next, and the
+    # redacted tool output that escalation or a developer report would carry.
+    tier: Optional[int] = None
+    local: bool = False
+    next_engine: Optional[str] = None
+    evidence: str = ""
 
 
 class AssistantChangelogRequest(BaseModel):
@@ -146,3 +185,79 @@ class AssistantBacklogDeleted(BaseModel):
 
 class AssistantBacklogCleared(BaseModel):
     deleted: int
+
+
+# --- Deliver a proposed fix as a GitHub pull request ---------------
+
+class AssistantGithubStatus(BaseModel):
+    """Never carries the token: only whether one is configured."""
+    enabled: bool
+    repo: Optional[str] = None
+    base_branch: str
+    token_configured: bool
+    branch_prefix: str
+
+
+class AssistantGithubSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: Optional[bool] = None
+    repo: Optional[str] = Field(None, max_length=141)
+    base_branch: Optional[str] = Field(None, max_length=100)
+
+
+class AssistantGithubTokenSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(min_length=1, max_length=512)
+    confirm: bool = False
+
+
+class AssistantGithubTokenResult(BaseModel):
+    token_configured: bool
+
+
+class AssistantGithubConnection(BaseModel):
+    ok: bool
+    repo: str
+    default_branch: Optional[str] = None
+    can_push: bool
+    base_branch: str
+    base_exists: bool
+
+
+class AssistantGithubPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patch: str = Field(min_length=1, max_length=200_000)
+    title: str = Field(min_length=1, max_length=200)
+
+
+class AssistantGithubFile(BaseModel):
+    path: str
+    change: Literal["add", "modify", "delete"]
+
+
+class AssistantGithubPreview(BaseModel):
+    repo: str
+    base_branch: str
+    branch_prefix: str
+    title: str
+    files: List[AssistantGithubFile]
+    patch: str
+    sha256: str
+
+
+class AssistantGithubDeliverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    patch: str = Field(min_length=1, max_length=200_000)
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field("", max_length=20_000)
+    sha256: str = Field(min_length=64, max_length=64)
+    confirm: bool = False
+
+
+class AssistantGithubDelivered(BaseModel):
+    pr_url: str
+    pr_number: Optional[int] = None
+    branch: str
+    base_branch: str
+    repo: str
+    files: List[AssistantGithubFile]

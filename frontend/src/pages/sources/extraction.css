@@ -12,7 +12,7 @@
   margin: 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: 6px;
   font-family: inherit;
 }
-.extraction-novel, .extraction-comic { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
+.extraction-novel, .extraction-comic, .extraction-follow { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
 .sources-import { min-width: 0; }
 .extraction-novel select { max-width: 100%; }
 .extraction-fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-1); min-width: 0; }

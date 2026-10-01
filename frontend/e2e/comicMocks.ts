@@ -2,7 +2,7 @@ import { deflateSync } from 'node:zlib'
 
 import type { Page, Route } from '@playwright/test'
 
-import { ME } from './authMocks'
+import { ME, REMOTE_HEALTH_OFF } from './authMocks'
 
 // Shared page.route mocks for the comic viewer specs (routes C1-C5 under
 // /api/scanlate/dramas/{id}, built against the spec while the backend lands).
@@ -130,6 +130,8 @@ export interface ComicMockOptions {
   imagesForbidden: boolean
   // Extra region text for page 1 (e.g. markup that must stay text).
   firstPageText: string | null
+  // Hold the page list back this long (ms), to see the bar before the pages arrive.
+  pagesDelayMs: number
 }
 
 export interface ComicMockState {
@@ -163,7 +165,7 @@ const json = (route: Route, body: unknown, status = 200) =>
 export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}): Promise<ComicMockState> {
   const opts: ComicMockOptions = {
     id: 7, title: 'Moonlit Courtyard', mediaType: 'manhua', pageCount: 8, width: 800, height: 1200,
-    lastPage: 1, progressFails: false, rendered: [], imagesForbidden: false, firstPageText: null, ...over,
+    lastPage: 1, progressFails: false, rendered: [], imagesForbidden: false, firstPageText: null, pagesDelayMs: 0, ...over,
   }
   const s: ComicMockState = { opts, calls: [], images: [], progressPosts: [], unmocked: [] }
   const pngCache = new Map<string, Buffer>()
@@ -192,6 +194,8 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: true }))
   // Sign-in off, on the PC (the app asks before rendering any page).
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
+  // The app shell's remote-access banner (PC only): remote access off.
+  await page.route(/\/api\/diagnostics\/remote-health$/, (route) => json(route, REMOTE_HEALTH_OFF))
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route(/\/api\/assistant\/settings$/, (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
 
@@ -211,8 +215,9 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       has_audio: false, has_novel_reference: false, has_cover_art: false,
     })
   })
-  await page.route(new RegExp(`${root}/pages$`), (route) => {
+  await page.route(new RegExp(`${root}/pages$`), async (route) => {
     record(route)
+    if (opts.pagesDelayMs) await new Promise((r) => setTimeout(r, opts.pagesDelayMs))
     return json(route, {
       drama_id: id,
       media_type: opts.mediaType,
