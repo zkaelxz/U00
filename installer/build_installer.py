@@ -20,7 +20,8 @@ Payload (build/installer/payload/):
                     exclusions below), frontend/dist, and the two runtime
                     installer scripts (app/installer/launcher.py, postinstall.py)
     service/        the boot service's files: helper/ (a second copy of the
-                    interpreter with no site-packages, and installer/service.py)
+                    interpreter with no site-packages, installer/service.py and
+                    the Start-menu service menu, installer/service_menu.ps1)
                     and wrapper/ (WinSW, pinned by SHA-256, as BaiheStudio.exe
                     with its licence), and caddy/ (WinSW as BaiheCaddy.exe and
                     caddy.exe built from installer/caddy, with the licence files
@@ -583,6 +584,10 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
                                                    newline="\r\n")
     shutil.rmtree(helper_python / "Lib")
     _copy(INSTALLER_DIR / "service.py", service / "helper" / "lib" / "installer" / "service.py")
+    # The Start-menu "Baihe Studio service" menu runs elevated, so it is
+    # run only from the admin folder's copy.
+    _copy(INSTALLER_DIR / "service_menu.ps1",
+          service / "helper" / "lib" / "installer" / "service_menu.ps1")
     _copy(winsw_exe, service / "wrapper" / "BaiheStudio.exe")
     _copy(CADDY_TEMPLATE, service / "helper" / "lib" / "deploy" / "caddy" / "Caddyfile.template")
     _copy(WINSW_LICENSE, service / "wrapper" / "licenses" / "WinSW-LICENSE.txt")

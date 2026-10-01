@@ -18,10 +18,13 @@
 ; administrator permission once, after the files are copied, and
 ; {app}\service\helper\lib\installer\service.py creates the BaiheStudio
 ; service (python -m api on 127.0.0.1 and nothing else, started with
-; Windows), on the default port or the user's BAIHE_API_PORT if set (the
-; launcher's port; an update without it keeps the service's port). An update
-; stops it first, and uninstalling removes it. Unticking the task (or
-; /MERGETASKS="!service") keeps the Start-menu launcher only.
+; Windows), on the default port or the user's BAIHE_API_PORT if set (a
+; fresh install only: an update keeps the service's stored port). Once the
+; service exists, the launcher uses the service's stored port, and the
+; Start-menu item "Baihe Studio service" changes it (service.py set-port).
+; An update stops it first,
+; and uninstalling removes it. Unticking the task (or /MERGETASKS="!service")
+; keeps the Start-menu launcher only.
 ;
 ; Silent install (CI, power users):
 ;   BaiheStudio-Setup-<v>.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="..." /DATADIR="..."
@@ -104,6 +107,9 @@ Source: "{#PayloadDir}\wheels\*"; DestDir: "{tmp}\wheels"; Flags: ignoreversion 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"""; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Start Baihe Studio and open it in its own window"
 Name: "{group}\Stop {#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"" --stop"; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Stop Baihe Studio's server"
+; The service menu (installer/service_menu.ps1) asks for administrator
+; rights, so the shortcut runs the admin-only folder's copy, never {app}'s.
+Name: "{group}\{#AppName} service"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{commonpf64}\Baihe Studio Services\helper\lib\installer\service_menu.ps1"""; WorkingDir: "{sys}"; IconFilename: "{app}\app\assets\app_icon.ico"; Comment: "Baihe Studio's background service: status, ports, remote access, logs"; Tasks: service
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"""; WorkingDir: "{app}\app"; IconFilename: "{app}\app\assets\app_icon.ico"; Tasks: desktopicon
 
 [Run]
@@ -482,11 +488,13 @@ begin
   end;
 end;
 
-// The port the owner chose for Baihe Studio: the user's BAIHE_API_PORT, which
-// the Start-menu launcher uses too, so both find the same server. '' when it
-// isn't set, and the service keeps the port it has (the default for a new
-// one). Only digits are passed on the elevated command line; anything else
-// is passed as a word service.py refuses, keeping the service's port.
+// The port the owner chose for Baihe Studio: the user's BAIHE_API_PORT. '' when
+// it isn't set (the default port). service.py uses it only on a fresh install:
+// an update keeps the service's stored port and ignores it. Once the service
+// exists the launcher follows that stored port, which the "Baihe Studio
+// service" menu (service.py set-port) changes. Only digits are passed on the
+// elevated command line; anything else is passed as a word service.py
+// refuses on a fresh install (and ignores on an update).
 function ApiPortArg(): String;
 var
   Port: String;

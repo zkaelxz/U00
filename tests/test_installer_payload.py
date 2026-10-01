@@ -382,8 +382,9 @@ class TestStageService:
         assert (service / "wrapper" / "BaiheStudio.exe").read_bytes() == b"winsw"
         assert (service / "wrapper" / "licenses" / "WinSW-LICENSE.txt").is_file()
         assert (service / "helper" / "python" / "python.exe").is_file()
-        assert ((service / "helper" / "lib" / "installer" / "service.py").read_bytes()
-                == (Path(bi.INSTALLER_DIR) / "service.py").read_bytes())
+        for name in ("service.py", "service_menu.ps1"):
+            assert ((service / "helper" / "lib" / "installer" / name).read_bytes()
+                    == (Path(bi.INSTALLER_DIR) / name).read_bytes())
 
     def test_helper_interpreter_loads_nothing_from_user_writable_folders(self, tmp_path, monkeypatch):
         helper = self._stage(tmp_path, monkeypatch) / "helper" / "python"
@@ -407,6 +408,7 @@ class TestStageService:
 
     def test_service_script_ships_only_there(self):
         assert "service.py" not in bi.RUNTIME_INSTALLER_FILES
+        assert "service_menu.ps1" not in bi.RUNTIME_INSTALLER_FILES
 
     def test_refuses_an_unpinned_wrapper(self, tmp_path):
         winsw = tmp_path / "winsw.exe"

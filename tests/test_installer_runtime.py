@@ -16,6 +16,13 @@ import portable  # noqa: E402
 import postinstall  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def no_boot_service(monkeypatch):
+    """No installed boot service unless a test sets one up (a developer's
+    Windows PC may have one)."""
+    monkeypatch.setattr(launcher, "service_config_file", lambda: None)
+
+
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
     d = tmp_path / "data"
@@ -117,6 +124,131 @@ class TestLaunch:
         monkeypatch.setattr(launcher, "show_message", lambda text, headless=False: shown.append(text))
         assert launcher.main([]) == 1
         assert shown == ["nope"]
+
+
+class TestServicePort:
+    """With the boot service installed, the launcher uses the port the
+    service stores (installer/service.py), so it attaches to the service
+    instead of starting a second server on the same data folder."""
+
+    ROOT = str(launcher.APP_DIR.parent)
+
+    def _config(self, tmp_path, text):
+        path = tmp_path / "config.json"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _ours(self, tmp_path, extra=""):
+        """A config.json written for this install (service.py's format)."""
+        import json
+        return self._config(tmp_path, '{"install_root": ' + json.dumps(self.ROOT)
+                            + ', "data_dir": "y"' + extra + "}")
+
+    def test_reads_the_stored_port(self, tmp_path):
+        assert launcher.service_port(self._ours(tmp_path, ', "api_port": 8711')) == 8711
+
+    def test_the_install_root_is_compared_like_service_py(self, tmp_path):
+        path = self._config(tmp_path, '{"install_root": "C:/Baihe/", "api_port": 8711}')
+        assert launcher.service_port(path, install_root="C:/Baihe") == 8711
+        assert launcher.service_port(path, install_root="C:/Other") is None
+
+    def test_the_same_folder_spelled_differently_still_matches(self, tmp_path):
+        import json, os
+        real = tmp_path / "Baihe Studio"
+        real.mkdir()
+        alias = tmp_path / "alias"
+        try:
+            os.symlink(real, alias, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not available")
+        path = self._config(tmp_path, json.dumps({"install_root": str(alias), "api_port": 8711}))
+        assert launcher.service_port(path, install_root=str(real)) == 8711
+        other = tmp_path / "Other"
+        other.mkdir()
+        assert launcher.service_port(path, install_root=str(other)) is None
+
+    def test_a_config_from_before_the_port_was_stored_means_the_default(self, tmp_path):
+        assert launcher.service_port(self._ours(tmp_path)) == launcher.DEFAULT_PORT
+
+    @pytest.mark.parametrize("text", ['{"api_port": 8711}', '{"install_root": 5, "api_port": 8711}',
+                                      '{"install_root": "C:/Other", "api_port": 8711}'])
+    def test_another_installs_service_is_ignored(self, tmp_path, text):
+        assert launcher.service_port(self._config(tmp_path, text)) is None
+
+    @pytest.mark.parametrize("text", ["", "{", "[]", '"8711"'])
+    def test_an_unreadable_config_means_no_service_port(self, tmp_path, text):
+        assert launcher.service_port(self._config(tmp_path, text)) is None
+
+    @pytest.mark.parametrize("value", ['"8711"', "true", "8711.0", "80", "70000", "8756", "8610"])
+    def test_an_unusable_stored_port_means_the_default_like_the_service(self, tmp_path, value):
+        import service
+        path = self._ours(tmp_path, ', "api_port": ' + value)
+        assert launcher.service_port(path) == launcher.DEFAULT_PORT == service.stored_api_port(path)
+
+    def test_no_config_means_no_service(self, tmp_path):
+        assert launcher.service_port(tmp_path / "missing.json") is None
+
+    def test_as_strict_as_the_service(self, tmp_path):
+        import service
+        for port in (1023, 1024, 8501, 8600, 8601, 8610, 8611, 8756, 65535, 65536):
+            path = self._ours(tmp_path, f', "api_port": {port}')
+            assert launcher.service_port(path) == service.stored_api_port(path), port
+        assert launcher.SERVICE_CONFIG_PATH == (service.ADMIN_FOLDER_NAME, "helper",
+                                                service.CONFIG_FILE_NAME)
+
+    def test_found_in_program_files_on_windows(self, monkeypatch):
+        monkeypatch.undo()       # the autouse stand-in
+        monkeypatch.setenv("ProgramW6432", "PF")
+        real_name = os.name
+        monkeypatch.setattr(launcher.os, "name", "nt")
+        found = launcher.service_config_file()
+        monkeypatch.setattr(launcher.os, "name", real_name)
+        assert found == os.path.join("PF", "Baihe Studio Services", "helper", "config.json")
+        if real_name != "nt":
+            assert launcher.service_config_file() is None
+
+    def _launch(self, monkeypatch, tmp_path, config_text, env_port="8601"):
+        if config_text is not None:
+            path = self._config(tmp_path, config_text)
+            monkeypatch.setattr(launcher, "service_config_file", lambda: path)
+        monkeypatch.setenv("BAIHE_API_PORT", env_port)
+        seen = {}
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: False)
+        monkeypatch.setattr(launcher, "start_server",
+                            lambda py, env, headless: seen.update(env_port=env["BAIHE_API_PORT"]))
+        monkeypatch.setattr(launcher, "wait_for_health",
+                            lambda port, proc: seen.update(port=port) or True)
+        monkeypatch.setattr(launcher, "open_window", lambda url: seen.update(url=url))
+        assert launcher.launch() == 0
+        return seen
+
+    def test_the_service_port_wins_over_baihe_api_port(self, data_dir, monkeypatch, tmp_path):
+        import json
+        seen = self._launch(monkeypatch, tmp_path, json.dumps({"install_root": self.ROOT,
+                                                               "api_port": 8711}))
+        assert seen == {"env_port": "8711", "port": 8711, "url": "http://127.0.0.1:8711/"}
+
+    def test_another_installs_service_port_is_not_followed(self, data_dir, monkeypatch, tmp_path):
+        seen = self._launch(monkeypatch, tmp_path,
+                            '{"install_root": "C:/Somewhere else", "api_port": 8711}')
+        assert seen == {"env_port": "8601", "port": 8601, "url": "http://127.0.0.1:8601/"}
+
+    def test_without_a_service_baihe_api_port_is_used(self, data_dir, monkeypatch, tmp_path):
+        seen = self._launch(monkeypatch, tmp_path, None)
+        assert seen == {"env_port": "8601", "port": 8601, "url": "http://127.0.0.1:8601/"}
+
+    def test_a_corrupt_config_falls_back(self, data_dir, monkeypatch, tmp_path):
+        seen = self._launch(monkeypatch, tmp_path, "{not json")
+        assert seen == {"env_port": "8601", "port": 8601, "url": "http://127.0.0.1:8601/"}
+
+    def test_a_port_in_use_points_at_the_service_menu(self, data_dir, monkeypatch, tmp_path):
+        path = self._ours(tmp_path, ', "api_port": 8711')
+        monkeypatch.setattr(launcher, "service_config_file", lambda: path)
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: True)
+        with pytest.raises(launcher.LaunchError, match="port 8711.*Baihe Studio service"):
+            launcher.launch()
 
 
 class TestWaitForHealth:
