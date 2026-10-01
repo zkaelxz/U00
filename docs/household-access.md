@@ -67,6 +67,17 @@ Certificate renewal:
 
 - [ ] The padlock's certificate details show an expiry date; check again after about two thirds of its lifetime (Caddy renews well before expiry). Caddy's own log records each renewal. Baihe's remote-access health check reads the certificate's days left and warns under 14 days, and raises a critical alert under 5, expired or untrusted.
 
+## If it doesn't work from outside
+
+Check these first; they are the usual causes.
+
+- **The network is "Public" in Windows.** The firewall rule `enable-remote` prints covers Private and Domain networks only. Home networks are sometimes labelled Public: in Windows Settings > Network & internet, open the connection and set the network profile to Private (`status` shows whether the rule exists).
+- **The router forward points at the wrong address.** Forward TCP 443 to the PC's LAN address, and reserve that address for the PC in the router so it doesn't change.
+- **Your provider shares one public address between customers (carrier-grade NAT).** Port forwarding can never work then. If the router's WAN address differs from what a "what is my IP" site shows (or is in 100.64.0.0 to 100.127.255.255), ask the provider for a public address.
+- **The name doesn't point at your current public address.** Check the DNS record against your public IP; the dynamic DNS updater may not be running.
+- **Something else uses port 443 on the PC.** `enable-remote` refuses with a message if Caddy can't take it.
+- **UDP is not needed.** Caddy also listens on UDP 443 for HTTP/3; browsers fall back to TCP, which is the only rule you add.
+
 ## Rollback
 
 1. **Close the router port forward (TCP 443) first.**
