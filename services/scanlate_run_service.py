@@ -47,7 +47,7 @@ _CONFIRM_ALL = ("Redo all replaces the text regions of every page, including any
 
 def _build_engine(engine_name: str):
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError("Unknown translate engine.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(

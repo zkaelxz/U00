@@ -170,7 +170,7 @@ def test_api_settings_and_answer_carry_the_review(engines, monkeypatch):
     monkeypatch.setattr(svc, "_chat", EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nfine"]))
     r = c.post("/api/assistant/ask", json={"question": "x"})
     assert r.status_code == 200 and r.json()["review"]["verdict"] == "agrees"
-    assert c.post("/api/assistant/settings", json={"review_engine": "deepl"}).status_code == 422
+    assert c.post("/api/assistant/settings", json={"review_engine": "nllb"}).status_code == 422
 
 
 def test_an_unbuildable_review_engine_keeps_the_fix(engines, monkeypatch):

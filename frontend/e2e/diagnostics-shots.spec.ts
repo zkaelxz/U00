@@ -100,7 +100,7 @@ const report = [
   'ffmpeg: found (ffmpeg version 6.1)',
   'JS runtime: deno',
   'Library writable: True',
-  'API keys set: claude, deepl',
+  'API keys set: claude, gemini',
   'Missing dependencies: cv2, torch, yt-dlp',
   'Hugging Face cache: 3 revision(s), 4.2 GB total',
   'Model/engine versions:',
