@@ -105,13 +105,13 @@ def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
 
 @contextlib.contextmanager
 def _gpu_lock(description: str, poll_interval: float = 5.0):
-    """Step 25w: cross-process "one GPU job at a time" guard, shared with
-    the live Streamlit UI's background_jobs.py through the gpu_lock table
-    in the shared library.db (see db.try_acquire_gpu_lock's own
-    docstring) -- this module never imports background_jobs.py at all, so
-    its own in-process guard (Step 5c) never covered a CLI run, and an
-    overnight CLI batch could run concurrently with a GPU-touching job
-    started from the live UI, competing for the same VRAM. Waits and
+    """Step 25w: cross-process GPU guard, shared with the live UI's
+    background_jobs.py through the gpu_lock table in the shared library.db
+    (see db.try_acquire_gpu_lock's own docstring). The CLI never starts
+    background jobs, so the in-process guard (Step 5c) never covers a CLI
+    run; it takes a slot through background_jobs.try_take_gpu_slot, so the
+    "GPU jobs at once" setting and its free-VRAM check apply to a CLI run
+    the same as to the app's jobs. Waits and
     retries rather than failing outright, matching this module's own
     "built for unattended overnight runs" framing -- yields the holder id
     a caller running a multi-drama batch under this lock can use to send
@@ -120,7 +120,7 @@ def _gpu_lock(description: str, poll_interval: float = 5.0):
     real callers use the 5-second default."""
     holder = f"cli:{os.getpid()}"
     waited = False
-    while not db.try_acquire_gpu_lock(holder, description):
+    while not background_jobs.try_take_gpu_slot(holder, description):
         if not waited:
             _busy_with = db.gpu_lock_status()[1] or "another job"
             print(f"Waiting for the GPU -- busy with: {_busy_with}")

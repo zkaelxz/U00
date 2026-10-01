@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
-import { getSettings, TOGGLES, updateSetting } from '../api/settings'
+import {
+  clampGpuMaxParallel,
+  getSettings,
+  GPU_MAX_PARALLEL_MAX,
+  gpuMaxParallelHelp,
+  TOGGLES,
+  updateGpuMaxParallel,
+  updateSetting,
+} from '../api/settings'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
@@ -24,7 +32,8 @@ import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
-  gpu_limit_enabled: 'Runs GPU-heavy jobs one at a time so they do not run out of memory.',
+  gpu_limit_enabled:
+    'Queues GPU-heavy jobs beyond "GPU jobs at once" so they do not run out of memory.',
   notify_on_completion: 'Shows a notification when a background job finishes.',
   use_gpu: 'Transcribe on the graphics card when one is available (faster).',
   bulk_auto_resume:
@@ -59,6 +68,20 @@ export default function SettingsPage() {
     }
   }
 
+  async function setGpuMaxParallel(raw: number) {
+    if (!settings || !Number.isFinite(raw)) return
+    const value = clampGpuMaxParallel(raw)
+    const previous = settings
+    setError(null)
+    setSettings({ ...settings, gpu_max_parallel: value }) // optimistic
+    try {
+      setSettings(await updateGpuMaxParallel(value))
+    } catch (e) {
+      setSettings(previous) // roll back
+      setError(e)
+    }
+  }
+
   const prefProps = settings
     ? {
         settings,
@@ -85,6 +108,17 @@ export default function SettingsPage() {
                   <Toggle checked={settings[key]} onChange={(next) => toggle(key, next)} />
                 </Field>
               ))}
+              <Field label="GPU jobs at once" help={gpuMaxParallelHelp(settings.gpu_max_parallel)}>
+                <input
+                  type="number"
+                  min={1}
+                  max={GPU_MAX_PARALLEL_MAX}
+                  step={1}
+                  value={settings.gpu_max_parallel}
+                  disabled={!settings.gpu_limit_enabled}
+                  onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
+                />
+              </Field>
             </div>
           </Card>
           <ApiKeysCard
