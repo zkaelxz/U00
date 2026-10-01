@@ -61,5 +61,5 @@ at `/` (`api/static_frontend.py`). To update, delete `frontend\dist` and
 extract the newer zip.
 
 Developers can skip the zip. `start.bat --build-frontend` (or
-`.\start.ps1 -BuildFrontend`) builds `frontend\dist` with npm if it's
-missing.
+`.\start.ps1 -BuildFrontend`) rebuilds `frontend\dist` with npm every
+time, so run it after pulling frontend changes.
