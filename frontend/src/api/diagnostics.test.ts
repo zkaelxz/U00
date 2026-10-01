@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  deleteModelFile, getDiagnostics, getJobHistory, getLog, getModelCache, getPyannote, getSetupChecks,
+  deleteModelFile, getDiagnostics, getJobHistory, getLog, getModelCache, getPyannote, getPorts, getSetupChecks,
   getSupportReport, installDependency, resetLibrary, upgradeDependency,
 } from './diagnostics'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
@@ -21,6 +21,12 @@ describe('diagnostics api', () => {
     const out = await getDiagnostics(f)
     expect(mock.mock.calls[0][0]).toBe('/api/diagnostics')
     expect(out.dependencies).toEqual({})
+  })
+
+  it('GETs /api/diagnostics/ports', async () => {
+    const { mock, f } = reply(200, { ports: [] })
+    expect((await getPorts(f)).ports).toEqual([])
+    expect(mock.mock.calls[0][0]).toBe('/api/diagnostics/ports')
   })
 
   it('reads the admin sections from their own paths', async () => {

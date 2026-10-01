@@ -124,6 +124,42 @@ def baihe_own_ports() -> set:
     return ports
 
 
+def baihe_ports(api_port: int, household_port: int = 0, public_url: str = "") -> dict:
+    """{"ports": [{key, label, port, active, how_to_change}]} for the
+    Diagnostics Ports panel. The caller passes the API settings' values
+    (services may not import api/). `port` is None for the household
+    listener while it is off. Numbers and fixed text only."""
+    import page_server
+    from services import remote_health_service
+    try:
+        household = int(household_port or 0)
+    except (TypeError, ValueError):
+        household = 0
+    try:
+        bridge_running = bool(page_server.server_running())
+    except Exception:
+        bridge_running = False
+    https_on = remote_health_service.remote_access_enabled(public_url, household)
+    ports = [
+        {"key": "api", "label": "Baihe (this PC's window)", "port": int(api_port), "active": True,
+         "how_to_change": "Service install: in a Command Prompt run setx BAIHE_API_PORT <port> "
+                          "(1024-65535), then run Baihe's Setup again. Launcher install: set "
+                          "BAIHE_API_PORT and restart Baihe."},
+        {"key": "household", "label": "Household listener", "port": household or None,
+         "active": household > 0,
+         "how_to_change": "Set BAIHE_API_HOUSEHOLD_PORT and restart Baihe, or run the service "
+                          "script's enable-remote --household-port <port> on a service install. "
+                          "Unset it to turn the listener off."},
+        {"key": "extension", "label": "Browser extension bridge", "port": page_server.DEFAULT_PORT,
+         "active": bridge_running,
+         "how_to_change": "Fixed: this port cannot be changed. Turn the bridge on or off in Settings."},
+        {"key": "https", "label": "HTTPS for remote access (Caddy)", "port": 443, "active": https_on,
+         "how_to_change": "Fixed: remote access always uses 443. It is only used once remote "
+                          "access is set up."},
+    ]
+    return {"ports": ports}
+
+
 def key_status(env_path: str = None) -> dict:
     """{settings_key: bool} for every engine key/endpoint setting --
     whether a value is configured, never the value itself (D2)."""
