@@ -319,3 +319,31 @@ def test_direct_loopback_allowed_with_auth_on(isolated_db, tmp_path):
         assert r.status_code == 200, (url, r.text)
         _no_leak(r.json())
     assert db.list_presets() == [] and db.list_voice_bank_entries() == []
+
+
+# --- job history (local_only, confirm) ----------------------------------------
+
+def test_delete_job_routes(client):
+    db.save_job_record("fin", status="done")
+    db.save_job_record("run", status="running")
+    assert client.post("/api/jobs/fin/delete", json={"confirm": False}).status_code == 422
+    assert client.post("/api/jobs/run/delete", json=YES).status_code == 409
+    assert client.post("/api/jobs/nope/delete", json=YES).status_code == 404
+    assert client.post("/api/jobs/fin/delete", json=YES).json() == {"job_id": "fin", "deleted": True}
+    assert db.get_job_record("fin") is None and db.get_job_record("run") is not None
+
+
+def test_clear_finished_route_keeps_active(client):
+    for jid, st in (("a", "done"), ("b", "error"), ("c", "queued")):
+        db.save_job_record(jid, status=st)
+    assert client.post("/api/jobs/clear-finished", json={}).status_code == 422
+    assert client.post("/api/jobs/clear-finished", json=YES).json() == {"deleted_count": 2}
+    assert [r["job_id"] for r in db.list_job_records()] == ["c"]
+
+
+def test_job_deletes_refuse_a_proxied_request(client):
+    db.save_job_record("fin", status="done")
+    h = {"X-Forwarded-For": "203.0.113.5"}
+    assert client.post("/api/jobs/fin/delete", json=YES, headers=h).status_code == 403
+    assert client.post("/api/jobs/clear-finished", json=YES, headers=h).status_code == 403
+    assert db.get_job_record("fin") is not None
