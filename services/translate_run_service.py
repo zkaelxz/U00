@@ -47,7 +47,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       UnsupportedOperationError)
 
 # tabs/workspace_tab.py's _cap_applies: engines that report usage.
-_CAP_ENGINES = ("claude", "deepseek", "gemini")
+_CAP_ENGINES = ("claude", "deepseek", "gemini", "openai")
 
 
 def _require_drama(drama_id: int) -> dict:
