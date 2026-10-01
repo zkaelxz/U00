@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockDiscover, posts } from './discoverMocks'
+import { mockDiscover, openTab, posts } from './discoverMocks'
 
 // Desktop: Discover bulk import's manual fallback (DI07): paste the listing
 // text a plain fetch couldn't read; the same review and add follow.
@@ -11,6 +11,7 @@ const openSection = (page: Page, title: string) =>
 test('pasted listing text: extract, review, add', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await openSection(page, 'Paste the listing text instead')
   const go = page.getByRole('button', { name: 'Extract from pasted text' })
@@ -32,6 +33,7 @@ test('pasted listing text: extract, review, add', async ({ page }) => {
 test('pasted listing: too long is refused before sending', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await openSection(page, 'Paste the listing text instead')
   await page.getByRole('textbox', { name: 'Pasted listing text' }).fill('x'.repeat(200_001))

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { mockDiscover, posts } from './discoverMocks'
+import { mockDiscover, openTab, posts } from './discoverMocks'
 
 // Desktop: the Discover page (#/discover). Every /api/discover call is mocked (discoverMocks.ts).
 
@@ -63,6 +63,7 @@ test('remote viewer: no remove button', async ({ page }) => {
 test('find on platforms translates an English title with the picked engine', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Find a title')
   // Only engines the Discover routes accept are offered.
   const picker = page.getByLabel('AI engine', { exact: true })
   await expect(picker.locator('option')).toHaveText(['Claude', 'Ollama (local) (free)'])
@@ -97,6 +98,7 @@ test('find on platforms translates an English title with the picked engine', asy
 test('baihehub search falls back to a browser link; navigation helper shows steps', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Find a title')
   await openSection(page, 'Search baihehub')
   await page.getByRole('searchbox', { name: 'Title to search' }).fill('长公主')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
@@ -129,6 +131,7 @@ test('baihehub search falls back to a browser link; navigation helper shows step
 test('add a title from a URL suggestion, then by hand', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Add titles')
   await page.getByLabel('Fill from a page (optional)').fill('https://example.cn/snow')
   await page.getByRole('button', { name: 'Read page' }).click()
   await expect(page.getByLabel('Title (original language)')).toHaveValue('雪夜')
@@ -152,6 +155,7 @@ test('add a title from a URL suggestion, then by hand', async ({ page }) => {
 test('bulk import: pattern, extract job, review, add', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
+  await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await page.getByText('Fill in page URLs from a pattern').click()
   await page.getByLabel('URL pattern').fill('https://www.jjwxc.net/tag.php?page={page}')
@@ -184,7 +188,27 @@ test('no configured engine: AI actions say what is missing', async ({ page }) =>
   await mockDiscover(page, { engines: [{ name: 'nllb', label: 'NLLB', free: false, models: null, key_configured: true }] })
   await page.goto('/#/discover')
   await expect(page.getByTestId('no-engine')).toBeVisible()
+  await openTab(page, 'Find a title')
   await expect(page.getByText('No AI engine is set up, so the title is searched as typed.')).toBeVisible()
+  await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await expect(page.getByRole('button', { name: 'Extract entries' })).toBeDisabled()
+})
+
+test('tabs: catalogue first, remembered choice, one panel at a time', async ({ page }) => {
+  await mockDiscover(page)
+  await page.goto('/#/discover')
+  const tabs = page.getByRole('tablist', { name: 'Discover tasks' }).getByRole('tab')
+  await expect(tabs).toHaveText(['Catalogue', 'Find a title', 'Add titles'])
+  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('catalog-list')).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
+  await openTab(page, 'Find a title')
+  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
+  await expect(page.getByTestId('catalog-list')).toBeHidden()
+  await page.reload()
+  await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Find a title' }).press('ArrowRight')
+  await expect(page.getByRole('tab', { name: 'Add titles' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('Fill from a page (optional)')).toBeVisible()
 })
