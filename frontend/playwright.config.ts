@@ -17,6 +17,19 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    // Settings folds most groups by default; every spec except the jump-link
+    // ones starts with them open (they override this with an empty state).
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: `http://127.0.0.1:${WEB_PORT}`,
+          localStorage: ['jobs', 'engines', 'defaults', 'alerts', 'sharing', 'integrations', 'advanced', 'experimental'].map(
+            (id) => ({ name: `baihe.section.settings.${id}`, value: '1' }),
+          ),
+        },
+      ],
+    },
     // Lets a machine with a preinstalled Chromium (e.g. PLAYWRIGHT_CHROMIUM_PATH=
     // /opt/pw-browsers/chromium) skip `playwright install`.
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH

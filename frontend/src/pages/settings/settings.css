@@ -7,6 +7,21 @@
 .settings-page .setting-list { margin: 0; }
 .settings-note { margin: 0; color: var(--muted); font-size: var(--text-sm); }
 
+/* Folds: one collapsible group per topic. Cards inside lose their box so a
+   fold is not a box in a box; their titles become sub-headings. */
+.settings-jump { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.settings-jump-link { min-height: 32px; padding: var(--space-1) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.settings-jump-link:hover { border-color: var(--accent); }
+.settings-fold { scroll-margin-top: var(--space-4); min-width: 0; }
+.settings-fold > details.section { margin: 0; padding: var(--space-2) var(--space-4); background: var(--surface); border-radius: var(--radius-lg); }
+.settings-fold > details.section > summary { font-size: var(--text-lg); }
+.settings-fold > details.section > summary .section-title { font-weight: var(--weight-bold); }
+.settings-fold > details.section > .section-body { gap: var(--space-5); }
+.settings-fold .card { padding: 0; border: 0; box-shadow: none; background: none; }
+.settings-fold .card-title { font-size: 1rem; }
+.settings-fold .section-body > .card + .card, .settings-fold .section-body > details.section { border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.settings-fold-single .card-head .card-title { display: none; }
+
 /* One row per key or channel: name, status badge, action on the right; the
    form for that row opens underneath it. */
 .settings-page .status-list { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
@@ -34,7 +49,12 @@
 .sharing-status { font-size: var(--text-sm); color: var(--muted); }
 .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
 
+@media (pointer: coarse), (max-width: 640px) {
+  .settings-jump-link, .settings-fold > details.section > summary { min-height: 44px; }
+  .settings-fold > details.section > summary { align-items: center; }
+}
 @media (max-width: 640px) {
+  .settings-fold > details.section { padding-inline: var(--space-3); }
   .settings-page { gap: var(--space-4); }
   .settings-page .status-list > li { padding-inline: var(--space-3); }
   .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-5); }
