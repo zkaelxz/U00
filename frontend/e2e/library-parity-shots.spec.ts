@@ -63,6 +63,8 @@ for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['pho
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${DIR}/library-top-${name}.png` })
 
+    await page.goto('/#/library-tools')
+    await page.getByRole('heading', { name: 'Library tools', level: 2 }).waitFor()
     await openTools(page)
     const tools = page.getByRole('region', { name: 'Library tools' })
     await tools.scrollIntoViewIfNeeded()

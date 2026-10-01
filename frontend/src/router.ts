@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 export type Route =
   | { name: 'library' }
+  | { name: 'library-tools' }
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   | { name: 'drama'; id: number; stage: string | null }
   | { name: 'settings' }
@@ -25,6 +26,7 @@ export function parseRoute(hash: string): Route {
   const [path, qs = ''] = hash.replace(/^#\/?/, '').split('?')
   const parts = path.split('/').filter(Boolean)
   const [head, a, b] = parts
+  if (head === 'library-tools' && parts.length === 1) return { name: 'library-tools' }
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'benchmark' && parts.length === 1) {

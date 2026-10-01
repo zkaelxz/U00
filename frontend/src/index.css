@@ -669,10 +669,8 @@ a.drama-card-title:focus-visible { outline: none; }
 .line-hit-head a { font-weight: var(--weight-bold); }
 
 /* Library tools: rare lists, all folded */
-.tools-heading { margin: 0 0 var(--space-3); font-size: var(--text-lg); font-weight: var(--weight-bold); }
-.tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: var(--space-3); align-items: start; }
-.tools-grid > details.section { margin: 0; padding: var(--space-2) var(--space-4); border-radius: var(--radius-lg); background: var(--surface); }
-.tools-grid > details.section[open] { grid-column: 1 / -1; }
+.tools-stack { display: grid; gap: 0; max-width: 56rem; }
+.tools-stack > details.section { margin: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: var(--space-2) 0; }
 .tool-body { display: grid; gap: var(--space-2); }
 .tool-body > p { margin: 0; }
 .tool-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }

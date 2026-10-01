@@ -68,7 +68,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
     bodies.voice = r.request().postDataJSON()
     return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'That name is taken.' } } })
   })
-  await page.goto('/')
+  await page.goto('/#/library-tools')
 
   await page.locator('summary', { hasText: 'Presets' }).click()
   await page.getByRole('button', { name: 'Rename Wuxia preset' }).click()

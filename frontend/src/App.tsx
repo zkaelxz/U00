@@ -15,6 +15,7 @@ import BenchmarkPage from './pages/Benchmark'
 import DiagnosticsPage from './pages/Diagnostics'
 import DiscoverPage from './pages/Discover'
 import LibraryPage from './pages/Library'
+import LibraryToolsPage from './pages/LibraryTools'
 import LivePage from './pages/Live'
 import LoginPage from './pages/Login'
 import ReaderPage from './pages/Reader'
@@ -104,7 +105,7 @@ function UserMenu({ user }: { user: AuthUser }) {
 
 // [label, target, route names that count as being on this page]
 const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
+  ['Library', { name: 'library' }, ['library', 'library-tools', 'drama', 'read', 'comic']],
   ['Translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
   ['Discover', { name: 'discover' }, ['discover']],
@@ -160,6 +161,7 @@ export default function App() {
       {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
       <RouteErrorBoundary>
         {route.name === 'library' && <LibraryPage />}
+        {route.name === 'library-tools' && <LibraryToolsPage />}
         {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
         {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
         {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
