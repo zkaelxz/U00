@@ -1426,6 +1426,57 @@ class TestGpuLock:
     def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
         assert isolated_db.gpu_lock_status() == (None, None)
 
+    def test_max_holders_allows_that_many_and_no_more(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+        assert isolated_db.try_acquire_gpu_lock("cli:1", "B", max_holders=2) is True
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is False
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C") is False  # a cap of 1 too
+        assert isolated_db.gpu_lock_holder_count() == 2
+        assert isolated_db.gpu_lock_holder_count(exclude_holder="ui:a") == 1
+        isolated_db.release_gpu_lock("ui:a")
+        assert isolated_db.gpu_lock_status() == ("cli:1", "B")  # only its own row went
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True
+
+    def test_max_holders_is_capped_by_the_table(self, isolated_db):
+        for i in range(isolated_db.GPU_LOCK_MAX_SLOTS):
+            assert isolated_db.try_acquire_gpu_lock(f"ui:{i}", max_holders=99) is True
+        assert isolated_db.try_acquire_gpu_lock("ui:extra", max_holders=99) is False
+
+    def test_settle_seconds_refuses_joining_a_fresh_holder(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2, settle_seconds=60) is True
+        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is False
+        conn = isolated_db.get_conn()
+        conn.execute("UPDATE gpu_lock SET acquired_at = acquired_at - 61")
+        conn.commit()
+        conn.close()
+        assert isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2, settle_seconds=60) is True
+
+    def test_a_stale_holder_does_not_count_and_heartbeat_is_per_holder(self, isolated_db):
+        isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2)
+        isolated_db.try_acquire_gpu_lock("ui:b", "B", max_holders=2)
+        conn = isolated_db.get_conn()
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ?",
+                     (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+        conn.commit()
+        conn.close()
+        isolated_db.heartbeat_gpu_lock("ui:b")
+        assert isolated_db.gpu_lock_holder_count() == 1
+        assert isolated_db.try_acquire_gpu_lock("ui:c", "C", max_holders=2) is True  # took a's slot
+        assert isolated_db.try_acquire_gpu_lock("ui:d", "D", max_holders=2) is False
+
+    def test_old_single_row_table_is_migrated_keeping_the_holder(self, isolated_db):
+        conn = isolated_db.get_conn()
+        conn.execute("DROP TABLE gpu_lock")
+        conn.execute("""CREATE TABLE gpu_lock (id INTEGER PRIMARY KEY CHECK (id = 1),
+                        holder TEXT NOT NULL, description TEXT, acquired_at REAL NOT NULL,
+                        heartbeat_at REAL NOT NULL)""")
+        conn.commit()
+        conn.close()
+        assert isolated_db.try_acquire_gpu_lock("cli:1", "CLI") is True
+        isolated_db.init_db()
+        assert isolated_db.gpu_lock_status() == ("cli:1", "CLI")
+        assert isolated_db.try_acquire_gpu_lock("ui:a", "A", max_holders=2) is True
+
 
 class TestImportTimeSafety:
     """Step 51: importing db.py alone must never touch a real library path

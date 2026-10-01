@@ -12,7 +12,7 @@ import { getJson, postJson } from './client'
 type Fetch = typeof fetch
 
 export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
-  { key: 'gpu_limit_enabled', label: 'Limit GPU jobs to one at a time' },
+  { key: 'gpu_limit_enabled', label: 'Limit GPU jobs running at once' },
   { key: 'notify_on_completion', label: 'Notify when a job finishes' },
   { key: 'use_gpu', label: 'Use the GPU for transcription' },
   { key: 'gemini_free_tier', label: 'Gemini free tier (slower, rate-limited)' },
@@ -27,6 +27,22 @@ export function buildUpdate(key: SettingsToggleKey, value: boolean): SettingsUpd
 export const getSettings = (f?: Fetch) => getJson<SettingsOverview>('/api/settings', f)
 export const updateSetting = (key: SettingsToggleKey, value: boolean, f?: Fetch) =>
   postJson<SettingsOverview>('/api/settings', buildUpdate(key, value), f)
+
+// How many GPU jobs may run at once while the limit is on (the server clamps too).
+export const GPU_MAX_PARALLEL_MAX = 4
+export function clampGpuMaxParallel(n: number): number {
+  return Number.isFinite(n) ? Math.min(GPU_MAX_PARALLEL_MAX, Math.max(1, Math.round(n))) : 1
+}
+export const updateGpuMaxParallel = (n: number, f?: Fetch) =>
+  postJson<SettingsOverview>('/api/settings', { gpu_max_parallel: clampGpuMaxParallel(n) }, f)
+
+export function gpuMaxParallelHelp(n: number): string {
+  const base =
+    'How many GPU jobs may run together. A job only joins a running one when the graphics card has at least 2 GB of memory free; without nvidia-smi they run one at a time.'
+  return n > 1
+    ? `${base} Ollama only runs requests in parallel if the OLLAMA_NUM_PARALLEL environment variable is set, and each parallel slot uses more graphics memory.`
+    : base
+}
 
 // Persisted preferences (PC only). The patch holds only changed fields.
 export const updatePreferences = (patch: Partial<SettingsPreferences>, f?: Fetch) =>

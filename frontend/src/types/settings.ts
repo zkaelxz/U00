@@ -46,6 +46,7 @@ export type EndpointName = 'ollama_url' | 'libretranslate_url' | 'gpt_sovits_url
 // URL only when it has no user name, password, query or fragment.
 export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   engine_keys: Record<string, boolean>
+  gpu_max_parallel: number // 1..4; 1 = one GPU job at a time
   preferences: SettingsPreferences
   endpoints: Record<EndpointName, string | null>
   monthly_cap_env_usd: number
@@ -54,7 +55,8 @@ export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
 }
 
 // The toggles plus any subset of the preferences (extra="forbid" server side).
-export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> & Partial<SettingsPreferences>
+export type SettingsUpdate = Partial<Record<SettingsToggleKey, boolean>> &
+  Partial<SettingsPreferences> & { gpu_max_parallel?: number }
 
 // Result of a write-only key set/clear: never carries the key itself.
 export interface EngineKeyResult {

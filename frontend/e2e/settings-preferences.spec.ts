@@ -30,6 +30,7 @@ function overview() {
   return {
     engine_keys: { claude: false, ollama_url: false, libretranslate_url: false, gpt_sovits_url: false },
     gpu_limit_enabled: true,
+    gpu_max_parallel: 1,
     notify_on_completion: false,
     use_gpu: false,
     gemini_free_tier: false,

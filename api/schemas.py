@@ -296,6 +296,7 @@ class SettingsOverview(BaseModel):
     query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
+    gpu_max_parallel: int = 1
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
@@ -1180,6 +1181,7 @@ class SettingsUpdateRequest(BaseModel):
     monthly_cap_usd, null clears the saved cap (the .env value applies)."""
     model_config = ConfigDict(extra="forbid")
     gpu_limit_enabled: Optional[StrictBool] = None
+    gpu_max_parallel: Optional[StrictInt] = None  # clamped to 1..4
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None

@@ -3,9 +3,12 @@ import { ApiError } from './client'
 import {
   TOGGLES,
   buildUpdate,
+  clampGpuMaxParallel,
   clearEndpointUrl,
   getSettings,
+  gpuMaxParallelHelp,
   setEndpointUrl,
+  updateGpuMaxParallel,
   updatePreferences,
   updateSetting,
 } from './settings'
@@ -13,6 +16,7 @@ import {
 const overview = {
   engine_keys: { gemini: true },
   gpu_limit_enabled: false,
+  gpu_max_parallel: 1,
   notify_on_completion: true,
   use_gpu: false,
   gemini_free_tier: false,
@@ -40,6 +44,19 @@ describe('settings api', () => {
     await updateSetting('bulk_auto_resume', true, f)
     const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(JSON.parse(init.body)).toEqual({ bulk_auto_resume: true })
+  })
+
+  it('sends GPU jobs at once as one clamped whole number', async () => {
+    expect([0, 1, 2.6, 9, Number.NaN].map(clampGpuMaxParallel)).toEqual([1, 1, 3, 4, 1])
+    const f = ok({ ...overview, gpu_max_parallel: 4 })
+    await updateGpuMaxParallel(7, f)
+    const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(JSON.parse(init.body)).toEqual({ gpu_max_parallel: 4 })
+  })
+
+  it('mentions OLLAMA_NUM_PARALLEL only when more than one GPU job may run', () => {
+    expect(gpuMaxParallelHelp(1)).not.toContain('OLLAMA_NUM_PARALLEL')
+    expect(gpuMaxParallelHelp(2)).toContain('OLLAMA_NUM_PARALLEL')
   })
 
   it('POSTs that body and returns the overview', async () => {
