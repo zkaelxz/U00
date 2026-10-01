@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 // Needs SettingsPage wired at #/settings (the lead does that); until then
 // the placeholder is shown and this spec fails by design.

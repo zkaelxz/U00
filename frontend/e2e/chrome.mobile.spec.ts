@@ -1,4 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
+
+import { expect, test } from './fixtures'
 
 // Phone chrome (390x844, touch), against the seeded API (auth off): the
 // compact app header and the Reader's phone header with a long title.
