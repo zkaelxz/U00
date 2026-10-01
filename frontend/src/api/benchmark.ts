@@ -20,6 +20,7 @@ export interface BenchmarkEngineOption {
   label: string
   free: boolean
   models: string[] | null
+  model_labels?: Record<string, string>
   key_configured: boolean
 }
 

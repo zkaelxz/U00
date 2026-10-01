@@ -27,6 +27,12 @@ export function languagePair(
     : { source_language: 'en', target_language: other }
 }
 
+/** What a model picker shows for `model`: its server label when it has one (a model
+ *  offered from the provider's list), else the id. */
+export function modelOptionLabel(engine: { model_labels?: Record<string, string> } | null | undefined, model: string): string {
+  return engine?.model_labels?.[model] ?? model
+}
+
 // Engines that can run now (key configured). The Translate page lists these
 // first and marks the rest "(no key)"; the server answers 503 for those.
 export function usableEngines(engines: TranslateEngine[]): TranslateEngine[] {
@@ -37,8 +43,6 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   claude: 'Claude',
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
-  deepl: 'DeepL',
-  google: 'Google Translate',
   ollama: 'Ollama (local)',
   nllb: 'NLLB (offline)',
   libretranslate: 'LibreTranslate',

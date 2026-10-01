@@ -12,8 +12,6 @@ const SECRET_ENGINES: { engine: string; label: string }[] = [
   { engine: 'claude', label: 'Claude' },
   { engine: 'deepseek', label: 'DeepSeek' },
   { engine: 'gemini', label: 'Gemini' },
-  { engine: 'deepl', label: 'DeepL' },
-  { engine: 'google', label: 'Google Translate' },
   { engine: 'groq', label: 'Groq' },
   { engine: 'hf_token', label: 'Hugging Face' },
 ]

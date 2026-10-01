@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
+import { modelOptionLabel } from '../api/translate'
 import {
   NON_ENGLISH_LANGUAGES,
   engineShortName,
@@ -179,7 +180,7 @@ export default function TranslatePage() {
                   <option value="">Default</option>
                   {selected.models.map((m) => (
                     <option key={m} value={m}>
-                      {m}
+                      {modelOptionLabel(selected, m)}
                     </option>
                   ))}
                 </select>

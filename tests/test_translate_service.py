@@ -8,7 +8,7 @@ Migration Slice 17's clear_history() is covered by TestClearHistory below.
 import pytest
 
 import translate_engines
-from services import translate_service
+from services import settings_service, translate_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
@@ -65,9 +65,16 @@ def test_list_engines_models_match_translate_engines_dicts(tmp_path):
     assert engines["gemini"]["models"] == list(translate_engines.GEMINI_MODELS.keys())
     assert engines["ollama"]["models"] == list(translate_engines.OLLAMA_MODELS.keys())
     assert engines["nllb"]["models"] == list(translate_engines.NLLB_MODELS.keys())
-    assert engines["deepl"]["models"] is None
-    assert engines["google"]["models"] is None
     assert engines["fake"]["models"] is None
+
+
+def test_list_engines_does_not_offer_the_removed_engines(tmp_path):
+    env_path = _write_env(tmp_path, "BAIHE_DEEPL_KEY=stale\nBAIHE_GOOGLE_KEY=stale\n")
+    names = {e["name"] for e in translate_service.list_engines(env_path)}
+    assert not names & {"deepl", "google"}
+    assert not set(translate_engines.ENGINES) & translate_engines.REMOVED_ENGINES
+    assert "stale" not in repr(settings_service.key_status(env_path))
+    assert not {"deepl", "google"} & set(settings_service.key_status(env_path))
 
 
 def test_list_history_returns_what_was_saved(isolated_db):

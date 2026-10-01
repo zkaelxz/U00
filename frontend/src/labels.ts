@@ -52,8 +52,6 @@ export const ENGINE_LABELS: Record<string, string> = {
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
   ollama: 'Ollama',
-  deepl: 'DeepL',
-  google: 'Google',
   nllb: 'NLLB',
   libretranslate: 'LibreTranslate',
   groq: 'Groq',

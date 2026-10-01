@@ -82,7 +82,7 @@ describe('engine routing view', () => {
     expect(withChoice(cap(), 'claude')).toMatchObject({ engine: 'claude', is_default: false, engine_supported: true })
     expect(withChoice(cap({ engine: 'claude', is_default: false }), null)).toMatchObject({ engine: 'gemini', is_default: true })
     expect(withChoice(cap(), 'gemini').is_default).toBe(true)
-    expect(withChoice(cap({ default_engine: 'deepl' }), null).engine_supported).toBe(false)
+    expect(withChoice(cap({ default_engine: 'nllb' }), null).engine_supported).toBe(false)
   })
 
   it('treats unset as "off" where the capability says so (Step 99)', () => {

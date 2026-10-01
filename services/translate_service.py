@@ -27,9 +27,9 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 #     entered -- both point at a locally-run server, not a hosted API that
 #     requires an account key. There's nothing meaningful to "configure" in
 #     the same sense as an API key, so they're reported as configured too.
-# Everything else (claude/deepseek/gemini/deepl/google) maps directly onto
+# Everything else (claude/deepseek/gemini) maps directly onto
 # services.settings_service.key_status(), which is keyed by the same engine
-# name for these five.
+# name for these three.
 _NO_KEY_REQUIRED_ENGINES = translate_engines.KEYLESS_ENGINES
 
 # Engine name -> the model dict (if any) tabs/translate_tab.py lets the user
@@ -49,6 +49,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
     key/endpoint is configured for it (never the key value itself -- see
     services.settings_service.key_status). The Gemini label reflects the
     persisted "Gemini free tier" setting (translate_engines.engine_picker_label)."""
+    from services import model_registry_service  # imports this module at load time
     key_status = settings_service.key_status(env_path)
     gemini_free_tier = settings_service.get_gemini_free_tier()
     engines = []
@@ -58,11 +59,18 @@ def list_engines(env_path: Optional[str] = None) -> list:
             key_configured = True
         else:
             key_configured = bool(key_status.get(name, False))
+        models = list(model_dict.keys()) if model_dict is not None else None
+        extras = model_registry_service.extra_models(name)
+        if extras:
+            # DeepSeek has no built-in picker: its default plus the extras.
+            models = (models if models is not None
+                      else [model_registry_service._default_model(name)]) + extras
         engines.append({
             "name": name,
             "label": translate_engines.engine_picker_label(name, gemini_free_tier),
             "free": name in translate_engines.FREE_ENGINES,
-            "models": list(model_dict.keys()) if model_dict is not None else None,
+            "models": models,
+            "model_labels": {m: model_registry_service.extra_model_label(name, m) for m in extras},
             "key_configured": key_configured,
         })
     return engines
@@ -106,7 +114,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     means the saved Gemini free-tier setting. Ollama always uses the
     configured Ollama URL; a caller-supplied URL is never fetched (SSRF)."""
     if engine_name not in translate_engines.ENGINES:
-        raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
+        raise InvalidInputError(translate_engines.unknown_engine_message(engine_name))
 
     ok, message = translate_engines.standalone_direction_support(
         engine_name, source_language, target_language)

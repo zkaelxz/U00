@@ -62,8 +62,8 @@ class TestStandaloneDirectionSupport:
     """Step 26b item 6: which configured engine actually supports the
     requested direction. zh/ja/ko -> English is this app's existing,
     well-tested direction (every engine keeps doing it, unwarned).
-    English -> zh/ja/ko is new: DeepL/Google/NLLB take an explicit
-    source+target pair so they're just as capable; the LLM engines are
+    English -> zh/ja/ko is new: NLLB takes an explicit
+    source+target pair so it's just as capable; the LLM engines are
     prompted directly; Ollama depends on whichever local model is
     loaded (attempted, with a warning); LibreTranslate's language-pair
     coverage isn't discoverable from here, so it's refused outright."""
@@ -74,8 +74,8 @@ class TestStandaloneDirectionSupport:
             assert ok is True
             assert message is None
 
-    def test_deepl_google_nllb_support_english_to_cjk(self):
-        for name in ("deepl", "google", "nllb"):
+    def test_nllb_supports_english_to_cjk(self):
+        for name in ("nllb",):
             ok, message = te.standalone_direction_support(name, "en", "zh")
             assert ok is True
             assert message is None

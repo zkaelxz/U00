@@ -35,7 +35,7 @@ import time
 
 import db
 import translate_engines
-from services import translate_service
+from services import settings_service, translate_service
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      RateLimitedError)
 
@@ -138,9 +138,46 @@ def _cached_check() -> dict:
         return {}
 
 
+# Opt-in "offer_provider_models": ids from the cached provider check that the
+# app doesn't list itself. Same-provider prefix and a safe slug; obvious
+# non-text-generation models are skipped.
+_EXTRA_PREFIX = {"claude": "claude-", "gemini": "gemini-", "deepseek": "deepseek-"}
+_EXTRA_ID = re.compile(r"^[a-z][a-z0-9]*-[a-z0-9][a-z0-9._-]{0,78}$")
+_NON_CHAT_WORDS = ("embed", "imagen", "veo", "tts", "image", "aqa", "live", "audio",
+                   "moderation", "transcribe", "robotics")
+_PROVIDER_NAMES = {"claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek"}
+
+
+def extra_models(engine: str) -> list:
+    """Models the provider listed in the last manual check that this app
+    doesn't know yet; [] when the setting is off, no check has run or it
+    failed for `engine`. Reads the cache only, never the network."""
+    prefix = _EXTRA_PREFIX.get(engine)
+    if prefix is None or not settings_service.get_offer_provider_models():
+        return []
+    provider = (_cached_check().get("engines") or {}).get(engine) or {}
+    if not provider.get("ok"):
+        return []
+    cls_models = getattr(translate_engines, f"{engine.upper()}_MODELS", {})
+    known = set(cls_models) | {_default_model(engine)}
+    out = []
+    for m in provider.get("models") or []:
+        if (isinstance(m, str) and m.startswith(prefix) and _EXTRA_ID.match(m) and m not in known
+                and not any(w in m for w in _NON_CHAT_WORDS) and m not in out):
+            out.append(m)
+    return out
+
+
+def extra_model_label(engine: str, model: str) -> str:
+    name = _PROVIDER_NAMES.get(engine, engine)
+    if model in translate_engines.PRICING_PER_MILLION_TOKENS:
+        return f"{model} -- listed by {name}"
+    return f"{model} -- newly listed (cost estimated at highest {name} rate)"
+
+
 def _offered(engine: str) -> list:
     """Models this app offers for `engine`; an engine without a model picker
-    (DeepSeek, DeepL, ...) offers only its built-in default, as
+    (DeepSeek, ...) offers only its built-in default, as
     translate_run_service._require_offered_model treats it."""
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine), None)
     if entry is None:
@@ -261,6 +298,8 @@ def get_status() -> dict:
             "warnings": sum(1 for i in items if i["severity"] >= 2),
             "checked_at": check.get("checked_at"),
             "engines_checked": engines_checked,
+            "offer_provider_models": settings_service.get_offer_provider_models(),
+            "extra_models": {e: x for e in _EXTRA_PREFIX if (x := extra_models(e))},
             "registry_updated": _registry_updated()}
 
 

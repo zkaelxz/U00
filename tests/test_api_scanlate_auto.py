@@ -507,8 +507,8 @@ def test_answers_are_applied_by_key_not_position(monkeypatch):
 
 def test_source_language_and_usage_reach_machine_translation(isolated_db):
     class MT:
-        name = "deepl"
-        model = "deepl"
+        name = "nllb"
+        model = "nllb"
         supports_reference = False
         last_usage = {}
 

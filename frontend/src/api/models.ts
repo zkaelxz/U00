@@ -46,6 +46,10 @@ export interface ModelStatus {
   checked_at: string | null
   engines_checked: Record<string, EngineCheck>
   registry_updated: string | null
+  // The opt-in to offer models the providers list that the app doesn't know yet,
+  // and the ones it adds right now (engine -> ids).
+  offer_provider_models?: boolean
+  extra_models?: Record<string, string[]>
 }
 
 interface PresetModelSwitchResult {
@@ -68,3 +72,7 @@ export const switchPresetModel = (presetId: number, fromModel: string, toModel: 
     { from_model: fromModel, to_model: toModel, confirm: true },
     pcOnlyFetch(f),
   )
+
+// PC only (POST /api/settings is local_only): turn the "offer models the providers list" opt-in on or off.
+export const setOfferProviderModels = (on: boolean, f?: Fetch) =>
+  postJson<unknown>('/api/settings', { offer_provider_models: on === true }, pcOnlyFetch(f))

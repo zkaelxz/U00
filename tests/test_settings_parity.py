@@ -98,7 +98,7 @@ def test_preferences_round_trip_and_persist(isolated_db, env_file):
 
 @pytest.mark.parametrize("key,bad", [
     ("default_engine", "not-an-engine"),
-    ("default_locale", "fr-FR"), ("episode_summary_engine", "deepl"),
+    ("default_locale", "fr-FR"), ("episode_summary_engine", "nllb"),
     ("monthly_cap_usd", -1), ("monthly_cap_usd", True), ("monthly_cap_usd", "5"),
     ("ollama_num_ctx_override", 1.5), ("ollama_num_ctx_override", -1),
     ("ollama_num_ctx_override", True), ("ocr_backend", "easyocr"),
@@ -285,7 +285,8 @@ def test_remote_read_gets_path_flags_not_paths(isolated_db, env_file):
                    raise_server_exceptions=False)
     r = c.get("/api/settings", headers=_h(_session(True)))
     prefs = r.json()["preferences"]
-    assert r.status_code == 200 and "models" not in r.text and "Tesseract" not in r.text
+    body = r.text.replace("offer_provider_models", "")
+    assert r.status_code == 200 and "models" not in body and "Tesseract" not in body
     assert prefs["whisper_model_path"] == prefs["tesseract_cmd"] == prefs["cookies_file"] == ""
     assert prefs["whisper_model_path_configured"] is True
     assert prefs["tesseract_cmd_configured"] is True
@@ -312,11 +313,11 @@ def test_translate_config_uses_default_engine_locale_style_and_cap(isolated_db, 
     did = _seed(isolated_db)
     cfg = translate_run_service.get_translate_config(did)
     assert cfg["translation_engine"] == "claude" and cfg["default_locale"] == "en-US"
-    settings_service.set_settings({"default_engine": "deepl", "default_locale": "en-GB",
+    settings_service.set_settings({"default_engine": "nllb", "default_locale": "en-GB",
                                    "default_style_note": "Short lines.",
                                    "monthly_cap_usd": 9})
     cfg = translate_run_service.get_translate_config(did)
-    assert cfg["translation_engine"] == "deepl"
+    assert cfg["translation_engine"] == "nllb"
     assert cfg["default_locale"] == "en-GB" and cfg["default_style_note"] == "Short lines."
     assert cfg["monthly_cap_usd"] == 9.0
     # A drama with its own engine keeps it.

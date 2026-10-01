@@ -125,8 +125,8 @@ map), [`docs/README.md`](docs/README.md) (docs index),
     [Streamer VODs & archives](#streamer-vods--archives)).
 - **Speaker diarization** (audio drama mode): distinguishes voices in
   the audio so lines can be grouped and named by character.
-- **Multi-engine translation**: Claude, DeepSeek, Gemini, DeepL,
-  Google, Ollama, or LibreTranslate.
+- **Multi-engine translation**: Claude, DeepSeek, Gemini, Ollama,
+  NLLB, or LibreTranslate.
 - **AI dubbing with optional voice cloning**: free TTS (edge-tts) by
   default; attach a reference clip per character for real voice
   cloning (F5-TTS) instead. If you have an existing audio drama for a
@@ -410,14 +410,12 @@ everything, use the delete button in Library or Workspace instead.
 | `claude` | Best for tone/character voice. Supports novel reference + prompt caching. |
 | `deepseek` | Cheap, strong on Chinese. Supports novel reference. |
 | `gemini` | Close to DeepSeek on price (Flash-Lite tier), strong on Chinese/Japanese. Supports novel reference. Google's model lineup/pricing changes often — see `GEMINI_MODELS` in `translate_engines.py` if a run starts erroring. |
-| `deepl` | Fast, natural phrasing, pure MT — no reference-novel awareness. |
-| `google` | Broadest coverage, cheapest at scale, pure MT. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
 | `libretranslate` | Self-hosted [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) or [LTEngine](https://github.com/LibreTranslate/LTEngine). Pure MT, no reference-novel awareness. **See the cost note below — "open source" is not the same as "free to use".** |
 | `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. Pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
 
 Only `claude`, `deepseek`, `gemini`, and `ollama` (LLM-based) can do
-speaker attribution for novel-narration mode — DeepL/Google will just tag
+speaker attribution for novel-narration mode — the pure-MT engines will just tag
 everything "Narrator".
 
 **Picking one**: Claude gives the best tone/character-voice results and
@@ -438,7 +436,7 @@ isolation — a pronoun or someone referred to only by relation ("her",
 "that guy") a few lines back has nothing to resolve against, and the
 model has to guess fresh every batch instead of staying consistent with
 what came right before it. Defaults to 6 lines; 0 turns it off. Doesn't
-apply to the pure-MT engines (DeepL, Google, LibreTranslate) — they
+apply to the pure-MT engines (NLLB, LibreTranslate) — they
 translate one line at a time with no concept of surrounding context at
 all.
 
@@ -460,8 +458,6 @@ different claims:
 | `claude` | Paid per token | API key from console.anthropic.com (separate from, and billed separately to, a Claude.ai subscription) |
 | `deepseek` | Paid per token, far cheaper than Claude | API key |
 | `gemini` | Paid per token, close to DeepSeek on the Flash-Lite tier | API key from aistudio.google.com |
-| `deepl` | Paid above a limited free tier | API key |
-| `google` | Paid per character | API key |
 | `ollama` | No billing | Your own hardware — a model worth using wants real RAM/VRAM |
 | `libretranslate` | No billing **if self-hosted** | Your own server. LibreTranslate wants ~8GB RAM and ~10GB disk for full language support. LTEngine's best model (gemma3-27b) wants roughly a 24GB-VRAM GPU; CPU-only runs, but slowly. |
 | `nllb` | No billing, ever | Nothing beyond `pip install transformers sentencepiece` and disk space for the model (2.4GB for the 600M size, 5.2GB for 1.3B). Runs on CPU, just slower than with a GPU. |

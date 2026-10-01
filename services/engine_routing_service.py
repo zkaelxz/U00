@@ -65,7 +65,7 @@ CAPABILITIES = {
     "llm.instructions": {
         "label": "Line helpers for translation-only engines",
         "help": ("Improve, Why this?, Alternatives and Grammar use the drama's own engine. "
-                 "For a drama translated with DeepL, Google, NLLB or LibreTranslate (which "
+                 "For a drama translated with NLLB or LibreTranslate (which "
                  "can't follow instructions), they use this engine instead."),
         "requires": translate_engines.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
@@ -199,7 +199,7 @@ def engine_status(engine: str, key_status: dict = None) -> dict:
     "working" or "failed" (the last Test). Booleans and short redacted text
     only; never the key or a URL."""
     if engine not in translate_engines.ENGINES:
-        raise NotFoundError("Unknown engine.")
+        raise NotFoundError(translate_engines.unknown_engine_message(engine))
     keys = key_status if key_status is not None else settings_service.key_status()
     needs_key = _needs_key(engine)
     configured = bool(keys.get(engine)) if needs_key else True
@@ -230,7 +230,7 @@ def test_engine(engine: str, model: str = None) -> dict:
     from an explicit button. Records the outcome for the status badge and
     returns the engine's refreshed status."""
     if engine not in translate_engines.ENGINES:
-        raise NotFoundError("Unknown engine.")
+        raise NotFoundError(translate_engines.unknown_engine_message(engine))
     api_key = translate_service.resolve_api_key(engine)
     if api_key is None and _needs_key(engine):
         raise DependencyUnavailableError(f"No {engine} key is configured. Add one first.")

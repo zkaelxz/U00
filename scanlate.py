@@ -1049,8 +1049,8 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
         return {}, previous_context
     if (not getattr(engine, "supports_reference", False)
             or getattr(engine, "client", True) is None):
-        # The shared context carries the drama's source_language (DeepL,
-        # Google and NLLB default to Chinese without it).
+        # The shared context carries the drama's source_language (NLLB defaults
+        # to Chinese without it).
         context = build_translation_context(engine, drama_meta, glossary_terms=glossary_terms)
         out = {}
         for key, text in zip(ids, texts_by_id.values()):
