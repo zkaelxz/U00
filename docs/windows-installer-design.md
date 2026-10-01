@@ -293,7 +293,7 @@ This is the same behaviour as `start.bat` for a source checkout, minus the setup
 
 The environment is the same as `start.bat`'s: `BAIHE_API_HOST=127.0.0.1`
 (forced), `BAIHE_API_ALLOW_KEY_WRITES=1` unless already set,
-`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it; with the boot service, run Setup again so the service moves too, §11). `PYTHONNOUSERSITE=1` is set, and the
+`BAIHE_API_PORT=8600` unless already set (`setx BAIHE_API_PORT <port>` changes it; the health probe, window and `--stop` follow it). With this install's boot service installed (the service's `config.json` names this install folder), the launcher uses the service's stored port instead and the variable is ignored (an unusable stored port means 8600, as for the service); a service another install owns is ignored; "Baihe Studio service" in the Start menu changes that port (§11, "Choosing the port"). `PYTHONNOUSERSITE=1` is set, and the
 user's pip-redirecting variables are dropped, so Diagnostics' Install buttons
 (`sys.executable -m pip install`) install into the bundled interpreter.
 
@@ -492,7 +492,7 @@ staging in `build_installer.py`. **Not run on Windows yet:**
 only the workflow's "Service --" steps prove it on Windows.
 
 **What it does.** A `BaiheStudio` service runs `python -s -m api` on
-`127.0.0.1:8600` (or the port chosen at install, below) and nothing else, starting at boot (no sign-in needed),
+`127.0.0.1:8600` (or the port chosen with `set-port`, below) and nothing else, starting at boot (no sign-in needed),
 restarted after 10 s, 30 s, then every 60 s if it fails. It stops with
 Ctrl+C, so the server's clean stop (§5) runs and its Job Object ends every
 child. The wrapper is WinSW 2.12.0 (MIT, pinned by SHA-256). The task is on by
@@ -534,28 +534,77 @@ per-user.
   this PC. If it has other Windows accounts, untick the service task (it is
   ticked by default for now).**
 - **Caddy and a crashed Baihe.** If Baihe's process exits on its own, Caddy keeps forwarding to the household port until the service restarts (about 10 s). Another program on this PC could bind that port in the gap and receive household requests. Accepted on the same condition: only the owner uses this PC.
-- **Choosing the port.** The service's port is chosen at install, never at
-  run time. Setup passes the user's `BAIHE_API_PORT` (the variable the
-  Start-menu launcher uses, so both find the same server) as
-  `service.py install --port N`; the port is stored in the admin-only
-  `helper\config.json` and written into the service definition, and
-  `status`, `enable-remote` and the health check read it from there. The
-  data folder's `.env` and the machine or user environment can't change it
-  while the service runs. To change it, in a Command Prompt run
-  `setx BAIHE_API_PORT 8611` (any port from 1024 to 65535 except 8501,
-  8756, 8610 and the household port while remote access is on), then run
-  Setup again and allow the administrator prompt. An update without the
-  variable keeps the port the service has; to go back, set it to 8600 and
-  run Setup again (don't just remove it: the launcher would then look on
-  8600 while the service stays on the old port). A port that is refused or
-  already in use changes nothing (Setup exits with code 101, the service
-  keeps its port and is started again); a new port where `/api/health`
-  doesn't answer is undone like any failed update, back to the old port.
+- **Choosing the port.** The service's port is stored in the admin-only
+  `helper\config.json` and written into the service definition; `status`,
+  `enable-remote`, the health check and the Start-menu launcher read it from
+  there, so the launcher opens the service rather than starting a second
+  server on the same data folder (with no service, the launcher uses
+  `BAIHE_API_PORT`, or 8600). The data folder's `.env` and the machine or
+  user environment can't change it while the service runs. To change it,
+  open **"Baihe Studio service"** in the Start menu and choose "Change Baihe
+  Studio's port", or run `set-port N` (Commands, below) in an administrator
+  prompt: any port from 1024 to 65535 except 8501, 8756, 8610 and the
+  household port while remote access is on. A port that is refused or
+  already in use changes nothing (exit code 2), and so does running it while
+  the launcher's own server holds the service's port (stop it first); the
+  new port is written to `config.json` and the service definition, the
+  service is restarted (Caddy stopped first and started after, if remote
+  access is on), and if `/api/health` doesn't answer on the new port the old
+  configuration and services are put back (exit code 1; also on Ctrl+C).
+  If remote access was on (Caddy running or set to start with Windows) and
+  the household listener doesn't come back on the new port, remote access is
+  turned off, as an update does, and the message says so. Setup passes the
+  user's `BAIHE_API_PORT`, if set, as `install --port N` on every run, but
+  `install` uses it only when `config.json` holds no port: a fresh install,
+  or a service from before the port was stored. An update keeps the stored
+  port, ignores `--port` without checking it (so an unusable variable can't
+  make the update fail) and logs "kept the stored port N; use set-port".
+  **Warning: changing or deleting `BAIHE_API_PORT`, or running Setup again
+  with it set, does not change the service's port.** Once the service is
+  installed, its stored port wins and only "Baihe Studio service" /
+  `set-port` changes it. Without the service, removing the variable just
+  returns the launcher to 8600.
 - **Update and uninstall.** An update stops the service through the old admin
   copy, replaces the files, and starts it again; if any step fails, the old
   admin files come back, a service the run created is removed, and an existing
   one is restarted. Uninstall stops and removes the service first; if it can't,
   nothing is uninstalled.
+
+**Commands.** The Start-menu item **"Baihe Studio service"** (with the
+service task) opens a console menu, `installer/service_menu.ps1`, that runs
+these for you: show the status, change the port, turn remote access on or
+off, show where the service's logs are (it prints the folders rather than
+opening one from its elevated window). It asks for administrator rights once,
+and runs only the admin folder's copy of itself with the admin folder's
+Python; the elevated command lines hold only fixed words and checked
+numbers. By hand, in an administrator prompt (`status` needs none):
+
+```
+"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" COMMAND
+```
+
+- `status`: both services, every port Baihe uses (its own port and where it comes from, the household port and HTTPS 443 while remote access is on, the extension bridge 8756), remote access, the firewall rule.
+- `set-port N`: move the service to port N; put back if N doesn't answer.
+- `enable-remote [--household-port N]`: household access through Caddy (sign-in settings in `.env` first).
+- `disable-remote`: household access off, Caddy stopped and disabled.
+- `stop`: stop both services.
+- `install [--port N]`: Setup's step; creates or refreshes the service and starts it (`--port` only on a fresh install; an update keeps the stored port).
+- `uninstall`: the uninstaller's step; removes both services and the admin folder.
+
+**One at a time with Setup.** `set-port`, `enable-remote` and
+`disable-remote` take Setup's own mutex (`SetupMutex` in `baihe.iss`, both
+`BaiheStudioSetupMutex` and `Global\BaiheStudioSetupMutex`) for as long as
+they run: Setup started meanwhile says it is already running, and while
+Setup (or another of those three) holds it they are refused with exit code 2,
+changing nothing ("Setup is running ...; try again when it has finished").
+The mutex they create lets everyone open it for `SYNCHRONIZE`, because Setup
+runs unelevated and checks with `OpenMutex`. `install`, `stop` and
+`uninstall` don't take it (Setup runs them while it holds it), and neither
+does the read-only `status`.
+
+`service.py --help` prints the same list. The CI checks the menu only through
+its non-interactive `-Status`; the menu, its prompts and the elevation
+prompt are not run in CI.
 
 **What it does not do.**
 
@@ -572,6 +621,8 @@ per-user.
 - The program folder stays user-writable, so a changed file there runs as the
   low-privilege service account, not as LocalSystem.
 - No health monitoring or banner.
+- `set-port` can race the launcher: its check for a launcher-started server on the service's port runs once, so a server the launcher starts during the move isn't caught.
+- The elevated menu's PowerShell host reads the user's environment (as any elevated console does); it passes only fixed words and checked numbers to the admin folder's Python.
 
 **Caddy and remote access (owner's opt-in).** Four rules, owner decisions:
 
