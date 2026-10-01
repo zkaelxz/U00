@@ -980,11 +980,236 @@ class TestChosenPort:
         assert service.stored_api_port(tmp_path / "missing.json") == service.ADMIN_PORT
 
 
+class TestSetPort:
+    """`set-port N`: the way to move an installed service, from the admin
+    copy; refused with nothing changed, or put back if the new port doesn't
+    answer."""
+
+    def _installed(self, layout, source, remote=False, in_use=(), probed=None, health=None):
+        """An installed service (remote access on if asked), and a Services
+        whose health probe answers on every port `health` allows (all, by
+        default) and records the ports it probed."""
+        win = FakeWindows()
+        if remote:
+            (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
+
+        def probe(port):
+            if probed is not None:
+                probed.append(port)
+            return True if health is None else health(port)
+        svc = _services(layout, win, source, health=probe, is_baihe=lambda p, d: True,
+                        port_check=lambda p: p in in_use or p == 443)
+        svc.install()
+        if remote:
+            svc.enable_remote(8610)
+        return svc, win
+
+    def _snapshot(self, layout):
+        return {p: p.read_bytes() for p in layout.admin.rglob("*") if p.is_file()}
+
+    def test_moves_the_service_and_writes_both_places(self, layout, source, capsys):
+        probed = []
+        svc, win = self._installed(layout, source, probed=probed)
+        del probed[:]
+        assert service.main(["set-port", "8711"], services=svc, admin=True) == 0
+        assert "http://127.0.0.1:8711" in capsys.readouterr().out
+        assert service.stored_api_port(layout.config_file) == 8711
+        config = service.read_config(layout.config_file)
+        assert config["install_root"] == str(layout.root) and config["data_dir"] == str(layout.data)
+        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8711"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+        assert set(probed) == {8711}
+        assert not layout.config_file.with_name("config.json.new").exists()
+
+    def test_with_remote_on_caddy_stops_first_and_starts_after(self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        calls = len(win.calls)
+        message = svc.set_port("8711")
+        verbs = [(c[1], c[2]) for c in win.calls[calls:] if c[1] in ("stop", "start")]
+        assert verbs == [("stop", "BaiheCaddy"), ("stop", "BaiheStudio"),
+                         ("start", "BaiheStudio"), ("start", "BaiheCaddy")]
+        env = _xml_env(layout.wrapper_xml("BaiheStudio"))
+        assert env["BAIHE_API_PORT"] == "8711" and env["BAIHE_API_HOUSEHOLD_PORT"] == "8610"
+        assert win.services["BaiheCaddy"]["state"] == "RUNNING"
+        assert svc.remote_state() == {"household_port": 8610}
+        assert "Remote access is still on" in message
+
+    @pytest.mark.parametrize("bad", ["80", "1023", "70000", "0", "-1", "abc", "87 11", "",
+                                     "8501", "8756", "8610", "٨٧١١"])
+    def test_a_bad_port_is_refused_and_changes_nothing(self, layout, source, bad, capsys):
+        svc, win = self._installed(layout, source)
+        before, calls = self._snapshot(layout), len(win.calls)
+        assert service.main(["set-port", bad], services=svc, admin=True) == 2
+        assert "Nothing was changed" in capsys.readouterr().err
+        assert self._snapshot(layout) == before
+        assert {c[1] for c in win.calls[calls:]} <= {"query"}
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+
+    def test_the_household_port_is_refused(self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        svc.enable_remote(8612)
+        before, calls = self._snapshot(layout), len(win.calls)
+        with pytest.raises(service.ConfigRefused, match="8612"):
+            svc.set_port("8612")
+        assert self._snapshot(layout) == before
+        assert {c[1] for c in win.calls[calls:]} <= {"query"}
+
+    def test_a_port_another_program_holds_is_refused(self, layout, source):
+        svc, win = self._installed(layout, source, in_use=(8711,))
+        before = self._snapshot(layout)
+        with pytest.raises(service.ConfigRefused, match="already in use"):
+            svc.set_port("8711")
+        assert self._snapshot(layout) == before and svc.api_port() == service.ADMIN_PORT
+
+    def test_the_same_port_changes_nothing(self, layout, source):
+        svc, win = self._installed(layout, source)
+        before, calls = self._snapshot(layout), len(win.calls)
+        assert "already uses port 8600" in svc.set_port("8600")
+        assert self._snapshot(layout) == before
+        assert {c[1] for c in win.calls[calls:]} <= {"query"}
+
+    def test_refused_while_the_launcher_runs_a_server_on_the_service_port(self, layout, source):
+        # The service is stopped and something answers /api/health on its
+        # port: the launcher's own server on the same data folder.
+        svc, win = self._installed(layout, source)
+        win.services["BaiheStudio"]["state"] = "STOPPED"
+        before = self._snapshot(layout)
+        with pytest.raises(service.ConfigRefused, match="Stop Baihe Studio"):
+            svc.set_port("8711")
+        assert self._snapshot(layout) == before
+        assert win.services["BaiheStudio"]["state"] == "STOPPED"
+
+    def test_a_new_port_that_does_not_answer_is_put_back(self, layout, source, capsys):
+        probed = []
+        svc, win = self._installed(layout, source, probed=probed, health=lambda p: p != 8711)
+        before = self._snapshot(layout)
+        del probed[:]
+        assert service.main(["set-port", "8711"], services=svc, admin=True) == 1
+        err = capsys.readouterr().err
+        assert "127.0.0.1:8711/api/health" in err and "back on port 8600" in err
+        assert self._snapshot(layout) == before
+        assert service.stored_api_port(layout.config_file) == service.ADMIN_PORT
+        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8600"
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+        assert probed[-1] == service.ADMIN_PORT
+
+    def test_a_failure_with_remote_on_restores_caddy_too(self, layout, source):
+        svc, win = self._installed(layout, source, remote=True)
+        svc.health = lambda p: p != 8711
+        before = self._snapshot(layout)
+        with pytest.raises(service.ServiceError, match="back on port 8600"):
+            svc.set_port("8711")
+        assert self._snapshot(layout) == before
+        assert win.services["BaiheStudio"]["state"] == "RUNNING"
+        assert win.services["BaiheCaddy"]["state"] == "RUNNING"
+        assert win.services["BaiheCaddy"]["start"] == "AUTO_START"
+        env = _xml_env(layout.wrapper_xml("BaiheStudio"))
+        assert env["BAIHE_API_PORT"] == "8600" and env["BAIHE_API_HOUSEHOLD_PORT"] == "8610"
+
+    def test_a_failed_put_back_says_so(self, layout, source):
+        svc, win = self._installed(layout, source)
+        svc.health = lambda p: False
+        with pytest.raises(service.ServiceError, match="also failed"):
+            svc.set_port("8711")
+        # The old port is stored again whatever happened to the service.
+        assert service.stored_api_port(layout.config_file) == service.ADMIN_PORT
+
+    def test_refused_when_the_service_is_not_installed(self, layout, source, capsys):
+        svc = _services(layout, FakeWindows(), source)
+        assert service.main(["set-port", "8711"], services=svc, admin=True) == 2
+        err = capsys.readouterr().err
+        assert "isn't installed as a service" in err and "BAIHE_API_PORT" in err
+        assert not layout.admin.exists()
+
+    def test_needs_administrator_rights(self, layout, source):
+        svc, win = self._installed(layout, source)
+        calls = len(win.calls)
+        assert service.main(["set-port", "8711"], services=svc, admin=False) == 3
+        assert win.calls[calls:] == []
+
+    def test_an_update_keeps_the_port_set_port_chose(self, layout, source):
+        svc, win = self._installed(layout, source)
+        svc.set_port("8711")
+        for name in win.services:
+            win.services[name]["state"] = "STOPPED"     # Setup stopped them
+        svc.install()
+        assert svc.api_port() == 8711
+        assert _xml_env(layout.wrapper_xml("BaiheStudio"))["BAIHE_API_PORT"] == "8711"
+
+    def test_help_lists_every_command(self, capsys):
+        with pytest.raises(SystemExit):
+            service.main(["--help"])
+        out = capsys.readouterr().out
+        for command in ("status", "set-port N", "enable-remote", "disable-remote", "stop",
+                        "install", "uninstall", r"helper\lib\installer\service.py"):
+            assert command in out, command
+
+
+class TestServiceMenuScript:
+    """installer/service_menu.ps1 can't run here; these pin what its
+    elevated runs may contain."""
+
+    @pytest.fixture
+    def ps1(self):
+        return (ROOT / "installer" / "service_menu.ps1").read_text(encoding="utf-8")
+
+    def test_ascii_only(self, ps1):
+        # Windows PowerShell reads a file without a BOM in the ANSI code page.
+        assert ps1.isascii()
+
+    def test_elevates_only_the_admin_folders_copy(self, ps1):
+        assert '$Admin = Join-Path ([Environment]::GetFolderPath("ProgramFiles")) "Baihe Studio Services"' in ps1
+        assert '$Self = Join-Path $Admin "helper\\lib\\installer\\service_menu.ps1"' in ps1
+        assert "$PSScriptRoot" not in ps1
+        elevations = re.findall(r"-Verb RunAs -ArgumentList \(\s*'([^)]*)\)", ps1)
+        assert elevations == ["-NoProfile -ExecutionPolicy Bypass -File \"' + $Self + '\"'"]
+        # The elevated menu refuses to run from any other copy.
+        assert "[string]::Equals($PSCommandPath, $Self" in ps1
+
+    def test_runs_the_admin_folders_python_with_fixed_words_and_checked_numbers(self, ps1):
+        assert '$Python = Join-Path $Admin "helper\\python\\python.exe"' in ps1
+        assert "-cmatch '\\A[0-9]{1,5}\\z'" in ps1
+        calls = re.findall(r"Invoke-Service @\(([^)]*)\)", ps1)
+        assert calls and all(re.fullmatch(r'"[a-z-]+"(, "--household-port")?(, \[string\]\$n)?', c)
+                             for c in calls), calls
+        assert {re.match(r'"([a-z-]+)"', c).group(1) for c in calls} == {
+            "status", "set-port", "enable-remote", "disable-remote"}
+        # Every number reaches service.py only through Get-CheckedPort (or the default).
+        assert ps1.count("Get-CheckedPort $answer") == 2
+
+    def test_warns_that_the_variable_does_not_move_the_service(self, ps1):
+        assert "BAIHE_API_PORT environment variable does NOT change" in ps1
+
+
+class TestStatusPorts:
+    def test_lists_every_port_baihe_uses(self, layout, source):
+        svc = _services(layout, FakeWindows(), source, port_check=lambda p: p == 443,
+                        is_baihe=lambda p, d: True)
+        svc.install("8611")
+        out = svc.status()
+        block = out.split("Ports Baihe Studio uses on this PC:\n", 1)[1]
+        assert f"Baihe Studio's port: http://127.0.0.1:8611 (stored in {layout.config_file})" in block
+        assert "127.0.0.1:8756" in block
+        assert "Household listener" not in block and "443" not in block
+        assert "set-port" in block and "BAIHE_API_PORT" in block
+        (layout.data / ".env").write_text(SIGN_IN, encoding="utf-8")
+        svc.enable_remote(8610)
+        block = svc.status().split("Ports Baihe Studio uses on this PC:\n", 1)[1]
+        assert "Household listener: 127.0.0.1:8610" in block and "HTTPS: 443 (Caddy" in block
+
+    def test_says_when_the_port_is_the_default(self, layout, source):
+        svc = _services(layout, FakeWindows(), source)
+        svc.install()
+        layout.config_file.write_text('{"install_root": "x", "data_dir": "y"}', encoding="utf-8")
+        assert "http://127.0.0.1:8600 (the default; no port is stored)" in svc.status()
+
+
 class TestPortsMatchTheApp:
     def test_the_pc_listener_port_is_the_apps_default(self):
         from api import api_config
         import page_server
         assert service.ADMIN_PORT == api_config.DEFAULT_PORT
+        assert service.EXTENSION_BRIDGE_PORT == page_server.DEFAULT_PORT
         assert page_server.DEFAULT_PORT in service.RESERVED_PORTS
 
     def test_the_household_port_may_not_be_one_of_baihes_own(self, monkeypatch, tmp_path):

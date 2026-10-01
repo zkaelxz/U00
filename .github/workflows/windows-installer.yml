@@ -363,6 +363,42 @@ jobs:
           if (Get-NetTCPConnection -State Listen -LocalPort 8611 -ErrorAction SilentlyContinue) { Write-Error "port 8611 is still listening after the move back"; exit 1 }
           Write-Host "The service moved to the chosen port 8611 (and nowhere else), then back to 8600."
 
+      # Once the service is installed, set-port is the way to move it, and the
+      # launcher follows the stored port whatever BAIHE_API_PORT says. The
+      # Start-menu service menu is checked through its non-interactive -Status
+      # (the menu itself and its elevation prompt can't run here). Moved back
+      # to the default afterwards for the steps below.
+      - name: Service -- set-port moves it, the launcher follows, and back
+        shell: pwsh
+        run: |
+          $admin = Join-Path $env:ProgramW6432 "Baihe Studio Services"
+          $py = "$admin\helper\python\python.exe"
+          $svcpy = "$admin\helper\lib\installer\service.py"
+          & $py -I -S $svcpy set-port 8711
+          if ($LASTEXITCODE -ne 0) { Write-Error "set-port 8711 exited $LASTEXITCODE"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8711/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8711 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8600 -ErrorAction SilentlyContinue) { Write-Error "port 8600 is still listening after set-port 8711"; exit 1 }
+          $env:BAIHE_API_PORT = "8600"
+          $out = (& "$env:APP_DIR3\python\python.exe" -s "$env:APP_DIR3\app\installer\launcher.py" --no-browser) | Out-String
+          $code = $LASTEXITCODE
+          Remove-Item Env:BAIHE_API_PORT
+          if ($code -ne 0 -or $out -notmatch '127\.0\.0\.1:8711') { Write-Error "the launcher didn't use the service's port 8711 (exit $code): $out"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8600 -ErrorAction SilentlyContinue) { Write-Error "the launcher started a second server on 8600"; exit 1 }
+          $menu = "$admin\helper\lib\installer\service_menu.ps1"
+          $status = (powershell.exe -NoProfile -ExecutionPolicy Bypass -File $menu -Status) | Out-String
+          if ($LASTEXITCODE -ne 0 -or $status -notmatch 'Ports Baihe Studio uses' -or $status -notmatch '127\.0\.0\.1:8711') { Write-Error "the service menu's status: $status"; exit 1 }
+          $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Baihe Studio\Baihe Studio service.lnk"
+          if (-not (Test-Path $lnk)) { Write-Error "no Start-menu item $lnk"; exit 1 }
+          $lnkArgs = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).Arguments
+          if ($lnkArgs.IndexOf($menu, [StringComparison]::OrdinalIgnoreCase) -lt 0) { Write-Error "the Start-menu item runs '$lnkArgs', not the admin folder's menu"; exit 1 }
+          & $py -I -S $svcpy set-port 8600
+          if ($LASTEXITCODE -ne 0) { Write-Error "set-port 8600 exited $LASTEXITCODE"; exit 1 }
+          $health = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 10
+          if ($health.StatusCode -ne 200) { Write-Error "/api/health on 8600 answered $($health.StatusCode)"; exit 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort 8711 -ErrorAction SilentlyContinue) { Write-Error "port 8711 is still listening after set-port 8600"; exit 1 }
+          Write-Host "set-port moved the service to 8711 and back; the launcher and the service menu followed it."
+
       # Remote access is the owner's own step. Without its sign-in settings
       # enable-remote refuses and changes nothing; nothing here runs it with
       # settings, so no port opens, no certificate is requested and no

@@ -10,11 +10,16 @@ window of its own; errors are shown in a message box.
 
 It does what start.bat does for a source checkout, minus the setup the
 installer already did: if the app server already answers on
-http://127.0.0.1:<port>/api/health (8600 by default), it just opens a window on it; otherwise
+http://127.0.0.1:<port>/api/health, it just opens a window on it; otherwise
 it starts `python -m api` (loopback only) in its own minimized console
 window -- closing that window stops the app -- waits for /api/health, and
 opens the app in its own window (Edge app mode, then Chrome, then the
 default browser).
+
+The port: when Baihe Studio's boot service is installed, the one it stores
+(installer/service.py, changed only with `service.py set-port`), so the
+launcher finds the service rather than starting a second server on the same
+data folder; otherwise BAIHE_API_PORT, or 8600 when that isn't set.
 
     launcher.py               start (if needed) and open a window
     launcher.py --no-browser  start (if needed), wait for /api/health, exit;
@@ -31,6 +36,7 @@ Standard library only: it runs before anything else is known to work.
 """
 
 import argparse
+import json
 import os
 import secrets
 import socket
@@ -103,6 +109,43 @@ def port_from_env(env) -> int:
         raise LaunchError(f"BAIHE_API_PORT must be a port number, like {DEFAULT_PORT}.")
     if not 1 <= port <= 65535:
         raise LaunchError("BAIHE_API_PORT must be between 1 and 65535.")
+    return port
+
+
+# installer/service.py's admin-only folder and its config.json, which users
+# can read. The ports the service refuses besides being out of range
+# (installer/service.api_port_problem): Streamlit's, the extension bridge's
+# and the default household port.
+SERVICE_CONFIG_PATH = ("Baihe Studio Services", "helper", "config.json")
+SERVICE_REFUSED_PORTS = (8501, 8756, 8610)
+
+
+def service_config_file():
+    """Where the boot service stores its port, or None off Windows."""
+    if os.name != "nt":
+        return None
+    program_files = os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+    return os.path.join(program_files, *SERVICE_CONFIG_PATH) if program_files else None
+
+
+def service_port(config_file=None):
+    """The installed boot service's port, or None when there is no service
+    (no config.json) or its config.json can't be read or holds an unusable
+    port. Parsed as strictly as service.stored_api_port; a config.json from
+    before the port could be chosen means the default."""
+    path = service_config_file() if config_file is None else config_file
+    if path is None:
+        return None
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    port = data.get("api_port", DEFAULT_PORT)
+    if (not isinstance(port, int) or isinstance(port, bool) or not 1024 <= port <= 65535
+            or port in SERVICE_REFUSED_PORTS):
+        return None
     return port
 
 
@@ -426,6 +469,11 @@ def show_message(text: str, error: bool = True, headless: bool = False) -> None:
 
 def launch(headless: bool = False) -> int:
     env = server_env()
+    stored = service_port()
+    if stored is not None:
+        # The service's port wins over BAIHE_API_PORT, also when the launcher
+        # starts the server itself (the service is stopped).
+        env["BAIHE_API_PORT"] = str(stored)
     port = port_from_env(env)
     url = app_url(port)
     if not health_ok(port):
@@ -437,10 +485,12 @@ def launch(headless: bool = False) -> int:
         if acquire_start_lock():
             try:
                 if port_open(port):
+                    fix = ("move Baihe Studio's service to another port with \"Baihe Studio "
+                           "service\" in the Start menu" if stored is not None else
+                           "set BAIHE_API_PORT to another port (for example 8601) and try again")
                     raise LaunchError(
                         f"Something else is already using port {port}, and it isn't Baihe Studio "
-                        f"({url}api/health doesn't answer). Close that program, or set "
-                        "BAIHE_API_PORT to another port (for example 8601) and try again.")
+                        f"({url}api/health doesn't answer). Close that program, or {fix}.")
                 proc = start_server(console_python(), env, headless)
                 healthy = wait_for_health(port, proc)
                 if healthy:
