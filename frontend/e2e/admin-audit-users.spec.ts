@@ -152,7 +152,7 @@ test('Users: on the PC, removes admin rights after a confirm and refreshes the l
     users = [ME_ADMIN, updated, KID]
     return r.fulfill({ json: updated })
   })
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Users/)
   const list = page.getByRole('list', { name: 'Users' })
   const self = list.locator('li').nth(0)
@@ -181,7 +181,7 @@ test('Users: a last-admin refusal from the server is shown in the banner', async
     status: 409,
     json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so their admin rights can't be removed." } },
   }))
-  await page.goto('/#/diagnostics')
+  await page.goto('/#/admin')
   await openSection(page, /^Users/)
   const section = page.getByTestId('admin-users')
   await section.getByRole('button', { name: 'Remove admin second@example.com' }).click()
