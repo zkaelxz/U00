@@ -388,6 +388,7 @@ baihe-subtitler/
 │   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
+│   ├── sources_save_service.py   Saving a comic series' chapters as CBZ files under <data dir>/saved_comics
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text and SO06 comic pages from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job

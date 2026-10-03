@@ -6,7 +6,7 @@ import { safeDetail } from '../../components/errorMessages'
 import type { DramaCreateRequest } from '../../types/library'
 import type { SeriesChapter } from '../../types/sources'
 import type {
-  ChapterImportResult, ChapterImportRow, ImportState, UrlImportResult, UrlPreview,
+  ChapterImportResult, ChapterImportRow, ChapterSaveResult, ChapterSaveRow, ImportState, UrlImportResult, UrlPreview,
 } from '../../types/sourcesImport'
 
 // Remote viewers may not import from sources yet (docs/remote-access-decision.md:
@@ -260,3 +260,34 @@ export function downloadReason(url: string, hasAudio: boolean, confirmReplace: b
   if (hasAudio && !confirmReplace) return 'Still needed: tick “Replace the current audio”.'
   return null
 }
+
+// ---------------------------------------------------------------- save as CBZ
+
+export const saveLabel = (n: number) => `Save ${plural(n, 'chapter')} as CBZ`
+
+/** Why Save as CBZ is disabled, or null when it can run. */
+export function saveReason(count: number): string | null {
+  if (count === 0) return 'Still needed: at least one chapter.'
+  if (count > MAX_CHAPTERS) return `Save at most ${MAX_CHAPTERS} chapters at a time.`
+  return null
+}
+
+export function saveSummary(r: ChapterSaveResult): string {
+  const parts = [`${r.saved_count} saved`]
+  if (r.skipped_count) parts.push(`${r.skipped_count} already saved`)
+  if (r.failed_count) parts.push(`${r.failed_count} failed`)
+  if (r.not_found_count) parts.push(`${r.not_found_count} not found`)
+  if (r.not_attempted_count) parts.push(`${r.not_attempted_count} not attempted`)
+  return (r.cancelled ? 'Stopped. ' : '') + parts.join(' · ')
+}
+
+export function saveOutcomeText(c: ChapterSaveRow): string {
+  if (c.outcome === 'saved') return typeof c.pages === 'number' ? `Saved · ${plural(c.pages, 'page')}` : 'Saved'
+  if (c.outcome === 'skipped') return 'Already saved'
+  if (c.outcome === 'not_found') return 'No longer on the site'
+  if (c.outcome === 'not_attempted') return 'Not attempted'
+  const why = c.error ? safeDetail(c.error) : null
+  return why ? `Failed: ${why}` : 'Failed'
+}
+
+export const saveOutcomeTone = (outcome: string) => (outcome === 'saved' ? 'ok' : outcomeTone(outcome))

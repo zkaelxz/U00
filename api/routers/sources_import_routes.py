@@ -26,6 +26,10 @@ person confirms one AI call (engine required; `engines.paid` for a paid
 one). The job ends in a Review extraction; nothing is written until the
 review is imported.
 
+POST /{name}/save writes chosen chapters of a comic series to
+`<data dir>/saved_comics/` as CBZ files, one save at a time (job
+`sources_save`); no drama is involved and no path is returned.
+
 GET /{name}/import-state (Step 107) reads sources.db only: which chapters
 of a series are already in a drama, and which the last imports left
 failed or not attempted, so the picker can mark them and offer a retry.
@@ -38,13 +42,14 @@ HTTP only: no signed-in profile and no browser.
 from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import is_local_request, require_engines_allowed, require_permission
-from api.schemas import (ErrorResponse, SourcesChapterImportRequest, SourcesJobStarted,
-                         SourcesUrlPreviewRequest)
+from api.schemas import (ErrorResponse, SourcesChapterImportRequest, SourcesChapterSaveRequest,
+                         SourcesJobStarted, SourcesUrlPreviewRequest)
 from api.sources_extraction_schemas import (SourcesAiRecoverRequest,
                                             SourcesUrlImportFollowRequest)
 from api.sources_import_schemas import SourcesImportState
 from services import sources_extraction_service as extraction
 from services import sources_import_service as svc
+from services import sources_save_service as save_svc
 from services import sources_url_service as url_svc
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -83,6 +88,15 @@ def post_chapter_import(body: SourcesChapterImportRequest, request: Request,
                         name: str = Path(min_length=1, max_length=60)):
     return svc.start_chapter_import(name, body.series_id, body.chapter_ids, body.drama_id,
                                     principal=request.state.principal)
+
+
+@router.post("/{name}/save", dependencies=[require_permission("sources.import")],
+             response_model=SourcesJobStarted,
+             summary="Job: save chosen chapters (by id) of one comic series as CBZ files on this PC",
+             responses=_ERRS)
+def post_chapter_save(body: SourcesChapterSaveRequest,
+                      name: str = Path(min_length=1, max_length=60)):
+    return save_svc.start_chapter_save(name, body.series_id, body.chapter_ids)
 
 
 @router.post("/{name}/import/{chapter_id}/ai-recover",

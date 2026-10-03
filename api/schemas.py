@@ -3494,6 +3494,14 @@ class SourcesChapterImportRequest(BaseModel):
     drama_id: int = Field(ge=1)
 
 
+class SourcesChapterSaveRequest(BaseModel):
+    """Chapter ids of one comic series to save as CBZ files on this PC
+    (services/sources_save_service.py). Ids only, like an import."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(min_length=1, max_length=200)
+    chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
+
+
 # ---------------------------------------------------------------------------
 # Sources S-5 paste-a-URL preview and novel import
 # (services/sources_url_service.py, services/sources_import_service.py).
