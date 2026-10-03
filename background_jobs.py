@@ -387,6 +387,46 @@ def _queue_message(position: int) -> str:
     return GPU_WAIT_MESSAGE if position <= 1 else f"{GPU_WAIT_MESSAGE} - number {position} in line"
 
 
+def _external_gpu_wait_message(load: dict):
+    """The waiting message when a program Baihe did not start is using the
+    GPU, or None if the reading shows no such load. Numbers only: nvidia-smi
+    is queried for totals, never for process names, paths or command lines."""
+    import diagnostics
+    util = load.get("utilization_percent") or 0
+    free_mb = load.get("memory_free_mb")
+    total_mb = load.get("memory_total_mb") or 0
+    busy_util = util >= diagnostics.EXTERNAL_GPU_BUSY_UTIL_PERCENT
+    busy_mem = free_mb is not None and free_mb < diagnostics.EXTERNAL_GPU_BUSY_MIN_FREE_MB
+    if not (busy_util or busy_mem):
+        return None
+    used_gb = (total_mb - (free_mb or 0)) / 1024
+    usage = f"about {used_gb:.1f} GB of {total_mb / 1024:.1f} GB in use"
+    if busy_util and not busy_mem:
+        usage += f", GPU about {util:.0f}% busy"
+    return ("Waiting for the GPU: another program is using it (" + usage + "). "
+            "Close GPU-heavy apps such as games, video editors or other AI tools, "
+            "or turn off GPU use in Settings.")
+
+
+def _note_gpu_wait_reason_locked(job_id):
+    """Caller holds _lock. Records on the waiting job whether the GPU is held
+    by another program rather than by a Baihe job, so the queued message can
+    say why. Only looks at the driver when no Baihe job here is running."""
+    job = _jobs.get(job_id)
+    if job is None or job.get("status") != "queued":
+        return
+    reason = None
+    if _running_gpu_job_count_locked(job_id) == 0:
+        try:
+            import diagnostics
+            load = diagnostics.external_gpu_load()
+            reason = _external_gpu_wait_message(load) if load else None
+        except Exception as exc:
+            _warn("GPU wait-reason check failed", exc)
+    job["gpu_wait_external"] = reason
+    _refresh_queue_messages_locked()
+
+
 def _refresh_queue_messages_locked():
     """Caller holds _lock: rewrites each queued job's message to its
     current place in _gpu_queue after the queue changed."""
@@ -396,7 +436,7 @@ def _refresh_queue_messages_locked():
         if not job or job.get("status") != "queued":
             continue
         position += 1
-        message = _queue_message(position)
+        message = (job.get("gpu_wait_external") if position == 1 else None) or _queue_message(position)
         if job.get("message") != message:
             job["message"] = message
             _mirror_locked(entry["job_id"])
@@ -442,7 +482,10 @@ def _gpu_slot_available_locked(job_id, description):
     if _running_gpu_job_count_locked(job_id) >= get_gpu_max_parallel():
         return False
     try:
-        return try_take_gpu_slot(f"ui:{job_id}", description, check_external_load=True)
+        if try_take_gpu_slot(f"ui:{job_id}", description, check_external_load=True):
+            return True
+        _note_gpu_wait_reason_locked(job_id)
+        return False
     except Exception as exc:
         # Fails closed: without the cross-process lock a CLI GPU run could
         # share the card. The job queues and the API's GPU-queue poller
@@ -876,7 +919,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": kwargs, "description": description, "kind": "thread"})
-            _refresh_queue_messages_locked()
+            _note_gpu_wait_reason_locked(job_id)
             return True
         _jobs[job_id] = {
             "status": "running", "progress": 0.0, "message": "Starting...",
@@ -954,7 +997,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done})
-            _refresh_queue_messages_locked()
+            _note_gpu_wait_reason_locked(job_id)
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
                                                    owner_user_id)
@@ -1174,17 +1217,31 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         _promote_next_queued_gpu_job()
 
 
+# A running job whose stage reports progress, but has not reported any for
+# this long, is flagged "may be stalled" (state unchanged). Stages that
+# cannot report progress (model download/load) get the longer allowance.
+JOB_STALL_SECONDS = 5 * 60
+JOB_STALL_NO_PROGRESS_SECONDS = 15 * 60
+
+
 def update_progress(job_id: str, frac: float, message: str = ""):
     """Called FROM inside the background thread to report progress.
     Silently does nothing if the job was cleared (e.g. by a reset) out
-    from under it, rather than raising into a background thread."""
+    from under it, rather than raising into a background thread.
+
+    Marks the stage as one that reports progress (stage_ticker undoes that
+    for a stage that cannot)."""
     _gpu_touching = False
     with _lock:
         if job_id in _jobs:
-            _jobs[job_id]["progress"] = frac
+            now = time.time()
+            job = _jobs[job_id]
+            job["progress"] = frac
+            job["progress_at"] = now
+            job["can_report_progress"] = True
             # Once cancel is asked, the job keeps saying so until it stops.
-            if message and not _jobs[job_id].get("cancel_requested"):
-                _jobs[job_id]["message"] = message
+            if message and not job.get("cancel_requested"):
+                job["message"] = message
             _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
             _emit_change(job_id)
     if _gpu_touching:
@@ -1198,6 +1255,73 @@ def update_progress(job_id: str, frac: float, message: str = ""):
             db.heartbeat_gpu_lock(f"ui:{job_id}")
         except Exception:
             pass
+
+
+def job_may_be_stalled(job: dict, now: float = None) -> bool:
+    """True for a running job (a get_status snapshot) that has reported no
+    progress for JOB_STALL_SECONDS (JOB_STALL_NO_PROGRESS_SECONDS in a stage
+    that cannot report any). Advisory only: it never changes the job's state."""
+    if not job or job.get("status") != "running":
+        return False
+    last = job.get("progress_at") or job.get("started_at")
+    if not last:
+        return False
+    limit = JOB_STALL_SECONDS if job.get("can_report_progress", True) else JOB_STALL_NO_PROGRESS_SECONDS
+    return (time.time() if now is None else now) - last > limit
+
+
+class stage_ticker:
+    """Context manager for a stage that cannot report progress (model
+    download/load): sets `message` plus a plain "no progress available" note
+    and keeps the elapsed time in it fresh every `interval` seconds, so the
+    status shows the job is alive. The ticks do not count as progress, so the
+    job still gets flagged by job_may_be_stalled if the stage hangs."""
+
+    NOTE = "This stage can take several minutes; no progress is available."
+
+    def __init__(self, job_id: str, message: str, frac: float = 0.0, interval: float = 5.0):
+        self.job_id, self.message, self.frac, self.interval = job_id, message, frac, interval
+        self._stop = threading.Event()
+        self._thread = None
+        self._t0 = time.time()
+
+    def _text(self) -> str:
+        secs = int(time.time() - self._t0)
+        elapsed = f"{secs // 60}m {secs % 60:02d}s" if secs >= 60 else f"{secs}s"
+        return f"{self.message.rstrip('. ')} (elapsed {elapsed}). {self.NOTE}"
+
+    def _tick(self):
+        while not self._stop.wait(self.interval):
+            with _lock:
+                job = _jobs.get(self.job_id)
+                if (job is not None and job.get("status") == "running"
+                        and not job.get("cancel_requested")):
+                    job["message"] = self._text()
+                    _emit_change(self.job_id)
+
+    def start(self):
+        if self._thread is None:
+            update_progress(self.job_id, self.frac, self._text())
+            with _lock:
+                if self.job_id in _jobs:
+                    _jobs[self.job_id]["can_report_progress"] = False
+            self._thread = threading.Thread(target=self._tick, daemon=True,
+                                            name=f"stage-ticker:{self.job_id}")
+            self._thread.start()
+        return self
+
+    def stop(self):
+        """Idempotent."""
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc):
+        self.stop()
+        return False
 
 
 def set_result(job_id: str, result, mirror: bool = False):

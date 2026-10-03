@@ -141,6 +141,11 @@ class TestParseUrl:
         assert kind == "chapter"
         assert chapter.chapter_id == "1000012345"
 
+    def test_episode_url_with_a_from_query_is_recognized(self):
+        a = bilibili_manga.BilibiliMangaSource()
+        kind, ch = a.parse_url("https://manga.bilibili.com/mc40738/2129714?from=manga_detail")
+        assert kind == "chapter" and ch.chapter_id == "2129714"
+
     def test_a_series_only_url_does_not_match(self):
         a, t = _adapter({}, lambda url: ("", ""))
         assert a.parse_url("https://manga.bilibili.com/detail/mc28793") is None
@@ -179,3 +184,14 @@ class TestRegistration:
         adapter = registry.find_for_url(CHAPTER_URL)
         assert adapter is not None
         assert adapter.name == "bilibili_manga"
+
+
+class TestEmptyShellMessages:
+    def test_browser_tier_that_still_sees_a_shell_says_so(self, isolated_db):
+        from sources import ladder
+        from sources.models import AccessTier
+
+        def shell(url):
+            return STATIC_SHELL_HTML, ""
+        out = ladder.rendered_tier(None, shell)("https://manga.bilibili.com/mc1/2")
+        assert not out.ok and "browser tier also returned an empty page" in out.detail
