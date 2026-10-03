@@ -87,9 +87,9 @@ test('the menu is keyboard operable and closes with Escape', async ({ page }) =>
 
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('End')
-  await expect(page.getByRole('menuitemradio', { name: 'Sepia' })).toBeFocused()
+  await expect(page.getByRole('menuitemradio', { name: 'OLED black' })).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
+  await expect(html(page)).toHaveAttribute('data-theme', 'oled')
   await expect(menu).toHaveCount(0)
   await expect(btn).toBeFocused()
 
