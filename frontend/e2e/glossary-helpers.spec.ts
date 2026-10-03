@@ -25,7 +25,9 @@ async function openSection(page: Page, title: string) {
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-const notFound = (route: Route) => route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'none' } } })
+// What the server answers when no run is held in this app session.
+const idle = (route: Route) =>
+  route.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', proposals: null, run_id: null } })
 
 async function base(page: Page, { novel }: { novel: boolean }) {
   await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: ME.authOff }))
@@ -43,7 +45,7 @@ const prop = (term: string, en: string, already = false) => ({
   term, suggested_translation: en, category: 'person_name', policy: 'keep_pinyin', reason: 'Recurring name', already_in_glossary: already,
 })
 
-// A mocked extraction route: 404 until started (or an earlier finished
+// A mocked extraction route: idle until started (or an earlier finished
 // run-0 when `earlier` is given), then each start is run-N: running for one
 // read, then done with the next entry of `runs` (the last one repeats).
 // Like the server, a new run's id is readable as soon as the start answers.
@@ -70,7 +72,7 @@ function mockRun(
         run.state = 'running'
         return route.fulfill({ json: kind === 'lines' ? { job_id: job, engine: 'claude', line_count: 12 } : { job_id: job, engine: 'claude', paired: false } })
       }
-      if (run.state === 'none') return notFound(route)
+      if (run.state === 'none') return idle(route)
       const json = body()
       if (run.state === 'running') run.state = 'done'
       return route.fulfill({ json })
@@ -207,7 +209,7 @@ test.describe('desktop', () => {
         started = true
         return route.fulfill({ json: { job_id: 'lines_glossary_1', engine: 'claude', line_count: 12 } })
       }
-      if (!started) return notFound(route)
+      if (!started) return idle(route)
       return route.fulfill({ json: { job_id: 'lines_glossary_1', status: 'running', progress: 0.1, message: '', proposals: null, run_id: 'run-7' } })
     })
     const cancels: unknown[] = []
@@ -240,7 +242,7 @@ test.describe('desktop', () => {
     await page.route('**/api/glossary/dramas/1/from-lines', (route) =>
       route.request().method() === 'POST'
         ? route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } })
-        : notFound(route),
+        : idle(route),
     )
     const runs = await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
@@ -418,7 +420,7 @@ test.describe('phone 390px', () => {
 
   test('Review glossary toggle row fits the phone width', async ({ page }) => {
     await base(page, { novel: false })
-    await page.route('**/api/glossary/dramas/1/from-lines', notFound)
+    await page.route('**/api/glossary/dramas/1/from-lines', idle)
     await page.goto('/#/drama/1/translate')
     const toggle = page.getByRole('region', { name: 'Translate run' }).getByRole('switch', { name: 'Review glossary before translating' })
     await expect(toggle).toHaveAttribute('aria-checked', 'false')

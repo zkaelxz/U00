@@ -1024,14 +1024,15 @@ def get_autotune_status(drama_id: int) -> dict:
     """{job_id, status, progress, message, result} for this drama's auto-tune
     job; result is {"results": [...], "best_candidate_ms"} only when done
     (else None). The message (or a failed job's error) is redacted.
-    NotFoundError when the drama doesn't exist or no auto-tune job is
-    resident in this process (results live only in background_jobs memory)."""
+    NotFoundError when the drama doesn't exist. No auto-tune job resident in
+    this process (results live only in background_jobs memory) is the normal
+    first answer: status "idle", job_id ""."""
     if db.get_drama(drama_id) is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
     job_id = autotune_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
-        raise NotFoundError("No auto-tune run for this drama in this app session.")
+        return {"job_id": "", "status": "idle", "progress": 0.0, "message": "", "result": None}
     status = job.get("status")
     result = None
     if status == "done":

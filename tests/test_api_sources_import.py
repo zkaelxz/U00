@@ -280,7 +280,8 @@ def test_cancel_mid_run_and_delete_refused(client, fakes):
 
 
 def test_job_result_accepts_only_our_ids(client, fakes):
-    assert client.get("/api/sources/jobs/sourceimport_1/result").status_code == 404
+    idle = client.get("/api/sources/jobs/sourceimport_1/result")
+    assert idle.status_code == 200 and idle.json()["status"] == "idle"
     background_jobs.start_job("sourceimport_x", lambda: None)
     _wait("sourceimport_x")
     assert client.get("/api/sources/jobs/sourceimport_x/result").status_code == 404
