@@ -914,6 +914,21 @@ def _trash_dir(tree):
     return os.path.join(tree, dus.TRASH_DIRNAME)
 
 
+def _abs(path, kw):
+    """The full path of an os.unlink/os.rmdir call, also when the POSIX walk
+    names the entry relative to an open folder (dir_fd)."""
+    fd = kw.get("dir_fd")
+    return path if fd is None else os.path.join(os.readlink(f"/proc/self/fd/{fd}"), path)
+
+
+def _empty(**over):
+    """trash_empty with the count and size the list shows."""
+    seen = dus.trash_list()
+    args = {"expected_item_count": seen["item_count"], "expected_size_bytes": seen["size_bytes"]}
+    args.update(over)
+    return dus.trash_empty("DELETE", **args)
+
+
 class TestTrashProtection:
     def test_the_trash_folder_is_in_the_baihe_allow_list(self):
         assert dus.TRASH_DIRNAME in dus._baihe_top_level_names()
@@ -958,7 +973,7 @@ class TestTrashProtection:
             pytest.skip("no symlinks here")
         with pytest.raises(ServiceError):
             _trash_one()
-        for call in (dus.trash_list, lambda: dus.trash_empty("DELETE")):
+        for call in (dus.trash_list, lambda: dus.trash_empty("DELETE", 0, 0)):
             with pytest.raises(ServiceError):
                 call()
         assert os.listdir(outside) == []
@@ -1121,7 +1136,7 @@ class TestTrashPurge:
             pytest.skip("no symlinks here")
         with pytest.raises(InvalidInputError):
             self._purge(fake_id, 4)
-        res = dus.trash_empty("DELETE")
+        res = _empty()
         assert res["removed"] == 1 and res["failed"] == 0      # the real entry; a link isn't one
         assert (outside / "f.txt").read_bytes() == b"keep"
         assert os.path.islink(os.path.join(_trash_dir(tree), fake_id))
@@ -1132,7 +1147,7 @@ class TestTrashPurge:
         with pytest.raises(ConflictError):
             self._purge(done["trash_id"], 400)
         with pytest.raises(ConflictError):
-            dus.trash_empty("DELETE")
+            dus.trash_empty("DELETE", 1, 400)
         assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
         assert background_jobs.exclusive_active() is False
 
@@ -1160,7 +1175,9 @@ class TestTrashPurge:
         assert oct(os.stat(outside / "top.txt").st_mode & 0o777) == oct(0o444)
         assert sorted(os.listdir(outside)) == ["sub", "top.txt"]
 
-    def test_the_walk_never_enters_a_folder_swapped_for_a_link(self, tree, tmp_path):
+    def test_the_path_walk_never_enters_a_folder_swapped_for_a_link(self, tree, tmp_path,
+                                                                    monkeypatch):
+        monkeypatch.setattr(dus, "_fd_walk_supported", lambda: False)     # the Windows walk
         outside = tmp_path / "other"
         outside.mkdir()
         (outside / "f.txt").write_bytes(b"precious")
@@ -1199,12 +1216,14 @@ class TestTrashPurge:
         refused = []
 
         def unlink(path, *a, **k):          # what Windows does to a read-only file
+            path = _abs(path, k)
             if path == target_file and not refused:
                 refused.append(path)
                 raise PermissionError(13, "read-only")
             return real_unlink(path, *a, **k)
 
         def rmdir(path, *a, **k):
+            path = _abs(path, k)
             if path == target_dir and len(refused) == 1:
                 refused.append(path)
                 raise PermissionError(13, "read-only")
@@ -1223,7 +1242,7 @@ class TestTrashPurge:
         real_unlink = os.unlink
 
         def unlink(path, *a, **k):
-            if path.endswith("b.bin"):
+            if _abs(path, k).endswith("b.bin"):
                 raise PermissionError(13, "in use " + path)
             return real_unlink(path, *a, **k)
         monkeypatch.setattr(os, "unlink", unlink)
@@ -1245,16 +1264,16 @@ class TestTrashEmpty:
         _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
         _write(os.path.join(_trash_dir(tree), "notes.txt"), 7)
         _write(os.path.join(_trash_dir(tree), "20260101-000000-abcdef12.bak", "x"), 1)
-        res = dus.trash_empty("DELETE")
+        res = _empty()
         assert res == {"freed_bytes": 1400, "removed": 2, "failed": 0}
         assert sorted(os.listdir(_trash_dir(tree))) == ["20260101-000000-abcdef12.bak", "notes.txt"]
         assert os.path.exists(os.path.join(tree, "library", "dramas", "1", "audio.mp3"))
 
     def test_nothing_to_empty(self, tree):
-        assert dus.trash_empty("DELETE") == {"freed_bytes": 0, "removed": 0, "failed": 0}
+        assert _empty() == {"freed_bytes": 0, "removed": 0, "failed": 0}
         _trash_one()
-        dus.trash_empty("DELETE")
-        assert dus.trash_empty("DELETE")["removed"] == 0
+        _empty()
+        assert _empty()["removed"] == 0
 
     def test_one_failure_leaves_that_entry_and_removes_the_rest(self, tree, monkeypatch):
         a = _trash_one()
@@ -1262,11 +1281,11 @@ class TestTrashEmpty:
         real_unlink = os.unlink
 
         def unlink(path, *x, **k):
-            if os.path.join(a["trash_id"], "payload") in path:
+            if os.path.join(a["trash_id"], "payload") in _abs(path, k):
                 raise PermissionError(13, "in use")
             return real_unlink(path, *x, **k)
         monkeypatch.setattr(os, "unlink", unlink)
-        res = dus.trash_empty("DELETE")
+        res = _empty()
         assert (res["removed"], res["failed"], res["freed_bytes"]) == (1, 1, 1000)
         assert os.listdir(_trash_dir(tree)) == [a["trash_id"]]
         assert b["trash_id"] not in os.listdir(_trash_dir(tree))
@@ -1288,10 +1307,200 @@ class TestTrashList:
     def test_empty_when_there_is_no_trash_folder(self, tree):
         assert dus.trash_list()["items"] == []
 
-    def test_one_walk_at_a_time_with_the_scan(self, tree):
+    def test_a_running_scan_does_not_hide_the_list(self, tree):
+        _trash_one()
         assert dus._scan_lock.acquire(blocking=False)
         try:
-            with pytest.raises(ConflictError):
-                dus.trash_list()
+            res = dus.trash_list()
         finally:
             dus._scan_lock.release()
+        assert res["item_count"] == 1 and res["items"][0]["size_bytes"] == 400
+
+
+class TestTrashHardening:
+    def test_a_trashed_backups_folder_with_db_copies_can_be_restored(self, tree):
+        _write(os.path.join(tree, "library", "backups", "database", "library_20260101.db"), 50)
+        for rel, size, files in (("library/backups/database", 50, 1), ("library/backups", 250, 2)):
+            done = _trash_one(rel, size, files, confirm_irreplaceable=True)
+            item = dus.trash_list()["items"][0]
+            assert item["restorable"] is True
+            dus.trash_restore(done["trash_id"], confirm=True)
+            assert os.path.exists(os.path.join(tree, rel))
+        assert os.path.exists(os.path.join(tree, "library", "backups", "database",
+                                           "library_20260101.db"))
+
+    def test_a_trashed_folder_holding_the_live_database_is_still_refused(self, tree):
+        done = _trash_one()
+        entry = os.path.join(_trash_dir(tree), done["trash_id"])
+        _write(os.path.join(entry, "payload", "library.db"), 10)
+        item = dus.trash_list()["items"][0]
+        assert item["restorable"] is False
+        with pytest.raises(ConflictError) as exc:
+            dus.trash_restore(done["trash_id"], confirm=True)
+        assert exc.value.details["reason"] == "cannot_restore"
+        assert os.path.exists(os.path.join(entry, "payload", "library.db"))
+
+    def test_empty_needs_the_count_and_size_that_were_shown(self, tree):
+        _trash_one()
+        _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        for bad in ({"expected_item_count": 1}, {"expected_size_bytes": 1399},
+                    {"expected_item_count": 3}):
+            with pytest.raises(ConflictError) as exc:
+                _empty(**bad)
+            assert exc.value.details["reason"] == "changed"
+        for missing in (None, True, -1):
+            with pytest.raises(InvalidInputError):
+                _empty(expected_item_count=missing)
+        assert len(os.listdir(_trash_dir(tree))) == 2
+        assert _empty()["removed"] == 2
+
+    def test_a_manifest_of_nested_brackets_counts_as_damaged(self, tree):
+        done = _trash_one()
+        manifest = os.path.join(_trash_dir(tree), done["trash_id"], "manifest.json")
+        with open(manifest, "w") as fh:
+            fh.write("[" * 16000)
+        assert dus._read_manifest(os.path.dirname(manifest)) is None
+        assert dus.trash_list()["items"][0]["original_path_relative"] is None
+
+    def test_an_id_collision_never_touches_the_other_entry(self, tree, monkeypatch):
+        first = _trash_one()
+        entry = os.path.join(_trash_dir(tree), first["trash_id"])
+        before = open(os.path.join(entry, "manifest.json")).read()
+        ids = iter([first["trash_id"]] * 3 + ["20260101-000000-aaaaaaaa"] * 20)
+        monkeypatch.setattr(dus, "_new_trash_id", lambda: next(ids))
+        second = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        assert second["trash_id"] == "20260101-000000-aaaaaaaa"
+        assert open(os.path.join(entry, "manifest.json")).read() == before
+        assert os.path.exists(os.path.join(entry, "payload", "x.html"))
+
+    def test_collisions_on_every_try_fail_and_keep_the_existing_entry(self, tree, monkeypatch):
+        first = _trash_one()
+        entry = os.path.join(_trash_dir(tree), first["trash_id"])
+        monkeypatch.setattr(dus, "_new_trash_id", lambda: first["trash_id"])
+        with pytest.raises(ServiceError):
+            _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        assert os.path.exists(os.path.join(entry, "manifest.json"))
+        assert os.path.exists(os.path.join(tree, "library", "dramas", "2", "audio.mp3"))
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX restore")
+    def test_restore_does_not_overwrite_something_that_appears_at_the_last_moment(
+            self, tree, monkeypatch):
+        done = _trash_one("library/source_cache/x.html")
+        real = dus._restore_target
+
+        def target_then_squat(manifest, meas, ctx):
+            dest, reason = real(manifest, meas, ctx)
+            with open(dest, "wb") as fh:
+                fh.write(b"someone else's")
+            return dest, reason
+        monkeypatch.setattr(dus, "_restore_target", target_then_squat)
+        with pytest.raises(ConflictError):
+            dus.trash_restore(done["trash_id"], confirm=True)
+        assert open(os.path.join(tree, "library", "source_cache", "x.html"), "rb").read() \
+            == b"someone else's"
+        assert os.path.exists(os.path.join(_trash_dir(tree), done["trash_id"], "payload"))
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX restore")
+    def test_a_folder_restore_does_not_replace_an_empty_folder_made_meanwhile(self, tree):
+        src = os.path.join(tree, "src_dir")
+        dst = os.path.join(tree, "dst_dir")
+        os.makedirs(src)
+        os.makedirs(dst)
+        with pytest.raises(OSError):
+            dus._rename_no_overwrite(src, dst, "folder")
+        assert os.path.isdir(src) and os.path.isdir(dst)
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX walk")
+    def test_a_folder_swapped_for_a_link_after_listing_is_not_followed(self, tree, tmp_path,
+                                                                      monkeypatch):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "f.txt").write_bytes(b"precious")
+        _write(os.path.join(tree, "library", "tmp", "deep", "a.bin"), 3)
+        done = _trash_one("library/tmp", 3, 1)
+        entry = os.path.join(_trash_dir(tree), done["trash_id"])
+        real_open = os.open
+        swapped = []
+
+        def open_after_swap(path, flags, *a, **k):
+            if path == "deep" and k.get("dir_fd") is not None and not swapped:
+                fd = k["dir_fd"]
+                base = os.readlink(f"/proc/self/fd/{fd}")
+                import shutil
+                shutil.rmtree(os.path.join(base, "deep"))
+                os.symlink(str(outside), os.path.join(base, "deep"), target_is_directory=True)
+                swapped.append(1)
+            return real_open(path, flags, *a, **k)
+        monkeypatch.setattr(os, "open", open_after_swap)
+        with pytest.raises(OSError):
+            dus._remove_tree(entry)
+        monkeypatch.setattr(os, "open", real_open)
+        assert swapped and (outside / "f.txt").read_bytes() == b"precious"
+
+    def test_readonly_clearing_never_follows_a_link_and_skips_folders_without_nofollow(
+            self, tree, tmp_path, monkeypatch):
+        target = tmp_path / "t.txt"
+        target.write_bytes(b"x")
+        os.chmod(target, 0o444)
+        link = tmp_path / "ln"
+        try:
+            os.symlink(str(target), str(link))
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        with pytest.raises(OSError):
+            dus._clear_readonly(str(link))
+        assert oct(os.stat(target).st_mode & 0o777) == oct(0o444)
+        folder = tmp_path / "d"
+        folder.mkdir()
+        os.chmod(folder, 0o500)
+        calls = []
+        monkeypatch.setattr(os, "supports_follow_symlinks", set())
+        monkeypatch.setattr(os, "chmod", lambda *a, **k: calls.append((a, k)))
+        dus._clear_readonly(str(folder))
+        assert calls == []
+        dus._clear_readonly(str(target))
+        assert len(calls) == 1 and "follow_symlinks" not in calls[0][1]
+        monkeypatch.undo()
+        os.chmod(folder, 0o700)
+
+    def test_a_list_past_its_budget_shows_unknown_size_and_purge_still_works(
+            self, tree, monkeypatch):
+        a = _trash_one()
+        b = _trash_one("library/dramas/2", 1000, 1, confirm_irreplaceable=True)
+        monkeypatch.setattr(dus, "MAX_ENTRIES", 1)
+        res = dus.trash_list()
+        assert res["partial"] is True
+        unknown = [i for i in res["items"] if i["size_bytes"] is None]
+        assert len(unknown) == 1 and unknown[0]["file_count"] is None
+        uid = unknown[0]["id"]
+        with pytest.raises(ConflictError):          # a size was claimed that can't be verified
+            dus.trash_purge(uid, confirm_text="DELETE", expected_size_bytes=1)
+        assert dus.trash_purge(uid, confirm_text="DELETE", expected_size_bytes=None)
+        assert uid in (a["trash_id"], b["trash_id"]) and uid not in os.listdir(_trash_dir(tree))
+
+    def test_the_root_scan_walks_the_trash_once(self, tree, monkeypatch):
+        _trash_one()
+        trash = _trash_dir(tree)
+        walked = []
+        real = dus._measure
+        monkeypatch.setattr(dus, "_measure", lambda p, *a, **k: (walked.append(p), real(p, *a, **k))[1])
+        res = dus.scan("")
+        assert trash not in walked
+        top = _item(res, dus.TRASH_DIRNAME)
+        assert top["size_bytes"] == 400 and top["file_count"] == 1
+
+    def test_the_list_reads_nothing_through_a_link(self, tree, tmp_path, monkeypatch):
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (outside / "manifest.json").write_text("{}")
+        _trash_one()
+        fake = os.path.join(_trash_dir(tree), "20260101-000000-abcdef12")
+        try:
+            os.symlink(str(outside), fake, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("no symlinks here")
+        read = []
+        real = dus._read_manifest
+        monkeypatch.setattr(dus, "_read_manifest", lambda e: (read.append(e), real(e))[1])
+        res = dus.trash_list()
+        assert res["item_count"] == 1 and fake not in read

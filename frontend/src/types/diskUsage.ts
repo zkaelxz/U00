@@ -59,8 +59,9 @@ export type DiskUsageTrashItem = {
   id: string
   original_path_relative: string | null
   kind: 'file' | 'folder' | null
-  size_bytes: number
-  file_count: number
+  // null: the walk limit was reached before this item was measured.
+  size_bytes: number | null
+  file_count: number | null
   trashed_at: string | null
   restorable: boolean
 }

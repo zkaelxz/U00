@@ -48,6 +48,7 @@ Clear and move are server-enforced, not only hidden in the UI:
 
 import contextlib
 import datetime
+import errno
 import json
 import os
 import re
@@ -535,14 +536,15 @@ def _iso(ts: float):
         return None
 
 
-def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx) -> dict:
-    """The public record of one item. `path` is the verified absolute path."""
+def _describe(parts: tuple, path: str, st, budget: _Budget, ctx: _Ctx, measured=None) -> dict:
+    """The public record of one item. `path` is the verified absolute path.
+    `measured` is a _Measured already taken for this folder (not walked again)."""
     is_link = _is_link_stat(st)
     is_dir = stat.S_ISDIR(st.st_mode) and not is_link
     unreadable = has_link = flagged = False
     deepest = len(path)
     if is_dir:
-        m = _measure(path, parts, budget)
+        m = measured or _measure(path, parts, budget)
         size, files, flagged = m.size, m.files, m.flagged
         unreadable, has_link, deepest = m.unreadable, m.has_link, m.deepest
     else:
@@ -608,6 +610,7 @@ def _scan(path) -> dict:
         raise InvalidInputError("That item is a file, not a folder.")
     budget = _Budget()
     ctx = _Ctx()
+    trash_info, trash_measured = _trash_totals()
     items = []
     entries = []
     overflow = 0
@@ -642,7 +645,10 @@ def _scan(path) -> dict:
         except OSError:
             continue
         budget.tick()
-        items.append(_describe(child_parts, entry.path, st, budget, ctx))
+        # The Trash folder was just walked for the summary; don't walk it twice.
+        known = (trash_measured if not parts and entry.name == TRASH_DIRNAME
+                 and not _is_link_stat(st) else None)
+        items.append(_describe(child_parts, entry.path, st, budget, ctx, known))
     not_shown = len(entries) - listed + overflow
     total = sum(i["size_bytes"] for i in items)
     for i in items:
@@ -665,7 +671,7 @@ def _scan(path) -> dict:
         "partial_reason": reason,
         "scanned_entries": budget.entries,
         "busy_reason": busy_reason(),
-        "trash": trash_summary(),
+        "trash": trash_info,
         **disk,
     }
 
@@ -801,18 +807,30 @@ def clear(path, confirm=False, expected_size_bytes=None, expected_file_count=Non
         if _norm(again) != _norm(real) or swapped:
             raise ConflictError(CHANGED, details={"reason": "changed"})
         trash = _trash_root(create=True)
-        trash_id = _new_trash_id()
-        entry = os.path.join(trash, trash_id)
-        payload = os.path.join(entry, TRASH_PAYLOAD)
+        payload = os.path.join(trash, _new_trash_id(), TRASH_PAYLOAD)     # ids are fixed length
         if (not _same_volume(again, trash)
                 or _too_deep(item["_deepest_path"], again, payload)):
             raise ServiceError(TRASH_FAILED)
+        entry = None
+        for _attempt in range(5):
+            candidate = os.path.join(trash, _new_trash_id())
+            try:
+                os.mkdir(candidate)
+            except FileExistsError:
+                continue                    # someone else's entry: never touched
+            except OSError:
+                raise ServiceError(TRASH_FAILED) from None
+            entry = candidate
+            break
+        if entry is None:
+            raise ServiceError(TRASH_FAILED)
+        trash_id = os.path.basename(entry)
+        payload = os.path.join(entry, TRASH_PAYLOAD)
         try:
-            os.mkdir(entry)
             _write_manifest(entry, parts, item)
             _rename(again, payload)
         except OSError:
-            _drop_entry_shell(entry)
+            _drop_entry_shell(entry)        # this call created it
             raise ServiceError(TRASH_FAILED) from None
         return {"moved_bytes": item["size_bytes"], "file_count": item["file_count"],
                 "kind": item["kind"], "name": item["name"], "trash_id": trash_id}
@@ -894,7 +912,7 @@ def _read_manifest(entry: str):
             return None
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     if not isinstance(data, dict):
         return None
@@ -910,9 +928,12 @@ def _read_manifest(entry: str):
             "trashed_at": at if isinstance(at, str) else None}
 
 
-def _measure_payload(entry: str, budget: _Budget) -> dict:
+def _measure_payload(entry: str, budget: _Budget, parts=()) -> dict:
     """What is in an entry's payload: kind (None when missing), size, file
-    count and what _measure reports. A link is its own file and never entered."""
+    count and what _measure reports. A link is its own file and never entered.
+    `parts` is the item's ORIGINAL relative path (from the manifest): files are
+    judged as they would be in their old place, so a trashed backups folder
+    that holds .db copies is not taken for the live database."""
     payload = os.path.join(entry, TRASH_PAYLOAD)
     out = {"kind": None, "size": 0, "files": 0, "flagged": False, "unreadable": False,
            "has_link": False, "deepest": len(payload)}
@@ -924,7 +945,7 @@ def _measure_payload(entry: str, budget: _Budget) -> dict:
         out["unreadable"] = True
         return out
     if stat.S_ISDIR(st.st_mode) and not _is_link_stat(st):
-        m = _measure(payload, (), budget)
+        m = _measure(payload, tuple(parts), budget)
         out.update(kind="folder", size=m.size, files=m.files, flagged=m.flagged,
                    unreadable=m.unreadable, has_link=m.has_link, deepest=m.deepest)
     else:
@@ -963,73 +984,89 @@ def _restore_target(manifest: dict, meas: dict, ctx: _Ctx):
 
 def _trash_entries(trash: str):
     """(id, entry path) of the ordinary folders directly in the Trash folder
-    whose names are Baihe's ids, newest first. Anything else there is ignored."""
+    whose names are Baihe's ids, newest first. Each one is checked with
+    _entry_path (no link, real path where it says), so nothing is read through
+    a link. Anything else there is ignored."""
     try:
         with os.scandir(trash) as it:
-            found = [(e.name, e.path) for e in it
-                     if _TRASH_ID_RE.fullmatch(e.name) and e.is_dir(follow_symlinks=False)]
+            names = [e.name for e in it if _TRASH_ID_RE.fullmatch(e.name)]
     except OSError:
         raise ServiceError("The Trash folder couldn't be read.") from None
-    found.sort(reverse=True)
-    return found[:MAX_ITEMS]
+    names.sort(reverse=True)
+    found = []
+    for name in names:
+        try:
+            found.append((name, _entry_path(name, trash)))
+        except (ServiceError, InvalidInputError, NotFoundError):
+            continue
+        if len(found) >= MAX_ITEMS:
+            break
+    return found
 
 
-def trash_summary() -> dict:
-    """{size_bytes, item_count, partial} of the Trash folder, for the scan."""
+def _trash_totals():
+    """(summary, measured): {size_bytes, item_count, partial} of the Trash
+    folder and a _Measured of the same walk (payload sizes and file counts)
+    that the scan reuses for the baihe_trash item."""
+    m = _Measured()
     try:
         trash = _trash_root()
         if trash is None:
-            return {"size_bytes": 0, "item_count": 0, "partial": False}
+            return {"size_bytes": 0, "item_count": 0, "partial": False}, m
         budget = _Budget()
-        size = 0
         entries = _trash_entries(trash)
         for _id, entry in entries:
             if budget.hit:
                 break
-            size += _measure_payload(entry, budget)["size"]
-        return {"size_bytes": size, "item_count": len(entries), "partial": bool(budget.hit)}
+            meas = _measure_payload(entry, budget)
+            m.size += meas["size"]
+            m.files += meas["files"]
+            m.has_link = m.has_link or meas["has_link"]
+            m.unreadable = m.unreadable or meas["unreadable"]
+        m.unreadable = m.unreadable or bool(budget.hit)
+        return {"size_bytes": m.size, "item_count": len(entries), "partial": bool(budget.hit)}, m
     except ServiceError:
-        return {"size_bytes": 0, "item_count": 0, "partial": True}
+        m.unreadable = True
+        return {"size_bytes": 0, "item_count": 0, "partial": True}, m
+
+
+def trash_summary() -> dict:
+    """{size_bytes, item_count, partial} of the Trash folder, for the scan."""
+    return _trash_totals()[0]
 
 
 def trash_list() -> dict:
     """Every entry in Trash with what it was, its measured size and whether
-    Restore would work now. One walk at a time with the scan."""
-    if not _scan_lock.acquire(blocking=False):
-        raise ConflictError(SCAN_BUSY)
-    try:
-        trash = _trash_root()
-        budget = _Budget()
-        ctx = _Ctx()
-        items = []
-        total = 0
-        entries = _trash_entries(trash) if trash else []
-        for trash_id, entry in entries:
-            manifest = _read_manifest(entry)
-            size = files = 0
-            restorable = False
-            if manifest:
-                size, files = manifest["size_bytes"], manifest["file_count"]
+    Restore would work now. A read-only walk with its own budget; it does not
+    take the scan's lock, so a running scan never hides the list. An entry the
+    walk budget didn't reach has no size (None), never the manifest's."""
+    trash = _trash_root()
+    budget = _Budget()
+    ctx = _Ctx()
+    items = []
+    total = 0
+    entries = _trash_entries(trash) if trash else []
+    for trash_id, entry in entries:
+        manifest = _read_manifest(entry)
+        size = files = None
+        restorable = False
+        kind = (manifest or {}).get("kind")
+        if not budget.hit:
+            meas = _measure_payload(entry, budget, manifest["parts"] if manifest else ())
             if not budget.hit:
-                meas = _measure_payload(entry, budget)
-                if not budget.hit:
-                    size, files = meas["size"], meas["files"]
-                    restorable = bool(manifest) and _restore_target(manifest, meas, ctx)[1] is None
-                kind = (manifest or {}).get("kind") or meas["kind"]
-            else:
-                kind = (manifest or {}).get("kind")
-            total += size
-            items.append({
-                "id": trash_id,
-                "original_path_relative": "/".join(manifest["parts"]) if manifest else None,
-                "kind": kind, "size_bytes": size, "file_count": files,
-                "trashed_at": manifest["trashed_at"] if manifest else None,
-                "restorable": restorable,
-            })
-        return {"items": items, "size_bytes": total, "item_count": len(items),
-                "partial": bool(budget.hit), "busy_reason": busy_reason()}
-    finally:
-        _scan_lock.release()
+                size, files = meas["size"], meas["files"]
+                restorable = bool(manifest) and _restore_target(manifest, meas, ctx)[1] is None
+                kind = kind or meas["kind"]
+        total += size or 0
+        items.append({
+            "id": trash_id,
+            "original_path_relative": "/".join(manifest["parts"]) if manifest else None,
+            "kind": kind, "size_bytes": size, "file_count": files,
+            "trashed_at": manifest["trashed_at"] if manifest else None,
+            "restorable": restorable,
+        })
+    return {"items": items, "size_bytes": total, "item_count": len(items),
+            "partial": bool(budget.hit), "busy_reason": busy_reason()}
 
 
 def _drop_entry_shell(entry: str) -> None:
@@ -1044,6 +1081,42 @@ def _drop_entry_shell(entry: str) -> None:
         os.rmdir(entry)
     except OSError:
         pass
+
+
+def _rename_no_overwrite(src: str, dst: str, kind: str) -> None:
+    """Moves src to dst and fails (OSError) if dst exists or appears meanwhile.
+    Windows' rename already refuses. On POSIX rename would replace a file or an
+    empty folder, so a file is hard-linked (fails when dst exists) and then
+    unlinked from the source, and a folder goes onto a freshly made empty
+    folder of ours (a rename onto a non-empty one fails). Where hard links are
+    not available the last look is a plain existence check right before the
+    rename: a residual window remains there that needs write access to the
+    old place."""
+    if os.name == "nt":
+        _rename(src, dst)
+        return
+    if kind == "folder":
+        os.mkdir(dst)
+        try:
+            _rename(src, dst)
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.rmdir(dst)
+            raise
+        return
+    try:
+        os.link(src, dst, follow_symlinks=False)
+    except FileExistsError:
+        raise
+    except (OSError, NotImplementedError) as exc:
+        if isinstance(exc, OSError) and exc.errno not in (
+                errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP, errno.EMLINK, errno.EXDEV):
+            raise
+        if os.path.lexists(dst):
+            raise FileExistsError(dst) from None
+        _rename(src, dst)
+        return
+    os.unlink(src)
 
 
 def trash_restore(trash_id, confirm=False) -> dict:
@@ -1062,7 +1135,7 @@ def trash_restore(trash_id, confirm=False) -> dict:
                                 "be restored. You can still delete it.",
                                 details={"reason": "cannot_restore"})
         budget = _Budget()
-        meas = _measure_payload(entry, budget)
+        meas = _measure_payload(entry, budget, manifest["parts"])
         if budget.hit:
             raise ConflictError("This is too large to check completely before restoring.",
                                 details={"reason": "cannot_restore"})
@@ -1075,7 +1148,7 @@ def trash_restore(trash_id, confirm=False) -> dict:
             raise ConflictError("It can't be put back there from here (another drive, or the "
                                 "path would be too long).", details={"reason": "cannot_restore"})
         try:
-            _rename(payload, dest)
+            _rename_no_overwrite(payload, dest, manifest["kind"])
         except OSError:
             raise ConflictError("Couldn't put it back (it may be in use), so nothing was "
                                 "changed.", details={"reason": "cannot_restore"}) from None
@@ -1101,18 +1174,103 @@ def _plain_dir(path: str) -> bool:
 def _clear_readonly(path: str) -> None:
     """Drops the read-only bit (Windows refuses to delete such a file or
     folder) of something just seen as an ordinary file or folder, never of a link."""
-    if _is_link_stat(os.lstat(path)):
+    st = os.lstat(path)
+    if _is_link_stat(st):
         raise OSError("link")
-    os.chmod(path, stat.S_IREAD | stat.S_IWRITE | (stat.S_IEXEC if os.path.isdir(path) else 0))
+    mode = stat.S_IREAD | stat.S_IWRITE | (stat.S_IEXEC if stat.S_ISDIR(st.st_mode) else 0)
+    if os.chmod in os.supports_follow_symlinks:
+        os.chmod(path, mode, follow_symlinks=False)
+    elif stat.S_ISREG(st.st_mode):
+        os.chmod(path, mode)
+    # else: without no-follow chmod only a plain file is changed, never a
+    # folder that could have been swapped for a link since the lstat.
+
+
+_FD_WALK_MAX_DEPTH = 200
+
+
+_FD_WALK = (os.name == "posix" and hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
+            and all(f in os.supports_dir_fd for f in (os.open, os.stat, os.unlink, os.rmdir)))
+
+
+def _fd_walk_supported() -> bool:
+    return _FD_WALK
+
+
+def _remove_children_fd(dirfd: int, depth: int) -> None:
+    """Deletes everything inside the folder open as `dirfd`. Every step is
+    relative to an open folder, so a folder swapped for a link after it was
+    listed can't redirect a delete: a link is unlinked itself and a folder is
+    only entered by opening it without following links and checking it is the
+    one that was seen."""
+    if depth > _FD_WALK_MAX_DEPTH:
+        raise OSError("too deep")
+    try:
+        names = os.listdir(dirfd)
+    except PermissionError:
+        os.fchmod(dirfd, stat.S_IRWXU)
+        names = os.listdir(dirfd)
+    for name in names:
+        if name in ("", ".", "..") or "/" in name:
+            raise OSError("unexpected name")
+        st = os.stat(name, dir_fd=dirfd, follow_symlinks=False)
+        if stat.S_ISDIR(st.st_mode):
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dirfd)
+            try:
+                seen = os.fstat(fd)
+                if (seen.st_dev, seen.st_ino) != (st.st_dev, st.st_ino):
+                    raise OSError("folder changed")
+                _remove_children_fd(fd, depth + 1)
+            finally:
+                os.close(fd)
+            try:
+                os.rmdir(name, dir_fd=dirfd)
+            except PermissionError:
+                os.fchmod(dirfd, stat.S_IRWXU)
+                os.rmdir(name, dir_fd=dirfd)
+        else:
+            try:
+                os.unlink(name, dir_fd=dirfd)
+            except PermissionError:
+                os.fchmod(dirfd, stat.S_IRWXU)
+                os.unlink(name, dir_fd=dirfd)
+
+
+def _remove_tree_fd(top: str) -> None:
+    top = os.path.abspath(top)
+    parent_fd = os.open(os.path.dirname(top), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        name = os.path.basename(top)
+        st = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(st.st_mode):
+            raise OSError("not an ordinary folder")
+        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        try:
+            seen = os.fstat(fd)
+            if (seen.st_dev, seen.st_ino) != (st.st_dev, st.st_ino):
+                raise OSError("folder changed")
+            _remove_children_fd(fd, 0)
+        finally:
+            os.close(fd)
+        os.rmdir(name, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)
 
 
 def _remove_tree(top: str) -> None:
     """PERMANENT DELETE: removes `top` and everything in it, never following a
-    link. Links are unlinked themselves (a directory link or junction with
+    link. On POSIX the walk is relative to open folders (_remove_tree_fd). On
+    Windows it goes path by path with a check before each step, so a folder
+    swapped for a junction between the check and the delete is a residual
+    window; closing it needs write access to the Trash folder, i.e. the
+    owner's own account or an equivalent one. Links are unlinked themselves (a directory link or junction with
     rmdir, never entered); folders are listed only after being seen as
     ordinary folders with no link on the way; files lose a read-only bit when
     Windows needs that; folders are removed bottom-up. Raises OSError at the
     first thing that can't be removed (what is left stays)."""
+    if _fd_walk_supported():
+        _remove_tree_fd(top)
+        return
     top = os.path.abspath(top)
     folders = []
     stack = [top]
@@ -1168,7 +1326,9 @@ def trash_purge(trash_id, confirm_text=None, expected_size_bytes=None) -> dict:
     """PERMANENT DELETE of one Trash entry. Needs the typed word and the size
     the person saw (409 when it changed); frees the space."""
     _require_word(confirm_text)
-    if not isinstance(expected_size_bytes, int) or isinstance(expected_size_bytes, bool):
+    unknown = expected_size_bytes is None       # the list showed "size unknown"
+    if not unknown and (not isinstance(expected_size_bytes, int)
+                        or isinstance(expected_size_bytes, bool)):
         raise InvalidInputError("Send the size you were shown.")
     with _changing("Disk usage delete from Trash"):
         trash = _trash_root()
@@ -1177,10 +1337,10 @@ def trash_purge(trash_id, confirm_text=None, expected_size_bytes=None) -> dict:
         entry = _entry_path(trash_id, trash)
         budget = _Budget()
         meas = _measure_payload(entry, budget)
-        if budget.hit:
+        if budget.hit and not unknown:
             raise ConflictError("This is too large to check completely before deleting.",
                                 details={"reason": "changed"})
-        if meas["size"] != expected_size_bytes:
+        if not unknown and meas["size"] != expected_size_bytes:
             raise ConflictError("This Trash item changed since you looked. Reload the list "
                                 "and check again.",
                                 details={"reason": "changed", "size_bytes": meas["size"],
@@ -1192,25 +1352,39 @@ def trash_purge(trash_id, confirm_text=None, expected_size_bytes=None) -> dict:
         return {"freed_bytes": meas["size"], "file_count": meas["files"]}
 
 
-def trash_empty(confirm_text=None) -> dict:
-    """PERMANENT DELETE of every entry in Trash (typed word needed). Entries
+def trash_empty(confirm_text=None, expected_item_count=None, expected_size_bytes=None) -> dict:
+    """PERMANENT DELETE of every entry in Trash (typed word needed). The count
+    and total size the person saw must still match (409 `changed`), and a
+    Trash too large to measure completely can't be emptied this way. Entries
     that can't be removed stay; `failed` counts them. Anything in the Trash
     folder that isn't one of Baihe's entries is left alone."""
     _require_word(confirm_text)
+    for v in (expected_item_count, expected_size_bytes):
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            raise InvalidInputError("Send the item count and size you were shown.")
     with _changing("Disk usage empty Trash"):
         trash = _trash_root()
-        if trash is None:
-            return {"freed_bytes": 0, "removed": 0, "failed": 0}
+        entries = _trash_entries(trash) if trash else []
+        budget = _Budget()
+        sizes = {}
+        for trash_id, entry in entries:
+            sizes[trash_id] = _measure_payload(entry, budget)["size"]
+            if budget.hit:
+                raise ConflictError("The Trash is too large to check completely. Delete its "
+                                    "items one at a time.", details={"reason": "changed"})
+        if len(entries) != expected_item_count or sum(sizes.values()) != expected_size_bytes:
+            raise ConflictError("The Trash changed since you looked. Reload the list and check "
+                                "again.", details={"reason": "changed", "item_count": len(entries),
+                                                   "size_bytes": sum(sizes.values())})
         freed = removed = failed = 0
-        for trash_id, _path in _trash_entries(trash):
+        for trash_id, _path in entries:
             try:
                 entry = _entry_path(trash_id, trash)
-                size = _measure_payload(entry, _Budget())["size"]
                 _delete_entry(entry)
             except (ServiceError, InvalidInputError, NotFoundError, OSError):
                 failed += 1
                 continue
-            freed += size
+            freed += sizes[trash_id]
             removed += 1
         return {"freed_bytes": freed, "removed": removed, "failed": failed}
 

@@ -32,12 +32,14 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
   const [error, setError] = useState<unknown>(null)
   if (!trash) return null
   const blocked = trash.busy_reason
+  // Empty is tied to the list on screen; a list that couldn't be measured completely can't be confirmed.
+  const unmeasured = trash.partial || trash.items.some((t) => t.size_bytes == null)
   const empty = () => {
     setBusy(true)
     setError(null)
-    emptyTrash().then(
+    emptyTrash(trash).then(
       (r) => { setBusy(false); setEmptying(false); onChanged(describeEmptied(r)) },
-      (e: unknown) => { setBusy(false); setError(e); onStale() },
+      (e: unknown) => { setBusy(false); setEmptying(false); setError(e); onStale() },
     )
   }
   return (
@@ -61,11 +63,16 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
               <button
                 type="button"
                 className={buttonClass('secondary', 'sm')}
-                disabled={!!blocked || busy}
+                disabled={!!blocked || busy || unmeasured}
                 onClick={() => setEmptying(true)}
               >
                 Empty Trash…
               </button>
+            )}
+            {unmeasured && (
+              <p className="muted du-why">
+                Some items are too large to measure here, so Empty Trash is off. Delete them one at a time.
+              </p>
             )}
           </div>
           {emptying && (
@@ -80,8 +87,9 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
               onCancel={() => setEmptying(false)}
             >
               <p className="du-warn">
-                Permanently deletes all {trash.item_count} item{trash.item_count === 1 ? '' : 's'} in Trash and frees{' '}
-                {formatBytes(trash.size_bytes)}. This can&apos;t be undone.
+                Permanently deletes the {trash.item_count} item{trash.item_count === 1 ? '' : 's'} in Trash shown
+                above ({formatBytes(trash.size_bytes)}) and frees that space. If anything in Trash changed since this
+                list loaded, nothing is deleted. This can&apos;t be undone.
               </p>
             </TypedConfirm>
           )}
@@ -105,9 +113,11 @@ function TrashRow({ item, blocked, onChanged, onStale }: {
   const name = trashItemName(item)
   const fail = (e: unknown) => {
     setBusy(null)
-    setError(e)
-    // A 409 means it changed or a job started: show the new state.
-    if ((e as { status?: number } | null)?.status === 409) onStale()
+    // A 409 means it changed or a job started; a 404 means it is already gone. Either way show the
+    // new state; for 404 that is the whole answer.
+    const status = (e as { status?: number } | null)?.status
+    if (status !== 404) setError(e)
+    if (status === 409 || status === 404) onStale()
   }
   const restore = () => {
     setBusy('restore')

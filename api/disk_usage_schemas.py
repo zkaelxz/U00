@@ -110,8 +110,9 @@ class DiskUsageTrashItem(BaseModel):
         None, description="Where it came from, relative to the data folder; null when its "
                           "record is missing or damaged.")
     kind: Optional[Literal["file", "folder"]] = None
-    size_bytes: int
-    file_count: int
+    size_bytes: Optional[int] = Field(None, description="Null when the walk limit was reached "
+                                                        "before this item was measured.")
+    file_count: Optional[int] = None
     trashed_at: Optional[str] = None
     restorable: bool
 
@@ -141,7 +142,9 @@ class DiskUsageTrashPurgeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: StrictStr = Field(min_length=1, max_length=64)
     confirm_text: StrictStr = Field(max_length=32, description="The word DELETE, exactly.")
-    expected_size_bytes: StrictInt = Field(ge=0, description="The size the user was shown.")
+    expected_size_bytes: Optional[StrictInt] = Field(
+        ..., ge=0, description="The size the user was shown; null only when the list showed "
+                               "the size as unknown.")
 
 
 class DiskUsageTrashPurgeDone(BaseModel):
@@ -152,6 +155,8 @@ class DiskUsageTrashPurgeDone(BaseModel):
 class DiskUsageTrashEmptyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm_text: StrictStr = Field(max_length=32, description="The word DELETE, exactly.")
+    expected_item_count: StrictInt = Field(ge=0, description="Items in the Trash list the user saw.")
+    expected_size_bytes: StrictInt = Field(ge=0, description="Total size of that list.")
 
 
 class DiskUsageTrashEmptyDone(BaseModel):

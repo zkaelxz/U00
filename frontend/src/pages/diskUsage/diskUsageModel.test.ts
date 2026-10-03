@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DiskUsageItem } from '../../types/diskUsage'
 import {
   barPercent, cellLabel, clearBlock, clearConfirmLabel, crumbs, describeCleared, describeEmptied, diskLine,
-  filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashedOn,
+  filesText, formatBytes, itemTone, moveBlock, percentText, sizeLine, trashItemName, trashLine, trashSizeLine, trashedOn,
 } from './diskUsageModel'
 
 const item = (over: Partial<DiskUsageItem> = {}): DiskUsageItem => ({
@@ -89,6 +89,7 @@ describe('what can be done', () => {
     expect(trashItemName({ original_path_relative: null })).toMatch(/Unknown item/)
     expect(trashedOn({ trashed_at: '2026-10-03T10:00:00+00:00' })).toBe('2026-10-03')
     expect(trashedOn({ trashed_at: null })).toBe('')
+    expect(trashSizeLine({ size_bytes: null, file_count: null })).toBe('Size unknown')
     expect(describeEmptied({ freed_bytes: 10, removed: 2, failed: 0 })).toBe('Emptied Trash: 2 items deleted, 10 B freed.')
     expect(describeEmptied({ freed_bytes: 10, removed: 1, failed: 1 })).toMatch(/1 could not be deleted and is still in Trash/)
   })

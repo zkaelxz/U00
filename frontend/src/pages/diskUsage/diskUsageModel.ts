@@ -101,7 +101,7 @@ export const trashItemName = (t: Pick<DiskUsageTrashItem, 'original_path_relativ
 export const trashedOn = (t: Pick<DiskUsageTrashItem, 'trashed_at'>) => (t.trashed_at ?? '').slice(0, 10)
 
 export const trashSizeLine = (t: Pick<DiskUsageTrashItem, 'size_bytes' | 'file_count'>) =>
-  `${formatBytes(t.size_bytes)} · ${filesText(t.file_count)}`
+  t.size_bytes == null || t.file_count == null ? 'Size unknown' : `${formatBytes(t.size_bytes)} · ${filesText(t.file_count)}`
 
 export const describeRestored = (name: string) => `Restored ${name} to where it came from.`
 

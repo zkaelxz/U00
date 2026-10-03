@@ -58,7 +58,7 @@ describe('disk usage api', () => {
     await listTrash(f)
     await restoreTrashItem('20260101-000000-abcdef12', f)
     await purgeTrashItem({ id: '20260101-000000-abcdef12', size_bytes: 400 }, f)
-    await emptyTrash(f)
+    await emptyTrash({ item_count: 2, size_bytes: 400 }, f)
     expect(mock.mock.calls.map(([u]) => u)).toEqual([
       '/api/data-usage/trash', '/api/data-usage/trash/restore', '/api/data-usage/trash/purge', '/api/data-usage/trash/empty',
     ])
@@ -67,6 +67,8 @@ describe('disk usage api', () => {
     expect(JSON.parse(mock.mock.calls[2][1].body)).toEqual({
       id: '20260101-000000-abcdef12', confirm_text: 'DELETE', expected_size_bytes: 400,
     })
-    expect(JSON.parse(mock.mock.calls[3][1].body)).toEqual({ confirm_text: 'DELETE' })
+    expect(JSON.parse(mock.mock.calls[3][1].body)).toEqual({
+      confirm_text: 'DELETE', expected_item_count: 2, expected_size_bytes: 400,
+    })
   })
 })

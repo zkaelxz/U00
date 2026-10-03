@@ -136,7 +136,7 @@ ROUTES = [("GET", BASE, None),
           ("POST", f"{BASE}/trash/restore", {"id": TRASH_ID, "confirm": True}),
           ("POST", f"{BASE}/trash/purge", {"id": TRASH_ID, "confirm_text": "DELETE",
                                            "expected_size_bytes": 0}),
-          ("POST", f"{BASE}/trash/empty", {"confirm_text": "DELETE"}),
+          ("POST", f"{BASE}/trash/empty", {"confirm_text": "DELETE", "expected_item_count": 0, "expected_size_bytes": 0}),
           ("POST", f"{BASE}/to-trash", {"path": "library/source_cache", "confirm": True,
                                        "expected_size_bytes": 400, "expected_file_count": 1}),
           ("POST", f"{BASE}/move", {"path": "library/backups/auto", "destination": "/tmp",
@@ -217,7 +217,7 @@ def test_trash_flow_over_the_api_has_no_absolute_or_trash_paths(tree, renames):
                                             "expected_size_bytes": 400})
     seen.append(r.text)
     assert r.status_code == 200 and r.json() == {"freed_bytes": 400, "file_count": 1}
-    r = c.post(f"{BASE}/trash/empty", json={"confirm_text": "DELETE"})
+    r = c.post(f"{BASE}/trash/empty", json={"confirm_text": "DELETE", "expected_item_count": 0, "expected_size_bytes": 0})
     seen.append(r.text)
     assert r.json() == {"freed_bytes": 0, "removed": 0, "failed": 0}
     for text in seen:
@@ -239,7 +239,7 @@ def test_trash_restore_and_purge_refusals(tree):
                  {"id": "../library", "confirm_text": "DELETE", "expected_size_bytes": 0}):
         r = c.post(f"{BASE}/trash/purge", json=body)
         assert r.status_code in (404, 409, 422), (body, r.text)
-    assert c.post(f"{BASE}/trash/empty", json={"confirm_text": "nope"}).status_code == 422
+    assert c.post(f"{BASE}/trash/empty", json={"confirm_text": "nope", "expected_item_count": 0, "expected_size_bytes": 0}).status_code == 422
     assert os.path.exists(os.path.join(tree, dus.TRASH_DIRNAME, tid, "payload", "x.html"))
 
 
@@ -251,8 +251,15 @@ def test_trash_requests_reject_unknown_and_loose_fields(tree):
     assert c.post(f"{BASE}/trash/purge", json={"id": tid, "confirm_text": "DELETE",
                                                "expected_size_bytes": "0"}).status_code == 422
     assert c.post(f"{BASE}/trash/restore", json={"id": tid, "confirm": "true"}).status_code == 422
-    assert c.post(f"{BASE}/trash/empty", json={"confirm_text": "DELETE", "all": True}).status_code == 422
+    assert c.post(f"{BASE}/trash/empty", json={
+        "confirm_text": "DELETE", "expected_item_count": 0, "expected_size_bytes": 0,
+        "all": True}).status_code == 422
     assert c.post(f"{BASE}/trash/empty", json={}).status_code == 422
+    # the count and size shown are required, and a mismatch is a 409 that deletes nothing
+    assert c.post(f"{BASE}/trash/empty", json={"confirm_text": "DELETE"}).status_code == 422
+    r = c.post(f"{BASE}/trash/empty", json={"confirm_text": "DELETE", "expected_item_count": 5,
+                                            "expected_size_bytes": 0})
+    assert r.status_code == 409 and r.json()["error"]["details"]["reason"] == "changed"
 
 
 def test_the_trash_folder_cannot_be_cleared_through_the_normal_route(tree):

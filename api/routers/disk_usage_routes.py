@@ -87,7 +87,10 @@ async def post_trash_purge(body: DiskUsageTrashPurgeRequest):
 
 @router.post("/trash/empty", dependencies=[local_only()],
              response_model=DiskUsageTrashEmptyDone, responses=_ERR,
-             summary="PERMANENTLY delete everything in Trash (confirm_text='DELETE'; 409 "
-                     "while a job runs)")
+             summary="PERMANENTLY delete everything in Trash (confirm_text='DELETE' and "
+                     "the item count and size shown; 409 when it changed or a job runs)")
 async def post_trash_empty(body: DiskUsageTrashEmptyRequest):
-    return await run_in_threadpool(svc.trash_empty, confirm_text=body.confirm_text)
+    return await run_in_threadpool(
+        svc.trash_empty, confirm_text=body.confirm_text,
+        expected_item_count=body.expected_item_count,
+        expected_size_bytes=body.expected_size_bytes)

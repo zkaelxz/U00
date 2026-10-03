@@ -134,7 +134,10 @@ test('Empty Trash needs the typed word and frees everything in it', async ({ pag
   await trash.getByLabel(/Type DELETE to confirm/).fill('DELETE')
   await go.click()
   await expect(sec.getByRole('status').filter({ hasText: 'Emptied Trash: 2 items deleted, 3.0 GB freed.' })).toBeVisible()
-  expect(mock.posts[0]).toEqual({ path: 'empty', body: { confirm_text: 'DELETE' } })
+  expect(mock.posts[0]).toEqual({
+    path: 'empty',
+    body: { confirm_text: 'DELETE', expected_item_count: 2, expected_size_bytes: 3_000_000_000 },
+  })
   await expect(trash).toContainText('Trash is empty.')
 })
 
@@ -276,4 +279,40 @@ test('keyboard: Tab reaches Open, Move to Trash and the confirm; Escape backs ou
   await page.keyboard.press('Escape')
   await expect(tmp.getByRole('button', { name: 'Move tmp to Trash' })).toBeFocused()
   expect(mock.posts).toHaveLength(0)
+})
+
+test('the Trash list shows up while a slow scan is still running', async ({ page }) => {
+  await mockDiskUsage(page, { slowScan: 4000, trash: [{ path: 'library/tmp', size: 5, files: 1 }] })
+  const sec = await openSection(page)
+  await expect(sec.getByRole('status').filter({ hasText: 'Scanning' })).toBeVisible()
+  const trash = sec.getByRole('region', { name: 'Trash' })
+  await expect(trash).toContainText('library/tmp')
+  await expect(sec.getByRole('status').filter({ hasText: 'Scanning' })).toBeVisible()
+})
+
+test('restoring or deleting an item that is already gone refreshes the list without an error', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 5, files: 1 }, { path: 'model_cache/old', size: 7, files: 1 }] })
+  const sec = await openSection(page)
+  const trash = sec.getByRole('region', { name: 'Trash' })
+  await expect(trash).toContainText('library/tmp')
+  mock.trash.length = 0
+  await trash.getByRole('button', { name: 'Restore library/tmp' }).click()
+  await expect(trash).toContainText('Trash is empty.')
+  await expect(trash.getByRole('alert')).toHaveCount(0)
+})
+
+test('Empty Trash after the list changed is refused and the list is reloaded', async ({ page }) => {
+  const mock = await mockDiskUsage(page, { trash: [{ path: 'library/tmp', size: 5, files: 1 }] })
+  const sec = await openSection(page)
+  const trash = sec.getByRole('region', { name: 'Trash' })
+  await expect(trash).toContainText('library/tmp')
+  await trash.getByRole('button', { name: 'Empty Trash…' }).click()
+  await expect(trash).toContainText('If anything in Trash changed since this list loaded, nothing is deleted.')
+  mock.trash.push({ id: '20261003-100000-abcdef99', parent: 'model_cache', trashed_at: '2026-10-03T10:00:00+00:00', restorable: true,
+    node: { name: 'old', kind: 'folder', size: 9, files: 1 } })
+  await trash.getByLabel(/Type DELETE to confirm/).fill('DELETE')
+  await trash.getByRole('button', { name: 'Empty Trash permanently' }).click()
+  await expect(trash.getByRole('alert')).toContainText('The Trash changed since you looked.')
+  await expect(trash).toContainText('model_cache/old')
+  expect(mock.trash).toHaveLength(2)
 })

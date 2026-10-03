@@ -55,6 +55,7 @@ function DiskUsageLive() {
   const started = useRef(false)
   const abort = useRef<AbortController | null>(null)
   const latest = useRef(0)
+  const latestTrash = useRef(0)
 
   const load = useCallback((path: string, keepNotice = false) => {
     abort.current?.abort()
@@ -80,10 +81,15 @@ function DiskUsageLive() {
     )
   }, [])
 
+  // The Trash list is its own request and never waits for or fails with the scan; only the newest answer counts.
   const loadTrash = useCallback(() => {
-    listTrash().then(setTrash, () => {
-      // The scan's own error banner covers a broken connection; the list just stays as it was.
-    })
+    const ticket = ++latestTrash.current
+    listTrash().then(
+      (t) => { if (ticket === latestTrash.current) setTrash(t) },
+      () => {
+        // The scan's own error banner covers a broken connection; the list just stays as it was.
+      },
+    )
   }, [])
 
   const cancel = () => {

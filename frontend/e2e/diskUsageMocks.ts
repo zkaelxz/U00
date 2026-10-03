@@ -55,7 +55,7 @@ export interface DiskUsageMock {
   setPartial(on: boolean): void
 }
 
-export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; trash?: { path: string; size: number; files: number; restorable?: boolean }[] } = {}): Promise<DiskUsageMock> {
+export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?: boolean; slowScan?: number; trash?: { path: string; size: number; files: number; restorable?: boolean }[] } = {}): Promise<DiskUsageMock> {
   const tree: Record<string, Node[]> = JSON.parse(JSON.stringify(TREE))
   const state = { busy: null as string | null, partial: false }
   const trash: TrashEntry[] = (opts.trash ?? []).map((t, i) => {
@@ -81,6 +81,8 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
     const req = route.request()
     const url = new URL(req.url())
     if (opts.slow) await new Promise((r) => setTimeout(r, 1500))
+    const isScan = url.pathname === '/api/data-usage' && req.method() === 'GET'
+    if (opts.slowScan && isScan) await new Promise((r) => setTimeout(r, opts.slowScan))
     if (url.pathname === '/api/data-usage/to-trash') {
       const body = req.postDataJSON()
       mock.posts.push({ path: 'to-trash', body })
@@ -127,6 +129,9 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
     if (url.pathname === '/api/data-usage/trash/empty') {
       const body = req.postDataJSON()
       mock.posts.push({ path: 'empty', body })
+      if (body.expected_item_count !== trash.length || body.expected_size_bytes !== trashBytes()) {
+        return route.fulfill(conflict('The Trash changed since you looked. Reload the list and check again.'))
+      }
       const freed = trashBytes()
       const removed = trash.length
       trash.length = 0
