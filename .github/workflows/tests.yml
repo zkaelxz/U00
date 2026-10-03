@@ -15,12 +15,14 @@ on:
 permissions:
   contents: read
 
-# Cancel a still-running CI run for the same branch/PR once a newer push
-# supersedes it. The group is per workflow and ref, so this never touches
-# windows-installer.yml, the one workflow that publishes a release (it runs
-# only for a tag or on demand); windows-bootstrap.yml is validation only.
+# Cancel a still-running CI run for the same PR once a newer push supersedes
+# it. A push to the base branch gets its own group per commit, so merges that
+# land back to back don't cancel each other's post-merge run. The group is per
+# workflow, so this never touches windows-installer.yml, the one workflow that
+# publishes a release (it runs only for a tag or on demand); windows-bootstrap.yml
+# is validation only.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
