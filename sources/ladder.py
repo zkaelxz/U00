@@ -36,7 +36,8 @@ from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
                      ENVIRONMENT_BLOCK_REASONS, FailureReason, LADDER_ORDER, PROTECTION_REASONS,
                      Requirement, SourceCapabilities, SourceError, TechnicalProtection,
-                     TechnicalStatus, TermsProhibited, TierResult, explain_protection)
+                     TechnicalStatus, TermsProhibited, TierResult, explain_protection,
+                     SPA_SHELL_BROWSER_NOTE, SPA_SHELL_STATIC_NOTE)
 
 TIER_LABELS = {
     AccessTier.STATIC_HTTP: "Static HTTP",
@@ -118,8 +119,11 @@ def static_tier(client):
         html = resp.text
         ev = detect.evidence(resp.status_code, resp.headers, html, url, resp.url)
         if resp.reasons:
-            return TierOutcome(False, html=html, reasons=list(resp.reasons),
-                               detail=", ".join(r.value for r in resp.reasons), evidence=ev)
+            detail = ", ".join(r.value for r in resp.reasons)
+            if FailureReason.EMPTY_SPA_SHELL in resp.reasons:
+                detail += " -- " + SPA_SHELL_STATIC_NOTE
+            return TierOutcome(False, html=html, reasons=list(resp.reasons), detail=detail,
+                               evidence=ev)
         return TierOutcome(True, html=html, evidence=ev)
     return run
 
@@ -159,6 +163,7 @@ def authenticated_tier(profile_dir: str, client=None, fetch_with_profile=None):
 
 
 def _browser_outcome(url, client, fetch, action) -> TierOutcome:
+    import page_fetch
     try:
         if client is not None:
             html, _text = client.paced(fetch, url, action)
@@ -167,6 +172,8 @@ def _browser_outcome(url, client, fetch, action) -> TierOutcome:
     except ImportError as e:
         return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED],
                            detail=str(e).splitlines()[0])
+    except page_fetch.BrowserNotFound as e:
+        return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED], detail=str(e))
     except Exception as e:
         from translate_engines import redact_secrets
         reason = FailureReason.TIMEOUT if "timeout" in type(e).__name__.lower() \
@@ -182,7 +189,9 @@ def _browser_outcome(url, client, fetch, action) -> TierOutcome:
                                                    FailureReason.JAVASCRIPT_REQUIRED)]
     ev = detect.evidence(200, {}, html, url, url)
     if reasons:
-        detail = " ".join([", ".join(r.value for r in reasons)] + explain_protection(reasons))
+        notes = [SPA_SHELL_BROWSER_NOTE] if FailureReason.EMPTY_SPA_SHELL in reasons else []
+        detail = " ".join([", ".join(r.value for r in reasons)] + explain_protection(reasons)
+                          + notes)
         return TierOutcome(False, html=html, reasons=reasons, detail=detail, evidence=ev)
     return TierOutcome(True, html=html, evidence=ev)
 

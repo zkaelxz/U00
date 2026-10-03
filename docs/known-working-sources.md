@@ -8,7 +8,7 @@ tables are generated: edit `docs/source-status.json` whenever a new site
 is vetted, then run `python scripts/source_status.py` (CI runs the check).
 Update a row's status and date the next time it's re-verified rather than
 trusting an old date forever — sites change, break, and get throttled
-(mangaz, manhuaku). `python scripts/source_probe.py` checks by hand which
+(manhuaku). `python scripts/source_probe.py` checks by hand which
 hosts still answer.
 
 **Status key:** ✅ confirmed live · ⚠️ confirmed but with a real caveat ·
@@ -37,7 +37,6 @@ Site, language, type, hosts and flags come from the adapter itself; status, date
 | 快看漫画 Kuaikan Manhua | `kuaikan` | zh | manhua | `kuaikanmanhua.com` |  | ✅ | unverified date | Was completely broken (shared `requests` cookie bug); fixed in `sources/http.py`, benefits every source. |
 | 漫画库 Manhuaku | `manhuaku` | zh | manhua | `manhuaku.net` |  | ⚠️ | 2026-09-26 | Both content paths (baozimh-aggregated + native `blob:`) confirmed working 2026-09-26 with real page bytes. `search()` unsupported (real endpoint, empty for every query tried). `robots.txt` inaccessible (403), not reviewed for ToS. **2026-09-27: two consecutive live end-to-end runs hung — one past 120s, a retry past 240s. The second produced no output at all, not even the first progress marker printed before any network call, suggesting the stall (or a background-capture buffering issue) may sit earlier than the actual site request. Not re-confirmed working today; cause still unknown (site slowdown, a regression, or an artifact of this environment). Stopped at two attempts deliberately, not retried further.** |
 | ゼロサムオンライン Zero-Sum Online | `zerosumonline` | ja | manga | `zerosumonline.com` |  | ✅ | unverified date | Own protobuf reader for the real API. |
-| マンガ図書館Z Manga Toshokan Z | `mangaz` | ja | manga | `mangaz.com` |  | ⚠️ | unverified date | search/series/chapters ✅. Page capture proven (real descrambled page, real `blob:` capture) but a full uninterrupted book (43/43 pages) is unproven — throttling-limited, not a code gap. |
 | ranobes.net | `ranobes` | en | novel | `ranobes.net` |  | ❔ no status recorded | — |  |
 | 猫耳FM MissEvan | `missevan` | zh | audio_drama | `missevan.com` | sign-in optional | ❔ no status recorded | — |  |
 | 饭角 Fanjiao | `fanjiao` | zh | audio_drama | `fanjiao.co` |  | ❔ no status recorded | — |  |

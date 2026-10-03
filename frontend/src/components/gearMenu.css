@@ -1,4 +1,4 @@
-/* The cogwheel at the end of the main nav and its menu (components/GearMenu.tsx). */
+/* The cogwheel in the header's right-hand icon group and its menu (components/GearMenu.tsx). */
 details.gear-menu { position: relative; }
 details.gear-menu > summary {
   display: inline-flex;
@@ -7,6 +7,7 @@ details.gear-menu > summary {
   padding: 6px 10px;
   border-radius: var(--radius-sm);
   border-bottom: 2px solid transparent;
+  min-width: 0;
   color: var(--muted);
   cursor: pointer;
   list-style: none;
@@ -23,6 +24,7 @@ details.gear-menu > summary[aria-current='page'] {
   position: absolute;
   z-index: 10;
   right: 0;
+  max-width: calc(100vw - 2 * var(--space-4));
   top: calc(100% + var(--space-1));
   display: grid;
   min-width: 12rem;
@@ -32,20 +34,22 @@ details.gear-menu > summary[aria-current='page'] {
   background: var(--surface-2);
   box-shadow: var(--shadow-1);
 }
-/* Beats ".app-header nav a": these links sit inside the nav element. */
-.app-header nav .gear-menu-panel a {
+.gear-menu-panel a {
+  display: flex;
+  align-items: center;
   padding: var(--space-2);
   border-radius: var(--radius-sm);
+  text-decoration: none;
   border-bottom: 0;
   color: var(--text);
   font-weight: 500;
   text-align: left;
   justify-content: flex-start;
 }
-.app-header nav .gear-menu-panel a:hover { background: var(--accent-soft); }
-.app-header nav .gear-menu-panel a[aria-current='page'] { font-weight: 600; color: var(--accent-text); background: none; }
+.gear-menu-panel a:hover { background: var(--accent-soft); }
+.gear-menu-panel a[aria-current='page'] { font-weight: 600; color: var(--accent-text); background: none; }
 
 @media (pointer: coarse), (max-width: 640px) {
-  details.gear-menu > summary { min-height: 44px; }
-  .app-header nav .gear-menu-panel a { min-height: 44px; }
+  details.gear-menu > summary { min-height: 44px; min-width: 44px; padding-inline: 0; }
+  .gear-menu-panel a { min-height: 44px; }
 }

@@ -162,10 +162,10 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (19 sites)
+│   └── adapters/                  one file per supported site (18 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, fanjiao.py, guazimanhua.py,
-│       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
+│       └── kuaikan.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
 │           lightnovel_fun.py, piaotian.py, ranobes.py, syosetu.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
 ├── services/                   ← UI-INDEPENDENT application services (React/FastAPI migration).

@@ -685,6 +685,70 @@ class TestExternalGpuLoadGuard:
         bg.clear_job("gpu_ext_c")
 
 
+class TestExternalGpuWaitMessage:
+    """A job held back by another program's GPU use says so, with numbers
+    only (no process names, paths or command lines)."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)
+        _restore_library(*self._library_state)
+
+    def test_queued_message_names_external_use_and_the_fix(self, monkeypatch):
+        load = {"utilization_percent": 20.0, "memory_used_mb": 9216.0,
+                "memory_total_mb": 10240.0, "memory_free_mb": 1024.0 - 1}
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: load)
+        bg.start_job("gpu_wait_a", lambda: None, gpu_touching=True)
+        status = bg.get_status("gpu_wait_a")
+        assert status["status"] == "queued"
+        assert status["message"].startswith("Waiting for the GPU: another program is using it")
+        assert "9.0 GB of 10.0 GB in use" in status["message"]
+        assert "Close GPU-heavy apps" in status["message"] and "Settings" in status["message"]
+        bg.clear_job("gpu_wait_a")
+
+    def test_message_goes_back_to_generic_when_load_is_not_external(self, monkeypatch):
+        load = {"utilization_percent": 5.0, "memory_used_mb": 100.0,
+                "memory_total_mb": 10240.0, "memory_free_mb": 10140.0}
+        monkeypatch.setattr(diagnostics, "external_gpu_load", lambda: load)
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        bg.start_job("gpu_wait_b", lambda: None, gpu_touching=True)
+        assert bg.get_status("gpu_wait_b")["message"] == bg.GPU_WAIT_MESSAGE
+        bg.clear_job("gpu_wait_b")
+
+
+class TestStallDetection:
+    def test_running_job_with_old_progress_is_flagged_without_changing_state(self):
+        job = {"status": "running", "progress_at": 1000.0, "started_at": 900.0}
+        assert bg.job_may_be_stalled(job, now=1000.0 + bg.JOB_STALL_SECONDS - 1) is False
+        assert bg.job_may_be_stalled(job, now=1000.0 + bg.JOB_STALL_SECONDS + 1) is True
+        assert job["status"] == "running"
+
+    def test_stage_without_progress_gets_the_longer_allowance(self):
+        job = {"status": "running", "progress_at": 1000.0, "can_report_progress": False}
+        assert bg.job_may_be_stalled(job, now=1000.0 + bg.JOB_STALL_SECONDS + 1) is False
+        assert bg.job_may_be_stalled(
+            job, now=1000.0 + bg.JOB_STALL_NO_PROGRESS_SECONDS + 1) is True
+
+    def test_only_running_jobs_can_be_stalled(self):
+        assert bg.job_may_be_stalled({"status": "done", "progress_at": 1.0}, now=1e9) is False
+
+    def test_stage_ticker_shows_elapsed_and_note_but_is_not_progress(self):
+        bg._jobs["tick_a"] = {"status": "running", "progress": 0.0, "message": "",
+                              "error": None, "cancel_requested": False, "result": None}
+        with bg.stage_ticker("tick_a", "Loading model...", interval=0.05):
+            first = bg._jobs["tick_a"]["progress_at"]
+            time.sleep(0.2)
+            msg = bg._jobs["tick_a"]["message"]
+            assert msg.startswith("Loading model (elapsed ")
+            assert "no progress is available" in msg
+            assert bg._jobs["tick_a"]["progress_at"] == first
+            assert bg._jobs["tick_a"]["can_report_progress"] is False
+        bg.clear_job("tick_a")
+
+
 class TestGpuParallelSlots:
     """gpu_max_parallel lets more than one GPU job run when nvidia-smi shows
     enough free VRAM; never more than the cap, and one at a time when free
@@ -1851,3 +1915,107 @@ class TestSwallowedFailuresAreVisible:
         log = _log_text()
         assert "could not kill process tree 999999" in log
         assert "could not kill process 999999" in log
+
+
+class TestCancelIsVisibleAndQueuedJobsStopAtOnce:
+    """Owner report: Cancel "did nothing" in the Jobs panel. A queued job
+    stayed queued (and would still run once promoted), and a running one
+    kept showing its old progress text until it reached a checkpoint."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)
+        _restore_library(*self._library_state)
+
+    def test_cancelling_a_queued_job_ends_it_at_once_and_it_never_runs(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow():
+            started.set()
+            release.wait(timeout=5.0)
+
+        ran = []
+        try:
+            assert bg.start_job("cq_a", slow, gpu_touching=True)
+            started.wait(timeout=2.0)
+            assert bg.start_job("cq_b", lambda: ran.append(1), gpu_touching=True)
+            assert bg.get_status("cq_b")["status"] == "queued"
+            bg.request_cancel("cq_b")
+            assert bg.get_status("cq_b")["status"] == "cancelled"
+            assert db.get_job_record("cq_b")["status"] == "cancelled"
+        finally:
+            release.set()
+            _wait("cq_a")
+        assert bg.wait_for_job_threads(5.0)
+        assert ran == []
+        assert bg.get_status("cq_b")["status"] == "cancelled"
+        bg.clear_job("cq_a")
+        bg.clear_job("cq_b")
+
+    def test_a_running_job_says_cancelling_until_it_stops(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        def work():
+            started.set()
+            release.wait(timeout=5.0)
+            # A late progress write from a worker that hasn't noticed yet
+            # must not hide that a cancel is on its way.
+            bg.update_progress("cr_a", 0.5, "Transcribing... 50%")
+            if bg.is_cancel_requested("cr_a"):
+                raise bg.JobCancelled("cr_a")
+
+        assert bg.start_job("cr_a", work)
+        started.wait(timeout=2.0)
+        bg.request_cancel("cr_a")
+        assert bg.get_status("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        assert db.get_job_record("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        release.set()
+        assert _wait_for(lambda: bg.get_status("cr_a")["status"] == "cancelled")
+        assert bg.get_status("cr_a")["message"] == bg.CANCELLING_MESSAGE
+        assert bg.wait_for_job_threads(5.0)
+        bg.clear_job("cr_a")
+
+
+class TestDeadWorkerIsReconciled:
+    """A running job whose worker thread is gone must not stay "running"
+    forever (owner report: a transcription still Running long after it had
+    stopped)."""
+
+    def test_a_running_job_whose_thread_died_is_marked_interrupted(self, monkeypatch):
+        release = threading.Event()
+        assert bg.start_job("dw_a", lambda: release.wait(5.0))
+        try:
+            dead = threading.Thread(target=lambda: None)
+            dead.start()
+            dead.join()
+            with bg._lock:
+                # as if the runner thread had vanished without a word
+                bg._workers["dw_a"] = (bg._jobs["dw_a"], dead)
+            assert bg.reconcile_dead_workers() == ["dw_a"]
+            status = bg.get_status("dw_a")
+            assert status["status"] == "error"
+            assert status["error"] == bg.WORKER_LOST_MESSAGE
+            assert db.get_job_record("dw_a")["status"] == "error"
+        finally:
+            release.set()
+            assert bg.wait_for_job_threads(5.0)
+        # The real runner finishing later can't turn it back into "done".
+        assert bg.get_status("dw_a")["status"] == "error"
+        bg.clear_job("dw_a")
+
+    def test_a_live_worker_is_left_alone(self):
+        release = threading.Event()
+        assert bg.start_job("dw_b", lambda: release.wait(5.0))
+        try:
+            assert bg.reconcile_dead_workers() == []
+            assert bg.get_status("dw_b")["status"] == "running"
+        finally:
+            release.set()
+            assert bg.wait_for_job_threads(5.0)
+        assert bg.get_status("dw_b")["status"] == "done"
+        bg.clear_job("dw_b")

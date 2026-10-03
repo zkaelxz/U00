@@ -82,6 +82,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     ff = diagnostics.check_ffmpeg()
     js = diagnostics.check_js_runtime()
     cuda = diagnostics.check_cuda()
+    browser = diagnostics.check_browser()
     files = diagnostics.check_file_completeness(project_root)
     return {
         "python": {"version": py.get("version"), "ok": bool(py.get("ok"))},
@@ -89,6 +90,7 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
                    "version": _redact(ff["version"]) if ff.get("version") else None,
                    "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
+        "browser": {"found": bool(browser.get("found")), "name": browser.get("name")},
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
         "files": {"all_present": bool(files["all_present"]),
