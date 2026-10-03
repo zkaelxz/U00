@@ -5,7 +5,11 @@ import { expect, test } from '@playwright/test'
 for (const width of [390, 360]) {
   test(`translate page fits a ${width}px phone`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
+    const engines = page.waitForResponse('**/api/translate/engines')
     await page.goto('/#/translate')
+    // The page has no engine until this answers; a click before that is "Pick an engine".
+    await engines
+    await expect(page.getByLabel('Engine', { exact: true })).toHaveValue('fake')
     await page.getByLabel('Text to translate').fill('你好')
     await page.getByRole('button', { name: 'Translate', exact: true }).click()
     await expect(page.getByTestId('translate-result')).not.toBeEmpty()
