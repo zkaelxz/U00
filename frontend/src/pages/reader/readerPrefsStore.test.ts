@@ -71,6 +71,7 @@ describe('reader prefs', () => {
     const desk = pageParams(DEFAULT_PREFS, 3, { phone: false, appLook: 'dark' })
     expect(desk).toEqual({ page: 3, chapter_size: 40, theme: 'dark', font_size: 22, line_height: 2.4, max_width: 1200, font: 'system' })
     expect(pageParams(DEFAULT_PREFS, 1, { phone: false, appLook: 'sepia' }).theme).toBe('sepia')
+    expect(pageParams(DEFAULT_PREFS, 1, { phone: false, appLook: 'oled' }).theme).toBe('dark')
     const phone = pageParams({ ...DEFAULT_PREFS, theme: 'light' }, 1, { phone: true, appLook: 'dark' })
     expect(phone.theme).toBe('light')
     expect('max_width' in phone).toBe(false)

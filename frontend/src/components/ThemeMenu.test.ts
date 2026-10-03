@@ -19,8 +19,8 @@ describe('ThemeMenu', () => {
       createElement(ThemeMenuItems, { id: 'm', theme: 'sepia', itemRefs: refs, onKeyDown: () => {}, onPick: () => {} }),
     )
     expect(html).toContain('role="menu"')
-    expect(html.match(/role="menuitemradio"/g)).toHaveLength(4)
-    for (const label of ['Match this device', 'Light', 'Dark', 'Sepia']) expect(html).toContain(`<span>${label}</span>`)
+    expect(html.match(/role="menuitemradio"/g)).toHaveLength(5)
+    for (const label of ['Match this device', 'Light', 'Dark', 'Sepia', 'OLED black']) expect(html).toContain(`<span>${label}</span>`)
     expect(html.match(/aria-checked="true"/g)).toHaveLength(1)
     expect(html.match(/tabindex="0"/g)).toHaveLength(1)
     expect(html).toMatch(/aria-checked="true"[^>]*>.*?<span>Sepia<\/span>/)

@@ -48,3 +48,15 @@ test('phone header: theme button is 44px, on the title row, and picking sepia wo
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia')
   await noSideways(page)
 })
+
+test('phone: OLED black is true black, persists and does not scroll sideways', async ({ page }) => {
+  await page.goto('/#/library')
+  await button(page).tap()
+  await page.getByRole('menuitemradio', { name: 'OLED black', exact: true }).tap()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled')
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(0, 0, 0)')
+  await page.waitForFunction(() => localStorage.getItem('baihe.theme') === 'oled')
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oled')
+  await noSideways(page)
+})
