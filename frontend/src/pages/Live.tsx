@@ -26,9 +26,12 @@ import {
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { Toggle } from '../components/Toggle'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { StreamEmbed } from './live/StreamEmbed'
+import { DEFAULT_DELAY, DELAY_RANGE, canDelay, parseStreamUrl } from './live/embedLogic'
 import type { LiveCue, LiveSessionStatus } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
@@ -41,6 +44,8 @@ export default function LivePage() {
   const pc = usePcOnly()
   const [prefs, setPrefs] = usePersistedState<LiveOptions>('live.options', DEFAULT_OPTIONS)
   const [url, setUrl] = useState('')
+  const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const form: LiveForm = { ...DEFAULT_FORM, ...prefs, url }
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
 
@@ -164,6 +169,10 @@ export default function LivePage() {
     }
   }
 
+  // The picture exists only while the session runs and Stop has not been
+  // pressed: leaving it mounted would keep the stream's audio playing.
+  const videoLive = !!session && status === 'running' && !stopping && url.trim() !== ''
+  const streamRef = videoLive ? parseStreamUrl(url) : null
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
 
@@ -259,6 +268,29 @@ export default function LivePage() {
       )}
 
       {session && (
+        <div className={videoLive ? 'live-body has-video' : 'live-body'}>
+        {videoLive && (
+          <div className="card live-video" role="group" aria-label="Stream video">
+            <div className="card-head">
+              <h3 className="card-title">Video</h3>
+              <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
+                <Toggle checked={showVideo} onChange={setShowVideo} />
+              </Field>
+            </div>
+            {!streamRef && <p className="muted">This site can't be shown here; the lines still work.</p>}
+            {streamRef && showVideo && (
+              <>
+                <StreamEmbed stream={streamRef} delay={videoDelay} />
+                {canDelay(streamRef) && (
+                  <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up.">
+                    <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={videoDelay}
+                      onChange={(e) => setVideoDelay(e.target.valueAsNumber)} />
+                  </Field>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <div className="live-feed" aria-live="polite">
           <p className={status === 'error' ? 'error' : 'muted'} data-testid="live-status">
             {session.status ? statusLine(session.status, total) : 'Connecting…'}
@@ -276,6 +308,7 @@ export default function LivePage() {
             </ol>
           )}
           {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
+        </div>
         </div>
       )}
     </section>

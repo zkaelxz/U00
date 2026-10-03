@@ -578,10 +578,12 @@ _HOST_NAME_RE = re.compile(r"[a-z0-9._-]+")
 # this policy and runs inline scripts and handlers, and plays audio and shows
 # images from data: URIs; index.html has one inline theme script. So scripts
 # can't be limited to 'self' until the Reader page is served from a URL.
+# frame-src is only for the Live page's optional stream video (YouTube, Twitch).
 HOUSEHOLD_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
                  "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
                  "media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "object-src 'none'; base-uri 'self'; form-action 'self'; "
+                 "frame-src https://www.youtube-nocookie.com https://player.twitch.tv; "
                  "frame-ancestors 'none'")
 HOUSEHOLD_SECURITY_HEADERS = (
     ("Content-Security-Policy", HOUSEHOLD_CSP),

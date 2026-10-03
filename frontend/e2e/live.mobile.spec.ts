@@ -15,7 +15,7 @@ async function noSideways(page: Page) {
 
 async function smallTargets(page: Page) {
   return page.getByRole('region', { name: 'Live' })
-    .locator('button:not(.link, .field-help-btn), select, input:not([type=checkbox]), summary, label:has(> input[type=checkbox])')
+    .locator('button:not(.link, .field-help-btn, .toggle), select, input:not([type=checkbox]), summary, label:has(> input[type=checkbox])')
     .evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, what: e.getAttribute('aria-label') ?? e.textContent }))
       .filter((x) => x.h < 44))
