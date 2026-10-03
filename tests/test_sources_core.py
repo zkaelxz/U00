@@ -995,6 +995,8 @@ class TestRealCaseMatrix:
         r = self._static_only("bilibili_manga", {u: html(page)}, u)
         assert FailureReason.EMPTY_SPA_SHELL in r.reasons
         assert FailureReason.JAVASCRIPT_REQUIRED in r.reasons
+        line = r.summary_lines()[0]
+        assert "needs JavaScript" in line and "browser tier has not been tested" in line
 
     def test_newtoki_shaped_geo_restriction(self, isolated_db):
         u = "https://newtoki.invalid/webtoon/1"

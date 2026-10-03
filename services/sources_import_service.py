@@ -65,6 +65,7 @@ Text is scrubbed, URLs reduced to scheme+host+path.
 """
 
 import threading
+from urllib.parse import urlsplit
 
 import background_jobs
 import db
@@ -568,6 +569,23 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
 # ---------------------------------------------------------------------------
 
 _NO_PAGES = "No comic pages were found on that page."
+_BILIBILI_MANGA_HINT = (
+    " Bilibili Manga only shows a chapter's images to a signed-in reader for locked or paid "
+    "chapters, and it loads them as you scroll. Sign in to Bilibili Manga from the Sources "
+    "page, or save the chapter page from your own browser and import that file.")
+
+
+def _no_pages_error(exc, url) -> dict:
+    """The 422 for a page with no usable images, saying why (the report's
+    reason and each tier's line, scrubbed) instead of only the generic text."""
+    report = getattr(exc, "report", None)
+    reason = _scrub((getattr(report, "reason", "") or "").strip())[:300]
+    lines = [_scrub(x)[:300] for x in (getattr(report, "access_lines", None) or [])][:10]
+    message = _NO_PAGES + (f" Why: {reason}" if reason else "")
+    if (urlsplit(url or "").hostname or "").lower().endswith("manga.bilibili.com"):
+        message += _BILIBILI_MANGA_HINT
+    return {"status": 422, "code": InvalidInputError.code, "message": message,
+            "details": {"reason": "NO_CONTENT", "diagnostic": lines}}
 
 
 def _signed_in(lr) -> bool:
@@ -604,10 +622,8 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
                                             learn=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
-    except generic_import.NoContentFound:
-        fail_job(job_id, "comic_import", {"status": 422, "code": InvalidInputError.code,
-                                          "message": _NO_PAGES,
-                                          "details": {"reason": "NO_CONTENT"}})
+    except generic_import.NoContentFound as e:
+        fail_job(job_id, "comic_import", _no_pages_error(e, url))
     except Exception as e:
         fail_job(job_id, "comic_import", _error_view(e))
     if res.ladder is not None and getattr(res.ladder, "handoff", None):

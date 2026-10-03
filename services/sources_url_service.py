@@ -41,8 +41,9 @@ _BAD_URL = "Paste a public http:// or https:// web address."
 _NOT_PUBLIC = "That address is not a public web address, so it was not opened."
 _NO_RESOLVE = "The address could not be resolved. Check the URL and your connection."
 _CONTENT_TYPES = (front_door.VIDEO, front_door.NOVEL, front_door.COMIC)
-HANDOFF_MESSAGE = ("The site showed a verification page. Open it in your browser, "
-                   "complete it, then try again.")
+HANDOFF_MESSAGE = ("The site showed a verification page, so Baihe stopped; it never tries to "
+                   "get past one. Open the site in your own browser and complete it, then try "
+                   "again, or paste the page source you saved from your browser.")
 
 
 def check_public_url(url) -> str:

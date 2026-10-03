@@ -109,6 +109,13 @@ def explain_protection(reasons) -> list:
     return out
 
 
+# Shown beside an EMPTY_SPA_SHELL result so it says what was and wasn't tried.
+SPA_SHELL_STATIC_NOTE = ("This site needs JavaScript. Baihe tried the plain fetch only; the "
+                         "browser tier has not been tested for this source.")
+SPA_SHELL_BROWSER_NOTE = ("This site needs JavaScript and the browser tier also returned an "
+                          "empty page, so this source is not working yet.")
+
+
 class CapabilityStatus(str, Enum):
     """The graduated status on a SourceCapabilities record (Step 23 item 1)."""
     VERIFIED = "VERIFIED"
@@ -412,5 +419,6 @@ class ContentHidden(SourceError):
 
 CHALLENGE_HANDOFF_MESSAGE = (
     "A browser verification page was detected. Automatic challenge solving is "
-    "disabled. Open the page in your browser and complete whatever verification "
-    "the site asks for.")
+    "disabled, so Baihe stopped and did not try to get past it. Open the page in your "
+    "own browser and complete whatever verification the site asks for, then import "
+    "from the page source you saved from that browser.")
