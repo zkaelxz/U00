@@ -18,14 +18,17 @@ Clear and move are server-enforced, not only hidden in the UI:
   -journal), .env and key/secret files, the INSTALLED/PORTABLE markers, the
   saved site sign-ins, installer files, the program folder, and any folder
   that holds or contains one of those. Both refuse while any background job,
-  restore or maintenance run holds the library.
+  restore or maintenance run holds the library, or while another process holds
+  the GPU lock (all a CLI run leaves; see _busy_under_hold).
 - Clear needs confirm=true and the size and file count the user saw (409 when
   the item changed since), and sends the item to the Recycle Bin through one
   injectable function (send_to_recycle_bin). It refuses off Windows, when the
   process isn't an interactive user session (a Windows service has its own
   bin the owner never sees; recycle_unavailable_reason), when the data folder
-  is a drive root or the user's home, for a folder it couldn't read fully or
-  that holds a link, and whenever the bin's settings are unknown; it never
+  is a drive root, the user's home or a folder holding it or a known shell folder,
+  for a folder it couldn't read fully (including paths Windows can't open
+  here) or that holds a link, and whenever the bin's settings are unknown;
+  top-level entries Baihe doesn't create are shown but protected; it never
   deletes permanently. Inspect, re-resolve and recycle run under the library's
   exclusive hold.
 - Move works only for a folder with an existing, safe way to repoint it
@@ -70,6 +73,7 @@ LINK_INSIDE = ("This folder contains a link or junction, so it can't be cleared 
                "and clear items inside instead.")
 UNREADABLE = ("Part of this folder couldn't be read, so it can't be checked for database or key "
               "files. Open it and clear items inside instead.")
+NOT_BAIHE = "Not created by Baihe"
 SCAN_BUSY = "Another scan is already running. Wait for it to finish, then try again."
 MAX_ITEMS = 2000
 
@@ -105,6 +109,12 @@ _REPLACEABLE_FOLDERS = {
 }
 IRREPLACEABLE_NOTE = ("Source audio and your work for this title. It can't be recreated "
                       "from inside Baihe.")
+SOURCE_PROFILES_NOTE = ("Your saved per-site settings. Once cleared they can't be recreated from "
+                        "inside Baihe.")
+SAVED_COMICS_NOTE = ("Chapters you saved as CBZ files. Once cleared they can't be recreated "
+                     "from inside Baihe.")
+SAVED_COMICS_DIRNAME = "saved_comics"       # sources_save_service.SAVE_DIRNAME
+MAX_PATH = 260              # Windows opens nothing this long without long-path support
 BACKUPS_NOTE = "Your backups. Once cleared they can't be recreated from inside Baihe."
 
 _op_lock = threading.Lock()
@@ -211,14 +221,36 @@ def _home_dirs() -> list:
     return out
 
 
+_SHELL_FOLDER_NAMES = ("Documents", "Desktop", "Downloads", "Pictures", "Music", "Videos")
+
+
 def _root_blocker(root: str):
     """Why nothing under this data folder may be cleared or moved: it is a
-    drive root or the user's own folder (a mis-set data location)."""
+    drive root, the user's own folder, a folder that holds the user's folder
+    (C:\\Users) or is or holds one of its shell folders (Documents, Desktop,
+    ...): a mis-set data location."""
     if os.path.dirname(root) == root or not os.path.splitdrive(root)[1].strip("\\/"):
         return ROOT_TOO_BROAD
-    if any(_norm(root) == _norm(h) for h in _home_dirs()):
-        return ROOT_TOO_BROAD
+    for home in _home_dirs():
+        if _within(home, root):
+            return ROOT_TOO_BROAD
+        for name in _SHELL_FOLDER_NAMES:
+            if _within(os.path.join(home, name), root):
+                return ROOT_TOO_BROAD
     return None
+
+
+def _baihe_top_level_names() -> frozenset:
+    """Lower-case names Baihe itself creates at the top of the data folder:
+    the installer's own list plus the save folder. If that list can't be
+    loaded only the library qualifies, so everything else is protected."""
+    try:
+        from installer import service as installer_service
+        names = set(installer_service.DATA_FOLDER_ENTRIES)
+    except Exception:
+        names = set()
+    names |= {SAVED_COMICS_DIRNAME, os.path.basename(db.LIBRARY_DIR), "library"}
+    return frozenset(n.lower() for n in names)
 
 
 def _backup_folder_real():
@@ -242,6 +274,7 @@ class _Ctx:
         self.protected = _protected_paths()
         self.root_reason = _root_blocker(self.root)
         self.backup_real = _backup_folder_real()
+        self.top_level = _baihe_top_level_names()
 
 
 def _under_backups(parts) -> bool:
@@ -287,11 +320,33 @@ class _Budget:
         return not self.hit
 
 
+def _confirmed_gone(path: str) -> bool:
+    """True only when `path` is certainly no longer there: it can't be
+    looked up and its parent's listing no longer holds the name. Windows
+    reports over-long and oddly named paths as 'not found' too, so a plain
+    FileNotFoundError proves nothing."""
+    try:
+        if os.path.lexists(path):
+            return False
+        parent, name = os.path.split(path)
+        return name not in os.listdir(parent)
+    except OSError:
+        return False
+
+
+def _unopenable_name(path: str, name: str) -> bool:
+    """A path Windows may not open as written: MAX_PATH or longer (without
+    long-path support), or a name ending in a dot or space (Windows rewrites
+    it to another name)."""
+    return len(path) >= MAX_PATH or name.endswith((".", " "))
+
+
 def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
     """Size, file count and what the folder holds: a protected file name, a
     link, or a part that could not be read. Links are counted as themselves
-    and never entered; an entry that vanished mid-walk is skipped, any other
-    error marks the result unreadable (so clear refuses it)."""
+    and never entered; only an entry confirmed gone mid-walk is skipped, any
+    other error (and any path Windows may not open) marks the result
+    unreadable (so clear refuses it)."""
     m = _Measured()
     stack = [(path, parts)]
     while stack and not budget.hit:
@@ -299,6 +354,8 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
         try:
             it = os.scandir(cur)
         except FileNotFoundError:
+            if not _confirmed_gone(cur):
+                m.unreadable = True
             continue
         except OSError:
             m.unreadable = True
@@ -314,9 +371,13 @@ def _measure(path: str, parts: tuple, budget: _Budget) -> _Measured:
                     break
                 if not budget.tick():
                     break
+                if _unopenable_name(entry.path, entry.name):
+                    m.unreadable = True
                 try:
                     st = entry.stat(follow_symlinks=False)
                 except FileNotFoundError:
+                    if not _confirmed_gone(entry.path):
+                        m.unreadable = True
                     continue
                 except OSError:
                     m.unreadable = True
@@ -377,11 +438,15 @@ def _regenerable(parts: tuple, is_dir: bool):
 
 def _irreplaceable_note(parts: tuple, regenerable):
     """The warning for an item that can't be recreated from inside Baihe
-    (a title's own media, saved voice samples and cases, and every backup
-    copy), or None."""
+    (a title's own media, saved voice samples and cases, per-site settings,
+    saved comics and every backup copy), or None."""
     low = tuple(p.lower() for p in parts)
     lib_name = os.path.basename(db.LIBRARY_DIR).lower()
+    if low and low[0] == SAVED_COMICS_DIRNAME:
+        return SAVED_COMICS_NOTE
     if len(low) >= 2 and low[0] == lib_name:
+        if low[1] == "source_profiles":
+            return SOURCE_PROFILES_NOTE
         if low[1] == "dramas" and regenerable is None:
             return IRREPLACEABLE_NOTE
         if low[1] in _REPLACEABLE_FOLDERS:
@@ -407,6 +472,8 @@ def _protection(parts: tuple, real: str, flagged: bool, ctx: _Ctx):
     name = low[-1]
     if low[0] == "launcher" or (len(low) == 1 and (name in _MARKER_NAMES or name in _INSTALLER_NAMES)):
         return True, "Install or installer file."
+    if low[0] not in ctx.top_level:
+        return True, NOT_BAIHE
     if _SECRET_NAME_RE.search(name):
         return True, "Holds API keys or other secrets."
     if len(low) >= 2 and low[0] == os.path.basename(db.LIBRARY_DIR).lower() and low[1] == "profiles":
@@ -599,14 +666,31 @@ def _scan(path) -> dict:
     budget = _Budget()
     ctx = _Ctx()
     items = []
+    entries = []
+    overflow = 0
+    list_cut = None
     try:
         with os.scandir(folder) as it:
-            entries = sorted(it, key=lambda e: e.name)
+            # Cap before sorting: a folder of millions of names is never held
+            # whole. Names past the cap are only counted, up to the entry
+            # and time limits, without spending the walk's own budget.
+            for entry in it:
+                if len(entries) < MAX_ITEMS:
+                    entries.append(entry)
+                    continue
+                overflow += 1
+                if overflow >= MAX_ENTRIES:
+                    list_cut = "entries"
+                    break
+                if overflow % _TIME_CHECK_EVERY == 0 and time.monotonic() > budget.deadline:
+                    list_cut = "time"
+                    break
     except OSError:
         raise ServiceError("That folder could not be read.") from None
+    entries.sort(key=lambda e: e.name)
     listed = 0
     for entry in entries:
-        if budget.hit or listed >= MAX_ITEMS:
+        if budget.hit:
             break
         listed += 1
         child_parts = tuple(parts) + (entry.name,)
@@ -616,7 +700,7 @@ def _scan(path) -> dict:
             continue
         budget.tick()
         items.append(_describe(child_parts, entry.path, st, budget, ctx))
-    not_shown = len(entries) - listed
+    not_shown = len(entries) - listed + overflow
     total = sum(i["size_bytes"] for i in items)
     for i in items:
         i["percent_of_parent"] = round(100.0 * i["size_bytes"] / total, 1) if total else 0.0
@@ -627,7 +711,7 @@ def _scan(path) -> dict:
     except OSError:
         disk = {"disk_total_bytes": None, "disk_free_bytes": None}
     recycle_reason = recycle_unavailable_reason()
-    reason = budget.hit or ("items" if not_shown else None)
+    reason = budget.hit or list_cut or ("items" if not_shown else None)
     return {
         "path": "/".join(parts),
         "parent": "/".join(parts[:-1]) if parts else None,
@@ -659,7 +743,7 @@ def recycle_blocker(size_bytes: int, drive_type, nuke_on_delete, max_capacity_mb
     delete for good with confirmations off), or None. Pure so it is tested
     anywhere; the Windows readers below feed it. drive_type 3 = fixed disk.
     Anything unknown or malformed refuses: nuke_on_delete must be 0,
-    max_capacity_mb is an integer or None (no explicit limit), and
+    max_capacity_mb is a positive integer or None (no explicit limit; 0 refuses), and
     no_recycle_policy (NoRecycleFiles) must be 0."""
     if drive_type != 3:
         return "This drive has no Recycle Bin (removable or network), so nothing was removed."
@@ -673,9 +757,11 @@ def recycle_blocker(size_bytes: int, drive_type, nuke_on_delete, max_capacity_mb
                 "nothing was removed.")
     if max_capacity_mb is not None and _int_or_none(max_capacity_mb) is None:
         return "The Recycle Bin size for this drive couldn't be read, so nothing was removed."
+    if max_capacity_mb == 0:
+        return "This drive's Recycle Bin size is set to 0, so nothing was removed."
     volume = _int_or_none(volume_bytes)
     limits = []
-    if max_capacity_mb:
+    if max_capacity_mb is not None:
         limits.append(max_capacity_mb * 1024 * 1024)
     elif volume:
         limits.append(int(volume * DEFAULT_BIN_FRACTION))
@@ -713,54 +799,85 @@ def _read_reg(winreg, hive, sub, name):
             return True, _UNREADABLE_VALUE
 
 
-def _windows_bin_facts(path: str):
-    """(drive_type, NukeOnDelete, MaxCapacity in MB, volume bytes,
-    NoRecycleFiles policy, RecycleBinSize policy percent) from Windows.
-    Anything that can't be read comes back as a value recycle_blocker refuses
-    (None for the drive facts, _UNREADABLE_VALUE for the policy)."""
+_FOF_SILENT, _FOF_NOCONFIRMATION = 0x0004, 0x0010
+_FOF_ALLOWUNDO, _FOF_NOERRORUI = 0x0040, 0x0400
+_FOF_NO_CONNECTED_ELEMENTS = 0x2000     # foo.html must not drag in foo_files
+# Win32: FOF_WANTNUKEWARNING "partially overrides FOF_NOCONFIRMATION", so the
+# "delete permanently?" prompt still shows (to the verified-interactive owner)
+# instead of being answered Yes; plain confirmations stay suppressed.
+_FOF_WANTNUKEWARNING = 0x4000
+RECYCLE_FLAGS = (_FOF_ALLOWUNDO | _FOF_NOCONFIRMATION | _FOF_SILENT | _FOF_NOERRORUI
+                 | _FOF_NO_CONNECTED_ELEMENTS | _FOF_WANTNUKEWARNING)
+
+
+def _volume_path_name(path: str) -> str:
+    """The mount point of the volume holding `path` (GetVolumePathNameW):
+    'C:\\' for a lettered drive, 'D:\\Mounts\\Data\\' for a volume mounted
+    into a folder. Raises on any failure."""
     import ctypes
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    drive = os.path.splitdrive(path)[0]
-    if not re.fullmatch(r"[A-Za-z]:", drive):
-        return None, None, None, None, _UNREADABLE_VALUE, None
-    root = drive + "\\"
-    drive_type = kernel32.GetDriveTypeW(root)
-    nuke = max_mb = None
-    no_recycle = 0
-    size_pct = None
+    buf = ctypes.create_unicode_buffer(1024)
+    if not kernel32.GetVolumePathNameW(path, buf, len(buf)) or not buf.value:
+        raise OSError("GetVolumePathNameW failed")
+    return buf.value
+
+
+def _windows_bin_facts(path: str, volume_path_fn=None, kernel32=None, winreg=None):
+    """(drive_type, NukeOnDelete, MaxCapacity in MB, volume bytes,
+    NoRecycleFiles policy, RecycleBinSize policy percent) from Windows, all
+    for the volume that really holds `path` (a volume mounted into a folder
+    has its own bin settings). Anything that can't be read comes back as a
+    value recycle_blocker refuses (None for the drive facts,
+    _UNREADABLE_VALUE for the policy). The three callables are injectable so
+    this runs in tests."""
+    failed = (None, None, None, None, _UNREADABLE_VALUE, None)
     try:
-        import winreg
-    except ImportError:
-        return drive_type, None, None, None, _UNREADABLE_VALUE, None
-    buf = ctypes.create_unicode_buffer(64)
-    found = (re.search(r"Volume(\{[0-9A-Fa-f-]+\})", buf.value)
-             if kernel32.GetVolumeNameForVolumeMountPointW(root, buf, 64) else None)
-    if found:
-        sub = (r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume"
-               "\\" + found.group(1))
-        has_key, nuke = _read_reg(winreg, winreg.HKEY_CURRENT_USER, sub, "NukeOnDelete")
-        if has_key:
-            # Absent MaxCapacity means no explicit limit; unreadable is not
-            # an integer, so the blocker refuses it.
-            max_mb = _read_reg(winreg, winreg.HKEY_CURRENT_USER, sub, "MaxCapacity")[1]
-        else:
-            nuke = None                 # no Volume key: unknown, refuse
-    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        value = _read_reg(winreg, hive,
-                          r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
-                          "NoRecycleFiles")[1]
-        if value is not None and value != 0:
-            no_recycle = 1              # set, or unreadable
-        pct = _read_reg(winreg, hive, r"Software\Policies\Microsoft\Windows\Explorer",
-                        "RecycleBinSize")[1]
-        if pct is not None:
-            both = isinstance(pct, int) and isinstance(size_pct, (int, type(None)))
-            size_pct = (pct if size_pct is None else min(size_pct, pct)) if both else _UNREADABLE_VALUE
-    try:
-        volume = shutil.disk_usage(root).total
-    except OSError:
-        volume = None
-    return drive_type, nuke, max_mb, volume, no_recycle, size_pct
+        root = (volume_path_fn or _volume_path_name)(path)
+        if not isinstance(root, str) or not root:
+            return failed
+        if not root.endswith("\\"):
+            root += "\\"
+        import ctypes
+        if kernel32 is None:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        drive_type = kernel32.GetDriveTypeW(root)
+        if winreg is None:
+            import winreg
+        nuke = max_mb = None
+        no_recycle = 0
+        size_pct = None
+        buf = ctypes.create_unicode_buffer(64)
+        found = (re.search(r"Volume(\{[0-9A-Fa-f-]+\})", buf.value)
+                 if kernel32.GetVolumeNameForVolumeMountPointW(root, buf, 64) else None)
+        if found:
+            sub = (r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume"
+                   "\\" + found.group(1))
+            has_key, nuke = _read_reg(winreg, winreg.HKEY_CURRENT_USER, sub, "NukeOnDelete")
+            if has_key:
+                # Absent MaxCapacity means no explicit limit; unreadable is
+                # not an integer, so the blocker refuses it.
+                max_mb = _read_reg(winreg, winreg.HKEY_CURRENT_USER, sub, "MaxCapacity")[1]
+            else:
+                nuke = None             # no Volume key: unknown, refuse
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            value = _read_reg(winreg, hive,
+                              r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+                              "NoRecycleFiles")[1]
+            if value is not None and value != 0:
+                no_recycle = 1          # set, or unreadable
+            pct = _read_reg(winreg, hive, r"Software\Policies\Microsoft\Windows\Explorer",
+                            "RecycleBinSize")[1]
+            if pct is not None:
+                both = isinstance(pct, int) and isinstance(size_pct, (int, type(None)))
+                size_pct = ((pct if size_pct is None else min(size_pct, pct)) if both
+                            else _UNREADABLE_VALUE)
+        try:
+            volume = shutil.disk_usage(root).total
+        except OSError:
+            volume = None
+        return drive_type, nuke, max_mb, volume, no_recycle, size_pct
+    except Exception:
+        return failed
 
 
 def send_to_recycle_bin(path: str, size_bytes: int = 0) -> None:
@@ -780,9 +897,6 @@ def send_to_recycle_bin(path: str, size_bytes: int = 0) -> None:
         raise ServiceError(blocker)
 
     FO_DELETE = 0x0003
-    FOF_SILENT, FOF_NOCONFIRMATION = 0x0004, 0x0010
-    FOF_ALLOWUNDO, FOF_NOERRORUI = 0x0040, 0x0400
-    FOF_NO_CONNECTED_ELEMENTS = 0x2000      # foo.html must not drag in foo_files
 
     class SHFILEOPSTRUCTW(ctypes.Structure):
         # The shell declares this packed on 32-bit Windows, naturally aligned
@@ -802,8 +916,7 @@ def send_to_recycle_bin(path: str, size_bytes: int = 0) -> None:
     op = SHFILEOPSTRUCTW()
     op.wFunc = FO_DELETE
     op.pFrom = ctypes.cast(buf, ctypes.c_void_p).value
-    op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
-                 | FOF_NO_CONNECTED_ELEMENTS)
+    op.fFlags = RECYCLE_FLAGS
     code = shell32.SHFileOperationW(ctypes.byref(op))
     if code != 0 or op.fAnyOperationsAborted:
         raise ServiceError("Windows couldn't move it to the Recycle Bin (it may be in use or "
@@ -817,11 +930,19 @@ def _require_confirm(confirm):
 
 def _busy_under_hold() -> bool:
     """Busy checks that stay valid while this module holds the library: jobs
-    in this process, maintenance, and fresh running job_records rows from
-    another process (the CLI)."""
+    in this process, maintenance, fresh running job_records rows written by
+    another app process, and a live holder of the cross-process GPU lock. The
+    CLI writes no job_records, so a CLI run is seen only while it holds the
+    GPU lock (its GPU steps); a CLI run of non-GPU steps is not detected.
+    Fails closed: an unreadable lock table counts as busy."""
     from services import library_admin_service
-    return bool(background_jobs.active_job_ids() or background_jobs.maintenance_active()
-                or library_admin_service._any_job_running())
+    if (background_jobs.active_job_ids() or background_jobs.maintenance_active()
+            or library_admin_service._any_job_running()):
+        return True
+    try:
+        return db.gpu_lock_status()[0] is not None
+    except Exception:
+        return True
 
 
 @contextlib.contextmanager
@@ -846,7 +967,13 @@ def _inspect_for_change(path, op: str):
     if not parts:
         raise InvalidInputError("The data folder itself can't be cleared or moved.")
     real = _resolve(parts)
-    st = os.lstat(real)
+    try:
+        st = os.lstat(real)
+    except FileNotFoundError:
+        raise NotFoundError("That item is no longer there.") from None
+    except OSError:
+        raise ConflictError("This item changed since you looked. Rescan and check again.",
+                            details={"reason": "changed"}) from None
     budget = _Budget()
     item = _describe(tuple(parts), real, st, budget, _Ctx())
     if item["protected"]:
@@ -890,7 +1017,11 @@ def clear(path, confirm=False, expected_size_bytes=None, expected_file_count=Non
             if _busy_under_hold():
                 raise ConflictError(BUSY)
             again = _resolve(parts)
-            if _norm(again) != _norm(real) or _is_link_stat(os.lstat(again)):
+            try:
+                swapped = _is_link_stat(os.lstat(again))
+            except OSError:
+                swapped = True
+            if _norm(again) != _norm(real) or swapped:
                 raise ConflictError("This item changed since you looked. Rescan and check again.",
                                     details={"reason": "changed"})
             try:
