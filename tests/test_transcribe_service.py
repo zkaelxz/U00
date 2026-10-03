@@ -869,6 +869,30 @@ class TestQwen3Backends:
         assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
         _clear(job_id)
 
+    def test_long_qwen3_segment_becomes_several_subtitle_lines(self, isolated_db, monkeypatch):
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_service, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 175.0, "end": 210.0, "text": "w"}])
+        text = "好,你刚讲不要讲。哇,我先离开一下。好,OK。重来。哇,大家好哦!" * 3
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1):
+                return [{"start": s["start"], "end": s["end"], "text": text}
+                        for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        saved = isolated_db.load_lines(did)
+        assert len(saved) > 3
+        assert "".join(r["zh"] for r in saved) == text
+        assert saved[0]["start"] == 175.0 and saved[-1]["end"] == 210.0
+        assert all(a["end"] == b["start"] for a, b in zip(saved, saved[1:]))
+        assert len(self._raw(ddir)["segments"]) == 1
+        _clear(job_id)
+
     def test_song_with_one_whisper_segment_gives_one_qwen3_line_and_warns(
             self, isolated_db, monkeypatch):
         """Qwen3-ASR only sees the slices Whisper's speech detector found, so a
@@ -1234,3 +1258,22 @@ class TestCancelReachesWhisper:
         assert seen == [0, 1, 2, 3]
         assert isolated_db.load_lines(did) == []
         _clear(job_id)
+
+
+class TestSplitPiecesGetOwnSpeaker:
+    def test_saved_turns_relabel_split_lines_and_reassign_keeps_manual(self, isolated_db):
+        import diarize
+        from services import diarization_service
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.save_lines(did, [
+            transcribe_service.Line(idx=0, start=0.0, end=5.0, zh="a", speaker="X"),
+            transcribe_service.Line(idx=1, start=5.0, end=10.0, zh="b", speaker="X"),
+            transcribe_service.Line(idx=2, start=10.0, end=15.0, zh="c", speaker="X",
+                                    speaker_manual=True)])
+        with pytest.raises(Exception):
+            diarization_service.reassign_speakers_from_saved_turns(did)
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 6.0, "speaker": "S1"},
+                                  {"start": 6.0, "end": 15.0, "speaker": "S2"}])
+        diarization_service.reassign_speakers_from_saved_turns(did)
+        rows = isolated_db.load_lines(did)
+        assert [r["speaker"] for r in rows] == ["S1", "S2", "X"]

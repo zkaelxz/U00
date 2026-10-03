@@ -136,6 +136,11 @@ def coverage_warning(segments, audio_seconds, qwen3_asr: bool = False) -> Option
     return msg
 
 
+def diarize_module_turns(drama_id: int):
+    import diarize
+    return diarize.load_turns(db.drama_dir(drama_id))
+
+
 def _audio_duration_seconds(path) -> Optional[float]:
     """Best-effort audio length via ffprobe; None when it can't be read."""
     try:
@@ -835,7 +840,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 raw_backend, raw_model = "qwen3_asr", "Qwen3-ASR"
             lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                           speaker=seg.get("speaker") or None)
-                     for i, seg in enumerate(segments) if seg["text"].strip()]
+                     for i, seg in enumerate(
+                         s for s in core_module.split_long_segments(segments)
+                         if s["text"].strip())]
             coverage_msg = coverage_warning(
                 segments, _audio_duration_seconds(audio_path),
                 qwen3_asr=raw_backend == "qwen3_asr")
@@ -903,6 +910,11 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     moss_speakers = sorted({ln.speaker for ln in lines if ln.speaker}) if moss_run else []
     for label in moss_speakers:
         db.upsert_character(drama_id, label)
+
+    if (not moss_speakers and raw_mode == "whisper"
+            and diarize_module_turns(drama_id) is not None):
+        # Split pieces start with their parent's speaker; saved turns give each its own.
+        diarization_service.reassign_speakers_from_saved_turns(drama_id)
 
     diarize_started = False
     if hf_token and diarize_audio_path and not moss_speakers:

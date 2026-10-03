@@ -112,6 +112,24 @@ def apply_diarization_result(drama_id: int, result: dict,
     db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
 
 
+def reassign_speakers_from_saved_turns(drama_id: int) -> dict:
+    """Relabels the drama's lines from the diarization turns already on disk,
+    without running detection again. speaker_manual lines are left alone and
+    only speaker/speaker_manual are written. Raises NotFoundError for an
+    unknown drama, ConflictError if no turns were saved yet."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    turns = diarize.load_turns(db.drama_dir(drama_id))
+    if turns is None:
+        raise ConflictError("No saved speaker detection for this drama; run Detect speakers first.")
+    lines = db.load_line_objects(drama_id)
+    counts = diarize.merge_speakers(lines, turns)
+    for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+        db.upsert_character(drama_id, label)
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
+    return counts
+
+
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
                        overwrite_manual: bool = False, min_speakers: Optional[int] = None,
                        max_speakers: Optional[int] = None):

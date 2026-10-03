@@ -39,3 +39,10 @@ def post_start_diarization(drama_id: int = Path(ge=1),
         drama_id, expected_speakers=expected_speakers,
         overwrite_manual=overwrite_manual, confirm=confirm,
         min_speakers=min_speakers, max_speakers=max_speakers)
+
+
+@router.post("/dramas/{drama_id}/reassign", dependencies=[require_permission("lines.edit")],
+             summary="Re-label lines from the speaker turns already saved (no detection run)",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+def post_reassign_speakers(drama_id: int = Path(ge=1)):
+    return diarization_service.reassign_speakers_from_saved_turns(drama_id)
