@@ -1930,7 +1930,8 @@ class TestDeadWorkerIsReconciled:
             dead.start()
             dead.join()
             with bg._lock:
-                bg._workers["dw_a"] = dead   # as if the runner thread vanished
+                # as if the runner thread had vanished without a word
+                bg._workers["dw_a"] = (bg._jobs["dw_a"], dead)
             assert bg.reconcile_dead_workers() == ["dw_a"]
             status = bg.get_status("dw_a")
             assert status["status"] == "error"

@@ -16,6 +16,7 @@ dicts, so `cli.py` or a script could call it too.
 """
 
 import json
+import os
 import re
 import time
 from typing import Optional
@@ -280,7 +281,8 @@ def derive_outcome(status, error, result):
     if status == "error":
         return "failed", (error or "The job failed.")
     if status == "cancelled":
-        return "cancelled", "The job was cancelled."
+        # An error on a cancelled record says why (INTERRUPTED_MESSAGE).
+        return "cancelled", (error or "The job was cancelled.")
     if status != "done":
         return None, None
     result = result if isinstance(result, dict) else {}
@@ -388,6 +390,7 @@ def _redact(record: dict) -> dict:
     record = _with_live_progress(record)
     out = dict(record)
     raw = out.pop("result_json", None)
+    out.pop("owner_pid", None)
     try:
         stored = json.loads(raw) if raw else None
     except ValueError:
@@ -414,8 +417,29 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
         return False
     if background_jobs.get_status(record.get("job_id")) is not None:
         return False
+    if _owner_gone(record):
+        return True
     updated = record.get("updated_at") or 0
     return (time.time() if now is None else now) - updated > STALE_JOB_SECONDS
+
+
+def _owner_gone(record: dict) -> bool:
+    """True when the row names an owner process that no longer runs it: an
+    exited pid, or this process's own pid with no such job live here (an
+    earlier run of the server had the same pid). Rows written before
+    owner_pid existed fall back to the heartbeat cutoff. Callers have
+    already checked the job isn't live in this process."""
+    pid = record.get("owner_pid")
+    if pid is None:
+        return False
+    if pid == os.getpid():
+        return True
+    return not background_jobs.owner_process_alive(pid)
+
+
+def _close_if_owner_gone(record: dict) -> bool:
+    return _owner_gone(record) and db.close_orphaned_job_record(
+        record.get("job_id"), record.get("owner_pid"), error=background_jobs.INTERRUPTED_MESSAGE)
 
 
 def _visible(principal, record) -> bool:
@@ -433,19 +457,25 @@ def _for_caller(principal, record) -> dict:
 
 
 def sweep_stale_job_records() -> int:
-    """Closes (as cancelled) every queued/running job_records row whose
-    owner has not heartbeated for STALE_JOB_SECONDS and that is not live in
-    this process -- left behind by a crashed or killed process. Each close
-    is one conditional UPDATE (db.close_stale_job_record), so a live
-    owner's heartbeat or "done" always wins. Returns how many it closed."""
+    """Closes (as cancelled, with INTERRUPTED_MESSAGE) every queued/running
+    job_records row that is not live in this process and whose owner
+    process has exited (owner_pid) or has not heartbeated for
+    STALE_JOB_SECONDS -- left behind by a crashed, killed or restarted
+    process. Each close is one conditional UPDATE, so a live owner's
+    heartbeat, "done" or new run always wins. Also marks this process's own
+    running jobs whose worker thread is gone
+    (background_jobs.reconcile_dead_workers). Returns how many it closed."""
+    background_jobs.reconcile_dead_workers()
     cutoff = time.time() - STALE_JOB_SECONDS
     closed = 0
     for rec in db.list_job_records():
         job_id = rec.get("job_id")
-        if (rec.get("status") in ("queued", "running")
-                and (rec.get("updated_at") or 0) < cutoff
-                and background_jobs.get_status(job_id) is None
-                and db.close_stale_job_record(job_id, cutoff)):
+        if rec.get("status") not in ("queued", "running") or background_jobs.get_status(job_id):
+            continue
+        if _close_if_owner_gone(rec) or (
+                (rec.get("updated_at") or 0) < cutoff
+                and db.close_stale_job_record(job_id, cutoff,
+                                              error=background_jobs.INTERRUPTED_MESSAGE)):
             closed += 1
     return closed
 
@@ -505,13 +535,17 @@ def cancel_job(job_id: str, principal=None) -> dict:
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
     background_jobs.request_cancel(job_id)
     db.request_job_record_cancel(job_id)
-    if (background_jobs.get_status(job_id) is None
-            and db.close_stale_job_record(job_id, time.time() - STALE_JOB_SECONDS)):
-        # No heartbeat for STALE_JOB_SECONDS: the owner process is gone and
-        # nobody will read the flag. The close is conditional on the row
-        # still being stale, so a live owner's heartbeat or "done" wins.
+    live = background_jobs.get_status(job_id)
+    if live is None and (_close_if_owner_gone(record) or db.close_stale_job_record(
+            job_id, time.time() - STALE_JOB_SECONDS, error=background_jobs.INTERRUPTED_MESSAGE)):
+        # The owner process has exited, or sent no heartbeat for
+        # STALE_JOB_SECONDS: nobody will read the flag. Each close is
+        # conditional, so a live owner's heartbeat, "done" or new run wins.
         return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
-    return {"job_id": job_id, "cancel_requested": True, "status": record["status"]}
+    # A queued job here ends at once (request_cancel); a running one says
+    # "Cancelling..." until its worker stops.
+    status = live["status"] if live else record["status"]
+    return {"job_id": job_id, "cancel_requested": True, "status": status}
 
 
 # job_records / background_jobs status names of a job that has ended.
