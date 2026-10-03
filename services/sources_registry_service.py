@@ -102,7 +102,8 @@ def _visible_classes() -> dict:
 def _require_source(name: str):
     cls = _visible_classes().get(name)
     if cls is None:
-        raise NotFoundError("No such source.")
+        raise NotFoundError(registry.SOURCE_REMOVED if name in registry.REMOVED_SOURCES
+                            else "No such source.")
     return cls
 
 
@@ -246,7 +247,8 @@ def list_tracked(principal=None) -> list:
     return [{"source": r["source"], "series_id": r["series_id"], "title": _scrub(r["title"]),
              "url": safe_url(r.get("url")), "drama_id": linked(r.get("drama_id")),
              "last_checked": r.get("last_checked"),
-             "last_check_error": _scrub(r.get("last_check_error"))}
+             "last_check_error": (registry.SOURCE_REMOVED if r["source"] in registry.REMOVED_SOURCES
+                                  else _scrub(r.get("last_check_error")))}
             for r in store.list_tracked_series()]
 
 
@@ -441,7 +443,8 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     from services import sources_search_service as search
     from services.service_errors import ConflictError
 
-    _require_source(source)
+    if tracked or source not in registry.REMOVED_SOURCES:
+        _require_source(source)     # a removed source's series can still be untracked
     series_id = (series_id or "").strip()
     if not series_id:
         raise InvalidInputError("series_id is required.")

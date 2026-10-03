@@ -1642,10 +1642,7 @@ python run_tests.py     # run everything (a wrapper around pytest, config in pyt
 python run_tests.py -k history   # run a subset
 ```
 
-If `tests/test_sources_mangaz.py`'s RSA tests fail with
-`ModuleNotFoundError: No module named '_cffi_backend'`, run
-`pip install cffi` (a missing dependency of `cryptography`, not an app
-bug). Tests are fully mocked: no GPU, models, API keys or network
+Tests are fully mocked: no GPU, models, API keys or network
 needed.
 
 Frontend checks, from `frontend/` after `npm ci`: `npm run lint`,

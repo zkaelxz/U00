@@ -456,82 +456,23 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
     return html, _visible_lines(html), blob_bytes
 
 
-# Keeps every Blob a page creates alive and its object URL resolvable.
-# Injected before the site's own scripts run. Some viewers (mangaz.com's
-# own, Step 23l) call URL.revokeObjectURL() inside the image's onload, so
-# by the time anything else looks the blob is already gone -- the rendered
-# bitmap is still on screen, but its bytes are unreachable. This only
-# declines to throw away what the page itself already produced for
-# display; it decodes nothing and defeats nothing.
-_BLOB_KEEPALIVE_JS = """
-window.__keptBlobs = {};
-const __origCreateObjectURL = URL.createObjectURL.bind(URL);
-URL.createObjectURL = function (obj) {
-    const url = __origCreateObjectURL(obj);
-    try { window.__keptBlobs[url] = obj; } catch (e) {}
-    return url;
-};
-URL.revokeObjectURL = function () { /* kept resolvable on purpose */ };
-"""
-
-# Reads back the kept blobs, newest first is irrelevant -- keyed by the
-# object URL the page itself handed to its own <img> tags, so a caller can
-# tie each one to whatever element referenced it.
-_KEPT_BLOBS_JS = """
-async () => {
-    const out = {};
-    for (const [url, blob] of Object.entries(window.__keptBlobs || {})) {
-        try {
-            const buf = new Uint8Array(await blob.arrayBuffer());
-            let binary = '';
-            for (let i = 0; i < buf.length; i += 8192) {
-                binary += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
-            }
-            out[url] = btoa(binary);
-        } catch (e) {
-            // left out; a missing key means "couldn't capture"
-        }
-    }
-    return out;
-}
-"""
-
-
 @contextmanager
-def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
-                     keep_blobs: bool = False):
+def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500):
     """An open, loaded page the caller drives itself, instead of the
     one-shot fetch_rendered() shape.
 
-    For a site whose content only appears as its own viewer is navigated
-    (mangaz.com's paginated reader, Step 23l): the caller steps through
-    using that site's own public viewer API and reads what it produces,
-    rather than this project reproducing the site's rendering itself.
-    With `keep_blobs`, blobs the page creates stay resolvable for
-    `kept_blob_bytes()` to read back.
+    For a site whose content only appears as its own viewer is navigated:
+    the caller steps through using that site's own public viewer API and
+    reads what it produces, rather than this project reproducing the
+    site's rendering itself.
     """
     sync_playwright = _require_playwright()
     with sync_playwright() as p:
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
-            if keep_blobs:
-                page.add_init_script(_BLOB_KEEPALIVE_JS)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page
-
-
-def kept_blob_bytes(page) -> dict:
-    """{object URL: real bytes} for every Blob a `keep_blobs` session's
-    page has created so far. A blob that couldn't be read is left out."""
-    import base64
-    out = {}
-    for blob_url, b64 in (page.evaluate(_KEPT_BLOBS_JS) or {}).items():
-        try:
-            out[blob_url] = base64.b64decode(b64)
-        except (ValueError, TypeError):
-            continue
-    return out
 
 
 def _url_matches(url: str, pattern) -> bool:
@@ -562,7 +503,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     whose URL matches `url_pattern`, as the page's own JavaScript makes
     them -- yielding `(page, captured)` so the caller can also drive the
     page further (click, scroll, call a viewer's own API) the same way
-    `rendered_session()` already lets mangaz.py step through a reader.
+    `rendered_session()` lets a caller step through a reader.
 
     For a site that protects its own content API with something computed
     client-side -- a request signature built from a nonce, a timestamp,
@@ -572,7 +513,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
     real, already-signed request/response pairs the page makes on its
     own, instead of porting the signing algorithm to Python. The same
     "let the site's own execution path produce the result" principle
-    mangaz.py and manhuaku.py already apply to descrambling and AES,
+    manhuaku.py already applies to descrambling,
     extended here to an API a site protects with a computed signature
     rather than encrypted output. Nothing about the signature is ever
     inspected, guessed at, or reproduced -- only the response body the

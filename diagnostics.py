@@ -127,9 +127,7 @@ OPTIONAL_DEPENDENCIES = {
                                 "experimental one-pass transcription + speaker labels "
                                 "(MOSS-Transcribe-Diarize; Settings > Transcription experiments; "
                                 "can't share an install with Qwen3-ASR)", "experimental"),
-    "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
-                                     "decryption (Sources tab); Google sign-in token checks",
-                     "feature"),
+    "cryptography": ("cryptography", "Google sign-in token checks", "feature"),
     "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),
@@ -355,9 +353,9 @@ INSTALL_TASKS = [
      "recommended": ["ebooklib", "genanki"]},
     {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
      "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
-     "packages": ["bs4", "trafilatura", "playwright", "cryptography", "lightnovel-crawler"],
+     "packages": ["bs4", "trafilatura", "playwright", "lightnovel-crawler"],
      "recommended": ["trafilatura"],
-     "optional": ["playwright", "cryptography", "lightnovel-crawler"]},
+     "optional": ["playwright", "lightnovel-crawler"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
