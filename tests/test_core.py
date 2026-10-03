@@ -593,6 +593,29 @@ class TestTightenToWords:
         assert seen["word_timestamps"] is True
 
 
+class TestPunctuationOnlySegmentsDropped:
+    def test_a_lone_bracket_is_dropped_but_real_and_tag_lines_stay(self):
+        import core, sys, types
+
+        class Seg:
+            def __init__(self, start, text):
+                self.start, self.end, self.text, self.words = start, start + 1.0, text, None
+
+        class Model:
+            def transcribe(self, audio_path, **kwargs):
+                texts = ["[", "你好", "...", "[Music]", "  —  ", "こんにちは。", "7"]
+                return iter([Seg(float(i), t) for i, t in enumerate(texts)]), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *a, **k: Model()
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+
+        got = core.transcribe_for_timing("/fake/audio.mp3")
+
+        assert [g["text"] for g in got] == ["你好", "[Music]", "こんにちは。", "7"]
+
+
 class TestLineCoverageDiagnosis:
     """Regression cover built directly from a real uploaded file: several
     lines spanning many minutes with only a few characters of text each,
