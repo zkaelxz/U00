@@ -454,6 +454,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         useGpu,
         fastMode: cf.whisper_fast_mode,
         modelCached: config?.whisper_model_cached,
+        measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
         useGroq: cf.use_groq,
         detectSpeakers: runDiarize,
       })

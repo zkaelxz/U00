@@ -10,7 +10,7 @@ export interface MockJob {
 
 export async function mockTranscribeCard(
   page: Page,
-  opts: { durationSeconds: number; cached?: boolean; separate?: boolean },
+  opts: { durationSeconds: number; cached?: boolean; separate?: boolean; measuredSpeed?: number },
   state: MockJob,
 ) {
   await page.route('**/api/transcribe/dramas/1/config', async (route) => {
@@ -23,6 +23,7 @@ export async function mockTranscribeCard(
         asr_backend_choice: 'whisper',
         whisper_size: 'large-v3',
         whisper_model_cached: opts.cached ?? true,
+        measured_speed: opts.measuredSpeed ?? null,
         separate_vocals_first: opts.separate ?? false,
         use_groq: false,
         audio_available: true,

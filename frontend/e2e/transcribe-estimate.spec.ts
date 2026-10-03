@@ -21,6 +21,12 @@ test('the estimate line says rough, names model and device, and notes a download
   await expect(page.getByTestId('separation-note')).toHaveText('Vocal separation adds time, a lot on CPU.')
 })
 
+test('a speed measured on the last run replaces the built-in range', async ({ page }) => {
+  await mockTranscribeCard(page, { durationSeconds: 3600, measuredSpeed: 2 }, { progress: 0, message: '' })
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByTestId('transcribe-estimate')).toContainText('based on your last run')
+})
+
 test('no estimate (and no error) when the audio length is unknown', async ({ page }) => {
   await mockTranscribeCard(page, { durationSeconds: 0 }, { progress: 0, message: '' })
   await page.goto('/#/drama/1/source')

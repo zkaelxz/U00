@@ -31,6 +31,8 @@ export interface TranscribeConfig {
   asr_backend_choice: string
   whisper_size: string
   whisper_model_cached: boolean
+  // Audio seconds per second of work on the last finished run of this model and device; null if none yet.
+  measured_speed: number | null
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
@@ -55,6 +57,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'has_audio_pipeline'
     | 'audio_available'
     | 'whisper_model_cached'
+    | 'measured_speed'
     | 'has_video_source'
   >
 >

@@ -65,6 +65,7 @@ same shape as diarization_service.start_diarization_run.
 import importlib.util
 import os
 import subprocess
+import time
 from typing import Optional
 
 import background_jobs
@@ -151,6 +152,52 @@ def _audio_duration_seconds(path) -> Optional[float]:
 # fills 0..RUNNING_MAX.
 RUNNING_MAX = 0.99
 QWEN_SPLIT = 0.85
+
+
+_SPEED_SETTING = "transcribe_speed"
+# Outside this range a reading is a clock glitch or a near-empty file, not a speed.
+_SPEED_BOUNDS = (0.01, 1000.0)
+_SPEED_MIN_WORK_SECONDS = 5.0
+
+
+def _speed_key(model: str, on_gpu: bool) -> str:
+    return f"{model}|{'gpu' if on_gpu else 'cpu'}"
+
+
+def measured_transcribe_speed(model: str, on_gpu: bool) -> Optional[float]:
+    """Seconds of audio transcribed per second of work on the last finished
+    run of this (model, device), or None. Never raises."""
+    try:
+        stored = db.get_app_setting(_SPEED_SETTING, {})
+        value = stored.get(_speed_key(model, on_gpu)) if isinstance(stored, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        value = float(value)
+        return value if _SPEED_BOUNDS[0] <= value <= _SPEED_BOUNDS[1] else None
+    except Exception:
+        return None
+
+
+def record_transcribe_speed(model: str, on_gpu: bool, audio_seconds, work_seconds) -> None:
+    """Keeps an exponential average (half old, half new) of a finished run's
+    speed. Ignores non-numeric or out-of-range readings; never raises, so a
+    settings hiccup cannot fail a finished transcription."""
+    try:
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in (audio_seconds, work_seconds)):
+            return
+        if work_seconds < _SPEED_MIN_WORK_SECONDS or audio_seconds <= 0:
+            return
+        speed = float(audio_seconds) / float(work_seconds)
+        if not _SPEED_BOUNDS[0] <= speed <= _SPEED_BOUNDS[1]:
+            return
+        stored = db.get_app_setting(_SPEED_SETTING, {})
+        stored = dict(stored) if isinstance(stored, dict) else {}
+        key = _speed_key(model, on_gpu)
+        old = measured_transcribe_speed(model, on_gpu)
+        stored[key] = round(speed if old is None else (old + speed) / 2, 4)
+        db.set_app_setting(_SPEED_SETTING, stored)
+    except Exception:
+        pass
 
 
 def _raise_if_job_cancelled(job_id):
@@ -243,6 +290,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         "asr_backend_choice": drama.get("asr_backend_choice") or "whisper",
         "whisper_size": whisper_size,
         "whisper_model_cached": core_module.is_whisper_model_cached(whisper_size),
+        "measured_speed": measured_transcribe_speed(whisper_size, settings_service.get_use_gpu()),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -641,6 +689,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     skipped (diarize_started stays False), same as the existing
     no-hf_token case."""
     gpu_fallback_msg = []
+    whisper_clock = {}
     word_align_error = None
     forced_align_error = None
     coverage_msg = None
@@ -780,6 +829,15 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 background_jobs.update_progress(
                     job_id, 0.0, f"Transcribing... starting; the percent appears once "
                                  f"the first lines are found{device_suffix}")
+                def _whisper_progress(frac):
+                    # The clock starts at the first percent: model download and
+                    # load are not transcription speed.
+                    if frac > 0 and "t" not in whisper_clock:
+                        whisper_clock.update(t=time.monotonic(), p=min(frac, 1.0))
+                    _raise_if_job_cancelled(job_id)
+                    background_jobs.update_progress(
+                        job_id, min(frac, 1.0) * stage_max,
+                        f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")
                 segments = transcribe_for_timing(
                     audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                     local_model_path=local_model_path, hf_token=None,
@@ -787,12 +845,10 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                     on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module._short_reason(exc)),
-                    progress_cb=lambda frac: (
-                        _raise_if_job_cancelled(job_id),
-                        background_jobs.update_progress(
-                            job_id, min(frac, 1.0) * stage_max,
-                            f"Transcribing{step_label}... {frac * 100:.0f}%{device_suffix}")),
+                    progress_cb=_whisper_progress,
                     fast_mode=whisper_fast_mode)
+                if "t" in whisper_clock:
+                    whisper_clock["work"] = time.monotonic() - whisper_clock["t"]
             except core_module.ModelDownloadError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
                 return
@@ -941,6 +997,15 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             on_done=diarization_service.make_apply_on_done(
                 drama_id, expected_speakers, min_speakers=min_speakers,
                 max_speakers=max_speakers))
+
+    if "work" in whisper_clock and whisper_clock["p"] < 0.5:
+        # Only the Whisper pass counts, and only the part after its first
+        # percent: audio_seconds * (1 - that first percent) over the time taken.
+        audio_seconds = _audio_duration_seconds(audio_path)
+        if audio_seconds:
+            record_transcribe_speed(
+                whisper_size, bool(use_gpu) and not gpu_fallback_msg,
+                audio_seconds * (1.0 - whisper_clock["p"]), whisper_clock["work"])
 
     background_jobs.set_result(job_id, {
         "line_count": len(lines),

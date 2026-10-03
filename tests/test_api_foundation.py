@@ -798,7 +798,7 @@ class TestTranscribeConfigEndpoints:
             "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
             "audio_available": False, "alignment_method": "whisper_diff",
             "asr_backend_choice": "whisper", "whisper_size": "large-v3",
-            "whisper_model_cached": body["whisper_model_cached"],
+            "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None,
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
