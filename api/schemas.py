@@ -245,6 +245,9 @@ class JobRecord(BaseModel):
     # Still queued/running on record, but no owner has heartbeated it for
     # 15 minutes (server clock): left behind by a process that died.
     stale: bool = False
+    # Running here, but no progress update for a while (advisory; the state
+    # is unchanged). Distinct from `stale`, which is about a dead owner.
+    stalled: bool = False
     # The caller started this job or owns its drama (auth off and the local
     # owner: every job). Server-computed from the caller's session; true
     # only where the caller may also cancel it.

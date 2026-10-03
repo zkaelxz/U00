@@ -1,7 +1,7 @@
 /*
- * Theme preference: follow the system, or light, dark or sepia.
+ * Theme preference: follow the system, or light, dark, sepia or oled.
  * Client-side only, per browser: stored in localStorage and applied as
- * <html data-theme="light|dark|sepia">; "system" removes the attribute so the
+ * <html data-theme="light|dark|sepia|oled">; "system" removes the attribute so the
  * prefers-color-scheme tokens in index.css apply. Storage may throw
  * (private window, blocked site data); every access is wrapped and the
  * page then just follows the system.
@@ -11,9 +11,9 @@
  */
 import { useSyncExternalStore } from 'react'
 
-export type ThemePref = 'system' | 'light' | 'dark' | 'sepia'
+export type ThemePref = 'system' | 'light' | 'dark' | 'sepia' | 'oled'
 /** The look a theme resolves to once "system" is settled. */
-export type ThemeLook = 'light' | 'dark' | 'sepia'
+export type ThemeLook = 'light' | 'dark' | 'sepia' | 'oled'
 
 export const THEME_KEY = 'baihe.theme'
 export const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
@@ -21,6 +21,7 @@ export const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
   { value: 'sepia', label: 'Sepia' },
+  { value: 'oled', label: 'OLED black' },
 ]
 
 export type ThemeStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -34,7 +35,7 @@ function browserStorage(): ThemeStorage | null {
 }
 
 export function parseTheme(raw: unknown): ThemePref {
-  return raw === 'light' || raw === 'dark' || raw === 'sepia' ? raw : 'system'
+  return raw === 'light' || raw === 'dark' || raw === 'sepia' || raw === 'oled' ? raw : 'system'
 }
 
 export function themeLabel(pref: ThemePref): string {

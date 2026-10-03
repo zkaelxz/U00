@@ -114,7 +114,8 @@ export function pageParams(
   page: number,
   opts: { phone: boolean; appLook: ThemeLook },
 ): ReaderPageParams {
-  const theme = prefs.theme === 'auto' ? opts.appLook : prefs.theme
+  // The server page has no OLED look; the app's black falls back to its dark page.
+  const theme = prefs.theme === 'auto' ? (opts.appLook === 'oled' ? 'dark' : opts.appLook) : prefs.theme
   const p: ReaderPageParams = {
     page,
     chapter_size: prefs.chapterSize,

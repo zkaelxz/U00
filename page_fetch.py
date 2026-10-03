@@ -561,6 +561,23 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
             yield page, captured
 
 
+# Readers that load each page image as it scrolls into view fill in
+# nothing for a single jump to the bottom: step down about a screen at a
+# time (bounded to ~10 s), then land at the bottom as before.
+_SCROLL_THROUGH_JS = """
+async () => {
+    let y = 0;
+    for (let i = 0; i < 40; i++) {
+        y += Math.max(window.innerHeight * 0.9, 400);
+        window.scrollTo(0, y);
+        await new Promise(r => setTimeout(r, 250));
+        if (y >= document.documentElement.scrollHeight) break;
+    }
+    window.scrollTo(0, document.body.scrollHeight);
+}
+"""
+
+
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
@@ -582,7 +599,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
             page = _guarded_page(browser)
             _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
             try:
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.evaluate(_SCROLL_THROUGH_JS)
                 page.wait_for_load_state("networkidle", timeout=timeout * 1000)
             except Exception:
                 pass  # a scroll-triggered navigation or a slow settle isn't fatal
