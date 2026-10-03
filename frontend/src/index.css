@@ -54,7 +54,7 @@
 }
 
 /* Dark tokens: the system's choice unless the theme picker chose light or
-   sepia (data-theme, src/theme.ts), and always when it chose dark. */
+   sepia (data-theme, src/theme.ts), and always when it chose dark or oled. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"], [data-theme="sepia"]) {
     --bg: #16161a;
@@ -73,7 +73,7 @@
   }
 }
 
-:root[data-theme="dark"] {
+:root:is([data-theme="dark"], [data-theme="oled"]) {
   --bg: #16161a;
   --accent-text: #b8a3ea;
   --field-bg: #17171c;
@@ -92,6 +92,19 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
+}
+
+/* True black page so OLED pixels are off; surfaces step up from it. Text and
+   status colours are the dark ones, all >= 4.5:1 on every surface here;
+   borders are lifted so cards stay visible without a lighter fill. */
+:root[data-theme="oled"] {
+  --bg: #000000;
+  --field-bg: #0a0a0a;
+  --surface: #0a0a0a;
+  --surface-2: #121212;
+  --border: #2e2e36;
+  --muted: #a3a3b0;
+  --shadow-1: none;
 }
 
 /* Warm paper. Page colour and ink match the Reader's sepia page (reader.py

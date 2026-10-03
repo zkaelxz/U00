@@ -14,7 +14,6 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
-import { ApiKeysCard } from './settings/ApiKeysCard'
 import { AppUpdatesCard } from './settings/AppUpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
@@ -190,8 +189,9 @@ export default function SettingsPage() {
               </div>
             </Card>
           </Fold>
-          <Fold id="engines" signals={signals} summary="API keys and which engine does what">
-            <ApiKeysCard
+          <Fold id="engines" signals={signals} summary="Keys, tests and which engine does what">
+            <EngineRoutingCard
+              refreshToken={routingToken}
               settings={settings}
               onKey={(r) => {
                 setSettings((cur) =>
@@ -199,9 +199,6 @@ export default function SettingsPage() {
                 )
                 bumpRouting()
               }}
-            />
-            <EngineRoutingCard
-              refreshToken={routingToken}
               geminiFreeTier={settings.gemini_free_tier}
               onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
             />

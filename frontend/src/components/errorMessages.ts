@@ -77,7 +77,7 @@ export function summarizeEngineFailure(
   const text = raw ?? ''
   const local = LOCAL_ENGINES.has(engine)
   if (/\b(401|403)\b|unauthori[sz]ed|forbidden|invalid[\s_-]*(api[\s_-]*)?key|permission denied|authentication/i.test(text)) {
-    return { kind: 'key_rejected', summary: `${engineLabel} rejected the key. Check it in API keys, then test again.` }
+    return { kind: 'key_rejected', summary: `${engineLabel} rejected the key. Check its key under Engines and keys, then test again.` }
   }
   if (/\b429\b|rate[\s_-]*limit|too many requests|quota/i.test(text)) {
     return { kind: 'rate_limited', summary: `${engineLabel} is rate limited. Wait a minute, then test again.` }
