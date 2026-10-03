@@ -79,14 +79,6 @@ def test_other_launch_errors_are_not_masked():
         page_fetch._launch_chromium(boom)
 
 
-def test_a_bundled_chromium_folder_counts_as_found(monkeypatch, tmp_path):
-    d = tmp_path / "pw" / "chromium-1194"
-    d.mkdir(parents=True)
-    (d / "chrome").write_text("x")
-    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path / "pw"))
-    assert page_fetch.browser_status() == {"found": True, "name": "Playwright Chromium"}
-
-
 def test_error_view_is_a_fixed_503_sentence():
     from services import sources_search_service as svc
     view = svc._error_view(page_fetch.BrowserNotFound("C:\\Users\\bob\\x"))
@@ -102,3 +94,86 @@ def test_ladder_reports_not_installed():
         raise page_fetch.BrowserNotFound(page_fetch.BROWSER_MISSING)
     out = ladder._browser_outcome("https://x.example/", None, fetch, "Browser")
     assert out.reasons == [FailureReason.NOT_INSTALLED] and "BAIHE_BROWSER_PATH" in out.detail
+
+
+def _fake_playwright(monkeypatch, tmp_path, revision="1243", manifest=True):
+    """A playwright package folder holding only driver/package/browsers.json."""
+    import importlib.util
+    import json
+    import types
+    pkg = tmp_path / "site" / "playwright"
+    (pkg / "driver" / "package").mkdir(parents=True)
+    if manifest:
+        (pkg / "driver" / "package" / "browsers.json").write_text(json.dumps({"browsers": [
+            {"name": "chromium", "revision": revision},
+            {"name": "chromium-headless-shell", "revision": revision},
+            {"name": "firefox", "revision": "9"}]}))
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: types.SimpleNamespace(
+        submodule_search_locations=[str(pkg)]) if name == "playwright" else real(name, *a))
+
+
+def _install_build(cache, revision, headless_shell=True, program=True):
+    for folder, exe in (("chromium", "chrome-linux64/chrome"),
+                        ("chromium_headless_shell",
+                         "chrome-headless-shell-linux64/chrome-headless-shell")):
+        if folder == "chromium_headless_shell" and not headless_shell:
+            continue
+        path = cache / f"{folder}-{revision}" / exe
+        path.parent.mkdir(parents=True)
+        path.write_text("x")
+        path.chmod(0o755 if program else 0o644)
+
+
+@pytest.fixture
+def cache(monkeypatch, tmp_path):
+    path = tmp_path / "cache"
+    path.mkdir()
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(path))
+    return path
+
+
+def test_the_build_the_installed_playwright_wants_is_found(monkeypatch, tmp_path, cache):
+    _fake_playwright(monkeypatch, tmp_path, "1243")
+    _install_build(cache, "1243")
+    assert page_fetch.browser_status() == {"found": True, "name": "Playwright Chromium"}
+
+
+def test_only_an_older_build_is_not_found(monkeypatch, tmp_path, cache):
+    _fake_playwright(monkeypatch, tmp_path, "1243")
+    _install_build(cache, "1200")
+    assert page_fetch.browser_status() == {"found": False, "name": None}
+
+
+def test_an_older_build_falls_to_the_system_browser(monkeypatch, tmp_path, cache):
+    chrome = tmp_path / "chrome.exe"
+    chrome.write_text("x")
+    monkeypatch.setattr(page_fetch, "_system_browser_candidates", lambda: [("Chrome", str(chrome))])
+    _fake_playwright(monkeypatch, tmp_path, "1243")
+    _install_build(cache, "1200")
+    assert page_fetch.browser_status() == {"found": True, "name": "Chrome"}
+
+
+def test_a_missing_headless_shell_or_program_file_is_not_found(monkeypatch, tmp_path, cache):
+    _fake_playwright(monkeypatch, tmp_path, "1243")
+    _install_build(cache, "1243", headless_shell=False)
+    assert page_fetch.browser_status()["found"] is False
+    (cache / "chromium-1243" / "chrome-linux64" / "chrome").unlink()
+    assert page_fetch.browser_status()["found"] is False
+
+
+def test_an_unreadable_manifest_or_missing_playwright_is_not_found(monkeypatch, tmp_path, cache):
+    _install_build(cache, "1243")
+    _fake_playwright(monkeypatch, tmp_path, "1243", manifest=False)
+    assert page_fetch.browser_status() == {"found": False, "name": None}
+    import importlib.util
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None)
+    assert page_fetch.browser_status() == {"found": False, "name": None}
+
+
+def test_explicit_path_still_wins_over_the_playwright_check(monkeypatch, tmp_path, cache):
+    exe = tmp_path / "mybrowser"
+    exe.write_text("x")
+    monkeypatch.setenv(page_fetch.BROWSER_ENV, str(exe))
+    _fake_playwright(monkeypatch, tmp_path, "1243")
+    assert page_fetch.browser_status() == {"found": True, "name": "custom"}
