@@ -159,3 +159,24 @@ def test_scrub_and_safe_url_units():
     out = svc._scrub("open /home/kae/lib/x.db and C:\\a\\b, \\\\srv\\share\\f, ~/x/y")
     assert "/home/kae" not in out and "C:\\a" not in out and "srv" not in out and "~/x" not in out
     assert svc._scrub("https://example.com/a/b is down") == "https://example.com/a/b is down"
+
+
+def test_removed_source_stored_data_still_lists_and_is_skipped(client, isolated_db):
+    from sources import chapter_check
+    assert "mangaz" not in registry.adapter_classes()
+    store.track_series("mangaz", "42", "Old Import", url="https://example.invalid/series/detail/42")
+    t = client.get("/api/sources/tracked").json()
+    assert t[0]["source"] == "mangaz" and t[0]["last_check_error"] == registry.SOURCE_REMOVED
+    assert client.get("/api/sources/mangaz").json()["error"]["message"] == registry.SOURCE_REMOVED
+
+    def never(name):
+        raise AssertionError("no adapter may be built for a removed source")
+    summary = chapter_check.run_check_cycle(adapter_factory=never)
+    assert summary["errors"] == {"Old Import": registry.SOURCE_REMOVED}
+    assert summary["checked"] == 0
+    with pytest.raises(KeyError, match="removed"):
+        registry.get_adapter("mangaz")
+
+    r = client.post("/api/sources/tracked", json={"source": "mangaz", "series_id": "42",
+                                                  "tracked": False})
+    assert r.status_code == 200 and r.json() == []

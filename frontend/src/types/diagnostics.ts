@@ -45,6 +45,7 @@ export interface DiagnosticsSetupChecks {
   // libass: built with libass (burned-in subtitles); null/absent = unknown.
   ffmpeg: { found: boolean; version: string | null; libass?: boolean | null }
   js_runtime: { found: boolean; name: string | null }
+  browser?: { found: boolean; name: string | null }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
   files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
   library_writable: boolean

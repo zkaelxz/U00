@@ -63,3 +63,24 @@ test('phone: signed-in header keeps the menu on the title row, 44 px targets, Si
   expect(s.logoutHeaders[0]['x-csrf-token']).toBe('phone-token')
   expect(s.unmocked).toEqual([])
 })
+
+test('signed in: the cogwheel sits in the header\'s right-hand group, not in the Main nav, and its menu stays on screen', async ({ page }) => {
+  await mockAuth(page, ME.signedIn)
+  await page.goto('/#/library')
+  const gear = page.locator('summary[aria-label="Settings and tools"]')
+  await expect(gear).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Main' }).locator('.gear-menu')).toHaveCount(0)
+  await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(1)
+  const gb = (await gear.boundingBox())!
+  expect(gb.width).toBeGreaterThanOrEqual(44)
+  expect(gb.height).toBeGreaterThanOrEqual(44)
+  await noSideways(page)
+  await maybeScreenshot(page, 'phone-header')
+  await gear.tap()
+  const panel = page.locator('.gear-menu-panel')
+  await expect(panel).toBeVisible()
+  const box = (await panel.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await maybeScreenshot(page, 'phone-gear-open')
+})
