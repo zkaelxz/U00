@@ -4075,7 +4075,7 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
 - **Deferred, agreed:**
   - trust levels across glossary, characters and translation memory;
   - the entity system (wiki scope, character merge, where detected names go).
-- **Still open:** the Work/Edition split. See "Open questions" at the end of this block.
+- **Skipped for now:** the Work/Edition split. See "Open questions" at the end of this block.
 
 ---
 
@@ -4510,7 +4510,7 @@ What exists today falls short:
 
 ### Open questions carried with this batch (not scheduled)
 
-- **Work / Edition split.** Today `dramas` is the work, the edition and the files at once. Step 145's `source_objects` gives files their own identity. A separate Edition table would only help when the same work exists as two releases (for example a raw and a fan-translated EPUB, or two video encodes) and should share characters and glossary while keeping separate files. A series already shares glossary and characters, so wait for a real case.
+- **Work / Edition split.** Today `dramas` is the work, the edition and the files at once. Step 145's `source_objects` gives files their own identity. A separate Edition table would only help when the same work exists as two releases (for example a raw and a fan-translated EPUB, or two video encodes) and should share characters and glossary while keeping separate files. A series already shares glossary and characters. **Skipped for now (user, 2026-10-03)**; revisit only when a real two-release case comes up.
 - **Standalone VAD (R4, parked).** VAD (voice activity detection) is the step that decides which stretches of audio contain speech. Today faster-whisper does it internally (`vad_filter=True`, `core.py:692`), and Whisper's segments then set every subtitle's start and end. Running VAD as its own step would let speech boundaries be set and tuned separately from Whisper. Nothing is planned. It becomes a candidate fix only if Step 153 finds the drift starts at Whisper's own segment timing.
 - **Source-cache retention default.** Adapter downloads default to `temporary` (`sources/cache.py:28-36`). Switching the default to `keep_originals` would keep every raw chapter, in line with "keep everything." Decide with the disk-budget follow-up (compressing or moving originals elsewhere).
 - **Decided 2026-10-03, recorded so they aren't re-proposed:**
