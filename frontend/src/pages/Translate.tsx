@@ -31,6 +31,7 @@ import {
   pickEngine,
   pickLanguage,
   pickModel,
+  showLocalOnlyNote,
   swapDirection,
   visibleHistory,
 } from './translatePage'
@@ -152,6 +153,12 @@ export default function TranslatePage() {
         <h2>Quick translate</h2>
         <p className="muted">Quick text translation, outside any drama. One side is always English.</p>
       </header>
+      {showLocalOnlyNote(engines, engine) && (
+        <p className="translate-note" role="note" data-testid="local-only-note">
+          No cloud translator is set up. Quick translate is using Ollama on this PC. Start Ollama, or add a key in{' '}
+          <a href="#/settings">Settings</a>.
+        </p>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Card className="translate-card" as="div">
         <form onSubmit={submit} className="translate-form">

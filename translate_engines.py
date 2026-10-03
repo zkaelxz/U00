@@ -1011,15 +1011,13 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
             [{"role": "user", "content": prompt}], usage_cb=usage_cb))
 
     if isinstance(engine, OllamaEngine):
-        import requests
-        resp = requests.post(f"{engine.base_url}/api/chat", json={
+        resp = _ollama_chat(engine.base_url, {
             "model": engine.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "format": "json",
             "options": {"num_ctx": _estimate_ollama_num_ctx(prompt, "")},
-        }, timeout=300)  # local models can be slow, especially CPU-only or larger ones
-        resp.raise_for_status()
+        })
         data = resp.json()
         if usage_cb:
             usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
@@ -1935,6 +1933,47 @@ OLLAMA_MODELS = {
 }
 
 
+class OllamaUnavailableError(Exception):
+    """Ollama can't serve the request for a reason the user can fix.
+    `reason` is a stable machine id; the message never carries the Ollama
+    URL, which can be a private address."""
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+
+
+def _ollama_chat(base_url: str, payload: dict):
+    """POST /api/chat with the slow-local-model timeout; returns the
+    response after raise_for_status. A refused/unresolvable/unreachable
+    server and a model that isn't pulled become OllamaUnavailableError;
+    requests' own messages embed the URL, so none of that text is kept."""
+    import requests
+    try:
+        resp = requests.post(f"{base_url}/api/chat", json=payload,
+                             timeout=300)  # local models can be slow, especially CPU-only or larger ones
+    except requests.ConnectionError:  # includes ConnectTimeout and DNS failures
+        raise OllamaUnavailableError(
+            "ollama_unreachable",
+            "Ollama isn't running. Start it, or pick another translator in Settings.") from None
+    except requests.ReadTimeout:
+        raise OllamaUnavailableError(
+            "ollama_timeout",
+            "Ollama took too long to answer. Try a smaller model, or pick another translator in Settings.") from None
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        if getattr(exc.response, "status_code", None) != 404:
+            raise
+        model = str(payload.get("model") or "")
+        raise OllamaUnavailableError(
+            "ollama_model_missing",
+            f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
+            "or pick another model in Settings.") from None
+    return resp
+
+
 class OllamaEngine:
     """Fully local/offline translation via Ollama (https://ollama.com) --
     no API key, no internet needed once you've pulled a model. Quality
@@ -1952,7 +1991,6 @@ class OllamaEngine:
         self.base_url = base_url.rstrip("/")
 
     def translate_batch(self, zh_lines, context: dict):
-        import requests
         system_text = build_stable_system_text(context)
         num_ctx_override = context.get("ollama_num_ctx_override")
 
@@ -1970,7 +2008,7 @@ class OllamaEngine:
                     f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
                     f"estimated prompt size ({estimated}) -- using {estimated} instead to "
                     "avoid silently truncating the prompt.")
-            resp = requests.post(f"{self.base_url}/api/chat", json={
+            resp = _ollama_chat(self.base_url, {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_text},
@@ -1979,8 +2017,7 @@ class OllamaEngine:
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
                 "options": {"num_ctx": num_ctx},
-            }, timeout=300)  # local models can be slow, especially CPU-only or larger ones
-            resp.raise_for_status()
+            })
             return resp.json()["message"]["content"].strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,

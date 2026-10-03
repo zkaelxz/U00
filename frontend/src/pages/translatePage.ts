@@ -79,3 +79,9 @@ export function historyCount(count: number, limit: number): string {
 export function visibleHistory<T>(items: T[], showAll: boolean): T[] {
   return showAll ? items : items.slice(0, HISTORY_PREVIEW)
 }
+
+/** True when Quick translate runs on Ollama only because no cloud engine has a key. */
+export function showLocalOnlyNote(engines: TranslateEngine[], selected: string): boolean {
+  const current = engines.find((e) => e.name === selected)
+  return current?.name === 'ollama' && current.key_configured && !engines.some((e) => !e.free && e.key_configured)
+}

@@ -24,6 +24,8 @@
 
 .translate-engine-note { margin: 0; font-size: var(--text-sm); }
 .translate-warning { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-sm); }
+.translate-note { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); font-size: var(--text-sm); }
+.translate-note a { color: var(--accent-text); display: inline-block; min-height: 44px; line-height: 44px; }
 .translate-warning a { color: var(--accent-text); }
 
 /* Source and result panes. */

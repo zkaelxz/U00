@@ -53,13 +53,19 @@ export function describeError(
 ): { title: string; detail: string | null } {
   const e = err as Partial<ApiError> | null
   const code = e?.code ?? 'internal_error'
+  // Ollama failures carry a fixed, user-fixable sentence of their own.
+  const reason = (e?.details as { reason?: unknown } | undefined)?.reason
+  const ollamaText =
+    code === 'dependency_unavailable' && typeof reason === 'string' && reason.startsWith('ollama_')
+      ? safeDetail(e?.message ?? '')
+      : null
   const title =
     opts.pcOnly && (code === 'forbidden' || e?.status === 403)
       ? PC_ONLY_FORBIDDEN
-      : (GENERIC[code] ?? GENERIC.application_error)
+      : (ollamaText ?? GENERIC[code] ?? GENERIC.application_error)
   const showServer =
     SERVER_TEXT_CODES.includes(code) || (opts.serverText && OPT_IN_SERVER_TEXT_CODES.includes(code))
-  const detail = e?.message && showServer ? safeDetail(e.message) : null
+  const detail = e?.message && showServer && !ollamaText ? safeDetail(e.message) : null
   return { title, detail }
 }
 

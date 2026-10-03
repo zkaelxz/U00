@@ -1366,6 +1366,23 @@ class TestOllamaEngine:
         assert captured["timeout"] is not None
 
 
+class TestOllamaUnavailableErrors:
+    def test_translate_batch_and_call_llm_json_share_the_mapping(self, monkeypatch):
+        import requests
+
+        def refuse(url, json=None, timeout=None):
+            raise requests.ConnectionError(f"refused {url}")
+        monkeypatch.setattr("requests.post", refuse)
+        engine = te.OllamaEngine(base_url="http://10.1.2.3:11434")
+        with pytest.raises(te.OllamaUnavailableError) as batch:
+            engine.translate_batch(["你好"], {})
+        with pytest.raises(te.OllamaUnavailableError) as free_form:
+            te.call_llm_json(engine, "hi")
+        for info in (batch, free_form):
+            assert info.value.reason == "ollama_unreachable"
+            assert "10.1.2.3" not in str(info.value)
+
+
 class TestOllamaReachability:
     """Regression coverage for a real gap: Ollama is exempted from the
     API-key check entirely (workspace_tab.py's _needs_key), with nothing
