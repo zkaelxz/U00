@@ -22,6 +22,8 @@ import LibraryToolsPage from './pages/LibraryTools'
 import LivePage from './pages/Live'
 import LoginPage from './pages/Login'
 import ReaderPage from './pages/Reader'
+import SavedMangaPage from './pages/SavedManga'
+import SavedMangaReader from './pages/SavedMangaReader'
 import SettingsPage from './pages/Settings'
 import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
@@ -90,7 +92,7 @@ function UserMenu({ user }: { user: AuthUser }) {
 
 // [label, target, route names that count as being on this page]
 const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'library-tools', 'drama', 'read', 'comic']],
+  ['Library', { name: 'library' }, ['library', 'library-tools', 'drama', 'read', 'comic', 'manga', 'manga-series', 'manga-read']],
   ['Quick translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
   ['Discover', { name: 'discover' }, ['discover']],
@@ -161,6 +163,19 @@ export default function App() {
         {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
         {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
         {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+        {route.name === 'manga' && <SavedMangaPage />}
+        {route.name === 'manga-series' && (
+          <SavedMangaPage key={`${route.source}/${route.series}`} source={route.source} series={route.series} />
+        )}
+        {route.name === 'manga-read' && (
+          <SavedMangaReader
+            key={`${route.source}/${route.series}/${route.chapter}`}
+            source={route.source}
+            series={route.series}
+            chapter={route.chapter}
+            page={route.page}
+          />
+        )}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'admin' && <AdminPage />}
         {route.name === 'translate' && <TranslatePage />}

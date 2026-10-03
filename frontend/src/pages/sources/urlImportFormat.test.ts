@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import type { SeriesChapter } from '../../types/sources'
-import type { ChapterImportResult, ImportState, UrlPreview } from '../../types/sourcesImport'
+import type { ChapterImportResult, ChapterSaveResult, ImportState, UrlPreview } from '../../types/sourcesImport'
 import {
   MAX_CHAPTERS,
   allSelected,
@@ -18,6 +18,11 @@ import {
   importIds,
   importLabel,
   importReason,
+  saveLabel,
+  saveOutcomeText,
+  saveOutcomeTone,
+  saveReason,
+  saveSummary,
   needsAiRows,
   newDramaRequest,
   outcomeSummary,
@@ -268,5 +273,38 @@ describe('import state (Step 107)', () => {
       label: 'Check first', tone: 'bad', note: 'It may be partly imported -- check the drama before retrying it.',
     })
     expect(retryIds(partly, done)).toEqual(['c3', 'c4', 'c5'])
+  })
+})
+
+describe('save as CBZ', () => {
+  const result = (over: Partial<ChapterSaveResult> = {}): ChapterSaveResult => ({
+    kind: 'chapter_save',
+    chapters: [
+      { chapter_id: 'c1', title: 'One', outcome: 'saved', pages: 18 },
+      { chapter_id: 'c2', title: 'Two', outcome: 'skipped' },
+      { chapter_id: 'c3', title: 'Three', outcome: 'failed', error: 'site down' },
+    ],
+    saved_count: 1, skipped_count: 1, failed_count: 1, not_attempted_count: 0, not_found_count: 0,
+    partial: true, cancelled: false, handoff: null,
+    ...over,
+  })
+  it('labels the button and says why it is off', () => {
+    expect(saveLabel(1)).toBe('Save 1 chapter as CBZ')
+    expect(saveLabel(3)).toBe('Save 3 chapters as CBZ')
+    expect(saveReason(0)).toBe('Still needed: at least one chapter.')
+    expect(saveReason(MAX_CHAPTERS + 1)).toBe('Save at most 200 chapters at a time.')
+    expect(saveReason(2)).toBeNull()
+  })
+  it('summarises and describes each chapter', () => {
+    expect(saveSummary(result())).toBe('1 saved · 1 already saved · 1 failed')
+    expect(saveSummary(result({ cancelled: true, not_attempted_count: 2 }))).toBe(
+      'Stopped. 1 saved · 1 already saved · 1 failed · 2 not attempted',
+    )
+    const [saved, skipped, failed] = result().chapters
+    expect(saveOutcomeText(saved)).toBe('Saved · 18 pages')
+    expect(saveOutcomeText(skipped)).toBe('Already saved')
+    expect(saveOutcomeText(failed)).toBe('Failed: site down')
+    expect(saveOutcomeTone('saved')).toBe('ok')
+    expect(saveOutcomeTone('failed')).toBe('bad')
   })
 })

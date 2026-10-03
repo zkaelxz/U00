@@ -58,6 +58,19 @@ const CANCELLED_IMPORT = chapterImportResult({
   imported_count: 1, skipped_count: 0, failed_count: 0, retry_chapter_ids: [], partial: false, cancelled: true,
 })
 
+export function chapterSaveResult(over: Record<string, unknown> = {}) {
+  return {
+    kind: 'chapter_save',
+    chapters: [
+      { chapter_id: 'c1', title: 'Chapter 1', outcome: 'saved', pages: 20 },
+      { chapter_id: 'c3', title: 'Chapter 3', outcome: 'skipped' },
+    ],
+    saved_count: 1, skipped_count: 1, failed_count: 0, not_attempted_count: 0, not_found_count: 0, partial: false,
+    cancelled: false, handoff: null,
+    ...over,
+  }
+}
+
 export interface ImportMockState {
   preview: 'none' | 'running' | 'done' | 'handoff'
   previewBody: unknown
@@ -84,6 +97,9 @@ export interface ImportMockState {
   downloadForbidden: boolean
   // Step 107 GET /api/sources/{name}/import-state, for any series and drama.
   importState: { imported_chapter_ids: string[]; retry: { chapter_id: string; title: string; status: string; error: string }[] }
+  // Save as CBZ (job sources_save): none -> 404, running -> done on the next poll.
+  saveJob: 'none' | 'running' | 'done'
+  saveBody: unknown
 }
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -96,7 +112,7 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
     preview: 'none', previewBody: urlPreview(), previewHold: false, importJob: 'none', importKind: 'chapter',
     importCancelRequested: false, importBody: chapterImportResult(), cancelledBody: CANCELLED_IMPORT,
     urlImportBody: { kind: 'url_import', needs_review: false, char_count: 5120 }, importHold: false, importStartConflict: null, dramas: DRAMAS, hasAudio: false, urlmedia: 'none', downloadForbidden: false,
-    importState: { imported_chapter_ids: [], retry: [] }, ...over,
+    importState: { imported_chapter_ids: [], retry: [] }, saveJob: 'none', saveBody: chapterSaveResult(), ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -209,6 +225,21 @@ export async function mockImports(page: Page, s: MockState, over: Partial<Import
     const url = record(route)
     if (m.importJob === 'running') m.importCancelRequested = true
     return json(route, { job_id: url.pathname.split('/')[3], cancel_requested: true })
+  })
+
+  await page.route(/\/api\/sources\/(alpha|beta)\/save$/, (route) => {
+    record(route)
+    m.saveJob = 'running'
+    return json(route, { job_id: 'sources_save' })
+  })
+  await page.route(/\/api\/sources\/jobs\/sources_save\/result$/, (route) => {
+    record(route)
+    if (m.saveJob === 'none') return notFound(route)
+    if (m.saveJob === 'running') {
+      m.saveJob = 'done'
+      return json(route, { job_id: 'sources_save', status: 'running', progress: 0.5, message: 'Chapter 1 / 2 -- page 3 / 20', result: null })
+    }
+    return json(route, { job_id: 'sources_save', status: 'done', progress: 1, message: null, result: m.saveBody })
   })
 
   // Step 107 import state: reads only.

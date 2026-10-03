@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { CHECK_JOB_ID, dismissNotification, setTrackedDrama, startCheckNow } from '../../api/sources'
+import { CHECK_JOB_ID, dismissNotification, setTrackedDrama, setTrackedSave, startCheckNow } from '../../api/sources'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Badge } from '../../components/Badge'
@@ -68,6 +68,19 @@ export function NewChapters({
     }
   }
 
+  async function saveCbz(t: TrackedSeries, on: boolean) {
+    const key = `${t.source}:${t.series_id}`
+    setError(null)
+    setLinking(key)
+    try {
+      onTracked(await setTrackedSave(t.source, t.series_id, on))
+    } catch (e) {
+      setError(e)
+    } finally {
+      setLinking(null)
+    }
+  }
+
   async function link(t: TrackedSeries, value: string) {
     const key = `${t.source}:${t.series_id}`
     setError(null)
@@ -117,7 +130,7 @@ export function NewChapters({
               ? `${check.message ?? 'Checking tracked series…'} ${percent(check.progress)}`.trim()
               : result
                 ? checkSummary(result)
-                : 'New chapters are announced here, never downloaded unless auto-import is on.'}
+                : 'New chapters are announced here, never downloaded unless auto-import or saving as CBZ is on.'}
           </p>
           {failures.length > 0 && (
             <details>
@@ -175,7 +188,8 @@ export function NewChapters({
           <ul className="sources-rows sources-tracked">
             {tracked.map((t) => {
               const key = `${t.source}:${t.series_id}`
-              const choices = trackedDramaChoices(dramas.items ?? [], sources?.find((s) => s.name === t.source))
+              const source = sources?.find((s) => s.name === t.source)
+              const choices = trackedDramaChoices(dramas.items ?? [], source)
               const current = t.drama_id !== null && !choices.some((d) => d.id === t.drama_id)
               return (
                 <li key={key}>
@@ -207,6 +221,17 @@ export function NewChapters({
                           </option>
                         ))}
                       </select>
+                    </label>
+                  )}
+                  {canAct && source?.supports.get_pages && (
+                    <label className="sources-autoimport">
+                      <input
+                        type="checkbox"
+                        checked={t.save_cbz}
+                        disabled={linking === key}
+                        onChange={(e) => saveCbz(t, e.target.checked)}
+                      />
+                      <span>Save new chapters as CBZ</span>
                     </label>
                   )}
                   <ConfirmButton

@@ -248,7 +248,8 @@ def list_tracked(principal=None) -> list:
              "url": safe_url(r.get("url")), "drama_id": linked(r.get("drama_id")),
              "last_checked": r.get("last_checked"),
              "last_check_error": (registry.SOURCE_REMOVED if r["source"] in registry.REMOVED_SOURCES
-                                  else _scrub(r.get("last_check_error")))}
+                                  else _scrub(r.get("last_check_error"))),
+             "save_cbz": bool(r.get("save_cbz"))}
             for r in store.list_tracked_series()]
 
 

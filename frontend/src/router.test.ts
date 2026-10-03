@@ -52,6 +52,23 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
   })
 
+  it('parses the saved manga routes, names %-encoded', () => {
+    expect(parseRoute('#/manga')).toEqual({ name: 'manga' })
+    expect(parseRoute('#/manga/MangaK/Test%20Camp')).toEqual({ name: 'manga-series', source: 'MangaK', series: 'Test Camp' })
+    expect(parseRoute('#/manga/MangaK/Test%20Camp/0001%20Ch%2F1?page=3')).toEqual({
+      name: 'manga-read', source: 'MangaK', series: 'Test Camp', chapter: '0001 Ch/1', page: 3,
+    })
+    expect(parseRoute('#/manga/a/b/c?page=0')).toEqual({ name: 'manga-read', source: 'a', series: 'b', chapter: 'c', page: null })
+    for (const h of ['#/manga/a', '#/manga/a/b/c/d', '#/manga/%E0%A4%A/b']) {
+      expect(parseRoute(h)).toEqual({ name: 'library' })
+    }
+    const read = { name: 'manga-read', source: 'MangaK', series: 'Test Camp', chapter: '0001 Ch/1', page: 3 } as const
+    expect(routeHref(read)).toBe('#/manga/MangaK/Test%20Camp/0001%20Ch%2F1?page=3')
+    expect(parseRoute(routeHref(read))).toEqual(read)
+    expect(routeHref({ name: 'manga-series', source: 'a b', series: '?' })).toBe('#/manga/a%20b/%3F')
+    expect(routeHref({ name: 'manga' })).toBe('#/manga')
+  })
+
   it('parses the comic route with an optional page', () => {
     expect(parseRoute('#/comic/3?page=2')).toEqual({ name: 'comic', id: 3, page: 2 })
     expect(parseRoute('#/comic/3')).toEqual({ name: 'comic', id: 3, page: null })

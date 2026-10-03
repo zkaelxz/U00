@@ -25,6 +25,9 @@ describe('checkSummary', () => {
     expect(checkSummary({ checked: 1, new: 4, errors: {}, queued: ['A', 'B'] })).toBe(
       'Checked 1 series · 4 new chapters · importing into 2 dramas.',
     )
+    expect(checkSummary({ checked: 2, new: 3, errors: {}, queued: [], saved: ['A'] })).toBe(
+      'Checked 2 series · 3 new chapters · saved 1 series as CBZ.',
+    )
   })
   it('says when another check was already running', () => {
     expect(checkSummary({ checked: 0, new: 0, errors: {}, queued: [], skipped: true })).toMatch(/already running/)
