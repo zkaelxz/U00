@@ -104,3 +104,20 @@ test('a 401 from any call swaps in the Login page', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
+
+test('signed in: the cogwheel sits in the header\'s right-hand group, not in the Main nav, and its menu stays on screen', async ({ page }) => {
+  await mockAuth(page, ME.signedIn)
+  await page.goto('/#/library')
+  const gear = page.locator('summary[aria-label="Settings and tools"]')
+  await expect(gear).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Main' }).locator('.gear-menu')).toHaveCount(0)
+  await expect(page.locator('.app-header .header-end .gear-menu')).toHaveCount(1)
+  await maybeScreenshot(page, 'desktop-header')
+  await gear.click()
+  const panel = page.locator('.gear-menu-panel')
+  await expect(panel).toBeVisible()
+  const box = (await panel.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await maybeScreenshot(page, 'desktop-gear-open')
+})
