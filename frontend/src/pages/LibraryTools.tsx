@@ -20,6 +20,7 @@ import { useLoad } from '../hooks/useLoad'
 import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
+import { DiskUsageSection } from './diskUsage/DiskUsageSection'
 import { AdminSection } from './libraryAdmin/AdminSection'
 import { exportableCount } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
@@ -192,7 +193,7 @@ export default function LibraryToolsPage() {
       <header className="page-head">
         <div className="page-head-text">
           <h2 className="page-title">Library tools</h2>
-          <p className="page-meta">Series, costs, reading history, presets and backups. Titles and Continue stay on the Library page.</p>
+          <p className="page-meta">Series, costs, reading history, presets, backups and disk usage. Titles and Continue stay on the Library page.</p>
         </div>
         <ButtonLink variant="secondary" href="#/library">Back to Library</ButtonLink>
       </header>
@@ -291,6 +292,7 @@ export default function LibraryToolsPage() {
           />
         </ToolSection>
         <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />
+        <DiskUsageSection pc={pc} />
       </section>
     </main>
   )

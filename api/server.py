@@ -53,6 +53,7 @@ from api.routers import (
     comic_routes,
     delete_routes,
     diagnostics_gaps_routes,
+    disk_usage_routes,
     diagnostics_installs_routes,
     diagnostics_routes,
     diarization_routes,
@@ -279,6 +280,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
     app.include_router(backup_routes.router)
+    app.include_router(disk_usage_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)

@@ -1,0 +1,49 @@
+/* Library tools > Disk usage (DiskUsageSection.tsx). Tokens only, so light,
+   dark, OLED and sepia follow the app theme. */
+.du { display: grid; gap: var(--space-3); min-width: 0; }
+.du-intro, .du-disk, .du-busy { margin: 0; }
+.du-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
+.du-crumbs li + li::before { content: '›'; color: var(--muted); margin-right: var(--space-1); }
+.du-crumbs button, .du-crumbs [aria-current] { min-height: 44px; display: inline-flex; align-items: center; padding-inline: var(--space-1); overflow-wrap: anywhere; }
+.du-crumbs [aria-current] { font-weight: var(--weight-bold); }
+.du-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.du-toolbar .btn { min-height: 44px; }
+.du-total { margin-left: auto; }
+
+.du-treemap { position: relative; width: 100%; max-height: 380px; aspect-ratio: 100 / 56; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); }
+.du-cell { position: absolute; box-sizing: border-box; display: flex; align-items: flex-start; justify-content: flex-start; padding: 4px 6px; margin: 0; min-height: 0; border: 1px solid var(--bg); border-radius: 0; color: var(--text); font: inherit; font-size: var(--text-xs); text-align: left; overflow: hidden; cursor: pointer; }
+.du-cell:disabled { cursor: default; opacity: 1; }
+.du-cell:hover:not(:disabled) { filter: brightness(1.08); }
+.du-cell-label { white-space: pre-line; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.du-tone-plain.du-cell { background: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
+.du-tone-regenerable.du-cell { background: color-mix(in srgb, var(--ok) 30%, var(--surface)); }
+.du-tone-irreplaceable.du-cell { background: color-mix(in srgb, var(--warn) 34%, var(--surface)); }
+.du-tone-protected.du-cell { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 6px, var(--surface) 6px, var(--surface) 12px); }
+
+.du-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); min-width: 0; }
+.du-row { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); min-width: 0; }
+.du-row-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.du-name { font-weight: var(--weight-medium); overflow-wrap: anywhere; min-width: 0; }
+button.du-name { min-height: 44px; text-align: left; padding-inline: 0; }
+.du-size { margin-left: auto; }
+.du-bar { height: 6px; border-radius: var(--radius-pill); background: var(--border); overflow: hidden; }
+.du-bar > span { display: block; height: 100%; background: var(--accent); }
+.du-tone-regenerable .du-bar > span { background: var(--ok); }
+.du-tone-irreplaceable .du-bar > span { background: var(--warn); }
+.du-tone-protected .du-bar > span { background: var(--muted); }
+.du-tags { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.du-tags:empty { display: none; }
+.du-why { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.du-warn { color: var(--warn); }
+.du-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.du-actions .btn, .du-actions button { min-height: 44px; }
+.du-ack { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; flex: 1 1 100%; cursor: pointer; font-size: var(--text-sm); }
+.du-ack input { flex: none; width: 24px; height: 24px; }
+.du-move { display: grid; gap: var(--space-2); }
+.du-move .field-item { min-width: 0; }
+
+@media (max-width: 600px) {
+  .du-size { margin-left: 0; flex: 1 1 100%; }
+  .du-total { margin-left: 0; flex: 1 1 100%; }
+  .du-treemap { aspect-ratio: 100 / 70; }
+}
