@@ -9,7 +9,8 @@
  * The dialog sends the notes, an optional screenshot (PC only: the field is
  * hidden off the PC, and the server refuses one) and the capture buffers
  * (report/capture.ts) to POST /api/diagnostics/bug-reports, then offers
- * Copy report (markdown) and Open GitHub issue. The link is built only from
+ * Copy report (markdown) and Open GitHub issue. Before sending, the form also
+ * offers the redacted support report (Copy / Download) and the saved reports. The link is built only from
  * the server-scrubbed texts, never with the server log. If saving fails,
  * both still work with the client-side data, sanitized here first.
  */
@@ -25,6 +26,8 @@ import { describeError } from '../components/errorMessages'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { captureSnapshot } from './capture'
+import { SavedReports } from './SavedReports'
+import { SupportReportPanel } from './SupportReportPanel'
 import {
   buildIdFrom, buildReport, clientMarkdown, githubIssueUrl, sanitizeReport, sanitizeText, screenshotProblem,
   type IssueFields,
@@ -194,6 +197,12 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             <button type="button" onClick={onClose}>Cancel</button>
           </div>
         </form>
+      )}
+      {!result && (
+        <div className="report-extra">
+          <SupportReportPanel />
+          <SavedReports pc={pc} />
+        </div>
       )}
     </Sheet>
   )
