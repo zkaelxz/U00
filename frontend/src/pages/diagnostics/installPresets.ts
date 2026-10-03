@@ -1,7 +1,7 @@
 // Pure helpers for Packages > "By task" (install presets from
 // GET /api/diagnostics/install-presets). Sizes are the server's static
 // estimates, always shown as "approx.".
-import type { DiagnosticsInstallTask, DiagnosticsPackageInfo, TaskRole } from '../../types/diagnostics'
+import type { DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsPackageInfo, TaskRole } from '../../types/diagnostics'
 
 /** "approx. 45 MB", "approx. 2.5 GB", "under 1 MB"; null when unknown. */
 export function formatApproxMb(mb: number | null | undefined): string | null {
@@ -65,6 +65,12 @@ export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): Diagno
 export function taskGroupSummary(tasks: DiagnosticsInstallTask[]): string {
   const need = tasks.filter((t) => !taskReady(t)).length
   return need ? `${need} still to set up` : 'All set up'
+}
+
+/** The "transcribe" task while Whisper itself is missing (null once it is installed, or without presets). */
+export function missingTranscription(presets: Pick<DiagnosticsInstallPresets, 'tasks' | 'packages'> | null): DiagnosticsInstallTask | null {
+  if (!presets || presets.packages.faster_whisper?.installed !== false) return null
+  return presets.tasks.find((t) => t.id === 'transcribe' && !taskReady(t)) ?? null
 }
 
 const ROLE_LABELS: Record<TaskRole, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }

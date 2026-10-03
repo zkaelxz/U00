@@ -31,6 +31,8 @@ export interface TranscribeConfig {
   asr_backend_choice: string
   whisper_size: string
   whisper_model_cached: boolean
+  // False when faster-whisper isn't installed (transcription can't run).
+  whisper_installed: boolean
   beam_size: number
   min_silence_ms: number
   vad_threshold: number
@@ -55,6 +57,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'has_audio_pipeline'
     | 'audio_available'
     | 'whisper_model_cached'
+    | 'whisper_installed'
     | 'has_video_source'
   >
 >
