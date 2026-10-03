@@ -1395,6 +1395,11 @@ in the HTML. `page_fetch.py` handles this in three layers:
    then `playwright install chromium` — the second command is easy to
    miss), the page is re-fetched with a real browser engine so the
    JavaScript actually runs.
+   If Playwright's own browser is missing (for example after a Playwright
+   upgrade), an installed Google Chrome or Microsoft Edge is used instead.
+   To pick a specific browser, set the environment variable
+   `BAIHE_BROWSER_PATH` to its program file (a system variable, not
+   `.env`). Diagnostics > Setup shows whether one was found.
 3. **Manual paste.** Always available, always works: open the page in
    your browser, select all, copy, paste into the app. No dependency,
    no rendering, no guessing.

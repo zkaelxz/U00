@@ -2493,6 +2493,11 @@ class DiagnosticsSetupJsRuntime(BaseModel):
     name: Optional[str] = None
 
 
+class DiagnosticsSetupBrowser(BaseModel):
+    found: bool
+    name: Optional[str] = None
+
+
 class DiagnosticsSetupCuda(BaseModel):
     torch_installed: bool
     cuda_available: Optional[bool] = None
@@ -2509,6 +2514,7 @@ class DiagnosticsSetupChecks(BaseModel):
     python: DiagnosticsSetupPython
     ffmpeg: DiagnosticsSetupFfmpeg
     js_runtime: DiagnosticsSetupJsRuntime
+    browser: DiagnosticsSetupBrowser
     cuda: DiagnosticsSetupCuda
     files: DiagnosticsSetupFiles
     library_writable: bool

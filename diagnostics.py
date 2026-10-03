@@ -420,6 +420,13 @@ def check_js_runtime():
     return {"found": False, "name": None, "path": None}
 
 
+def check_browser() -> dict:
+    """{found, name}: the browser used for JavaScript-only sites (see
+    page_fetch.browser_status). No path is returned."""
+    import page_fetch
+    return page_fetch.browser_status()
+
+
 def check_cuda() -> dict:
     """Whether a GPU is actually usable, for start.bat's own "print
     anything missing in plain words" launcher check (Step 10) -- this is

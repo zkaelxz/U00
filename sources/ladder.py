@@ -159,6 +159,7 @@ def authenticated_tier(profile_dir: str, client=None, fetch_with_profile=None):
 
 
 def _browser_outcome(url, client, fetch, action) -> TierOutcome:
+    import page_fetch
     try:
         if client is not None:
             html, _text = client.paced(fetch, url, action)
@@ -167,6 +168,8 @@ def _browser_outcome(url, client, fetch, action) -> TierOutcome:
     except ImportError as e:
         return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED],
                            detail=str(e).splitlines()[0])
+    except page_fetch.BrowserNotFound as e:
+        return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED], detail=str(e))
     except Exception as e:
         from translate_engines import redact_secrets
         reason = FailureReason.TIMEOUT if "timeout" in type(e).__name__.lower() \

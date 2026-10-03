@@ -316,7 +316,8 @@ def _guarded_chromium(p):
     proxy = None
     try:
         proxy = _PinningProxy()
-        browser = p.chromium.launch(headless=True, **proxy.launch_kwargs())
+        browser = _launch_chromium(p.chromium.launch, headless=True,
+                                   **proxy.launch_kwargs())
         try:
             yield browser, proxy
         finally:
@@ -622,6 +623,116 @@ def _require_playwright():
     return sync_playwright
 
 
+# ---------------------------------------------------------------------------
+# Which browser program to launch
+# ---------------------------------------------------------------------------
+#
+# Playwright pins one exact Chromium build per release, so upgrading the
+# package makes the build it downloaded earlier "missing". Rather than ask
+# for another download, the launch order is: BAIHE_BROWSER_PATH if that
+# file exists, then Playwright's own build, then an installed Chrome or
+# Edge. Nothing is downloaded here.
+
+BROWSER_ENV = "BAIHE_BROWSER_PATH"
+
+BROWSER_MISSING = ("No browser is available for JavaScript-only sites. Install Google Chrome "
+                   "or Microsoft Edge, or run the installer's repair (or "
+                   "`python -m playwright install chromium`), or set BAIHE_BROWSER_PATH to "
+                   "a Chrome or Edge program file. Then try again.")
+
+
+class BrowserNotFound(RuntimeError):
+    """No usable browser program was found. The message is fixed text with
+    no filesystem path, so it is safe to show."""
+
+
+def _system_browser_candidates():
+    """(name, path) in preference order for this OS."""
+    import shutil
+    import sys
+    out = []
+    if sys.platform == "win32":
+        roots = [os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "LocalAppData")]
+        for root in (r for r in roots if r):
+            out.append(("Chrome", os.path.join(root, "Google", "Chrome", "Application", "chrome.exe")))
+            out.append(("Edge", os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe")))
+    elif sys.platform == "darwin":
+        for base in ("/Applications", os.path.expanduser("~/Applications")):
+            out.append(("Chrome", base + "/Google Chrome.app/Contents/MacOS/Google Chrome"))
+            out.append(("Edge", base + "/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"))
+    else:
+        for exe, name in (("google-chrome", "Chrome"), ("google-chrome-stable", "Chrome"),
+                          ("microsoft-edge", "Edge"), ("microsoft-edge-stable", "Edge"),
+                          ("chromium", "Chromium"), ("chromium-browser", "Chromium")):
+            found = shutil.which(exe)
+            if found:
+                out.append((name, found))
+    return out
+
+
+def find_system_browser():
+    """(name, path) of an installed Chrome, Edge or Chromium, or None."""
+    return next(((n, p) for n, p in _system_browser_candidates() if os.path.isfile(p)), None)
+
+
+def _explicit_browser():
+    path = (os.environ.get(BROWSER_ENV) or "").strip().strip('"')
+    return path if path and os.path.isfile(path) else None
+
+
+def _bundled_browser_present() -> bool:
+    """Whether any Playwright-downloaded Chromium exists on disk. It cannot
+    say whether that build is the one the installed Playwright wants."""
+    dirs = []
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env and env != "0":
+        dirs.append(env)
+    if os.environ.get("LOCALAPPDATA"):
+        dirs.append(os.path.join(os.environ["LOCALAPPDATA"], "ms-playwright"))
+    home = os.path.expanduser("~")
+    dirs += [os.path.join(home, "Library", "Caches", "ms-playwright"),
+             os.path.join(home, ".cache", "ms-playwright")]
+    for d in dirs:
+        try:
+            if any(n.startswith("chromium") and os.listdir(os.path.join(d, n))
+                   for n in os.listdir(d)):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def browser_status() -> dict:
+    """{found, name}: what a browser launch would use, without launching.
+    Never includes a path."""
+    if _explicit_browser():
+        return {"found": True, "name": "custom"}
+    if _bundled_browser_present():
+        return {"found": True, "name": "Playwright Chromium"}
+    system = find_system_browser()
+    if system:
+        return {"found": True, "name": system[0]}
+    return {"found": False, "name": None}
+
+
+def _launch_chromium(launch, *args, **kwargs):
+    """`launch(*args, **kwargs)` (chromium.launch or launch_persistent_context),
+    falling back to an installed Chrome/Edge when Playwright's own build is
+    missing. Raises BrowserNotFound when there is none."""
+    explicit = _explicit_browser()
+    if explicit:
+        return launch(*args, executable_path=explicit, **kwargs)
+    try:
+        return launch(*args, **kwargs)
+    except Exception as e:
+        if "Executable doesn't exist" not in str(e) and "playwright install" not in str(e):
+            raise
+    system = find_system_browser()
+    if system is None:
+        raise BrowserNotFound(BROWSER_MISSING) from None
+    return launch(*args, executable_path=system[1], **kwargs)
+
+
 def _visible_lines(html: str) -> str:
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
@@ -674,9 +785,9 @@ def _launch_persistent(profile_dir: str, headless: bool):
     proxy = None
     try:
         proxy = _PinningProxy()
-        context = pw.chromium.launch_persistent_context(profile_dir, headless=headless,
-                                                        service_workers="block",
-                                                        **proxy.launch_kwargs())
+        context = _launch_chromium(pw.chromium.launch_persistent_context, profile_dir,
+                                   headless=headless, service_workers="block",
+                                   **proxy.launch_kwargs())
     except Exception:
         if proxy is not None:
             proxy.stop()
