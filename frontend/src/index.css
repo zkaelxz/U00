@@ -436,7 +436,16 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 
 /* ==== Design kit (components/Toggle, Button, Badge, Card; spec: docs/design/ui-refresh-spec.md) ==== */
 
-/* Toggle switch: 44x24 track; the ::after widens the hit area to 44px tall on touch. */
+/* Toggle switch: 44x24 track; the ::after widens the hit area to 44px tall on touch.
+   Track colours are derived from the theme's own accent/muted/surface/text tokens, so every
+   theme (light, dark, sepia, OLED) gets >= 3:1 against its surface without its own block:
+   ON is the accent pulled toward the text colour (deeper in light themes, lighter in dark
+   ones) with a check mark; OFF is a neutral grey with the knob on the left. */
+:root {
+  --toggle-on: color-mix(in srgb, var(--accent) 80%, var(--text));
+  --toggle-off: color-mix(in srgb, var(--muted) 70%, var(--surface-2));
+  --toggle-knob: #ffffff;
+}
 button.toggle {
   position: relative;
   flex: 0 0 auto;
@@ -444,22 +453,26 @@ button.toggle {
   height: 24px;
   min-height: 0;
   padding: 0;
-  /* Off state: --muted keeps the white thumb and the track at >= 3:1 against
-     the row in the light theme; the dark theme overrides it below. */
-  border: 1px solid var(--muted);
+  border: 1px solid var(--toggle-off);
   border-radius: var(--radius-pill);
-  background: var(--muted);
+  background: var(--toggle-off);
   transition: background var(--ease), border-color var(--ease);
 }
-button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--text)); border-color: var(--muted); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"], [data-theme="sepia"]) button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
-  :root:not([data-theme="light"], [data-theme="sepia"]) button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
+button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-off) 85%, var(--text)); }
+button.toggle[aria-checked='true'] { background: var(--toggle-on); border-color: var(--toggle-on); }
+button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); border-color: color-mix(in srgb, var(--toggle-on) 85%, var(--text)); }
+/* The check shows the state without relying on colour alone. */
+button.toggle[aria-checked='true']::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 4px;
+  width: 4px;
+  height: 9px;
+  border: solid var(--toggle-knob);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
-:root[data-theme="dark"] button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
-:root[data-theme="dark"] button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
-button.toggle[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
-button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--text)); border-color: var(--accent); }
 .toggle-thumb {
   position: absolute;
   top: 2px;
@@ -467,12 +480,12 @@ button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--toggle-knob);
   box-shadow: 0 1px 2px color-mix(in srgb, #000 35%, transparent);
   transition: transform var(--ease);
 }
 button.toggle[aria-checked='true'] .toggle-thumb { transform: translateX(20px); }
-button.toggle:disabled { border-style: solid; opacity: 0.55; }
+button.toggle:disabled { border-style: solid; opacity: 0.6; }
 /* inset is from the padding box (22px tall): 22 + 2*11 = 44px hit area. */
 button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 
