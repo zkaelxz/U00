@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 // "Report a problem" on a phone (390x844, touch): the header button, the
 // dialog as a bottom sheet with 44px targets and no sideways scroll, and
-// Diagnostics > Bug reports keeping Delete… beside Copy. Every /api request
+// Copy a report and Saved reports (Delete… beside Copy). Every /api request
 // is fulfilled or aborted here: /api/meta and the bug-report calls are
 // mocked, any other GET gets a mocked 404, any other call is aborted.
 
@@ -75,23 +75,37 @@ test('Report a problem on a phone: bottom sheet, 44px targets, no sideways scrol
   expect(unmocked).toEqual([])
 })
 
-test('Diagnostics > Bug reports on a phone: Delete… stays beside Copy', async ({ page }) => {
+test('Report a problem on a phone: Copy a report and Saved reports fit, Delete… stays beside Copy', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   const unmocked = await guard(page)
+  const long = 'x'.repeat(400)
+  const report = `Python: 3.12.4\nModel/engine versions:\n  - faster-whisper: 1.1.0\nRecent errors:\n  12:00 ERROR ${long}`
+  await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({ json: { report } }))
   await page.route('**/api/diagnostics/bug-reports', (r) => r.request().method() === 'GET'
     ? r.fulfill({ json: [{ id: 12, stamp: '20260929T100000Z', created_at: '2026-09-29 10:00:00 UTC',
       summary: 'Export hangs on a long drama', route: '/drama/1/export', mode: 'lan',
       has_screenshot: false, has_server_log: true }] })
     : r.abort())
-  await page.goto('/#/diagnostics')
-  await page.locator('summary', { hasText: /^Bug reports/ }).click()
-  const list = page.getByTestId('bug-reports')
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: 'Report a problem' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Report a problem' })
+  const card = dialog.getByRole('region', { name: 'Copy a report for a bug' })
+  await card.scrollIntoViewIfNeeded()
+  await card.getByRole('button', { name: 'Copy report' }).click()
+  await expect(card.getByTestId('report-note')).toHaveText('Copied. Paste it into your bug report.')
+  await card.locator('summary', { hasText: "What's in it" }).click()
+  await expect(card.getByTestId('report-list')).toContainText('faster-whisper')
+
+  await dialog.locator('summary', { hasText: /^Saved reports/ }).click()
+  const list = dialog.getByTestId('bug-reports')
   const copy = list.getByRole('button', { name: 'Copy report #12' })
   const del = list.getByRole('button', { name: 'Delete report #12' })
   await expect(del).toBeVisible()
   const [a, b] = [(await copy.boundingBox())!, (await del.boundingBox())!]
   expect(Math.abs(a.y - b.y)).toBeLessThan(4)                 // same row
   expect(b.x).toBeGreaterThan(a.x)
+  expect(await smallTargets(page)).toEqual([])
   await noSideways(page)
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-diagnostics-bug-reports.png` })
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-dialog-extras.png` })
   expect(unmocked).toEqual([])
 })

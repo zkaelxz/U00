@@ -38,7 +38,6 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   }] } }))
   await page.route('**/api/diagnostics/log**', (r) =>
     r.fulfill({ json: { lines: [`12:00 ERROR ${long}`, '12:01 INFO fine'] } }))
-  await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({ json: { report: `Baihe report\n${long}` } }))
   await page.route('**/api/diagnostics/dependencies/**', (r) =>
     r.fulfill({ json: { package: 'yt-dlp', ok: false, output_tail: [`ERROR: ${long}`] } }))
 
@@ -55,12 +54,6 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
 
   await page.locator('summary', { hasText: /^Log/ }).click()
   await expect(page.getByLabel('Log lines')).toContainText('INFO fine')
-  // Support report: a card with Copy report; the preview fold shows it, plain text one tap away.
-  await page.locator('summary', { hasText: "What's in it" }).click()
-  await expect(page.getByTestId('report-list')).toContainText('Baihe report')
-  await page.getByRole('button', { name: 'Plain text' }).click()
-  await expect(page.getByLabel('Support report')).toContainText('Baihe report')
-
   // The job blocks installs; drop it so the Install button works.
   await page.unroute('**/api/jobs')
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
@@ -107,13 +100,10 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   expect(unmocked).toEqual([])
 })
 
-test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, report preview fit', async ({ page }) => {
+test('Diagnostics at 360px: Setup card, Packages with GPU PyTorch fit', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   const unmocked = await guard(page)
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
-  await page.route('**/api/diagnostics/support-report', (r) => r.fulfill({
-    json: { report: `Python: 3.12.4\nModel/engine versions:\n  - faster-whisper: 1.1.0\nRecent errors:\n  12:00 ERROR ${long}` },
-  }))
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch', (r) => r.fulfill({ json: {
     nvidia: { found: true, gpu_name: 'NVIDIA GeForce RTX 3080 Ti', driver_version: '581.42', status: 'ok', recommended: '570.65', minimum: '528.33' },
     installed: [{ name: 'torch', version: null, build: null }, { name: 'torchvision', version: null, build: null },
@@ -127,8 +117,6 @@ test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, r
   } }))
   await page.goto('/#/diagnostics')
   await expect(page.getByTestId('setup-rows')).toBeVisible()
-  await page.locator('summary', { hasText: "What's in it" }).click()
-  await expect(page.getByTestId('report-list')).toContainText('faster-whisper')
   await page.locator('summary', { hasText: /^Packages/ }).click()
   await expect(page.getByRole('table', { name: 'PyTorch versions' })).toContainText('0.26.0+cu128')
   await expect(page.getByRole('button', { name: 'Set up GPU PyTorch' })).toBeVisible()

@@ -19,7 +19,6 @@ import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
 import { offersCancel, type JobRecord } from '../types/jobs'
-import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
 import { DenoInstall } from './diagnostics/DenoInstall'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
@@ -30,7 +29,6 @@ import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { SetupSection } from './diagnostics/SetupSection'
-import { SupportReportSection } from './diagnostics/SupportReportSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
 import { formatDuration, isActive, isFinished, jobDetail, jobStatusLine, jobsSummary, JOBS_PAGE_SIZE, orderJobs, splitDependencies, statusLabel, upsertJob, visibleJobs } from './diagnosticsFormat'
@@ -196,8 +194,6 @@ export default function DiagnosticsPage() {
 
       <ModelHealthCard pc={pc} />
 
-      <SupportReportSection />
-
       <div className="diag-folds">
         {jobs && jobs.length > 0 && !jobsUrgent && <JobsBlock jobs={jobs} now={now} remoteAdmin={remoteAdmin} pc={pc} urgent={jobsUrgent} onCancel={(id) => void cancel(id)} onDelete={(id) => void removeJobs(id)} />}
         {overview && (
@@ -217,7 +213,6 @@ export default function DiagnosticsPage() {
         <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
         <JobHistorySection items={history} />
         <LogSection />
-        <BugReportsSection pc={pc} />
       </div>
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
