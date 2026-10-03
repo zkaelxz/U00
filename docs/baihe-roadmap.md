@@ -4057,6 +4057,358 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
 
 ---
 
+## Steps 144–153: keep the originals, make review cheap, benchmark against public data (proposed 2026-10-03)
+
+**Where these come from.** The user shared a longer ChatGPT conversation on 2026-10-03 ("Baihe Studio — what you actually want"). Its core rule: Baihe may create or supersede derivatives but never silently destroys an original, and every AI transformation stays traceable and replaceable. Each item below was checked against `origin/baihe-subtitler` at `c5730fc` (2026-10-03) with file:line evidence. Ids follow on from 143 (`docs/archive/baihe-roadmap-master.md` §5 on `baihe-subtitler`). They are **proposed**: the planning session confirms or renumbers them. Build order is the numeric order. 144 and 145 come first because they protect data; 146–151 are independent of each other; 152 needs 150; 153 is an investigation.
+
+**User decisions recorded with these steps (2026-10-03):**
+- **Keep every intermediate**, labelled with metadata (role, what produced it, from which input). Compression or moving files elsewhere can come later; nothing is deleted to save space without the user asking.
+- **Public benchmarks should arrive without hand-importing** (Step 152).
+- **Dubbing is not planned.** The vision document listing it was a slip. Nothing below touches dub.
+- **Not part of this batch, still open:** the Work/Edition split, soft delete or trash, an archive format readable without Baihe, trust levels, the entity merge screen, translation-memory scopes, and a stage-graph re-run. See "Open questions" at the end of this block.
+
+---
+
+### Step 144 — Stop discarding or overwriting originals
+
+**Why.** The vision's first rule is "the original is sacred." In several places the app currently throws away or overwrites the original. All of the following were verified on `c5730fc`:
+- **Media re-upload overwrites with no confirmation.** `services/media_upload_service.py:102-103` `os.replace`s the upload onto `source<ext>`, and `upload_media` (111-145) asks nothing first. A re-upload with a different extension leaves the old `source.*` orphaned. `vocals.wav` (written at `services/transcribe_service.py:614`, with no DB column) silently goes stale. By contrast, URL import already requires `confirm_replace_audio` (`services/url_media_service.py:403-405`).
+- **A failed audio extraction deletes the video the user just uploaded** (`media_upload_service.py:160-163`, which removes `video_path` in `except BaseException`).
+- **URL audio import keeps only a WAV.** yt-dlp's `FFmpegExtractAudio` (`video_download.py:136-141`, `preferredcodec: wav`) deletes the downloaded opus/m4a by default. A direct audio URL is converted to 16 kHz `source.wav`, and the downloaded file goes away with the temp folder (`url_media_service.py:362-367, 386`).
+- **Comic uploads lose the original file** whenever `limits.prepare_page` changes it:
+  - EXIF rotation and tall-strip slicing re-encode to PNG (`page_import_limits.py:115-127`).
+  - A PDF keeps only one extracted image per page, and the PDF itself is discarded (`services/scanlate_pages_service.py:360-406`).
+  - The raw upload is deleted at `scanlate_pages_service.py:467`.
+  - Adapter chapters that are not png/jpg are re-encoded to PNG (`sources/pipeline.py:109-113`).
+- **EPUB and text uploads keep only the extracted UTF-8 text** (`services/novel_files_service.py:167-176`). The EPUB and the original-encoding bytes are discarded.
+- **The inpainted, text-free page is deleted** after typesetting, in the `finally` at `scanlate.py:1212-1215`. It is the most expensive intermediate to regenerate (LaMa), and a re-typeset or a new translation needs it.
+
+**Scope:**
+1. **Media re-upload:** require `confirm_replace=true` (422 without it), the same as URL import. On confirm, move the previous source set (`source.*`, `audio.wav`, `vocals.wav`) into `superseded/<UTC stamp>/` inside the drama folder. Never delete it.
+2. **Video extraction failure:** keep the uploaded video and record `source_video_filename` before extraction starts. Show the error with a "Retry extraction" action instead of deleting the file.
+3. **URL audio:** pass `keepvideo: True` to yt-dlp's audio-only options so the downloaded stream survives. Keep the downloaded file (yt-dlp or direct) as `original<ext>`, and keep `source.wav`/`audio.wav` as the working copy.
+4. **Comic pages:**
+   - When `prepare_page` changes the bytes (rotation, slicing, PDF, webp), copy the upload byte-for-byte to `pages/originals/` and point the pages made from it at that copy through a new `pages.original_filename`. Several sliced pages share one original.
+   - Never re-encode an original. When the bytes were already kept as-is, `original_filename` equals `filename`.
+5. **Novels:** keep the uploaded EPUB or text file byte-for-byte as `novel_original<ext>` (new column `dramas.novel_original_filename`) alongside the extracted text.
+6. **Inpainted page:** save it as `pages/clean_NNNN.png` (new column `pages.cleaned_filename`). Don't use the `typeset_` prefix: `storage.CLEANABLE_CATEGORIES` sweeps that.
+7. **Storage scan** (`storage.scan_library_storage`, 116-160): report "Originals", "Superseded originals" and "Kept intermediates" as their own categories. None of them goes into `CLEANABLE_CATEGORIES`.
+8. **`delete_service.remove_media`** (109-126) is an explicit, confirmed user action. It should remove the whole source set, including `original*`, the leftover `source.wav` beside `audio.wav`, and `vocals.wav`. Today those leak.
+9. **Backups and imports:** add every new file column to `IMPORT_FILE_COLUMNS` (`services/auto_backup_service.py:1316-1322`) and `_PAGE_UPDATE_FIELDS` (`db.py:2750`). Full backups with media already include `dramas/` (`library_admin_service.py:523-570`). The auto backup default `include_media: False` (`auto_backup_service.py:135`) is unchanged.
+10. **Out of scope:** Live capture audio is temporary by design (`services/live_service.py:215`). Changing the source-cache retention default (`sources/cache.py`, default `temporary`) also stays out; it is noted under Open questions.
+
+**Exit:**
+- A test confirms re-uploading media without `confirm_replace` returns 422 and changes nothing on disk.
+- A test confirms a confirmed re-upload leaves the previous files byte-identical under `superseded/`.
+- A test confirms a failed ffmpeg extraction (mocked) leaves the uploaded video on disk and referenced by `source_video_filename`.
+- A test confirms a URL audio import (mocked yt-dlp and direct download) stores `original<ext>` byte-identical to the downloaded bytes.
+- A test confirms an EXIF-rotated JPEG, a tall strip and a PDF upload each leave a byte-identical original reachable from every page made from it.
+- A test confirms an EPUB upload stores the EPUB byte-identically.
+- A test confirms `process_page` leaves `cleaned_filename` on disk after typesetting.
+- A test confirms a backup round trip (`_copy_drama`) carries every new file column, and `test_child_tables_cover_every_fk_to_dramas` still passes.
+- A test confirms the storage scan reports the new categories, and the cleanup action never touches them.
+- **Manual check:** upload a phone photo with EXIF rotation, typeset it, and confirm `pages/originals/` holds the untouched photo and `clean_*.png` holds the text-free page.
+
+### Step 145 — Source objects: SHA-256, stable ids, duplicates, integrity, orphans
+
+**Why.** Nothing hashes stored media. hashlib is used only for text, tokens, checkpoints and the installer, and `sources/cache.py:89` hashes HTTP bytes in memory. Files are identified only by their fixed names (`source<ext>`, `audio.wav`) inside `dramas/<id>/`, and the client's filename is discarded (`media_upload_service.py:67-76`). This rules out:
+- duplicate detection
+- a check that a file is still intact
+- noticing a file that nothing references (an old `source.mp3`, a stale `vocals.wav`)
+
+The backup manifest (`auto_backup_service.py:950-963`) has no file list and no checksums.
+
+**Scope:**
+1. **A `source_objects` table**, created with `CREATE TABLE IF NOT EXISTS` in `init_db`:
+   - `id` (uuid4 hex)
+   - `drama_id` (FK to dramas, `ON DELETE CASCADE`)
+   - `page_id` (nullable)
+   - `role`: one of `original`, `working_audio`, `video`, `vocals`, `page_original`, `page_image`, `cleaned_page`, `rendered_page`, `novel_original`, `novel_text`, `superseded`
+   - `rel_path`
+   - `original_name`: sanitised, for display only, never used as a path
+   - `size`, `sha256`, `mtime_ns`, `created_at`, `verified_at`
+   - `status`: `ok`, `missing` or `changed`
+   - `produced_by`: nullable JSON naming the stage, engine and parent object id. This is how intermediates get labelled.
+2. **One streaming hash helper**, `storage.file_sha256(path)` (1 MiB chunks). Fold `update_service._file_sha256` (546-551) into it rather than adding a second copy.
+3. **Register objects at every ingest point Step 144 touches:** media upload, URL import, comic pages, novel upload, the cleaned and rendered page, and superseded moves.
+4. **A backfill job for existing libraries:**
+   - A cancellable background job (`background_jobs.start_job`, following `library_admin_service.start_backup`).
+   - Resumable: skip a row whose size and `mtime_ns` are unchanged.
+5. **Duplicate detection on ingest:** when the sha256 already exists in another drama, say so ("This file is already in <title>") and continue. Never block and never deduplicate on disk.
+6. **"Check library files" job** in Library admin, next to the storage scan (`frontend/src/pages/libraryAdmin/AdminSection.tsx`):
+   - Re-hash every object and report each one as missing, changed or ok.
+   - Optionally list orphans: files in a drama folder that no column and no `source_objects` row references, excluding `CLEANABLE_CATEGORIES` and `tmp`.
+   - Report only. Deleting an orphan is a separate per-file action with confirmation.
+7. **Backup and import:**
+   - Add the table to `_CHILD_TABLES` (`auto_backup_service.py:1294`), remap `page_id` through `page_map`, and route `rel_path` through `_sanitise_file_refs`.
+   - An imported object keeps its id unless that id already exists, in which case it gets a new one.
+   - `manifest.json` gains a `files: [{path, sha256, size, role}]` list, and the restore path verifies it.
+8. **Routes:** reads use `library.read`; jobs and deletes use `local_only()`. Add both rows to the route table in `docs/remote-access-decision.md`.
+
+**Exit:**
+- A test confirms every ingest path writes a `source_objects` row with the right role and a sha256 that matches the file.
+- A test confirms the backfill is resumable and skips unchanged rows.
+- A test confirms uploading the same bytes to a second drama reports the duplicate and still succeeds.
+- A test confirms the integrity job reports a modified file as `changed` and a removed file as `missing`.
+- A test confirms the orphan list includes a stray `source.mp3` and excludes `CLEANABLE_CATEGORIES` and `tmp`.
+- A test confirms a backup round trip preserves sha256s and object ids, and that a manifest mismatch is reported on restore.
+- **Manual check:** run the backfill on the real library, then rename nothing and change one byte of a test file. The check job should flag exactly that file.
+
+### Step 146 — OCR confidence and a "regions need review" list
+
+**Why.** The vision wants OCR scores used to point at the few regions that need a human, not to make the user proofread every page. Today every OCR engine returns a plain `str` (`ocr.py:45, 87, 123, 166`):
+- Paddle keeps only `rec_texts` (`ocr.py:116-120`) and drops `rec_scores`. PaddleOCR 3.x returns `rec_scores` in [0, 1] next to `rec_texts`, per its OCR pipeline docs.
+- Tesseract uses `image_to_string` (78), not `image_to_data`, so it reports no per-word confidence.
+- `bubbles.confidence` (`db.py:1146-1152`) is the **bubble detector's** score, not OCR's.
+- No UI shows it. `ScanlateRegion` (`api/scanlate_schemas.py:55`) doesn't carry it.
+- The React app has **no per-region editor** (`frontend/src/pages/comic/ScanlatePanel.tsx` handles upload, run and export only).
+
+**Scope:**
+1. **OCR engines return `(text, score | None)`** behind a new `extract_text_with_score` dispatcher. `extract_text_from_images` keeps returning `str` for whole-page callers (`novel_attach_service.py:383`, `benchmark.py:134`). Scores per engine:
+   - **Paddle:** the character-weighted mean of `rec_scores`. Check the field name against a real 3.x install, because paddleocr isn't pinned (`requirements-optional.txt:89`).
+   - **Tesseract:** `image_to_data`, the mean of word `conf` values ≥ 0, divided by 100.
+   - **manga-ocr and PaddleOCR-VL:** `None`, meaning "no score". It is shown as unknown, never as high or low. Deriving a score from `generate(output_scores=True)` is a possible follow-up, not v1.
+2. **New bubble columns** `ocr_score REAL`, `ocr_engine TEXT` and `ocr_reviewed INTEGER DEFAULT 0`. Add them to `BUBBLE_EDIT_FIELDS`, `_bubble_row_values` and `_BUBBLE_INSERT_SQL` (`db.py:~2799-2826`) and to `TextRegion` (`scanlate.py:1742`). Fill them in `detect_and_ocr_page` (1858). Editing a region's source text or pressing Confirm sets `ocr_reviewed=1`.
+3. **"Needs review"** means `ocr_score` below a per-engine threshold and not reviewed. Start at Paddle 0.80 and Tesseract 0.60, in one settings value with per-engine defaults.
+   - The UI labels it "OCR score", with a "?" explaining that it is the model's own estimate, not a guaranteed accuracy.
+   - Record the thresholds chosen after the manual check, and why.
+4. **Surface it:**
+   - `ScanlateRegion` gains `ocr_score`, `ocr_reviewed` and `needs_review`.
+   - The page and chapter summary in `ScanlatePanel.tsx` shows "N regions need review".
+   - A minimal review list shows the region cropped with CSS from the existing page image (no new crop files), an editable source text field, and Confirm.
+   - Order the list like `review_lines_service.adjacent_flagged` (page idx, then bubble idx).
+   - There is no edit route for bubbles today (`api/routers/scanlate_routes.py` has none), so add `PATCH .../pages/{page_id}/regions/{id}` with `lines.edit`, using `db.update_bubble_fields`.
+5. **Hardsub OCR** (`hardsub_ocr.py:169-180`): when the score is below the threshold, set the system flag `ocr_low_confidence` on the produced line (`translate_engines.SYSTEM_FLAG_REASONS`). The Review "flagged" filter already picks it up.
+
+**Exit:**
+- A test confirms the Paddle and Tesseract wrappers return the expected score from mocked engine output.
+- A test confirms manga-ocr returns `None` and is never counted as needing review.
+- A test confirms a new scanlate run stores `ocr_score` and `ocr_engine` per bubble, and that a backup round trip keeps them.
+- A test confirms `needs_review` respects the threshold and clears after an edit or Confirm.
+- A test confirms the PATCH route enforces `lines.edit` and ownership.
+- A test confirms a low-score hardsub line gets `ocr_low_confidence`.
+- Vitest checks the review list's count and ordering. Playwright covers desktop and phone.
+- **Manual check:** run a real Chinese chapter through Paddle. Confirm the regions listed as needing review are mostly the genuinely wrong ones, and record the threshold used.
+
+### Step 147 — Benchmark cases: candidate → verified, case metadata, and an offer after a correction
+
+**Why.** The vision's rule: AI or a quick button proposes a test case, and only the user makes it trusted. Today:
+- "Add as regression test" writes straight into the `regression` tier, with the line's current English as the reference (`services/benchmark_lab_service.py:355-389`). It has no candidate state and no verification step.
+- `benchmark_cases` (`db.py:659`, plus the Step 38 migration at 1376-1380) has no verified, dataset, license, tags or difficulty field.
+- No route can edit a reference (`api/routers/benchmark_routes.py`), and `GoldenSetsCard.tsx` lists cases read-only.
+- The "offer to make this a test" moment doesn't exist. `lines_service.patch_line` (`services/lines_service.py:146-166`) records translation memory on an English edit and returns nothing more.
+
+**Scope:**
+1. **New case columns:**
+   - `status`: `candidate`, `verified` or `retired`. Existing rows migrate to `verified`, because the user added each one deliberately.
+   - `verified_at` and `verified_by`.
+   - `dataset`, `dataset_version`, `license`, `tags` (pipe-separated, like glossary aliases) and `difficulty`.
+   - `known_bad_output`: the machine output the user corrected, kept so a later run can show "this model still makes the old mistake."
+2. **A small `benchmark_case_events` table** (`case_id`, `action`, `old_reference`, `new_reference`, `user_id`, `at`). This is the verification history.
+3. **The regression button creates a `candidate`**, filling `known_bad_output` from the line's machine output. Use the `line_provenance` row when its `output_hash` matches an earlier version; otherwise leave it empty. Re-adding the same line updates the candidate, as today.
+4. **Runs:**
+   - Score `verified` cases by default.
+   - Candidates can be run explicitly as a preview, but they never count toward aggregates, pass counts or regression deltas.
+   - `model_reeval_service` (`set_settings` 113-146, `start_run` 305) uses verified cases only.
+   - Store the selection in `case_filter` as today.
+5. **Golden sets UI:** a status chip and filter, plus Verify, Edit reference, Retire and Restore actions. Writes are `local_only()` with confirmation and are recorded in `benchmark_case_events`. Import gets a "References are already checked" box, default on for the `public` tier and off otherwise.
+6. **Offer after a correction:**
+   - When `patch_line` changes English on a line that `line_provenance_service.machine_made_ids()` reports as machine-made, it returns `offer_regression: true` (a new field on the response schema).
+   - Only on the PC (`usePcOnly() === 'local'`, as `RegressionTestButton.tsx` already checks).
+   - Only when the change is not trivial: `benchmark.score_text_similarity(old, new) < 0.9`.
+   - The UI shows a non-blocking "Save this correction as a test case?" with **Save as candidate** and **Not now**. It never adds anything automatically.
+   - A setting turns the offer off. Find & replace and accepting a TM suggestion never offer.
+
+**Exit:**
+- A test confirms the migration marks existing cases `verified`.
+- A test confirms the regression button creates a `candidate` with `known_bad_output`.
+- A test confirms a default run excludes candidates and `retired` cases, and a preview run of candidates doesn't change aggregates.
+- A test confirms Verify and Edit reference write events and need confirmation.
+- A test confirms `patch_line` returns `offer_regression` only for a non-trivial English edit on a machine-made line, on the PC.
+- A test confirms model re-evaluation uses verified cases only.
+- Vitest checks the offer appears and that dismissing it adds nothing.
+- **Manual check:** correct three real machine translations, save two as candidates, verify one, run a benchmark, and confirm only the verified one is scored.
+
+### Step 148 — Glossary proposals: counts, a derived confidence, bulk accept, and an ignore list
+
+**Why.** The user doesn't want to build a glossary by hand; the app should propose and the user approve in bulk. Proposals today carry only `term, suggested_translation, category, policy, reason, already_in_glossary` (`services/glossary_service.py:432`, `_PROPOSAL_FIELDS` 637):
+- No occurrence count is computed anywhere.
+- Across novel windows the last proposal wins (`translation_guide.py:671`, `all_terms[e["term"]] = e`), so earlier, different suggestions are lost.
+- There is no confidence, no select-all, and no memory of terms the user rejected. The same unwanted term comes back on every run.
+
+**Scope:**
+1. **Deterministic counts after the LLM call**, outside the cache (`_novel_glossary_cache`, 453), so cached runs get fresh counts:
+   - Count non-overlapping occurrences of the term, and of any proposed alias, in the drama's source text: `lines.zh` (`db.load_lines`), `raw_novel_context.txt`, or bubble `source_text` for comics.
+   - Single-character terms are marked "too short to count reliably" instead of being given a count.
+2. **Merge across windows instead of overwriting:** keep `windows_seen`. When suggested translations disagree, keep them as `alternatives` and show them as choices.
+3. **A derived confidence**, labelled heuristic in the UI and never asked of the LLM:
+   - **High:** count ≥ 5, seen in ≥ 2 windows (or one pass for line extraction), and one consistent suggestion.
+   - **Low:** count 0, meaning the term is not found in the text, which is a likely invention.
+   - **Medium:** everything else.
+   - Record the thresholds in the code comment with the reason.
+4. **Ignore list:** a `glossary_dismissals(series_id, term, created_at)` table with `UNIQUE(series_id, term)` and FK cascade, following `voice_suggestion_dismissals` (`db.py:399-409`). The scope is the series, the same as `glossary_terms`.
+   - Ignored terms are hidden from proposals, with "Show ignored (n)" and Un-ignore.
+   - Add the table to `_CHILD_TABLES`/backup handling. It is keyed by series, so check how `glossary_terms` travels and do the same.
+5. **UI** (`GlossaryProposals.tsx`, used by `NovelGlossary.tsx` and `GlossaryReview.tsx`):
+   - Sort by count.
+   - Show the count and a confidence chip.
+   - Add **Select all high confidence**, **Clear selection** and a per-term **Ignore**.
+   - The default selection (`autotuneGlossary.ts:97`) becomes "high confidence and not already in the glossary."
+6. **Routes:** ignore and un-ignore under `/api/glossary` with `lines.edit` and series ownership.
+7. **CLI parity:** the CLI doesn't run extraction today (it only resolves terms for `--term`, `cli.py:549`). Note this in the PR rather than adding a CLI command.
+
+**Exit:**
+- A test confirms counts match a fixture text, including the zero-count case.
+- A test confirms windows merge into `windows_seen` and `alternatives` rather than overwriting.
+- A test confirms confidence bands follow the documented thresholds.
+- A test confirms a cached novel run still recomputes counts.
+- A test confirms ignored terms are excluded on the next run and restored by un-ignore.
+- Vitest covers select-all-high and the default selection.
+- **Manual check:** run "Glossary from novel" on a real novel. Confirm the high-confidence set is mostly right, the zero-count terms really aren't in the text, and an ignored term doesn't come back.
+
+### Step 149 — Keep line provenance history, not only the latest translation
+
+**Why.** The vision wants the full chain of how a line came to be, so that a bad translation found months later can be explained and redone. `line_provenance` (`db.py:846`) has `PRIMARY KEY (drama_id, line_id)` and is written with INSERT OR REPLACE (`services/line_provenance_service.py:88`), so each run erases the previous record. Edits, Find & replace, TM accepts, imports and activated versions record nothing at all. The UI's `LineOrigin.tsx` (100-118) doesn't show `prompt_version_note`, even though the API returns it.
+
+**Scope:**
+1. **A `line_provenance_history` table**, append-only. It has the same columns, plus:
+   - `event`: one of `machine`, `carry_forward`, `human_edit`, `find_replace`, `tm_accept`, `version_restore`
+   - `output_text`
+   - `user_id`
+
+   Keep `line_provenance` as the "latest" row so its existing readers are unchanged (`debug_view.py:66, 105`, `glossary_retranslate_service.py:93`).
+2. **Write a history row in the same transaction** from `record()` and `carry_forward()`, from `lines_service.patch_line` when English changes, from `apply_find_replace` (179), from `accept_tm_suggestion` (223) and from translation-version activation (`services/translation_version_service.py`).
+3. **Bound it:** keep the last 50 events per line, pruned in the same transaction, following `save_line_history_snapshot(keep_last=10)` (`db.py:4032-4060`).
+4. **Delete and backup:**
+   - Add the table to `db.delete_drama`'s manual deletes (2048).
+   - Add it to `USER_BACKUP_TABLES` (`library_admin_service.py:644`) and to the backup child-table handling, remapping `line_id` through `line_map`.
+   - Check that `line_provenance` itself is already remapped on import, and fix it in the same change if not.
+5. **UI:** `LineOrigin.tsx` gets a "History" list: when, who or which engine/model/prompt version, and the text at that point. It also shows `prompt_version_note`.
+
+**Exit:**
+- A test confirms two translate runs and an edit leave three ordered history rows, while `line_provenance` still holds only the latest.
+- A test confirms each listed write path records its event type.
+- A test confirms pruning keeps 50 events.
+- A test confirms delete and backup round trips cover the table with remapped `line_id`s.
+- Vitest checks the history list renders.
+- **Manual check:** translate a real episode twice with different engines, edit one line, and confirm "What happened here?" shows all three steps accurately.
+
+### Step 150 — chrF scoring for translation benchmarks
+
+**Why.** Translation cases are scored with `difflib.SequenceMatcher` similarity (`benchmark.py:44`). That is not a recognised MT metric, and public benchmark results can't be compared against it. chrF is the standard character n-gram metric used for FLORES-style evaluation. It needs no tokenizer and is cheap. sacrebleu (Apache-2.0) implements it: `CHRF().sentence_score(hyp, [ref])`. COMET stays not built (`benchmark_lab_service.py:40`). It needs torch and a model download, and is worth reconsidering only if chrF and human review disagree in practice.
+
+**Scope:**
+1. **sacrebleu as an optional dependency**, registered the same way jiwer is:
+   - `diagnostics.OPTIONAL_DEPENDENCIES` (`diagnostics.py:111`), size table (210), and the `benchmark_scoring` feature bundle (381-383).
+   - `requirements-optional.txt` under "Benchmark Lab" (153-156).
+2. **`score_output`** (`benchmark_lab_service.py:157`) uses chrF (metric `chrf`, scorer `sacrebleu`, 0–1) for translation when sacrebleu is installed, and falls back to the current `similarity`/`builtin` otherwise. `benchmark_results.metric` and `scorer` already record which one was used.
+3. **Per-metric pass thresholds.** `PASS_THRESHOLD = 0.8` (64) was set for difflib. Pick the chrF value from a run over the existing translation cases and record it, with the reason, in the code comment.
+4. **Model Arena and re-evaluation** warn when the sessions compared used different metrics, instead of showing a misleading delta.
+
+**Exit:**
+- A test confirms chrF is used when sacrebleu is importable (`pytest.importorskip`) and the fallback when it isn't.
+- A test confirms per-metric thresholds apply.
+- A test confirms the Arena warns on mixed metrics.
+- A test confirms the dependency is registered (the existing diagnostics registration test).
+- **Manual check:** run the same engines on existing cases before and after, and confirm the ranking under chrF matches a read of the outputs.
+
+### Step 151 — A generic OpenAI-compatible engine (llama.cpp, LM Studio, vLLM, OpenRouter)
+
+**Why.** Subscription independence means being able to point Baihe at any OpenAI-compatible server. Today:
+- `OpenAIEngine` is fixed to `OPENAI_CHAT_URL` (`translate_engines.py:50`) and refuses models not in `OPENAI_MODELS` (1303-1308).
+- DeepSeek's base URL is hard-coded (1108).
+- Only Ollama has a configurable URL (`ollama_url` → `BAIHE_OLLAMA_URL`, `services/settings_service.py:37`, validated by `validate_endpoint_url` 516).
+- llama.cpp's server, LM Studio and vLLM all speak `/v1/chat/completions` but can't be used.
+
+**Scope:**
+1. **A new `openai_compat` engine** in `ENGINES` (1981):
+   - Settings: base URL (`openai_compat_url`, `validate_endpoint_url`, the same write gate as `ollama_url`: `local_only()` plus `_require_local_admin` plus confirm), an optional key (header only, never in the URL) and a free-text model name.
+   - Capabilities: `translate` and `instructions`, plus `local` and `cheap` only when the host is loopback.
+2. **Requests:**
+   - `timeout=` on every call (`tests/test_static_analysis.py` already covers `translate_engines.py`).
+   - `allow_redirects=False`.
+   - Errors pass through `redact_secrets`.
+   - Use id-keyed parsing (`_parse_id_keyed_json`), tolerant of servers that ignore `response_format`.
+3. **Cost:**
+   - An optional per-million input/output price.
+   - With no price and a non-loopback host, the cost is shown as **unknown**, not $0, and a run needs the same confirmation as one exceeding the cap. `estimate_cost` (123) otherwise returns 0.0 for unknown models.
+   - A loopback host is $0.
+4. **Test connection** via `GET /v1/models` (with a timeout), shown next to the setting.
+5. **Wire-up:**
+   - Engine routing picks it up through capability tags (`services/engine_routing_service.py`).
+   - The CLI gets `--engine openai_compat --base-url`, mirroring `--ollama-url` (`cli.py:74`), so CLI and app match.
+   - DeepSeek and OpenAI stay as they are.
+
+**Exit:**
+- A test confirms a mocked server receives the configured model, with the key in a header, and that the result maps back by id.
+- A test confirms URL validation and the write gate refuse a remote write.
+- A test confirms a non-loopback endpoint with no price reports cost as unknown and requires confirmation.
+- A test confirms loopback marks the engine `local`.
+- A test confirms CLI and app build the same engine.
+- **Manual check:** run a real llama.cpp `llama-server` and a real LM Studio model, and translate one episode through each.
+
+### Step 152 — Built-in public benchmark sets (no hand-importing)
+
+**Why.** The user wants public test data available without maintaining or importing it by hand (decision 2026-10-03). Today import is paste-in JSONL/TSV only (`benchmark_lab_service.py:296-331`), translation only. Public sets give reference answers nobody has to write. They don't replace the user's own cases (Step 147), because news-style text doesn't predict light-novel dialogue or livestream speech.
+
+**Candidate sets.** Licenses as published; re-verify at build time and record each one in the case's `license` field (Step 147):
+
+| Task | Set | Languages | License | Notes |
+|---|---|---|---|---|
+| Translation | FLORES+ devtest (`openlanguagedata/flores_plus`) | zho_Hans, zho_Hant, jpn, kor → eng | CC BY-SA 4.0 | 1,012 sentences per language; check whether the HF dataset is gated (needs a token) |
+| Translation | NTREX-128 | zh, ja, ko → en | CC BY-SA 4.0 | News; complements FLORES (Wikipedia-style) |
+| Translation | WMT general test sets via sacrebleu's own downloader | zh↔en, ja↔en | Per-year WMT terms (research use) | sacrebleu can fetch them (`-t wmt23 -l zh-en`); personal use only, never redistributed |
+| ASR | FLEURS | cmn_hans_cn, ja_jp, ko_kr | CC BY 4.0 | Read speech; fine for regression, not for livestreams |
+| ASR (Taiwan) | Common Voice zh-TW | zh-TW | CC0 | Download needs accepting terms; check access before building |
+| OCR (manga) | JMangaBench_Mixed | ja | **Not confirmed** | 3,286 crops, cited by several Apache-2.0 manga OCR models; dataset license not found yet. Don't build until it is |
+| Diarization | AISHELL-4 / AliMeeting | Mandarin meetings | CC BY-SA 4.0 | Large downloads; take a small slice only |
+
+**Scope:**
+1. **A "Public sets" catalogue in the Benchmark page** (PC only, `local_only()`). Each entry shows name, task, languages, license, size and source URL. **Add** downloads a small, fixed, seeded sample (default 100 translation or 30 ASR items per language pair). Cases are stored as tier `public`, status `verified`, with `dataset`, `dataset_version` and `license` filled in.
+2. **Downloads:**
+   - Go through the existing HTTP helpers with `timeout=` and a size cap.
+   - Never run automatically. The source URL is a fixed list in code, never user input, so no SSRF surface.
+   - Refresh replaces only cases from the same `dataset` + `dataset_version`.
+3. **Translation sets first.** ASR comes once the ASR side of `import_golden_set` accepts audio, which needs a small extension for an audio file per case. OCR and diarization come later; diarization also needs a scorer (Step 153's findings decide that).
+4. **Gated datasets** (an HF token or accepted terms): show "needs access" with the reason and a link. Never prompt for a password. A Hugging Face token is already an owed user item for pyannote.
+
+**Exit:**
+- A test with mocked downloads confirms adding a set creates the expected number of `public`, `verified` cases with dataset and license fields filled.
+- A test confirms the sample is seeded and reproducible.
+- A test confirms a refresh doesn't touch other sets.
+- A test confirms a size-cap breach fails cleanly.
+- A test confirms the catalogue's URLs are constants.
+- **Manual check:** add FLORES+ zho_Hans→eng and jpn→eng samples and run two engines. Confirm the chrF ranking (Step 150) is believable.
+
+### Step 153 — Investigate late-file drift on long recordings (3-hour VOD)
+
+**Why.** The user reported (2026-10-03) that on a real ~3-hour VOD the subtitles got worse toward the end and lines "slipped." This is an investigation first. The cause isn't known, and several are plausible:
+- Whisper timestamp drift across long audio (timing comes from Whisper's segments, `core.py:637-692`).
+- Forced-alignment windows (`forced_align.py`, `word_align.py:realign_oversized_segments`, see Step 102).
+- Re-segmentation on long inputs.
+- Diarization over one long pass (`diarize.py`).
+- Translation context or batching on very long dramas.
+
+**Scope:**
+1. Reproduce on the user's real file, or a similar long public recording. Measure subtitle-start offset against the true speech onset at fixed points (for example every 15 minutes) and plot the offset over time. A steady growth points to timing; scattered errors point elsewhere.
+2. Check each stage's output separately: the raw transcript (`raw_transcript.json`), after alignment, after re-segmentation, and after diarization. Find the first stage where the drift appears.
+3. Write up the cause, the proposed fix as its own step, and a small long-file regression case for the Benchmark Lab: timing offset at checkpoints, plus speaker accuracy if diarization is involved. That case becomes the first diarization or timing benchmark.
+
+**Exit:** a written diagnosis naming the stage that drifts, with measurements, and a follow-up fix step. Shipping a fix is not part of this step.
+
+### Open questions carried with this batch (not scheduled)
+
+- **Work / Edition split.** Today `dramas` is the work, the edition and the files at once. Step 145's `source_objects` gives files their own identity. A separate Edition table would only help when the same work exists as two releases (for example a raw and a fan-translated EPUB, or two video encodes) and should share characters and glossary while keeping separate files. A series already shares glossary and characters, so wait for a real case.
+- **Soft delete / trash.** Auto backups (`services/auto_backup_service.py`, 2 daily and 2 weekly) already allow restoring one drama, but only if a backup ran after the last change, and by default they exclude media (`include_media: False`). A trash (rename to `.trash/<id>` with a retention window) would also cover media and the minutes since the last backup. Decide once Step 144 makes originals worth protecting.
+- **An archive readable without Baihe.** Step 145 adds checksums to the manifest. A further export (JSON or SRT sidecars per drama, plus Jellyfin NFO/poster files per `docs/media-server-metadata-design.md`, option A) is the user's call.
+- **Trust levels** (trusted, observed, inferred) beyond metadata. Steps 147 and 148 add candidate/verified for benchmarks and derived confidence for glossary proposals. A shared trust column across glossary, characters and translation memory waits until those two have been used.
+- **Entity merge screen.** Character aliases exist (`series_characters.aliases`), but there is no name/variant detection, no merge and no review. The universe wiki (`wiki_entries`) is per drama with no review step. Decide whether the wiki moves to series scope and whether "merge two characters" is needed before designing it.
+- **Translation-memory scopes.** TM is series-only (`db.py:383-393`). Step 38's segment/project/series/global scopes stay unbuilt unless TM suggestions are seen to be missing across series.
+- **Re-running everything downstream of one replaced stage.** Each stage re-runs on its own today (re-diarize, re-translate, re-typeset). A pipeline graph that re-runs everything downstream automatically is large. Revisit after Step 149 shows which stages actually get replaced.
+- **Source-cache retention default.** Adapter downloads default to `temporary` (`sources/cache.py:28-36`). Switching the default to `keep_originals` would keep every raw chapter; decide alongside the disk-budget follow-up (compressing or moving originals elsewhere).
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
