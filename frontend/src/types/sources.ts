@@ -153,6 +153,8 @@ export interface TrackedSeries {
   drama_id: number | null
   last_checked: number | null
   last_check_error: string | null
+  // New chapters are saved as CBZ files by the check (comic sources).
+  save_cbz: boolean
 }
 
 export interface SourceNotification {
@@ -262,6 +264,8 @@ export interface CheckResult {
   new: number
   errors: Record<string, string>
   queued: string[]
+  // Series whose new chapters were saved as CBZ files.
+  saved?: string[]
   skipped?: boolean
 }
 

@@ -40,6 +40,8 @@ SERIES_JOB_PREFIX = "sources_series_"
 IMPORT_JOB_PREFIX = "sourceimport_"
 # Paste-a-URL preview (S-5), one at a time in the process.
 URL_PREVIEW_JOB_ID = "sources_url_preview"
+# Saving chapters as CBZ files (sources_save_service), one at a time.
+SAVE_JOB_ID = "sources_save"
 MAX_QUERY_LEN = 200
 MAX_ID_LEN = 200
 
@@ -338,7 +340,7 @@ def _is_ours(job_id: str, local: bool = False) -> bool:
     from services import sources_signin_service as signin
     from services import sources_tools_service as tools
     from sources.chapter_check import CHECK_JOB_ID
-    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, CHECK_JOB_ID) + tools.job_ids():
+    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, SAVE_JOB_ID, CHECK_JOB_ID) + tools.job_ids():
         return True
     if signin.is_pc_only_job(job_id):
         # Sign-in and tier-test outcomes are for the owner at the PC.

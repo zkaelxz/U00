@@ -324,6 +324,7 @@ export default function LibraryPage() {
           {stats.data && <StatsBreakdown stats={stats.data} />}
         </div>
         <div className="actions">
+          <ButtonLink variant="secondary" href="#/manga">Saved manga</ButtonLink>
           <ButtonLink variant="secondary" href="#/library-tools">Library tools</ButtonLink>
           <button type="button" className={buttonClass('primary')} onClick={() => setCreating(true)}>New drama</button>
         </div>

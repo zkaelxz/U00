@@ -18,7 +18,8 @@ from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
                          SourcesJobStarted, SourceSummary, SourceToggle,
-                         SourceTrackedDramaRequest, SourceTrackRequest, TrackedSeries)
+                         SourceTrackedDramaRequest, SourceTrackedSaveRequest, SourceTrackRequest,
+                         TrackedSeries)
 from services import sources_registry_service as svc
 from services import sources_tracking_service as tracking
 
@@ -91,6 +92,15 @@ def post_tracked(payload: SourceTrackRequest, request: Request):
 def post_tracked_drama(payload: SourceTrackedDramaRequest, request: Request):
     return tracking.set_tracked_drama(payload.source, payload.series_id, payload.drama_id,
                                       principal=request.state.principal)
+
+
+@router.post("/tracked/save-cbz", dependencies=[require_permission("sources.import")],
+             response_model=List[TrackedSeries],
+             summary="Whether a tracked comic series' new chapters are saved as CBZ files",
+             responses=_ERR)
+def post_tracked_save(payload: SourceTrackedSaveRequest, request: Request):
+    return tracking.set_tracked_save(payload.source, payload.series_id, payload.save_cbz,
+                                     principal=request.state.principal)
 
 
 @router.post("/check-now", dependencies=[require_permission("sources.import")], response_model=SourcesJobStarted,

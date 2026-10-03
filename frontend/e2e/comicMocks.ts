@@ -72,7 +72,7 @@ const HUES: RGB[] = [[214, 226, 245], [245, 222, 214], [220, 240, 222], [238, 22
 
 interface Box { x: number; y: number; w: number; h: number }
 
-function pagePng(n: number, w: number, h: number, boxes: Box[], typeset: boolean): Buffer {
+export function pagePng(n: number, w: number, h: number, boxes: Box[], typeset: boolean): Buffer {
   const px = new Uint8Array(w * h * 3)
   const bg = HUES[(n - 1) % HUES.length]
   const fill = (x0: number, y0: number, x1: number, y1: number, c: RGB) => {
