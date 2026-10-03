@@ -16,11 +16,53 @@ button.report-btn:hover:not(:disabled) { color: var(--text); }
 .report-text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; margin-top: var(--space-2); }
 .report-form details summary { cursor: pointer; }
 
+
+/* Copy a report for a bug, and Saved reports, under the form. */
+.report-extra { display: grid; gap: var(--space-3); margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.report-support { display: grid; gap: var(--space-2); min-width: 0; }
+.report-support h3, .report-support p { margin: 0; }
+.report-stack { display: grid; gap: var(--space-2); min-width: 0; }
+.report-stack > p { margin: 0; }
+.report-pre {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40vh;
+  overflow: auto;
+  font-size: var(--font-sm);
+}
+.report-list { margin: 0; display: grid; }
+.report-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.report-row:first-child { border-top: 0; }
+.report-row dt { font-weight: 600; }
+.report-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.report-items { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: 2px; }
+.report-items.mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.report-item-name { font-weight: 500; }
+.bug-report-list { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
+.bug-report-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.bug-report-list .bug-report-main { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
+.report-extra summary { min-height: 44px; display: flex; align-items: center; }
+
 @media (pointer: coarse) {
   button.report-btn, .report-actions button, a.button-link, .report-check,
   .report-form details summary { min-height: 44px; }
   .report-form input[type='file'] { min-height: 44px; }
 }
 @media (max-width: 640px) {
+  .report-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  /* Keep Delete… beside Copy instead of on its own row (index.css gives .confirm-button a full row). */
+  .bug-report-list .actions { margin-left: auto; justify-content: flex-end; }
+  .bug-report-list .confirm-button { display: inline-flex; flex: 0 0 auto; }
   .report-actions > button, .report-actions > a.button-link { flex: 1 1 auto; justify-content: center; }
 }
