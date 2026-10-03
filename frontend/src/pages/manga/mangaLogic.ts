@@ -19,6 +19,9 @@ export interface LastRead {
 // both long-strip manhwa and manga, and "Aa" switches to one page at a time.
 export const MANGA_DEFAULTS: ComicPrefs = { mode: 'vertical', rtl: false, fit: 'width', typeset: false, text: false }
 
+/** A saved series folder is "Title [id]": show only the title. */
+export const seriesTitle = (folder: string) => folder.replace(/ \[[^\]]+\]$/, '') || folder
+
 const seriesKey = (source: string, series: string) => `${source}/${series}`
 
 export function loadMangaPrefs(storage: StorageLike | null, source: string, series: string): ComicPrefs {

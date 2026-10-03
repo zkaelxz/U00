@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   MANGA_DEFAULTS, chapterCount, loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos,
-  saveLastRead, saveMangaPrefs,
+  saveLastRead, saveMangaPrefs, seriesTitle,
 } from './mangaLogic'
 
 function memory() {
@@ -54,5 +54,16 @@ describe('saved manga logic', () => {
     ])
     expect(chapterCount(1)).toBe('1 chapter')
     expect(chapterCount(3)).toBe('3 chapters')
+  })
+})
+
+describe('seriesTitle', () => {
+  it('drops the trailing [id] a saved series folder carries', () => {
+    expect(seriesTitle('Solo Leveling [solo-leveling]')).toBe('Solo Leveling')
+    expect(seriesTitle('Title [with] brackets [id-2]')).toBe('Title [with] brackets')
+  })
+  it('leaves a name without one, or only an id, alone', () => {
+    expect(seriesTitle('Test Camp')).toBe('Test Camp')
+    expect(seriesTitle('[id]')).toBe('[id]')
   })
 })

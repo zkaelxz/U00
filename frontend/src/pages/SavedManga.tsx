@@ -12,7 +12,7 @@ import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import type { SavedChapterList, SavedSeries } from '../types/savedComics'
 import { SaveFolderCard } from './manga/SaveFolder'
-import { chapterCount, loadLastRead, mangaReadHref, mangaSeriesHref, type LastRead } from './manga/mangaLogic'
+import { chapterCount, loadLastRead, mangaReadHref, mangaSeriesHref, seriesTitle, type LastRead } from './manga/mangaLogic'
 import { ago, isoTime } from './sources/sourcesFormat'
 import './manga/manga.css'
 
@@ -60,7 +60,7 @@ function SeriesList() {
             return (
               <li key={`${s.source}/${s.series}`} className="card">
                 <div>
-                  <a className="manga-series-title" href={mangaSeriesHref(s.source, s.series)}>{s.series}</a>
+                  <a className="manga-series-title" href={mangaSeriesHref(s.source, s.series)}>{seriesTitle(s.series)}</a>
                   <p className="muted">
                     {s.source} · {chapterCount(s.chapter_count)}
                     {s.updated_at !== null && (
@@ -98,11 +98,11 @@ function ChapterList({ source, series }: { source: string; series: string }) {
       <nav aria-label="Breadcrumb" className="reader-crumbs">
         <a href="#/manga">Saved manga</a>
         <span aria-hidden="true"> / </span>
-        <span>{series}</span>
+        <span>{seriesTitle(series)}</span>
       </nav>
       <header className="page-head">
         <div className="page-head-text">
-          <h2 className="page-title">{series}</h2>
+          <h2 className="page-title">{seriesTitle(series)}</h2>
           <p className="page-meta">
             {source}
             {data && ` · ${chapterCount(data.chapters.length)}`}

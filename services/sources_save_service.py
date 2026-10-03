@@ -142,9 +142,16 @@ def safe_name(text, fallback: str) -> str:
     return name
 
 
-def chapter_path(root: str, source_label: str, series_title: str, number: int,
+def series_folder_name(series_title, series_id) -> str:
+    """"Title [id]": the title is for people and Jellyfin, the id keeps two
+    series whose titles clean up to the same name in separate folders."""
+    return f"{safe_name(series_title, 'series')} [{safe_name(series_id, 'id')}]"
+
+
+def chapter_path(root: str, source_label: str, series_title: str, series_id, number: int,
                  chapter_title: str) -> str:
-    folder = os.path.join(root, safe_name(source_label, "source"), safe_name(series_title, "series"))
+    folder = os.path.join(root, safe_name(source_label, "source"),
+                          series_folder_name(series_title, series_id))
     path = os.path.join(folder, f"{number:04d} {safe_name(chapter_title, 'chapter')}.cbz")
     real_root = os.path.realpath(root)
     if os.path.commonpath([real_root, os.path.realpath(path)]) != real_root:
@@ -152,7 +159,8 @@ def chapter_path(root: str, source_label: str, series_title: str, number: int,
     return path
 
 
-def _comic_info(series: str, title: str, number: int, language: str) -> str:
+def _comic_info(series: str, title: str, number: int, language: str, note: str = "") -> str:
+    notes = f"  <Notes>{escape(note)}</Notes>\n" if note else ""
     lang = f"  <LanguageISO>{escape(language)}</LanguageISO>\n" if language else ""
     return ('<?xml version="1.0" encoding="utf-8"?>\n'
             '<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
@@ -160,10 +168,12 @@ def _comic_info(series: str, title: str, number: int, language: str) -> str:
             f"  <Title>{escape(title)}</Title>\n"
             f"  <Number>{number}</Number>\n"
             f"{lang}"
+            f"{notes}"
             "</ComicInfo>\n")
 
 
-def write_cbz(path: str, images, series: str, title: str, number: int, language: str = ""):
+def write_cbz(path: str, images, series: str, title: str, number: int, language: str = "",
+              note: str = ""):
     """`images` are (bytes, ext) in reading order. Written to `<path>.part`
     and renamed into place, so `path` only ever holds a whole CBZ."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -174,7 +184,7 @@ def write_cbz(path: str, images, series: str, title: str, number: int, language:
             for i, (data, ext) in enumerate(images, start=1):
                 ext = str(ext or "").lower()
                 zf.writestr(f"{i:0{width}d}{ext if ext in IMAGE_EXTS else '.jpg'}", data)
-            zf.writestr("ComicInfo.xml", _comic_info(series, title, number, language),
+            zf.writestr("ComicInfo.xml", _comic_info(series, title, number, language, note),
                         compress_type=zipfile.ZIP_DEFLATED)
         os.replace(part, path)
     except BaseException:
@@ -230,7 +240,7 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
     for i, ch in enumerate(wanted, start=1):
         number = numbers[str(ch.chapter_id)]
         try:
-            path = chapter_path(root, label, series_title, number, ch.title or ch.chapter_id)
+            path = chapter_path(root, label, series_title, series_id, number, ch.title or ch.chapter_id)
             if os.path.exists(path):
                 rows.append(_row(ch, "skipped"))
                 continue
@@ -244,7 +254,8 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
                 progress(((i - 1) + j / max(len(pages), 1)) / total,
                          f"Chapter {i} / {total} -- page {j} / {len(pages)}")
                 images.append(adapter.download_page(page))
-            write_cbz(path, images, series_title, ch.title or ch.chapter_id, number, language)
+            write_cbz(path, images, series_title, ch.title or ch.chapter_id, number, language,
+                      note=f"{label} series {series_id}")
             rows.append(_row(ch, "saved", pages=len(images)))
         except ChallengeDetected as e:
             rows.append(_row(ch, "failed", error=_scrub(str(e)),

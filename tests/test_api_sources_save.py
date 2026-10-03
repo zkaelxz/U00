@@ -44,12 +44,13 @@ def test_saves_chosen_chapters_as_cbz_in_reading_order(client, fakes, root):
     assert res["kind"] == "chapter_save" and res["saved_count"] == 2
     assert [c["chapter_id"] for c in res["chapters"]] == ["c1", "c10"]
     assert root not in r.text
-    assert _files(root) == [os.path.join("Comicx", "Series T", "0001 第1章.cbz"),
-                            os.path.join("Comicx", "Series T", "0003 第10章.cbz")]
-    with zipfile.ZipFile(os.path.join(root, "Comicx", "Series T", "0001 第1章.cbz")) as zf:
+    assert _files(root) == [os.path.join("Comicx", "Series T [s1]", "0001 第1章.cbz"),
+                            os.path.join("Comicx", "Series T [s1]", "0003 第10章.cbz")]
+    with zipfile.ZipFile(os.path.join(root, "Comicx", "Series T [s1]", "0001 第1章.cbz")) as zf:
         assert zf.namelist() == ["001.png", "002.png", "ComicInfo.xml"]
         info = zf.read("ComicInfo.xml").decode()
         assert "<Series>Series T</Series>" in info and "<Number>1</Number>" in info
+        assert "<Notes>Comicx series s1</Notes>" in info
         assert zf.read("001.png").startswith(b"\x89PNG")
 
 
@@ -150,7 +151,13 @@ class TestNames:
         assert save.safe_name("Chapter 1...", "x") == "Chapter 1"
         assert len(save.safe_name("y" * 500, "x")) == save.MAX_NAME
 
+    def test_series_with_the_same_cleaned_title_get_separate_folders(self, tmp_path):
+        a = save.chapter_path(str(tmp_path), "S", "Who? Me", "id-1", 1, "Chapter 1")
+        b = save.chapter_path(str(tmp_path), "S", "Who: Me", "id-2", 1, "Chapter 1")
+        assert os.path.dirname(a) != os.path.dirname(b)
+        assert os.path.basename(os.path.dirname(a)) == "Who Me [id-1]"
+
     def test_paths_stay_inside_the_save_folder(self, tmp_path):
-        path = save.chapter_path(str(tmp_path), "../..", "../../etc", 7, "../passwd")
+        path = save.chapter_path(str(tmp_path), "../..", "../../etc", "../x", 7, "../passwd")
         assert os.path.commonpath([str(tmp_path), path]) == str(tmp_path)
         assert os.path.basename(path) == "0007 passwd.cbz"

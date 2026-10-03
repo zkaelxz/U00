@@ -22,7 +22,7 @@ import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { clampPage, keyAction, preloadWindow, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comic/comicLogic'
 import { useZoom } from './comic/useZoom'
 import {
-  loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs,
+  loadLastRead, loadMangaPrefs, mangaReadHref, mangaSeriesHref, pageInfos, saveLastRead, saveMangaPrefs, seriesTitle,
 } from './manga/mangaLogic'
 import './reader/reader.css'
 import './comic/comic.css'
@@ -236,7 +236,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
     <div className={classes.filter(Boolean).join(' ')}>
       {phone ? (
         <header className="reader-phone-head comic-head">
-          <a href={seriesHref} className="reader-back" aria-label={`Back to ${series}`}>‹</a>
+          <a href={seriesHref} className="reader-back" aria-label={`Back to ${seriesTitle(series)}`}>‹</a>
           <span className="reader-title">{title}</span>
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {view}
@@ -246,7 +246,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
           <nav aria-label="Breadcrumb" className="reader-crumbs comic-crumbs">
             <a href="#/manga">Saved manga</a>
             <span aria-hidden="true"> / </span>
-            <a href={seriesHref}>{series}</a>
+            <a href={seriesHref}>{seriesTitle(series)}</a>
             <span aria-hidden="true"> / </span>
             <span>{title}</span>
           </nav>

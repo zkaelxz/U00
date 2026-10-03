@@ -262,7 +262,7 @@ def test_check_saves_new_chapters_of_series_that_ask_for_it(fakes, root, monkeyp
         conn.execute("DELETE FROM known_chapters WHERE chapter_id != 'c1'")
     summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert summary["new"] == 2 and summary["saved"] == ["Series T"] and summary["errors"] == {}
-    folder = os.path.join(root, "Comicx", "Series T")
+    folder = os.path.join(root, "Comicx", "Series T [s1]")
     assert sorted(os.listdir(folder)) == ["0002 第2章.cbz", "0003 第10章.cbz"]
 
 
