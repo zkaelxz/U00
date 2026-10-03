@@ -667,6 +667,26 @@ class TestDramaIdsInBodies:
                                            "drama_id": world["private"]})
         assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
 
+    def test_tracked_save_cbz_follows_the_link_too(self, world):
+        # Turning on auto-save for a series linked to a drama B can't edit
+        # is refused like relinking it: 404, nothing changed.
+        from sources import store
+        store.track_series("manhuagui", "1", "One", drama_id=world["private"])
+        client = _client(_app())
+
+        def save(who, on=True):
+            return client.post("/api/sources/tracked/save-cbz", headers=world[who],
+                               json={"source": "manhuagui", "series_id": "1", "save_cbz": on})
+
+        r = save("b")
+        assert r.status_code == 404, r.text
+        assert r.json()["error"]["message"] == "That series isn't tracked."
+        assert [t["save_cbz"] for t in store.list_tracked_series()] == [0]
+        r = save("a")
+        assert r.status_code == 200 and r.json()[0]["save_cbz"] is True, r.text
+        assert save("b", on=False).status_code == 404
+        assert [t["save_cbz"] for t in store.list_tracked_series()] == [1]
+
     def test_link_to_a_deleted_drama_blocks_nobody(self, world):
         from services import sources_tracking_service as tracking
         from sources import store

@@ -650,6 +650,10 @@ class TestSecurityHeaders:
             csp = r.headers["content-security-policy"]
             assert "frame-ancestors 'none'" in csp and "object-src 'none'" in csp
             assert "default-src 'self'" in csp and "connect-src 'self'" in csp
+            # Only the two stream-video hosts may be framed; scripts stay as before.
+            assert "frame-src https://www.youtube-nocookie.com https://player.twitch.tv;" in csp
+            assert csp.count("frame-src") == 1
+            assert "script-src 'self' 'unsafe-inline';" in csp
             assert "strict-transport-security" not in r.headers   # plain http, no proxy word
 
     def test_route_set_header_kept(self):

@@ -54,6 +54,33 @@ export interface ChapterImportResult {
   handoff: Record<string, unknown> | null
 }
 
+// Save as CBZ (job sources_save): chapter ids only, files on the PC, no path returned.
+export interface ChapterSaveRequest {
+  series_id: string
+  chapter_ids: string[]
+}
+
+export interface ChapterSaveRow {
+  chapter_id: string
+  title: string
+  outcome: 'saved' | 'skipped' | 'failed' | 'not_attempted' | 'not_found'
+  pages?: number
+  error?: string
+}
+
+export interface ChapterSaveResult {
+  kind: 'chapter_save'
+  chapters: ChapterSaveRow[]
+  saved_count: number
+  skipped_count: number
+  failed_count: number
+  not_attempted_count: number
+  not_found_count: number
+  partial: boolean
+  cancelled: boolean
+  handoff: Record<string, unknown> | null
+}
+
 // R2 result (job sourceimport_<drama_id>). needs_review: nothing was written.
 export interface UrlImportResult {
   kind: 'url_import'

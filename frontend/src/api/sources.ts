@@ -63,6 +63,9 @@ export const dismissNotification = (id: number, f?: Fetch) =>
   postJson<SourceNotification>(`${BASE}/notifications/${id}/dismiss`, undefined, f)
 export const untrackSeries = (source: string, series_id: string, f?: Fetch) =>
   postJson<TrackedSeries[]>(`${BASE}/tracked`, { source, series_id, tracked: false }, f)
+// Comic sources only: the chapter check saves the series' new chapters as CBZ files.
+export const setTrackedSave = (source: string, series_id: string, save_cbz: boolean, f?: Fetch) =>
+  postJson<TrackedSeries[]>(`${BASE}/tracked/save-cbz`, { source, series_id, save_cbz }, f)
 export const setTrackedDrama = (source: string, series_id: string, drama_id: number | null, f?: Fetch) =>
   postJson<TrackedSeries[]>(`${BASE}/tracked/drama`, { source, series_id, drama_id }, f)
 export const startCheckNow = (f?: Fetch) => postJson<SourcesJobStarted>(`${BASE}/check-now`, undefined, f)
