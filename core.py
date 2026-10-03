@@ -618,6 +618,22 @@ def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
     return out
 
 
+def tighten_to_words(start: float, end: float, words) -> tuple:
+    """A segment's own start/end come from its VAD chunk, so a line can show
+    during silence before the voice starts or stay up after it stops. Narrow
+    them to the first and last spoken word, never widening, and keep the
+    segment's times when there are no usable word times."""
+    try:
+        spoken = [w for w in (words or []) if w.end > w.start]
+        if not spoken:
+            return start, end
+        new_start = max(start, min(w.start for w in spoken))
+        new_end = min(end, max(w.end for w in spoken))
+    except (AttributeError, TypeError):
+        return start, end
+    return (new_start, new_end) if new_end > new_start else (start, end)
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
@@ -692,6 +708,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "language": language, "vad_filter": True, "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
+        "word_timestamps": True,
         **WHISPER_ANTI_LOOP_KWARGS,
     }
     if initial_prompt.strip():
@@ -701,7 +718,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         duration = getattr(info, "duration", None) or 0
         result = []
         for s in segments:
-            result.append({"start": s.start, "end": s.end, "text": s.text.strip()})
+            start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
+            result.append({"start": start, "end": end, "text": s.text.strip()})
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
         if filter_hallucination_repeats:
