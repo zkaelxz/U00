@@ -13,6 +13,11 @@ const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
 
 const card = (page: Page) => page.getByRole('region', { name: 'Model health' })
 
+// The card is a fold that opens itself only on a problem; these specs need it open.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.diagnostics.modelHealth', '1'))
+})
+
 test('the card reads the real status route and never checks providers by itself', async ({ page, request }) => {
   const real = await (await request.get('/api/models/status')).json()
   expect(Array.isArray(real.items)).toBe(true)
@@ -25,7 +30,7 @@ test('the card reads the real status route and never checks providers by itself'
     if (r.url().includes('/api/models/') && r.method() !== 'GET') posts.push(r.url())
   })
   await page.goto('/#/diagnostics')
-  await expect(card(page).getByRole('heading', { name: 'Model health' })).toBeVisible()
+  await expect(page.locator('summary', { hasText: /^Model health/ })).toBeVisible()
   await expect(card(page).getByTestId('model-health-badge')).toBeVisible()
   await expect(card(page).getByRole('button', { name: 'Check providers now' })).toBeEnabled()
   expect(posts).toEqual([])

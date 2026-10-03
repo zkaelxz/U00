@@ -9,6 +9,11 @@ import { guardWrites, status } from './modelHealthMocks'
 
 const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
 
+// The card is a fold that opens itself only on a problem; these specs need it open.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.section.diagnostics.modelHealth', '1'))
+})
+
 test('phone: the card fits, targets are 44px, and a switch asks twice', async ({ page }) => {
   const unmocked = await guardWrites(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
@@ -25,7 +30,7 @@ test('phone: the card fits, targets are 44px, and a switch asks twice', async ({
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBeLessThanOrEqual(0)
 
-  const targets = card.locator('.card-body > .model-list').first().locator('button, a').or(card.locator('.card-actions button'))
+  const targets = card.locator('ul.model-list').first().locator('button, a').or(card.locator('.actions button'))
   const n = await targets.count()
   expect(n).toBeGreaterThanOrEqual(4)
   for (let i = 0; i < n; i++) {

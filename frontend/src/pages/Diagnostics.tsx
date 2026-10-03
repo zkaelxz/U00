@@ -25,10 +25,8 @@ import { DenoInstall } from './diagnostics/DenoInstall'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
 import { LogSection } from './diagnostics/LogSection'
 import { ModelHealthCard } from './diagnostics/ModelHealthCard'
-import { ModelCacheSection } from './diagnostics/ModelCacheSection'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
-import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
@@ -181,6 +179,9 @@ export default function DiagnosticsPage() {
           checks={setup}
           gpu={overview?.gpu ?? null}
           engines={overview?.model_engine_versions ?? []}
+          cache={cache}
+          pc={pc}
+          onCacheChanged={refreshCache}
           checking={checking}
           onRecheck={() => {
             setChecking(true)
@@ -212,9 +213,7 @@ export default function DiagnosticsPage() {
             onJobStarted={() => void refreshJobs()}
           />
         )}
-        <PyannoteSection />
         <PortsSection pc={pc} />
-        <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
         <JobHistorySection items={history} />
         <LogSection />
         <BugReportsSection pc={pc} />

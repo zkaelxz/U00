@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { checkGpuTorch, getGpuTorch } from '../../api/diagnostics'
 import { Badge } from '../../components/Badge'
+import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { adminErrorText } from './diagnosticsAdmin'
 import type { DiagnosticsGpuTorchStatus, DiagnosticsTorchVariant } from '../../types/diagnostics'
 import {
-  driverText, packageVersionText, setupBlockedReason, stateBadge, stateIsProblem, stateText, verifyText,
+  driverText, gpuTorchSummary, packageVersionText, setupBlockedReason, stateBadge, stateIsProblem, stateText, verifyText,
 } from './gpuTorch'
 
 const TORCH_PACKAGES = ['torch', 'torchvision', 'torchaudio'] as const
@@ -40,15 +41,13 @@ export function GpuTorchPanel({ refreshKey, action }: {
       .finally(() => setProbing(false))
   }
 
-  const titleId = useId()
   const badge = status ? stateBadge(status) : null
   const blocked = status && status.state !== 'recommended' ? setupBlockedReason(status, status.recommended) : null
+  const summary = status ? gpuTorchSummary(status) : failed ? 'Unavailable' : 'Checking…'
   return (
-    <div className="diag-subcard gpu-torch" data-testid="gpu-torch" role="group" aria-labelledby={titleId}>
-      <div className="subcard-head">
-        <h4 id={titleId}>GPU PyTorch</h4>
-        {badge && <Badge tone={badge.tone}>{badge.text}</Badge>}
-      </div>
+    <Section key={status ? 'loaded' : 'loading'} title="GPU PyTorch" storageKey="diagnostics.gpuTorch" summary={summary} defaultOpen={!!status && stateIsProblem(status)}>
+      <div className="diag-stack gpu-torch" data-testid="gpu-torch" role="group" aria-label="GPU PyTorch">
+      {badge && <div><Badge tone={badge.tone}>{badge.text}</Badge></div>}
       {failed && !status && <p className="muted">Couldn't read the PyTorch status.</p>}
       {!status && !failed && <p className="muted">Checking…</p>}
       {status && (
@@ -102,6 +101,7 @@ export function GpuTorchPanel({ refreshKey, action }: {
           {blocked && <p className="muted">{blocked}</p>}
         </>
       )}
-    </div>
+      </div>
+    </Section>
   )
 }

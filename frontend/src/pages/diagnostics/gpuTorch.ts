@@ -71,3 +71,15 @@ export function stateBadge(s: DiagnosticsGpuTorchStatus): { text: string; tone: 
     case 'different': return { text: 'Not the recommended set', tone: 'neutral' }
   }
 }
+
+/** The closed fold's one line: "torch 2.11.0+cu128 · CUDA OK · RTX 3080 Ti". */
+export function gpuTorchSummary(s: DiagnosticsGpuTorchStatus): string {
+  const torch = s.installed.find((p) => p.name === 'torch')
+  const parts = [torch?.version ? `torch ${torch.version}` : 'torch not installed']
+  if (s.probe) parts.push(s.probe.cuda_available ? 'CUDA OK' : 'no CUDA')
+  else if (torch?.build === 'cuda') parts.push('CUDA build')
+  else if (torch?.build === 'cpu') parts.push('CPU only')
+  if (s.nvidia.found && s.nvidia.gpu_name) parts.push(s.nvidia.gpu_name)
+  else if (!s.nvidia.found) parts.push('no NVIDIA GPU')
+  return parts.join(' · ')
+}

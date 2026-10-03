@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
 import {
-  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateBadge, stateIsProblem, stateText,
+  driverText, gpuTorchSummary, packageVersionText, setupBlockedReason, setupConfirmLabel, stateBadge, stateIsProblem, stateText,
   verifyText,
 } from './gpuTorch'
 
@@ -64,5 +64,13 @@ describe('gpuTorch', () => {
     const oldDriver = { ...status().nvidia, status: 'too_old' as const }
     expect(stateBadge(status({ state: 'recommended', nvidia: oldDriver }))).toEqual({ text: 'Driver too old', tone: 'warn' })
     expect(stateBadge(status({ nvidia: oldDriver })).text).toBe('Not installed')
+  })
+
+  it('summarises the fold in one line', () => {
+    const installed = [{ name: 'torch', version: '2.11.0+cu128', build: 'cuda' as const }]
+    expect(gpuTorchSummary(status({ installed, state: 'recommended' }))).toBe('torch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
+    expect(gpuTorchSummary(status({ installed, probe: { torch: '2.11.0', cuda_available: true, cuda_build: '12.8', device: 'RTX 3080 Ti', error: null } as never })))
+      .toContain('CUDA OK')
+    expect(gpuTorchSummary(status({ nvidia: { ...status().nvidia, found: false, gpu_name: null } }))).toBe('torch not installed · no NVIDIA GPU')
   })
 })
