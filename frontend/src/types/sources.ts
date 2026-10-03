@@ -242,6 +242,7 @@ export interface SeriesResult {
 
 export interface SourcesJobResult<R = Record<string, unknown>> {
   job_id: string
+  // 'idle': no such job has run in this API process (job_id is '').
   status: string | null
   progress: number | null
   message: string | null

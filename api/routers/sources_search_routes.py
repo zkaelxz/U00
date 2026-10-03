@@ -46,7 +46,7 @@ def post_series(request: Request, body: SourcesSeriesRequest,
 
 @router.get("/jobs/{job_id}/result", dependencies=[require_permission("library.read")],
             response_model=SourcesJobResult,
-            summary="A Sources job's status and result (this process only; 404 otherwise)",
+            summary="A Sources job's status and result (this process only; idle when it has not run)",
             responses=_ERRS)
 def get_job_result(request: Request, job_id: str = Path(min_length=1, max_length=100)):
     # Sign-in and tier-test jobs (PC-only) answer 404 to other devices.
