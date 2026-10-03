@@ -89,12 +89,6 @@
       "reason": "",
       "notes": "Own protobuf reader for the real API."
     },
-    "mangaz": {
-      "status": "caveat",
-      "last_verified": "",
-      "reason": "Page capture proven (real descrambled page, real `blob:` capture) but a full uninterrupted book (43/43 pages) is unproven — throttling-limited, not a code gap.",
-      "notes": "search/series/chapters ✅."
-    },
     "lightnovel_fun": {
       "status": "confirmed_live",
       "last_verified": "2026-09-30",

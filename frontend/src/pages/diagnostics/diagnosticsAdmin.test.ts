@@ -25,6 +25,14 @@ const gpu: GpuStatus = {
 const err = (status: number, code: string, message: string) => new ApiError(status, { code, message })
 
 describe('setup rows', () => {
+  it('adds a browser row only when the server reports one', () => {
+    expect(setupRows(checks(), gpu).map((r) => r.key)).not.toContain('browser')
+    const ok = setupRows(checks({ browser: { found: true, name: 'Chrome' } }), gpu).find((r) => r.key === 'browser')
+    expect(ok?.text).toBe('Browser for JavaScript-only sites: found (Chrome)')
+    const bad = setupRows(checks({ browser: { found: false, name: null } }), gpu).find((r) => r.key === 'browser')
+    expect(bad?.problem).toBe(true)
+  })
+
   it('reads "Label: value" when everything is fine', () => {
     const rows = setupRows(checks(), gpu)
     expect(rows.map((r) => r.text)).toEqual([

@@ -13,6 +13,12 @@ from .models import NotSupportedError, SourceError
 
 _ADAPTERS = {}
 
+# Sources that used to be offered. Imported dramas, tracked series and
+# sources.db rows may still name them; they have no adapter any more, so
+# anything that would run one says SOURCE_REMOVED instead.
+REMOVED_SOURCES = frozenset({"mangaz"})
+SOURCE_REMOVED = "This source was removed."
+
 
 def register(cls):
     """Class decorator: makes an adapter available to the app."""
@@ -55,6 +61,8 @@ def set_enabled(name: str, enabled: bool):
 def get_adapter(name: str, **client_kwargs):
     cls = adapter_classes().get(name)
     if cls is None:
+        if name in REMOVED_SOURCES:
+            raise KeyError(SOURCE_REMOVED)
         raise KeyError(f"No source adapter named {name!r}.")
     return cls(**client_kwargs)
 

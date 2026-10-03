@@ -1395,6 +1395,11 @@ in the HTML. `page_fetch.py` handles this in three layers:
    then `playwright install chromium` — the second command is easy to
    miss), the page is re-fetched with a real browser engine so the
    JavaScript actually runs.
+   If Playwright's own browser is missing (for example after a Playwright
+   upgrade), an installed Google Chrome or Microsoft Edge is used instead.
+   To pick a specific browser, set the environment variable
+   `BAIHE_BROWSER_PATH` to its program file (a system variable, not
+   `.env`). Diagnostics > Setup shows whether one was found.
 3. **Manual paste.** Always available, always works: open the page in
    your browser, select all, copy, paste into the app. No dependency,
    no rendering, no guessing.
@@ -1642,10 +1647,7 @@ python run_tests.py     # run everything (a wrapper around pytest, config in pyt
 python run_tests.py -k history   # run a subset
 ```
 
-If `tests/test_sources_mangaz.py`'s RSA tests fail with
-`ModuleNotFoundError: No module named '_cffi_backend'`, run
-`pip install cffi` (a missing dependency of `cryptography`, not an app
-bug). Tests are fully mocked: no GPU, models, API keys or network
+Tests are fully mocked: no GPU, models, API keys or network
 needed.
 
 Frontend checks, from `frontend/` after `npm ci`: `npm run lint`,

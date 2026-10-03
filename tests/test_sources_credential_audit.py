@@ -44,8 +44,6 @@ SENTINELS = (REQ_COOKIE, AUTH, SET_COOKIE, TICKET)
 COOKIE_READS_ALLOWED = {
     ("sources/http.py", "_requests_transport", "hop.cookies"):
         "builds Response.cookies from each redirect hop's own jar; returned, never stored",
-    ("sources/adapters/mangaz.py", "_fetch_ticket", "resp.cookies"):
-        "reads the virgo!__ticket cookie and returns it to its caller; never stored",
 }
 # Calls that write to sources.db, the capability record or a log.
 SINK_CALLS = {"log_attempt", "record_failure", "record_success", "mark_checked",

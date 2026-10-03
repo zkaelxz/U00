@@ -101,6 +101,10 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
+  if (c.browser) {
+    add('browser', 'Browser for JavaScript-only sites', c.browser.found,
+      `found (${c.browser.name ?? 'browser'})`, 'not found (install Chrome or Edge)')
+  }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
   const missing = c.files.missing_top_level.length + c.files.missing_tabs.length

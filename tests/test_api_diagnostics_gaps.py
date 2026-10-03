@@ -43,6 +43,8 @@ def fakes(isolated_db, monkeypatch):
                         lambda: {"found": True, "version": f"ffmpeg 6 {ABS_PATH}", "path": ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_js_runtime",
                         lambda: {"found": True, "name": "deno", "path": ABS_PATH})
+    monkeypatch.setattr(diagnostics, "check_browser",
+                        lambda: {"found": True, "name": "Chrome", "path": ABS_PATH})
     monkeypatch.setattr(diagnostics, "check_cuda",
                         lambda: {"torch_installed": False, "cuda_available": None})
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda *a, **k: [
@@ -98,6 +100,7 @@ def test_reads(client):
     b = _clean(client.get("/api/diagnostics/setup-checks"))
     assert b["python"] == {"version": "3.11.0", "ok": True}
     assert b["ffmpeg"]["found"] is True and b["js_runtime"] == {"found": True, "name": "deno"}
+    assert b["browser"] == {"found": True, "name": "Chrome"}
     assert "path" not in json.dumps(b)
     m = _clean(client.get("/api/diagnostics/model-cache"))
     assert m["hf_total_bytes"] == 10 and m["piper_voices"] == [{"voice": "en_US-amy",
