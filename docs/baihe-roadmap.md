@@ -503,6 +503,32 @@ Rules for every milestone:
 | 80 | Design-only step — no manual check on the running app; the exit condition is a reviewed written design document (see the step's own Exit section). |
 | 81 | After the cleanup PR(s) land, click through Workspace's transcribe→translate→export flow, Library, and Scanlate once each, and confirm nothing that used to work now errors. |
 | 82 | No manual check on the running app — confirm by diff that `baihe-subtitler`'s root `CLAUDE.md` matches the reconciled staging copy. |
+| 157 | Import a real fan-sub `.ass` file and an MKV with an embedded Chinese track; confirm lines, times and speakers come through and transcription is skipped. |
+| 158 | Shift a reviewed drama's lines by +2.5 s, run auto-sync, and confirm it recovers the original timing within 0.1 s. |
+| 159 | Retime five lines with `s`/`shift+s` and the alt-arrow nudges at 0.75× speed; confirm each change saves and undoes. |
+| 160 | Run the timing tidy-up preview on a real episode, apply it, and spot-check 20 lines in the player for lead-in, linger and gaps. |
+| 161 | Transcribe an episode that ends in silence or music; confirm no "ご視聴ありがとうございました"/Amara-style outro line appears, and that character names are recognised. |
+| 162 | Typeset a real page with white narration boxes and coloured SFX; confirm the original text is fully removed and screentone around it survives. |
+| 163 | Typeset a page with white-on-dark captions; confirm the translation is drawn in white with a dark outline. |
+| 164 | Retime 10 lines of a real audio drama using only the waveform (drag edges, click regions); confirm each change saved. |
+| 165 | Split three long lines on a real episode and confirm each cut lands on the spoken word boundary in the player. |
+| 166 | Transcribe a real episode with "Align timing after transcribing" on and off; compare line starts on 20 lines, and note how many lines fell back. |
+| 167 | Look up a GL manhua, a Japanese light novel and a Chinese audio drama; confirm the proposed metadata is right before applying it. |
+| 168 | Translate a Korean webtoon chapter with and without page context; compare pronoun and gender choices on lines with no name in them. |
+| 169 | Export an MKV with English and Chinese tracks; open it in mpv and VLC, switch tracks, and confirm the styling and attached font. |
+| 170 | Burn in a 5-minute clip at each quality level and with the GPU encoder; confirm the GPU option is faster and the file plays. |
+| 171 | Export a typeset chapter as CBZ and add it to Komga or Kavita; confirm the title, writer, summary and right-to-left direction show. |
+| 172 | Run shot-change detection on a real video, snap five flagged cues, and confirm in the player that they no longer flash across a cut. |
+| 173 | Run the English cleanup preview on a machine-translated episode; confirm full-width punctuation and spacing are fixed and nothing correct changed. |
+| 174 | After a few scheduled cycles, confirm a completed series is skipped, an active one shows a learned "next check", and Check now still checks everything. |
+| 175 | Export a typeset chapter to LabelPlus, open it in LabelPlus or a text editor, then import a group's real LabelPlus file and re-render. |
+| 176 | Translate an episode with clear scene breaks; confirm in the job log that batches start at the breaks. |
+| 177 | Run hardsub OCR on a real video clip; confirm cue starts and ends match the captions within about 0.2 s. |
+| 178 | Read a manga chapter in spread mode on a desktop browser; confirm pairs are right-to-left and wide pages show alone. |
+| 179 | Create a drama from a Jellyfin item missing subtitles, then send the result to a Jellyfin with no shared folder; confirm the subtitle appears in Jellyfin. |
+| 180 | Gated on the owner's auth decision. Once built: add the OPDS feed to KOReader on a phone over the LAN, browse, and download a chapter. |
+| 181 | Gated on the owner's signing choice. Once built: install an update through the app, then confirm a modified installer is rejected. |
+| 182 | Turn on the styled preview in Review; compare a frame with the burned-in preview clip. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -4526,6 +4552,575 @@ What exists today falls short:
 
 ---
 
+## Steps 157–182: features adopted from popular open-source projects (proposed 2026-10-03)
+
+**Where these come from.** On 2026-10-03 the user asked for research into popular open-source projects to find code or features Baihe could adopt or improve, then asked to queue every recommendation. The projects compared:
+- **Transcription and timing:** faster-whisper, WhisperX, stable-ts, ffsubsync, alass, pysubs2, Qwen3-ASR, video-subtitle-extractor.
+- **Translation and editing:** VideoLingo, pyvideotrans, llm-subtrans, Subtitle Edit, Aegisub, wavesurfer.js, JASSUB.
+- **Comics and novels:** manga-image-translator, BallonsTranslator, comic-translate, koharu, lightnovel-crawler.
+- **Reading and libraries:** Mihon, Komga, Kavita.
+- **Media servers:** Bazarr and Jellyfin's subtitle API.
+
+Every gap below was checked against `origin/baihe-subtitler` at `b0f9d4f` (2026-10-03) with file:line evidence. Ids follow on from 156 (#640). They are **proposed**: the planning session confirms or renumbers them.
+
+**Build order.**
+- **157–163 come first:** high value, small to medium effort.
+- **164–168:** bigger.
+- **169–179:** independent of each other unless a step says otherwise.
+- **180 and 181:** gated on owner decisions, see their own text.
+- **182:** last.
+
+**Rules for the whole batch.**
+- **No copied GPL code.** Subtitle Edit, Aegisub, alass, BallonsTranslator and manga-image-translator are GPL. Reimplement their ideas from their documented behaviour; never copy their code. MIT, BSD and Apache code or dependencies are fine: pysubs2, ffsubsync, faster-whisper, stable-ts, WhisperX, wavesurfer.js, JASSUB, llm-subtrans, comic-translate and koharu.
+- **Optional dependencies:** every new one is registered in `diagnostics.OPTIONAL_DEPENDENCIES` in the same change.
+- **Routes:** every new route declares its permission and gets a row in the route table in `docs/remote-access-decision.md`.
+
+**Already covered elsewhere, not repeated here:**
+- A generic OpenAI-compatible endpoint is **Step 151**.
+- Late-file timing drift is **Step 153**, and the timing benchmark is **Step 156**. Steps 165, 166 and 177 below are measured with 156 once it exists.
+- OCR confidence is **Step 146**.
+- Keeping the inpainted page is **Step 144** item 6.
+
+**Declined in this batch:** letting a dubbed line run into the following silence (`dub.py:664`, `stretch_for_window`). Dubbing is not planned (user decision 2026-10-03).
+
+**Checked and already in the app (don't re-propose):**
+- **Audio and transcription:**
+  - Silero VAD with auto-tune (`core.py:708`, `services/transcribe_service.py:955`).
+  - Batched faster-whisper (`core.py:735`).
+  - Mel-Band RoFormer and Demucs vocal separation (`audio_preprocess.py`).
+  - Trimming each line to its first and last spoken word (#653).
+  - Forced alignment of a supplied transcript (`forced_align.py:214`).
+  - MMS re-alignment of long segments (`word_align.py:248`).
+- **Translation:**
+  - The 3-step faithful/reflect/expressive translation (`translate_engines.py:2577`).
+  - Glossary term extraction (`translation_guide.py`).
+  - Context windows and episode summaries.
+  - Translation memory.
+  - Id-keyed LLM results.
+  - CPS flags and pacing rewrites.
+- **Review:**
+  - Regex find/replace with preview (`services/review_lines_service.py:128`).
+  - The review keyboard sheet (`LinesPanel.tsx:815`).
+- **Scanlate:**
+  - The ogkalu RT-DETR bubble detector.
+  - LaMa inpainting.
+  - Shape-fitted text.
+  - Webtoon slicing at gutters.
+- **Sources and reader:**
+  - ETag-conditional chapter checks with per-source backoff.
+  - Chapter ordering that understands CJK chapter markers.
+  - A right-to-left, vertical, zoomable comic reader.
+  - lncrawl run as a separate, sandboxed program.
+- **Jobs:** the GPU lock, VRAM pre-check and job reattach.
+
+---
+
+### Step 157 — Import existing subtitles: files, tracks inside videos, and site captions
+
+**Why.** Fan-subbed Chinese dramas and many video sites already carry timed Chinese subtitles, and importing them would skip ASR entirely.
+- `media_inspect.py:173-175` suggests "Import existing subtitle track … instead of transcribing", but the suggestion is "advisory; nothing is applied" (`api/schemas.py:1609`).
+- Transcript modes are only `have_transcript`, `whisper` and `hardsub_ocr` (`services/source_service.py:39`).
+- No SRT/VTT/ASS **reader** exists. `subtitle_formats.py` only writes.
+- yt-dlp is never asked for subtitles (`video_download.py` has no `writesubtitles`).
+
+**Scope:**
+1. **`subtitle_formats.parse_subtitles(text, ext)`** reads SRT/VTT/ASS/SSA with pysubs2 (MIT) and returns `[{start, end, text, speaker?}]`. ASS `Name` becomes the speaker. Override tags are stripped, and `\N` becomes a newline.
+2. **New transcript mode `subtitle_import`** in `services/source_service.py` and `services/transcribe_service.py`. It saves the cues as lines (`db.save_lines`, built with `core.line_from_row`) into the source-language field, keeping times. The original subtitle file is kept byte-for-byte, following Step 144's rule.
+3. **Embedded tracks:** pick a track from `media_inspect`'s list and extract it with `ffmpeg -protocol_whitelist file -i <video> -map 0:s:N -f srt -`. This mirrors `video_export._FILE_ONLY`. Image-based tracks (PGS/VobSub) are refused with a message pointing at hardsub OCR.
+4. **URL import:** an opt-in "Also fetch subtitles" option adds yt-dlp's `writesubtitles`, `writeautomaticsub` and `subtitleslangs` (the drama's source language). If a subtitle arrives, offer `subtitle_import` instead of transcribing.
+5. **Translate-a-file page:** accept `.srt`, `.vtt` and `.ass` (`frontend/src/pages/translateFile.ts:44`).
+6. **CLI parity:** add `cli.py --subtitles <file>`.
+7. **Size cap:** the file-size cap follows `services/page_import_limits.py`.
+
+**Exit:**
+- A test confirms SRT, VTT and ASS fixtures, including CJK text, an ASS speaker and override tags, round-trip to the expected lines.
+- A test confirms `subtitle_import` saves lines with times and keeps the original file.
+- A test confirms embedded-track extraction runs the exact ffmpeg argv (mocked) and refuses an image-based track.
+- A test confirms the yt-dlp options appear only when the option is on.
+- A test confirms CLI and app produce the same lines from one file.
+- **Manual check:** import a real fan-sub `.ass` and an MKV with an embedded Chinese track.
+
+### Step 158 — Shift and auto-sync subtitle timing to the audio
+
+**Why.** No offset, shift or sync function exists. The only time shift is `subtitle_formats.lines_for_clip` (`subtitle_formats.py:111`), which is for clip export. Imported subtitles (157) are often offset or drift because of a different cut or frame rate.
+
+**Scope:**
+1. **Manual shift:** a pure function `shift_lines(lines, seconds, from_idx=None)` plus a Review action "Shift all / from this line by ±x s". It shows a preview and takes a snapshot first, like the other bulk fixes. It writes `start`/`end` only.
+2. **Auto-sync:**
+   - A background job runs ffsubsync (MIT) on a temp SRT of the drama's lines against `audio.wav` (or against a reference subtitle file).
+   - It applies the found offset and frame-rate ratio to `start`/`end` only.
+   - It shows the offset and scale it found before applying.
+3. **Dependency:** register `ffsubsync` as optional. Do not use alass, which is GPL-3.
+
+**Exit:**
+- A test confirms `shift_lines` with a negative shift clamps at 0 and leaves text fields untouched.
+- A test confirms the sync job applies a mocked offset/scale and saves only timing fields.
+- A test confirms the preview reports the offset without writing.
+- **Manual check:** take a reviewed drama, shift its export by +2.5 s, and confirm auto-sync recovers it within 0.1 s.
+
+### Step 159 — Timing hotkeys and playback speed in Review
+
+**Why.** The review shortcuts (`frontend/src/pages/workspace/stages/review/LinesPanel.tsx:815-899`) have no timing keys. `PlayerHandle` (`Player.tsx:15-22`) exposes play/toggle/loop only, and nothing sets `playbackRate`. Subtitle Edit and Aegisub both time lines from the playhead.
+
+**Scope:**
+1. **`PlayerHandle`:** add `currentTime()` and `setRate(r)`.
+2. **New shortcuts:**
+   - `s`: set start to the playhead.
+   - `shift+s`: set end to the playhead.
+   - `alt+arrowleft` / `alt+arrowright`: nudge the start by ∓100 ms.
+   - `shift+alt+arrowleft` / `shift+alt+arrowright`: nudge the end by ∓100 ms.
+
+   None of these keys are taken today. Each change saves through the existing line-save path and is undoable.
+3. **Speed select:** a 0.5×/0.75×/1× select in `Player.tsx`, remembered per browser.
+4. **`ShortcutSheet.tsx`:** list the new keys.
+
+**Exit:**
+- Vitest confirms each key sets or nudges the selected line's times and refuses an end before the start.
+- Vitest confirms the keys don't fire while typing in a text field.
+- Playwright confirms set-start, set-end and speed on desktop.
+
+### Step 160 — Timing tidy-up pass
+
+**Why.** The only automatic timing fix is `clamp_overlaps` (`subtitle_formats.py:90`). Lines that are too fast to read are only flagged (`flag_dense_lines`, `:172`), never lengthened. Since #653, `tighten_to_words` (`core.py:621`) trims cues exactly to the spoken words, so subtitles appear exactly as the voice starts and vanish as it stops. Subtitle Edit's "Bridge gaps", "Apply minimum gap" and "Apply duration limits" fix exactly this; reimplement their rules rather than copying the GPL code.
+
+**Scope:**
+1. **A pure function** `normalize_timing(lines, *, min_gap=0.083, min_dur=0.8, max_dur=7.0, lead_in=0.1, linger=0.3, bridge_under=0.5, extend_to_cps=True)` in `subtitle_formats.py`. Each line keeps its order, never overlaps the next, and never moves its start later.
+2. **Preview/apply pair** in `services/review_extras_service.py`, following `preview_merge_short`/`apply_merge_short`. It takes a snapshot first and saves `start`/`end` only.
+3. **Optional export step:** an "Apply on export" option on SRT/ASS/VTT export that leaves the stored lines alone.
+
+**Exit:**
+- Table-driven tests cover each rule: gap enforced, minimum and maximum duration, bridging, lead-in never crossing the previous line, and CPS extension stopping at the next line.
+- A test confirms apply saves only timing fields and the snapshot restores them.
+- **Manual check:** run it on a real episode and spot-check 20 lines in the player.
+
+### Step 161 — Whisper hallucination guards and glossary hotwords
+
+**Why.**
+- Only repeat loops are guarded against: `WHISPER_ANTI_LOOP_KWARGS` (`core.py:283`) and `filter_hallucinated_segments`.
+- Searching the code for `hallucination_silence_threshold` and `hotwords` finds nothing.
+- Whisper's well-known outro hallucinations are not filtered either: 字幕由Amara.org社区提供, 请不吝点赞 订阅 转发 打赏, ご視聴ありがとうございました, 시청해주셔서 감사합니다.
+- Glossary names go only into `initial_prompt` (`services/transcribe_service.py:180-206`), which can leak into the transcript as text.
+
+**Scope:**
+1. **`hallucination_silence_threshold`:** pass faster-whisper's `hallucination_silence_threshold` (default 2.0 s) in `core.transcribe_for_timing`. Word timestamps are already on (`core.py:711`). Expose it in ASR options with "off" available.
+2. **Phrase blocklist:** a per-language blocklist (zh/ja/ko/en) that drops a segment only when its whole text, ignoring punctuation and whitespace, matches. Report the count in the job summary.
+3. **Hotwords:** pass glossary and character names as faster-whisper `hotwords` (opt-in, capped like `build_initial_prompt`). Check the installed faster-whisper version supports `hotwords`, and skip with a diagnostics note if not.
+4. **CLI parity:** the same defaults in `cli.py`.
+
+**Exit:**
+- A test confirms the kwargs reach a mocked model, and that `hotwords` is skipped on a model whose `transcribe` lacks it.
+- A test confirms a segment that is only "ご視聴ありがとうございました" is dropped, while one that merely contains it inside a longer line is kept.
+- A test confirms CLI and app pass the same kwargs.
+
+### Step 162 — Scanlate: a text mask that handles light, coloured and screentoned text
+
+**Why.** The text mask that LaMa and OpenCV inpainting use is "pixels darker than 150" plus a 3×3 dilation (`scanlate.py:637-640`). White text on dark art and coloured SFX are left behind, and grey screentone gets erased. koharu (MIT/Apache) and BallonsTranslator build a per-pixel text mask with comic-text-detector. manga-image-translator also grows the mask by a configurable amount.
+
+**Scope:**
+1. **`_text_mask(roi)`:**
+   - Uses the comic-text-detector segmentation model (`mayocream/comic-text-detector` on Hugging Face, ONNX/safetensors) when it is cached, downloaded on demand the same way as the LaMa weights (`lama_ml_weights_cached`, `scanlate.py:245`).
+   - Check the weights' licence before shipping, and record it next to the repo constant.
+2. **Fallback without the model:**
+   - Decide light-on-dark vs dark-on-light from the box's border median vs its centre.
+   - Threshold with Otsu, then dilate by a fraction of the box's short side, configurable.
+3. **Both inpaint paths** (`inpaint_region` 613 and `inpaint_mask_region` 681) use it.
+4. **Diagnostics:** register the model in diagnostics / the model cache manager.
+
+**Exit:**
+- Fixture tests confirm a white-on-black box, a red SFX box and a black-on-white box with screentone each produce a mask covering ≥ 95% of the text pixels and ≤ 5% of the non-text pixels (hand-made fixtures with known masks).
+- A test confirms the model path is used only when cached, and the fallback is used otherwise.
+- **Manual check:** typeset a real page with white narration boxes and coloured SFX, before and after.
+
+### Step 163 — Scanlate: draw translations in the original text and outline colours
+
+**Why.** `render_text_in_box` always draws black with no outline (`scanlate.py:882`, `fill=(0, 0, 0)`). `process_page` never passes a colour (`scanlate.py:1205-1209`). `sample_text_style` (`scanlate.py:1422`) samples weight and irregularity only. Captions on dark panels and text outside bubbles come out unreadable. manga-image-translator, BallonsTranslator and koharu take text and stroke colours from the original.
+
+**Scope:**
+1. **Sample colours:** extend `sample_text_style` with `fg` and `stroke`, found by two-cluster k-means over the box's text pixels (Step 162's mask) vs the surrounding pixels.
+2. **Store them:**
+   - New bubble columns `fg_color` and `stroke_color` (`ALTER TABLE … ADD COLUMN`), with backup and import coverage.
+   - Add them to `TextRegion` and the bubble edit fields.
+3. **Render them:** `render_text_in_box(…, fill=fg, stroke_width=max(1, size // 12), stroke_fill=stroke)` uses Pillow's native outline. No stroke is drawn when `fg` and `stroke` contrast too little.
+4. **Overrides:** expose both colours as per-region overrides where the region data is shown. If Step 146's region editor exists, use it; otherwise use the API only.
+
+**Exit:**
+- A test confirms sampling returns white and black for a white-on-black fixture, and black and white for the reverse.
+- A test confirms rendering with a stroke draws the outline pixels (pixel check on a fixture).
+- A test confirms a backup round trip keeps the colour columns.
+- **Manual check:** typeset a page with white-on-dark captions.
+
+### Step 164 — Waveform timeline with draggable cue regions
+
+**Why.** Audio dramas are the main content, but timing in Review is a seek slider (`Player.tsx:273`) plus typed start/end fields (`LineRow.tsx:327-332`). Nothing in `frontend/src` mentions a waveform. The frontend's only runtime dependencies are react and fflate. wavesurfer.js (BSD-3) provides waveform, regions, timeline and minimap plugins over pre-computed peaks, which long files need. Subtitle Edit and Aegisub time lines on a waveform.
+
+**Scope:**
+1. **Peaks endpoint:**
+   - `GET /api/dramas/{id}/media/peaks` (`lines.read`, ownership checked) in `services/media_playback_service.py`.
+   - Decode mono 8 kHz with ffmpeg and keep min/max per 10 ms bucket.
+   - Cache it as JSON in the drama folder, invalidated by the audio's size and mtime (or by its Step 145 sha256 when that exists).
+   - A file-size cap and `timeout=` on ffmpeg.
+2. **`review/Waveform.tsx`:**
+   - wavesurfer.js bound to the existing media element.
+   - Each line is a region, and the visible window follows the playhead.
+   - Dragging a region edge saves `start`/`end` through the existing line-save path, debounced and undoable.
+   - Clicking a region selects the line.
+   - Overlaps are drawn in the warning colour.
+3. **Layout:** collapsible, off by default on phones, and lazy-loaded so the main bundle doesn't grow.
+4. **Speed:** Step 159's speed and hotkeys work with it.
+
+**Exit:**
+- A test confirms the peaks endpoint returns the expected bucket count for a synthetic WAV, is cached, and enforces permission and ownership.
+- Vitest confirms a region drag saves the right times and an end before start is refused.
+- Playwright confirms the waveform renders, drag-to-retime works on desktop, and the phone layout is not broken.
+- **Manual check:** retime 10 lines of a real audio drama using only the waveform.
+
+### Step 165 — Keep Whisper's word timestamps and use them for timing
+
+**Why.** `core.py:711` requests word timestamps, but `_collect` (`core.py:717-731`) uses them only to trim the segment's edges (`tighten_to_words`) and then drops them.
+- `align_transcript_to_timing` (`core.py:995-1003`) spreads character times evenly across each segment.
+- `resegment.split_times` (`resegment.py:250-272`) builds on that, so every split point inside a long line is estimated.
+
+WhisperX (BSD-2) and stable-ts (MIT, `regroup`) keep the words and split on them.
+
+**Scope:**
+1. **Keep the words:** store `words: [{start, end, word}]` per segment in `_collect` and in the saved raw transcript (`raw_transcript.py`). Older transcripts without words still load.
+2. **Use them for alignment:** `align_transcript_to_timing` uses word times where a segment has them (character times interpolated within each word) and the even spread otherwise.
+3. **Split on them:** `split_times` therefore cuts at real word boundaries. Optionally re-split overlong lines at word gaps ≥ 0.3 s plus punctuation (stable-ts `regroup`'s idea), as a preview/apply action.
+4. **Measure it:** once Step 156 exists, compare word-timed vs even-spread on its cases and record the result.
+
+**Exit:**
+- A test confirms words are stored and an old transcript without words still aligns.
+- A test confirms a fixture with uneven word timing gives split points within 50 ms of the word boundary (vs the proportional estimate).
+- Existing alignment and resegment tests still pass.
+
+### Step 166 — Optionally force-align the ASR's own text (the WhisperX pipeline)
+
+**Why.**
+- Qwen3 forced alignment runs only against a transcript the user supplied: #647 hid it from the raw-audio flow. `asr_backend.py:24-33` notes that Qwen3-ASR output keeps Whisper's coarse segment boundaries.
+- MMS re-alignment runs only on segments ≥ 12 s (`word_align.py:248`).
+- WhisperX's core idea is to transcribe, then force-align that same text. The Qwen3 forced aligner (Apache-2.0) supports zh/yue/ja/ko with character-level times.
+
+**Scope:**
+1. **The option:** in the whisper and qwen3_asr modes, add an "Align timing after transcribing (slower)" option that passes the ASR segments' text as `user_lines` to `forced_align.align_with_qwen3` (`forced_align.py:214`).
+2. **Fallback:** `_bad_line_timings` (`forced_align.py:201`) already falls back to the Whisper timing for lines it can't place. Report how many lines fell back.
+3. **Placement:** keep it separate from the "Alignment method" select that #647 changed, so the supplied-transcript path is unchanged.
+4. **Resources:** the GPU lock and VRAM pre-check apply.
+5. **Measure it:** once Step 156 exists, compare it on its cases and record whether it should become the default.
+
+**Exit:**
+- A test confirms that with the option on, the aligner (mocked) gets the ASR text, and its timings replace Whisper's except for the lines it couldn't place.
+- A test confirms the option off leaves today's flow byte-identical.
+- A test confirms the e2e Alignment-method select is unchanged.
+
+### Step 167 — Structured title metadata from AniList, MangaUpdates and Bangumi
+
+**Why.** Metadata comes from an LLM reading a pasted page (`metadata_lookup.py:19`) or a paid research call (`services/metadata_research_service.py`). There is no structured lookup, and `dramas` has no external-id columns. Komga, Kavita, Mihon's trackers and calibre all use these free APIs:
+- **AniList GraphQL:** native and romaji titles, a Girls' Love genre and tags, covers.
+- **MangaUpdates** `POST /v1/series/search`: no account needed.
+- **Bangumi** `api.bgm.tv/v0/search/subjects`: Chinese titles for books, manga and audio.
+
+**Scope:**
+1. **`services/metadata_sources_service.py`:**
+   - `search(title, kind)` returns candidates from all three.
+   - `fetch(source, id)` maps fields onto `title_*`, author, summary, genre, publication status and chapter count.
+   - Every request has `timeout=`, a User-Agent, rate limiting (AniList ≈ 90/min), and errors passed through `redact_secrets`.
+2. **External-id columns:** `anilist_id`, `mangaupdates_id` and `bangumi_id` (`ADD COLUMN`). The service whitelists keys before `db.update_drama`, and backup and import cover the columns.
+3. **Apply through the existing review-before-apply flow with provenance.** Covers go through `cover_art_service`'s upload checks.
+4. **Routes and docs:**
+   - Search is `library.read`; apply is `library.edit`. Add the route-table rows.
+   - Add a line in `FILE_ORGANIZATION.md`.
+   - Note AniList's non-commercial terms in `docs/content-sources.md`.
+
+**Exit:**
+- Tests with recorded fixtures confirm each source's response maps to the expected fields.
+- A test confirms timeouts and errors give a clean message with no URL or secret.
+- A test confirms applying needs confirmation and only touches whitelisted keys.
+- A test confirms a backup round trip keeps the ids.
+- **Manual check:** look up three real titles: a GL manhua, a Japanese light novel and a Chinese audio drama.
+
+### Step 168 — Vision-LLM OCR and page context for Scanlate
+
+**Why.**
+- OCR is limited to tesseract, paddle, paddle_vl_manga and manga_ocr (`ocr.py:45-181`). Korean falls back to generic PaddleOCR.
+- `translate_regions_by_id` (`scanlate.py:1027`) sends text only, and `translate_engines.py` has no image payload anywhere.
+- Speaker, tone and gender cues that are only visible in the art are lost.
+- comic-translate (Apache-2.0) offers image-aware translation and a Gemini OCR backend.
+
+**Scope:**
+1. **Engine flag:** `supports_vision` on engines whose API accepts images (Claude, GPT, Gemini), with the model check at the engine.
+2. **Page context:**
+   - When the opt-in "Send the page image for context" is on, `translate_regions_by_id` attaches one downscaled JPEG (long side ≤ 1568 px) with numbered box overlays.
+   - It keeps the existing id-keyed JSON contract and matches results back by id.
+   - Image tokens are estimated and counted through `usage_cb`, so spend caps still hold.
+3. **`vision_llm` OCR backend:** one call per page returns `{id: text}` for all boxes. It is opt-in and never the default. If Step 146 exists, it reports `None` as its score.
+4. **Privacy note:** the setting says the page image leaves the PC.
+
+**Exit:**
+- A test confirms the image payload is built only when the engine supports vision and the option is on.
+- A test confirms ids round-trip.
+- A test confirms usage includes the image estimate and the spend cap stops a run.
+- A test confirms the vision OCR backend parses an id-keyed response (mocked) and rejects unknown ids.
+- **Manual check:** a Korean webtoon chapter with and without page context, comparing pronoun and gender choices.
+
+### Step 169 — MKV export with styled ASS tracks, two languages and the font attached
+
+**Why.** The soft-subtitle export muxes a single SRT track (`video_export.mux_soft_subtitles_cmd`, `video_export.py:166-178`; `services/media_export_service.py:198-236`). The ASS styling and speaker colours are lost, and English and Chinese can't ship together. mpv/libass and MKVToolNix practice is ASS tracks plus attached fonts.
+
+**Scope:**
+1. **MKV output:**
+   - Mux `export_service.generate_ass_text(…)` for English and, optionally, the source language as two subtitle streams.
+   - Set language metadata and `-disposition:s:0 default`.
+   - Attach the chosen font file (`-attach <font> -metadata:s:t mimetype=font/ttf`).
+2. **MP4 and mov_text** stay as today.
+3. **Keep `_FILE_ONLY`** on every input.
+
+**Exit:**
+- A test confirms the exact ffmpeg argv for MKV with one and with two tracks, with the font attached.
+- A test confirms MP4 is unchanged.
+- **Manual check:** open the MKV in mpv and VLC, switch tracks, and confirm the styling and font.
+
+### Step 170 — Burn-in quality and GPU encoder options
+
+**Why.** The burn-in job passes no `-c:v`, `-crf` or `-preset` (`services/media_export_service.py:162-164`), so it always uses ffmpeg's default encoder settings on the CPU. Nothing in the code mentions `nvenc`.
+
+**Scope:**
+1. **Quality:** a select of High / Balanced / Small (`libx264 -crf 18/20/23 -preset medium`).
+2. **GPU encoder:** a "Use GPU encoder" toggle that uses `h264_nvenc -cq <n> -preset p5` when `ffmpeg -hide_banner -encoders` lists it.
+   - The check is cached and shown in Diagnostics.
+   - The job holds the GPU lock while it runs.
+   - If NVENC fails at start, it falls back to libx264 and says so.
+3. **The preview clip** (`video_export.py:48`) uses the same choice.
+
+**Exit:**
+- A test confirms the argv for each quality level and for NVENC.
+- A test confirms the fallback runs when a mocked NVENC start fails.
+- A test confirms the encoder probe is parsed from captured `-encoders` output.
+
+### Step 171 — Scanlate CBZ export with full ComicInfo
+
+**Why.**
+- Typeset export is a bare zip or PDF (`services/scanlate_render_service.py:34`, `EXPORT_FORMATS = ("zip", "pdf")`).
+- `_comic_info` (`services/sources_save_service.py:162-172`) writes Series, Title, Number, LanguageISO and Notes only.
+- So Komga, Kavita and Mihon get no reading direction (`Manga=YesAndRightToLeft`), writer, summary or genre.
+
+**Scope:**
+1. **ComicInfo fields:** extend `_comic_info` with optional Writer, Summary, Genre, Web, `Manga` (from the drama's reading direction) and PageCount. Saved chapters (`sources_save_service`) gain them too.
+2. **CBZ export:** add `cbz` to `EXPORT_FORMATS`. It writes the typeset pages plus `ComicInfo.xml` from the drama row.
+3. **Out of scope:** layered PSD/XCF export, as manga-image-translator and koharu offer. It is recorded as a follow-up, and psd-tools (MIT) would be the dependency.
+
+**Exit:**
+- A test confirms the CBZ contains the pages in order plus a ComicInfo that validates against the ComicInfo v2.0 XSD fields used.
+- A test confirms special characters are escaped.
+- A test confirms a right-to-left drama writes `YesAndRightToLeft`.
+- **Manual check:** Komga or Kavita shows the metadata and reading direction.
+
+### Step 172 — Broadcast timing checks and shot-change snapping
+
+**Why.** QC checks reading speed, overlaps and wrapping (`subtitle_formats.py:90-185`), but has no minimum-gap, maximum-duration or shot-change rule. Nothing in the code mentions `scdet` or snapping. The Netflix Timed Text Style Guide rules:
+- at least 2 frames between subtitles;
+- at least 5/6 s and at most 7 s on screen;
+- cues kept off shot changes.
+
+Subtitle Edit implements these as a QC pass plus shot-change snapping.
+
+**Scope:**
+1. **Timing findings:** `timing_qc.find_issues(lines, fps, shot_changes)` returns `{idx, issue}` for `gap_too_small`, `too_short`, `too_long` and `crosses_shot`. Issues show in Review checks like pacing does.
+2. **Shot-change detection:** for a drama with video, a cancellable job runs `ffmpeg -vf "scdet=t=10" -f null -` once and stores the times as JSON in the drama folder.
+3. **Fixes:**
+   - A one-click "Snap to shot change" fix (within 250 ms) and "Fix all timing issues", which uses Step 160's `normalize_timing`.
+   - Both preview first and save `start`/`end` only.
+4. **Waveform markers:** if Step 164 exists, shot changes draw on the waveform.
+
+Depends on 160.
+
+**Exit:**
+- Table tests cover each rule.
+- A test confirms `scdet` output is parsed from a captured stderr fixture.
+- A test confirms snapping moves an edge only within the window and never creates an overlap.
+- A test confirms the fix saves timing fields only.
+
+### Step 173 — "Fix common errors" pass for English output
+
+**Why.** `auto_qc.py` checks facts (numbers, names). Nothing tidies punctuation or whitespace, and machine translation from Chinese often leaks full-width `，。？！：；“”` into English. Reimplement Subtitle Edit's "Fix common errors" from its rule descriptions:
+- double spaces;
+- a missing space after punctuation;
+- a lone lowercase "i";
+- unbalanced quotes, brackets and italic tags;
+- empty lines and `...` normalisation.
+
+**Scope:**
+1. **`en_cleanup.py`:** pure, per-rule functions, each returning changes with a reason.
+2. **Preview/apply** in `services/review_extras_service.py`. Rules can be toggled, a snapshot is taken first, and only the `en` field is saved (`fields=("en",)`).
+3. **Source fields** are never touched.
+4. **Docs:** add a line in `FILE_ORGANIZATION.md`.
+
+**Exit:**
+- A table test covers each rule, including no change to correct text, to URLs, or to numbers like "3.5".
+- A test confirms apply writes only `en` and the snapshot restores it.
+
+### Step 174 — Per-series check intervals for tracked series
+
+**Why.**
+- Chapter checks use one global `check_interval_hours` (`sources/chapter_check.py:98, 205`).
+- `tracked_series` (`sources/store.py:127-137`) has no per-series interval or status, and the checker never reads `dramas.publication_status`.
+- Mihon's smart update (Apache-2.0) skips completed titles and learns an interval from each title's chapter dates. That also means fewer requests to each site.
+
+**Scope:**
+1. **Columns:** `interval_s` and `next_check_at` on `tracked_series` (`ALTER TABLE … ADD COLUMN`).
+2. **Learn the interval:** after a check, set it to the median gap between that series' `known_chapters.first_seen` values, clamped between 12 h and 14 d. With fewer than 3 chapters, use the global interval.
+3. **Skip what isn't due:** `_run_claimed_cycle` (`chapter_check.py:132`) skips a series that isn't due, or whose linked drama is `completed`. Report how many were skipped.
+4. **Manual checks still run:** "Check now" and a per-series check ignore the schedule.
+5. **UI:** the tracked-series list shows "next check" and a per-series override (auto / fixed hours / paused).
+
+**Exit:**
+- A test confirms the interval is learned from fixture dates and clamped.
+- A test confirms a series that isn't due, and a completed one, are skipped by a scheduled cycle but not by Check now.
+- A test confirms a new series falls back to the global interval.
+- A test confirms backup and export of `sources.db` are unaffected.
+
+### Step 175 — LabelPlus import and export
+
+**Why.** LabelPlus `.txt` is the standard hand-off format for Chinese scanlation groups (the lettering is done in Photoshop). BallonsTranslator exports it. Baihe has no LabelPlus support, and Scanlate exports only finished images (`services/scanlate_render_service.py:34`).
+
+**Scope:**
+1. **A new parser and writer**, written from the format itself rather than copied from GPL code:
+   - The format: a header, `>>>>>>>>[page]<<<<<<<<` page markers, then `----------------[n]----------------[x,y,group]` labels with relative coordinates.
+   - Place it in `scanlate.py` or a small `labelplus.py`, with a `FILE_ORGANIZATION.md` line.
+2. **Export:** each bubble's centre and its translation (or source text).
+3. **Import:** create bubbles at the labelled points with the given text, sized by the detector when one overlaps, or a default box otherwise. The translations can then be re-rendered.
+4. **Routes:** `lines.read` for export and `lines.edit` for import, with route-table rows.
+
+**Exit:**
+- A round-trip test: export, then import, gives the same texts and positions within one pixel.
+- A test confirms a real-world sample file (hand-written fixture, UTF-8 with BOM, CRLF) parses.
+- A test confirms coordinates are clamped to [0, 1].
+
+### Step 176 — Start translation batches at scene breaks
+
+**Why.** Batches are fixed-size slices (`translate_engines.py:2904-2908`), so a batch can span a scene change and carry the wrong context across it. llm-subtrans (MIT) cuts batches at silence gaps within minimum and maximum sizes.
+
+**Scope:**
+1. **Batch planner:** a pure `plan_batches(lines, batch_size, gap_s=3.0, min_frac=0.5, max_frac=1.5)`. It cuts at the largest gap ≥ `gap_s`, or at a chapter mark, inside the allowed range, and falls back to fixed slices.
+2. **Use it:** `_translate_lines_with_engine` uses it behind a setting that defaults on. The CLI uses the same setting.
+3. **Checkpoints:** resume and checkpointing still work, because the planner is deterministic for the same lines.
+
+**Exit:**
+- Table tests cover cut at a gap, no gap (fixed slices), the min/max bounds and chapter marks.
+- A test confirms checkpoint resume gives the same batches.
+- A test confirms CLI and app plan the same batches.
+
+### Step 177 — Hardsub OCR: find caption changes instead of sampling at a fixed interval
+
+**Why.** Hardsub OCR samples one frame every `interval_sec` (`hardsub_ocr.py:50-72`), limited to 0.5–3 s (`services/transcribe_service.py:310-312`), so cue times are rounded to that interval. video-subtitle-extractor (Apache-2.0) and VideoSubFinder detect changes in the caption band instead.
+
+**Scope:**
+1. **Sample the band densely:** sample only the detected caption band at 5–10 fps, at low resolution.
+2. **Find changes:** compute a frame-to-frame difference on the binarised band and run OCR only on frames after a change.
+3. **Set cue edges:** each cue's start and end come from the change frames, so they are accurate to the sampling step (≤ 0.2 s).
+4. **Keep the old mode:** the fixed-interval mode stays as a fallback setting.
+5. **Measure it:** once Step 156 exists, record the timing error before and after.
+
+**Exit:**
+- A test with a synthetic video of three captions at known times (generated frames, mocked OCR) confirms cue edges within one sampling step.
+- A test confirms OCR is called once per caption, not once per frame.
+- The fallback-mode tests still pass.
+
+### Step 178 — Two-page spreads in the comic readers
+
+**Why.** `ComicMode` is `vertical | paged` only (`frontend/src/pages/comic/comicLogic.ts:14`). Komga, Kavita and Mihon offer a double-page mode that detects wide pages, which is useful on desktop and tablets.
+
+**Scope:**
+1. **A `spread` mode:**
+   - Pairs pages n and n+1.
+   - Shows a page wider than it is tall on its own.
+   - Honours right-to-left order.
+   - Offers an "offset by one" toggle for books whose first page is a cover.
+2. **Preloading:** `preloadWindow` looks ahead two pages.
+3. **Where:** both `Comic.tsx` and `SavedMangaReader.tsx`. On phone-width screens it falls back to `paged`.
+
+**Exit:**
+- Vitest covers pairing with wide pages, right-to-left order, the offset toggle and navigation at the ends.
+- Playwright covers desktop spread and the phone fallback.
+
+### Step 179 — Jellyfin: subtitle an item that has none, and upload through the API
+
+**Why.**
+- `scan()` (`services/jellyfin_service.py:262`) lists items missing subtitles, but a drama can't be started from one of them.
+- `send_to_jellyfin` writes files only, and needs a local `library_dir`, so a Jellyfin on a NAS without a shared folder can't be used.
+- Bazarr's workflow covers both. Jellyfin's `POST /Videos/{itemId}/Subtitles` accepts Language, Format, IsForced and base64 Data.
+
+This stays API only, never a plugin, matching the existing rule (`jellyfin_service.py:3`).
+
+**Scope:**
+1. **"Create drama from this item":** resolve the item's path (as `_item_media_path` does), then run the existing media-import flow. This is PC only and needs a readable path.
+2. **Upload fallback:**
+   - When `library_dir` isn't set or writable, send the subtitle text base64-encoded to `/Videos/{id}/Subtitles`.
+   - The API key goes in a header, the request has `timeout=`, and errors are redacted.
+   - The settings screen notes that the Jellyfin user needs the subtitle-upload permission and that the server should be kept patched (CVE-2026-35031 was a path traversal in this endpoint).
+3. **Routes:** `local_only()` for both, plus route-table rows.
+
+**Exit:**
+- A test confirms "create from item" calls the import with the resolved path and refuses an item with no readable path.
+- A test confirms the upload builds the right request (mocked httpx), with the key in a header, never in the URL.
+- A test confirms the fallback is used only when `library_dir` is missing or unwritable.
+
+### Step 180 — OPDS catalogue for saved comics and EPUBs (owner decision required first)
+
+**Why.** Komga, Kavita and calibre-server serve OPDS (plus OPDS-PSE page streaming), so phone readers like KOReader, Panels and Chunky can browse and download. Nothing in Baihe serves OPDS.
+
+**Gate:** OPDS clients authenticate with HTTP Basic or a token in the URL, which doesn't fit Google sign-in. This needs:
+- a per-user app token (revocable, hashed at rest, never logged);
+- a remote-access decision and route-table rows.
+
+It comes **after step 140**, and only after the owner approves the auth design. Write the auth design in `docs/remote-access-decision.md` before any code.
+
+**Scope (once approved):**
+1. **A read-only `/opds` router:** catalogue, series and chapters, built over `saved_comics_service` and the EPUB export.
+2. **OPDS-PSE** page streaming for comics.
+3. **Per-user tokens:** created and revoked under Settings. Content is limited by the token owner's ownership and sharing, exactly as in the app.
+
+**Exit:**
+- Tests confirm the feeds validate as OPDS 1.2 Atom (structure).
+- A test confirms a token shows only the owner's and shared items, and a revoked token is refused.
+- A test confirms tokens never appear in logs or responses after creation.
+- **Manual check:** KOReader on a phone over the LAN.
+
+### Step 181 — Signed update downloads (owner decision on signing method first)
+
+**Why.** The update download is checked only against a `.sha256` from the same release (`services/update_service.py:10-16`, which says so). It catches a broken download, not a tampered release, and the installer is not code-signed.
+
+**Gate:** the owner picks the method before any code:
+- a minisign or Sigstore key pinned in the app (free, verified in-app), and/or
+- Authenticode signing, for example SignPath's free open-source programme (which also removes the SmartScreen warning).
+
+**Scope (minisign variant):**
+1. **Release side:** the release workflow signs the installer with a key held in GitHub secrets.
+2. **App side:**
+   - The app pins the public key in code and verifies the `.minisig` before keeping the installer.
+   - A missing or bad signature deletes the download and says so.
+3. **Docs:** document key rotation in `docs/RELEASE.md`.
+
+**Exit:**
+- A test confirms a fixture signed with a test key passes.
+- A test confirms a modified installer, a wrong key and a missing signature each fail and leave no installer behind.
+- A test confirms the workflow step runs only on release tags.
+
+### Step 182 — In-browser ASS preview with JASSUB
+
+**Why.** The review player shows plain VTT `<track>` captions (`Player.tsx`). An exact preview of fonts, colours and speaker styles needs a server-side ffmpeg clip render (`video_export.render_preview_clip`). JASSUB (MIT) is libass compiled to WebAssembly, drawn over a `<video>`.
+
+**Scope:**
+1. **Optional "Styled preview":** a toggle in the review player that renders `generate_ass_text` output live with JASSUB. It is lazy-loaded, and the WASM is served from `frontend/dist`, not a CDN.
+2. **Fonts:** the chosen font is served to it through the existing font endpoint. If the WASM fails to load, the player falls back to VTT.
+3. **Bundle size:** confirm the main bundle doesn't grow, since JASSUB is a separate chunk.
+
+**Exit:**
+- Vitest confirms the toggle loads the renderer lazily and falls back on a load error.
+- Playwright confirms the styled preview shows text over the video on desktop.
+- **Manual check:** compare a frame with the burned-in preview clip.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -4800,6 +5395,32 @@ What exists today falls short:
   | 42 — In-app AI maintenance assistant, read-only v1 (later phase) | — | Not started | — |
   | 43 — Universal soft-delete + confirm-and-review for every change (later phase) | — | Not started | — |
   | 44 — Notification system: Discord/ntfy (later phase) | — | Not started | — |
+  | 157 — Import existing subtitles: files, tracks inside videos, and site captions (proposed) | — | Not started | — |
+  | 158 — Shift and auto-sync subtitle timing to the audio (proposed) | — | Not started | — |
+  | 159 — Timing hotkeys and playback speed in Review (proposed) | — | Not started | — |
+  | 160 — Timing tidy-up pass (proposed) | — | Not started | — |
+  | 161 — Whisper hallucination guards and glossary hotwords (proposed) | — | Not started | — |
+  | 162 — Scanlate: a text mask that handles light, coloured and screentoned text (proposed) | — | Not started | — |
+  | 163 — Scanlate: draw translations in the original text and outline colours (proposed) | — | Not started | — |
+  | 164 — Waveform timeline with draggable cue regions (proposed) | — | Not started | — |
+  | 165 — Keep Whisper's word timestamps and use them for timing (proposed) | — | Not started | — |
+  | 166 — Optionally force-align the ASR's own text (the WhisperX pipeline) (proposed) | — | Not started | — |
+  | 167 — Structured title metadata from AniList, MangaUpdates and Bangumi (proposed) | — | Not started | — |
+  | 168 — Vision-LLM OCR and page context for Scanlate (proposed) | — | Not started | — |
+  | 169 — MKV export with styled ASS tracks, two languages and the font attached (proposed) | — | Not started | — |
+  | 170 — Burn-in quality and GPU encoder options (proposed) | — | Not started | — |
+  | 171 — Scanlate CBZ export with full ComicInfo (proposed) | — | Not started | — |
+  | 172 — Broadcast timing checks and shot-change snapping (proposed) | — | Not started | — |
+  | 173 — "Fix common errors" pass for English output (proposed) | — | Not started | — |
+  | 174 — Per-series check intervals for tracked series (proposed) | — | Not started | — |
+  | 175 — LabelPlus import and export (proposed) | — | Not started | — |
+  | 176 — Start translation batches at scene breaks (proposed) | — | Not started | — |
+  | 177 — Hardsub OCR: find caption changes instead of sampling at a fixed interval (proposed) | — | Not started | — |
+  | 178 — Two-page spreads in the comic readers (proposed) | — | Not started | — |
+  | 179 — Jellyfin: subtitle an item that has none, and upload through the API (proposed) | — | Not started | — |
+  | 180 — OPDS catalogue for saved comics and EPUBs (owner decision required first) (proposed) | — | Not started | — |
+  | 181 — Signed update downloads (owner decision on signing method first) (proposed) | — | Not started | — |
+  | 182 — In-browser ASS preview with JASSUB (proposed) | — | Not started | — |
 - **Decision-needed / flagged-for-review items — NOT build steps, for the
   user to check later, folded in from `docs/secondary-review-notes.md`:**
   0. **Step 86's third item — RESOLVED and built (2026-09-28).** The user's
