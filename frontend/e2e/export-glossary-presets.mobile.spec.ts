@@ -74,7 +74,6 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await expectNoHorizontalOverflow(page)
   await shot(page, 'translate-preset-phone')
 
-  await page.locator('details.section', { hasText: 'Glossary' }).first().locator(':scope > summary').click()
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await glossary.getByText('Import or export').click()
   await expectTall(glossary.getByRole('button', { name: 'Import', exact: true }))

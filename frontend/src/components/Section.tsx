@@ -59,7 +59,9 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
 
   const id = useId()
   const openRef = useRef(open)
-  openRef.current = open
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
   const mounted = useRef(false)
   // Announce each open after the first render so the others in the group close.
   useEffect(() => {

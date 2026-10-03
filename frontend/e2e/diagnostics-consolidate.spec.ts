@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openSection } from './diagnosticsInstallsMocks'
 
 import { REV_OTHER, REV_WHISPER, cacheMock, guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
 
@@ -18,7 +19,7 @@ test('Setup, Model health and GPU PyTorch start folded when all is well, with a 
   await expect(setup).toHaveJSProperty('open', false)
   await expect(setup.locator('> summary')).toContainText('All 6 OK')
   await expect(fold(page, /^Model health/)).toHaveJSProperty('open', false)
-  await page.locator('summary', { hasText: /^Packages/ }).click()
+  await openSection(page, /^Packages/)
   const gpu = fold(page, /^GPU PyTorch/)
   await expect(gpu).toHaveJSProperty('open', false)
   await expect(gpu.locator('> summary')).toContainText('torch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
@@ -31,7 +32,7 @@ test('a problem opens Setup and GPU PyTorch by themselves; the viewer choice is 
   await page.goto('/#/diagnostics')
   await expect(fold(page, /^Setup/)).toHaveJSProperty('open', true)
   await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: ffmpeg')
-  await page.locator('summary', { hasText: /^Packages/ }).click()
+  await openSection(page, /^Packages/)
   await expect(fold(page, /^GPU PyTorch/)).toHaveJSProperty('open', true)
 
   // Folding Setup is saved as closed, so a reload keeps it closed.
@@ -95,7 +96,7 @@ test('Packages has no Missing packages fold; a task lists what it still needs', 
   const unmocked = await guardWrites(page)
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics')
-  await page.locator('summary', { hasText: /^Packages/ }).click()
+  await openSection(page, /^Packages/)
   await expect(page.locator('summary', { hasText: /^Missing packages/ })).toHaveCount(0)
   await page.getByTestId('install-tasks').locator('details.section > summary').first().click()
   const ocr = page.getByTestId('task-details-hardsub_ocr')

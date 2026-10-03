@@ -170,7 +170,11 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   return { sent, unmocked }
 }
 
-const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+const openSection = async (page: Page, title: RegExp) => {
+  // Some sections now start open; click only a closed one, as a user would.
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}
 
 test('tasks list what they need, sizes, links, and install one package at a time', async ({ page }) => {
   const { sent, unmocked } = await mockPage(page)
@@ -208,6 +212,8 @@ test('a task lists its missing packages with size, a safe Source link, and no In
   const { unmocked } = await mockPage(page)
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
+  // The task groups only exist once the presets have loaded.
+  await expect(page.getByTestId('install-tasks').getByRole('heading', { name: 'Install by task' })).toBeVisible()
   for (const summary of await page.getByTestId('install-tasks').locator('details.section > summary').all()) await summary.click()
   const scan = page.getByTestId('task-details-scanlate')
   await scan.locator('summary').click()

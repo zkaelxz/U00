@@ -119,4 +119,8 @@ export async function mockDiagnostics(page: Page, m: Mocks, o: { jsFound?: boole
   })
 }
 
-export const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
+export const openSection = async (page: Page, title: RegExp) => {
+  // Some sections now start open; click only a closed one, as a user would.
+  const summary = page.locator('summary', { hasText: title }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+}

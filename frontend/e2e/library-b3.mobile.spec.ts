@@ -25,7 +25,6 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await page.goto('/#/library-tools')
   await expect(page.getByRole('heading', { name: 'Library tools' })).toBeVisible()
   const tools = page.getByRole('region', { name: 'Library tools' })
-  await tools.locator('summary', { hasText: 'Series' }).click()
   await tools.locator('summary', { hasText: 'Cost by drama' }).click()
   const open = tools.getByRole('link', { name: 'Open Second' })
   await expect(open).toBeVisible()

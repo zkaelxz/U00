@@ -50,7 +50,9 @@ for v in db.list_translation_versions(3):
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 
 async function openSection(page: Page, title: string) {
-  await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
+  // Some sections now start open; click only a closed one, as a user would.
+  const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) }).first()
+  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
 test('Use this version reports lines edited meanwhile as kept', async ({ page }) => {

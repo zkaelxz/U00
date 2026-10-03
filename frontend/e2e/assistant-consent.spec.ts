@@ -9,7 +9,6 @@ test('a cloud engine without consent is refused with a plain message, then allow
   const s = await mockAssistant(page, { developerMode: true, cloudConsent: { claude: false, gemini: false } })
   await page.goto('/#/assistant')
   const chat = page.getByRole('region', { name: 'Ask the assistant' })
-  await chat.locator('summary').filter({ hasText: 'Engine' }).click()
   await expect(chat.getByLabel('Engine', { exact: true }).locator('option').first()).toHaveText('Default (Ollama)')
   await chat.getByLabel('Engine', { exact: true }).selectOption('claude')
   await chat.getByRole('textbox', { name: 'Question' }).fill('Why?')
