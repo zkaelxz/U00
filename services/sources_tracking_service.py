@@ -15,17 +15,21 @@ A check re-fetches each tracked series' chapter list through the adapter's
 paced client and records new chapters as notifications. It downloads
 nothing unless the `auto_queue_new_chapters` setting is on and the series
 has a drama; then it starts that drama's per-drama import job
-(`sourceimport_<id>`), exactly as the Streamlit button did.
+(`sourceimport_<id>`), exactly as the Streamlit button did. A comic series
+with "Save new chapters as CBZ" on (`set_tracked_save`) also has its new
+chapters saved as CBZ files into the save folder, during the check.
 
 The result (`GET /api/sources/jobs/sources_chapter_check/result`) is
-{checked, new, errors {title: text}, queued [titles], skipped?}, scrubbed
+{checked, new, errors {title: text}, queued [titles], saved [titles],
+skipped?}, scrubbed
 by `sources_search_service.get_job_result`.
 """
 
 import background_jobs
 import db
 from services import ownership_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+                                     UnsupportedOperationError)
 from services.sources_registry_service import (_require_link_editable, _require_source,
                                                list_tracked)
 from services.sources_search_service import _series_id
@@ -80,5 +84,19 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
         _check_media(source, drama)
     if not store.set_tracked_drama(source, series_id, drama_id,
                                    linked_by_user_id=(principal or {}).get("user_id")):
+        raise NotFoundError("That series isn't tracked.")
+    return list_tracked(principal)
+
+
+def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None) -> list:
+    """Turns saving a tracked comic series' new chapters as CBZ files on or
+    off (the check saves them into the save folder; no drama is involved).
+    404 unknown source or untracked series; 400 a source without pages."""
+    cls = _require_source(source)
+    series_id = _series_id(series_id)
+    if not cls().supports("get_pages"):
+        raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
+                                        details={"reason": "NOT_SUPPORTED"})
+    if not store.set_tracked_save(source, series_id, bool(save_cbz)):
         raise NotFoundError("That series isn't tracked.")
     return list_tracked(principal)

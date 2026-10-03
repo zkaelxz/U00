@@ -2160,6 +2160,8 @@ class TrackedSeries(BaseModel):
     drama_id: Optional[int] = None
     last_checked: Optional[float] = None
     last_check_error: Optional[str] = None
+    # New chapters are also saved as CBZ files (comic sources).
+    save_cbz: bool = False
 
 
 class SourceNotification(BaseModel):
@@ -4087,6 +4089,14 @@ class SourceTrackedDramaRequest(BaseModel):
     source: str = Field(min_length=1, max_length=60)
     series_id: str = Field(min_length=1, max_length=200)
     drama_id: Optional[int] = Field(None, ge=1)
+
+
+class SourceTrackedSaveRequest(BaseModel):
+    """Whether a tracked comic series' new chapters are saved as CBZ files."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    save_cbz: StrictBool
 
 
 class SourcesProxyRequest(BaseModel):

@@ -319,6 +319,7 @@ def connect() -> sqlite3.Connection:
 # Columns added after a table first shipped: CREATE TABLE IF NOT EXISTS
 # leaves an older sources.db without them.
 _ADDED_COLUMNS = (("tracked_series", "linked_by_user_id", "INTEGER"),
+                  ("tracked_series", "save_cbz", "INTEGER NOT NULL DEFAULT 0"),
                   ("import_retry", "text_offset", "INTEGER"))
 
 
@@ -553,6 +554,15 @@ def set_tracked_drama(source: str, series_id: str, drama_id,
                            "THEN linked_by_user_id ELSE ? END, drama_id=? "
                            "WHERE source=? AND series_id=?",
                            (drama_id, linked_by_user_id, drama_id, source, series_id))
+        return cur.rowcount > 0
+
+
+def set_tracked_save(source: str, series_id: str, on: bool) -> bool:
+    """Whether the chapter check saves a tracked series' new chapters as
+    CBZ files. Touches nothing else; False if not tracked."""
+    with connect() as conn:
+        cur = conn.execute("UPDATE tracked_series SET save_cbz=? WHERE source=? AND series_id=?",
+                           (1 if on else 0, source, series_id))
         return cur.rowcount > 0
 
 

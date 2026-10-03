@@ -87,6 +87,7 @@ from api.routers import (
     novel_routes,
     reader_routes,
     restructure_routes,
+    saved_comics_routes,
     scanlate_routes,
     review_extras_routes,
     review_jobs_routes,
@@ -273,6 +274,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None,
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(sources_import_routes.router)
+    app.include_router(saved_comics_routes.router)
     app.include_router(sources_extraction_routes.router)
     app.include_router(sources_local_routes.router)
     app.include_router(diagnostics_gaps_routes.router)

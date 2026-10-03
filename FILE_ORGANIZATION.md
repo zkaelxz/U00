@@ -388,9 +388,11 @@ baihe-subtitler/
 │   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
-│   ├── sources_save_service.py   Saving a comic series' chapters as CBZ files under <data dir>/saved_comics
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text and SO06 comic pages from a pasted URL
+│   ├── sources_save_service.py   Saving a comic series' chapters as CBZ files (default <data dir>/saved_comics,
+│   │                             or a PC-chosen folder); Open folder; auto-save from the chapter check
+│   ├── saved_comics_service.py   Reading saved CBZ chapters in the app: series, chapters, pages, page images
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
 │   ├── sources_tools_service.py  Sources SO02/SO03/SO08/SO16 -- site check job, pasted page source preview and
 │   │                              import, identify-media job (+ PC-only full resource URL), pasted-URL diagnostics
@@ -506,6 +508,7 @@ baihe-subtitler/
 
 │   ├── asr_options_schemas.py    experimental transcription settings models (kept apart from schemas.py)
 │   ├── sources_extraction_schemas.py pasted-URL extraction and review models (SO09/SO06/SO10; kept apart from schemas.py)
+│   ├── saved_comics_schemas.py   saved-manga folder and reader models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -612,6 +615,7 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
+│       ├── saved_comics_routes.py /api/saved-comics: save folder (local only), series, chapters, pages, page image
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import, GET /{name}/import-state
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|

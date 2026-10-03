@@ -28,7 +28,8 @@ review is imported.
 
 POST /{name}/save writes chosen chapters of a comic series to
 `<data dir>/saved_comics/` as CBZ files, one save at a time (job
-`sources_save`); no drama is involved and no path is returned.
+`sources_save`); no drama is involved and no path is returned. The save
+folder and reading what was saved live in saved_comics_routes.py.
 
 GET /{name}/import-state (Step 107) reads sources.db only: which chapters
 of a series are already in a drama, and which the last imports left

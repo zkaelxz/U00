@@ -246,7 +246,8 @@ def list_tracked(principal=None) -> list:
     return [{"source": r["source"], "series_id": r["series_id"], "title": _scrub(r["title"]),
              "url": safe_url(r.get("url")), "drama_id": linked(r.get("drama_id")),
              "last_checked": r.get("last_checked"),
-             "last_check_error": _scrub(r.get("last_check_error"))}
+             "last_check_error": _scrub(r.get("last_check_error")),
+             "save_cbz": bool(r.get("save_cbz"))}
             for r in store.list_tracked_series()]
 
 
