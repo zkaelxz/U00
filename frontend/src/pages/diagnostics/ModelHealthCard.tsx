@@ -140,7 +140,7 @@ export function ModelHealthCard({ pc }: { pc: PcMode }) {
   const summary = status ? `${badge?.text ?? ''} · ${lastCheckedLine(status.checked_at)}` : 'Loading…'
 
   return (
-    <Section title="Model health" storageKey="diagnostics.modelHealth" summary={summary} defaultOpen={problems > 0}>
+    <Section key={status ? 'loaded' : 'loading'} title="Model health" storageKey="diagnostics.modelHealth" summary={summary} defaultOpen={problems > 0}>
       <div className="model-health" role="region" aria-label="Model health">
       <div className="actions">
         {badge && (

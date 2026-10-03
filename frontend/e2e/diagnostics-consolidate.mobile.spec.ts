@@ -17,7 +17,7 @@ test('Setup with models, speaker detection and a task fit a phone with 44px targ
   await mockDiagnostics(page, { ffmpegFound: false, gpuState: 'cpu_on_gpu' })
   await page.goto('/#/diagnostics')
   const setup = page.locator('details.section', { has: page.locator('> summary', { hasText: /^Setup/ }) }).first()
-  await expect(setup).toHaveAttribute('open', '') // a problem
+  await expect(setup).toHaveJSProperty('open', true) // a problem
   await expect(setup.getByRole('list', { name: 'Whisper (faster-whisper) downloads' })).toBeVisible()
   await expect(setup.getByRole('button', { name: 'Check access online' })).toBeVisible()
   await page.locator('summary', { hasText: /^Packages/ }).click()

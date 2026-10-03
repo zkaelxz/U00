@@ -31,7 +31,7 @@ export function SetupSection({ checks, gpu, engines, cache, pc, checking, onRech
   const sorted = [...rows.filter((r) => r.problem), ...rows.filter((r) => !r.problem)]
   const summary = setupSummary(rows)
   return (
-    <Section title="Setup" storageKey="diagnostics.setup" summary={summary} defaultOpen={rows.some((r) => r.problem)}>
+    <Section key={gpu ? 'gpu' : 'no-gpu'} title="Setup" storageKey="diagnostics.setup" summary={summary} defaultOpen={rows.some((r) => r.problem)}>
       <div className="actions">
         <span className="muted" data-testid="setup-summary">{summary}</span>
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={checking} onClick={onRecheck}>

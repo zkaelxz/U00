@@ -218,7 +218,7 @@ test('a task lists its missing packages with size, a safe Source link, and no In
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   // A required package is installed with its task, not one by one.
-  await expect(cv2.getByRole('button')).toHaveCount(1) // Source link only
+  await expect(cv2.getByRole('button')).toHaveCount(0) // no one-by-one Install: the task installs it
   await expect(scan.locator('li', { hasText: 'streamlit_drawable_canvas' }).getByRole('button')).toHaveCount(0)
   await expect(scan.locator('li', { hasText: 'torch' })).toContainText('approx. 2.5 GB')
   await expect(page.getByTestId('task-scanlate')).toContainText('streamlit_drawable_canvas: not offered')
@@ -240,8 +240,8 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('gpu-torch')
   // A mismatch is a problem, so the fold is open by itself.
-  await expect(page.locator('details', { has: panel }).locator('> summary')).toContainText('GPU PyTorch')
-  await expect(page.locator('details', { has: panel })).toHaveAttribute('open', '')
+  const gpuFold = page.locator('details.section', { has: page.locator('> summary', { hasText: /^GPU PyTorch/ }) })
+  await expect(gpuFold).toHaveJSProperty('open', true)
   await expect(panel.locator('.pill')).toHaveText("Versions don't match")
   await expect(panel.getByTestId('gpu-torch-state')).toContainText("don't match")
   await expect(panel.getByTestId('gpu-torch-driver')).toHaveText('NVIDIA GeForce RTX 3080 Ti, driver 581.42')

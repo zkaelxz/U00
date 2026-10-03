@@ -45,7 +45,7 @@ export function GpuTorchPanel({ refreshKey, action }: {
   const blocked = status && status.state !== 'recommended' ? setupBlockedReason(status, status.recommended) : null
   const summary = status ? gpuTorchSummary(status) : failed ? 'Unavailable' : 'Checking…'
   return (
-    <Section title="GPU PyTorch" storageKey="diagnostics.gpuTorch" summary={summary} defaultOpen={!!status && stateIsProblem(status)}>
+    <Section key={status ? 'loaded' : 'loading'} title="GPU PyTorch" storageKey="diagnostics.gpuTorch" summary={summary} defaultOpen={!!status && stateIsProblem(status)}>
       <div className="diag-stack gpu-torch" data-testid="gpu-torch" role="group" aria-label="GPU PyTorch">
       {badge && <div><Badge tone={badge.tone}>{badge.text}</Badge></div>}
       {failed && !status && <p className="muted">Couldn't read the PyTorch status.</p>}

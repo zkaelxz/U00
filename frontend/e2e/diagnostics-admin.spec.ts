@@ -59,6 +59,8 @@ async function guard(page: Page): Promise<string[]> {
 }
 
 async function mockPage(page: Page, o: { jobs?: unknown[]; setup?: unknown; stats?: unknown } = {}) {
+  // No task groups here, so a missing package is installed one by one from "Not installed".
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
   await page.route('**/api/diagnostics', (r) => r.fulfill({ json: overview }))
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: o.setup ?? setup() }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: o.jobs ?? [], count: (o.jobs ?? []).length } }))
