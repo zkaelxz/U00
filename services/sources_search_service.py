@@ -67,6 +67,10 @@ def _note_layout_change(source, message: str):
 def _error_view(exc, source: str = None) -> dict:
     """A SourceError (or anything else) as {status, code, message, details}."""
     msg = _scrub(str(exc)) or type(exc).__name__
+    from page_fetch import BROWSER_MISSING, BrowserNotFound
+    if isinstance(exc, BrowserNotFound):
+        return {"status": 503, "code": DependencyUnavailableError.code, "message": BROWSER_MISSING,
+                "details": {"reason": "BROWSER_MISSING"}}
     if isinstance(exc, TermsProhibited):
         return {"status": 400, "code": UnsupportedOperationError.code, "message": msg,
                 "details": {"reason": "TOS_PROHIBITED"}}

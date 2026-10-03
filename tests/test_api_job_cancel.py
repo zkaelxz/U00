@@ -299,3 +299,124 @@ def test_sweep_skips_a_job_live_in_this_process(isolated_db):
     finally:
         _disown("live_stale")
     assert db.get_job_record("live_stale")["status"] == "running"
+
+
+def _dead_pid():
+    """The pid of a process that has exited (and been reaped)."""
+    import subprocess
+    import sys
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait(timeout=30)
+    return proc.pid
+
+
+def test_record_of_a_dead_owner_is_closed_at_startup_without_waiting(isolated_db, monkeypatch):
+    """Owner report: after Baihe was closed and started again, the
+    transcription still showed Running / Starting... The owner process is
+    gone, so the record is closed at startup even though its last heartbeat
+    is recent, with a message that says why."""
+    import api.background as bg
+    monkeypatch.setattr(bg, "start_background_services", lambda: {})
+    monkeypatch.setattr(bg, "start_gpu_queue_poller", lambda: None)
+    monkeypatch.setattr(bg, "stop_gpu_queue_poller", lambda: None)
+    db.save_job_record("died_recently", "running", message="Starting...",
+                       owner_pid=_dead_pid())
+    _age("died_recently", 30)
+    with TestClient(create_app(ApiSettings(background_services=True))):
+        pass
+    rec = db.get_job_record("died_recently")
+    assert rec["status"] == "cancelled"
+    assert rec["error"] == background_jobs.INTERRUPTED_MESSAGE
+
+
+def test_record_claiming_this_process_but_not_live_here_is_closed(client):
+    """A row with this process's pid that this process doesn't run was
+    left by an earlier run that had the same pid."""
+    import os
+    db.save_job_record("mine_before", "running", owner_pid=os.getpid())
+    items = {j["job_id"]: j for j in client.get("/api/jobs").json()["items"]}
+    assert items["mine_before"]["status"] == "cancelled"
+    assert items["mine_before"]["outcome_message"] == background_jobs.INTERRUPTED_MESSAGE
+
+
+def test_cancel_closes_a_dead_owners_record_at_once(client):
+    """Cancel on a record whose owner process is gone used to only set a
+    flag nobody would read, and answer "running"."""
+    db.save_job_record("dead_owner", "running", owner_pid=_dead_pid())
+    r = client.post("/api/jobs/dead_owner/cancel")
+    assert r.status_code == 200 and r.json()["status"] == "cancelled"
+    assert db.get_job_record("dead_owner")["status"] == "cancelled"
+    # and it can then be deleted from the history
+    assert client.post("/api/jobs/dead_owner/delete", json={"confirm": True}).status_code == 200
+
+
+def test_a_live_other_owner_is_never_closed_by_pid(client):
+    """The owner's pid is alive (another Baihe on the same library): its
+    fresh record stays running; only the cancel flag is set."""
+    import subprocess
+    import sys
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        db.save_job_record("other_live", "running", owner_pid=proc.pid)
+        assert client.get("/api/jobs/other_live").json()["stale"] is False
+        r = client.post("/api/jobs/other_live/cancel")
+        assert r.json()["status"] == "running"
+        assert {j["job_id"]: j["status"] for j in client.get("/api/jobs").json()["items"]}[
+            "other_live"] == "running"
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
+def test_jobs_mirror_records_their_owner_pid(isolated_db):
+    import os
+    import threading
+    release = threading.Event()
+    assert background_jobs.start_job("pid_rec", lambda: release.wait(5.0))
+    try:
+        assert db.get_job_record("pid_rec")["owner_pid"] == os.getpid()
+    finally:
+        release.set()
+        assert background_jobs.wait_for_job_threads(5.0)
+        background_jobs.clear_job("pid_rec")
+
+
+def test_cancelling_a_queued_job_through_the_api_ends_it(client, monkeypatch):
+    import threading
+    background_jobs.set_gpu_limit_enabled(True)
+    release = threading.Event()
+    ran = []
+    assert background_jobs.start_job("api_q_a", lambda: release.wait(5.0), gpu_touching=True)
+    try:
+        assert background_jobs.start_job("api_q_b", lambda: ran.append(1), gpu_touching=True)
+        assert background_jobs.get_status("api_q_b")["status"] == "queued"
+        r = client.post("/api/jobs/api_q_b/cancel")
+        assert r.status_code == 200 and r.json()["status"] == "cancelled"
+        assert client.get("/api/jobs/api_q_b").json()["status"] == "cancelled"
+    finally:
+        release.set()
+        assert background_jobs.wait_for_job_threads(5.0)
+    assert ran == []
+    background_jobs.clear_job("api_q_a")
+    background_jobs.clear_job("api_q_b")
+
+
+def test_a_running_jobs_record_says_cancelling_after_cancel(client):
+    import threading
+    release = threading.Event()
+
+    def work():
+        release.wait(5.0)
+        if background_jobs.is_cancel_requested("api_c"):
+            raise background_jobs.JobCancelled("api_c")
+
+    assert background_jobs.start_job("api_c", work)
+    try:
+        r = client.post("/api/jobs/api_c/cancel")
+        assert r.status_code == 200
+        assert client.get("/api/jobs/api_c").json()["message"] == background_jobs.CANCELLING_MESSAGE
+    finally:
+        release.set()
+        assert background_jobs.wait_for_job_threads(5.0)
+    assert client.get("/api/jobs/api_c").json()["status"] == "cancelled"
+    background_jobs.clear_job("api_c")

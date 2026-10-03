@@ -139,6 +139,10 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 break
             background_jobs.update_progress(job_id, (i - 1) / max(len(rows), 1),
                                             f"Checking {row['title']} ({i}/{len(rows)})")
+        if row["source"] in registry.REMOVED_SOURCES:
+            summary["errors"][row["title"]] = registry.SOURCE_REMOVED
+            store.mark_checked(row["source"], row["series_id"], error=registry.SOURCE_REMOVED)
+            continue
         if not registry.is_enabled(row["source"]):
             continue
         try:

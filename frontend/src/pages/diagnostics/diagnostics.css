@@ -217,3 +217,16 @@
 .audit-detail { overflow-wrap: anywhere; }
 .admin-user-list .admin-user-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
 .admin-user-list .actions { flex-wrap: wrap; }
+
+/* Setup > models: an engine row with its downloads indented under it. */
+.diag-rows.model-engines > li { display: block; }
+.diag-rows.model-engines .diag-cache { padding-left: var(--space-3) !important; }
+.diag-page h4 + .muted, .diag-page .section-body > h4 { margin-top: 0; }
+.section-body > h4 { margin-top: var(--space-2); }
+
+/* Install by task: a task's missing packages (size, source, extras) in a quiet fold, not a box. */
+.task-details { font-size: var(--font-sm); }
+.task-details > summary { cursor: pointer; color: var(--muted); }
+@media (pointer: coarse), (max-width: 640px) {
+  .task-details > summary { display: flex; align-items: center; min-height: 44px; }
+}

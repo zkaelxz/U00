@@ -29,6 +29,8 @@ async function guard(page: Page): Promise<string[]> {
 
 test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', async ({ page }) => {
   const unmocked = await guard(page)
+  // No task groups here, so a missing package is installed one by one from "Not installed".
+  await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: { tasks: [], packages: {} } }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 2, items: [{
     job_id: 'translate_1', status: 'running', progress: 0.4, message: 'Batch 2 of 5', error: null,
     description: 'Translate Signal', gpu_touching: false, started_at: Date.now() / 1000 - 185, finished_at: null, updated_at: 0,
@@ -65,7 +67,6 @@ test('Diagnostics on a phone: job cards, 44px targets, no sideways scroll', asyn
   await page.unroute('**/api/jobs')
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { count: 0, items: [] } }))
   await page.locator('summary', { hasText: /^Packages/ }).click()
-  await page.locator('summary', { hasText: /^Missing packages/ }).click()
   const install = page.getByRole('button', { name: 'Install yt-dlp' })
   await expect(install).toBeEnabled({ timeout: 10_000 })
 
@@ -130,6 +131,7 @@ test('Diagnostics at 360px: Setup and report cards, Packages with GPU PyTorch, r
   await page.locator('summary', { hasText: "What's in it" }).click()
   await expect(page.getByTestId('report-list')).toContainText('faster-whisper')
   await page.locator('summary', { hasText: /^Packages/ }).click()
+  await page.locator('summary', { hasText: /^GPU PyTorch/ }).click() // 'missing' is not a problem, so it starts folded
   await expect(page.getByRole('table', { name: 'PyTorch versions' })).toContainText('0.26.0+cu128')
   await expect(page.getByRole('button', { name: 'Set up GPU PyTorch' })).toBeVisible()
 
